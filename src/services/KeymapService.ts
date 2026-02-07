@@ -1,0 +1,317 @@
+import * as vscode from 'vscode';
+import { IKeymapService, KeymapPreset, IKeymap, IKeybinding } from './interfaces/IKeymapService';
+import { IConfigurationService } from './interfaces/IConfigurationService';
+
+/**
+ * Default keymap keybindings
+ * These are the standard keybindings registered in package.json
+ */
+const DEFAULT_KEYBINDINGS: IKeybinding[] = [
+  {
+    command: 'intellij-git.commit',
+    key: 'ctrl+k',
+    mac: 'cmd+k',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  {
+    command: 'intellij-git.push',
+    key: 'ctrl+shift+k',
+    mac: 'cmd+shift+k',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  {
+    command: 'intellij-git.pull',
+    key: 'ctrl+t',
+    mac: 'cmd+t',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  {
+    command: 'intellij-git.openGitToolWindow',
+    key: 'alt+9',
+    mac: 'cmd+9',
+    when: '!inDebugMode',
+  },
+  {
+    command: 'intellij-git.showBranchPopup',
+    key: 'ctrl+shift+`',
+    mac: 'cmd+shift+`',
+    when: '!inDebugMode',
+  },
+  {
+    command: 'intellij-git.refresh',
+    key: 'ctrl+shift+r',
+    mac: 'cmd+shift+r',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  {
+    command: 'intellij-git.stageSelected',
+    key: 'ctrl+alt+a',
+    mac: 'cmd+alt+a',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  {
+    command: 'intellij-git.unstageSelected',
+    key: 'ctrl+alt+z',
+    mac: 'cmd+alt+z',
+    when: '!inDebugMode && !terminalFocus',
+  },
+];
+
+/**
+ * IntelliJ IDEA keymap keybindings
+ * These match IntelliJ IDEA's default Git keybindings
+ *
+ * IntelliJ Default Git Keybindings:
+ * - Commit: Ctrl+K
+ * - Push: Ctrl+Shift+K
+ * - Update Project (Pull): Ctrl+T
+ * - VCS Operations Popup: Alt+` (backtick)
+ * - Annotate (Blame): Ctrl+Alt+Shift+A
+ * - Show History: Ctrl+H
+ * - Compare with Branch: Ctrl+D
+ * - Rollback (Revert): Ctrl+Alt+Z
+ */
+const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
+  // Same as default - Commit: Ctrl+K
+  {
+    command: 'intellij-git.commit',
+    key: 'ctrl+k',
+    mac: 'cmd+k',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Same as default - Push: Ctrl+Shift+K
+  {
+    command: 'intellij-git.push',
+    key: 'ctrl+shift+k',
+    mac: 'cmd+shift+k',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Same as default - Update Project (Pull): Ctrl+T
+  {
+    command: 'intellij-git.pull',
+    key: 'ctrl+t',
+    mac: 'cmd+t',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // VCS Operations Popup: Alt+` (backtick)
+  {
+    command: 'intellij-git.showBranchPopup',
+    key: 'alt+`',
+    mac: 'alt+`',
+    when: '!inDebugMode',
+  },
+  // Annotate (Blame): Ctrl+Alt+Shift+A
+  {
+    command: 'intellij-git.toggleBlame',
+    key: 'ctrl+alt+shift+a',
+    mac: 'cmd+alt+shift+a',
+    when: 'editorTextFocus',
+  },
+  // Show History: Ctrl+H
+  {
+    command: 'intellij-git.showHistory',
+    key: 'ctrl+h',
+    mac: 'cmd+h',
+    when: '!inDebugMode',
+  },
+  // Compare with Branch: Ctrl+D
+  {
+    command: 'intellij-git.branch.compareWithCurrent',
+    key: 'ctrl+d',
+    mac: 'cmd+d',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Rollback (Revert): Ctrl+Alt+Z
+  {
+    command: 'intellij-git.revertFile',
+    key: 'ctrl+alt+z',
+    mac: 'cmd+alt+z',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Git Tool Window: Alt+9 (same as default)
+  {
+    command: 'intellij-git.openGitToolWindow',
+    key: 'alt+9',
+    mac: 'cmd+9',
+    when: '!inDebugMode',
+  },
+  // Refresh: Ctrl+Shift+R (same as default)
+  {
+    command: 'intellij-git.refresh',
+    key: 'ctrl+shift+r',
+    mac: 'cmd+shift+r',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // Stage Selected: Ctrl+Alt+A (same as default)
+  {
+    command: 'intellij-git.stageSelected',
+    key: 'ctrl+alt+a',
+    mac: 'cmd+alt+a',
+    when: '!inDebugMode && !terminalFocus',
+  },
+];
+
+/**
+ * Default keymap definition
+ */
+const DEFAULT_KEYMAP: IKeymap = {
+  name: 'default',
+  displayName: 'Default',
+  keybindings: DEFAULT_KEYBINDINGS,
+};
+
+/**
+ * IntelliJ keymap definition
+ */
+const INTELLIJ_KEYMAP: IKeymap = {
+  name: 'intellij',
+  displayName: 'IntelliJ IDEA',
+  keybindings: INTELLIJ_KEYBINDINGS,
+};
+
+/**
+ * All available keymaps
+ */
+const KEYMAPS: Map<KeymapPreset, IKeymap> = new Map([
+  ['default', DEFAULT_KEYMAP],
+  ['intellij', INTELLIJ_KEYMAP],
+]);
+
+/**
+ * Keymap Service implementation.
+ * Manages keyboard shortcut presets and provides keymap switching functionality.
+ *
+ * Requirements: 17.11
+ */
+export class KeymapService implements IKeymapService {
+  private _onDidChangeKeymap: vscode.EventEmitter<KeymapPreset>;
+  private _disposables: vscode.Disposable[] = [];
+  private _currentKeymap: KeymapPreset;
+
+  /**
+   * Event fired when the keymap changes
+   */
+  readonly onDidChangeKeymap: vscode.Event<KeymapPreset>;
+
+  /**
+   * Creates a new KeymapService instance
+   * @param configurationService - The configuration service to read keymap settings from
+   */
+  constructor(private readonly configurationService: IConfigurationService) {
+    this._onDidChangeKeymap = new vscode.EventEmitter<KeymapPreset>();
+    this.onDidChangeKeymap = this._onDidChangeKeymap.event;
+
+    // Initialize current keymap from configuration
+    this._currentKeymap = this.configurationService.get('useIntelliJKeymap')
+      ? 'intellij'
+      : 'default';
+
+    // Listen for configuration changes
+    this._disposables.push(
+      this.configurationService.onDidChangeConfiguration((config) => {
+        const newKeymap = config.useIntelliJKeymap ? 'intellij' : 'default';
+        if (newKeymap !== this._currentKeymap) {
+          this._currentKeymap = newKeymap;
+          this._onDidChangeKeymap.fire(this._currentKeymap);
+        }
+      })
+    );
+  }
+
+  /**
+   * Get the currently active keymap preset
+   */
+  getCurrentKeymap(): KeymapPreset {
+    return this._currentKeymap;
+  }
+
+  /**
+   * Get the full keymap definition for the current preset
+   */
+  getKeymapDefinition(): IKeymap {
+    return this.getKeymapDefinitionForPreset(this._currentKeymap);
+  }
+
+  /**
+   * Get the keymap definition for a specific preset
+   * @param preset - The keymap preset to retrieve
+   */
+  getKeymapDefinitionForPreset(preset: KeymapPreset): IKeymap {
+    const keymap = KEYMAPS.get(preset);
+    if (!keymap) {
+      // Fallback to default if preset not found
+      return DEFAULT_KEYMAP;
+    }
+    return keymap;
+  }
+
+  /**
+   * Get all available keymap presets
+   */
+  getAvailablePresets(): KeymapPreset[] {
+    return Array.from(KEYMAPS.keys());
+  }
+
+  /**
+   * Get the keybinding for a specific command in the current keymap
+   * @param command - The command identifier
+   */
+  getKeybindingForCommand(command: string): IKeybinding | undefined {
+    const keymap = this.getKeymapDefinition();
+    return keymap.keybindings.find((kb) => kb.command === command);
+  }
+
+  /**
+   * Check if IntelliJ keymap is currently active
+   */
+  isIntelliJKeymapActive(): boolean {
+    return this._currentKeymap === 'intellij';
+  }
+
+  /**
+   * Dispose of resources
+   */
+  dispose(): void {
+    this._onDidChangeKeymap.dispose();
+    for (const d of this._disposables) {
+      d.dispose();
+    }
+    this._disposables = [];
+  }
+}
+
+/**
+ * Get the default keymap definition
+ * Useful for testing and reference
+ */
+export function getDefaultKeymap(): IKeymap {
+  return {
+    name: DEFAULT_KEYMAP.name,
+    displayName: DEFAULT_KEYMAP.displayName,
+    keybindings: [...DEFAULT_KEYMAP.keybindings],
+  };
+}
+
+/**
+ * Get the IntelliJ keymap definition
+ * Useful for testing and reference
+ */
+export function getIntelliJKeymap(): IKeymap {
+  return {
+    name: INTELLIJ_KEYMAP.name,
+    displayName: INTELLIJ_KEYMAP.displayName,
+    keybindings: [...INTELLIJ_KEYMAP.keybindings],
+  };
+}
+
+/**
+ * Get all available keymaps
+ * Useful for testing and reference
+ */
+export function getAllKeymaps(): IKeymap[] {
+  return Array.from(KEYMAPS.values()).map((km: IKeymap) => ({
+    name: km.name,
+    displayName: km.displayName,
+    keybindings: [...km.keybindings],
+  }));
+}

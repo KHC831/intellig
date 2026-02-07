@@ -1,0 +1,2033 @@
+import * as vscode from 'vscode';
+import {
+  getExtensionServices,
+  resetExtensionServices,
+  ExtensionServices,
+  GitToolWindowProvider,
+  GIT_TOOL_WINDOW_VIEW_ID,
+  ConsoleService,
+  CommitDialog,
+  BranchPopup,
+  BranchTreeProvider,
+  createBranchTreeProvider,
+  MergeView,
+  createMergeView,
+  RebaseEditor,
+  createRebaseEditor,
+  InlineBlameProvider,
+  createInlineBlameProvider,
+  GutterBlameProvider,
+  createGutterBlameProvider,
+  StatusBarService,
+  createStatusBarService,
+  NotificationService,
+  createNotificationService,
+  KeymapService,
+  StashView,
+  createStashView,
+  ShelfView,
+  createShelfView,
+  BranchComparisonView,
+  createBranchComparisonView,
+  RebaseProgressView,
+  createRebaseProgressView,
+} from './services';
+import { BranchContextMenuCommands, createBranchContextMenuCommands } from './commands';
+
+/**
+ * Global reference to the extension services container.
+ * This is set during activation and cleared during deactivation.
+ */
+let extensionServices: ExtensionServices | undefined;
+
+/**
+ * Global reference to the Git Tool Window Provider.
+ */
+let gitToolWindowProvider: GitToolWindowProvider | undefined;
+
+/**
+ * Global reference to the Commit Dialog.
+ */
+let commitDialog: CommitDialog | undefined;
+
+/**
+ * Global reference to the Branch Popup.
+ */
+let branchPopup: BranchPopup | undefined;
+
+/**
+ * Global reference to the Branch Tree Provider.
+ */
+let branchTreeProvider: BranchTreeProvider | undefined;
+
+/**
+ * Global reference to the Branch Context Menu Commands.
+ */
+let branchContextMenuCommands: BranchContextMenuCommands | undefined;
+
+/**
+ * Global reference to the Merge View.
+ */
+let mergeView: MergeView | undefined;
+
+/**
+ * Global reference to the Rebase Editor.
+ */
+let rebaseEditor: RebaseEditor | undefined;
+
+/**
+ * Global reference to the Inline Blame Provider.
+ */
+let inlineBlameProvider: InlineBlameProvider | undefined;
+
+/**
+ * Global reference to the Gutter Blame Provider.
+ */
+let gutterBlameProvider: GutterBlameProvider | undefined;
+
+/**
+ * Global reference to the Status Bar Service.
+ */
+let statusBarService: StatusBarService | undefined;
+
+/**
+ * Global reference to the Notification Service.
+ */
+let notificationService: NotificationService | undefined;
+
+/**
+ * Global reference to the Keymap Service.
+ */
+let keymapService: KeymapService | undefined;
+
+/**
+ * Global reference to the Stash View.
+ */
+let stashView: StashView | undefined;
+
+/**
+ * Global reference to the Shelf View.
+ */
+let shelfView: ShelfView | undefined;
+
+/**
+ * Global reference to the Branch Comparison View.
+ */
+let branchComparisonView: BranchComparisonView | undefined;
+
+/**
+ * Global reference to the Rebase Progress View.
+ */
+let rebaseProgressView: RebaseProgressView | undefined;
+
+/**
+ * This method is called when the extension is activated.
+ * The extension is activated based on the activation events defined in package.json.
+ *
+ * @param context - The VS Code extension context providing subscriptions,
+ *                  storage paths, and other extension-specific utilities.
+ */
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  console.log('IntelliJ Git extension is activating...');
+
+  try {
+    // Get or create the extension services container
+    extensionServices = getExtensionServices();
+
+    // Initialize all services
+    await extensionServices.initialize(context);
+
+    // Register commands
+    registerCommands(context);
+
+    // Register views and providers
+    registerViews(context);
+
+    // Set up event listeners
+    setupEventListeners(context);
+
+    console.log('IntelliJ Git extension is now active');
+  } catch (error) {
+    console.error('Failed to activate IntelliJ Git extension:', error);
+    void vscode.window.showErrorMessage(
+      `Failed to activate IntelliJ Git extension: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+    throw error;
+  }
+}
+
+/**
+ * This method is called when the extension is deactivated.
+ * Clean up any resources and dispose of services.
+ */
+export function deactivate(): void {
+  console.log('IntelliJ Git extension is deactivating...');
+
+  try {
+    // Dispose the Merge View
+    if (mergeView) {
+      mergeView.dispose();
+      mergeView = undefined;
+    }
+
+    // Dispose the Rebase Editor
+    if (rebaseEditor) {
+      rebaseEditor.dispose();
+      rebaseEditor = undefined;
+    }
+
+    // Dispose the Rebase Progress View
+    if (rebaseProgressView) {
+      rebaseProgressView.dispose();
+      rebaseProgressView = undefined;
+    }
+
+    // Dispose the Inline Blame Provider
+    if (inlineBlameProvider) {
+      inlineBlameProvider.dispose();
+      inlineBlameProvider = undefined;
+    }
+
+    // Dispose the Gutter Blame Provider
+    if (gutterBlameProvider) {
+      gutterBlameProvider.dispose();
+      gutterBlameProvider = undefined;
+    }
+
+    // Dispose the Commit Dialog
+    if (commitDialog) {
+      commitDialog.dispose();
+      commitDialog = undefined;
+    }
+
+    // Dispose the Branch Popup
+    if (branchPopup) {
+      branchPopup.dispose();
+      branchPopup = undefined;
+    }
+
+    // Dispose the Branch Context Menu Commands
+    if (branchContextMenuCommands) {
+      branchContextMenuCommands.dispose();
+      branchContextMenuCommands = undefined;
+    }
+
+    // Dispose the Stash View
+    if (stashView) {
+      stashView.dispose();
+      stashView = undefined;
+    }
+
+    // Dispose the Shelf View
+    if (shelfView) {
+      shelfView.dispose();
+      shelfView = undefined;
+    }
+
+    // Dispose the Branch Comparison View
+    if (branchComparisonView) {
+      branchComparisonView.dispose();
+      branchComparisonView = undefined;
+    }
+
+    // Dispose the Status Bar Service
+    if (statusBarService) {
+      statusBarService.dispose();
+      statusBarService = undefined;
+    }
+
+    // Dispose the Notification Service
+    if (notificationService) {
+      notificationService.dispose();
+      notificationService = undefined;
+    }
+
+    // Dispose the Keymap Service
+    if (keymapService) {
+      keymapService.dispose();
+      keymapService = undefined;
+    }
+
+    // Clear the Branch Tree Provider reference
+    branchTreeProvider = undefined;
+
+    // Dispose the Git Tool Window Provider
+    if (gitToolWindowProvider) {
+      gitToolWindowProvider.dispose();
+      gitToolWindowProvider = undefined;
+    }
+
+    // Reset the extension services (this will dispose all services)
+    resetExtensionServices();
+    extensionServices = undefined;
+
+    console.log('IntelliJ Git extension is now deactivated');
+  } catch (error) {
+    console.error('Error during extension deactivation:', error);
+  }
+}
+
+/**
+ * Register all extension commands.
+ *
+ * @param context - The VS Code extension context
+ */
+function registerCommands(context: vscode.ExtensionContext): void {
+  // Open Git Tool Window command
+  const openGitToolWindowCommand = vscode.commands.registerCommand(
+    'intellij-git.openGitToolWindow',
+    () => {
+      // Focus the Git Tool Window view
+      void vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+    }
+  );
+
+  // Commit command
+  const commitCommand = vscode.commands.registerCommand('intellij-git.commit', async () => {
+    // Get the Git service and find a repository
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    const gitService = extensionServices.gitService;
+    const repositories = gitService.getRepositories();
+
+    if (repositories.length === 0) {
+      // Try to discover repositories
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const repo = await gitService.getRepository(workspaceFolders[0].uri);
+        if (!repo) {
+          void vscode.window.showErrorMessage('No Git repository found in workspace');
+          return;
+        }
+        // Show commit dialog
+        if (!commitDialog) {
+          commitDialog = new CommitDialog(context.extensionUri, gitService);
+        }
+        await commitDialog.show(repo);
+      } else {
+        void vscode.window.showErrorMessage('No workspace folder open');
+      }
+      return;
+    }
+
+    // Use the first repository (or could show a picker if multiple)
+    const repo = repositories[0];
+
+    // Show commit dialog
+    if (!commitDialog) {
+      commitDialog = new CommitDialog(context.extensionUri, gitService);
+    }
+    await commitDialog.show(repo);
+  });
+
+  // Push command
+  const pushCommand = vscode.commands.registerCommand('intellij-git.push', () => {
+    // TODO: Implement in task 12.3
+    void vscode.window.showInformationMessage('Push - Coming Soon');
+  });
+
+  // Pull command
+  const pullCommand = vscode.commands.registerCommand('intellij-git.pull', () => {
+    // TODO: Implement in task 12.3
+    void vscode.window.showInformationMessage('Pull - Coming Soon');
+  });
+
+  // Fetch command
+  const fetchCommand = vscode.commands.registerCommand('intellij-git.fetch', () => {
+    // TODO: Implement in task 12.3
+    void vscode.window.showInformationMessage('Fetch - Coming Soon');
+  });
+
+  // Branch popup command
+  const branchPopupCommand = vscode.commands.registerCommand(
+    'intellij-git.showBranchPopup',
+    async () => {
+      // Get the Git service
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+
+      // Create branch popup if not exists
+      if (!branchPopup) {
+        branchPopup = new BranchPopup(gitService);
+      }
+
+      // Show the branch popup
+      await branchPopup.show();
+    }
+  );
+
+  // Stash changes command
+  // Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
+  const stashCommand = vscode.commands.registerCommand('intellij-git.stash', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    const gitService = extensionServices.gitService;
+    const repositories = gitService.getRepositories();
+
+    if (repositories.length === 0) {
+      // Try to discover repositories
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const repo = await gitService.getRepository(workspaceFolders[0].uri);
+        if (!repo) {
+          void vscode.window.showErrorMessage('No Git repository found in workspace');
+          return;
+        }
+        // Create stash view if not exists and show it
+        if (!stashView) {
+          stashView = createStashView(gitService);
+        }
+        await stashView.showCreateDialog(repo);
+      } else {
+        void vscode.window.showErrorMessage('No workspace folder open');
+      }
+      return;
+    }
+
+    const repo = repositories[0];
+
+    // Create stash view if not exists and show create dialog
+    if (!stashView) {
+      stashView = createStashView(gitService);
+    }
+    await stashView.showCreateDialog(repo);
+  });
+
+  // Show stash list command
+  const showStashListCommand = vscode.commands.registerCommand(
+    'intellij-git.showStashList',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Create stash view if not exists and show it
+      if (!stashView) {
+        stashView = createStashView(gitService);
+      }
+      await stashView.show(repo);
+    }
+  );
+
+  // Shelve changes command
+  // Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
+  const shelveCommand = vscode.commands.registerCommand('intellij-git.shelve', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    const gitService = extensionServices.gitService;
+    const repositories = gitService.getRepositories();
+
+    if (repositories.length === 0) {
+      // Try to discover repositories
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const repo = await gitService.getRepository(workspaceFolders[0].uri);
+        if (!repo) {
+          void vscode.window.showErrorMessage('No Git repository found in workspace');
+          return;
+        }
+        // Create shelf view if not exists and show shelve dialog
+        if (!shelfView) {
+          shelfView = createShelfView(extensionServices.shelfService, (r) =>
+            gitService.getStatus(r)
+          );
+        }
+        await shelfView.showShelveDialog(repo);
+      } else {
+        void vscode.window.showErrorMessage('No workspace folder open');
+      }
+      return;
+    }
+
+    const repo = repositories[0];
+
+    // Create shelf view if not exists and show shelve dialog
+    if (!shelfView) {
+      shelfView = createShelfView(extensionServices.shelfService, (r) => gitService.getStatus(r));
+    }
+    await shelfView.showShelveDialog(repo);
+  });
+
+  // Show shelf list command
+  const showShelfListCommand = vscode.commands.registerCommand(
+    'intellij-git.showShelfList',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Create shelf view if not exists and show it
+      if (!shelfView) {
+        shelfView = createShelfView(extensionServices.shelfService, (r) => gitService.getStatus(r));
+      }
+      await shelfView.show(repo);
+    }
+  );
+
+  // Toggle blame annotations command
+  // Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 (Blame)
+  const toggleBlameCommand = vscode.commands.registerCommand('intellij-git.toggleBlame', () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    // Toggle inline blame
+    if (!inlineBlameProvider) {
+      inlineBlameProvider = createInlineBlameProvider(
+        extensionServices.blameService,
+        extensionServices.gitService
+      );
+    }
+
+    const enabled = inlineBlameProvider.toggle();
+    void vscode.window.showInformationMessage(
+      `Inline blame annotations ${enabled ? 'enabled' : 'disabled'}`
+    );
+  });
+
+  // Toggle gutter blame annotations command
+  const toggleGutterBlameCommand = vscode.commands.registerCommand(
+    'intellij-git.toggleGutterBlame',
+    () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      // Toggle gutter blame
+      if (!gutterBlameProvider) {
+        gutterBlameProvider = createGutterBlameProvider(
+          extensionServices.blameService,
+          extensionServices.gitService
+        );
+      }
+
+      const enabled = gutterBlameProvider.toggle();
+      void vscode.window.showInformationMessage(
+        `Gutter blame annotations ${enabled ? 'enabled' : 'disabled'}`
+      );
+    }
+  );
+
+  // Compare with branch command
+  // Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
+  const compareWithBranchCommand = vscode.commands.registerCommand(
+    'intellij-git.compareWithBranch',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Create branch comparison view if not exists and show it
+      if (!branchComparisonView) {
+        branchComparisonView = createBranchComparisonView(gitService);
+      }
+      await branchComparisonView.show(repo);
+    }
+  );
+
+  // Compare with remote command
+  // Requirement: 15.5
+  const compareWithRemoteCommand = vscode.commands.registerCommand(
+    'intellij-git.compareWithRemote',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Create branch comparison view if not exists and compare with remote
+      if (!branchComparisonView) {
+        branchComparisonView = createBranchComparisonView(gitService);
+      }
+      await branchComparisonView.compareWithRemote(repo);
+    }
+  );
+
+  // Refresh command - refreshes all Git views
+  const refreshCommand = vscode.commands.registerCommand('intellij-git.refresh', () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    // Refresh the Git Tool Window
+    if (gitToolWindowProvider) {
+      gitToolWindowProvider.refresh();
+    }
+
+    // Refresh the Branch Tree Provider
+    if (branchTreeProvider) {
+      branchTreeProvider.refresh();
+    }
+
+    void vscode.window.showInformationMessage('Git views refreshed');
+  });
+
+  // Stage selected files command
+  const stageSelectedCommand = vscode.commands.registerCommand(
+    'intellij-git.stageSelected',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get the active editor's file or selected files from explorer
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor) {
+        const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+        try {
+          await gitService.stage(repo, [filePath]);
+          void vscode.window.showInformationMessage(`Staged: ${filePath}`);
+          // Refresh views
+          if (gitToolWindowProvider) {
+            gitToolWindowProvider.refresh();
+          }
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            `Failed to stage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+          );
+        }
+      } else {
+        void vscode.window.showInformationMessage('No file selected to stage');
+      }
+    }
+  );
+
+  // Unstage selected files command
+  const unstageSelectedCommand = vscode.commands.registerCommand(
+    'intellij-git.unstageSelected',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get the active editor's file or selected files from explorer
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor) {
+        const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+        try {
+          await gitService.unstage(repo, [filePath]);
+          void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
+          // Refresh views
+          if (gitToolWindowProvider) {
+            gitToolWindowProvider.refresh();
+          }
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            `Failed to unstage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+          );
+        }
+      } else {
+        void vscode.window.showInformationMessage('No file selected to unstage');
+      }
+    }
+  );
+
+  // Merge View commands
+  // Requirements: 10.2, 10.3, 10.4, 10.7, 17.9
+  const openMergeViewCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.openMergeView',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      // Get the file to open in merge view
+      let filePath: string;
+      if (fileUri) {
+        filePath = fileUri.fsPath;
+      } else {
+        // If no file provided, show a picker for conflicted files
+        const gitService = extensionServices.gitService;
+        const repositories = gitService.getRepositories();
+        if (repositories.length === 0) {
+          void vscode.window.showErrorMessage('No Git repository found');
+          return;
+        }
+
+        const repo = repositories[0];
+        const status = await gitService.getStatus(repo);
+        const conflictedFiles = status.filter(
+          (f) => f.indexStatus === 'U' || f.workTreeStatus === 'U'
+        );
+
+        if (conflictedFiles.length === 0) {
+          void vscode.window.showInformationMessage('No conflicted files found');
+          return;
+        }
+
+        const selected = await vscode.window.showQuickPick(
+          conflictedFiles.map((f) => ({
+            label: f.path,
+            description: 'Conflicted',
+          })),
+          { placeHolder: 'Select a conflicted file to resolve' }
+        );
+
+        if (!selected) {
+          return;
+        }
+        filePath = selected.label;
+      }
+
+      // Create merge view if not exists
+      if (!mergeView) {
+        mergeView = createMergeView(context.extensionUri, extensionServices.gitService);
+      }
+
+      try {
+        await mergeView.show(filePath);
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to open merge view: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  const acceptCurrentCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.acceptCurrent',
+    () => {
+      if (mergeView) {
+        mergeView.acceptCurrent();
+      }
+    }
+  );
+
+  const acceptIncomingCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.acceptIncoming',
+    () => {
+      if (mergeView) {
+        mergeView.acceptIncoming();
+      }
+    }
+  );
+
+  const acceptBothCommand = vscode.commands.registerCommand('intellij-git.merge.acceptBoth', () => {
+    if (mergeView) {
+      mergeView.acceptBoth();
+    }
+  });
+
+  const acceptAllCurrentCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.acceptAllCurrent',
+    () => {
+      if (mergeView) {
+        mergeView.acceptAllCurrent();
+      }
+    }
+  );
+
+  const acceptAllIncomingCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.acceptAllIncoming',
+    () => {
+      if (mergeView) {
+        mergeView.acceptAllIncoming();
+      }
+    }
+  );
+
+  const nextConflictCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.nextConflict',
+    () => {
+      if (mergeView) {
+        mergeView.nextConflict();
+      }
+    }
+  );
+
+  const previousConflictCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.previousConflict',
+    () => {
+      if (mergeView) {
+        mergeView.previousConflict();
+      }
+    }
+  );
+
+  const markResolvedCommand = vscode.commands.registerCommand(
+    'intellij-git.merge.markResolved',
+    async () => {
+      if (mergeView) {
+        await mergeView.markResolved();
+      }
+    }
+  );
+
+  // Conflict Resolution commands
+  // Requirements: 10.1, 10.5, 10.6, 10.8
+  const markFileResolvedCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.markResolved',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get file path
+      let filePath: string;
+      if (fileUri) {
+        const repoRoot = repo.rootUri.fsPath;
+        filePath = fileUri.fsPath.replace(repoRoot + '/', '').replace(repoRoot + '\\', '');
+      } else {
+        // Show picker for conflicted files
+        const conflicts = await conflictService.getConflictedFiles(repo);
+        if (conflicts.length === 0) {
+          void vscode.window.showInformationMessage('No conflicted files found');
+          return;
+        }
+
+        const selected = await vscode.window.showQuickPick(
+          conflicts.map((c) => ({ label: c.path })),
+          { placeHolder: 'Select a file to mark as resolved' }
+        );
+
+        if (!selected) {
+          return;
+        }
+        filePath = selected.label;
+      }
+
+      const result = await conflictService.markResolved(repo, filePath);
+      if (result.success) {
+        void vscode.window.showInformationMessage(`Marked ${filePath} as resolved`);
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to mark file as resolved');
+      }
+    }
+  );
+
+  const acceptAllCurrentFilesCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.acceptAllCurrent',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+      const conflicts = await conflictService.getConflictedFiles(repo);
+
+      if (conflicts.length === 0) {
+        void vscode.window.showInformationMessage('No conflicted files found');
+        return;
+      }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Accept current (ours) version for ${conflicts.length} conflicted file(s)?`,
+        { modal: true },
+        'Accept All Current'
+      );
+
+      if (confirm !== 'Accept All Current') {
+        return;
+      }
+
+      const result = await conflictService.acceptAllCurrent(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage(
+          'Accepted current version for all conflicted files'
+        );
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to accept current version');
+      }
+    }
+  );
+
+  const acceptAllIncomingFilesCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.acceptAllIncoming',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+      const conflicts = await conflictService.getConflictedFiles(repo);
+
+      if (conflicts.length === 0) {
+        void vscode.window.showInformationMessage('No conflicted files found');
+        return;
+      }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Accept incoming (theirs) version for ${conflicts.length} conflicted file(s)?`,
+        { modal: true },
+        'Accept All Incoming'
+      );
+
+      if (confirm !== 'Accept All Incoming') {
+        return;
+      }
+
+      const result = await conflictService.acceptAllIncoming(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage(
+          'Accepted incoming version for all conflicted files'
+        );
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to accept incoming version');
+      }
+    }
+  );
+
+  const completeMergeCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.completeMerge',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Check if we can complete
+      const canComplete = await conflictService.canCompleteOperation(repo);
+      if (!canComplete) {
+        const conflicts = await conflictService.getConflictedFiles(repo);
+        if (conflicts.length > 0) {
+          void vscode.window.showErrorMessage(
+            `Cannot complete merge: ${conflicts.length} unresolved conflict(s) remain`
+          );
+          return;
+        }
+      }
+
+      const result = await conflictService.completeMerge(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage('Merge completed successfully');
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to complete merge');
+      }
+    }
+  );
+
+  const completeRebaseCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.completeRebase',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Check if we can complete
+      const canComplete = await conflictService.canCompleteOperation(repo);
+      if (!canComplete) {
+        const conflicts = await conflictService.getConflictedFiles(repo);
+        if (conflicts.length > 0) {
+          void vscode.window.showErrorMessage(
+            `Cannot continue rebase: ${conflicts.length} unresolved conflict(s) remain`
+          );
+          return;
+        }
+      }
+
+      const result = await conflictService.completeRebase(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage('Rebase continued successfully');
+      } else if (result.remainingConflicts && result.remainingConflicts.length > 0) {
+        void vscode.window.showWarningMessage(
+          `Rebase paused: ${result.remainingConflicts.length} more conflict(s) to resolve`
+        );
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to continue rebase');
+      }
+    }
+  );
+
+  const abortMergeCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.abortMerge',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      const confirm = await vscode.window.showWarningMessage(
+        'Are you sure you want to abort the merge? All changes will be lost.',
+        { modal: true },
+        'Abort Merge'
+      );
+
+      if (confirm !== 'Abort Merge') {
+        return;
+      }
+
+      const result = await conflictService.abortMerge(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage('Merge aborted');
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to abort merge');
+      }
+    }
+  );
+
+  const abortRebaseCommand = vscode.commands.registerCommand(
+    'intellij-git.conflict.abortRebase',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      const confirm = await vscode.window.showWarningMessage(
+        'Are you sure you want to abort the rebase? All changes will be lost.',
+        { modal: true },
+        'Abort Rebase'
+      );
+
+      if (confirm !== 'Abort Rebase') {
+        return;
+      }
+
+      const result = await conflictService.abortRebase(repo);
+      if (result.success) {
+        void vscode.window.showInformationMessage('Rebase aborted');
+      } else {
+        void vscode.window.showErrorMessage(result.error || 'Failed to abort rebase');
+      }
+    }
+  );
+
+  // Interactive Rebase command
+  // Requirements: 6.1, 6.2, 6.3
+  const interactiveRebaseCommand = vscode.commands.registerCommand(
+    'intellij-git.rebase.interactive',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const rebaseService = extensionServices.rebaseService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        // Try to discover repositories
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const repo = await gitService.getRepository(workspaceFolders[0].uri);
+          if (!repo) {
+            void vscode.window.showErrorMessage('No Git repository found in workspace');
+            return;
+          }
+        } else {
+          void vscode.window.showErrorMessage('No workspace folder open');
+          return;
+        }
+      }
+
+      const repo =
+        repositories[0] ||
+        (await gitService.getRepository(vscode.workspace.workspaceFolders![0].uri));
+      if (!repo) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      // Get branches for the user to select the target
+      const branches = await gitService.getBranches(repo);
+      const branchItems = branches
+        .filter((b) => !b.isHead)
+        .map((b) => ({
+          label: b.name,
+          description: b.type === 'remote' ? 'Remote' : 'Local',
+          detail: b.commit.substring(0, 7),
+        }));
+
+      // Also add recent commits as options
+      const commits = await gitService.getLog(repo, { maxCount: 20 });
+      const commitItems = commits.map((c) => ({
+        label: c.shortHash,
+        description: c.message.substring(0, 50),
+        detail: `${c.author.name} - ${c.authorDate.toLocaleDateString()}`,
+      }));
+
+      const allItems = [
+        { label: 'Branches', kind: vscode.QuickPickItemKind.Separator },
+        ...branchItems,
+        { label: 'Recent Commits', kind: vscode.QuickPickItemKind.Separator },
+        ...commitItems,
+      ];
+
+      const selected = await vscode.window.showQuickPick(allItems as vscode.QuickPickItem[], {
+        placeHolder: 'Select a branch or commit to rebase onto',
+        title: 'Interactive Rebase',
+      });
+
+      if (!selected || selected.kind === vscode.QuickPickItemKind.Separator) {
+        return;
+      }
+
+      // Create rebase editor if not exists
+      if (!rebaseEditor) {
+        rebaseEditor = createRebaseEditor(context.extensionUri, rebaseService);
+      }
+
+      try {
+        await rebaseEditor.show(repo, { onto: selected.label });
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to start interactive rebase: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // File Explorer Context Menu Commands
+  // Requirements: 2.7, 17.6
+
+  // Show History command for file explorer
+  const explorerShowHistoryCommand = vscode.commands.registerCommand(
+    'intellij-git.explorer.showHistory',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get file path from URI or active editor
+      let filePath: string;
+      if (fileUri) {
+        filePath = vscode.workspace.asRelativePath(fileUri);
+      } else {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+          void vscode.window.showErrorMessage('No file selected');
+          return;
+        }
+        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      }
+
+      try {
+        const history = await gitService.getFileHistory(repo, filePath);
+        if (history.length === 0) {
+          void vscode.window.showInformationMessage(`No history found for ${filePath}`);
+          return;
+        }
+
+        // Show history in a quick pick
+        const items = history.map((commit) => ({
+          label: commit.shortHash,
+          description: commit.message.substring(0, 60),
+          detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
+          commit,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: `History for ${filePath}`,
+          title: 'File History',
+        });
+
+        if (selected) {
+          // Show the diff for the selected commit
+          const diff = await gitService.getCommitDiff(repo, selected.commit.hash);
+          const fileDiff = diff.find((d) => d.path === filePath || d.oldPath === filePath);
+          if (fileDiff) {
+            // Open diff view
+            void vscode.window.showInformationMessage(
+              `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+            );
+          }
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to get file history: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Compare with Branch command for file explorer
+  const explorerCompareWithBranchCommand = vscode.commands.registerCommand(
+    'intellij-git.explorer.compareWithBranch',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get file path from URI or active editor
+      let filePath: string;
+      let fileUriToUse: vscode.Uri;
+      if (fileUri) {
+        filePath = vscode.workspace.asRelativePath(fileUri);
+        fileUriToUse = fileUri;
+      } else {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+          void vscode.window.showErrorMessage('No file selected');
+          return;
+        }
+        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+        fileUriToUse = activeEditor.document.uri;
+      }
+
+      try {
+        // Get branches for selection
+        const branches = await gitService.getBranches(repo);
+        const branchItems = branches.map((b) => ({
+          label: b.name,
+          description: b.type === 'remote' ? 'Remote' : b.isHead ? 'Current' : 'Local',
+        }));
+
+        const selected = await vscode.window.showQuickPick(branchItems, {
+          placeHolder: 'Select a branch to compare with',
+          title: `Compare ${filePath} with Branch`,
+        });
+
+        if (!selected) {
+          return;
+        }
+
+        // Use VS Code's built-in diff command to compare
+        const branchUri = vscode.Uri.parse(`git:${filePath}?ref=${selected.label}`);
+        await vscode.commands.executeCommand(
+          'vscode.diff',
+          branchUri,
+          fileUriToUse,
+          `${filePath} (${selected.label} ↔ Working Tree)`
+        );
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to compare with branch: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Revert command for file explorer
+  const explorerRevertCommand = vscode.commands.registerCommand(
+    'intellij-git.explorer.revert',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get file path from URI or active editor
+      let filePath: string;
+      if (fileUri) {
+        filePath = vscode.workspace.asRelativePath(fileUri);
+      } else {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+          void vscode.window.showErrorMessage('No file selected');
+          return;
+        }
+        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      }
+
+      // Confirm revert
+      const confirm = await vscode.window.showWarningMessage(
+        `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,
+        { modal: true },
+        'Revert'
+      );
+
+      if (confirm !== 'Revert') {
+        return;
+      }
+
+      try {
+        await gitService.revertFile(repo, filePath);
+        void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
+        // Refresh views
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to revert file: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Stage command for file explorer
+  const explorerStageCommand = vscode.commands.registerCommand(
+    'intellij-git.explorer.stage',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get file path from URI or active editor
+      let filePath: string;
+      if (fileUri) {
+        filePath = vscode.workspace.asRelativePath(fileUri);
+      } else {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+          void vscode.window.showErrorMessage('No file selected');
+          return;
+        }
+        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      }
+
+      try {
+        await gitService.stage(repo, [filePath]);
+        void vscode.window.showInformationMessage(`Staged: ${filePath}`);
+        // Refresh views
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to stage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Unstage command for file explorer
+  const explorerUnstageCommand = vscode.commands.registerCommand(
+    'intellij-git.explorer.unstage',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get file path from URI or active editor
+      let filePath: string;
+      if (fileUri) {
+        filePath = vscode.workspace.asRelativePath(fileUri);
+      } else {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+          void vscode.window.showErrorMessage('No file selected');
+          return;
+        }
+        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      }
+
+      try {
+        await gitService.unstage(repo, [filePath]);
+        void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
+        // Refresh views
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to unstage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Show Diff command for file explorer
+  const explorerShowDiffCommand = vscode.commands.registerCommand(
+    'intellij-git.explorer.showDiff',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      // Get file path from URI or active editor
+      let filePath: string;
+      let fileUriToUse: vscode.Uri;
+      if (fileUri) {
+        filePath = vscode.workspace.asRelativePath(fileUri);
+        fileUriToUse = fileUri;
+      } else {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor) {
+          void vscode.window.showErrorMessage('No file selected');
+          return;
+        }
+        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+        fileUriToUse = activeEditor.document.uri;
+      }
+
+      try {
+        // Use VS Code's built-in Git diff command
+        const gitUri = vscode.Uri.parse(`git:${filePath}?ref=HEAD`);
+        await vscode.commands.executeCommand(
+          'vscode.diff',
+          gitUri,
+          fileUriToUse,
+          `${filePath} (HEAD ↔ Working Tree)`
+        );
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to show diff: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Editor Context Menu Commands
+  // Requirements: 9.5 (Blame)
+
+  // Toggle Blame Annotations command for editor context menu
+  const editorToggleBlameCommand = vscode.commands.registerCommand(
+    'intellij-git.editor.toggleBlame',
+    () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      // Create inline blame provider if not exists
+      if (!inlineBlameProvider) {
+        inlineBlameProvider = createInlineBlameProvider(
+          extensionServices.blameService,
+          extensionServices.gitService
+        );
+      }
+
+      const enabled = inlineBlameProvider.toggle();
+      void vscode.window.showInformationMessage(
+        `Blame annotations ${enabled ? 'enabled' : 'disabled'}`
+      );
+    }
+  );
+
+  // Show Line History command for editor context menu
+  const editorShowLineHistoryCommand = vscode.commands.registerCommand(
+    'intellij-git.editor.showLineHistory',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!activeEditor) {
+        void vscode.window.showErrorMessage('No active editor');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const blameService = extensionServices.blameService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
+
+      try {
+        // Get blame info for the current line
+        const blameLine = await blameService.getBlameForLine(repo, filePath, line);
+
+        if (blameLine.commit.startsWith('0000000')) {
+          void vscode.window.showInformationMessage('This line has not been committed yet');
+          return;
+        }
+
+        // Get the file history and filter to commits that modified this line
+        const history = await gitService.getFileHistory(repo, filePath);
+
+        // Show history in a quick pick
+        const items = history.map((commit) => ({
+          label: commit.shortHash,
+          description: commit.message.substring(0, 60),
+          detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
+          commit,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: `History for line ${line} in ${filePath}`,
+          title: 'Line History',
+        });
+
+        if (selected) {
+          void vscode.window.showInformationMessage(
+            `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+          );
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to get line history: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Copy Commit Hash command for editor context menu
+  const editorCopyCommitHashCommand = vscode.commands.registerCommand(
+    'intellij-git.editor.copyCommitHash',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!activeEditor) {
+        void vscode.window.showErrorMessage('No active editor');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const blameService = extensionServices.blameService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
+
+      try {
+        // Get blame info for the current line
+        const blameLine = await blameService.getBlameForLine(repo, filePath, line);
+
+        if (blameLine.commit.startsWith('0000000')) {
+          void vscode.window.showInformationMessage('This line has not been committed yet');
+          return;
+        }
+
+        // Copy the commit hash to clipboard
+        await vscode.env.clipboard.writeText(blameLine.commit);
+        void vscode.window.showInformationMessage(
+          `Copied commit hash: ${blameLine.commit.substring(0, 7)}`
+        );
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to copy commit hash: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Show Commit command for editor context menu
+  const editorShowCommitCommand = vscode.commands.registerCommand(
+    'intellij-git.editor.showCommit',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!activeEditor) {
+        void vscode.window.showErrorMessage('No active editor');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const blameService = extensionServices.blameService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
+
+      try {
+        // Get blame info for the current line
+        const blameLine = await blameService.getBlameForLine(repo, filePath, line);
+
+        if (blameLine.commit.startsWith('0000000')) {
+          void vscode.window.showInformationMessage('This line has not been committed yet');
+          return;
+        }
+
+        // Get full commit details
+        const commit = await gitService.getCommit(repo, blameLine.commit);
+
+        // Get the diff for this commit
+        const diffs = await gitService.getCommitDiff(repo, commit.hash);
+
+        // Show commit details in a quick pick with options
+        const items = [
+          {
+            label: '$(git-commit) View Commit Details',
+            description: `${commit.shortHash} - ${commit.message.substring(0, 40)}`,
+            action: 'details',
+          },
+          {
+            label: '$(files) View Changed Files',
+            description: `${diffs.length} file(s) changed`,
+            action: 'files',
+          },
+          {
+            label: '$(clippy) Copy Commit Hash',
+            description: commit.hash,
+            action: 'copy',
+          },
+        ];
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: `Commit ${commit.shortHash}: ${commit.message.substring(0, 50)}`,
+          title: 'Show Commit',
+        });
+
+        if (selected) {
+          switch (selected.action) {
+            case 'details': {
+              // Show full commit details in an information message
+              const dateStr = commit.authorDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              void vscode.window.showInformationMessage(
+                `Commit: ${commit.shortHash}\nAuthor: ${commit.author.name}\nDate: ${dateStr}\n\n${commit.message}`,
+                { modal: true }
+              );
+              break;
+            }
+            case 'files': {
+              // Show changed files in a quick pick
+              const fileItems = diffs.map((d) => ({
+                label: d.path,
+                description: d.status,
+              }));
+              await vscode.window.showQuickPick(fileItems, {
+                placeHolder: `Files changed in ${commit.shortHash}`,
+                title: 'Changed Files',
+              });
+              break;
+            }
+            case 'copy':
+              await vscode.env.clipboard.writeText(commit.hash);
+              void vscode.window.showInformationMessage(`Copied commit hash: ${commit.shortHash}`);
+              break;
+          }
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to show commit: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Register all commands with the extension context
+  context.subscriptions.push(
+    openGitToolWindowCommand,
+    commitCommand,
+    pushCommand,
+    pullCommand,
+    fetchCommand,
+    branchPopupCommand,
+    stashCommand,
+    showStashListCommand,
+    shelveCommand,
+    showShelfListCommand,
+    toggleBlameCommand,
+    toggleGutterBlameCommand,
+    compareWithBranchCommand,
+    compareWithRemoteCommand,
+    refreshCommand,
+    stageSelectedCommand,
+    unstageSelectedCommand,
+    openMergeViewCommand,
+    acceptCurrentCommand,
+    acceptIncomingCommand,
+    acceptBothCommand,
+    acceptAllCurrentCommand,
+    acceptAllIncomingCommand,
+    nextConflictCommand,
+    previousConflictCommand,
+    markResolvedCommand,
+    markFileResolvedCommand,
+    acceptAllCurrentFilesCommand,
+    acceptAllIncomingFilesCommand,
+    completeMergeCommand,
+    completeRebaseCommand,
+    abortMergeCommand,
+    abortRebaseCommand,
+    interactiveRebaseCommand,
+    // File Explorer Context Menu Commands
+    explorerShowHistoryCommand,
+    explorerCompareWithBranchCommand,
+    explorerRevertCommand,
+    explorerStageCommand,
+    explorerUnstageCommand,
+    explorerShowDiffCommand,
+    // Editor Context Menu Commands
+    editorToggleBlameCommand,
+    editorShowLineHistoryCommand,
+    editorCopyCommitHashCommand,
+    editorShowCommitCommand
+  );
+}
+
+/**
+ * Register views and view providers.
+ *
+ * @param context - The VS Code extension context
+ */
+function registerViews(context: vscode.ExtensionContext): void {
+  // Get the default tab from configuration
+  const config = vscode.workspace.getConfiguration('intellij-git');
+  const defaultTab = config.get<'local-changes' | 'log' | 'console'>(
+    'defaultToolWindowTab',
+    'local-changes'
+  );
+
+  // Create and register the Git Tool Window Provider
+  gitToolWindowProvider = new GitToolWindowProvider(context.extensionUri, defaultTab);
+
+  // Connect the Console Service to the Git Tool Window Provider
+  // This enables real-time Git command output display (Requirement 1.4)
+  if (extensionServices) {
+    const consoleService = extensionServices.consoleService;
+    if (consoleService instanceof ConsoleService) {
+      consoleService.connectToToolWindow(gitToolWindowProvider);
+    }
+  }
+
+  const gitToolWindowRegistration = vscode.window.registerWebviewViewProvider(
+    GIT_TOOL_WINDOW_VIEW_ID,
+    gitToolWindowProvider,
+    {
+      webviewOptions: {
+        retainContextWhenHidden: true,
+      },
+    }
+  );
+
+  context.subscriptions.push(gitToolWindowRegistration);
+
+  // Register Branch Tree Provider for the branches view
+  // Requirements: 5.1, 5.2, 5.7, 5.8, 17.6
+  if (extensionServices) {
+    const gitService = extensionServices.gitService;
+    branchTreeProvider = createBranchTreeProvider(gitService);
+
+    const branchTreeRegistration = vscode.window.registerTreeDataProvider(
+      'intellij-git.branchesView',
+      branchTreeProvider
+    );
+    context.subscriptions.push(branchTreeRegistration);
+
+    // Register branch context menu commands
+    branchContextMenuCommands = createBranchContextMenuCommands(gitService, branchTreeProvider);
+    branchContextMenuCommands.register(context);
+
+    // Initialize Status Bar Service
+    // Requirements: 4.1, 17.8 - Display current branch name in status bar
+    statusBarService = createStatusBarService(gitService);
+    context.subscriptions.push(statusBarService);
+
+    // Initialize Notification Service
+    // Requirement: 17.8 - Display progress and status notifications
+    notificationService = createNotificationService();
+    context.subscriptions.push(notificationService);
+
+    // Initialize Keymap Service
+    // Requirement: 17.11 - IntelliJ-style keyboard shortcuts
+    keymapService = new KeymapService(extensionServices.configurationService);
+    context.subscriptions.push(keymapService);
+
+    // Initialize Stash View
+    // Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
+    stashView = createStashView(gitService);
+    context.subscriptions.push(stashView);
+
+    // Initialize Shelf View
+    // Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
+    shelfView = createShelfView(extensionServices.shelfService, (repo) =>
+      gitService.getStatus(repo)
+    );
+    context.subscriptions.push(shelfView);
+
+    // Initialize Branch Comparison View
+    // Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
+    branchComparisonView = createBranchComparisonView(gitService);
+    context.subscriptions.push(branchComparisonView);
+
+    // Initialize Gutter Blame Provider
+    // Requirements: 9.2, 9.5, 9.7 (Blame)
+    gutterBlameProvider = createGutterBlameProvider(extensionServices.blameService, gitService);
+    context.subscriptions.push(gutterBlameProvider);
+
+    // Initialize Rebase Progress View
+    // Requirements: 6.7, 6.8, 6.9
+    rebaseProgressView = createRebaseProgressView(
+      context.extensionUri,
+      extensionServices.rebaseService
+    );
+    context.subscriptions.push(rebaseProgressView);
+  }
+}
+
+/**
+ * Set up event listeners for workspace and Git changes.
+ *
+ * @param context - The VS Code extension context
+ */
+function setupEventListeners(context: vscode.ExtensionContext): void {
+  // Listen for workspace folder changes
+  const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders((event) => {
+    // TODO: Handle workspace folder changes
+    console.log(
+      'Workspace folders changed:',
+      event.added.length,
+      'added,',
+      event.removed.length,
+      'removed'
+    );
+  });
+
+  // Listen for configuration changes
+  const configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration('intellij-git')) {
+      // TODO: Handle configuration changes in task 1.3
+      console.log('IntelliJ Git configuration changed');
+    }
+  });
+
+  // Listen for active editor changes (for blame annotations)
+  const activeEditorListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
+    if (editor) {
+      // TODO: Update blame annotations in task 27.1
+    }
+  });
+
+  // Register all listeners with the extension context
+  context.subscriptions.push(workspaceFoldersListener, configurationListener, activeEditorListener);
+}
+
+/**
+ * Get the extension services container.
+ * This can be used by other modules to access services.
+ *
+ * @returns The extension services container, or undefined if not activated
+ */
+export function getServices(): ExtensionServices | undefined {
+  return extensionServices;
+}
+
+/**
+ * Get the Git Tool Window Provider.
+ * This can be used by other modules to interact with the Git Tool Window.
+ *
+ * @returns The Git Tool Window Provider, or undefined if not activated
+ */
+export function getGitToolWindowProvider(): GitToolWindowProvider | undefined {
+  return gitToolWindowProvider;
+}

@@ -1,0 +1,8 @@
+{
+  "extension": ["ts"],
+  "spec": "src/test/unit/**/*.test.ts",
+  "require": ["ts-node/register", "src/test/setup.ts"],
+  "timeout": 10000,
+  "recursive": true,
+  "exit": true
+}

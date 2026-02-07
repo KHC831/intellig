@@ -1,0 +1,727 @@
+{
+  "name": "intellij-git",
+  "displayName": "IntelliJ Git",
+  "description": "IntelliJ IDEA-style Git integration for VS Code",
+  "version": "0.0.1",
+  "publisher": "intellij-git-vscode",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "intellij",
+    "version control",
+    "scm",
+    "source control"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "intellij-git.openGitToolWindow",
+        "title": "Open Git Tool Window",
+        "category": "IntelliJ Git",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "intellij-git.commit",
+        "title": "Commit",
+        "category": "IntelliJ Git",
+        "icon": "$(check)"
+      },
+      {
+        "command": "intellij-git.push",
+        "title": "Push",
+        "category": "IntelliJ Git",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "intellij-git.pull",
+        "title": "Pull",
+        "category": "IntelliJ Git",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "intellij-git.fetch",
+        "title": "Fetch",
+        "category": "IntelliJ Git",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "intellij-git.showBranchPopup",
+        "title": "Show Branch Popup",
+        "category": "IntelliJ Git",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "intellij-git.refresh",
+        "title": "Refresh",
+        "category": "IntelliJ Git",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "intellij-git.stageSelected",
+        "title": "Stage Selected Files",
+        "category": "IntelliJ Git",
+        "icon": "$(add)"
+      },
+      {
+        "command": "intellij-git.unstageSelected",
+        "title": "Unstage Selected Files",
+        "category": "IntelliJ Git",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "intellij-git.branch.checkout",
+        "title": "Checkout",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branch.newBranchFrom",
+        "title": "New Branch from Here",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branch.mergeIntoCurrent",
+        "title": "Merge into Current",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branch.rebaseCurrentOnto",
+        "title": "Rebase Current onto This",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branch.compareWithCurrent",
+        "title": "Compare with Current",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branch.rename",
+        "title": "Rename",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branch.delete",
+        "title": "Delete",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.remoteBranch.checkoutAsLocal",
+        "title": "Checkout as Local Branch",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.remoteBranch.cherryPickCommits",
+        "title": "Cherry-pick Commits",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.remoteBranch.pullIntoCurrent",
+        "title": "Pull into Current",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.openMergeView",
+        "title": "Open Merge View",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.acceptCurrent",
+        "title": "Accept Current",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.acceptIncoming",
+        "title": "Accept Incoming",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.acceptBoth",
+        "title": "Accept Both",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.acceptAllCurrent",
+        "title": "Accept All Current",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.acceptAllIncoming",
+        "title": "Accept All Incoming",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.nextConflict",
+        "title": "Next Conflict",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.previousConflict",
+        "title": "Previous Conflict",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.merge.markResolved",
+        "title": "Mark as Resolved",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.remoteBranch.deleteRemote",
+        "title": "Delete Remote Branch",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.tag.checkoutDetached",
+        "title": "Checkout (Detached)",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.tag.newBranchFrom",
+        "title": "New Branch from Here",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.tag.cherryPick",
+        "title": "Cherry-pick",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.tag.delete",
+        "title": "Delete Tag",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.tag.push",
+        "title": "Push Tag",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.branches.refresh",
+        "title": "Refresh Branches",
+        "category": "IntelliJ Git",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "intellij-git.rebase.interactive",
+        "title": "Interactive Rebase...",
+        "category": "IntelliJ Git"
+      },
+      {
+        "command": "intellij-git.showHistory",
+        "title": "Show History",
+        "category": "IntelliJ Git",
+        "icon": "$(history)"
+      },
+      {
+        "command": "intellij-git.revertFile",
+        "title": "Revert File",
+        "category": "IntelliJ Git",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "intellij-git.explorer.showHistory",
+        "title": "Git: Show History",
+        "category": "IntelliJ Git",
+        "icon": "$(history)"
+      },
+      {
+        "command": "intellij-git.explorer.compareWithBranch",
+        "title": "Git: Compare with Branch...",
+        "category": "IntelliJ Git",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "intellij-git.explorer.revert",
+        "title": "Git: Revert",
+        "category": "IntelliJ Git",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "intellij-git.explorer.stage",
+        "title": "Git: Stage",
+        "category": "IntelliJ Git",
+        "icon": "$(add)"
+      },
+      {
+        "command": "intellij-git.explorer.unstage",
+        "title": "Git: Unstage",
+        "category": "IntelliJ Git",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "intellij-git.explorer.showDiff",
+        "title": "Git: Show Diff",
+        "category": "IntelliJ Git",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "intellij-git.editor.toggleBlame",
+        "title": "Git: Toggle Blame Annotations",
+        "category": "IntelliJ Git",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "intellij-git.editor.showLineHistory",
+        "title": "Git: Show Line History",
+        "category": "IntelliJ Git",
+        "icon": "$(history)"
+      },
+      {
+        "command": "intellij-git.editor.copyCommitHash",
+        "title": "Git: Copy Commit Hash",
+        "category": "IntelliJ Git",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "intellij-git.editor.showCommit",
+        "title": "Git: Show Commit",
+        "category": "IntelliJ Git",
+        "icon": "$(git-commit)"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "intellij-git.branch.checkout",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "intellij-git.branch.newBranchFrom",
+          "when": "view == intellij-git.branchesView && viewItem =~ /intellij-git\\.localBranch.*/",
+          "group": "2_create@1"
+        },
+        {
+          "command": "intellij-git.branch.mergeIntoCurrent",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
+          "group": "3_merge@1"
+        },
+        {
+          "command": "intellij-git.branch.rebaseCurrentOnto",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
+          "group": "3_merge@2"
+        },
+        {
+          "command": "intellij-git.branch.compareWithCurrent",
+          "when": "view == intellij-git.branchesView && viewItem =~ /intellij-git\\.localBranch.*/",
+          "group": "4_compare@1"
+        },
+        {
+          "command": "intellij-git.branch.rename",
+          "when": "view == intellij-git.branchesView && viewItem =~ /intellij-git\\.localBranch.*/",
+          "group": "5_modify@1"
+        },
+        {
+          "command": "intellij-git.branch.delete",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
+          "group": "5_modify@2"
+        },
+        {
+          "command": "intellij-git.remoteBranch.checkoutAsLocal",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "intellij-git.branch.newBranchFrom",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "2_create@1"
+        },
+        {
+          "command": "intellij-git.branch.mergeIntoCurrent",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "3_merge@1"
+        },
+        {
+          "command": "intellij-git.branch.rebaseCurrentOnto",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "3_merge@2"
+        },
+        {
+          "command": "intellij-git.branch.compareWithCurrent",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "4_compare@1"
+        },
+        {
+          "command": "intellij-git.remoteBranch.cherryPickCommits",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "5_cherrypick@1"
+        },
+        {
+          "command": "intellij-git.remoteBranch.pullIntoCurrent",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "6_pull@1"
+        },
+        {
+          "command": "intellij-git.remoteBranch.deleteRemote",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
+          "group": "7_delete@1"
+        },
+        {
+          "command": "intellij-git.tag.checkoutDetached",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
+          "group": "1_checkout@1"
+        },
+        {
+          "command": "intellij-git.tag.newBranchFrom",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
+          "group": "2_create@1"
+        },
+        {
+          "command": "intellij-git.tag.cherryPick",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
+          "group": "3_cherrypick@1"
+        },
+        {
+          "command": "intellij-git.tag.delete",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
+          "group": "4_delete@1"
+        },
+        {
+          "command": "intellij-git.tag.push",
+          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
+          "group": "5_push@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "intellij-git.branches.refresh",
+          "when": "view == intellij-git.branchesView",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "intellij-git.explorerSubmenu",
+          "when": "explorerResourceIsFolder == false",
+          "group": "intellij-git@1"
+        }
+      ],
+      "intellij-git.explorerSubmenu": [
+        {
+          "command": "intellij-git.explorer.showHistory",
+          "group": "1_history@1"
+        },
+        {
+          "command": "intellij-git.explorer.showDiff",
+          "group": "1_history@2"
+        },
+        {
+          "command": "intellij-git.explorer.compareWithBranch",
+          "group": "1_history@3"
+        },
+        {
+          "command": "intellij-git.explorer.stage",
+          "group": "2_staging@1"
+        },
+        {
+          "command": "intellij-git.explorer.unstage",
+          "group": "2_staging@2"
+        },
+        {
+          "command": "intellij-git.explorer.revert",
+          "group": "3_revert@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "intellij-git.editorSubmenu",
+          "when": "editorTextFocus && resourceScheme == file",
+          "group": "intellij-git@1"
+        }
+      ],
+      "intellij-git.editorSubmenu": [
+        {
+          "command": "intellij-git.editor.toggleBlame",
+          "group": "1_blame@1"
+        },
+        {
+          "command": "intellij-git.editor.showLineHistory",
+          "group": "2_history@1"
+        },
+        {
+          "command": "intellij-git.editor.copyCommitHash",
+          "group": "3_commit@1"
+        },
+        {
+          "command": "intellij-git.editor.showCommit",
+          "group": "3_commit@2"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "intellij-git.explorerSubmenu",
+        "label": "Git",
+        "icon": "$(git-branch)"
+      },
+      {
+        "id": "intellij-git.editorSubmenu",
+        "label": "Git",
+        "icon": "$(git-branch)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "intellij-git",
+          "title": "IntelliJ Git",
+          "icon": "resources/git-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "intellij-git": [
+        {
+          "type": "webview",
+          "id": "intellij-git.toolWindow",
+          "name": "Git Tool Window"
+        },
+        {
+          "id": "intellij-git.branchesView",
+          "name": "Branches"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "IntelliJ Git",
+      "properties": {
+        "intellij-git.defaultCommitSignOff": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add Signed-off-by line to commit messages by default"
+        },
+        "intellij-git.commitMessageTemplate": {
+          "type": "string",
+          "default": "",
+          "description": "Default commit message template"
+        },
+        "intellij-git.pullRebase": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use rebase instead of merge when pulling"
+        },
+        "intellij-git.autoFetchEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic fetching from remotes"
+        },
+        "intellij-git.autoFetchInterval": {
+          "type": "number",
+          "default": 180,
+          "description": "Auto-fetch interval in seconds"
+        },
+        "intellij-git.defaultToolWindowTab": {
+          "type": "string",
+          "enum": [
+            "local-changes",
+            "log",
+            "console"
+          ],
+          "default": "local-changes",
+          "description": "Default tab when opening Git Tool Window"
+        },
+        "intellij-git.blameAnnotationStyle": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "gutter",
+            "both"
+          ],
+          "default": "inline",
+          "description": "Style for blame annotations"
+        },
+        "intellij-git.showStatusBarBranch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show current branch in status bar"
+        },
+        "intellij-git.useIntelliJKeymap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use IntelliJ-style keyboard shortcuts"
+        },
+        "intellij-git.keymapPreset": {
+          "type": "string",
+          "enum": [
+            "default",
+            "intellij"
+          ],
+          "enumDescriptions": [
+            "Default VS Code-style keybindings",
+            "IntelliJ IDEA-style keybindings (Alt+` for VCS popup, Ctrl+H for history, etc.)"
+          ],
+          "default": "default",
+          "description": "Keyboard shortcut preset to use. IntelliJ preset uses IntelliJ IDEA's default Git keybindings."
+        },
+        "intellij-git.modifiedFileColor": {
+          "type": "string",
+          "default": "#6897BB",
+          "description": "Color for modified files (IntelliJ blue)"
+        },
+        "intellij-git.addedFileColor": {
+          "type": "string",
+          "default": "#629755",
+          "description": "Color for added files (IntelliJ green)"
+        },
+        "intellij-git.deletedFileColor": {
+          "type": "string",
+          "default": "#6C6C6C",
+          "description": "Color for deleted files (IntelliJ gray)"
+        },
+        "intellij-git.ignoredFileColor": {
+          "type": "string",
+          "default": "#848504",
+          "description": "Color for ignored files"
+        },
+        "intellij-git.conflictFileColor": {
+          "type": "string",
+          "default": "#FF0000",
+          "description": "Color for conflicted files (red)"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "intellij-git.commit",
+        "key": "ctrl+k",
+        "mac": "cmd+k",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellij-git.push",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellij-git.pull",
+        "key": "ctrl+t",
+        "mac": "cmd+t",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellij-git.openGitToolWindow",
+        "key": "alt+9",
+        "mac": "cmd+9",
+        "when": "!inDebugMode"
+      },
+      {
+        "command": "intellij-git.showBranchPopup",
+        "key": "ctrl+shift+`",
+        "mac": "cmd+shift+`",
+        "when": "!inDebugMode"
+      },
+      {
+        "command": "intellij-git.refresh",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellij-git.stageSelected",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellij-git.unstageSelected",
+        "key": "ctrl+alt+z",
+        "mac": "cmd+alt+z",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellij-git.merge.nextConflict",
+        "key": "alt+down",
+        "when": "activeWebviewPanelId == 'intellij-git.mergeView'"
+      },
+      {
+        "command": "intellij-git.merge.previousConflict",
+        "key": "alt+up",
+        "when": "activeWebviewPanelId == 'intellij-git.mergeView'"
+      },
+      {
+        "command": "intellij-git.merge.acceptCurrent",
+        "key": "alt+1",
+        "when": "activeWebviewPanelId == 'intellij-git.mergeView'"
+      },
+      {
+        "command": "intellij-git.merge.acceptBoth",
+        "key": "alt+2",
+        "when": "activeWebviewPanelId == 'intellij-git.mergeView'"
+      },
+      {
+        "command": "intellij-git.merge.acceptIncoming",
+        "key": "alt+3",
+        "when": "activeWebviewPanelId == 'intellij-git.mergeView'"
+      },
+      {
+        "command": "intellij-git.showBranchPopup",
+        "key": "alt+`",
+        "mac": "alt+`",
+        "when": "!inDebugMode && config.intellij-git.useIntelliJKeymap"
+      },
+      {
+        "command": "intellij-git.toggleBlame",
+        "key": "ctrl+alt+shift+a",
+        "mac": "cmd+alt+shift+a",
+        "when": "editorTextFocus && config.intellij-git.useIntelliJKeymap"
+      },
+      {
+        "command": "intellij-git.showHistory",
+        "key": "ctrl+h",
+        "mac": "cmd+h",
+        "when": "!inDebugMode && config.intellij-git.useIntelliJKeymap"
+      },
+      {
+        "command": "intellij-git.branch.compareWithCurrent",
+        "key": "ctrl+d",
+        "mac": "cmd+d",
+        "when": "!inDebugMode && !terminalFocus && config.intellij-git.useIntelliJKeymap"
+      },
+      {
+        "command": "intellij-git.revertFile",
+        "key": "ctrl+alt+z",
+        "mac": "cmd+alt+z",
+        "when": "!inDebugMode && !terminalFocus && config.intellij-git.useIntelliJKeymap"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "lint:fix": "eslint src --ext ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
+    "test:property": "mocha --require ts-node/register --timeout 30000 'src/test/property/**/*.property.test.ts'"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "fast-check": "^3.14.0",
+    "mocha": "^10.2.0",
+    "prettier": "^3.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.2"
+  }
+}

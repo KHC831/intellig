@@ -1,0 +1,511 @@
+import * as vscode from 'vscode';
+import { IInlineBlameProvider } from './interfaces/IInlineBlameProvider';
+import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
+import { IGitService, IBlameLine } from './interfaces/IGitService';
+import * as path from 'path';
+
+/**
+ * Inline Blame Provider implementation.
+ * Displays commit information at the end of the current line as a decoration.
+ *
+ * Requirements: 9.1, 9.3, 9.4 (Blame), 17.12
+ * - 9.1: Display blame annotations for file (inline at end of current line)
+ * - 9.3: Show commit message on hover
+ * - 9.4: Show tooltip with full commit details
+ * - 17.12: Use IntelliJ-style annotations
+ */
+export class InlineBlameProvider implements IInlineBlameProvider {
+  private _enabled: boolean = false;
+  private _blameService: IBlameService;
+  private _gitService: IGitService;
+  private _disposables: vscode.Disposable[] = [];
+  private _decorationType: vscode.TextEditorDecorationType | undefined;
+  private _onDidChangeEnabled: vscode.EventEmitter<boolean>;
+  private _currentLine: number = -1;
+  private _currentEditor: vscode.TextEditor | undefined;
+  private _blameCache: Map<string, IBlameInfo> = new Map();
+
+  /**
+   * Event fired when the enabled state changes.
+   */
+  readonly onDidChangeEnabled: vscode.Event<boolean>;
+
+  constructor(blameService: IBlameService, gitService: IGitService) {
+    this._blameService = blameService;
+    this._gitService = gitService;
+    this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
+    this.onDidChangeEnabled = this._onDidChangeEnabled.event;
+
+    // Create the decoration type for inline blame
+    this._decorationType = this.createDecorationType();
+
+    // Set up event listeners
+    this.setupEventListeners();
+  }
+
+  /**
+   * Create the decoration type for inline blame annotations.
+   * Uses a subtle style that doesn't interfere with code readability.
+   */
+  private createDecorationType(): vscode.TextEditorDecorationType {
+    return vscode.window.createTextEditorDecorationType({
+      after: {
+        margin: '0 0 0 3em',
+        textDecoration: 'none',
+      },
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+    });
+  }
+
+  /**
+   * Set up event listeners for cursor movement and editor changes.
+   */
+  private setupEventListeners(): void {
+    // Listen for cursor position changes
+    this._disposables.push(
+      vscode.window.onDidChangeTextEditorSelection(async (event) => {
+        if (!this._enabled) {
+          return;
+        }
+
+        const editor = event.textEditor;
+        const line = editor.selection.active.line;
+
+        // Only update if the line changed
+        if (editor === this._currentEditor && line === this._currentLine) {
+          return;
+        }
+
+        this._currentEditor = editor;
+        this._currentLine = line;
+
+        await this.updateDecoration(editor, line);
+      })
+    );
+
+    // Listen for active editor changes
+    this._disposables.push(
+      vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+        if (!this._enabled || !editor) {
+          this.clearDecorations();
+          return;
+        }
+
+        this._currentEditor = editor;
+        this._currentLine = editor.selection.active.line;
+
+        await this.updateDecoration(editor, this._currentLine);
+      })
+    );
+
+    // Listen for document changes to invalidate cache
+    this._disposables.push(
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        const uri = event.document.uri.toString();
+        this._blameCache.delete(uri);
+
+        // Refresh if this is the current editor
+        if (
+          this._enabled &&
+          this._currentEditor &&
+          this._currentEditor.document.uri.toString() === uri
+        ) {
+          void this.updateDecoration(this._currentEditor, this._currentLine);
+        }
+      })
+    );
+
+    // Listen for document saves to refresh blame
+    this._disposables.push(
+      vscode.workspace.onDidSaveTextDocument((document) => {
+        const uri = document.uri.toString();
+        this._blameCache.delete(uri);
+
+        // Refresh if this is the current editor
+        if (
+          this._enabled &&
+          this._currentEditor &&
+          this._currentEditor.document.uri.toString() === uri
+        ) {
+          void this.updateDecoration(this._currentEditor, this._currentLine);
+        }
+      })
+    );
+  }
+
+  /**
+   * Enable inline blame annotations.
+   */
+  enable(): void {
+    if (this._enabled) {
+      return;
+    }
+
+    this._enabled = true;
+    this._onDidChangeEnabled.fire(true);
+
+    // Update decoration for current editor
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      this._currentEditor = editor;
+      this._currentLine = editor.selection.active.line;
+      void this.updateDecoration(editor, this._currentLine);
+    }
+  }
+
+  /**
+   * Disable inline blame annotations.
+   */
+  disable(): void {
+    if (!this._enabled) {
+      return;
+    }
+
+    this._enabled = false;
+    this._onDidChangeEnabled.fire(false);
+    this.clearDecorations();
+  }
+
+  /**
+   * Toggle inline blame annotations on/off.
+   * @returns The new enabled state
+   */
+  toggle(): boolean {
+    if (this._enabled) {
+      this.disable();
+    } else {
+      this.enable();
+    }
+    return this._enabled;
+  }
+
+  /**
+   * Check if inline blame is currently enabled.
+   * @returns True if inline blame is enabled
+   */
+  isEnabled(): boolean {
+    return this._enabled;
+  }
+
+  /**
+   * Refresh the inline blame decoration for the current editor.
+   */
+  async refresh(): Promise<void> {
+    if (!this._enabled || !this._currentEditor) {
+      return;
+    }
+
+    // Clear cache for current document
+    const uri = this._currentEditor.document.uri.toString();
+    this._blameCache.delete(uri);
+
+    await this.updateDecoration(this._currentEditor, this._currentLine);
+  }
+
+  /**
+   * Update the inline blame decoration for the specified line.
+   *
+   * @param editor - The text editor
+   * @param line - The line number (0-indexed)
+   */
+  private async updateDecoration(editor: vscode.TextEditor, line: number): Promise<void> {
+    if (!this._decorationType) {
+      return;
+    }
+
+    // Clear existing decorations first
+    editor.setDecorations(this._decorationType, []);
+
+    // Skip if not a file scheme (e.g., output, debug console)
+    if (editor.document.uri.scheme !== 'file') {
+      return;
+    }
+
+    try {
+      const blameLine = await this.getBlameForLine(editor, line);
+      if (!blameLine) {
+        return;
+      }
+
+      // Create the decoration
+      const decoration = this.createDecoration(editor, line, blameLine);
+      if (decoration) {
+        editor.setDecorations(this._decorationType, [decoration]);
+      }
+    } catch {
+      // Silently fail - blame may not be available for this file
+    }
+  }
+
+  /**
+   * Get blame information for a specific line.
+   *
+   * @param editor - The text editor
+   * @param line - The line number (0-indexed)
+   * @returns The blame line information, or undefined if not available
+   */
+  private async getBlameForLine(
+    editor: vscode.TextEditor,
+    line: number
+  ): Promise<IBlameLine | undefined> {
+    const document = editor.document;
+    const uri = document.uri;
+
+    // Get repository for this file
+    const repo = await this._gitService.getRepository(uri);
+    if (!repo) {
+      return undefined;
+    }
+
+    // Get relative path from repository root
+    const relativePath = path.relative(repo.rootUri.fsPath, uri.fsPath);
+
+    // Check cache first
+    const cacheKey = uri.toString();
+    let blameInfo = this._blameCache.get(cacheKey);
+
+    if (!blameInfo) {
+      // Fetch blame info
+      blameInfo = await this._blameService.getBlame(repo, relativePath);
+      this._blameCache.set(cacheKey, blameInfo);
+    }
+
+    // Find the blame line (line numbers in blame are 1-indexed)
+    const blameLine = blameInfo.lines.find((bl) => bl.line === line + 1);
+    return blameLine;
+  }
+
+  /**
+   * Create a decoration for the blame annotation.
+   *
+   * @param editor - The text editor
+   * @param line - The line number (0-indexed)
+   * @param blameLine - The blame information for the line
+   * @returns The decoration options, or undefined if not applicable
+   */
+  private createDecoration(
+    editor: vscode.TextEditor,
+    line: number,
+    blameLine: IBlameLine
+  ): vscode.DecorationOptions | undefined {
+    // Skip uncommitted changes
+    if (blameLine.commit.startsWith('0000000')) {
+      return undefined;
+    }
+
+    // Format the inline text
+    const inlineText = this.formatInlineText(blameLine);
+
+    // Create hover message with full details
+    const hoverMessage = this.createHoverMessage(blameLine);
+
+    // Get the line range (end of line)
+    const lineText = editor.document.lineAt(line);
+    const range = new vscode.Range(line, lineText.text.length, line, lineText.text.length);
+
+    // Calculate age-based color
+    const color = this.getAgeBasedColor(blameLine.date);
+
+    return {
+      range,
+      hoverMessage,
+      renderOptions: {
+        after: {
+          contentText: inlineText,
+          color: color,
+          fontStyle: 'italic',
+        },
+      },
+    };
+  }
+
+  /**
+   * Format the inline text for the blame annotation.
+   * Shows author, relative date, and truncated commit message.
+   *
+   * @param blameLine - The blame information
+   * @returns The formatted inline text
+   */
+  private formatInlineText(blameLine: IBlameLine): string {
+    const author = this.truncateString(blameLine.author, 15);
+    const relativeDate = this.formatRelativeDate(blameLine.date);
+    const message = this.truncateString(blameLine.message, 40);
+
+    return `${author}, ${relativeDate} • ${message}`;
+  }
+
+  /**
+   * Create a hover message with full commit details.
+   *
+   * @param blameLine - The blame information
+   * @returns The hover message as MarkdownString
+   */
+  private createHoverMessage(blameLine: IBlameLine): vscode.MarkdownString {
+    const md = new vscode.MarkdownString();
+    md.isTrusted = true;
+    md.supportHtml = true;
+
+    // Commit hash (short)
+    const shortHash = blameLine.commit.substring(0, 7);
+
+    // Format the date
+    const dateStr = blameLine.date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+    // Build the hover content
+    md.appendMarkdown(`**Commit:** \`${shortHash}\`\n\n`);
+    md.appendMarkdown(`**Author:** ${blameLine.author}`);
+    if (blameLine.authorEmail) {
+      md.appendMarkdown(` <${blameLine.authorEmail}>`);
+    }
+    md.appendMarkdown(`\n\n`);
+    md.appendMarkdown(`**Date:** ${dateStr}\n\n`);
+    md.appendMarkdown(`---\n\n`);
+    md.appendMarkdown(`${blameLine.message}\n\n`);
+
+    // Add action links
+    md.appendMarkdown(`---\n\n`);
+    md.appendMarkdown(
+      `[View Commit](command:intellij-git.viewCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
+    );
+    md.appendMarkdown(
+      `[Copy Hash](command:intellij-git.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
+    );
+
+    return md;
+  }
+
+  /**
+   * Get an age-based color for the blame annotation.
+   * Newer commits are brighter, older commits are more faded.
+   *
+   * @param date - The commit date
+   * @returns The color string
+   */
+  private getAgeBasedColor(date: Date): string {
+    const now = new Date();
+    const ageInDays = (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
+
+    // Color gradient from bright to faded based on age
+    // Recent (< 7 days): bright
+    // Medium (7-30 days): medium
+    // Old (30-90 days): faded
+    // Very old (> 90 days): very faded
+
+    if (ageInDays < 7) {
+      return 'rgba(153, 153, 153, 0.9)'; // Bright gray
+    } else if (ageInDays < 30) {
+      return 'rgba(153, 153, 153, 0.7)'; // Medium gray
+    } else if (ageInDays < 90) {
+      return 'rgba(153, 153, 153, 0.5)'; // Faded gray
+    } else {
+      return 'rgba(153, 153, 153, 0.35)'; // Very faded gray
+    }
+  }
+
+  /**
+   * Format a date as a relative time string.
+   *
+   * @param date - The date to format
+   * @returns The relative time string (e.g., "2 days ago")
+   */
+  private formatRelativeDate(date: Date): string {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const diffWeeks = Math.floor(diffDays / 7);
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffYears > 0) {
+      return diffYears === 1 ? '1 year ago' : `${diffYears} years ago`;
+    } else if (diffMonths > 0) {
+      return diffMonths === 1 ? '1 month ago' : `${diffMonths} months ago`;
+    } else if (diffWeeks > 0) {
+      return diffWeeks === 1 ? '1 week ago' : `${diffWeeks} weeks ago`;
+    } else if (diffDays > 0) {
+      return diffDays === 1 ? '1 day ago' : `${diffDays} days ago`;
+    } else if (diffHours > 0) {
+      return diffHours === 1 ? '1 hour ago' : `${diffHours} hours ago`;
+    } else if (diffMins > 0) {
+      return diffMins === 1 ? '1 minute ago' : `${diffMins} minutes ago`;
+    } else {
+      return 'just now';
+    }
+  }
+
+  /**
+   * Truncate a string to a maximum length.
+   *
+   * @param str - The string to truncate
+   * @param maxLength - The maximum length
+   * @returns The truncated string
+   */
+  private truncateString(str: string, maxLength: number): string {
+    if (str.length <= maxLength) {
+      return str;
+    }
+    return str.substring(0, maxLength - 1) + '…';
+  }
+
+  /**
+   * Clear all decorations from all editors.
+   */
+  private clearDecorations(): void {
+    if (!this._decorationType) {
+      return;
+    }
+
+    // Clear decorations from all visible editors
+    for (const editor of vscode.window.visibleTextEditors) {
+      editor.setDecorations(this._decorationType, []);
+    }
+
+    this._currentLine = -1;
+    this._currentEditor = undefined;
+  }
+
+  /**
+   * Dispose of resources.
+   */
+  dispose(): void {
+    // Disable first to clean up state
+    this._enabled = false;
+
+    this._onDidChangeEnabled.dispose();
+
+    if (this._decorationType) {
+      this._decorationType.dispose();
+      this._decorationType = undefined;
+    }
+
+    for (const disposable of this._disposables) {
+      disposable.dispose();
+    }
+    this._disposables = [];
+
+    this._blameCache.clear();
+  }
+}
+
+/**
+ * Create a new InlineBlameProvider instance.
+ *
+ * @param blameService - The blame service
+ * @param gitService - The git service
+ * @returns A new InlineBlameProvider instance
+ */
+export function createInlineBlameProvider(
+  blameService: IBlameService,
+  gitService: IGitService
+): InlineBlameProvider {
+  return new InlineBlameProvider(blameService, gitService);
+}
