@@ -18,7 +18,14 @@ import {
   ILogFilter,
 } from './interfaces';
 import { FileStatus, ICommit } from './interfaces/IGitService';
-import { ICommitNode, generateCommitGraph, getColumnColor } from '../utils/commitGraph';
+import { ICommitNode, generateCommitGraph } from '../utils/commitGraph';
+import {
+  computeActiveLanes,
+  computeGraphWidth,
+  DEFAULT_GRAPH_CONFIG,
+  IGraphRenderConfig,
+  renderGraphSvg,
+} from '../utils/graphRenderer';
 
 /**
  * View ID for the Git Tool Window
@@ -727,55 +734,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       return;
     }
 
-    // Send state update to webview
-    void this._webviewView.webview.postMessage({
-      type: 'stateUpdate',
-      state: this._getSerializableState(),
-    });
-  }
-
-  /**
-   * Get a serializable version of the state for the webview
-   */
-  private _getSerializableState(): ISerializableState {
-    return {
-      activeTab: this._state.activeTab,
-      hasRepository: this._state.hasRepository,
-      localChangesState: {
-        changelists: this._state.localChangesState.changelists,
-        expandedChangelists: Array.from(this._state.localChangesState.expandedChangelists),
-        selectedFiles: Array.from(this._state.localChangesState.selectedFiles),
-      },
-      logState: {
-        selectedCommits: Array.from(this._state.logState.selectedCommits),
-        expandedCommit: this._state.logState.expandedCommit,
-        filter: this._state.logState.filter,
-        commitNodes: this._extendedLogState.commitNodes.map((node) => ({
-          commit: {
-            hash: node.commit.hash,
-            shortHash: node.commit.shortHash,
-            message: node.commit.message,
-            body: node.commit.body,
-            author: node.commit.author,
-            committer: node.commit.committer,
-            parents: node.commit.parents,
-            authorDate: node.commit.authorDate.toISOString(),
-            commitDate: node.commit.commitDate.toISOString(),
-          },
-          graphColumn: node.graphColumn,
-          graphLines: node.graphLines,
-          branches: node.branches,
-          tags: node.tags,
-        })),
-      },
-      consoleState: {
-        entries: this._state.consoleState.entries.map((e) => ({
-          ...e,
-          timestamp: e.timestamp.toISOString(),
-        })),
-        maxEntries: this._state.consoleState.maxEntries,
-      },
-    };
+    // Regenerate the full HTML to ensure all panels (including graph SVGs) are up to date
+    this._webviewView.webview.html = this._getHtmlContent(this._webviewView.webview);
   }
 
   /**
@@ -799,7 +759,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
   <title>Git Tool Window</title>
   <style>
     ${this._getInlineStyles()}
@@ -1103,12 +1063,25 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     const expandedCommit = this._state.logState.expandedCommit;
     const filter = this._state.logState.filter;
 
+    // Compute active lanes and graph width for the entire commit list
+    const activeLaneMap = computeActiveLanes(commitNodes);
+    const graphWidth = computeGraphWidth(commitNodes, DEFAULT_GRAPH_CONFIG);
+
     let commitsHtml = '';
     if (commitNodes.length === 0) {
       commitsHtml = '<p class="empty-message">No commits found</p>';
     } else {
       commitsHtml = commitNodes
-        .map((node, index) => this._getCommitRowHtml(node, index, selectedCommits, expandedCommit))
+        .map((node, index) =>
+          this._getCommitRowHtml(
+            node,
+            index,
+            selectedCommits,
+            expandedCommit,
+            activeLaneMap.get(index) || new Set(),
+            DEFAULT_GRAPH_CONFIG
+          )
+        )
         .join('');
     }
 
@@ -1143,7 +1116,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           </div>
           ${filterBarHtml}
           <div class="log-split-view">
-            <div class="log-commit-list" role="listbox" aria-label="Commit History">
+            <div class="log-commit-list" role="listbox" aria-label="Commit History" style="--graph-width: ${graphWidth}px">
               ${commitsHtml}
             </div>
             <div class="log-details-panel" ${expandedCommit ? '' : 'hidden'}>
@@ -1270,14 +1243,21 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     node: ICommitNode,
     index: number,
     selectedCommits: Set<string>,
-    expandedCommit?: string
+    expandedCommit?: string,
+    activeLanes?: Set<number>,
+    config?: IGraphRenderConfig
   ): string {
     const commit = node.commit;
     const isSelected = selectedCommits.has(commit.hash);
     const isExpanded = expandedCommit === commit.hash;
 
-    // Generate graph SVG
-    const graphSvg = this._generateGraphSvg(node, index);
+    // Generate graph SVG using the new renderer
+    const graphSvg = renderGraphSvg(
+      node,
+      index,
+      activeLanes || new Set([node.graphColumn]),
+      config || DEFAULT_GRAPH_CONFIG
+    );
 
     // Format date
     const relativeDate = this._formatRelativeDate(commit.authorDate);
@@ -1312,45 +1292,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     `;
   }
 
-  /**
-   * Generate SVG for commit graph visualization
-   * Requirement 9.1: Graph showing branch and merge relationships
-   */
-  private _generateGraphSvg(node: ICommitNode, _index: number): string {
-    const width = 80;
-    const height = 24;
-    const nodeRadius = 4;
-    const columnWidth = 12;
-    const centerY = height / 2;
 
-    let svg = `<svg width="${width}" height="${height}" class="graph-svg">`;
-
-    // Draw lines to parents
-    for (const line of node.graphLines) {
-      const fromX = line.fromColumn * columnWidth + columnWidth / 2;
-      const toX = line.toColumn * columnWidth + columnWidth / 2;
-
-      if (line.type === 'merge') {
-        // Merge line - curved
-        svg += `<path d="M ${fromX} ${centerY} Q ${(fromX + toX) / 2} ${height} ${toX} ${height}" 
-                      stroke="${line.color}" fill="none" stroke-width="2" class="graph-line merge"/>`;
-      } else {
-        // Normal line - straight down
-        svg += `<line x1="${fromX}" y1="${centerY}" x2="${toX}" y2="${height}" 
-                      stroke="${line.color}" stroke-width="2" class="graph-line"/>`;
-      }
-    }
-
-    // Draw commit node
-    const nodeX = node.graphColumn * columnWidth + columnWidth / 2;
-    const nodeColor = getColumnColor(node.graphColumn);
-
-    svg += `<circle cx="${nodeX}" cy="${centerY}" r="${nodeRadius}" 
-                    fill="${nodeColor}" stroke="${nodeColor}" stroke-width="1" class="graph-node"/>`;
-
-    svg += '</svg>';
-    return svg;
-  }
 
   /**
    * Get HTML for branch and tag labels on a commit
@@ -2108,7 +2050,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .commit-row {
         display: flex;
         align-items: center;
-        padding: 4px 8px;
+        min-height: 32px;
+        padding: 0 8px;
         cursor: pointer;
         border-bottom: 1px solid var(--vscode-panel-border);
         transition: background-color 0.1s ease;
@@ -2135,24 +2078,24 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       /* Graph Styles */
       .commit-graph {
         flex-shrink: 0;
-        width: 80px;
-        height: 24px;
+        width: var(--graph-width, 80px);
+        height: 32px;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+      }
+
+      .commit-graph svg {
+        display: block;
+      }
+
+      .commit-graph:empty,
+      .commit-graph[data-width="0"] {
+        display: none;
       }
 
       .graph-svg {
         display: block;
-      }
-
-      .graph-line {
-        opacity: 0.8;
-      }
-
-      .graph-line.merge {
-        opacity: 0.6;
-      }
-
-      .graph-node {
-        filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.3));
       }
 
       /* Commit Info Styles */
@@ -2461,6 +2404,14 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             panel.classList.toggle('active', isActive);
             panel.hidden = !isActive;
           });
+
+          // Update graph width CSS custom property from log state
+          if (state.logState && state.logState.graphWidth !== undefined) {
+            const commitList = document.querySelector('.log-commit-list');
+            if (commitList) {
+              commitList.style.setProperty('--graph-width', state.logState.graphWidth + 'px');
+            }
+          }
         }
 
         // Hide context menu when clicking elsewhere
@@ -2841,68 +2792,6 @@ interface IWebviewMessage {
   files?: string[];
   targetChangelistId?: string;
   filter?: IWebviewLogFilter | null;
-}
-
-/**
- * Serializable state for the webview
- */
-interface ISerializableState {
-  activeTab: GitToolWindowTab;
-  hasRepository: boolean;
-  localChangesState: {
-    changelists: IChangelist[];
-    expandedChangelists: string[];
-    selectedFiles: string[];
-  };
-  logState: {
-    selectedCommits: string[];
-    expandedCommit?: string;
-    filter?: {
-      branch?: string;
-      author?: string;
-      since?: Date;
-      until?: Date;
-      path?: string;
-      searchText?: string;
-    };
-    commitNodes: ISerializableCommitNode[];
-  };
-  consoleState: {
-    entries: Array<{
-      timestamp: string;
-      command: string;
-      output: string;
-      exitCode?: number;
-      isError: boolean;
-    }>;
-    maxEntries: number;
-  };
-}
-
-/**
- * Serializable commit node for the webview
- */
-interface ISerializableCommitNode {
-  commit: {
-    hash: string;
-    shortHash: string;
-    message: string;
-    body?: string;
-    author: { name: string; email: string };
-    committer: { name: string; email: string };
-    parents: string[];
-    authorDate: string;
-    commitDate: string;
-  };
-  graphColumn: number;
-  graphLines: Array<{
-    fromColumn: number;
-    toColumn: number;
-    color: string;
-    type: 'commit' | 'merge' | 'branch';
-  }>;
-  branches: string[];
-  tags: string[];
 }
 
 /**

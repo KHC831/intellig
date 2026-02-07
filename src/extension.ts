@@ -602,7 +602,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Refresh command - refreshes all Git views
-  const refreshCommand = vscode.commands.registerCommand('intellij-git.refresh', () => {
+  const refreshCommand = vscode.commands.registerCommand('intellij-git.refresh', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -610,7 +610,46 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     // Refresh the Git Tool Window
     if (gitToolWindowProvider) {
-      gitToolWindowProvider.refresh();
+      // If the log tab is active, reload commits
+      if (gitToolWindowProvider.getActiveTab() === 'log') {
+        const gitService = extensionServices.gitService;
+        const repositories = gitService.getRepositories();
+        if (repositories.length > 0) {
+          const repo = repositories[0];
+          try {
+            const commits = await gitService.getLog(repo, { maxCount: 500, all: true });
+            const branchMap = new Map<string, string[]>();
+            const tagMap = new Map<string, string[]>();
+            try {
+              const branches = await gitService.getBranches(repo);
+              for (const branch of branches) {
+                if (branch.commit) {
+                  const existing = branchMap.get(branch.commit) || [];
+                  existing.push(branch.name);
+                  branchMap.set(branch.commit, existing);
+                }
+              }
+              const tags = await gitService.getTags(repo);
+              for (const tag of tags) {
+                if (tag.commit) {
+                  const existing = tagMap.get(tag.commit) || [];
+                  existing.push(tag.name);
+                  tagMap.set(tag.commit, existing);
+                }
+              }
+            } catch {
+              // Optional data
+            }
+            gitToolWindowProvider.updateLogState(commits, branchMap, tagMap);
+          } catch {
+            gitToolWindowProvider.refresh();
+          }
+        } else {
+          gitToolWindowProvider.refresh();
+        }
+      } else {
+        gitToolWindowProvider.refresh();
+      }
     }
 
     // Refresh the Branch Tree Provider
@@ -1911,6 +1950,93 @@ function registerViews(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(gitToolWindowRegistration);
+
+  // Wire up Log tab data loading
+  // When the Log tab becomes active, fetch commits and display the graph
+  if (extensionServices) {
+    const gitService = extensionServices.gitService;
+
+    // Helper to load commits into the log view
+    const loadLogCommits = async (filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }): Promise<void> => {
+      const repositories = gitService.getRepositories();
+      if (repositories.length === 0) {
+        return;
+      }
+      const repo = repositories[0];
+      try {
+        const commits = await gitService.getLog(repo, {
+          maxCount: 500,
+          all: true,
+          author: filter?.author,
+          since: filter?.since,
+          until: filter?.until,
+          path: filter?.path,
+          grep: filter?.searchText,
+        });
+
+        // Build branch map: commit hash -> branch names
+        const branchMap = new Map<string, string[]>();
+        try {
+          const branches = await gitService.getBranches(repo);
+          for (const branch of branches) {
+            if (branch.commit) {
+              const existing = branchMap.get(branch.commit) || [];
+              existing.push(branch.name);
+              branchMap.set(branch.commit, existing);
+            }
+          }
+        } catch {
+          // Branches are optional for graph rendering
+        }
+
+        // Build tag map: commit hash -> tag names
+        const tagMap = new Map<string, string[]>();
+        try {
+          const tags = await gitService.getTags(repo);
+          for (const tag of tags) {
+            if (tag.commit) {
+              const existing = tagMap.get(tag.commit) || [];
+              existing.push(tag.name);
+              tagMap.set(tag.commit, existing);
+            }
+          }
+        } catch {
+          // Tags are optional for graph rendering
+        }
+
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.updateLogState(commits, branchMap, tagMap);
+        }
+      } catch (error) {
+        console.error('Failed to load git log:', error);
+      }
+    };
+
+    // Load commits when the Log tab becomes active
+    const tabChangeListener = gitToolWindowProvider.onDidChangeActiveTab((tab) => {
+      if (tab === 'log') {
+        void loadLogCommits();
+      }
+    });
+    context.subscriptions.push(tabChangeListener);
+
+    // Reload commits when log filter changes
+    const filterChangeListener = gitToolWindowProvider.onDidRequestLogFilter((filter) => {
+      void loadLogCommits(filter ? {
+        author: filter.author,
+        since: filter.since,
+        until: filter.until,
+        path: filter.path,
+        searchText: filter.searchText,
+      } : undefined);
+    });
+    context.subscriptions.push(filterChangeListener);
+
+    // If the default tab is 'log', load commits immediately
+    if (defaultTab === 'log') {
+      void loadLogCommits();
+    }
+  }
 
   // Register Branch Tree Provider for the branches view
   // Requirements: 5.1, 5.2, 5.7, 5.8, 17.6
