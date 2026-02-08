@@ -18,6 +18,15 @@
     "scm",
     "source control"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KHC831/intellig"
+  },
+  "bugs": {
+    "url": "https://github.com/KHC831/intellig/issues"
+  },
+  "homepage": "https://github.com/KHC831/intellig#readme",
+  "license": "MIT",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -105,7 +114,7 @@
       },
       {
         "command": "intellig.branch.rename",
-        "title": "Rename",
+        "title": "Rename...",
         "category": "IntelliG"
       },
       {
@@ -114,8 +123,28 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.branch.update",
+        "title": "Update",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.branch.push",
+        "title": "Push...",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.branch.showDiffWithWorkingTree",
+        "title": "Show Diff with Working Tree",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.branch.checkoutAndRebase",
+        "title": "Checkout and Rebase",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.remoteBranch.checkoutAsLocal",
-        "title": "Checkout as Local Branch",
+        "title": "Checkout",
         "category": "IntelliG"
       },
       {
@@ -126,6 +155,16 @@
       {
         "command": "intellig.remoteBranch.pullIntoCurrent",
         "title": "Pull into Current",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.remoteBranch.pullUsingRebase",
+        "title": "Pull Using Rebase",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.remoteBranch.pullUsingMerge",
+        "title": "Pull Using Merge",
         "category": "IntelliG"
       },
       {
@@ -175,7 +214,7 @@
       },
       {
         "command": "intellig.remoteBranch.deleteRemote",
-        "title": "Delete Remote Branch",
+        "title": "Delete",
         "category": "IntelliG"
       },
       {
@@ -288,7 +327,133 @@
       }
     ],
     "menus": {
-      "view/item/context": [],
+      "view/item/context": [
+        {
+          "command": "intellig.branch.newBranchFrom",
+          "when": "viewItem == intellig.localBranchCurrent",
+          "group": "1_branchOps@1"
+        },
+        {
+          "command": "intellig.branch.update",
+          "when": "viewItem == intellig.localBranchCurrent",
+          "group": "2_sync@1"
+        },
+        {
+          "command": "intellig.branch.push",
+          "when": "viewItem == intellig.localBranchCurrent",
+          "group": "2_sync@2"
+        },
+        {
+          "command": "intellig.branch.rename",
+          "when": "viewItem == intellig.localBranchCurrent",
+          "group": "3_manage@1"
+        },
+        {
+          "command": "intellig.branch.checkout",
+          "when": "viewItem == intellig.localBranch",
+          "group": "1_branchOps@1"
+        },
+        {
+          "command": "intellig.branch.newBranchFrom",
+          "when": "viewItem == intellig.localBranch",
+          "group": "1_branchOps@2"
+        },
+        {
+          "command": "intellig.branch.checkoutAndRebase",
+          "when": "viewItem == intellig.localBranch",
+          "group": "1_branchOps@3"
+        },
+        {
+          "command": "intellig.branch.compareWithCurrent",
+          "when": "viewItem == intellig.localBranch",
+          "group": "2_compare@1"
+        },
+        {
+          "command": "intellig.branch.showDiffWithWorkingTree",
+          "when": "viewItem == intellig.localBranch",
+          "group": "2_compare@2"
+        },
+        {
+          "command": "intellig.branch.rebaseCurrentOnto",
+          "when": "viewItem == intellig.localBranch",
+          "group": "3_integrate@1"
+        },
+        {
+          "command": "intellig.branch.mergeIntoCurrent",
+          "when": "viewItem == intellig.localBranch",
+          "group": "3_integrate@2"
+        },
+        {
+          "command": "intellig.branch.update",
+          "when": "viewItem == intellig.localBranch",
+          "group": "4_sync@1"
+        },
+        {
+          "command": "intellig.branch.push",
+          "when": "viewItem == intellig.localBranch",
+          "group": "4_sync@2"
+        },
+        {
+          "command": "intellig.branch.rename",
+          "when": "viewItem == intellig.localBranch",
+          "group": "5_manage@1"
+        },
+        {
+          "command": "intellig.branch.delete",
+          "when": "viewItem == intellig.localBranch",
+          "group": "5_manage@2"
+        },
+        {
+          "command": "intellig.remoteBranch.checkoutAsLocal",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "1_branchOps@1"
+        },
+        {
+          "command": "intellig.branch.newBranchFrom",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "1_branchOps@2"
+        },
+        {
+          "command": "intellig.branch.checkoutAndRebase",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "1_branchOps@3"
+        },
+        {
+          "command": "intellig.branch.compareWithCurrent",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "2_compare@1"
+        },
+        {
+          "command": "intellig.branch.showDiffWithWorkingTree",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "2_compare@2"
+        },
+        {
+          "command": "intellig.branch.rebaseCurrentOnto",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "3_integrate@1"
+        },
+        {
+          "command": "intellig.branch.mergeIntoCurrent",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "3_integrate@2"
+        },
+        {
+          "command": "intellig.remoteBranch.pullUsingRebase",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "4_pull@1"
+        },
+        {
+          "command": "intellig.remoteBranch.pullUsingMerge",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "4_pull@2"
+        },
+        {
+          "command": "intellig.remoteBranch.deleteRemote",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "5_manage@1"
+        }
+      ],
       "view/title": [],
       "explorer/context": [
         {

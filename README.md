@@ -1,117 +1,25 @@
 # IntelliG for VS Code
 
-IntelliG — IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, interactive rebase, shelf, blame annotations, and more — into VS Code.
+IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, interactive rebase, shelf, blame annotations, and more — right into VS Code.
 
-## Prerequisites
+## Features
 
-- Node.js 20+
+- **Commit Dialog** — structured commit workflow with sign-off support and message templates
+- **Branch Management** — create, checkout, rename, delete, merge, and rebase branches from a rich context menu
+- **Interactive Rebase** — reorder, squash, fixup, edit, and reword commits visually
+- **Shelf & Stash** — shelve and unshelve changes, or use Git stash with a visual interface
+- **Blame Annotations** — inline, gutter, or both — see who changed each line and when
+- **Merge & Conflict Resolution** — three-way merge view with accept current/incoming/both actions
+- **Branch Comparison** — compare any branch with your current branch or working tree
+- **Git Log** — browse commit history with graph visualization and filtering
+- **Explorer & Editor Integration** — stage, unstage, revert, diff, and view history from context menus
+- **Auto Fetch** — configurable automatic fetching from remotes
+- **IntelliJ Keymap** — optional IntelliJ IDEA-style keyboard shortcuts
+
+## Requirements
+
 - VS Code 1.85+
 - Git installed and available on PATH
-
-## Setup
-
-```bash
-npm install
-```
-
-## Commands
-
-### Build
-
-```bash
-# Compile TypeScript to JavaScript (output in out/)
-npm run compile
-
-# Watch mode — recompiles on file changes
-npm run watch
-```
-
-### Lint & Format
-
-```bash
-# Run ESLint
-npm run lint
-
-# Run ESLint with auto-fix
-npm run lint:fix
-
-# Check formatting (Prettier)
-npm run format:check
-
-# Fix formatting
-npm run format
-```
-
-### Tests
-
-Unit tests use mocha with ts-node and run directly from TypeScript source. Property-based tests (fast-check) run from compiled JS.
-
-```bash
-# Unit tests (uses .mocharc.json — runs from src/)
-npx mocha
-
-# Unit tests — single file
-npx mocha --grep "GitService"
-
-# Property-based tests (compile first, run from out/)
-npm run compile
-npx mocha --no-config --require out/test/setup.js 'out/test/property/**/*.property.test.js' --timeout 60000 --exit
-
-# Property-based tests — single file
-npm run compile
-npx mocha --no-config --require out/test/setup.js 'out/test/property/stashRoundTrip.property.test.js' --timeout 60000 --exit
-
-# All tests together (unit + property)
-npm run compile
-npx mocha --timeout 60000
-npx mocha --no-config --require out/test/setup.js 'out/test/property/**/*.property.test.js' --timeout 60000 --exit
-
-# VS Code integration tests (launches Extension Host)
-npm test
-```
-
-### Local Development
-
-```bash
-# 1. Compile the extension
-npm run compile
-
-# 2. Open this folder in VS Code, then press F5
-#    This launches the Extension Development Host with the extension loaded.
-
-# Or use watch mode for continuous compilation:
-npm run watch
-# Then press F5 in VS Code to launch the Extension Development Host.
-```
-
-### Packaging
-
-```bash
-# Install vsce if you don't have it
-npm install -g @vscode/vsce
-
-# Package as .vsix
-npx vsce package
-
-# Install the .vsix in VS Code:
-#   Extensions panel → ⋯ → Install from VSIX...
-```
-
-## Project Structure
-
-```
-src/
-├── commands/          # Command handlers (branch context menus, etc.)
-├── services/          # Core service implementations
-│   └── interfaces/    # TypeScript interfaces for all services
-├── utils/             # Shared utilities (git CLI, parsers, cache, graphs)
-├── extension.ts       # Extension entry point
-└── test/
-    ├── mocks/         # VS Code API mock for testing outside Extension Host
-    ├── unit/          # Unit tests (mocha + assert)
-    ├── property/      # Property-based tests (mocha + fast-check)
-    └── suite/         # VS Code integration tests
-```
 
 ## Keyboard Shortcuts
 
@@ -127,4 +35,29 @@ src/
 | Blame Annotations   | —                 | Ctrl+Alt+Shift+A   |
 | Show History        | —                 | Ctrl+H             |
 
-Enable the IntelliJ keymap preset in settings: `intellig.useIntelliJKeymap: true`
+Enable the IntelliJ keymap preset in settings: `intellig.keymapPreset: "intellij"`
+
+## Configuration
+
+| Setting                          | Default     | Description                                      |
+|----------------------------------|-------------|--------------------------------------------------|
+| `intellig.defaultCommitSignOff`  | `false`     | Add Signed-off-by line to commit messages        |
+| `intellig.commitMessageTemplate` | `""`        | Default commit message template                  |
+| `intellig.pullRebase`            | `false`     | Use rebase instead of merge when pulling         |
+| `intellig.autoFetchEnabled`      | `true`      | Enable automatic fetching from remotes           |
+| `intellig.autoFetchInterval`     | `180`       | Auto-fetch interval in seconds                   |
+| `intellig.blameAnnotationStyle`  | `"inline"`  | Style for blame annotations (inline/gutter/both) |
+| `intellig.showStatusBarBranch`   | `true`      | Show current branch in status bar                |
+| `intellig.keymapPreset`          | `"default"` | Keyboard shortcut preset (default/intellij)      |
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, build commands, and project structure.
+
+## Feedback & Issues
+
+Found a bug or have a question? [Open an issue](https://github.com/KHC831/intellig/issues) on GitHub.
+
+## License
+
+See [LICENSE](LICENSE) for details.
