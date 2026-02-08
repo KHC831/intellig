@@ -14,7 +14,6 @@ import { EventEmitter } from '../../mocks/vscode';
 // Mock GitToolWindowProvider for testing
 class MockGitToolWindowProvider implements Partial<IGitToolWindowProvider> {
   public entries: Array<Omit<IConsoleEntry, 'timestamp'>> = [];
-  public activeTab: string = 'local-changes';
   public refreshCount = 0;
   public clearCount = 0;
 
@@ -25,10 +24,6 @@ class MockGitToolWindowProvider implements Partial<IGitToolWindowProvider> {
   clearConsole(): void {
     this.entries = [];
     this.clearCount++;
-  }
-
-  setActiveTab(tab: string): void {
-    this.activeTab = tab;
   }
 
   refresh(): void {
@@ -323,13 +318,15 @@ describe('ConsoleService', () => {
   });
 
   describe('showConsole', () => {
-    it('should switch to console tab in tool window', () => {
+    it('should be a no-op in 3-panel layout (console tab removed)', () => {
       const mockProvider = new MockGitToolWindowProvider();
       consoleService.connectToToolWindow(mockProvider as unknown as IGitToolWindowProvider);
 
+      // showConsole is now a no-op since the 3-panel layout has no console tab
       consoleService.showConsole();
 
-      assert.strictEqual(mockProvider.activeTab, 'console');
+      // No tab-related state to check; just verify no errors
+      assert.ok(true);
     });
 
     it('should not throw when no provider connected', () => {

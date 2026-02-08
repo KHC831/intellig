@@ -1,6 +1,16 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IConsoleEntry, IConsoleState } from '../../services/interfaces/IGitToolWindowProvider';
+import { IConsoleEntry } from '../../services/interfaces/IGitToolWindowProvider';
+
+/**
+ * Local type for backward compatibility in tests.
+ * The IConsoleState interface was removed when the tabbed layout was replaced
+ * by the 3-panel layout.
+ */
+interface IConsoleState {
+  entries: IConsoleEntry[];
+  maxEntries: number;
+}
 import {
   IConsoleService,
   IStreamingOutputHandler,

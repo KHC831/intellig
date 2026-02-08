@@ -288,115 +288,8 @@
       }
     ],
     "menus": {
-      "view/item/context": [
-        {
-          "command": "intellij-git.branch.checkout",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
-          "group": "1_checkout@1"
-        },
-        {
-          "command": "intellij-git.branch.newBranchFrom",
-          "when": "view == intellij-git.branchesView && viewItem =~ /intellij-git\\.localBranch.*/",
-          "group": "2_create@1"
-        },
-        {
-          "command": "intellij-git.branch.mergeIntoCurrent",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
-          "group": "3_merge@1"
-        },
-        {
-          "command": "intellij-git.branch.rebaseCurrentOnto",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
-          "group": "3_merge@2"
-        },
-        {
-          "command": "intellij-git.branch.compareWithCurrent",
-          "when": "view == intellij-git.branchesView && viewItem =~ /intellij-git\\.localBranch.*/",
-          "group": "4_compare@1"
-        },
-        {
-          "command": "intellij-git.branch.rename",
-          "when": "view == intellij-git.branchesView && viewItem =~ /intellij-git\\.localBranch.*/",
-          "group": "5_modify@1"
-        },
-        {
-          "command": "intellij-git.branch.delete",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.localBranch",
-          "group": "5_modify@2"
-        },
-        {
-          "command": "intellij-git.remoteBranch.checkoutAsLocal",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "1_checkout@1"
-        },
-        {
-          "command": "intellij-git.branch.newBranchFrom",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "2_create@1"
-        },
-        {
-          "command": "intellij-git.branch.mergeIntoCurrent",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "3_merge@1"
-        },
-        {
-          "command": "intellij-git.branch.rebaseCurrentOnto",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "3_merge@2"
-        },
-        {
-          "command": "intellij-git.branch.compareWithCurrent",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "4_compare@1"
-        },
-        {
-          "command": "intellij-git.remoteBranch.cherryPickCommits",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "5_cherrypick@1"
-        },
-        {
-          "command": "intellij-git.remoteBranch.pullIntoCurrent",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "6_pull@1"
-        },
-        {
-          "command": "intellij-git.remoteBranch.deleteRemote",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.remoteBranch",
-          "group": "7_delete@1"
-        },
-        {
-          "command": "intellij-git.tag.checkoutDetached",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
-          "group": "1_checkout@1"
-        },
-        {
-          "command": "intellij-git.tag.newBranchFrom",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
-          "group": "2_create@1"
-        },
-        {
-          "command": "intellij-git.tag.cherryPick",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
-          "group": "3_cherrypick@1"
-        },
-        {
-          "command": "intellij-git.tag.delete",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
-          "group": "4_delete@1"
-        },
-        {
-          "command": "intellij-git.tag.push",
-          "when": "view == intellij-git.branchesView && viewItem == intellij-git.tag",
-          "group": "5_push@1"
-        }
-      ],
-      "view/title": [
-        {
-          "command": "intellij-git.branches.refresh",
-          "when": "view == intellij-git.branchesView",
-          "group": "navigation"
-        }
-      ],
+      "view/item/context": [],
+      "view/title": [],
       "explorer/context": [
         {
           "submenu": "intellij-git.explorerSubmenu",
@@ -469,7 +362,7 @@
       }
     ],
     "viewsContainers": {
-      "activitybar": [
+      "panel": [
         {
           "id": "intellij-git",
           "title": "IntelliJ Git",
@@ -482,11 +375,7 @@
         {
           "type": "webview",
           "id": "intellij-git.toolWindow",
-          "name": "Git Tool Window"
-        },
-        {
-          "id": "intellij-git.branchesView",
-          "name": "Branches"
+          "name": "Git"
         }
       ]
     },
@@ -517,16 +406,6 @@
           "type": "number",
           "default": 180,
           "description": "Auto-fetch interval in seconds"
-        },
-        "intellij-git.defaultToolWindowTab": {
-          "type": "string",
-          "enum": [
-            "local-changes",
-            "log",
-            "console"
-          ],
-          "default": "local-changes",
-          "description": "Default tab when opening Git Tool Window"
         },
         "intellij-git.blameAnnotationStyle": {
           "type": "string",

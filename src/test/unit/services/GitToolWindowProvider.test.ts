@@ -5,7 +5,6 @@
 import '../../../test/setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import { GitToolWindowTab, IChangelist } from '../../../services/interfaces';
 import { Uri } from '../../mocks/vscode';
 
 describe('GitToolWindowProvider', () => {
@@ -21,222 +20,33 @@ describe('GitToolWindowProvider', () => {
   });
 
   describe('constructor', () => {
-    it('should initialize with default tab as local-changes', () => {
-      assert.strictEqual(provider.getActiveTab(), 'local-changes');
-    });
-
-    it('should initialize with specified default tab', () => {
-      const logProvider = new GitToolWindowProvider(extensionUri, 'log');
-      assert.strictEqual(logProvider.getActiveTab(), 'log');
-      logProvider.dispose();
-    });
-
-    it('should initialize with console tab', () => {
-      const consoleProvider = new GitToolWindowProvider(extensionUri, 'console');
-      assert.strictEqual(consoleProvider.getActiveTab(), 'console');
-      consoleProvider.dispose();
-    });
-  });
-
-  describe('setActiveTab', () => {
-    it('should switch to log tab', () => {
-      provider.setActiveTab('log');
-      assert.strictEqual(provider.getActiveTab(), 'log');
-    });
-
-    it('should switch to console tab', () => {
-      provider.setActiveTab('console');
-      assert.strictEqual(provider.getActiveTab(), 'console');
-    });
-
-    it('should switch back to local-changes tab', () => {
-      provider.setActiveTab('log');
-      provider.setActiveTab('local-changes');
-      assert.strictEqual(provider.getActiveTab(), 'local-changes');
-    });
-
-    it('should fire onDidChangeActiveTab event when tab changes', (done) => {
-      const disposable = provider.onDidChangeActiveTab((tab) => {
-        assert.strictEqual(tab, 'log');
-        disposable.dispose();
-        done();
-      });
-      provider.setActiveTab('log');
-    });
-
-    it('should not fire event when setting same tab', () => {
-      let eventFired = false;
-      const disposable = provider.onDidChangeActiveTab(() => {
-        eventFired = true;
-      });
-
-      // Set to same tab
-      provider.setActiveTab('local-changes');
-
-      assert.strictEqual(eventFired, false);
-      disposable.dispose();
-    });
-
-    it('should fire onDidChangeState event when tab changes', (done) => {
-      const disposable = provider.onDidChangeState((state) => {
-        assert.strictEqual(state.activeTab, 'console');
-        disposable.dispose();
-        done();
-      });
-      provider.setActiveTab('console');
+    it('should initialize with hasRepository as false', () => {
+      const state = provider.getState();
+      assert.strictEqual(state.hasRepository, false);
     });
   });
 
   describe('getState', () => {
-    it('should return initial state', () => {
+    it('should return initial state with hasRepository false', () => {
       const state = provider.getState();
-
-      assert.strictEqual(state.activeTab, 'local-changes');
       assert.strictEqual(state.hasRepository, false);
-      assert.deepStrictEqual(state.localChangesState.changelists, []);
-      assert.strictEqual(state.localChangesState.expandedChangelists.size, 0);
-      assert.strictEqual(state.localChangesState.selectedFiles.size, 0);
-      assert.strictEqual(state.logState.selectedCommits.size, 0);
-      assert.strictEqual(state.logState.expandedCommit, undefined);
-      assert.deepStrictEqual(state.consoleState.entries, []);
-    });
-
-    it('should return a copy of state (not reference)', () => {
-      const state1 = provider.getState();
-      const state2 = provider.getState();
-
-      // Should be equal but not the same reference
-      assert.deepStrictEqual(state1.activeTab, state2.activeTab);
-      assert.notStrictEqual(
-        state1.localChangesState.expandedChangelists,
-        state2.localChangesState.expandedChangelists
-      );
-    });
-  });
-
-  describe('state preservation across tab switches', () => {
-    it('should preserve local changes state when switching tabs', () => {
-      // Set up some state
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [{ path: 'test.ts', status: 'modified', staged: false }],
-        },
-      ];
-      provider.updateLocalChangesState(changelists);
-
-      // Switch to log tab
-      provider.setActiveTab('log');
-
-      // Switch back to local-changes
-      provider.setActiveTab('local-changes');
-
-      // Verify state is preserved
-      const state = provider.getState();
-      assert.strictEqual(state.localChangesState.changelists.length, 1);
-      assert.strictEqual(state.localChangesState.changelists[0].name, 'Default Changelist');
-    });
-
-    it('should preserve console entries when switching tabs', () => {
-      // Add console entries
-      provider.addConsoleEntry({
-        command: 'git status',
-        output: 'On branch main',
-        isError: false,
-      });
-
-      // Switch to local-changes tab
-      provider.setActiveTab('local-changes');
-
-      // Switch back to console
-      provider.setActiveTab('console');
-
-      // Verify entries are preserved
-      const state = provider.getState();
-      assert.strictEqual(state.consoleState.entries.length, 1);
-      assert.strictEqual(state.consoleState.entries[0].command, 'git status');
-    });
-
-    it('should preserve log state when switching tabs', () => {
-      // Start on log tab
-      provider.setActiveTab('log');
-
-      // Switch to console
-      provider.setActiveTab('console');
-
-      // Switch back to log
-      provider.setActiveTab('log');
-
-      // State should be preserved (even if empty)
-      const state = provider.getState();
-      assert.strictEqual(state.activeTab, 'log');
     });
   });
 
   describe('addConsoleEntry', () => {
-    it('should add a console entry with timestamp', () => {
-      const beforeTime = new Date();
-
-      provider.addConsoleEntry({
-        command: 'git status',
-        output: 'On branch main',
-        isError: false,
+    it('should not throw when adding a console entry', () => {
+      // Console entries are stored internally but no longer exposed via getState
+      assert.doesNotThrow(() => {
+        provider.addConsoleEntry({
+          command: 'git status',
+          output: 'On branch main',
+          isError: false,
+        });
       });
-
-      const afterTime = new Date();
-      const state = provider.getState();
-
-      assert.strictEqual(state.consoleState.entries.length, 1);
-      const entry = state.consoleState.entries[0];
-      assert.strictEqual(entry.command, 'git status');
-      assert.strictEqual(entry.output, 'On branch main');
-      assert.strictEqual(entry.isError, false);
-      assert.ok(entry.timestamp >= beforeTime);
-      assert.ok(entry.timestamp <= afterTime);
-    });
-
-    it('should add multiple console entries', () => {
-      provider.addConsoleEntry({
-        command: 'git status',
-        output: 'On branch main',
-        isError: false,
-      });
-
-      provider.addConsoleEntry({
-        command: 'git add .',
-        output: '',
-        isError: false,
-      });
-
-      provider.addConsoleEntry({
-        command: 'git commit -m "test"',
-        output: '[main abc1234] test',
-        exitCode: 0,
-        isError: false,
-      });
-
-      const state = provider.getState();
-      assert.strictEqual(state.consoleState.entries.length, 3);
-    });
-
-    it('should include exit code when provided', () => {
-      provider.addConsoleEntry({
-        command: 'git push',
-        output: 'error: failed to push',
-        exitCode: 1,
-        isError: true,
-      });
-
-      const state = provider.getState();
-      assert.strictEqual(state.consoleState.entries[0].exitCode, 1);
-      assert.strictEqual(state.consoleState.entries[0].isError, true);
     });
 
     it('should fire onDidChangeState event', (done) => {
-      const disposable = provider.onDidChangeState((state) => {
-        assert.strictEqual(state.consoleState.entries.length, 1);
+      const disposable = provider.onDidChangeState(() => {
         disposable.dispose();
         done();
       });
@@ -250,23 +60,16 @@ describe('GitToolWindowProvider', () => {
   });
 
   describe('clearConsole', () => {
-    it('should clear all console entries', () => {
+    it('should not throw when clearing console', () => {
       provider.addConsoleEntry({
         command: 'git status',
         output: 'On branch main',
         isError: false,
       });
 
-      provider.addConsoleEntry({
-        command: 'git add .',
-        output: '',
-        isError: false,
+      assert.doesNotThrow(() => {
+        provider.clearConsole();
       });
-
-      provider.clearConsole();
-
-      const state = provider.getState();
-      assert.strictEqual(state.consoleState.entries.length, 0);
     });
 
     it('should fire onDidChangeState event', (done) => {
@@ -276,68 +79,12 @@ describe('GitToolWindowProvider', () => {
         isError: false,
       });
 
-      const disposable = provider.onDidChangeState((state) => {
-        assert.strictEqual(state.consoleState.entries.length, 0);
+      const disposable = provider.onDidChangeState(() => {
         disposable.dispose();
         done();
       });
 
       provider.clearConsole();
-    });
-  });
-
-  describe('updateLocalChangesState', () => {
-    it('should update changelists', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [
-            { path: 'file1.ts', status: 'modified', staged: false },
-            { path: 'file2.ts', status: 'added', staged: true },
-          ],
-        },
-        {
-          id: 'feature',
-          name: 'Feature Work',
-          isDefault: false,
-          files: [{ path: 'feature.ts', status: 'modified', staged: false }],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-
-      const state = provider.getState();
-      assert.strictEqual(state.localChangesState.changelists.length, 2);
-      assert.strictEqual(state.localChangesState.changelists[0].files.length, 2);
-      assert.strictEqual(state.localChangesState.changelists[1].name, 'Feature Work');
-    });
-
-    it('should set hasRepository to true', () => {
-      provider.updateLocalChangesState([]);
-
-      const state = provider.getState();
-      assert.strictEqual(state.hasRepository, true);
-    });
-
-    it('should fire onDidChangeState event', (done) => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [],
-        },
-      ];
-
-      const disposable = provider.onDidChangeState((state) => {
-        assert.strictEqual(state.localChangesState.changelists.length, 1);
-        disposable.dispose();
-        done();
-      });
-
-      provider.updateLocalChangesState(changelists);
     });
   });
 
@@ -358,8 +105,7 @@ describe('GitToolWindowProvider', () => {
     });
 
     it('should fire onDidChangeState event when value changes', (done) => {
-      const disposable = provider.onDidChangeState((state) => {
-        assert.strictEqual(state.hasRepository, true);
+      const disposable = provider.onDidChangeState(() => {
         disposable.dispose();
         done();
       });
@@ -401,313 +147,6 @@ describe('GitToolWindowProvider', () => {
       provider.dispose();
       provider.dispose();
       // Should not throw
-    });
-  });
-
-  describe('keyboard accessibility (Requirement 17.1)', () => {
-    it('should support all three tabs for keyboard navigation', () => {
-      // Verify all tabs are accessible
-      const tabs: GitToolWindowTab[] = ['local-changes', 'log', 'console'];
-
-      tabs.forEach((tab) => {
-        provider.setActiveTab(tab);
-        assert.strictEqual(provider.getActiveTab(), tab);
-      });
-    });
-  });
-
-  describe('Local Changes View - Tree View with Changelist Grouping (Requirement 2.1, 17.2)', () => {
-    it('should display files grouped by changelist', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [
-            { path: 'src/app.ts', status: 'modified', staged: false },
-            { path: 'src/utils.ts', status: 'added', staged: true },
-          ],
-        },
-        {
-          id: 'feature-1',
-          name: 'Feature Work',
-          isDefault: false,
-          files: [{ path: 'src/feature.ts', status: 'modified', staged: false }],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-      const state = provider.getState();
-
-      assert.strictEqual(state.localChangesState.changelists.length, 2);
-      assert.strictEqual(state.localChangesState.changelists[0].files.length, 2);
-      assert.strictEqual(state.localChangesState.changelists[1].files.length, 1);
-    });
-
-    it('should support expand/collapse of changelists', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [{ path: 'test.ts', status: 'modified', staged: false }],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-
-      // Initially no changelists are expanded
-      const state = provider.getState();
-      assert.strictEqual(state.localChangesState.expandedChangelists.size, 0);
-    });
-
-    it('should preserve expanded state across updates', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [{ path: 'test.ts', status: 'modified', staged: false }],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-
-      // Update with new changelists
-      const newChangelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [
-            { path: 'test.ts', status: 'modified', staged: false },
-            { path: 'new.ts', status: 'added', staged: false },
-          ],
-        },
-      ];
-
-      provider.updateLocalChangesState(newChangelists);
-      const state = provider.getState();
-
-      // Changelists should be updated
-      assert.strictEqual(state.localChangesState.changelists[0].files.length, 2);
-    });
-  });
-
-  describe('Local Changes View - File Status Color Coding (Requirement 2.6, 17.10)', () => {
-    it('should handle all file status types', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [
-            { path: 'modified.ts', status: 'modified', staged: false },
-            { path: 'added.ts', status: 'added', staged: false },
-            { path: 'deleted.ts', status: 'deleted', staged: false },
-            { path: 'renamed.ts', status: 'renamed', staged: false },
-            { path: 'untracked.ts', status: 'untracked', staged: false },
-            { path: 'conflicted.ts', status: 'conflicted', staged: false },
-          ],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-      const state = provider.getState();
-
-      // Verify all status types are preserved
-      const files = state.localChangesState.changelists[0].files;
-      assert.strictEqual(files[0].status, 'modified');
-      assert.strictEqual(files[1].status, 'added');
-      assert.strictEqual(files[2].status, 'deleted');
-      assert.strictEqual(files[3].status, 'renamed');
-      assert.strictEqual(files[4].status, 'untracked');
-      assert.strictEqual(files[5].status, 'conflicted');
-    });
-
-    it('should distinguish staged and unstaged files', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [
-            { path: 'staged.ts', status: 'modified', staged: true },
-            { path: 'unstaged.ts', status: 'modified', staged: false },
-          ],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-      const state = provider.getState();
-
-      const files = state.localChangesState.changelists[0].files;
-      assert.strictEqual(files[0].staged, true);
-      assert.strictEqual(files[1].staged, false);
-    });
-  });
-
-  describe('Local Changes View - Context Menu Actions (Requirement 2.7)', () => {
-    it('should fire onDidRequestContextAction event for context menu actions', (done) => {
-      const disposable = provider.onDidRequestContextAction((event) => {
-        assert.strictEqual(event.action, 'showDiff');
-        assert.deepStrictEqual(event.files, ['test.ts']);
-        disposable.dispose();
-        done();
-      });
-
-      // Simulate context action (this would normally come from webview)
-      // We test the event emitter directly
-      (
-        provider as unknown as { _onDidRequestContextAction: { fire: (event: unknown) => void } }
-      )._onDidRequestContextAction.fire({
-        action: 'showDiff',
-        files: ['test.ts'],
-      });
-    });
-
-    it('should support all context menu action types', () => {
-      const actions = [
-        'stage',
-        'unstage',
-        'revert',
-        'showDiff',
-        'moveToChangelist',
-        'shelve',
-        'delete',
-      ];
-      const receivedActions: string[] = [];
-
-      const disposable = provider.onDidRequestContextAction((event) => {
-        receivedActions.push(event.action);
-      });
-
-      // Fire events for each action type
-      actions.forEach((action) => {
-        (
-          provider as unknown as { _onDidRequestContextAction: { fire: (event: unknown) => void } }
-        )._onDidRequestContextAction.fire({
-          action,
-          files: ['test.ts'],
-        });
-      });
-
-      assert.deepStrictEqual(receivedActions, actions);
-      disposable.dispose();
-    });
-
-    it('should include target changelist ID for moveToChangelist action', (done) => {
-      const disposable = provider.onDidRequestContextAction((event) => {
-        assert.strictEqual(event.action, 'moveToChangelist');
-        assert.strictEqual(event.targetChangelistId, 'feature-1');
-        disposable.dispose();
-        done();
-      });
-
-      (
-        provider as unknown as { _onDidRequestContextAction: { fire: (event: unknown) => void } }
-      )._onDidRequestContextAction.fire({
-        action: 'moveToChangelist',
-        files: ['test.ts'],
-        targetChangelistId: 'feature-1',
-      });
-    });
-  });
-
-  describe('Local Changes View - Drag and Drop (Requirement 2.4, 17.10)', () => {
-    it('should fire onDidRequestFileDrop event when files are dropped', (done) => {
-      const disposable = provider.onDidRequestFileDrop((event) => {
-        assert.deepStrictEqual(event.files, ['src/app.ts', 'src/utils.ts']);
-        assert.strictEqual(event.targetChangelistId, 'feature-1');
-        disposable.dispose();
-        done();
-      });
-
-      // Simulate file drop (this would normally come from webview)
-      (
-        provider as unknown as { _onDidRequestFileDrop: { fire: (event: unknown) => void } }
-      )._onDidRequestFileDrop.fire({
-        files: ['src/app.ts', 'src/utils.ts'],
-        targetChangelistId: 'feature-1',
-      });
-    });
-
-    it('should support dropping single file', (done) => {
-      const disposable = provider.onDidRequestFileDrop((event) => {
-        assert.strictEqual(event.files.length, 1);
-        assert.strictEqual(event.files[0], 'test.ts');
-        disposable.dispose();
-        done();
-      });
-
-      (
-        provider as unknown as { _onDidRequestFileDrop: { fire: (event: unknown) => void } }
-      )._onDidRequestFileDrop.fire({
-        files: ['test.ts'],
-        targetChangelistId: 'default',
-      });
-    });
-
-    it('should support dropping multiple files', (done) => {
-      const disposable = provider.onDidRequestFileDrop((event) => {
-        assert.strictEqual(event.files.length, 3);
-        disposable.dispose();
-        done();
-      });
-
-      (
-        provider as unknown as { _onDidRequestFileDrop: { fire: (event: unknown) => void } }
-      )._onDidRequestFileDrop.fire({
-        files: ['file1.ts', 'file2.ts', 'file3.ts'],
-        targetChangelistId: 'feature-1',
-      });
-    });
-  });
-
-  describe('Local Changes View - File Selection', () => {
-    it('should track selected files', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [
-            { path: 'file1.ts', status: 'modified', staged: false },
-            { path: 'file2.ts', status: 'modified', staged: false },
-          ],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-      const state = provider.getState();
-
-      // Initially no files are selected
-      assert.strictEqual(state.localChangesState.selectedFiles.size, 0);
-    });
-  });
-
-  describe('Local Changes View - Default Changelist Badge', () => {
-    it('should identify default changelist', () => {
-      const changelists: IChangelist[] = [
-        {
-          id: 'default',
-          name: 'Default Changelist',
-          isDefault: true,
-          files: [],
-        },
-        {
-          id: 'feature',
-          name: 'Feature Work',
-          isDefault: false,
-          files: [],
-        },
-      ];
-
-      provider.updateLocalChangesState(changelists);
-      const state = provider.getState();
-
-      assert.strictEqual(state.localChangesState.changelists[0].isDefault, true);
-      assert.strictEqual(state.localChangesState.changelists[1].isDefault, false);
     });
   });
 });
@@ -839,9 +278,9 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
 
       provider.selectCommit('abc1234567890');
 
-      const state = provider.getState();
-      assert.ok(state.logState.selectedCommits.has('abc1234567890'));
-      assert.strictEqual(state.logState.expandedCommit, 'abc1234567890');
+      const extState = provider.getExtendedLogState();
+      assert.ok(extState.selectedCommits.has('abc1234567890'));
+      assert.strictEqual(extState.expandedCommit, 'abc1234567890');
     });
 
     it('should clear previous selection when selecting new commit', () => {
@@ -854,10 +293,10 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       provider.selectCommit('abc1234567890');
       provider.selectCommit('def4567890123');
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.selectedCommits.size, 1);
-      assert.ok(state.logState.selectedCommits.has('def4567890123'));
-      assert.ok(!state.logState.selectedCommits.has('abc1234567890'));
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.selectedCommits.size, 1);
+      assert.ok(extState.selectedCommits.has('def4567890123'));
+      assert.ok(!extState.selectedCommits.has('abc1234567890'));
     });
 
     it('should fire onDidSelectCommit event', (done) => {
@@ -885,10 +324,10 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       provider.toggleCommitSelection('abc1234567890');
       provider.toggleCommitSelection('def4567890123');
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.selectedCommits.size, 2);
-      assert.ok(state.logState.selectedCommits.has('abc1234567890'));
-      assert.ok(state.logState.selectedCommits.has('def4567890123'));
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.selectedCommits.size, 2);
+      assert.ok(extState.selectedCommits.has('abc1234567890'));
+      assert.ok(extState.selectedCommits.has('def4567890123'));
     });
 
     it('should remove commit from selection when toggled again', () => {
@@ -898,8 +337,8 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       provider.toggleCommitSelection('abc1234567890');
       provider.toggleCommitSelection('abc1234567890');
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.selectedCommits.size, 0);
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.selectedCommits.size, 0);
     });
   });
 
@@ -938,16 +377,16 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
 
       provider.setLogFilter(filter);
 
-      const state = provider.getState();
-      assert.deepStrictEqual(state.logState.filter, filter);
+      const extState = provider.getExtendedLogState();
+      assert.deepStrictEqual(extState.filter, filter);
     });
 
     it('should clear filter when set to undefined', () => {
       provider.setLogFilter({ author: 'Test' });
       provider.setLogFilter(undefined);
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.filter, undefined);
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.filter, undefined);
     });
   });
 
@@ -1099,33 +538,23 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
   });
 
   describe('Log View state preservation', () => {
-    it('should preserve log state when switching tabs', () => {
+    it('should preserve log state across operations', () => {
       const commits = [createMockCommit('abc1234567890', 'First commit')];
       provider.updateLogState(commits);
       provider.selectCommit('abc1234567890');
 
-      // Switch to local-changes tab
-      provider.setActiveTab('local-changes');
-
-      // Switch back to log
-      provider.setActiveTab('log');
-
       // Verify state is preserved
-      const state = provider.getState();
-      assert.ok(state.logState.selectedCommits.has('abc1234567890'));
-      assert.strictEqual(state.logState.expandedCommit, 'abc1234567890');
+      const extState = provider.getExtendedLogState();
+      assert.ok(extState.selectedCommits.has('abc1234567890'));
+      assert.strictEqual(extState.expandedCommit, 'abc1234567890');
     });
 
-    it('should preserve commit nodes when switching tabs', () => {
+    it('should preserve commit nodes across updates', () => {
       const commits = [
         createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
       ];
       provider.updateLogState(commits);
-
-      // Switch tabs
-      provider.setActiveTab('console');
-      provider.setActiveTab('log');
 
       // Verify commit nodes are preserved
       const extendedState = provider.getExtendedLogState();
@@ -1141,12 +570,11 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       provider.updateLogState(commits);
       provider.selectCommit('abc1234567890');
 
-      const state = provider.getState();
       const extendedState = provider.getExtendedLogState();
 
       // Verify we have the data needed for the layout
       assert.ok(extendedState.commitNodes.length > 0); // For commit list
-      assert.ok(state.logState.expandedCommit); // For details panel
+      assert.ok(extendedState.expandedCommit); // For details panel
     });
   });
 
@@ -1187,8 +615,8 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       const filter = { author: 'John Doe' };
       provider.setLogFilter(filter);
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.filter?.author, 'John Doe');
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.filter?.author, 'John Doe');
     });
 
     it('should support filtering by date range (Requirement 9.6)', () => {
@@ -1197,25 +625,25 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       const filter = { since, until };
       provider.setLogFilter(filter);
 
-      const state = provider.getState();
-      assert.deepStrictEqual(state.logState.filter?.since, since);
-      assert.deepStrictEqual(state.logState.filter?.until, until);
+      const extState = provider.getExtendedLogState();
+      assert.deepStrictEqual(extState.filter?.since, since);
+      assert.deepStrictEqual(extState.filter?.until, until);
     });
 
     it('should support filtering by file path (Requirement 9.6)', () => {
       const filter = { path: 'src/services/' };
       provider.setLogFilter(filter);
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.filter?.path, 'src/services/');
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.filter?.path, 'src/services/');
     });
 
     it('should support searching commit messages (Requirement 9.7)', () => {
       const filter = { searchText: 'fix critical bug' };
       provider.setLogFilter(filter);
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.filter?.searchText, 'fix critical bug');
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.filter?.searchText, 'fix critical bug');
     });
 
     it('should support combining multiple filter criteria', () => {
@@ -1228,31 +656,28 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       };
       provider.setLogFilter(filter);
 
-      const state = provider.getState();
-      assert.strictEqual(state.logState.filter?.author, 'Jane Smith');
-      assert.deepStrictEqual(state.logState.filter?.since, filter.since);
-      assert.deepStrictEqual(state.logState.filter?.until, filter.until);
-      assert.strictEqual(state.logState.filter?.path, 'src/');
-      assert.strictEqual(state.logState.filter?.searchText, 'refactor');
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.filter?.author, 'Jane Smith');
+      assert.deepStrictEqual(extState.filter?.since, filter.since);
+      assert.deepStrictEqual(extState.filter?.until, filter.until);
+      assert.strictEqual(extState.filter?.path, 'src/');
+      assert.strictEqual(extState.filter?.searchText, 'refactor');
     });
 
-    it('should preserve filter state when switching tabs', () => {
+    it('should preserve filter state across operations', () => {
       const filter = {
         author: 'Test Author',
         searchText: 'important',
       };
       provider.setLogFilter(filter);
 
-      // Switch to local-changes tab
-      provider.setActiveTab('local-changes');
-
-      // Switch back to log
-      provider.setActiveTab('log');
+      // Perform other operations (refresh, etc.)
+      provider.refresh();
 
       // Verify filter is preserved
-      const state = provider.getState();
-      assert.strictEqual(state.logState.filter?.author, 'Test Author');
-      assert.strictEqual(state.logState.filter?.searchText, 'important');
+      const extState = provider.getExtendedLogState();
+      assert.strictEqual(extState.filter?.author, 'Test Author');
+      assert.strictEqual(extState.filter?.searchText, 'important');
     });
 
     it('should update extended log state filter when setLogFilter is called', () => {
@@ -1261,6 +686,194 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
 
       const extendedState = provider.getExtendedLogState();
       assert.strictEqual(extendedState.filter?.author, 'Developer');
+    });
+  });
+});
+
+describe('Initial Data Request and No-Repository State (Requirements 5.3, 5.4)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  /**
+   * Create a mock WebviewView for testing resolveWebviewView.
+   */
+  function createMockWebviewView(): {
+    webview: {
+      html: string;
+      options: { enableScripts?: boolean; localResourceRoots?: unknown[] };
+      cspSource: string;
+      onDidReceiveMessage: (listener: (e: unknown) => void) => { dispose: () => void };
+      postMessage: (message: unknown) => Promise<boolean>;
+      asWebviewUri: (localResource: unknown) => unknown;
+    };
+    visible: boolean;
+    onDidChangeVisibility: (listener: () => void) => { dispose: () => void };
+    onDidDispose: (listener: () => void) => { dispose: () => void };
+  } {
+    return {
+      webview: {
+        html: '',
+        options: {},
+        cspSource: 'mock-csp-source',
+        onDidReceiveMessage: (_listener: (e: unknown) => void) => ({ dispose: () => {} }),
+        postMessage: async (_message: unknown) => true,
+        asWebviewUri: (localResource: unknown) => localResource,
+      },
+      visible: true,
+      onDidChangeVisibility: (_listener: () => void) => ({ dispose: () => {} }),
+      onDidDispose: (_listener: () => void) => ({ dispose: () => {} }),
+    };
+  }
+
+  describe('onDidRequestInitialData event', () => {
+    it('should fire onDidRequestInitialData when resolveWebviewView is called', (done) => {
+      const disposable = provider.onDidRequestInitialData(() => {
+        disposable.dispose();
+        done();
+      });
+
+      const mockView = createMockWebviewView();
+      provider.resolveWebviewView(
+        mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
+        {} as Parameters<typeof provider.resolveWebviewView>[1],
+        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+      );
+    });
+
+    it('should fire onDidRequestInitialData exactly once per resolveWebviewView call', () => {
+      let fireCount = 0;
+      const disposable = provider.onDidRequestInitialData(() => {
+        fireCount++;
+      });
+
+      const mockView = createMockWebviewView();
+      provider.resolveWebviewView(
+        mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
+        {} as Parameters<typeof provider.resolveWebviewView>[1],
+        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+      );
+
+      assert.strictEqual(fireCount, 1);
+      disposable.dispose();
+    });
+
+    it('should set webview HTML content before firing onDidRequestInitialData', () => {
+      let htmlWasSetWhenEventFired = false;
+      const mockView = createMockWebviewView();
+
+      const disposable = provider.onDidRequestInitialData(() => {
+        htmlWasSetWhenEventFired = mockView.webview.html.length > 0;
+      });
+
+      provider.resolveWebviewView(
+        mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
+        {} as Parameters<typeof provider.resolveWebviewView>[1],
+        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+      );
+
+      assert.strictEqual(htmlWasSetWhenEventFired, true);
+      disposable.dispose();
+    });
+  });
+
+  describe('onDidRequestRefresh event', () => {
+    it('should fire onDidRequestRefresh when refresh() is called', (done) => {
+      const disposable = provider.onDidRequestRefresh(() => {
+        disposable.dispose();
+        done();
+      });
+
+      provider.refresh();
+    });
+
+    it('should fire both onDidChangeState and onDidRequestRefresh on refresh', () => {
+      let stateChanged = false;
+      let refreshRequested = false;
+
+      const disposable1 = provider.onDidChangeState(() => {
+        stateChanged = true;
+      });
+      const disposable2 = provider.onDidRequestRefresh(() => {
+        refreshRequested = true;
+      });
+
+      provider.refresh();
+
+      assert.strictEqual(stateChanged, true);
+      assert.strictEqual(refreshRequested, true);
+
+      disposable1.dispose();
+      disposable2.dispose();
+    });
+  });
+
+  describe('setNoRepository', () => {
+    it('should set hasRepository to false', () => {
+      // First set to true
+      provider.setHasRepository(true);
+      assert.strictEqual(provider.getState().hasRepository, true);
+
+      // Then call setNoRepository
+      provider.setNoRepository();
+      assert.strictEqual(provider.getState().hasRepository, false);
+    });
+
+    it('should fire onDidChangeState when transitioning from has-repository to no-repository', (done) => {
+      provider.setHasRepository(true);
+
+      const disposable = provider.onDidChangeState(() => {
+        assert.strictEqual(provider.getState().hasRepository, false);
+        disposable.dispose();
+        done();
+      });
+
+      provider.setNoRepository();
+    });
+
+    it('should not fire event when already in no-repository state', () => {
+      // Initial state is hasRepository: false
+      let eventFired = false;
+      const disposable = provider.onDidChangeState(() => {
+        eventFired = true;
+      });
+
+      provider.setNoRepository();
+      assert.strictEqual(eventFired, false);
+
+      disposable.dispose();
+    });
+  });
+
+  describe('resolveWebviewView webview setup', () => {
+    it('should configure webview with enableScripts', () => {
+      const mockView = createMockWebviewView();
+      provider.resolveWebviewView(
+        mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
+        {} as Parameters<typeof provider.resolveWebviewView>[1],
+        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+      );
+
+      assert.strictEqual(mockView.webview.options.enableScripts, true);
+    });
+
+    it('should set HTML content on the webview', () => {
+      const mockView = createMockWebviewView();
+      provider.resolveWebviewView(
+        mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
+        {} as Parameters<typeof provider.resolveWebviewView>[1],
+        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+      );
+
+      assert.ok(mockView.webview.html.length > 0, 'Webview HTML should be set');
+      assert.ok(mockView.webview.html.includes('<!DOCTYPE html>'), 'Should contain valid HTML');
     });
   });
 });

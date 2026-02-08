@@ -190,11 +190,11 @@ export class ConsoleService implements IConsoleService {
 
   /**
    * Show the console tab in the Git Tool Window.
+   * Note: In the 3-panel layout, the console is no longer a separate tab.
+   * This method is preserved for backward compatibility but is a no-op.
    */
   public showConsole(): void {
-    if (this._gitToolWindowProvider) {
-      this._gitToolWindowProvider.setActiveTab('console');
-    }
+    // No-op: console tab removed in 3-panel layout migration
   }
 
   /**

@@ -1,31 +1,27 @@
 /**
  * Git Tool Window Provider implementation.
- * Provides the main Git tool window with tabbed interface (Local Changes, Log, Console).
+ * Provides the main Git tool window with a 3-panel layout (Branch Panel, Graph Panel, Details Panel).
  * Implements VS Code's WebviewViewProvider interface.
  */
 
 import * as vscode from 'vscode';
 import {
   IGitToolWindowProvider,
-  IGitToolWindowState,
-  ILocalChangesState,
   ILogState,
-  IConsoleState,
   IConsoleEntry,
-  GitToolWindowTab,
-  IChangelist,
-  IFileChange,
   ILogFilter,
+  IBranchPanelData,
+  ICommitDetails,
+  IChangedFile,
 } from './interfaces';
 import { FileStatus, ICommit } from './interfaces/IGitService';
 import { ICommitNode, generateCommitGraph } from '../utils/commitGraph';
 import {
   computeActiveLanes,
-  computeGraphWidth,
   DEFAULT_GRAPH_CONFIG,
-  IGraphRenderConfig,
   renderGraphSvg,
 } from '../utils/graphRenderer';
+import { savePanelWidths, loadPanelWidths, DEFAULT_PANEL_WIDTHS } from '../utils/panelLayout';
 
 /**
  * View ID for the Git Tool Window
@@ -36,6 +32,18 @@ export const GIT_TOOL_WINDOW_VIEW_ID = 'intellij-git.toolWindow';
  * Default maximum number of console entries to keep
  */
 const DEFAULT_MAX_CONSOLE_ENTRIES = 1000;
+
+/**
+ * Initial number of commits to load when the Graph Panel is first displayed.
+ * Requirement 3.7: Virtual scrolling for repositories with thousands of commits.
+ */
+export const INITIAL_COMMIT_LOAD_COUNT = 200;
+
+/**
+ * Number of additional commits to load when the user scrolls near the bottom.
+ * Requirement 3.8: Incremental commit loading on scroll.
+ */
+export const INCREMENTAL_COMMIT_LOAD_COUNT = 100;
 
 /**
  * IntelliJ-style file status colors
@@ -92,13 +100,21 @@ export interface IExtendedLogState extends ILogState {
  */
 export class GitToolWindowProvider implements IGitToolWindowProvider {
   private _webviewView: vscode.WebviewView | undefined;
-  private _state: IGitToolWindowState;
   private _extendedLogState: IExtendedLogState;
   private _disposables: vscode.Disposable[] = [];
+  private _panelWidths: [number, number, number];
+  private readonly _workspaceState: vscode.Memento | undefined;
+  private _hasRepository: boolean = false;
+  private _branchPanelData: IBranchPanelData = {
+    head: { name: 'main', isDetached: false },
+    local: [],
+    remote: [],
+  };
+  private _consoleEntries: IConsoleEntry[] = [];
+  private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
 
   // Event emitters
-  private readonly _onDidChangeActiveTab = new vscode.EventEmitter<GitToolWindowTab>();
-  private readonly _onDidChangeState = new vscode.EventEmitter<IGitToolWindowState>();
+  private readonly _onDidChangeState = new vscode.EventEmitter<void>();
   private readonly _onDidRequestContextAction = new vscode.EventEmitter<{
     action: LocalChangesContextAction;
     files: string[];
@@ -119,80 +135,101 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }>();
   private readonly _onDidRequestLogFilter = new vscode.EventEmitter<ILogFilter | undefined>();
 
+  /**
+   * Event emitter for requesting more commits to be loaded incrementally.
+   * Requirement 3.8: Incremental commit loading on scroll.
+   */
+  private readonly _onDidRequestLoadMoreCommits = new vscode.EventEmitter<void>();
+
+  /**
+   * Event emitter for branch context menu actions.
+   * Requirement 2.7, 2.8: Branch context menu with checkout, merge, rebase, etc.
+   * Requirement 5.1: When a branch is checked out via the Branch_Panel context menu.
+   */
+  private readonly _onDidRequestBranchContextAction = new vscode.EventEmitter<{
+    branchName: string;
+    branchType: 'local' | 'remote';
+    action: string;
+  }>();
+
+  /**
+   * Event emitter that fires when the webview is first resolved, signaling
+   * the extension host to fetch initial branch and commit data.
+   * Requirement 5.3: Load branch data, commit history on first open.
+   * Requirement 5.4: Display no-repository prompt if git is unavailable.
+   */
+  private readonly _onDidRequestInitialData = new vscode.EventEmitter<void>();
+
+  /**
+   * Event emitter that fires when the repository changes and all panels
+   * should be refreshed with the latest data.
+   * Requirement 5.2: Refresh all panels when the git repository changes.
+   */
+  private readonly _onDidRequestRefresh = new vscode.EventEmitter<void>();
+
   // Public events
-  public readonly onDidChangeActiveTab = this._onDidChangeActiveTab.event;
   public readonly onDidChangeState = this._onDidChangeState.event;
   public readonly onDidRequestContextAction = this._onDidRequestContextAction.event;
   public readonly onDidRequestFileDrop = this._onDidRequestFileDrop.event;
   public readonly onDidRequestLogContextAction = this._onDidRequestLogContextAction.event;
   public readonly onDidSelectCommit = this._onDidSelectCommit.event;
   public readonly onDidRequestLogFilter = this._onDidRequestLogFilter.event;
+
+  /**
+   * Event fired when the webview requests more commits to be loaded.
+   * Requirement 3.8: Incremental commit loading on scroll.
+   */
+  public readonly onDidRequestLoadMoreCommits = this._onDidRequestLoadMoreCommits.event;
   public readonly onDidRequestCommitDiff = this._onDidRequestCommitDiff.event;
+
+  /**
+   * Event fired when a branch context menu action is requested.
+   * Requirements: 2.7, 2.8, 5.1
+   */
+  public readonly onDidRequestBranchContextAction = this._onDidRequestBranchContextAction.event;
+
+  /**
+   * Event fired when the webview is first resolved, signaling the extension host
+   * to fetch initial branch and commit data.
+   * Requirements: 5.3, 5.4
+   */
+  public readonly onDidRequestInitialData = this._onDidRequestInitialData.event;
+
+  /**
+   * Event fired when the repository changes and all panels should be refreshed.
+   * Requirement 5.2
+   */
+  public readonly onDidRequestRefresh = this._onDidRequestRefresh.event;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    defaultTab?: GitToolWindowTab
+    workspaceState?: vscode.Memento
   ) {
-    // Initialize state with defaults
-    this._state = this._createInitialState(defaultTab);
+    // Initialize extended log state
     this._extendedLogState = this._createInitialExtendedLogState();
+
+    // Store workspace state for panel width persistence (Requirement 1.4)
+    this._workspaceState = workspaceState;
+
+    // Load persisted panel widths or use defaults (Requirement 1.4)
+    this._panelWidths = workspaceState
+      ? loadPanelWidths(workspaceState)
+      : [...DEFAULT_PANEL_WIDTHS];
 
     // Register event emitters for disposal
     this._disposables.push(
-      this._onDidChangeActiveTab,
       this._onDidChangeState,
       this._onDidRequestContextAction,
       this._onDidRequestFileDrop,
       this._onDidRequestLogContextAction,
       this._onDidSelectCommit,
       this._onDidRequestCommitDiff,
-      this._onDidRequestLogFilter
+      this._onDidRequestLogFilter,
+      this._onDidRequestLoadMoreCommits,
+      this._onDidRequestBranchContextAction,
+      this._onDidRequestInitialData,
+      this._onDidRequestRefresh
     );
-  }
-
-  /**
-   * Create the initial state for the tool window
-   */
-  private _createInitialState(defaultTab?: GitToolWindowTab): IGitToolWindowState {
-    return {
-      activeTab: defaultTab ?? 'local-changes',
-      localChangesState: this._createInitialLocalChangesState(),
-      logState: this._createInitialLogState(),
-      consoleState: this._createInitialConsoleState(),
-      hasRepository: false,
-    };
-  }
-
-  /**
-   * Create initial Local Changes state
-   */
-  private _createInitialLocalChangesState(): ILocalChangesState {
-    return {
-      changelists: [],
-      expandedChangelists: new Set<string>(),
-      selectedFiles: new Set<string>(),
-    };
-  }
-
-  /**
-   * Create initial Log state
-   */
-  private _createInitialLogState(): ILogState {
-    return {
-      selectedCommits: new Set<string>(),
-      expandedCommit: undefined,
-      filter: undefined,
-    };
-  }
-
-  /**
-   * Create initial Console state
-   */
-  private _createInitialConsoleState(): IConsoleState {
-    return {
-      entries: [],
-      maxEntries: DEFAULT_MAX_CONSOLE_ENTRIES,
-    };
   }
 
   /**
@@ -212,6 +249,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Resolve the webview view when it becomes visible.
    * Called by VS Code when the view needs to be displayed.
+   *
+   * On first resolution, fires the `onDidRequestInitialData` event so the
+   * extension host can fetch initial branch and commit data (Requirement 5.3)
+   * or detect that no repository is available (Requirement 5.4).
    */
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -258,49 +299,31 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     // Initial update
     this._updateWebview();
-  }
 
-  /**
-   * Set the active tab in the tool window
-   */
-  public setActiveTab(tab: GitToolWindowTab): void {
-    if (this._state.activeTab !== tab) {
-      // Preserve state of current tab before switching
-      this._preserveCurrentTabState();
-
-      // Update active tab
-      this._state.activeTab = tab;
-
-      // Fire events
-      this._onDidChangeActiveTab.fire(tab);
-      this._onDidChangeState.fire(this._state);
-
-      // Update webview
-      this._updateWebview();
-    }
-  }
-
-  /**
-   * Get the current active tab
-   */
-  public getActiveTab(): GitToolWindowTab {
-    return this._state.activeTab;
+    // Fire the initial data request event so the extension host can
+    // fetch branches, commits, and detect repository availability.
+    // Requirement 5.3: Load branch data and commit history on first open.
+    // Requirement 5.4: Display no-repository prompt if git is unavailable.
+    this._onDidRequestInitialData.fire();
   }
 
   /**
    * Get the current state of the tool window
    */
-  public getState(): IGitToolWindowState {
-    // Return a deep copy to prevent external mutation
-    return this._cloneState(this._state);
+  public getState(): { hasRepository: boolean } {
+    return { hasRepository: this._hasRepository };
   }
 
   /**
-   * Refresh the tool window content
+   * Refresh the tool window content.
+   * Fires the onDidRequestRefresh event so the extension host can
+   * re-fetch data and update all panels.
+   * Requirement 5.2: Refresh all panels when the git repository changes.
    */
   public refresh(): void {
     this._updateWebview();
-    this._onDidChangeState.fire(this._state);
+    this._onDidChangeState.fire();
+    this._onDidRequestRefresh.fire();
   }
 
   /**
@@ -312,57 +335,46 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       timestamp: new Date(),
     };
 
-    this._state.consoleState.entries.push(fullEntry);
+    this._consoleEntries.push(fullEntry);
 
     // Trim entries if exceeding max
-    while (this._state.consoleState.entries.length > this._state.consoleState.maxEntries) {
-      this._state.consoleState.entries.shift();
+    while (this._consoleEntries.length > this._maxConsoleEntries) {
+      this._consoleEntries.shift();
     }
 
-    // Update webview if console tab is active
-    if (this._state.activeTab === 'console') {
-      this._updateWebview();
-    }
-
-    this._onDidChangeState.fire(this._state);
+    this._onDidChangeState.fire();
   }
 
   /**
    * Clear console entries
    */
   public clearConsole(): void {
-    this._state.consoleState.entries = [];
-
-    if (this._state.activeTab === 'console') {
-      this._updateWebview();
-    }
-
-    this._onDidChangeState.fire(this._state);
+    this._consoleEntries = [];
+    this._onDidChangeState.fire();
   }
 
   /**
-   * Update the Local Changes state
-   */
-  public updateLocalChangesState(changelists: IChangelist[]): void {
-    this._state.localChangesState.changelists = changelists;
-    this._state.hasRepository = true;
-
-    if (this._state.activeTab === 'local-changes') {
-      this._updateWebview();
-    }
-
-    this._onDidChangeState.fire(this._state);
-  }
-
-  /**
-   * Set repository availability
+   * Set repository availability.
+   * When set to false, the webview displays a "no repository" prompt
+   * (Requirement 5.4).
    */
   public setHasRepository(hasRepository: boolean): void {
-    if (this._state.hasRepository !== hasRepository) {
-      this._state.hasRepository = hasRepository;
+    if (this._hasRepository !== hasRepository) {
+      this._hasRepository = hasRepository;
       this._updateWebview();
-      this._onDidChangeState.fire(this._state);
+      this._onDidChangeState.fire();
     }
+  }
+
+  /**
+   * Convenience method to set the no-repository state.
+   * Displays a prompt to the user to initialize a repository.
+   *
+   * Requirement 5.4: If the git repository is unavailable or not initialized,
+   * display a single message prompting the user to initialize a repository.
+   */
+  public setNoRepository(): void {
+    this.setHasRepository(false);
   }
 
   /**
@@ -387,18 +399,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       tagMap: tagMap || emptyTagMap,
     };
 
-    // Also update the basic log state
-    this._state.logState = {
-      ...this._state.logState,
-    };
-
-    this._state.hasRepository = true;
-
-    if (this._state.activeTab === 'log') {
-      this._updateWebview();
-    }
-
-    this._onDidChangeState.fire(this._state);
+    this._hasRepository = true;
+    this._updateWebview();
+    this._onDidChangeState.fire();
   }
 
   /**
@@ -406,9 +409,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Requirement 9.6: Log filtering
    */
   public setLogFilter(filter: ILogFilter | undefined): void {
-    this._state.logState.filter = filter;
     this._extendedLogState.filter = filter;
-    this._onDidChangeState.fire(this._state);
+    this._onDidChangeState.fire();
   }
 
   /**
@@ -428,19 +430,13 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Requirement 9.3: Commit selection and details
    */
   public selectCommit(hash: string): void {
-    this._state.logState.selectedCommits.clear();
-    this._state.logState.selectedCommits.add(hash);
     this._extendedLogState.selectedCommits.clear();
     this._extendedLogState.selectedCommits.add(hash);
-    this._state.logState.expandedCommit = hash;
     this._extendedLogState.expandedCommit = hash;
 
     this._onDidSelectCommit.fire(hash);
-    this._onDidChangeState.fire(this._state);
-
-    if (this._state.activeTab === 'log') {
-      this._updateWebview();
-    }
+    this._onDidChangeState.fire();
+    this._updateWebview();
   }
 
   /**
@@ -448,26 +444,21 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Requirement 9.8: Multi-commit selection
    */
   public toggleCommitSelection(hash: string): void {
-    if (this._state.logState.selectedCommits.has(hash)) {
-      this._state.logState.selectedCommits.delete(hash);
+    if (this._extendedLogState.selectedCommits.has(hash)) {
       this._extendedLogState.selectedCommits.delete(hash);
     } else {
-      this._state.logState.selectedCommits.add(hash);
       this._extendedLogState.selectedCommits.add(hash);
     }
 
-    this._onDidChangeState.fire(this._state);
-
-    if (this._state.activeTab === 'log') {
-      this._updateWebview();
-    }
+    this._onDidChangeState.fire();
+    this._updateWebview();
   }
 
   /**
    * Get selected commit hashes
    */
   public getSelectedCommits(): string[] {
-    return Array.from(this._state.logState.selectedCommits);
+    return Array.from(this._extendedLogState.selectedCommits);
   }
 
   /**
@@ -482,60 +473,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Preserve the state of the current tab before switching
-   */
-  private _preserveCurrentTabState(): void {
-    // State is already preserved in the _state object
-    // This method is a hook for any additional preservation logic
-    // For example, saving scroll position, selection state, etc.
-  }
-
-  /**
-   * Clone the state object to prevent external mutation
-   */
-  private _cloneState(state: IGitToolWindowState): IGitToolWindowState {
-    return {
-      activeTab: state.activeTab,
-      hasRepository: state.hasRepository,
-      localChangesState: {
-        changelists: [...state.localChangesState.changelists],
-        expandedChangelists: new Set(state.localChangesState.expandedChangelists),
-        selectedFiles: new Set(state.localChangesState.selectedFiles),
-      },
-      logState: {
-        selectedCommits: new Set(state.logState.selectedCommits),
-        expandedCommit: state.logState.expandedCommit,
-        filter: state.logState.filter ? { ...state.logState.filter } : undefined,
-      },
-      consoleState: {
-        entries: [...state.consoleState.entries],
-        maxEntries: state.consoleState.maxEntries,
-      },
-    };
-  }
-
-  /**
    * Handle messages from the webview
    */
   private _handleWebviewMessage(message: IWebviewMessage): void {
     switch (message.type) {
-      case 'switchTab':
-        if (isValidTab(message.tab)) {
-          this.setActiveTab(message.tab);
-        }
-        break;
       case 'refresh':
         this.refresh();
-        break;
-      case 'selectFile':
-        if (message.path) {
-          this._handleFileSelection(message.path);
-        }
-        break;
-      case 'toggleChangelist':
-        if (message.changelistId) {
-          this._handleChangelistToggle(message.changelistId);
-        }
         break;
       case 'selectCommit':
         if (message.commitHash) {
@@ -547,34 +490,25 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           this.toggleCommitSelection(message.commitHash);
         }
         break;
-      case 'clearConsole':
-        this.clearConsole();
-        break;
       case 'initRepository':
         void vscode.commands.executeCommand('git.init');
         break;
-      case 'contextAction':
-        if (message.action && message.files) {
-          this._handleContextAction(
-            message.action as LocalChangesContextAction,
-            message.files,
-            message.targetChangelistId
-          );
-        }
-        break;
-      case 'logContextAction':
+      case 'commitContextMenu':
         if (message.action && message.commitHashes) {
-          this._handleLogContextAction(message.action as LogContextAction, message.commitHashes);
-        }
-        break;
-      case 'fileDrop':
-        if (message.files && message.targetChangelistId) {
-          this._handleFileDrop(message.files, message.targetChangelistId);
+          this._handleCommitContextMenu(message.action as LogContextAction, message.commitHashes);
         }
         break;
       case 'doubleClickFile':
-        if (message.path) {
-          this._handleFileDoubleClick(message.path);
+        if (message.commitHash && message.path) {
+          // Requirement 4.3: Double-click on a changed file in the Details Panel
+          // opens a VS Code diff view for that file at the selected commit.
+          this._handleCommitFileDoubleClick(message.commitHash, message.path);
+        } else if (message.path) {
+          // Fallback: when no commitHash is provided, fire a showDiff context action
+          this._onDidRequestContextAction.fire({
+            action: 'showDiff',
+            files: [message.path],
+          });
         }
         break;
       case 'doubleClickCommitFile':
@@ -584,6 +518,24 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         break;
       case 'applyLogFilter':
         this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
+        break;
+      case 'branchClick':
+        if (message.branchName) {
+          this._handleBranchClick(message.branchName);
+        }
+        break;
+      case 'branchContextMenu':
+        if (message.branchName && message.branchType && message.action) {
+          this._handleBranchContextMenu(message.branchName, message.branchType, message.action);
+        }
+        break;
+      case 'loadMoreCommits':
+        this._handleLoadMoreCommits();
+        break;
+      case 'panelResize':
+        if (message.widths) {
+          this._handlePanelResize(message.widths);
+        }
         break;
       default:
         console.warn('Unknown webview message type:', message);
@@ -628,37 +580,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Handle file selection in Local Changes view
-   */
-  private _handleFileSelection(path: string): void {
-    const selectedFiles = this._state.localChangesState.selectedFiles;
-
-    if (selectedFiles.has(path)) {
-      selectedFiles.delete(path);
-    } else {
-      selectedFiles.add(path);
-    }
-
-    this._onDidChangeState.fire(this._state);
-  }
-
-  /**
-   * Handle changelist expand/collapse toggle
-   */
-  private _handleChangelistToggle(changelistId: string): void {
-    const expandedChangelists = this._state.localChangesState.expandedChangelists;
-
-    if (expandedChangelists.has(changelistId)) {
-      expandedChangelists.delete(changelistId);
-    } else {
-      expandedChangelists.add(changelistId);
-    }
-
-    this._updateWebview();
-    this._onDidChangeState.fire(this._state);
-  }
-
-  /**
    * Handle commit selection in Log view
    */
   private _handleCommitSelection(commitHash: string): void {
@@ -666,10 +587,117 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Handle log context menu action
-   * Requirement 9.5: Context menu on commits
+   * Handle branch click to scroll the Graph Panel to the branch's HEAD commit.
+   * Finds the branch's HEAD commit hash from the loaded commit nodes and branch map,
+   * then selects that commit to scroll to it in the graph.
+   *
+   * Requirement 2.6: When a user clicks on a branch, the Graph Panel scrolls to
+   * and highlights the latest commit of that branch.
    */
-  private _handleLogContextAction(action: LogContextAction, commitHashes: string[]): void {
+  private _handleBranchClick(branchName: string): void {
+    // Look up the commit hash for this branch from the branch map
+    const branchMap = this._extendedLogState.branchMap;
+    let targetCommitHash: string | undefined;
+
+    // The branchMap maps commit hash -> branch names[]
+    // We need to find the commit hash that has this branch name
+    for (const [commitHash, branches] of branchMap.entries()) {
+      if (branches.includes(branchName)) {
+        targetCommitHash = commitHash;
+        break;
+      }
+    }
+
+    // If not found in branchMap, search through commit nodes for a matching branch reference
+    if (!targetCommitHash) {
+      for (const node of this._extendedLogState.commitNodes) {
+        if (node.branches && node.branches.includes(branchName)) {
+          targetCommitHash = node.commit.hash;
+          break;
+        }
+      }
+    }
+
+    if (targetCommitHash) {
+      // Select the commit, which will scroll to it and highlight it
+      this.selectCommit(targetCommitHash);
+
+      // Send a message to the webview to scroll to the commit
+      if (this._webviewView) {
+        void this._webviewView.webview.postMessage({
+          type: 'scrollToCommit',
+          commitHash: targetCommitHash,
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle branch context menu action from the Branch Panel.
+   * Fires the onDidRequestBranchContextAction event so that the extension host
+   * can execute the appropriate branch operation (checkout, merge, rebase, etc.).
+   *
+   * Requirements: 2.7, 2.8, 5.1
+   *
+   * @param branchName - The name of the branch the action was invoked on
+   * @param branchType - Whether the branch is 'local' or 'remote'
+   * @param action - The context menu action to perform (e.g. 'checkout', 'merge', 'delete')
+   */
+  private _handleBranchContextMenu(branchName: string, branchType: 'local' | 'remote', action: string): void {
+    this._onDidRequestBranchContextAction.fire({
+      branchName,
+      branchType,
+      action,
+    });
+  }
+
+  /**
+   * Handle the loadMoreCommits message from the webview.
+   * Fires the onDidRequestLoadMoreCommits event so that the extension host
+   * can fetch the next batch of commits and append them.
+   *
+   * Requirements: 3.7, 3.8
+   */
+  private _handleLoadMoreCommits(): void {
+    this._onDidRequestLoadMoreCommits.fire();
+  }
+
+  /**
+   * Handle panel resize message from the webview.
+   * Receives new width percentages from the draggable dividers,
+   * updates the internal state, and persists them to workspace state.
+   *
+   * Requirements: 1.3, 1.4
+   *
+   * @param widths - The new panel width percentages [branch, graph, details]
+   */
+  private _handlePanelResize(widths: [number, number, number]): void {
+    // Update internal panel widths state
+    this._panelWidths = widths;
+
+    // Persist to workspace state if available (Requirement 1.4)
+    if (this._workspaceState) {
+      savePanelWidths(this._workspaceState, widths);
+    }
+  }
+
+  /**
+   * Get the current panel widths.
+   * Returns the persisted panel width percentages.
+   *
+   * @returns The current panel width percentages [branch, graph, details]
+   */
+  public getPanelWidths(): [number, number, number] {
+    return [...this._panelWidths];
+  }
+
+  /**
+   * Handle commit context menu action from the Graph Panel.
+   * Fires the same event as the log context menu, since both operate on commits.
+   *
+   * Requirements: 3.5, 3.6
+   */
+  private _handleCommitContextMenu(action: LogContextAction, commitHashes: string[]): void {
     this._onDidRequestLogContextAction.fire({
       action,
       commitHashes,
@@ -688,45 +716,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Handle context menu action on files
-   * Requirement 2.7: Context menu with options
-   */
-  private _handleContextAction(
-    action: LocalChangesContextAction,
-    files: string[],
-    targetChangelistId?: string
-  ): void {
-    this._onDidRequestContextAction.fire({
-      action,
-      files,
-      targetChangelistId,
-    });
-  }
-
-  /**
-   * Handle file drop between changelists
-   * Requirement 2.4: Drag files between changelists
-   */
-  private _handleFileDrop(files: string[], targetChangelistId: string): void {
-    this._onDidRequestFileDrop.fire({
-      files,
-      targetChangelistId,
-    });
-  }
-
-  /**
-   * Handle double-click on a file to show diff
-   * Requirement 2.6: Double-click opens diff view
-   */
-  private _handleFileDoubleClick(path: string): void {
-    // Fire context action for showing diff
-    this._onDidRequestContextAction.fire({
-      action: 'showDiff',
-      files: [path],
-    });
-  }
-
-  /**
    * Update the webview content
    */
   private _updateWebview(): void {
@@ -739,20 +728,113 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Get the HTML content for the webview
+   * Get the HTML content for the webview.
+   * Now delegates to the 3-panel layout (Requirement 6.1).
    */
   private _getHtmlContent(webview: vscode.Webview): string {
-    // Note: External resource URIs are prepared for future use when we add
-    // separate CSS/JS files. Currently using inline styles and scripts.
-    // const styleUri = webview.asWebviewUri(
-    //   vscode.Uri.joinPath(this._extensionUri, 'resources', 'webview', 'style.css')
-    // );
-    // const scriptUri = webview.asWebviewUri(
-    //   vscode.Uri.joinPath(this._extensionUri, 'resources', 'webview', 'main.js')
-    // );
+    // Requirement 5.4: If no repository, show init prompt
+    if (!this._hasRepository) {
+      return this._getNoRepositoryHtml(webview);
+    }
 
-    // Use a nonce for content security
+    // Build branch data from stored branch panel data
+    const branchData = this._branchPanelData;
+    const commitNodes = this._extendedLogState.commitNodes;
+    const selectedCommits = this._extendedLogState.selectedCommits;
+    const expandedCommit = this._extendedLogState.expandedCommit;
+
+    // Build commit details if a commit is expanded
+    let commitDetails: ICommitDetails | undefined;
+    if (expandedCommit) {
+      const node = commitNodes.find(n => n.commit.hash === expandedCommit);
+      if (node) {
+        commitDetails = {
+          hash: node.commit.hash,
+          message: node.commit.message,
+          author: { name: node.commit.author.name, email: node.commit.author.email },
+          date: node.commit.authorDate,
+          parents: node.commit.parents || [],
+          branches: node.branches || [],
+          tags: node.tags || [],
+          changedFiles: [],
+        };
+      }
+    }
+
+    return this._getThreePanelHtmlContent(
+      webview,
+      branchData,
+      commitNodes,
+      commitDetails,
+      this._panelWidths,
+      selectedCommits,
+      commitNodes.length,
+      commitNodes.length
+    );
+  }
+
+  /**
+   * Update the branch panel data.
+   * Called by the extension host when branch data is fetched from GitService.
+   *
+   * @param branchData - The branch panel data to display
+   */
+  public updateBranches(branchData: IBranchPanelData): void {
+    this._branchPanelData = branchData;
+    this._hasRepository = true;
+    this._updateWebview();
+    this._onDidChangeState.fire();
+  }
+
+  /**
+   * Generate the complete HTML document for the 3-panel layout.
+   *
+   * Produces a flexbox-based layout with three panels (Branch, Graph, Details)
+   * arranged horizontally from left to right, separated by two draggable dividers.
+   *
+   * Panel widths are set via inline styles based on the provided panelWidths
+   * percentages. When the container width is less than 500px, panels stack
+   * vertically via CSS.
+   *
+   * This method is public for testability. It will replace _getHtmlContent()
+   * in Task 7.
+   *
+   * Requirements: 1.1, 1.2, 1.5
+   *
+   * @param webview - The VS Code Webview instance (used for CSP source)
+   * @param branchData - Branch panel data to render
+   * @param commitNodes - Commit nodes for the graph panel
+   * @param commitDetails - Optional commit details for the details panel
+   * @param panelWidths - Panel width percentages [branch, graph, details], defaults to [20, 50, 30]
+   * @param selectedCommits - Set of selected commit hashes
+   * @param loadedCount - Number of commits currently loaded
+   * @param totalAvailable - Total commits available
+   * @returns Complete HTML document string
+   */
+  public _getThreePanelHtmlContent(
+    webview: vscode.Webview,
+    branchData: IBranchPanelData,
+    commitNodes: ICommitNode[],
+    commitDetails?: ICommitDetails,
+    panelWidths?: [number, number, number],
+    selectedCommits?: Set<string>,
+    loadedCount?: number,
+    totalAvailable?: number
+  ): string {
     const nonce = getNonce();
+    const widths = panelWidths || this._panelWidths;
+
+    // Generate panel content using existing methods
+    const branchPanelHtml = this._getBranchPanelHtml(branchData);
+    const graphPanelHtml = this._getGraphPanelHtml(
+      commitNodes,
+      selectedCommits,
+      loadedCount,
+      totalAvailable
+    );
+    const detailsPanelHtml = commitDetails
+      ? this._getDetailsPanelHtml(commitDetails)
+      : this._getDetailsPanelPlaceholderHtml();
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -762,227 +844,328 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
   <title>Git Tool Window</title>
   <style>
-    ${this._getInlineStyles()}
+    ${this._getThreePanelStyles()}
   </style>
 </head>
 <body>
-  <div class="git-tool-window" role="application" aria-label="Git Tool Window">
-    <!-- Tab Bar -->
-    <div class="tab-bar" role="tablist" aria-label="Git views">
-      <button 
-        class="tab-button ${this._state.activeTab === 'local-changes' ? 'active' : ''}" 
-        data-tab="local-changes"
-        role="tab"
-        aria-selected="${this._state.activeTab === 'local-changes'}"
-        aria-controls="panel-local-changes"
-        tabindex="${this._state.activeTab === 'local-changes' ? '0' : '-1'}"
-      >
-        Local Changes
-      </button>
-      <button 
-        class="tab-button ${this._state.activeTab === 'log' ? 'active' : ''}" 
-        data-tab="log"
-        role="tab"
-        aria-selected="${this._state.activeTab === 'log'}"
-        aria-controls="panel-log"
-        tabindex="${this._state.activeTab === 'log' ? '0' : '-1'}"
-      >
-        Log
-      </button>
-      <button 
-        class="tab-button ${this._state.activeTab === 'console' ? 'active' : ''}" 
-        data-tab="console"
-        role="tab"
-        aria-selected="${this._state.activeTab === 'console'}"
-        aria-controls="panel-console"
-        tabindex="${this._state.activeTab === 'console' ? '0' : '-1'}"
-      >
-        Console
-      </button>
+  <div class="three-panel-layout" role="application" aria-label="Git Tool Window">
+    <div id="branch-panel" class="panel" style="width: ${widths[0]}%;" role="region" aria-label="Branch Panel">
+      ${branchPanelHtml}
     </div>
-
-    <!-- Tab Panels -->
-    <div class="tab-panels">
-      ${this._getLocalChangesPanel()}
-      ${this._getLogPanel()}
-      ${this._getConsolePanel()}
+    <div class="panel-divider" data-divider="0" role="separator" aria-label="Resize Branch and Graph panels" tabindex="0"></div>
+    <div id="graph-panel" class="panel" style="width: ${widths[1]}%;" role="region" aria-label="Graph Panel">
+      ${graphPanelHtml}
+    </div>
+    <div class="panel-divider" data-divider="1" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
+    <div id="details-panel" class="panel" style="width: ${widths[2]}%;" role="region" aria-label="Details Panel">
+      ${detailsPanelHtml}
     </div>
   </div>
 
   <script nonce="${nonce}">
     ${this._getInlineScript()}
+    ${this._getDividerDragScript()}
   </script>
 </body>
 </html>`;
   }
 
   /**
-   * Get the Local Changes panel HTML
-   * Requirement 2.1: Display files grouped by changelist
-   * Requirement 17.2: Tree structure with expandable changelists
+   * Generate the HTML for the no-repository state.
+   * Displays a prompt to initialize a repository.
+   *
+   * Requirement 5.4: If the git repository is unavailable or not initialized,
+   * display a single message prompting the user to initialize a repository.
    */
-  private _getLocalChangesPanel(): string {
-    const isActive = this._state.activeTab === 'local-changes';
+  private _getNoRepositoryHtml(webview: vscode.Webview): string {
+    const nonce = getNonce();
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <title>Git Tool Window</title>
+  <style>
+    ${this._getInlineStyles()}
+  </style>
+</head>
+<body>
+  <div class="no-repository">
+    <p>No Git repository found in this workspace.</p>
+    <button class="init-repo-button" onclick="initRepository()">Initialize Repository</button>
+  </div>
+  <script nonce="${nonce}">
+    (function() {
+      const vscode = acquireVsCodeApi();
+      window.initRepository = function() {
+        vscode.postMessage({ type: 'initRepository' });
+      };
+    })();
+  </script>
+</body>
+</html>`;
+  }
 
-    if (!this._state.hasRepository) {
-      return `
-        <div 
-          id="panel-local-changes" 
-          class="tab-panel ${isActive ? 'active' : ''}" 
-          role="tabpanel"
-          aria-labelledby="tab-local-changes"
-          ${isActive ? '' : 'hidden'}
-        >
-          <div class="no-repository">
-            <p>No Git repository found in this workspace.</p>
-            <button class="init-repo-button" onclick="initRepository()">
-              Initialize Repository
-            </button>
-          </div>
-        </div>
-      `;
-    }
-
-    const changelists = this._state.localChangesState.changelists;
-    const expandedChangelists = this._state.localChangesState.expandedChangelists;
-    const selectedFiles = this._state.localChangesState.selectedFiles;
-
-    let changelistsHtml = '';
-    if (changelists.length === 0) {
-      changelistsHtml = '<p class="empty-message">No changes</p>';
-    } else {
-      changelistsHtml = changelists
-        .map((cl) => {
-          const isExpanded = expandedChangelists.has(cl.id);
-          const filesHtml = isExpanded
-            ? cl.files.map((f) => this._getFileItemHtml(f, selectedFiles.has(f.path))).join('')
-            : '';
-
-          return `
-            <div class="changelist ${isExpanded ? 'expanded' : ''}" 
-                 data-id="${cl.id}"
-                 ondragover="handleDragOver(event)"
-                 ondrop="handleDrop(event, '${cl.id}')"
-                 ondragleave="handleDragLeave(event)">
-              <div class="changelist-header" 
-                   onclick="toggleChangelist('${cl.id}')" 
-                   role="button" 
-                   tabindex="0" 
-                   aria-expanded="${isExpanded}"
-                   onkeydown="handleChangelistKeydown(event, '${cl.id}')">
-                <span class="expand-icon">${isExpanded ? '▼' : '▶'}</span>
-                <span class="changelist-name">${this._escapeHtml(cl.name)}</span>
-                <span class="file-count">(${cl.files.length})</span>
-                ${cl.isDefault ? '<span class="default-badge">Default</span>' : ''}
-              </div>
-              <div class="changelist-files" ${isExpanded ? '' : 'hidden'} role="group">
-                ${filesHtml}
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-    }
-
+  /**
+   * Get CSS styles for the 3-panel flexbox layout.
+   *
+   * Includes:
+   * - Flexbox row layout for horizontal panel arrangement
+   * - Panel overflow and sizing rules
+   * - Draggable divider styling
+   * - Vertical stacking when container width < 500px (Requirement 1.5)
+   * - All existing panel styles (branch, graph, details)
+   *
+   * @returns CSS string for the 3-panel layout
+   */
+  private _getThreePanelStyles(): string {
     return `
-      <div 
-        id="panel-local-changes" 
-        class="tab-panel ${isActive ? 'active' : ''}" 
-        role="tabpanel"
-        aria-labelledby="tab-local-changes"
-        ${isActive ? '' : 'hidden'}
-      >
-        <div class="local-changes-toolbar">
-          <button class="toolbar-button" onclick="refreshLocalChanges()" title="Refresh">
-            ↻
-          </button>
-        </div>
-        <div class="local-changes-content" role="tree" aria-label="Local Changes">
-          ${changelistsHtml}
-        </div>
-        ${this._getContextMenuHtml()}
-      </div>
+      ${this._getInlineStyles()}
+
+      /* Three-Panel Layout - Requirements 1.1, 1.2 */
+      .three-panel-layout {
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+        width: 100%;
+        overflow: hidden;
+      }
+
+      .three-panel-layout > .panel {
+        overflow: auto;
+        min-width: 0;
+        height: 100%;
+      }
+
+      #branch-panel {
+        border-right: none;
+      }
+
+      #graph-panel {
+        border-right: none;
+      }
+
+      #details-panel {
+        /* No right border needed */
+      }
+
+      /* Panel Divider - Draggable separator between panels */
+      .panel-divider {
+        width: 4px;
+        min-width: 4px;
+        cursor: col-resize;
+        background-color: var(--vscode-panel-border);
+        transition: background-color 0.15s ease;
+        flex-shrink: 0;
+        position: relative;
+        z-index: 10;
+      }
+
+      .panel-divider:hover,
+      .panel-divider.dragging {
+        background-color: var(--vscode-focusBorder);
+      }
+
+      .panel-divider:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+      }
+
+      /* Vertical stacking for narrow containers - Requirement 1.5 */
+      @container (max-width: 499px) {
+        .three-panel-layout {
+          flex-direction: column;
+        }
+
+        .three-panel-layout > .panel {
+          width: 100% !important;
+          height: 33.33%;
+          min-height: 100px;
+        }
+
+        .panel-divider {
+          width: 100%;
+          min-width: 100%;
+          height: 4px;
+          min-height: 4px;
+          cursor: row-resize;
+        }
+      }
+
+      /* JS-based vertical stacking fallback for < 500px */
+      .three-panel-layout.vertical-layout {
+        flex-direction: column;
+      }
+
+      .three-panel-layout.vertical-layout > .panel {
+        width: 100% !important;
+        height: 33.33%;
+        min-height: 100px;
+      }
+
+      .three-panel-layout.vertical-layout .panel-divider {
+        width: 100%;
+        min-width: 100%;
+        height: 4px;
+        min-height: 4px;
+        cursor: row-resize;
+      }
+
+      /* Prevent text selection during divider drag */
+      body.resizing {
+        user-select: none;
+        cursor: col-resize;
+      }
+
+      body.resizing-vertical {
+        user-select: none;
+        cursor: row-resize;
+      }
     `;
   }
 
   /**
-   * Get HTML for a single file item with IntelliJ-style color coding
-   * Requirement 2.6: Color-coded file status
-   * Requirement 17.10: IntelliJ-style colors
+   * Get the inline JavaScript for draggable panel dividers.
+   *
+   * Handles:
+   * - Mouse down/move/up events on dividers for drag resizing
+   * - Posting panelResize messages to the extension host
+   * - JS-based width check for vertical stacking at < 500px
+   * - Keyboard arrow key support for divider repositioning
+   *
+   * Requirements: 1.3, 1.4, 1.5
+   *
+   * @returns JavaScript string for divider drag functionality
    */
-  private _getFileItemHtml(file: IFileChange, isSelected: boolean): string {
-    const statusColor = this._getFileStatusColor(file.status);
-    const statusChar = this._getFileStatusChar(file.status);
-    const stagedIndicator = file.staged ? '●' : '';
-
+  private _getDividerDragScript(): string {
     return `
-      <div class="file-item ${isSelected ? 'selected' : ''} ${file.staged ? 'staged' : ''}"
-           data-path="${this._escapeHtml(file.path)}"
-           data-status="${file.status}"
-           draggable="true"
-           ondragstart="handleDragStart(event, '${this._escapeHtml(file.path)}')"
-           ondragend="handleDragEnd(event)"
-           onclick="selectFile('${this._escapeHtml(file.path)}')"
-           ondblclick="doubleClickFile('${this._escapeHtml(file.path)}')"
-           oncontextmenu="showContextMenu(event, '${this._escapeHtml(file.path)}')"
-           role="treeitem"
-           tabindex="0"
-           aria-selected="${isSelected}"
-           onkeydown="handleFileKeydown(event, '${this._escapeHtml(file.path)}')">
-        <span class="file-status" style="color: ${statusColor};" title="${file.status}">
-          ${statusChar}
-        </span>
-        <span class="file-path" style="color: ${statusColor};">
-          ${this._escapeHtml(this._getFileName(file.path))}
-        </span>
-        <span class="file-dir" title="${this._escapeHtml(file.path)}">
-          ${this._escapeHtml(this._getFileDir(file.path))}
-        </span>
-        ${stagedIndicator ? `<span class="staged-indicator" title="Staged">${stagedIndicator}</span>` : ''}
-      </div>
-    `;
-  }
+      (function() {
+        const layout = document.querySelector('.three-panel-layout');
+        if (!layout) return;
 
-  /**
-   * Get the context menu HTML
-   * Requirement 2.7: Context menu with options
-   */
-  private _getContextMenuHtml(): string {
-    return `
-      <div id="context-menu" class="context-menu" hidden>
-        <div class="context-menu-item" data-action="showDiff">
-          <span class="context-menu-icon">📄</span>
-          Show Diff
-        </div>
-        <div class="context-menu-item" data-action="stage">
-          <span class="context-menu-icon">➕</span>
-          Stage
-        </div>
-        <div class="context-menu-item" data-action="unstage">
-          <span class="context-menu-icon">➖</span>
-          Unstage
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="revert">
-          <span class="context-menu-icon">↩️</span>
-          Revert
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item context-menu-submenu" data-action="moveToChangelist">
-          <span class="context-menu-icon">📁</span>
-          Move to Changelist
-          <span class="context-menu-arrow">▶</span>
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="shelve">
-          <span class="context-menu-icon">📦</span>
-          Shelve Changes
-        </div>
-        <div class="context-menu-item context-menu-danger" data-action="delete">
-          <span class="context-menu-icon">🗑️</span>
-          Delete
-        </div>
-      </div>
+        const panels = layout.querySelectorAll('.panel');
+        const dividers = layout.querySelectorAll('.panel-divider');
+        let activeDivider = null;
+        let startX = 0;
+        let startWidths = [];
+        const MIN_PANEL_PX = 100;
+
+        // JS-based vertical stacking check (Requirement 1.5)
+        function checkVerticalLayout() {
+          if (!layout) return;
+          const width = layout.getBoundingClientRect().width;
+          if (width < 500) {
+            layout.classList.add('vertical-layout');
+          } else {
+            layout.classList.remove('vertical-layout');
+          }
+        }
+
+        // Check on load and on resize
+        checkVerticalLayout();
+        window.addEventListener('resize', checkVerticalLayout);
+
+        // Observe layout size changes
+        if (typeof ResizeObserver !== 'undefined') {
+          const resizeObserver = new ResizeObserver(function() {
+            checkVerticalLayout();
+          });
+          resizeObserver.observe(layout);
+        }
+
+        dividers.forEach(function(divider) {
+          divider.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            activeDivider = divider;
+            startX = e.clientX;
+
+            // Capture current widths of all panels in pixels
+            startWidths = Array.from(panels).map(function(p) {
+              return p.getBoundingClientRect().width;
+            });
+
+            document.body.classList.add('resizing');
+            divider.classList.add('dragging');
+          });
+
+          // Keyboard support for divider
+          divider.addEventListener('keydown', function(e) {
+            const dividerIndex = parseInt(divider.getAttribute('data-divider'), 10);
+            const leftPanel = panels[dividerIndex];
+            const rightPanel = panels[dividerIndex + 1];
+            if (!leftPanel || !rightPanel) return;
+
+            const step = 10; // pixels per key press
+            let delta = 0;
+
+            switch (e.key) {
+              case 'ArrowLeft':
+                delta = -step;
+                e.preventDefault();
+                break;
+              case 'ArrowRight':
+                delta = step;
+                e.preventDefault();
+                break;
+              default:
+                return;
+            }
+
+            const leftWidth = leftPanel.getBoundingClientRect().width + delta;
+            const rightWidth = rightPanel.getBoundingClientRect().width - delta;
+
+            if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
+              const totalWidth = layout.getBoundingClientRect().width;
+              const leftPct = (leftWidth / totalWidth) * 100;
+              const rightPct = (rightWidth / totalWidth) * 100;
+
+              leftPanel.style.width = leftPct + '%';
+              rightPanel.style.width = rightPct + '%';
+
+              // Post resize message
+              const widths = Array.from(panels).map(function(p) {
+                return parseFloat(p.style.width) || 0;
+              });
+              vscode.postMessage({ type: 'panelResize', widths: widths });
+            }
+          });
+        });
+
+        document.addEventListener('mousemove', function(e) {
+          if (!activeDivider) return;
+
+          const dividerIndex = parseInt(activeDivider.getAttribute('data-divider'), 10);
+          const delta = e.clientX - startX;
+
+          const leftWidth = startWidths[dividerIndex] + delta;
+          const rightWidth = startWidths[dividerIndex + 1] - delta;
+
+          // Enforce minimum widths
+          if (leftWidth >= MIN_PANEL_PX && rightWidth >= MIN_PANEL_PX) {
+            const totalWidth = layout.getBoundingClientRect().width;
+            const leftPct = (leftWidth / totalWidth) * 100;
+            const rightPct = (rightWidth / totalWidth) * 100;
+
+            panels[dividerIndex].style.width = leftPct + '%';
+            panels[dividerIndex + 1].style.width = rightPct + '%';
+          }
+        });
+
+        document.addEventListener('mouseup', function() {
+          if (!activeDivider) return;
+
+          document.body.classList.remove('resizing');
+          activeDivider.classList.remove('dragging');
+          activeDivider = null;
+
+          // Post the final panel widths as percentages
+          const widths = Array.from(panels).map(function(p) {
+            return parseFloat(p.style.width) || 0;
+          });
+          vscode.postMessage({ type: 'panelResize', widths: widths });
+        });
+      })();
     `;
   }
 
@@ -1032,391 +1215,589 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Get the Log panel HTML
-   * Requirement 9.1, 9.2, 9.3: Log view with graph, commit details, branch/tag labels
-   * Requirement 17.5: IntelliJ-style log layout
+   * Generate HTML for the Branch Panel in the 3-panel layout.
+   * Renders a tree with three top-level categories:
+   *   - "HEAD (Current Branch)" — shows the current branch name or detached hash
+   *   - "Local" — all local branches in case-insensitive alphabetical order
+   *   - "Remote" — remote branches grouped by remote name
+   *
+   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+   *
+   * @param branchData - The branch panel data to render
+   * @returns HTML string for the branch panel content
    */
-  private _getLogPanel(): string {
-    const isActive = this._state.activeTab === 'log';
-
-    if (!this._state.hasRepository) {
-      return `
-        <div 
-          id="panel-log" 
-          class="tab-panel ${isActive ? 'active' : ''}" 
-          role="tabpanel"
-          aria-labelledby="tab-log"
-          ${isActive ? '' : 'hidden'}
-        >
-          <div class="no-repository">
-            <p>No Git repository found in this workspace.</p>
-            <button class="init-repo-button" onclick="initRepository()">
-              Initialize Repository
-            </button>
-          </div>
-        </div>
-      `;
-    }
-
-    const commitNodes = this._extendedLogState.commitNodes;
-    const selectedCommits = this._state.logState.selectedCommits;
-    const expandedCommit = this._state.logState.expandedCommit;
-    const filter = this._state.logState.filter;
-
-    // Compute active lanes and graph width for the entire commit list
-    const activeLaneMap = computeActiveLanes(commitNodes);
-    const graphWidth = computeGraphWidth(commitNodes, DEFAULT_GRAPH_CONFIG);
-
-    let commitsHtml = '';
-    if (commitNodes.length === 0) {
-      commitsHtml = '<p class="empty-message">No commits found</p>';
+  public _getBranchPanelHtml(branchData: IBranchPanelData): string {
+    // --- HEAD (Current Branch) category ---
+    let headContent: string;
+    if (branchData.head.isDetached) {
+      const hash = branchData.head.commitHash || branchData.head.name;
+      headContent = `
+        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(hash)}" data-type="detached" onclick="handleBranchClick('${this._escapeHtml(hash)}')">
+          <span class="branch-icon">⎇</span>
+          <span class="branch-name">${this._escapeHtml(hash)}</span>
+          <span class="branch-detached-label">(detached)</span>
+        </div>`;
     } else {
-      commitsHtml = commitNodes
-        .map((node, index) =>
-          this._getCommitRowHtml(
-            node,
-            index,
-            selectedCommits,
-            expandedCommit,
-            activeLaneMap.get(index) || new Set(),
-            DEFAULT_GRAPH_CONFIG
-          )
-        )
-        .join('');
+      headContent = `
+        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(branchData.head.name)}" data-type="head" onclick="handleBranchClick('${this._escapeHtml(branchData.head.name)}')">
+          <span class="branch-icon">⎇</span>
+          <span class="branch-name">${this._escapeHtml(branchData.head.name)}</span>
+        </div>`;
     }
 
-    // Get expanded commit details if any
-    let detailsHtml = '';
-    if (expandedCommit) {
-      const expandedNode = commitNodes.find((n) => n.commit.hash === expandedCommit);
-      if (expandedNode) {
-        detailsHtml = this._getCommitDetailsHtml(expandedNode);
-      }
-    }
-
-    // Get filter bar HTML
-    const filterBarHtml = this._getLogFilterBarHtml(filter);
-
-    return `
-      <div 
-        id="panel-log" 
-        class="tab-panel ${isActive ? 'active' : ''}" 
-        role="tabpanel"
-        aria-labelledby="tab-log"
-        ${isActive ? '' : 'hidden'}
-      >
-        <div class="log-container">
-          <div class="log-toolbar">
-            <button class="toolbar-button" onclick="toggleLogFilters()" title="Toggle Filters" id="filter-toggle-btn">
-              🔍
-            </button>
-            <button class="toolbar-button" onclick="refreshLog()" title="Refresh">
-              ↻
-            </button>
-          </div>
-          ${filterBarHtml}
-          <div class="log-split-view">
-            <div class="log-commit-list" role="listbox" aria-label="Commit History" style="--graph-width: ${graphWidth}px">
-              ${commitsHtml}
-            </div>
-            <div class="log-details-panel" ${expandedCommit ? '' : 'hidden'}>
-              ${detailsHtml}
-            </div>
-          </div>
-        </div>
-        ${this._getLogContextMenuHtml()}
-      </div>
-    `;
-  }
-
-  /**
-   * Get HTML for the log filter bar
-   * Requirement 9.6: Log filtering by author, date range, file path
-   * Requirement 9.7: Log searching commit messages and content
-   */
-  private _getLogFilterBarHtml(filter?: ILogFilter): string {
-    const hasActiveFilters =
-      filter &&
-      (filter.author ||
-        filter.since ||
-        filter.until ||
-        filter.path ||
-        filter.searchText ||
-        filter.branch);
-
-    // Format dates for input fields
-    const sinceValue = filter?.since ? this._formatDateForInput(filter.since) : '';
-    const untilValue = filter?.until ? this._formatDateForInput(filter.until) : '';
-
-    return `
-      <div class="log-filter-bar" id="log-filter-bar" ${hasActiveFilters ? '' : 'hidden'}>
-        <div class="log-filter-row">
-          <div class="log-filter-group">
-            <label for="filter-search" class="log-filter-label">Search:</label>
-            <input 
-              type="text" 
-              id="filter-search" 
-              class="log-filter-input" 
-              placeholder="Search commits..."
-              value="${this._escapeHtml(filter?.searchText || '')}"
-              onkeyup="handleFilterSearchKeyup(event)"
-              aria-label="Search commit messages and content"
-            />
-          </div>
-          <div class="log-filter-group">
-            <label for="filter-author" class="log-filter-label">Author:</label>
-            <input 
-              type="text" 
-              id="filter-author" 
-              class="log-filter-input" 
-              placeholder="Author name or email"
-              value="${this._escapeHtml(filter?.author || '')}"
-              onkeyup="handleFilterKeyup(event)"
-              aria-label="Filter by author"
-            />
-          </div>
-        </div>
-        <div class="log-filter-row">
-          <div class="log-filter-group">
-            <label for="filter-path" class="log-filter-label">Path:</label>
-            <input 
-              type="text" 
-              id="filter-path" 
-              class="log-filter-input" 
-              placeholder="File or directory path"
-              value="${this._escapeHtml(filter?.path || '')}"
-              onkeyup="handleFilterKeyup(event)"
-              aria-label="Filter by file path"
-            />
-          </div>
-          <div class="log-filter-group log-filter-group-date">
-            <label for="filter-since" class="log-filter-label">From:</label>
-            <input 
-              type="date" 
-              id="filter-since" 
-              class="log-filter-input log-filter-date" 
-              value="${sinceValue}"
-              onchange="applyLogFilters()"
-              aria-label="Filter commits from date"
-            />
-          </div>
-          <div class="log-filter-group log-filter-group-date">
-            <label for="filter-until" class="log-filter-label">To:</label>
-            <input 
-              type="date" 
-              id="filter-until" 
-              class="log-filter-input log-filter-date" 
-              value="${untilValue}"
-              onchange="applyLogFilters()"
-              aria-label="Filter commits until date"
-            />
-          </div>
-        </div>
-        <div class="log-filter-actions">
-          <button class="log-filter-button log-filter-apply" onclick="applyLogFilters()" title="Apply Filters">
-            Apply
-          </button>
-          <button class="log-filter-button log-filter-clear" onclick="clearLogFilters()" title="Clear All Filters" ${hasActiveFilters ? '' : 'disabled'}>
-            Clear
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Format a Date object for HTML date input (YYYY-MM-DD)
-   */
-  private _formatDateForInput(date: Date): string {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  /**
-   * Get HTML for a single commit row with graph visualization
-   * Requirement 9.1: Graph visualization
-   * Requirement 9.2: Commit hash, author, date, message, branch/tag labels
-   */
-  private _getCommitRowHtml(
-    node: ICommitNode,
-    index: number,
-    selectedCommits: Set<string>,
-    expandedCommit?: string,
-    activeLanes?: Set<number>,
-    config?: IGraphRenderConfig
-  ): string {
-    const commit = node.commit;
-    const isSelected = selectedCommits.has(commit.hash);
-    const isExpanded = expandedCommit === commit.hash;
-
-    // Generate graph SVG using the new renderer
-    const graphSvg = renderGraphSvg(
-      node,
-      index,
-      activeLanes || new Set([node.graphColumn]),
-      config || DEFAULT_GRAPH_CONFIG
+    // --- Local category ---
+    const sortedLocal = [...branchData.local].sort((a, b) =>
+      a.name.toLowerCase().localeCompare(b.name.toLowerCase())
     );
 
-    // Format date
-    const relativeDate = this._formatRelativeDate(commit.authorDate);
+    const localBranchesHtml = sortedLocal
+      .map(
+        (branch) => `
+        <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="local" onclick="handleBranchClick('${this._escapeHtml(branch.name)}')" oncontextmenu="showBranchContextMenu(event, '${this._escapeHtml(branch.name)}', 'local')">
+          <span class="branch-icon">⎇</span>
+          <span class="branch-name">${this._escapeHtml(branch.name)}</span>
+        </div>`
+      )
+      .join('');
 
-    // Branch and tag labels
-    const labelsHtml = this._getCommitLabelsHtml(node);
+    // --- Remote category ---
+    const remoteGroups = branchData.remote;
+    let remoteGroupsHtml = '';
 
-    return `
-      <div class="commit-row ${isSelected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}"
-           data-hash="${commit.hash}"
-           onclick="selectCommit('${commit.hash}')"
-           oncontextmenu="showLogContextMenu(event, '${commit.hash}')"
-           role="option"
-           tabindex="0"
-           aria-selected="${isSelected}"
-           onkeydown="handleCommitKeydown(event, '${commit.hash}')">
-        <div class="commit-graph">
-          ${graphSvg}
-        </div>
-        <div class="commit-info">
-          <div class="commit-header">
-            <span class="commit-hash" title="${commit.hash}">${commit.shortHash}</span>
-            ${labelsHtml}
-            <span class="commit-message" title="${this._escapeHtml(commit.message)}">${this._escapeHtml(this._truncateMessage(commit.message, 60))}</span>
+    for (const group of remoteGroups) {
+      const sortedBranches = [...group.branches].sort((a, b) =>
+        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      );
+
+      const remoteBranchesHtml = sortedBranches
+        .map(
+          (branch) => `
+          <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="remote" data-remote="${this._escapeHtml(group.remoteName)}" onclick="handleBranchClick('${this._escapeHtml(branch.name)}')" oncontextmenu="showBranchContextMenu(event, '${this._escapeHtml(branch.name)}', 'remote')">
+            <span class="branch-icon">☁</span>
+            <span class="branch-name">${this._escapeHtml(branch.name)}</span>
+          </div>`
+        )
+        .join('');
+
+      remoteGroupsHtml += `
+        <div class="branch-category branch-remote-group">
+          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
+            <span class="expand-icon">▼</span>
+            <span class="branch-category-name">${this._escapeHtml(group.remoteName)}</span>
           </div>
-          <div class="commit-meta">
-            <span class="commit-author" title="${this._escapeHtml(commit.author.email)}">${this._escapeHtml(commit.author.name)}</span>
-            <span class="commit-date" title="${commit.authorDate.toLocaleString()}">${relativeDate}</span>
+          <div class="branch-category-children">
+            ${remoteBranchesHtml}
+          </div>
+        </div>`;
+    }
+
+    // --- Assemble the full branch panel tree ---
+    return `
+      <div class="branch-panel" role="tree" aria-label="Branches">
+        <div class="branch-category" data-category="head">
+          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
+            <span class="expand-icon">▼</span>
+            <span class="branch-category-name">HEAD (Current Branch)</span>
+          </div>
+          <div class="branch-category-children">
+            ${headContent}
+          </div>
+        </div>
+
+        <div class="branch-category" data-category="local">
+          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
+            <span class="expand-icon">▼</span>
+            <span class="branch-category-name">Local</span>
+          </div>
+          <div class="branch-category-children">
+            ${localBranchesHtml}
+          </div>
+        </div>
+
+        <div class="branch-category" data-category="remote">
+          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
+            <span class="expand-icon">▼</span>
+            <span class="branch-category-name">Remote</span>
+          </div>
+          <div class="branch-category-children">
+            ${remoteGroupsHtml}
           </div>
         </div>
       </div>
-    `;
-  }
-
-
-
-  /**
-   * Get HTML for branch and tag labels on a commit
-   * Requirement 9.2: Branch/tag labels
-   */
-  private _getCommitLabelsHtml(node: ICommitNode): string {
-    let html = '';
-
-    // Branch labels
-    for (const branch of node.branches) {
-      const isHead = branch === 'HEAD' || branch.endsWith('/HEAD');
-      html += `<span class="commit-label branch-label ${isHead ? 'head-label' : ''}" title="Branch: ${this._escapeHtml(branch)}">${this._escapeHtml(branch)}</span>`;
-    }
-
-    // Tag labels
-    for (const tag of node.tags) {
-      html += `<span class="commit-label tag-label" title="Tag: ${this._escapeHtml(tag)}">${this._escapeHtml(tag)}</span>`;
-    }
-
-    return html;
+      ${this._getBranchContextMenuHtml()}`;
   }
 
   /**
-   * Get HTML for commit details panel
-   * Requirement 9.3: Full commit details including changed files
+   * Get the branch context menu HTML overlay.
+   * Renders two context menus: one for local branches and one for remote branches.
+   * The menus are hidden by default and shown on right-click via JS handlers.
+   *
+   * Requirements: 2.7, 2.8
+   *
+   * @returns HTML string for the branch context menu overlays
    */
-  private _getCommitDetailsHtml(node: ICommitNode): string {
-    const commit = node.commit;
-
+  public _getBranchContextMenuHtml(): string {
     return `
-      <div class="commit-details">
-        <div class="commit-details-header">
-          <h3>Commit Details</h3>
-          <button class="close-details-button" onclick="closeCommitDetails()" title="Close">×</button>
+      <div id="branch-context-menu-local" class="branch-context-menu context-menu" hidden role="menu" aria-label="Local branch actions">
+        <div class="context-menu-item" data-action="checkout" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">⎇</span>
+          Checkout
         </div>
-        <div class="commit-details-content">
-          <div class="detail-row">
-            <span class="detail-label">Hash:</span>
-            <span class="detail-value hash-value" onclick="copyToClipboard('${commit.hash}')" title="Click to copy">${commit.hash}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Author:</span>
-            <span class="detail-value">${this._escapeHtml(commit.author.name)} &lt;${this._escapeHtml(commit.author.email)}&gt;</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Date:</span>
-            <span class="detail-value">${commit.authorDate.toLocaleString()}</span>
-          </div>
-          ${
-            commit.parents.length > 0
-              ? `
-          <div class="detail-row">
-            <span class="detail-label">Parents:</span>
-            <span class="detail-value">${commit.parents.map((p) => `<span class="parent-hash" onclick="selectCommit('${p}')">${p.substring(0, 7)}</span>`).join(', ')}</span>
-          </div>
-          `
-              : ''
-          }
-          <div class="detail-row message-row">
-            <span class="detail-label">Message:</span>
-            <pre class="detail-value commit-full-message">${this._escapeHtml(commit.message)}${commit.body ? '\n\n' + this._escapeHtml(commit.body) : ''}</pre>
-          </div>
-          ${
-            this._getCommitLabelsHtml(node)
-              ? `
-          <div class="detail-row">
-            <span class="detail-label">Refs:</span>
-            <span class="detail-value">${this._getCommitLabelsHtml(node)}</span>
-          </div>
-          `
-              : ''
-          }
-          <div class="changed-files-section">
-            <h4>Changed Files</h4>
-            <div class="changed-files-list" id="changed-files-${commit.hash}">
-              <p class="loading-message">Loading changed files...</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Get the context menu HTML for Log View
-   * Requirement 9.5: Context menu on commits
-   */
-  private _getLogContextMenuHtml(): string {
-    return `
-      <div id="log-context-menu" class="context-menu" hidden>
-        <div class="context-menu-item" data-action="showDiff">
-          <span class="context-menu-icon">📄</span>
-          Show Diff
+        <div class="context-menu-item" data-action="newBranch" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">➕</span>
+          New Branch
         </div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="cherryPick">
+        <div class="context-menu-item" data-action="merge" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">🔀</span>
+          Merge into Current
+        </div>
+        <div class="context-menu-item" data-action="rebase" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">↗</span>
+          Rebase Current onto This
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="compare" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">🔍</span>
+          Compare with Current
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="rename" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">✏️</span>
+          Rename
+        </div>
+        <div class="context-menu-item context-menu-danger" data-action="delete" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">🗑️</span>
+          Delete
+        </div>
+      </div>
+
+      <div id="branch-context-menu-remote" class="branch-context-menu context-menu" hidden role="menu" aria-label="Remote branch actions">
+        <div class="context-menu-item" data-action="checkoutAsLocal" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">⎇</span>
+          Checkout as Local
+        </div>
+        <div class="context-menu-item" data-action="newBranch" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">➕</span>
+          New Branch
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="merge" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">🔀</span>
+          Merge into Current
+        </div>
+        <div class="context-menu-item" data-action="pull" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">⬇</span>
+          Pull into Current
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item context-menu-danger" data-action="deleteRemote" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">🗑️</span>
+          Delete Remote
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Generate the Graph Panel HTML for the 3-panel layout.
+   *
+   * Renders commit rows in reverse chronological order (as provided by the
+   * commitNodes array). Each row contains:
+   * - SVG graph visualization (via renderGraphSvg with computeActiveLanes)
+   * - Commit short hash
+   * - Commit message summary (first line, truncated to ~60 chars)
+   * - Author name
+   * - Relative date
+   *
+   * The method uses the existing graphRenderer utilities to produce color-coded
+   * lane SVGs and the commitGraph utilities for lane computation.
+   *
+   * Requirements: 3.1, 3.2, 3.7, 3.8
+   *
+   * @param commitNodes - Array of ICommitNode in reverse chronological order
+   * @param selectedCommits - Set of currently selected commit hashes (optional)
+   * @param loadedCount - Number of commits currently loaded (optional, for incremental loading)
+   * @param totalAvailable - Total number of commits available in the repository (optional)
+   * @returns HTML string for the graph panel content
+   */
+  public _getGraphPanelHtml(
+    commitNodes: ICommitNode[],
+    selectedCommits?: Set<string>,
+    loadedCount?: number,
+    totalAvailable?: number
+  ): string {
+    const selected = selectedCommits || new Set<string>();
+
+    if (commitNodes.length === 0) {
+      return `
+        <div class="graph-panel" role="listbox" aria-label="Commit Graph">
+          <p class="empty-message">No commits found</p>
+        </div>
+        ${this._getCommitContextMenuHtml()}`;
+    }
+
+    // Compute active lanes for the entire commit list
+    const activeLaneMap = computeActiveLanes(commitNodes);
+
+    // Build commit rows
+    const rowsHtml = commitNodes
+      .map((node, index) => {
+        const commit = node.commit;
+        const isSelected = selected.has(commit.hash);
+
+        // Generate SVG graph for this row
+        const activeLanes = activeLaneMap.get(index) || new Set<number>();
+        const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG);
+
+        // Format fields
+        const shortHash = commit.shortHash;
+        const messageSummary = this._escapeHtml(this._truncateMessage(commit.message, 60));
+        const fullMessage = this._escapeHtml(commit.message);
+        const authorName = this._escapeHtml(commit.author.name);
+        const authorEmail = this._escapeHtml(commit.author.email);
+        const relativeDate = this._formatRelativeDate(commit.authorDate);
+        const fullDate = commit.authorDate.toLocaleString();
+
+        return `
+        <div class="commit-row ${isSelected ? 'selected' : ''}"
+             data-hash="${commit.hash}"
+             onclick="handleCommitClick(event, '${commit.hash}')"
+             oncontextmenu="showCommitContextMenu(event, '${commit.hash}')"
+             role="option"
+             tabindex="0"
+             aria-selected="${isSelected}">
+          <div class="commit-graph">
+            ${graphSvg}
+          </div>
+          <div class="commit-info">
+            <span class="commit-hash" title="${commit.hash}">${shortHash}</span>
+            <span class="commit-message" title="${fullMessage}">${messageSummary}</span>
+            <span class="commit-author" title="${authorEmail}">${authorName}</span>
+            <span class="commit-date" title="${fullDate}">${relativeDate}</span>
+          </div>
+        </div>`;
+      })
+      .join('');
+
+    // Determine if more commits are available for incremental loading
+    // Requirements 3.7, 3.8: Virtual scrolling with incremental loading
+    const loaded = loadedCount ?? commitNodes.length;
+    const total = totalAvailable ?? commitNodes.length;
+    const hasMore = loaded < total;
+
+    const loadingIndicatorHtml = hasMore
+      ? `<div class="graph-loading-indicator" data-loaded="${loaded}" data-total="${total}">
+          <span class="loading-spinner">⟳</span>
+          <span class="loading-text">Loading more commits... (${loaded} of ${total})</span>
+        </div>`
+      : '';
+
+    return `
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" data-loaded-count="${loaded}" data-total-available="${total}">
+        ${rowsHtml}
+        ${loadingIndicatorHtml}
+      </div>
+      ${this._getCommitContextMenuHtml()}`;
+  }
+
+  /**
+   * Get the commit context menu HTML overlay for the Graph Panel.
+   * Renders a context menu with all 7 required options:
+   * Cherry-pick, Revert, Create Branch, Create Tag, Reset to Here, Copy Hash, Show Diff.
+   * The menu is hidden by default and shown on right-click via JS handlers.
+   *
+   * Requirements: 3.5, 3.6
+   *
+   * @returns HTML string for the commit context menu overlay
+   */
+  public _getCommitContextMenuHtml(): string {
+    return `
+      <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions">
+        <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">
           <span class="context-menu-icon">🍒</span>
           Cherry-pick
         </div>
-        <div class="context-menu-item" data-action="revert">
+        <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">
           <span class="context-menu-icon">↩️</span>
-          Revert Commit
+          Revert
         </div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="createBranch">
+        <div class="context-menu-item" data-action="createBranch" role="menuitem" tabindex="0">
           <span class="context-menu-icon">🌿</span>
           Create Branch
         </div>
-        <div class="context-menu-item" data-action="createTag">
+        <div class="context-menu-item" data-action="createTag" role="menuitem" tabindex="0">
           <span class="context-menu-icon">🏷️</span>
           Create Tag
         </div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item context-menu-danger" data-action="resetToHere">
+        <div class="context-menu-item context-menu-danger" data-action="resetToHere" role="menuitem" tabindex="0">
           <span class="context-menu-icon">⚠️</span>
-          Reset Current Branch to Here
+          Reset to Here
         </div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="copyHash">
+        <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">
           <span class="context-menu-icon">📋</span>
-          Copy Commit Hash
+          Copy Hash
         </div>
-      </div>
-    `;
+        <div class="context-menu-item" data-action="showDiff" role="menuitem" tabindex="0">
+          <span class="context-menu-icon">📄</span>
+          Show Diff
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Generate the Details Panel HTML for the 3-panel layout.
+   *
+   * Displays full commit metadata and a list of changed files with
+   * IntelliJ-style color-coded status indicators.
+   *
+   * Commit metadata displayed:
+   * - Commit message (and body if present)
+   * - Full hash
+   * - Author name and email
+   * - Commit date-time
+   * - Parent commit hashes
+   *
+   * Changed files list:
+   * - Each file shows a color-coded status letter (M, A, D, R, etc.)
+   * - File name and directory path are displayed separately
+   * - Colors follow IntelliJ conventions via INTELLIJ_FILE_STATUS_COLORS
+   *
+   * Requirements: 4.1, 4.2
+   *
+   * @param commitDetails - The commit details data to render
+   * @returns HTML string for the details panel content
+   */
+  public _getDetailsPanelHtml(commitDetails: ICommitDetails): string {
+    // --- Commit metadata section ---
+    const messageHtml = this._escapeHtml(commitDetails.message);
+    const bodyHtml = commitDetails.body ? this._escapeHtml(commitDetails.body) : '';
+    const fullHash = this._escapeHtml(commitDetails.hash);
+    const authorName = this._escapeHtml(commitDetails.author.name);
+    const authorEmail = this._escapeHtml(commitDetails.author.email);
+    const dateStr = commitDetails.date.toLocaleString();
+
+    // Parent hashes
+    const parentsHtml = commitDetails.parents.length > 0
+      ? commitDetails.parents
+          .map(
+            (p) =>
+              `<span class="parent-hash" onclick="selectCommit('${this._escapeHtml(p)}')" title="${this._escapeHtml(p)}">${this._escapeHtml(p.substring(0, 7))}</span>`
+          )
+          .join(', ')
+      : '<span class="no-parents">None (root commit)</span>';
+
+    // --- Changed files section ---
+    let changedFilesHtml: string;
+    if (commitDetails.changedFiles.length === 0) {
+      changedFilesHtml = '<p class="empty-message">No changed files</p>';
+    } else {
+      changedFilesHtml = commitDetails.changedFiles
+        .map((file) => {
+          const statusColor = this._getFileStatusColor(file.status);
+          const statusChar = this._getFileStatusChar(file.status);
+          const fileName = this._getFileName(file.path);
+          const fileDir = this._getFileDir(file.path);
+          const fileDirDisplay = fileDir ? fileDir : '';
+
+          // For renames, show the old path as well
+          const renameInfo =
+            file.status === 'renamed' && file.oldPath
+              ? ` <span class="rename-arrow">←</span> <span class="old-path" title="${this._escapeHtml(file.oldPath)}">${this._escapeHtml(file.oldPath)}</span>`
+              : '';
+
+          return `
+          <div class="changed-file-item"
+               data-path="${this._escapeHtml(file.path)}"
+               data-status="${file.status}"
+               ondblclick="handleDetailFileDoubleClick('${this._escapeHtml(commitDetails.hash)}', '${this._escapeHtml(file.path)}')"
+               role="listitem"
+               tabindex="0">
+            <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">
+              ${statusChar}
+            </span>
+            <span class="file-name" style="color: ${statusColor};">
+              ${this._escapeHtml(fileName)}
+            </span>
+            <span class="file-directory" title="${this._escapeHtml(file.path)}">
+              ${this._escapeHtml(fileDirDisplay)}
+            </span>
+            ${renameInfo}
+          </div>`;
+        })
+        .join('');
+    }
+
+    return `
+      <div class="details-panel" role="region" aria-label="Commit Details">
+        <div class="details-metadata">
+          <div class="detail-row message-row">
+            <span class="detail-label">Message:</span>
+            <pre class="detail-value commit-full-message">${messageHtml}${bodyHtml ? '\n\n' + bodyHtml : ''}</pre>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Hash:</span>
+            <span class="detail-value hash-value" onclick="copyToClipboard('${fullHash}')" title="Click to copy">${fullHash}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Author:</span>
+            <span class="detail-value">${authorName} &lt;${authorEmail}&gt;</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Date:</span>
+            <span class="detail-value">${dateStr}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Parents:</span>
+            <span class="detail-value">${parentsHtml}</span>
+          </div>
+        </div>
+        <div class="details-changed-files">
+          <h4>Changed Files (${commitDetails.changedFiles.length})</h4>
+          <div class="changed-files-list" role="list" aria-label="Changed Files">
+            ${changedFilesHtml}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Get placeholder HTML for the Details Panel when no commit is selected.
+   *
+   * Requirement 4.4: When no commit is selected, the Details_Panel SHALL display
+   * a placeholder message indicating that a commit should be selected.
+   *
+   * @returns HTML string for the placeholder state
+   */
+  public _getDetailsPanelPlaceholderHtml(): string {
+    return `
+      <div class="details-panel" role="region" aria-label="Commit Details">
+        <div class="details-placeholder">
+          <p class="placeholder-message">Select a commit to view details</p>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Generate HTML for the Details Panel when multiple commits are selected.
+   * Displays a header showing how many commits are selected, a list of selected
+   * commit hashes/messages, and the combined changed files list with IntelliJ-style
+   * color coding.
+   *
+   * The combined changed files are computed by merging the changed files from all
+   * selected commits, deduplicating by path and keeping the most recent status.
+   *
+   * Requirement 4.5: When multiple commits are selected, the Details_Panel SHALL
+   * display the combined changes across all selected commits.
+   *
+   * @param commitDetailsList - Array of commit details for the selected commits
+   * @param combinedChangedFiles - Optional pre-computed combined changed files
+   *   (e.g., from GitService.getMultiCommitDiff()). If not provided, the method
+   *   merges changed files from the individual commit details.
+   * @returns HTML string for the multi-commit details panel
+   */
+  public _getMultiCommitDetailsPanelHtml(
+    commitDetailsList: ICommitDetails[],
+    combinedChangedFiles?: IChangedFile[]
+  ): string {
+    const commitCount = commitDetailsList.length;
+
+    // --- Header section: "N commits selected" ---
+    const headerHtml = `<h3 class="multi-commit-header">${commitCount} commit${commitCount !== 1 ? 's' : ''} selected</h3>`;
+
+    // --- Selected commits list ---
+    const commitsListHtml = commitDetailsList
+      .map((details) => {
+        const shortHash = this._escapeHtml(details.hash.substring(0, 7));
+        const message = this._escapeHtml(this._truncateMessage(details.message, 60));
+        return `
+          <div class="multi-commit-item" role="listitem">
+            <span class="commit-short-hash">${shortHash}</span>
+            <span class="commit-summary">${message}</span>
+          </div>`;
+      })
+      .join('');
+
+    // --- Combined changed files ---
+    // Use pre-computed combined files if provided, otherwise merge from individual commits
+    const mergedFiles = combinedChangedFiles ?? this._mergeChangedFiles(commitDetailsList);
+
+    let changedFilesHtml: string;
+    if (mergedFiles.length === 0) {
+      changedFilesHtml = '<p class="empty-message">No changed files</p>';
+    } else {
+      changedFilesHtml = mergedFiles
+        .map((file) => {
+          const statusColor = this._getFileStatusColor(file.status);
+          const statusChar = this._getFileStatusChar(file.status);
+          const fileName = this._getFileName(file.path);
+          const fileDir = this._getFileDir(file.path);
+          const fileDirDisplay = fileDir ? fileDir : '';
+
+          // For renames, show the old path as well
+          const renameInfo =
+            file.status === 'renamed' && file.oldPath
+              ? ` <span class="rename-arrow">←</span> <span class="old-path" title="${this._escapeHtml(file.oldPath)}">${this._escapeHtml(file.oldPath)}</span>`
+              : '';
+
+          return `
+          <div class="changed-file-item"
+               data-path="${this._escapeHtml(file.path)}"
+               data-status="${file.status}"
+               role="listitem"
+               tabindex="0">
+            <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">
+              ${statusChar}
+            </span>
+            <span class="file-name" style="color: ${statusColor};">
+              ${this._escapeHtml(fileName)}
+            </span>
+            <span class="file-directory" title="${this._escapeHtml(file.path)}">
+              ${this._escapeHtml(fileDirDisplay)}
+            </span>
+            ${renameInfo}
+          </div>`;
+        })
+        .join('');
+    }
+
+    return `
+      <div class="details-panel multi-commit-details" role="region" aria-label="Multi-Commit Details">
+        ${headerHtml}
+        <div class="multi-commit-list" role="list" aria-label="Selected Commits">
+          ${commitsListHtml}
+        </div>
+        <div class="details-changed-files">
+          <h4>Changed Files (${mergedFiles.length})</h4>
+          <div class="changed-files-list" role="list" aria-label="Changed Files">
+            ${changedFilesHtml}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Merge changed files from multiple commit details into a single deduplicated list.
+   * When the same file appears in multiple commits, the last occurrence's status is kept.
+   * Files are sorted alphabetically by path.
+   *
+   * @param commitDetailsList - Array of commit details to merge files from
+   * @returns Deduplicated and sorted array of changed files
+   */
+  private _mergeChangedFiles(commitDetailsList: ICommitDetails[]): IChangedFile[] {
+    const fileMap = new Map<string, IChangedFile>();
+
+    for (const details of commitDetailsList) {
+      for (const file of details.changedFiles) {
+        // Later commits override earlier ones for the same path
+        fileMap.set(file.path, { ...file });
+      }
+    }
+
+    // Sort alphabetically by path
+    return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
   }
 
   /**
@@ -1463,51 +1844,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Get the Console panel HTML
-   */
-  private _getConsolePanel(): string {
-    const isActive = this._state.activeTab === 'console';
-    const entries = this._state.consoleState.entries;
-
-    let entriesHtml = '';
-    if (entries.length === 0) {
-      entriesHtml = '<p class="empty-message">No console output</p>';
-    } else {
-      entriesHtml = entries
-        .map(
-          (entry) => `
-          <div class="console-entry ${entry.isError ? 'error' : ''}">
-            <div class="console-timestamp">${this._formatTimestamp(entry.timestamp)}</div>
-            <div class="console-command">$ ${this._escapeHtml(entry.command)}</div>
-            <pre class="console-output">${this._escapeHtml(entry.output)}</pre>
-            ${entry.exitCode !== undefined ? `<div class="console-exit-code">Exit code: ${entry.exitCode}</div>` : ''}
-          </div>
-        `
-        )
-        .join('');
-    }
-
-    return `
-      <div 
-        id="panel-console" 
-        class="tab-panel ${isActive ? 'active' : ''}" 
-        role="tabpanel"
-        aria-labelledby="tab-console"
-        ${isActive ? '' : 'hidden'}
-      >
-        <div class="console-toolbar">
-          <button class="clear-console-button" onclick="clearConsole()" title="Clear Console">
-            Clear
-          </button>
-        </div>
-        <div class="console-content">
-          ${entriesHtml}
-        </div>
-      </div>
-    `;
-  }
-
-  /**
    * Get inline styles for the webview
    */
   private _getInlineStyles(): string {
@@ -1541,58 +1877,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         display: flex;
         flex-direction: column;
         height: 100vh;
-      }
-
-      /* Tab Bar */
-      .tab-bar {
-        display: flex;
-        border-bottom: 1px solid var(--vscode-panel-border);
-        background-color: var(--vscode-tab-inactiveBackground);
-      }
-
-      .tab-button {
-        padding: 8px 16px;
-        border: none;
-        background: transparent;
-        color: var(--vscode-tab-inactiveForeground);
-        cursor: pointer;
-        font-size: var(--vscode-font-size);
-        border-bottom: 2px solid transparent;
-        transition: all 0.2s ease;
-      }
-
-      .tab-button:hover {
-        background-color: var(--vscode-tab-hoverBackground);
-        color: var(--vscode-tab-hoverForeground);
-      }
-
-      .tab-button:focus {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: -1px;
-      }
-
-      .tab-button.active {
-        color: var(--vscode-tab-activeForeground);
-        background-color: var(--vscode-tab-activeBackground);
-        border-bottom-color: var(--vscode-tab-activeBorderTop, var(--vscode-focusBorder));
-      }
-
-      /* Tab Panels */
-      .tab-panels {
-        flex: 1;
-        overflow: hidden;
-      }
-
-      .tab-panel {
-        display: none;
-        height: 100%;
-        overflow: auto;
-        padding: 0;
-      }
-
-      .tab-panel.active {
-        display: flex;
-        flex-direction: column;
       }
 
       /* No Repository Message */
@@ -2313,6 +2597,33 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         padding: 8px;
       }
 
+      /* Graph Panel Loading Indicator - Requirements 3.7, 3.8 */
+      .graph-loading-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 12px 8px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 12px;
+        gap: 8px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+
+      .loading-spinner {
+        display: inline-block;
+        animation: spin 1s linear infinite;
+        font-size: 16px;
+      }
+
+      .loading-text {
+        font-style: italic;
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
       /* Drag and Drop Visual Feedback */
       .drag-ghost {
         position: fixed;
@@ -2324,6 +2635,156 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         border-radius: 3px;
         font-size: 12px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      /* Branch Panel Styles - Requirements 2.1-2.5 */
+      .branch-panel {
+        padding: 4px 0;
+        font-size: 13px;
+      }
+
+      .branch-category {
+        margin-bottom: 2px;
+      }
+
+      .branch-category-header {
+        display: flex;
+        align-items: center;
+        padding: 4px 8px;
+        cursor: pointer;
+        user-select: none;
+        font-weight: 600;
+        font-size: 11px;
+        text-transform: uppercase;
+        color: var(--vscode-descriptionForeground);
+        letter-spacing: 0.5px;
+      }
+
+      .branch-category-header:hover {
+        background-color: var(--vscode-list-hoverBackground);
+      }
+
+      .branch-category-header:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+      }
+
+      .branch-category-children {
+        padding-left: 8px;
+      }
+
+      .branch-category-name {
+        margin-left: 4px;
+      }
+
+      .branch-remote-group {
+        margin-left: 8px;
+      }
+
+      .branch-item {
+        display: flex;
+        align-items: center;
+        padding: 3px 8px 3px 16px;
+        cursor: pointer;
+        border-radius: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .branch-item:hover {
+        background-color: var(--vscode-list-hoverBackground);
+      }
+
+      .branch-item:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+      }
+
+      .branch-head-item {
+        font-weight: 600;
+      }
+
+      .branch-icon {
+        width: 16px;
+        margin-right: 6px;
+        flex-shrink: 0;
+        font-size: 12px;
+        text-align: center;
+      }
+
+      .branch-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .branch-detached-label {
+        color: var(--vscode-descriptionForeground);
+        font-style: italic;
+        margin-left: 6px;
+        font-size: 11px;
+      }
+
+      /* Details Panel Styles */
+      .details-panel {
+        padding: 8px;
+      }
+
+      .details-metadata {
+        font-size: 12px;
+      }
+
+      .file-status-indicator {
+        width: 16px;
+        font-size: 11px;
+        font-weight: bold;
+        margin-right: 6px;
+        flex-shrink: 0;
+        text-align: center;
+      }
+
+      .file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+
+      .file-directory {
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+        margin-left: 6px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rename-arrow {
+        color: var(--vscode-descriptionForeground);
+        margin: 0 4px;
+      }
+
+      .old-path {
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+        text-decoration: line-through;
+      }
+
+      .no-parents {
+        color: var(--vscode-descriptionForeground);
+        font-style: italic;
+      }
+
+      /* Graph Panel wrapper */
+      .graph-panel {
+        overflow-y: auto;
+        height: 100%;
+      }
+
+      /* Scroll highlight effect */
+      .commit-row.highlight-scroll {
+        background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 200, 0, 0.2));
+        transition: background-color 0.3s ease;
       }
     `;
   }
@@ -2340,77 +2801,23 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         let draggedFiles = [];
         let contextMenuTarget = null;
 
-        // Tab switching with keyboard support
-        const tabButtons = document.querySelectorAll('.tab-button');
-        tabButtons.forEach(button => {
-          button.addEventListener('click', () => {
-            const tab = button.dataset.tab;
-            vscode.postMessage({ type: 'switchTab', tab });
-          });
-
-          // Keyboard navigation for tabs
-          button.addEventListener('keydown', (e) => {
-            const tabs = Array.from(tabButtons);
-            const currentIndex = tabs.indexOf(button);
-            let newIndex = currentIndex;
-
-            switch (e.key) {
-              case 'ArrowLeft':
-                newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
-                e.preventDefault();
-                break;
-              case 'ArrowRight':
-                newIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
-                e.preventDefault();
-                break;
-              case 'Home':
-                newIndex = 0;
-                e.preventDefault();
-                break;
-              case 'End':
-                newIndex = tabs.length - 1;
-                e.preventDefault();
-                break;
-            }
-
-            if (newIndex !== currentIndex) {
-              tabs[newIndex].focus();
-              tabs[newIndex].click();
-            }
-          });
-        });
-
         // Handle state updates from extension
         window.addEventListener('message', event => {
           const message = event.data;
-          if (message.type === 'stateUpdate') {
-            updateUI(message.state);
+          if (message.type === 'scrollToCommit' && message.commitHash) {
+            scrollToCommit(message.commitHash);
           }
         });
 
-        function updateUI(state) {
-          // Update tab buttons
-          tabButtons.forEach(button => {
-            const isActive = button.dataset.tab === state.activeTab;
-            button.classList.toggle('active', isActive);
-            button.setAttribute('aria-selected', isActive);
-            button.setAttribute('tabindex', isActive ? '0' : '-1');
-          });
-
-          // Update tab panels
-          document.querySelectorAll('.tab-panel').forEach(panel => {
-            const panelTab = panel.id.replace('panel-', '');
-            const isActive = panelTab === state.activeTab;
-            panel.classList.toggle('active', isActive);
-            panel.hidden = !isActive;
-          });
-
-          // Update graph width CSS custom property from log state
-          if (state.logState && state.logState.graphWidth !== undefined) {
-            const commitList = document.querySelector('.log-commit-list');
-            if (commitList) {
-              commitList.style.setProperty('--graph-width', state.logState.graphWidth + 'px');
-            }
+        function scrollToCommit(commitHash) {
+          const commitRow = document.querySelector('[data-commit-hash="' + commitHash + '"]');
+          if (commitRow) {
+            commitRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Add a brief highlight effect
+            commitRow.classList.add('highlight-scroll');
+            setTimeout(function() {
+              commitRow.classList.remove('highlight-scroll');
+            }, 2000);
           }
         }
 
@@ -2530,6 +2937,35 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         };
 
         // Log View functions
+        // Requirement 3.3: Left-click selects commit
+        // Requirement 3.4: Ctrl/Cmd+click toggles multi-select
+        window.handleCommitClick = function(event, hash) {
+          if (event.ctrlKey || event.metaKey) {
+            // Ctrl/Cmd+click: toggle multi-select
+            toggleCommitSelection(hash);
+            // Update visual selection state in the webview
+            const row = event.target.closest('.commit-row');
+            if (row) {
+              row.classList.toggle('selected');
+              const isNowSelected = row.classList.contains('selected');
+              row.setAttribute('aria-selected', String(isNowSelected));
+            }
+          } else {
+            // Plain click: single select
+            selectCommit(hash);
+            // Update visual selection state: clear all, select clicked
+            document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+              r.classList.remove('selected');
+              r.setAttribute('aria-selected', 'false');
+            });
+            const row = event.target.closest('.commit-row');
+            if (row) {
+              row.classList.add('selected');
+              row.setAttribute('aria-selected', 'true');
+            }
+          }
+        };
+
         window.selectCommit = function(hash) {
           vscode.postMessage({ type: 'selectCommit', commitHash: hash });
         };
@@ -2541,6 +2977,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         window.closeCommitDetails = function() {
           // Clear selection to close details panel
           vscode.postMessage({ type: 'selectCommit', commitHash: '' });
+        };
+
+        // Detail panel: double-click on a changed file to open diff view
+        // Requirement 4.3: Double-click opens VS Code diff view for the file at the selected commit
+        window.handleDetailFileDoubleClick = function(commitHash, path) {
+          vscode.postMessage({ type: 'doubleClickFile', commitHash: commitHash, path: path });
         };
 
         window.copyToClipboard = function(text) {
@@ -2600,12 +3042,32 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         });
 
         // Keyboard handler for commits
+        // Requirement 3.3, 3.4: Keyboard support for single and multi-select
         window.handleCommitKeydown = function(event, hash) {
           switch (event.key) {
             case 'Enter':
             case ' ':
               event.preventDefault();
-              selectCommit(hash);
+              if (event.ctrlKey || event.metaKey) {
+                toggleCommitSelection(hash);
+                const row = event.target.closest('.commit-row');
+                if (row) {
+                  row.classList.toggle('selected');
+                  const isNowSelected = row.classList.contains('selected');
+                  row.setAttribute('aria-selected', String(isNowSelected));
+                }
+              } else {
+                selectCommit(hash);
+                document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+                  r.classList.remove('selected');
+                  r.setAttribute('aria-selected', 'false');
+                });
+                const row = event.target.closest('.commit-row');
+                if (row) {
+                  row.classList.add('selected');
+                  row.setAttribute('aria-selected', 'true');
+                }
+              }
               break;
             case 'ContextMenu':
               event.preventDefault();
@@ -2619,6 +3081,76 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
               break;
           }
         };
+
+        // Commit context menu for Graph Panel - Requirements 3.5, 3.6
+        let commitContextMenuHashes = [];
+
+        window.showCommitContextMenu = function(event, hash) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          // Determine if the right-clicked commit is part of a multi-select
+          const selectedRows = document.querySelectorAll('.graph-panel .commit-row.selected');
+          const selectedHashes = Array.from(selectedRows).map(function(row) {
+            return row.getAttribute('data-hash');
+          });
+
+          // If the right-clicked commit is part of the current multi-select,
+          // apply the action to all selected commits
+          if (selectedHashes.length > 1 && selectedHashes.indexOf(hash) !== -1) {
+            commitContextMenuHashes = selectedHashes;
+          } else {
+            // Single commit or right-clicked a non-selected commit
+            commitContextMenuHashes = [hash];
+          }
+
+          const contextMenu = document.getElementById('commit-context-menu');
+          if (contextMenu) {
+            const x = event.clientX;
+            const y = event.clientY;
+
+            const menuWidth = 220;
+            const menuHeight = 300;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            const left = x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x;
+            const top = y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y;
+
+            contextMenu.style.left = left + 'px';
+            contextMenu.style.top = top + 'px';
+            contextMenu.hidden = false;
+          }
+        };
+
+        // Handle commit context menu item clicks
+        document.addEventListener('click', (e) => {
+          const commitContextMenu = document.getElementById('commit-context-menu');
+          if (commitContextMenu && !commitContextMenu.contains(e.target)) {
+            commitContextMenu.hidden = true;
+          }
+
+          const menuItem = e.target.closest('#commit-context-menu .context-menu-item');
+          if (menuItem && commitContextMenuHashes.length > 0) {
+            const action = menuItem.dataset.action;
+            if (action) {
+              vscode.postMessage({
+                type: 'commitContextMenu',
+                action: action,
+                commitHashes: commitContextMenuHashes
+              });
+              document.getElementById('commit-context-menu').hidden = true;
+            }
+          }
+        });
+
+        // Hide commit context menu on Escape key
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            const commitContextMenu = document.getElementById('commit-context-menu');
+            if (commitContextMenu) commitContextMenu.hidden = true;
+          }
+        });
 
         // Context menu functions
         window.showContextMenu = function(event, path) {
@@ -2721,6 +3253,92 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           }
         };
 
+        // Branch context menu - Requirements 2.7, 2.8
+        let branchContextMenuTarget = null;
+        let branchContextMenuType = null;
+
+        // Branch click handler - Requirement 2.6
+        window.handleBranchClick = function(branchName) {
+          vscode.postMessage({ type: 'branchClick', branchName: branchName });
+        };
+
+        window.showBranchContextMenu = function(event, branchName, branchType) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          branchContextMenuTarget = branchName;
+          branchContextMenuType = branchType;
+
+          // Hide both menus first
+          const localMenu = document.getElementById('branch-context-menu-local');
+          const remoteMenu = document.getElementById('branch-context-menu-remote');
+          if (localMenu) localMenu.hidden = true;
+          if (remoteMenu) remoteMenu.hidden = true;
+
+          // Show the appropriate menu
+          const menuId = branchType === 'local' ? 'branch-context-menu-local' : 'branch-context-menu-remote';
+          const contextMenu = document.getElementById(menuId);
+          if (contextMenu) {
+            const x = event.clientX;
+            const y = event.clientY;
+
+            const menuWidth = 220;
+            const menuHeight = 250;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            const left = x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x;
+            const top = y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y;
+
+            contextMenu.style.left = left + 'px';
+            contextMenu.style.top = top + 'px';
+            contextMenu.hidden = false;
+          }
+        };
+
+        // Hide branch context menus when clicking elsewhere
+        document.addEventListener('click', (e) => {
+          const localMenu = document.getElementById('branch-context-menu-local');
+          const remoteMenu = document.getElementById('branch-context-menu-remote');
+          if (localMenu && !localMenu.contains(e.target)) {
+            localMenu.hidden = true;
+          }
+          if (remoteMenu && !remoteMenu.contains(e.target)) {
+            remoteMenu.hidden = true;
+          }
+        });
+
+        // Hide branch context menus on Escape key
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            const localMenu = document.getElementById('branch-context-menu-local');
+            const remoteMenu = document.getElementById('branch-context-menu-remote');
+            if (localMenu) localMenu.hidden = true;
+            if (remoteMenu) remoteMenu.hidden = true;
+          }
+        });
+
+        // Handle branch context menu item clicks
+        document.addEventListener('click', (e) => {
+          const menuItem = e.target.closest('.branch-context-menu .context-menu-item');
+          if (menuItem && branchContextMenuTarget && branchContextMenuType) {
+            const action = menuItem.dataset.action;
+            if (action) {
+              vscode.postMessage({
+                type: 'branchContextMenu',
+                branchName: branchContextMenuTarget,
+                branchType: branchContextMenuType,
+                action: action
+              });
+              // Hide both menus
+              const localMenu = document.getElementById('branch-context-menu-local');
+              const remoteMenu = document.getElementById('branch-context-menu-remote');
+              if (localMenu) localMenu.hidden = true;
+              if (remoteMenu) remoteMenu.hidden = true;
+            }
+          }
+        });
+
         window.handleFileKeydown = function(event, path) {
           switch (event.key) {
             case 'Enter':
@@ -2737,6 +3355,53 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
               break;
           }
         };
+
+        // Incremental commit loading - Requirements 3.7, 3.8
+        // Monitor the graph panel scroll position and request more commits
+        // when the user scrolls within 50px of the bottom.
+        let loadMoreCommitsRequested = false;
+
+        function setupGraphPanelScrollListener() {
+          const graphPanel = document.querySelector('.graph-panel');
+          if (!graphPanel) return;
+
+          graphPanel.addEventListener('scroll', function() {
+            if (loadMoreCommitsRequested) return;
+
+            const scrollTop = graphPanel.scrollTop;
+            const scrollHeight = graphPanel.scrollHeight;
+            const clientHeight = graphPanel.clientHeight;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+            // Check if we have more commits to load
+            const loadedCount = parseInt(graphPanel.getAttribute('data-loaded-count') || '0', 10);
+            const totalAvailable = parseInt(graphPanel.getAttribute('data-total-available') || '0', 10);
+            const hasMore = loadedCount < totalAvailable;
+
+            if (hasMore && distanceFromBottom <= 50) {
+              loadMoreCommitsRequested = true;
+              vscode.postMessage({ type: 'loadMoreCommits' });
+            }
+          });
+        }
+
+        // Reset the loadMoreCommitsRequested flag when new content is loaded
+        window.addEventListener('message', function(event) {
+          const message = event.data;
+          if (message.type === 'commitsLoaded') {
+            loadMoreCommitsRequested = false;
+          }
+        });
+
+        // Set up the scroll listener on initial load
+        setupGraphPanelScrollListener();
+
+        // Also observe DOM changes to re-attach the scroll listener if the graph panel is re-rendered
+        const observer = new MutationObserver(function() {
+          setupGraphPanelScrollListener();
+          loadMoreCommitsRequested = false;
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
       })();
     `;
   }
@@ -2753,17 +3418,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       "'": '&#39;',
     };
     return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
-  }
-
-  /**
-   * Format timestamp for display
-   */
-  private _formatTimestamp(date: Date): string {
-    return date.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
   }
 }
 
@@ -2783,7 +3437,6 @@ interface IWebviewLogFilter {
  */
 interface IWebviewMessage {
   type: string;
-  tab?: string;
   path?: string;
   changelistId?: string;
   commitHash?: string;
@@ -2792,13 +3445,9 @@ interface IWebviewMessage {
   files?: string[];
   targetChangelistId?: string;
   filter?: IWebviewLogFilter | null;
-}
-
-/**
- * Type guard for valid tab values
- */
-function isValidTab(tab: unknown): tab is GitToolWindowTab {
-  return tab === 'local-changes' || tab === 'log' || tab === 'console';
+  branchName?: string;
+  branchType?: 'local' | 'remote';
+  widths?: [number, number, number];
 }
 
 /**

@@ -7,7 +7,18 @@ import {
   IAuthor,
   ICommitOptions,
 } from '../../services/interfaces/IGitService';
-import { ILocalChangesState, ILogState } from '../../services/interfaces/IGitToolWindowProvider';
+import { ILogState } from '../../services/interfaces/IGitToolWindowProvider';
+
+/**
+ * Local type for backward compatibility in tests.
+ * The ILocalChangesState interface was removed when the tabbed layout was replaced
+ * by the 3-panel layout.
+ */
+interface ILocalChangesState {
+  changelists: IChangelist[];
+  expandedChangelists: Set<string>;
+  selectedFiles: Set<string>;
+}
 
 /**
  * Property-based tests for Commit State Update.
