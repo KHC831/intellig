@@ -36,6 +36,8 @@ export interface ICommitDetails {
   branches: string[];
   tags: string[];
   changedFiles: IChangedFile[];
+  /** Optional error message when changed files could not be loaded */
+  changedFilesError?: string;
 }
 
 // ─── Preserved Types (still used by other services) ──────────────────────────
@@ -132,7 +134,7 @@ export interface IGitToolWindowProvider extends vscode.WebviewViewProvider {
   /**
    * Update commit details displayed in the Details Panel
    */
-  updateCommitDetails?(commit: ICommit, files: IChangedFile[]): void;
+  updateCommitDetails?(hash: string, changedFiles: IChangedFile[], error?: unknown): void;
 
   /**
    * Add a console entry (preserved for backward compatibility)

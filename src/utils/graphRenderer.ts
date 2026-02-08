@@ -42,14 +42,14 @@ export type ActiveLaneMap = Map<number, Set<number>>;
  *
  * - columnWidth: 20px between lanes (Requirement 4.1: at least 20px)
  * - rowHeight: 32px per row (Requirement 4.2: at least 32px)
- * - nodeRadius: 6px commit circles
+ * - nodeRadius: 4px commit circles
  * - padding: 10px horizontal padding (Requirement 4.4: at least 10px)
  * - lineWidth: 2px stroke width
  */
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
   columnWidth: 20,
   rowHeight: 32,
-  nodeRadius: 6,
+  nodeRadius: 4,
   padding: 10,
   lineWidth: 2,
 };

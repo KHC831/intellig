@@ -33,8 +33,8 @@ describe('Graph Renderer - Core Types and Config', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.rowHeight, 32);
     });
 
-    it('should have nodeRadius of 6', () => {
-      assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 6);
+    it('should have nodeRadius of 4', () => {
+      assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 4);
     });
 
     it('should have padding of 10 (Requirement 4.4: at least 10px)', () => {

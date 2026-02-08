@@ -4,6 +4,7 @@ import {
   resetExtensionServices,
   ExtensionServices,
   GitToolWindowProvider,
+  GitService,
   GIT_TOOL_WINDOW_VIEW_ID,
   ConsoleService,
   CommitDialog,
@@ -132,6 +133,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Register views and providers
     registerViews(context);
+
+    // Register git content provider for showing file content at specific revisions
+    registerGitContentProvider(context);
 
     // Set up event listeners
     setupEventListeners(context);
@@ -2100,6 +2104,80 @@ function registerViews(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(filterChangeListener);
 
+    // Wire up onDidSelectCommit to fetch changed files for the selected commit
+    // Requirements: 4.1, 4.2, 4.3
+    const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
+      let repositories = gitService.getRepositories();
+      if (repositories.length === 0) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const repo = await gitService.getRepository(workspaceFolders[0].uri);
+          if (repo) {
+            repositories = [repo];
+          }
+        }
+      }
+      if (repositories.length === 0) {
+        return;
+      }
+      const repo = repositories[0];
+      try {
+        const diffs = await gitService.getCommitDiff(repo, hash);
+        const changedFiles = diffs.map(d => ({
+          path: d.path,
+          oldPath: d.oldPath,
+          status: d.status || ('modified' as const),
+        }));
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.updateCommitDetails(hash, changedFiles);
+        }
+      } catch (error) {
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.updateCommitDetails(hash, [], error);
+        }
+      }
+    });
+    context.subscriptions.push(commitSelectListener);
+
+    // Wire up onDidRequestCommitDiff to open diff view on file double-click
+    // Requirements: 6.1, 6.2, 6.3
+    const commitDiffListener = gitToolWindowProvider.onDidRequestCommitDiff(async ({ commitHash, filePath }) => {
+      let repositories = gitService.getRepositories();
+      if (repositories.length === 0) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const repo = await gitService.getRepository(workspaceFolders[0].uri);
+          if (repo) {
+            repositories = [repo];
+          }
+        }
+      }
+      if (repositories.length === 0) {
+        return;
+      }
+      const repo = repositories[0];
+      try {
+        const diffs = await gitService.getCommitDiff(repo, commitHash);
+        const fileDiff = diffs.find((d) => d.path === filePath || d.oldPath === filePath);
+        if (fileDiff) {
+          const parentRef = commitHash + '~1';
+          const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${parentRef}`);
+          const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${commitHash}`);
+          await vscode.commands.executeCommand(
+            'vscode.diff',
+            leftUri,
+            rightUri,
+            `${filePath} (${commitHash.substring(0, 7)})`
+          );
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to open diff: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    });
+    context.subscriptions.push(commitDiffListener);
+
     // In the 2-panel layout, load all data immediately
     void loadAllPanelData();
   }
@@ -2192,6 +2270,67 @@ function registerViews(context: vscode.ExtensionContext): void {
     );
     context.subscriptions.push(rebaseProgressView);
   }
+}
+
+/**
+ * Register a TextDocumentContentProvider for the 'intellig-git' URI scheme.
+ * This allows opening file content at specific git revisions using URIs like:
+ *   intellig-git:path/to/file.ts?ref=<commitHash>
+ *
+ * Used by the commit diff feature to show file content at parent and current commits.
+ */
+function registerGitContentProvider(context: vscode.ExtensionContext): void {
+  const provider: vscode.TextDocumentContentProvider = {
+    provideTextDocumentContent: async (uri: vscode.Uri): Promise<string> => {
+      if (!extensionServices) {
+        throw new Error('Extension services not initialized');
+      }
+
+      const gitService = extensionServices.gitService;
+      const filePath = uri.path;
+      const ref = uri.query; // The query string is the git ref (commit hash or hash~1)
+
+      if (!ref) {
+        throw new Error('No git ref specified in URI query');
+      }
+
+      let repositories = gitService.getRepositories();
+      if (repositories.length === 0) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          const repo = await gitService.getRepository(workspaceFolders[0].uri);
+          if (repo) {
+            repositories = [repo];
+          }
+        }
+      }
+      if (repositories.length === 0) {
+        throw new Error('No Git repository found');
+      }
+
+      const repo = repositories[0];
+      if (!(gitService instanceof GitService)) {
+        throw new Error('GitService instance required for git show');
+      }
+      try {
+        const result = await gitService.gitCli.exec(
+          ['show', `${ref}:${filePath}`],
+          { cwd: repo.rootUri.fsPath }
+        );
+        if (result.exitCode !== 0) {
+          // File might not exist at this revision (e.g., newly added file)
+          return '';
+        }
+        return result.stdout;
+      } catch {
+        // File doesn't exist at this revision
+        return '';
+      }
+    },
+  };
+
+  const registration = vscode.workspace.registerTextDocumentContentProvider('intellig-git', provider);
+  context.subscriptions.push(registration);
 }
 
 /**

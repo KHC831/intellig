@@ -105,6 +105,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
   private _scrollToCommitHash: string | undefined;
+  private _pendingChangedFiles: IChangedFile[] | undefined;
+  private _pendingChangedFilesError: unknown | undefined;
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
 
@@ -407,13 +409,94 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Requirement 9.3: Commit selection and details
    */
   public selectCommit(hash: string): void {
+    // Clear pending changed files when selecting a new commit
+    this._pendingChangedFiles = undefined;
+    this._pendingChangedFilesError = undefined;
+
     this._extendedLogState.selectedCommits.clear();
     this._extendedLogState.selectedCommits.add(hash);
     this._extendedLogState.expandedCommit = hash;
 
     this._onDidSelectCommit.fire(hash);
     this._onDidChangeState.fire();
-    this._updateWebview();
+
+    // Send a partial update to the details panel via postMessage
+    // instead of a full _updateWebview() to preserve graph scroll position.
+    // The graph panel selection is already handled client-side by the inline script.
+    if (this._webviewView) {
+      const node = this._extendedLogState.commitNodes.find(n => n.commit.hash === hash);
+      if (node) {
+        const commitDetails: ICommitDetails = {
+          hash: node.commit.hash,
+          message: node.commit.message,
+          body: node.commit.message.includes('\n') ? node.commit.message.split('\n').slice(1).join('\n').trim() : undefined,
+          author: { name: node.commit.author.name, email: node.commit.author.email },
+          date: node.commit.authorDate,
+          parents: node.commit.parents || [],
+          branches: node.branches || [],
+          tags: node.tags || [],
+          changedFiles: [],
+        };
+        const detailsHtml = this._getDetailsPanelHtml(commitDetails);
+        void this._webviewView.webview.postMessage({
+          type: 'updateDetailsPanel',
+          html: detailsHtml,
+        });
+      } else {
+        // Commit not found — show placeholder
+        const placeholderHtml = this._getDetailsPanelPlaceholderHtml();
+        void this._webviewView.webview.postMessage({
+          type: 'updateDetailsPanel',
+          html: placeholderHtml,
+        });
+      }
+    }
+  }
+
+  /**
+   * Update the commit details with fetched changed files.
+   * Called by the extension host after fetching diff data for a selected commit.
+   *
+   * Requirements: 4.1, 4.2, 4.3
+   *
+   * @param hash - The commit hash to update details for
+   * @param changedFiles - The changed files fetched from git diff
+   * @param error - Optional error if the diff fetch failed
+   */
+  public updateCommitDetails(hash: string, changedFiles: IChangedFile[], error?: unknown): void {
+    // Only update if this commit is still the expanded commit
+    if (this._extendedLogState.expandedCommit !== hash) {
+      return;
+    }
+
+    // Store the changed files and error for use in the next render
+    this._pendingChangedFiles = changedFiles;
+    this._pendingChangedFilesError = error;
+
+    // Send a partial update to the webview instead of a full re-render
+    // to preserve the graph panel's scroll position
+    if (this._webviewView) {
+      const node = this._extendedLogState.commitNodes.find(n => n.commit.hash === hash);
+      if (node) {
+        const commitDetails: ICommitDetails = {
+          hash: node.commit.hash,
+          message: node.commit.message,
+          body: node.commit.message.includes('\n') ? node.commit.message.split('\n').slice(1).join('\n').trim() : undefined,
+          author: { name: node.commit.author.name, email: node.commit.author.email },
+          date: node.commit.authorDate,
+          parents: node.commit.parents || [],
+          branches: node.branches || [],
+          tags: node.tags || [],
+          changedFiles,
+          changedFilesError: error ? String(error) : undefined,
+        };
+        const detailsHtml = this._getDetailsPanelHtml(commitDetails);
+        void this._webviewView.webview.postMessage({
+          type: 'updateDetailsPanel',
+          html: detailsHtml,
+        });
+      }
+    }
   }
 
   /**
@@ -605,14 +688,16 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     if (targetCommitHash) {
       // Store the scroll target so the re-rendered HTML will include it.
-      // selectCommit() triggers _updateWebview() which fully replaces the DOM,
-      // so a postMessage('scrollToCommit') would arrive at a dead webview.
-      // Instead, we embed the scroll target in the HTML via data-scroll-to-commit
-      // and the inline script auto-scrolls on page load.
+      // We need a full re-render for branch clicks to embed the scroll target
+      // in the HTML via data-scroll-to-commit, since the inline script
+      // auto-scrolls on page load.
       this._scrollToCommitHash = targetCommitHash;
 
-      // Select the commit, which updates state and triggers _updateWebview()
+      // Select the commit (updates state + sends details panel via postMessage)
       this.selectCommit(targetCommitHash);
+
+      // Force a full re-render to embed the scroll-to-commit target in the HTML
+      this._updateWebview();
     }
   }
 
@@ -714,12 +799,18 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         commitDetails = {
           hash: node.commit.hash,
           message: node.commit.message,
+          body: node.commit.message.includes('\n') ? node.commit.message.split('\n').slice(1).join('\n').trim() : undefined,
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
           branches: node.branches || [],
           tags: node.tags || [],
-          changedFiles: [],
+          changedFiles: this._pendingChangedFiles && this._extendedLogState.expandedCommit === node.commit.hash
+            ? this._pendingChangedFiles
+            : [],
+          changedFilesError: this._pendingChangedFilesError && this._extendedLogState.expandedCommit === node.commit.hash
+            ? String(this._pendingChangedFilesError)
+            : undefined,
         };
       }
     }
@@ -1224,12 +1315,11 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG);
 
         // Format fields
-        const shortHash = commit.shortHash;
         const messageSummary = this._escapeHtml(this._truncateMessage(commit.message, 60));
         const fullMessage = this._escapeHtml(commit.message);
         const authorName = this._escapeHtml(commit.author.name);
         const authorEmail = this._escapeHtml(commit.author.email);
-        const relativeDate = this._formatRelativeDate(commit.authorDate);
+        const absoluteDate = this._formatAbsoluteDate(commit.authorDate);
         const fullDate = commit.authorDate.toLocaleString();
 
         return `
@@ -1242,10 +1332,11 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             ${graphSvg}
           </div>
           <div class="commit-info">
-            <span class="commit-hash" title="${commit.hash}">${shortHash}</span>
-            <span class="commit-message" title="${fullMessage}">${messageSummary}</span>
-            <span class="commit-author" title="${authorEmail}">${authorName}</span>
-            <span class="commit-date" title="${fullDate}">${relativeDate}</span>
+            <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
+            <div class="commit-meta">
+              <span class="commit-author" title="${authorEmail}">${authorName}</span>
+              <span class="commit-date" title="${fullDate}">${absoluteDate}</span>
+            </div>
           </div>
         </div>`;
       })
@@ -1364,7 +1455,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     // --- Changed files section ---
     let changedFilesHtml: string;
-    if (commitDetails.changedFiles.length === 0) {
+    if (commitDetails.changedFilesError) {
+      changedFilesHtml = `<p class="empty-message error-message">Failed to load changed files: ${this._escapeHtml(commitDetails.changedFilesError)}</p>`;
+    } else if (commitDetails.changedFiles.length === 0) {
       changedFilesHtml = '<p class="empty-message">No changed files</p>';
     } else {
       changedFilesHtml = commitDetails.changedFiles
@@ -1405,6 +1498,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     return `
       <div class="details-panel" role="region" aria-label="Commit Details">
+        <div class="details-changed-files">
+          <h4>Changed Files (${commitDetails.changedFiles.length})</h4>
+          <div class="changed-files-list" role="list" aria-label="Changed Files">
+            ${changedFilesHtml}
+          </div>
+        </div>
         <div class="details-metadata">
           <div class="detail-row message-row">
             <span class="detail-label">Message:</span>
@@ -1425,12 +1524,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           <div class="detail-row">
             <span class="detail-label">Parents:</span>
             <span class="detail-value">${parentsHtml}</span>
-          </div>
-        </div>
-        <div class="details-changed-files">
-          <h4>Changed Files (${commitDetails.changedFiles.length})</h4>
-          <div class="changed-files-list" role="list" aria-label="Changed Files">
-            ${changedFilesHtml}
           </div>
         </div>
       </div>`;
@@ -1586,34 +1679,19 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Format date as relative time
+   * Format date as absolute date-time string.
+   * Format: YYYY-MM-DD H:MM AM/PM
+   * Requirement 3.3
    */
-  private _formatRelativeDate(date: Date): string {
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffWeeks = Math.floor(diffDays / 7);
-    const diffMonths = Math.floor(diffDays / 30);
-    const diffYears = Math.floor(diffDays / 365);
-
-    if (diffSecs < 60) {
-      return 'just now';
-    } else if (diffMins < 60) {
-      return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-    } else if (diffWeeks < 4) {
-      return `${diffWeeks} week${diffWeeks === 1 ? '' : 's'} ago`;
-    } else if (diffMonths < 12) {
-      return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`;
-    } else {
-      return `${diffYears} year${diffYears === 1 ? '' : 's'} ago`;
-    }
+  public _formatAbsoluteDate(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const rawHours = date.getHours();
+    const ampm = rawHours >= 12 ? 'PM' : 'AM';
+    const hours = rawHours % 12 || 12;
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes} ${ampm}`;
   }
 
   /**
@@ -2107,7 +2185,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .commit-row {
         display: flex;
         align-items: center;
-        min-height: 32px;
+        min-height: 44px;
         padding: 0 8px;
         cursor: pointer;
         border-bottom: 1px solid var(--vscode-panel-border);
@@ -2136,7 +2214,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .commit-graph {
         flex-shrink: 0;
         width: var(--graph-width, 80px);
-        height: 32px;
+        height: 44px;
         overflow: hidden;
         display: flex;
         align-items: center;
@@ -2160,6 +2238,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         flex: 1;
         min-width: 0;
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
       }
 
       .commit-header {
@@ -2169,26 +2250,21 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         margin-bottom: 2px;
       }
 
-      .commit-hash {
-        font-family: var(--vscode-editor-font-family, monospace);
-        font-size: 11px;
-        color: var(--vscode-textLink-foreground);
-        flex-shrink: 0;
-      }
-
-      .commit-message {
-        flex: 1;
+      .commit-title {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         font-size: 13px;
+        line-height: 1.4;
       }
 
       .commit-meta {
         display: flex;
+        flex-direction: row;
         gap: 12px;
         font-size: 11px;
         color: var(--vscode-descriptionForeground);
+        line-height: 1.4;
       }
 
       .commit-author {
@@ -2579,6 +2655,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           const message = event.data;
           if (message.type === 'scrollToCommit' && message.commitHash) {
             scrollToCommit(message.commitHash);
+          }
+          if (message.type === 'updateDetailsPanel' && message.html) {
+            const detailsPanel = document.getElementById('details-panel');
+            if (detailsPanel) {
+              detailsPanel.innerHTML = message.html;
+            }
           }
         });
 

@@ -62,12 +62,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('graph-panel'), 'Should have graph-panel container');
     });
 
-    it('should render a commit row with short hash', () => {
+    it('should render a commit row with short hash in data-hash attribute', () => {
       const node = makeCommitNode({}, { shortHash: 'abc1234' });
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(html.includes('abc1234'), 'Should contain the short hash');
-      assert.ok(html.includes('commit-hash'), 'Should have commit-hash class');
+      assert.ok(html.includes('data-hash='), 'Should have data-hash attribute');
+      assert.ok(!html.includes('commit-hash'), 'Should NOT have commit-hash class (hash hidden in graph view)');
     });
 
     it('should render a commit row with message summary', () => {
@@ -75,7 +75,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('Fix bug in authentication module'), 'Should contain the message');
-      assert.ok(html.includes('commit-message'), 'Should have commit-message class');
+      assert.ok(html.includes('commit-title'), 'Should have commit-title class');
     });
 
     it('should truncate long messages to ~60 characters', () => {
@@ -94,10 +94,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('First line summary'), 'Should contain first line');
-      // The body should not appear in the commit-message span content (only in title)
-      const messageMatch = html.match(/class="commit-message"[^>]*>([^<]*)</);
-      assert.ok(messageMatch, 'Should find commit-message element');
-      assert.ok(!messageMatch![1].includes('Detailed body'), 'Should not contain body text in message span');
+      // The body should not appear in the commit-title div content (only in title attribute)
+      const messageMatch = html.match(/class="commit-title"[^>]*>([^<]*)</);
+      assert.ok(messageMatch, 'Should find commit-title element');
+      assert.ok(!messageMatch![1].includes('Detailed body'), 'Should not contain body text in title div');
     });
 
     it('should render author name', () => {
@@ -110,14 +110,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
-    it('should render relative date', () => {
+    it('should render absolute date instead of relative date', () => {
       const node = makeCommitNode({}, {
-        authorDate: new Date(Date.now() - 3600 * 1000), // 1 hour ago
+        authorDate: new Date(2024, 0, 15, 14, 30, 0), // Jan 15, 2024 2:30 PM
       });
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('commit-date'), 'Should have commit-date class');
-      assert.ok(html.includes('1 hour ago'), 'Should show relative date');
+      assert.ok(html.includes('2024-01-15 2:30 PM'), 'Should show absolute date');
     });
 
     it('should render the full hash in the data-hash attribute', () => {
@@ -128,12 +128,13 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes(`data-hash="${fullHash}"`), 'Should have full hash in data attribute');
     });
 
-    it('should render the full hash in the title of the short hash', () => {
+    it('should render the full hash in the data-hash attribute (not as visible text)', () => {
       const fullHash = 'abc1234567890abcdef1234567890abcdef123456';
       const node = makeCommitNode({}, { hash: fullHash, shortHash: 'abc1234' });
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(html.includes(`title="${fullHash}"`), 'Should have full hash in title');
+      assert.ok(html.includes(`data-hash="${fullHash}"`), 'Should have full hash in data-hash attribute');
+      assert.ok(!html.includes('commit-hash'), 'Should NOT have commit-hash span (hash hidden in graph view)');
     });
   });
 
@@ -183,14 +184,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
       const html = provider._getGraphPanelHtml(nodes);
 
-      assert.ok(html.includes('first11'), 'Should contain first commit');
-      assert.ok(html.includes('second2'), 'Should contain second commit');
-      assert.ok(html.includes('third33'), 'Should contain third commit');
+      assert.ok(html.includes('First commit'), 'Should contain first commit message');
+      assert.ok(html.includes('Second commit'), 'Should contain second commit message');
+      assert.ok(html.includes('Third commit'), 'Should contain third commit message');
 
       // Verify order: first should appear before second, second before third
-      const firstIdx = html.indexOf('first11');
-      const secondIdx = html.indexOf('second2');
-      const thirdIdx = html.indexOf('third33');
+      const firstIdx = html.indexOf('First commit');
+      const secondIdx = html.indexOf('Second commit');
+      const thirdIdx = html.indexOf('Third commit');
       assert.ok(firstIdx < secondIdx, 'First commit should appear before second');
       assert.ok(secondIdx < thirdIdx, 'Second commit should appear before third');
     });
@@ -264,29 +265,32 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Relative date formatting', () => {
-    it('should show "just now" for very recent commits', () => {
+  describe('Absolute date formatting in graph view', () => {
+    it('should show absolute date for very recent commits', () => {
+      const recentDate = new Date(2024, 5, 15, 10, 5, 0); // June 15, 2024 10:05 AM
       const node = makeCommitNode({}, {
-        authorDate: new Date(Date.now() - 10 * 1000), // 10 seconds ago
+        authorDate: recentDate,
       });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('just now'), 'Should show "just now"');
+      assert.ok(html.includes('2024-06-15 10:05 AM'), 'Should show absolute date');
     });
 
-    it('should show minutes for commits within the hour', () => {
+    it('should show absolute date with PM for afternoon commits', () => {
+      const afternoonDate = new Date(2024, 0, 1, 14, 30, 0); // Jan 1, 2024 2:30 PM
       const node = makeCommitNode({}, {
-        authorDate: new Date(Date.now() - 15 * 60 * 1000), // 15 minutes ago
+        authorDate: afternoonDate,
       });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('15 minutes ago'), 'Should show minutes ago');
+      assert.ok(html.includes('2024-01-01 2:30 PM'), 'Should show absolute date with PM');
     });
 
-    it('should show days for commits within the week', () => {
+    it('should show absolute date for old commits', () => {
+      const oldDate = new Date(2020, 11, 25, 0, 0, 0); // Dec 25, 2020 12:00 AM
       const node = makeCommitNode({}, {
-        authorDate: new Date(Date.now() - 3 * 24 * 3600 * 1000), // 3 days ago
+        authorDate: oldDate,
       });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('3 days ago'), 'Should show days ago');
+      assert.ok(html.includes('2020-12-25 12:00 AM'), 'Should show absolute date for old commits');
     });
   });
 
