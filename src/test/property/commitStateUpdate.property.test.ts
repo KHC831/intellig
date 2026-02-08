@@ -12,7 +12,7 @@ import { ILogState } from '../../services/interfaces/IGitToolWindowProvider';
 /**
  * Local type for backward compatibility in tests.
  * The ILocalChangesState interface was removed when the tabbed layout was replaced
- * by the 3-panel layout.
+ * by the 2-panel layout.
  */
 interface ILocalChangesState {
   changelists: IChangelist[];

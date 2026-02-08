@@ -555,6 +555,60 @@ export class MarkdownString {
   }
 }
 
+// Mock TreeItemCollapsibleState enum
+export enum TreeItemCollapsibleState {
+  None = 0,
+  Collapsed = 1,
+  Expanded = 2,
+}
+
+// Mock ThemeColor class
+export class ThemeColor {
+  readonly id: string;
+  constructor(id: string) {
+    this.id = id;
+  }
+}
+
+// Mock ThemeIcon class
+export class ThemeIcon {
+  static readonly File = new ThemeIcon('file');
+  static readonly Folder = new ThemeIcon('folder');
+
+  readonly id: string;
+  readonly color?: ThemeColor;
+
+  constructor(id: string, color?: ThemeColor) {
+    this.id = id;
+    this.color = color;
+  }
+}
+
+// Mock TreeItem class
+export class TreeItem {
+  label?: string;
+  id?: string;
+  iconPath?: ThemeIcon | Uri;
+  description?: string | boolean;
+  tooltip?: string | MarkdownString;
+  command?: { command: string; title: string; arguments?: unknown[] };
+  collapsibleState?: TreeItemCollapsibleState;
+  contextValue?: string;
+  resourceUri?: Uri;
+
+  constructor(
+    labelOrUri: string | Uri,
+    collapsibleState?: TreeItemCollapsibleState
+  ) {
+    if (typeof labelOrUri === 'string') {
+      this.label = labelOrUri;
+    } else {
+      this.resourceUri = labelOrUri;
+    }
+    this.collapsibleState = collapsibleState;
+  }
+}
+
 /**
  * Reset the mock configuration to defaults.
  * Useful for test cleanup.

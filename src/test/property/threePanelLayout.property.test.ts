@@ -1,11 +1,11 @@
 /**
- * Property-based tests for the three-panel layout infrastructure.
+ * Property-based tests for the two-panel layout infrastructure.
  *
  * Feature: intellig-layout
  *
  * Uses fast-check to verify universal correctness properties of the
  * panel resize constraint logic, panel width persistence round-trip,
- * and three-panel HTML structure.
+ * and two-panel HTML structure.
  */
 
 import '../setup';
@@ -13,28 +13,27 @@ import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { clampPanelWidths, savePanelWidths, loadPanelWidths } from '../../utils/panelLayout';
 import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
-import { IBranchPanelData, ICommitDetails } from '../../services/interfaces';
-import { IBranch, FileStatus } from '../../services/interfaces/IGitService';
+import { ICommitDetails } from '../../services/interfaces';
+import { FileStatus } from '../../services/interfaces/IGitService';
 import { ICommitNode } from '../../utils/commitGraph';
 import { Uri, Webview } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
 /**
- * Generate a valid container width (≥ 300px) as specified by Property 2.
+ * Generate a valid container width (≥ 200px) as specified by Property 2.
  * Upper bound is set to a reasonable screen width.
  */
 function arbitraryContainerWidth(): fc.Arbitrary<number> {
-  return fc.integer({ min: 300, max: 5000 });
+  return fc.integer({ min: 200, max: 5000 });
 }
 
 /**
- * Generate an arbitrary panel width distribution as three pixel values.
+ * Generate an arbitrary panel width distribution as two pixel values.
  * Values can be anything including below minimum, to test clamping behavior.
  */
-function arbitraryPanelWidths(): fc.Arbitrary<[number, number, number]> {
+function arbitraryPanelWidths(): fc.Arbitrary<[number, number]> {
   return fc.tuple(
-    fc.integer({ min: -100, max: 5000 }),
     fc.integer({ min: -100, max: 5000 }),
     fc.integer({ min: -100, max: 5000 })
   );
@@ -49,21 +48,18 @@ function arbitraryDragDelta(): fc.Arbitrary<number> {
 }
 
 /**
- * Generate a valid panel width ratio tuple [a, b, c] where:
+ * Generate a valid panel width ratio tuple [a, b] where:
  * - Each value is between 5 and 90 (inclusive)
  * - The values sum to exactly 100
  *
- * Strategy: generate two values in [5, 90], compute the third,
+ * Strategy: generate one value in [5, 90], compute the second,
  * and filter to ensure all constraints are met.
  */
-function arbitraryValidPanelRatios(): fc.Arbitrary<[number, number, number]> {
+function arbitraryValidPanelRatios(): fc.Arbitrary<[number, number]> {
   return fc
-    .tuple(
-      fc.integer({ min: 5, max: 90 }),
-      fc.integer({ min: 5, max: 90 })
-    )
-    .map(([a, b]): [number, number, number] => [a, b, 100 - a - b])
-    .filter(([_a, _b, c]) => c >= 5 && c <= 90);
+    .integer({ min: 5, max: 90 })
+    .map((a): [number, number] => [a, 100 - a])
+    .filter(([_a, b]) => b >= 5 && b <= 90);
 }
 
 // ─── Mock Memento ─────────────────────────────────────────────────────────────
@@ -93,12 +89,12 @@ function createMockMemento(): import('vscode').Memento {
 
 // ─── Property Tests ───────────────────────────────────────────────────────────
 
-describe('Feature: intellig-layout - Three Panel Layout Property Tests', () => {
+describe('Feature: intellig-layout - Two Panel Layout Property Tests', () => {
   describe('Property 2: Panel resize minimum width constraint', () => {
     /**
      * **Validates: Requirements 1.3**
      *
-     * For any container width (≥ 300px), any initial panel width distribution,
+     * For any container width (≥ 200px), any initial panel width distribution,
      * and any drag delta applied to a divider, the resulting panel widths SHALL
      * each be at least 100 pixels, and the sum of all panel widths SHALL equal
      * the container width.
@@ -110,12 +106,11 @@ describe('Feature: intellig-layout - Three Panel Layout Property Tests', () => {
           arbitraryPanelWidths(),
           arbitraryDragDelta(),
           (containerWidth, initialWidths, dragDelta) => {
-            // Simulate a drag on the first divider (between panel 0 and panel 1):
+            // Simulate a drag on the divider (between panel 0 and panel 1):
             // Panel 0 gets wider/narrower by dragDelta, panel 1 compensates.
-            const adjustedWidths: [number, number, number] = [
+            const adjustedWidths: [number, number] = [
               initialWidths[0] + dragDelta,
               initialWidths[1] - dragDelta,
-              initialWidths[2],
             ];
 
             const result = clampPanelWidths(containerWidth, adjustedWidths);
@@ -129,56 +124,9 @@ describe('Feature: intellig-layout - Three Panel Layout Property Tests', () => {
               result[1] >= 100,
               `Panel 1 width ${result[1]} should be >= 100px`
             );
-            assert.ok(
-              result[2] >= 100,
-              `Panel 2 width ${result[2]} should be >= 100px`
-            );
 
             // Sum must equal container width
-            const sum = result[0] + result[1] + result[2];
-            assert.ok(
-              Math.abs(sum - containerWidth) < 0.01,
-              `Sum of panel widths (${sum}) should equal container width (${containerWidth})`
-            );
-          }
-        ),
-        { numRuns: 200 }
-      );
-    });
-
-    it('Feature: intellig-layout, Property 2: Panel resize minimum width constraint — drag on second divider preserves constraints', () => {
-      fc.assert(
-        fc.property(
-          arbitraryContainerWidth(),
-          arbitraryPanelWidths(),
-          arbitraryDragDelta(),
-          (containerWidth, initialWidths, dragDelta) => {
-            // Simulate a drag on the second divider (between panel 1 and panel 2):
-            // Panel 1 gets wider/narrower by dragDelta, panel 2 compensates.
-            const adjustedWidths: [number, number, number] = [
-              initialWidths[0],
-              initialWidths[1] + dragDelta,
-              initialWidths[2] - dragDelta,
-            ];
-
-            const result = clampPanelWidths(containerWidth, adjustedWidths);
-
-            // Each panel must be at least 100px
-            assert.ok(
-              result[0] >= 100,
-              `Panel 0 width ${result[0]} should be >= 100px`
-            );
-            assert.ok(
-              result[1] >= 100,
-              `Panel 1 width ${result[1]} should be >= 100px`
-            );
-            assert.ok(
-              result[2] >= 100,
-              `Panel 2 width ${result[2]} should be >= 100px`
-            );
-
-            // Sum must equal container width
-            const sum = result[0] + result[1] + result[2];
+            const sum = result[0] + result[1];
             assert.ok(
               Math.abs(sum - containerWidth) < 0.01,
               `Sum of panel widths (${sum}) should equal container width (${containerWidth})`
@@ -194,7 +142,7 @@ describe('Feature: intellig-layout - Three Panel Layout Property Tests', () => {
     /**
      * **Validates: Requirements 1.4**
      *
-     * For any valid panel width ratio tuple [a, b, c] where each value is
+     * For any valid panel width ratio tuple [a, b] where each value is
      * between 5 and 90 and they sum to 100, saving the tuple to workspace
      * state and then loading it SHALL produce an equivalent tuple.
      */
@@ -269,48 +217,6 @@ function arbitraryShortHash(): fc.Arbitrary<string> {
 }
 
 /**
- * Generate a HEAD state (attached or detached).
- */
-function arbitraryHead(): fc.Arbitrary<IBranchPanelData['head']> {
-  return fc.oneof(
-    arbitraryBranchName().map((name) => ({ name, isDetached: false })),
-    arbitraryShortHash().map((hash) => ({ name: hash, isDetached: true, commitHash: hash }))
-  );
-}
-
-/**
- * Generate a minimal IBranch.
- */
-function arbitraryBranch(type: 'local' | 'remote' = 'local'): fc.Arbitrary<IBranch> {
-  return fc.record({
-    name: arbitraryBranchName(),
-    type: fc.constant(type),
-    commit: arbitraryFullHash(),
-    isHead: fc.constant(false),
-  });
-}
-
-/**
- * Generate valid IBranchPanelData.
- */
-function arbitraryBranchPanelData(): fc.Arbitrary<IBranchPanelData> {
-  return fc.record({
-    head: arbitraryHead(),
-    local: fc.array(arbitraryBranch('local'), { minLength: 0, maxLength: 5 }),
-    remote: fc.array(
-      fc.record({
-        remoteName: fc.stringOf(
-          fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')),
-          { minLength: 1, maxLength: 10 }
-        ),
-        branches: fc.array(arbitraryBranch('remote'), { minLength: 0, maxLength: 3 }),
-      }),
-      { minLength: 0, maxLength: 3 }
-    ),
-  });
-}
-
-/**
  * Generate a valid ICommit.
  */
 function arbitraryCommit(): fc.Arbitrary<import('../../services/interfaces/IGitService').ICommit> {
@@ -356,14 +262,11 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
 /**
  * Generate valid panel width percentages that sum to 100.
  */
-function arbitraryPanelWidthPercentages(): fc.Arbitrary<[number, number, number]> {
+function arbitraryPanelWidthPercentages(): fc.Arbitrary<[number, number]> {
   return fc
-    .tuple(
-      fc.integer({ min: 10, max: 80 }),
-      fc.integer({ min: 10, max: 80 })
-    )
-    .map(([a, b]): [number, number, number] => [a, b, 100 - a - b])
-    .filter(([_a, _b, c]) => c >= 10 && c <= 80);
+    .integer({ min: 10, max: 80 })
+    .map((a): [number, number] => [a, 100 - a])
+    .filter(([_a, b]) => b >= 10 && b <= 80);
 }
 
 /**
@@ -419,7 +322,7 @@ function createProvider(): GitToolWindowProvider {
 
 // ─── Property 1 Tests ────────────────────────────────────────────────────────
 
-describe('Feature: intellig-layout - Three Panel HTML Structure Property Tests', () => {
+describe('Feature: intellig-layout - Two Panel HTML Structure Property Tests', () => {
   let provider: GitToolWindowProvider;
   let mockWebview: Webview;
 
@@ -432,40 +335,41 @@ describe('Feature: intellig-layout - Three Panel HTML Structure Property Tests',
     provider.dispose();
   });
 
-  describe('Property 1: Three-panel HTML structure', () => {
+  describe('Property 1: Two-panel HTML structure', () => {
     /**
      * **Validates: Requirements 1.1**
      *
-     * For any valid IThreePanelState (with hasRepository: true), the generated
-     * HTML SHALL contain exactly three panel container elements (branch-panel,
-     * graph-panel, details-panel) as direct children of the layout container,
-     * in left-to-right order.
+     * For any valid state (with hasRepository: true), the generated
+     * HTML SHALL contain exactly two panel container elements (graph-panel,
+     * details-panel) as direct children of the layout container,
+     * in left-to-right order. Branch panel was removed — branches are now
+     * displayed in the native BRANCHES tree view.
      */
-    it('Feature: intellig-layout, Property 1: Three-panel HTML structure — HTML contains exactly three panel containers in left-to-right order', () => {
+    it('Feature: intellig-layout, Property 1: Two-panel HTML structure — HTML contains exactly two panel containers in left-to-right order', () => {
       fc.assert(
         fc.property(
-          arbitraryBranchPanelData(),
           fc.array(arbitraryCommitNode(), { minLength: 0, maxLength: 10 }),
           arbitraryOptionalCommitDetails(),
           arbitraryPanelWidthPercentages(),
-          (branchData, commitNodes, commitDetails, panelWidths) => {
+          (commitNodes, commitDetails, panelWidths) => {
             const html = provider._getThreePanelHtmlContent(
               mockWebview as unknown as import('vscode').Webview,
-              branchData,
               commitNodes,
               commitDetails,
               panelWidths
             );
 
-            // 1. HTML must contain exactly three panel containers
+            // 1. HTML must NOT contain branch-panel (removed)
             const branchPanelMatches = html.match(/id="branch-panel"/g);
+            assert.ok(
+              !branchPanelMatches,
+              'HTML should NOT contain a branch-panel element'
+            );
+
+            // 2. HTML must contain exactly one graph-panel and one details-panel
             const graphPanelMatches = html.match(/id="graph-panel"/g);
             const detailsPanelMatches = html.match(/id="details-panel"/g);
 
-            assert.ok(
-              branchPanelMatches && branchPanelMatches.length === 1,
-              'HTML should contain exactly one branch-panel element'
-            );
             assert.ok(
               graphPanelMatches && graphPanelMatches.length === 1,
               'HTML should contain exactly one graph-panel element'
@@ -475,39 +379,19 @@ describe('Feature: intellig-layout - Three Panel HTML Structure Property Tests',
               'HTML should contain exactly one details-panel element'
             );
 
-            // 2. Panels must be in left-to-right order: branch, graph, details
-            const branchIndex = html.indexOf('id="branch-panel"');
+            // 3. Panels must be in left-to-right order: graph, details
             const graphIndex = html.indexOf('id="graph-panel"');
             const detailsIndex = html.indexOf('id="details-panel"');
 
-            assert.ok(
-              branchIndex < graphIndex,
-              `Branch panel (at ${branchIndex}) should appear before graph panel (at ${graphIndex})`
-            );
             assert.ok(
               graphIndex < detailsIndex,
               `Graph panel (at ${graphIndex}) should appear before details panel (at ${detailsIndex})`
             );
 
-            // 3. All three panels must be direct children of the layout container
-            //    The layout container has class="three-panel-layout"
+            // 4. All panels must be direct children of the layout container
             assert.ok(
               html.includes('class="three-panel-layout"'),
               'HTML should contain the three-panel-layout container'
-            );
-
-            // Extract the layout container content
-            const layoutStart = html.indexOf('class="three-panel-layout"');
-            assert.ok(layoutStart > -1, 'Layout container should exist');
-
-            // Verify each panel has class="panel" (indicating it's a direct child of the layout)
-            const branchPanelTag = html.substring(
-              html.lastIndexOf('<div', branchIndex),
-              html.indexOf('>', branchIndex) + 1
-            );
-            assert.ok(
-              branchPanelTag.includes('class="panel"'),
-              'Branch panel should have class="panel"'
             );
 
             const graphPanelTag = html.substring(

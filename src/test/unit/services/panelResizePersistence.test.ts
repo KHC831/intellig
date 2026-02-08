@@ -14,8 +14,6 @@
 import '../../../test/setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import { IBranchPanelData } from '../../../services/interfaces';
-import { IBranch } from '../../../services/interfaces/IGitService';
 import { Uri, Webview, Memento } from '../../mocks/vscode';
 
 /**
@@ -42,34 +40,6 @@ function createMockMemento(): Memento {
 }
 
 /**
- * Helper to create a minimal IBranch for testing.
- */
-function makeBranch(name: string, type: 'local' | 'remote' = 'local'): IBranch {
-  return {
-    name,
-    type,
-    commit: 'abc1234567890',
-    isHead: false,
-  };
-}
-
-/**
- * Helper to create minimal branch panel data.
- */
-function makeDefaultBranchData(): IBranchPanelData {
-  return {
-    head: { name: 'main', isDetached: false },
-    local: [makeBranch('main'), makeBranch('develop')],
-    remote: [
-      {
-        remoteName: 'origin',
-        branches: [makeBranch('origin/main', 'remote')],
-      },
-    ],
-  };
-}
-
-/**
  * Create a mock Webview object for testing.
  */
 function createMockWebview(): Webview {
@@ -91,40 +61,40 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
   });
 
   describe('Constructor - Loading persisted widths', () => {
-    it('should load default widths [20, 50, 30] when no workspace state is provided', () => {
+    it('should load default widths [60, 40] when no workspace state is provided', () => {
       const provider = new GitToolWindowProvider(extensionUri);
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [20, 50, 30]);
+      assert.deepStrictEqual(widths, [60, 40]);
       provider.dispose();
     });
 
-    it('should load default widths [20, 50, 30] when workspace state has no stored widths', () => {
+    it('should load default widths [60, 40] when workspace state has no stored widths', () => {
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [20, 50, 30]);
+      assert.deepStrictEqual(widths, [60, 40]);
       provider.dispose();
     });
 
     it('should load persisted widths from workspace state', () => {
       const memento = createMockMemento();
       // Pre-populate the workspace state with custom widths
-      void memento.update('intellig.panelWidths', [30, 40, 30]);
+      void memento.update('intellig.panelWidths', [70, 30]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [30, 40, 30]);
+      assert.deepStrictEqual(widths, [70, 30]);
       provider.dispose();
     });
 
     it('should fall back to defaults when workspace state has invalid widths', () => {
       const memento = createMockMemento();
       // Store invalid widths (don't sum to 100)
-      void memento.update('intellig.panelWidths', [10, 10, 10]);
+      void memento.update('intellig.panelWidths', [10, 10]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [20, 50, 30]);
+      assert.deepStrictEqual(widths, [60, 40]);
       provider.dispose();
     });
 
@@ -134,7 +104,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [20, 50, 30]);
+      assert.deepStrictEqual(widths, [60, 40]);
       provider.dispose();
     });
   });
@@ -144,15 +114,13 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);
 
-      // Simulate the panelResize message via the internal handler
-      // We access the handler through the public method that processes messages
       (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
         type: 'panelResize',
-        widths: [25, 45, 30],
+        widths: [55, 45],
       });
 
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [25, 45, 30]);
+      assert.deepStrictEqual(widths, [55, 45]);
       provider.dispose();
     });
 
@@ -162,12 +130,11 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
 
       (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
         type: 'panelResize',
-        widths: [35, 35, 30],
+        widths: [65, 35],
       });
 
-      // Verify the widths were persisted to workspace state
-      const stored = memento.get<[number, number, number]>('intellig.panelWidths');
-      assert.deepStrictEqual(stored, [35, 35, 30]);
+      const stored = memento.get<[number, number]>('intellig.panelWidths');
+      assert.deepStrictEqual(stored, [65, 35]);
       provider.dispose();
     });
 
@@ -177,12 +144,12 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       assert.doesNotThrow(() => {
         (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
           type: 'panelResize',
-          widths: [25, 45, 30],
+          widths: [55, 45],
         });
       });
 
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [25, 45, 30]);
+      assert.deepStrictEqual(widths, [55, 45]);
       provider.dispose();
     });
 
@@ -194,9 +161,8 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
         type: 'panelResize',
       });
 
-      // Widths should remain at defaults
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [20, 50, 30]);
+      assert.deepStrictEqual(widths, [60, 40]);
       provider.dispose();
     });
 
@@ -205,15 +171,15 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const handler = (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage.bind(provider);
 
-      handler({ type: 'panelResize', widths: [25, 45, 30] });
-      handler({ type: 'panelResize', widths: [30, 40, 30] });
-      handler({ type: 'panelResize', widths: [15, 55, 30] });
+      handler({ type: 'panelResize', widths: [55, 45] });
+      handler({ type: 'panelResize', widths: [70, 30] });
+      handler({ type: 'panelResize', widths: [50, 50] });
 
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [15, 55, 30]);
+      assert.deepStrictEqual(widths, [50, 50]);
 
-      const stored = memento.get<[number, number, number]>('intellig.panelWidths');
-      assert.deepStrictEqual(stored, [15, 55, 30]);
+      const stored = memento.get<[number, number]>('intellig.panelWidths');
+      assert.deepStrictEqual(stored, [50, 50]);
       provider.dispose();
     });
   });
@@ -233,28 +199,19 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
   describe('_getThreePanelHtmlContent() uses persisted widths', () => {
     it('should use persisted widths as default when no explicit widths are passed', () => {
       const memento = createMockMemento();
-      void memento.update('intellig.panelWidths', [30, 40, 30]);
+      void memento.update('intellig.panelWidths', [70, 30]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const mockWebview = createMockWebview();
-      const branchData = makeDefaultBranchData();
 
       const html = provider._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
-        branchData,
         []
       );
 
-      assert.ok(html.includes('style="width: 30%;"'), 'Branch panel should use persisted 30%');
-      assert.ok(html.includes('style="width: 40%;"'), 'Graph panel should use persisted 40%');
-      // Both branch and details are 30%, so we check the order
-      const branchPanelMatch = html.match(/id="branch-panel"[^>]*style="width: (\d+)%;"/)
-      assert.ok(branchPanelMatch, 'Branch panel should have width style');
-      assert.strictEqual(branchPanelMatch![1], '30', 'Branch panel should be 30%');
-
       const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/)
       assert.ok(graphPanelMatch, 'Graph panel should have width style');
-      assert.strictEqual(graphPanelMatch![1], '40', 'Graph panel should be 40%');
+      assert.strictEqual(graphPanelMatch![1], '70', 'Graph panel should be 70%');
 
       const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/)
       assert.ok(detailsPanelMatch, 'Details panel should have width style');
@@ -265,27 +222,25 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
 
     it('should use explicit widths when passed, overriding persisted widths', () => {
       const memento = createMockMemento();
-      void memento.update('intellig.panelWidths', [30, 40, 30]);
+      void memento.update('intellig.panelWidths', [70, 30]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const mockWebview = createMockWebview();
-      const branchData = makeDefaultBranchData();
 
       const html = provider._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
-        branchData,
         [],
         undefined,
-        [10, 60, 30] // explicit widths
+        [55, 45] // explicit widths
       );
-
-      const branchPanelMatch = html.match(/id="branch-panel"[^>]*style="width: (\d+)%;"/)
-      assert.ok(branchPanelMatch, 'Branch panel should have width style');
-      assert.strictEqual(branchPanelMatch![1], '10', 'Branch panel should be 10%');
 
       const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/)
       assert.ok(graphPanelMatch, 'Graph panel should have width style');
-      assert.strictEqual(graphPanelMatch![1], '60', 'Graph panel should be 60%');
+      assert.strictEqual(graphPanelMatch![1], '55', 'Graph panel should be 55%');
+
+      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/)
+      assert.ok(detailsPanelMatch, 'Details panel should have width style');
+      assert.strictEqual(detailsPanelMatch![1], '45', 'Details panel should be 45%');
 
       provider.dispose();
     });
@@ -295,50 +250,44 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
     it('should persist widths from panelResize and load them in a new provider instance', () => {
       const memento = createMockMemento();
 
-      // First provider instance: simulate a resize
       const provider1 = new GitToolWindowProvider(extensionUri, memento);
       (provider1 as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
         type: 'panelResize',
-        widths: [25, 50, 25],
+        widths: [75, 25],
       });
       provider1.dispose();
 
-      // Second provider instance: should load the persisted widths
       const provider2 = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider2.getPanelWidths();
-      assert.deepStrictEqual(widths, [25, 50, 25]);
+      assert.deepStrictEqual(widths, [75, 25]);
       provider2.dispose();
     });
 
     it('should persist widths and use them in HTML generation of a new provider', () => {
       const memento = createMockMemento();
 
-      // First provider: resize
       const provider1 = new GitToolWindowProvider(extensionUri, memento);
       (provider1 as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
         type: 'panelResize',
-        widths: [15, 55, 30],
+        widths: [55, 45],
       });
       provider1.dispose();
 
-      // Second provider: generate HTML
       const provider2 = new GitToolWindowProvider(extensionUri, memento);
       const mockWebview = createMockWebview();
-      const branchData = makeDefaultBranchData();
 
       const html = provider2._getThreePanelHtmlContent(
         mockWebview as unknown as import('vscode').Webview,
-        branchData,
         []
       );
 
-      const branchPanelMatch = html.match(/id="branch-panel"[^>]*style="width: (\d+)%;"/)
-      assert.ok(branchPanelMatch, 'Branch panel should have width style');
-      assert.strictEqual(branchPanelMatch![1], '15', 'Branch panel should use persisted 15%');
-
       const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/)
       assert.ok(graphPanelMatch, 'Graph panel should have width style');
-      assert.strictEqual(graphPanelMatch![1], '55', 'Graph panel should use persisted 55%');
+      assert.strictEqual(graphPanelMatch![1], '55', 'Graph panel should be 55%');
+
+      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/)
+      assert.ok(detailsPanelMatch, 'Details panel should have width style');
+      assert.strictEqual(detailsPanelMatch![1], '45', 'Details panel should be 45%');
 
       provider2.dispose();
     });

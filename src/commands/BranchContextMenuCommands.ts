@@ -104,6 +104,47 @@ export class BranchContextMenuCommands {
       )
     );
 
+    // New command handlers (Requirements 7.1-7.6)
+    this._disposables.push(
+      vscode.commands.registerCommand('intellig.branch.update', (item: BranchTreeItem) =>
+        this._handleUpdate(item)
+      )
+    );
+
+    this._disposables.push(
+      vscode.commands.registerCommand('intellig.branch.push', (item: BranchTreeItem) =>
+        this._handlePush(item)
+      )
+    );
+
+    this._disposables.push(
+      vscode.commands.registerCommand(
+        'intellig.branch.showDiffWithWorkingTree',
+        (item: BranchTreeItem) => this._handleShowDiffWithWorkingTree(item)
+      )
+    );
+
+    this._disposables.push(
+      vscode.commands.registerCommand(
+        'intellig.branch.checkoutAndRebase',
+        (item: BranchTreeItem) => this._handleCheckoutAndRebase(item)
+      )
+    );
+
+    this._disposables.push(
+      vscode.commands.registerCommand(
+        'intellig.remoteBranch.pullUsingRebase',
+        (item: BranchTreeItem) => this._handlePullUsingRebase(item)
+      )
+    );
+
+    this._disposables.push(
+      vscode.commands.registerCommand(
+        'intellig.remoteBranch.pullUsingMerge',
+        (item: BranchTreeItem) => this._handlePullUsingMerge(item)
+      )
+    );
+
     // Tag commands
     this._disposables.push(
       vscode.commands.registerCommand('intellig.tag.checkoutDetached', (item: BranchTreeItem) =>
@@ -408,6 +449,280 @@ export class BranchContextMenuCommands {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to delete branch: ${errorMessage}`);
     }
+  }
+
+  // ============================================
+  // New Command Handlers (Requirements 7.1-7.6)
+  // ============================================
+
+  /**
+   * Handle update command for local branches.
+   * Fetches the latest changes from the upstream remote for the branch.
+   * Requirement 7.1: Update fetches from upstream remote
+   */
+  private async _handleUpdate(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    const upstream = item.branch.upstream;
+    if (!upstream) {
+      void vscode.window.showInformationMessage(
+        `Branch '${item.branch.name}' has no upstream configured.`
+      );
+      return;
+    }
+
+    try {
+      await this._gitService.fetch(repo, upstream.remote);
+      void vscode.window.showInformationMessage(
+        `Updated branch '${item.branch.name}' from '${upstream.remote}'`
+      );
+      this._branchTreeProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to update branch: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Handle push command for local branches.
+   * Pushes the branch to its upstream remote, or sets upstream if none configured.
+   * Requirement 7.2: Push targets correct branch
+   */
+  private async _handlePush(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    try {
+      const upstream = item.branch.upstream;
+      if (upstream) {
+        await this._gitService.push(repo, {
+          remote: upstream.remote,
+          branch: item.branch.name,
+        });
+      } else {
+        await this._gitService.push(repo, {
+          branch: item.branch.name,
+          setUpstream: true,
+        });
+      }
+      void vscode.window.showInformationMessage(`Pushed branch '${item.branch.name}'`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to push branch: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Handle show diff with working tree command.
+   * Opens a diff comparison between the right-clicked branch ref and the working tree.
+   * Requirement 7.3: Show Diff uses correct branch reference
+   */
+  private async _handleShowDiffWithWorkingTree(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    try {
+      const branchRef = item.branch.name;
+      const leftUri = vscode.Uri.parse(`git-branch://${branchRef}`);
+      const rightUri = repo.rootUri;
+
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        leftUri,
+        rightUri,
+        `${branchRef} ↔ Working Tree`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to show diff: ${errorMessage}`);
+    }
+  }
+
+  /**
+   * Handle checkout and rebase command.
+   * Checks out the right-clicked branch and rebases the previously current branch onto it.
+   * Requirement 7.4: Checkout and Rebase executes operations in correct order
+   */
+  private async _handleCheckoutAndRebase(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    // Store the current branch name before checkout
+    const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
+
+    try {
+      // Step 1: Checkout the right-clicked branch
+      await this._gitService.checkout(repo, item.branch.name);
+
+      // Step 2: Rebase onto the previously current branch
+      const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
+
+      if (result.success) {
+        void vscode.window.showInformationMessage(
+          `Checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
+        );
+      } else if (result.conflicts && result.conflicts.length > 0) {
+        void vscode.window.showWarningMessage(
+          `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+        );
+      }
+      this._branchTreeProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('would be overwritten') || errorMessage.includes('Please commit your changes or stash them')) {
+        const choice = await vscode.window.showWarningMessage(
+          `Cannot switch to '${item.branch.name}': local changes would be overwritten.`,
+          'Stash & Switch',
+          'Force Checkout',
+          'Cancel'
+        );
+        if (choice === 'Stash & Switch') {
+          try {
+            await this._gitService.stash(repo, `Auto-stash before checkout ${item.branch.name}`);
+            await this._gitService.checkout(repo, item.branch.name);
+            const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
+            if (result.success) {
+              void vscode.window.showInformationMessage(
+                `Stashed changes, checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
+              );
+            } else if (result.conflicts && result.conflicts.length > 0) {
+              void vscode.window.showWarningMessage(
+                `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+              );
+            }
+            this._branchTreeProvider.refresh();
+          } catch (stashError) {
+            const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
+            void vscode.window.showErrorMessage(`Failed to stash and checkout: ${stashMsg}`);
+          }
+        } else if (choice === 'Force Checkout') {
+          try {
+            await this._gitService.checkout(repo, item.branch.name, { force: true });
+            const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
+            if (result.success) {
+              void vscode.window.showInformationMessage(
+                `Force checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
+              );
+            } else if (result.conflicts && result.conflicts.length > 0) {
+              void vscode.window.showWarningMessage(
+                `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+              );
+            }
+            this._branchTreeProvider.refresh();
+          } catch (forceError) {
+            const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
+            void vscode.window.showErrorMessage(`Failed to force checkout and rebase: ${forceMsg}`);
+          }
+        }
+      } else {
+        void vscode.window.showErrorMessage(`Failed to checkout and rebase: ${errorMessage}`);
+      }
+    }
+  }
+
+  /**
+   * Handle pull using rebase command for remote branches.
+   * Pulls the remote branch into the current branch using rebase strategy.
+   * Requirement 7.5: Pull using rebase strategy
+   * Requirement 8.3: Conflict warning notification
+   */
+  private async _handlePullUsingRebase(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    // Parse remote name and branch name from item.branch.name (e.g., "origin/main" -> "origin", "main")
+    const slashIndex = item.branch.name.indexOf('/');
+    const remoteName = slashIndex >= 0 ? item.branch.name.substring(0, slashIndex) : item.branch.name;
+    const branchName = slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
+
+    try {
+      await this._gitService.pull(repo, {
+        remote: remoteName,
+        branch: branchName,
+        rebase: true,
+      });
+      void vscode.window.showInformationMessage(
+        `Pulled '${item.branch.name}' into current branch using rebase`
+      );
+      this._branchTreeProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const conflictCount = this._parseConflictCount(errorMessage);
+      if (conflictCount > 0) {
+        void vscode.window.showWarningMessage(
+          `Rebase conflicts in ${conflictCount} file(s). Please resolve conflicts.`
+        );
+        this._branchTreeProvider.refresh();
+      } else {
+        void vscode.window.showErrorMessage(`Failed to pull using rebase: ${errorMessage}`);
+      }
+    }
+  }
+
+  /**
+   * Handle pull using merge command for remote branches.
+   * Pulls the remote branch into the current branch using merge strategy.
+   * Requirement 7.6: Pull using merge strategy
+   * Requirement 8.3: Conflict warning notification
+   */
+  private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    // Parse remote name and branch name from item.branch.name (e.g., "origin/main" -> "origin", "main")
+    const slashIndex = item.branch.name.indexOf('/');
+    const remoteName = slashIndex >= 0 ? item.branch.name.substring(0, slashIndex) : item.branch.name;
+    const branchName = slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
+
+    try {
+      await this._gitService.pull(repo, {
+        remote: remoteName,
+        branch: branchName,
+        rebase: false,
+      });
+      void vscode.window.showInformationMessage(
+        `Pulled '${item.branch.name}' into current branch using merge`
+      );
+      this._branchTreeProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const conflictCount = this._parseConflictCount(errorMessage);
+      if (conflictCount > 0) {
+        void vscode.window.showWarningMessage(
+          `Merge conflicts in ${conflictCount} file(s). Please resolve conflicts.`
+        );
+        this._branchTreeProvider.refresh();
+      } else {
+        void vscode.window.showErrorMessage(`Failed to pull using merge: ${errorMessage}`);
+      }
+    }
+  }
+
+  // ============================================
+  // Helper Methods
+  // ============================================
+
+  /**
+   * Parse the number of conflicted files from a git error message.
+   * Git error messages contain "CONFLICT" markers for each conflicted file.
+   * Returns 0 if no conflict markers are found.
+   */
+  private _parseConflictCount(errorMessage: string): number {
+    const matches = errorMessage.match(/CONFLICT/gi);
+    return matches ? matches.length : 0;
   }
 
   // ============================================

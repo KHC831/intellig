@@ -29,8 +29,10 @@ import {
   createBranchComparisonView,
   RebaseProgressView,
   createRebaseProgressView,
+  createBranchTreeProvider,
 } from './services';
-import { IGitService, IRepository } from './services/interfaces/IGitService';
+import { createCommandTitleProvider } from './commands/CommandTitleProvider';
+import { createBranchContextMenuCommands } from './commands';
 
 /**
  * Global reference to the extension services container.
@@ -589,7 +591,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     // Refresh the Git Tool Window
     if (gitToolWindowProvider) {
-      // In the 3-panel layout, always refresh all panels
+      // In the 2-panel layout, always refresh all panels
       gitToolWindowProvider.refresh();
     }
 
@@ -1197,6 +1199,119 @@ function registerCommands(context: vscode.ExtensionContext): void {
       } catch (error) {
         void vscode.window.showErrorMessage(
           `Failed to start interactive rebase: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Show History command (command palette / keybinding)
+  const showHistoryCommand = vscode.commands.registerCommand(
+    'intellig.showHistory',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      // Get the active editor's file, or show repo-level history
+      const activeEditor = vscode.window.activeTextEditor;
+      const filePath = activeEditor
+        ? vscode.workspace.asRelativePath(activeEditor.document.uri)
+        : undefined;
+
+      try {
+        const history = filePath
+          ? await gitService.getFileHistory(repo, filePath)
+          : await gitService.getLog(repo, { maxCount: 50 });
+
+        if (history.length === 0) {
+          void vscode.window.showInformationMessage(
+            filePath ? `No history found for ${filePath}` : 'No commit history found'
+          );
+          return;
+        }
+
+        const items = history.map((commit) => ({
+          label: commit.shortHash,
+          description: commit.message.substring(0, 60),
+          detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
+          commit,
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: filePath ? `History for ${filePath}` : 'Repository History',
+          title: 'Show History',
+        });
+
+        if (selected) {
+          void vscode.window.showInformationMessage(
+            `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
+          );
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to get history: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Revert File command (command palette / keybinding)
+  const revertFileCommand = vscode.commands.registerCommand(
+    'intellig.revertFile',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repositories = gitService.getRepositories();
+
+      if (repositories.length === 0) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+
+      const repo = repositories[0];
+
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!activeEditor) {
+        void vscode.window.showErrorMessage('No file selected to revert');
+        return;
+      }
+
+      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,
+        { modal: true },
+        'Revert'
+      );
+
+      if (confirm !== 'Revert') {
+        return;
+      }
+
+      try {
+        await gitService.revertFile(repo, filePath);
+        void vscode.window.showInformationMessage(`Reverted: ${filePath}`);
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Failed to revert file: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     }
@@ -1835,6 +1950,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     abortMergeCommand,
     abortRebaseCommand,
     interactiveRebaseCommand,
+    showHistoryCommand,
+    revertFileCommand,
     // File Explorer Context Menu Commands
     explorerShowHistoryCommand,
     explorerCompareWithBranchCommand,
@@ -1856,8 +1973,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function registerViews(context: vscode.ExtensionContext): void {
-  // Create and register the Git Tool Window Provider (single webview, 3-panel layout)
-  // Requirement 6.3: Register only the single webview view for the 3-panel layout
+  // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
+  // Requirement 6.3: Register only the single webview view for the 2-panel layout
   gitToolWindowProvider = new GitToolWindowProvider(context.extensionUri, context.workspaceState);
 
   // Connect the Console Service to the Git Tool Window Provider
@@ -1885,65 +2002,6 @@ function registerViews(context: vscode.ExtensionContext): void {
   // When the Log tab becomes active, fetch commits and display the graph
   if (extensionServices) {
     const gitService = extensionServices.gitService;
-
-    // Helper to load branch data into the Branch Panel
-    const loadBranchData = async (): Promise<void> => {
-      let repositories = gitService.getRepositories();
-      // If no repositories discovered yet, try to discover from workspace folders
-      if (repositories.length === 0) {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-          const repo = await gitService.getRepository(workspaceFolders[0].uri);
-          if (repo) {
-            repositories = [repo];
-          }
-        }
-      }
-      if (repositories.length === 0) {
-        if (gitToolWindowProvider) {
-          gitToolWindowProvider.setNoRepository();
-        }
-        return;
-      }
-      const repo = repositories[0];
-      try {
-        const branches = await gitService.getBranches(repo);
-        const head = repo.head;
-
-        // Build IBranchPanelData
-        const localBranches = branches.filter(b => b.type === 'local');
-        const remoteBranches = branches.filter(b => b.type === 'remote');
-
-        // Group remote branches by remote name
-        const remoteGroups = new Map<string, typeof remoteBranches>();
-        for (const branch of remoteBranches) {
-          const parts = branch.name.split('/');
-          const remoteName = parts[0] || 'origin';
-          const existing = remoteGroups.get(remoteName) || [];
-          existing.push(branch);
-          remoteGroups.set(remoteName, existing);
-        }
-
-        const branchPanelData = {
-          head: {
-            name: head?.name?.replace('refs/heads/', '') || head?.commit?.substring(0, 7) || 'HEAD',
-            isDetached: !head?.name,
-            commitHash: head?.commit,
-          },
-          local: localBranches,
-          remote: Array.from(remoteGroups.entries()).map(([remoteName, branchList]) => ({
-            remoteName,
-            branches: branchList,
-          })),
-        };
-
-        if (gitToolWindowProvider) {
-          gitToolWindowProvider.updateBranches(branchPanelData);
-        }
-      } catch (error) {
-        console.error('Failed to load branch data:', error);
-      }
-    };
 
     // Helper to load commits into the log view
     const loadLogCommits = async (filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }): Promise<void> => {
@@ -2011,9 +2069,8 @@ function registerViews(context: vscode.ExtensionContext): void {
       }
     };
 
-    // Helper to load all panel data (branches + commits)
+    // Helper to load all panel data (commits)
     const loadAllPanelData = async (): Promise<void> => {
-      await loadBranchData();
       await loadLogCommits();
     };
 
@@ -2043,7 +2100,7 @@ function registerViews(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(filterChangeListener);
 
-    // In the 3-panel layout, load all data immediately
+    // In the 2-panel layout, load all data immediately
     void loadAllPanelData();
   }
 
@@ -2052,23 +2109,43 @@ function registerViews(context: vscode.ExtensionContext): void {
   if (extensionServices) {
     const gitService = extensionServices.gitService;
 
-    // Note: BranchTreeProvider registration removed (Requirement 6.2).
-    // Branch display is now handled within the webview's Branch Panel.
-    // Branch context menu actions are now wired via webview messages
-    // from GitToolWindowProvider.onDidRequestBranchContextAction.
-    // Requirements: 2.7 (local branch context menu), 2.8 (remote branch context menu)
+    // Create BranchTreeProvider and tree view for context menu support
+    // The tree view is used by CommandTitleProvider to listen for selection changes
+    // and dynamically update command titles with branch names.
+    // Requirements: 5.1, 5.2, 5.3
+    const branchTreeProvider = createBranchTreeProvider(gitService);
+    const branchTreeView = vscode.window.createTreeView('intellig.branchTree', {
+      treeDataProvider: branchTreeProvider,
+      showCollapseAll: true,
+    });
+    context.subscriptions.push(branchTreeView);
+
+    // Link native BRANCHES tree view selection to the git graph.
+    // When the user clicks a branch in the tree view, scroll the graph
+    // panel to that branch's HEAD commit.
     if (gitToolWindowProvider) {
-      const branchContextActionListener = gitToolWindowProvider.onDidRequestBranchContextAction(
-        async (event) => {
-          await handleBranchContextAction(gitService, event);
-          // Refresh the tool window after any branch action
-          if (gitToolWindowProvider) {
-            gitToolWindowProvider.refresh();
+      const branchSelectionListener = branchTreeView.onDidChangeSelection((e) => {
+        if (e.selection.length > 0) {
+          const selectedItem = e.selection[0];
+          // Only navigate for actual branch items (not category headers)
+          if (selectedItem.branch) {
+            gitToolWindowProvider!.navigateToBranch(selectedItem.branch.name);
           }
         }
-      );
-      context.subscriptions.push(branchContextActionListener);
+      });
+      context.subscriptions.push(branchSelectionListener);
     }
+
+    // Create and register CommandTitleProvider for dynamic label resolution
+    // Requirements: 5.1, 5.2, 5.3
+    const commandTitleProvider = createCommandTitleProvider(gitService, branchTreeProvider);
+    commandTitleProvider.register(context, branchTreeView);
+    context.subscriptions.push(commandTitleProvider);
+
+    // Register branch context menu commands for the native BRANCHES tree view.
+    // These are the actual VS Code command handlers invoked by the tree view context menus.
+    const branchContextMenuCommands = createBranchContextMenuCommands(gitService, branchTreeProvider);
+    branchContextMenuCommands.register(context);
 
     // Initialize Status Bar Service
     // Requirements: 4.1, 17.8 - Display current branch name in status bar
@@ -2152,411 +2229,6 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
 
   // Register all listeners with the extension context
   context.subscriptions.push(workspaceFoldersListener, configurationListener, activeEditorListener);
-}
-
-/**
- * Handle branch context menu actions from the webview.
- * Delegates to the appropriate GitService method based on the action.
- *
- * This replaces the old tree view context menu command registrations,
- * reusing the same logic patterns from BranchContextMenuCommands.
- *
- * Requirements: 2.7 (local branch context menu), 2.8 (remote branch context menu)
- *
- * @param gitService - The Git service to use for branch operations
- * @param event - The branch context action event from the webview
- */
-async function handleBranchContextAction(
-  gitService: IGitService,
-  event: { branchName: string; branchType: 'local' | 'remote'; action: string }
-): Promise<void> {
-  const repositories = gitService.getRepositories();
-  if (repositories.length === 0) {
-    void vscode.window.showErrorMessage('No Git repository found');
-    return;
-  }
-  const repo = repositories[0];
-
-  try {
-    switch (event.action) {
-      // === Local branch actions (Requirement 2.7) ===
-      case 'checkout':
-        await handleCheckout(gitService, repo, event.branchName);
-        break;
-
-      case 'newBranch':
-        await handleNewBranch(gitService, repo, event.branchName);
-        break;
-
-      case 'merge':
-        await handleMerge(gitService, repo, event.branchName);
-        break;
-
-      case 'rebase':
-        await handleRebase(gitService, repo, event.branchName);
-        break;
-
-      case 'compare':
-        await handleCompare(gitService, repo, event.branchName);
-        break;
-
-      case 'rename':
-        await handleRename(gitService, repo, event.branchName);
-        break;
-
-      case 'delete':
-        await handleDelete(gitService, repo, event.branchName);
-        break;
-
-      // === Remote branch actions (Requirement 2.8) ===
-      case 'checkoutAsLocal':
-        await handleCheckoutAsLocal(gitService, repo, event.branchName);
-        break;
-
-      case 'pull':
-        await handlePull(gitService, repo, event.branchName);
-        break;
-
-      case 'deleteRemote':
-        await handleDeleteRemote(gitService, repo, event.branchName);
-        break;
-
-      default:
-        console.warn(`Unknown branch context menu action: ${event.action}`);
-        break;
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Branch action failed: ${errorMessage}`);
-  }
-}
-
-/**
- * Handle checkout action for a local branch.
- * Requirement 2.7: Checkout option in local branch context menu.
- */
-async function handleCheckout(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  try {
-    await gitService.checkout(repo, branchName);
-    void vscode.window.showInformationMessage(`Switched to branch '${branchName}'`);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    if (
-      errorMessage.includes('would be overwritten') ||
-      errorMessage.includes('Please commit your changes or stash them')
-    ) {
-      const choice = await vscode.window.showWarningMessage(
-        `Cannot switch to '${branchName}': local changes would be overwritten.`,
-        'Stash & Switch',
-        'Force Checkout',
-        'Cancel'
-      );
-      if (choice === 'Stash & Switch') {
-        await gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
-        await gitService.checkout(repo, branchName);
-        void vscode.window.showInformationMessage(
-          `Stashed changes and switched to '${branchName}'`
-        );
-      } else if (choice === 'Force Checkout') {
-        await gitService.checkout(repo, branchName, { force: true });
-        void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
-      }
-    } else {
-      void vscode.window.showErrorMessage(`Failed to checkout branch: ${errorMessage}`);
-    }
-  }
-}
-
-/**
- * Handle new branch creation from a given start point.
- * Requirements: 2.7, 2.8: New Branch option in context menus.
- */
-async function handleNewBranch(
-  gitService: IGitService,
-  repo: IRepository,
-  startPoint: string
-): Promise<void> {
-  const branchName = await vscode.window.showInputBox({
-    prompt: `Enter new branch name (from ${startPoint})`,
-    placeHolder: 'feature/my-new-branch',
-    validateInput: (value) => {
-      if (!value || !value.trim()) {
-        return 'Branch name cannot be empty';
-      }
-      if (!/^[\w\-./]+$/.test(value)) {
-        return 'Branch name contains invalid characters';
-      }
-      return undefined;
-    },
-  });
-
-  if (!branchName) {
-    return;
-  }
-
-  await gitService.createBranch(repo, branchName, startPoint);
-  await gitService.checkout(repo, branchName);
-  void vscode.window.showInformationMessage(
-    `Created and switched to branch '${branchName}' from '${startPoint}'`
-  );
-}
-
-/**
- * Handle merge into current branch.
- * Requirements: 2.7, 2.8: Merge into Current option in context menus.
- */
-async function handleMerge(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  const result = await gitService.mergeBranch(repo, branchName);
-
-  if (result.success) {
-    void vscode.window.showInformationMessage(`Merged '${branchName}' successfully`);
-  } else if (result.conflicts && result.conflicts.length > 0) {
-    void vscode.window.showWarningMessage(
-      `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-    );
-  }
-}
-
-/**
- * Handle rebase current onto the specified branch.
- * Requirement 2.7: Rebase Current onto This option in local branch context menu.
- */
-async function handleRebase(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  const result = await gitService.rebaseBranch(repo, branchName);
-
-  if (result.success) {
-    void vscode.window.showInformationMessage(`Rebased onto '${branchName}' successfully`);
-  } else if (result.conflicts && result.conflicts.length > 0) {
-    void vscode.window.showWarningMessage(
-      `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-    );
-  }
-}
-
-/**
- * Handle compare with current branch.
- * Requirement 2.7: Compare with Current option in local branch context menu.
- */
-async function handleCompare(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  const currentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
-  const comparison = await gitService.compareBranches(repo, currentBranch, branchName);
-
-  const message =
-    `Comparing ${currentBranch} with ${branchName}:\n` +
-    `• ${comparison.aheadCount} commit(s) ahead\n` +
-    `• ${comparison.behindCount} commit(s) behind\n` +
-    `• ${comparison.changedFiles.length} file(s) changed`;
-
-  void vscode.window.showInformationMessage(message);
-}
-
-/**
- * Handle rename of a local branch.
- * Requirement 2.7: Rename option in local branch context menu.
- */
-async function handleRename(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  const newName = await vscode.window.showInputBox({
-    prompt: `Rename branch '${branchName}' to:`,
-    value: branchName,
-    validateInput: (value) => {
-      if (!value || !value.trim()) {
-        return 'Branch name cannot be empty';
-      }
-      if (value === branchName) {
-        return 'New name must be different';
-      }
-      if (!/^[\w\-./]+$/.test(value)) {
-        return 'Branch name contains invalid characters';
-      }
-      return undefined;
-    },
-  });
-
-  if (!newName) {
-    return;
-  }
-
-  await gitService.renameBranch(repo, branchName, newName);
-  void vscode.window.showInformationMessage(`Renamed branch to '${newName}'`);
-}
-
-/**
- * Handle delete of a local branch.
- * Requirement 2.7: Delete option in local branch context menu.
- */
-async function handleDelete(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  const confirm = await vscode.window.showWarningMessage(
-    `Are you sure you want to delete the branch '${branchName}'?`,
-    { modal: true },
-    'Delete'
-  );
-
-  if (confirm !== 'Delete') {
-    return;
-  }
-
-  await gitService.deleteBranch(repo, branchName);
-  void vscode.window.showInformationMessage(`Deleted branch '${branchName}'`);
-}
-
-/**
- * Handle checkout as local for a remote branch.
- * Requirement 2.8: Checkout as Local option in remote branch context menu.
- */
-async function handleCheckoutAsLocal(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  // Parse remote name from branch name (e.g., "origin/main" -> "origin", "main")
-  const parts = branchName.split('/');
-  const remoteName = parts[0];
-  const localBranchName = parts.slice(1).join('/');
-
-  try {
-    // Check if local branch already exists
-    const branches = await gitService.getBranches(repo);
-    const localExists = branches.some((b) => b.type === 'local' && b.name === localBranchName);
-
-    if (localExists) {
-      await gitService.checkout(repo, localBranchName);
-    } else {
-      await gitService.checkout(repo, localBranchName, {
-        createBranch: true,
-        track: `${remoteName}/${localBranchName}`,
-      });
-    }
-
-    void vscode.window.showInformationMessage(`Switched to branch '${localBranchName}'`);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    if (
-      errorMessage.includes('would be overwritten') ||
-      errorMessage.includes('Please commit your changes or stash them')
-    ) {
-      const choice = await vscode.window.showWarningMessage(
-        `Cannot switch to '${localBranchName}': local changes would be overwritten.`,
-        'Stash & Switch',
-        'Force Checkout',
-        'Cancel'
-      );
-      if (choice === 'Stash & Switch') {
-        await gitService.stash(repo, `Auto-stash before checkout ${localBranchName}`);
-        const branches = await gitService.getBranches(repo);
-        const localExists = branches.some(
-          (b) => b.type === 'local' && b.name === localBranchName
-        );
-        if (localExists) {
-          await gitService.checkout(repo, localBranchName);
-        } else {
-          await gitService.checkout(repo, localBranchName, {
-            createBranch: true,
-            track: `${remoteName}/${localBranchName}`,
-          });
-        }
-        void vscode.window.showInformationMessage(
-          `Stashed changes and switched to '${localBranchName}'`
-        );
-      } else if (choice === 'Force Checkout') {
-        const branches = await gitService.getBranches(repo);
-        const localExists = branches.some(
-          (b) => b.type === 'local' && b.name === localBranchName
-        );
-        if (localExists) {
-          await gitService.checkout(repo, localBranchName, { force: true });
-        } else {
-          await gitService.checkout(repo, localBranchName, {
-            createBranch: true,
-            force: true,
-            track: `${remoteName}/${localBranchName}`,
-          });
-        }
-        void vscode.window.showInformationMessage(
-          `Force switched to '${localBranchName}'`
-        );
-      }
-    } else {
-      void vscode.window.showErrorMessage(`Failed to checkout branch: ${errorMessage}`);
-    }
-  }
-}
-
-/**
- * Handle pull into current branch from a remote branch.
- * Requirement 2.8: Pull into Current option in remote branch context menu.
- */
-async function handlePull(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  // Parse remote name from branch name
-  const parts = branchName.split('/');
-  const remoteName = parts[0];
-  const remoteBranchName = parts.slice(1).join('/');
-
-  await gitService.pull(repo, {
-    remote: remoteName,
-    branch: remoteBranchName,
-  });
-
-  void vscode.window.showInformationMessage(`Pulled '${branchName}' into current branch`);
-}
-
-/**
- * Handle delete of a remote branch.
- * Requirement 2.8: Delete Remote option in remote branch context menu.
- */
-async function handleDeleteRemote(
-  gitService: IGitService,
-  repo: IRepository,
-  branchName: string
-): Promise<void> {
-  const confirm = await vscode.window.showWarningMessage(
-    `Are you sure you want to delete the remote branch '${branchName}'? This cannot be undone.`,
-    { modal: true },
-    'Delete'
-  );
-
-  if (confirm !== 'Delete') {
-    return;
-  }
-
-  // Parse remote name from branch name
-  const parts = branchName.split('/');
-  const remoteName = parts[0];
-  const remoteBranchName = parts.slice(1).join('/');
-
-  await gitService.push(repo, {
-    remote: remoteName,
-    branch: `:${remoteBranchName}`,
-  });
-
-  void vscode.window.showInformationMessage(`Deleted remote branch '${branchName}'`);
 }
 
 /**

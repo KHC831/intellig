@@ -1,12 +1,11 @@
 /**
  * Unit tests for _handleWebviewMessage() routing in GitToolWindowProvider.
  *
- * Verifies that all 8 new message types from the 3-panel layout are properly
+ * Verifies that all message types from the 2-panel layout are properly
  * routed to the correct handler methods and fire the expected events.
  *
  * Message types tested:
  * - branchClick
- * - branchContextMenu
  * - selectCommit
  * - toggleCommitSelection
  * - commitContextMenu
@@ -126,125 +125,6 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       assert.doesNotThrow(() => {
         handler({ type: 'branchClick' });
       });
-    });
-  });
-
-  describe('branchContextMenu message', () => {
-    it('should fire onDidRequestBranchContextAction event for local branch checkout', (done) => {
-      const disposable = provider.onDidRequestBranchContextAction((event) => {
-        assert.strictEqual(event.branchName, 'feature/auth');
-        assert.strictEqual(event.branchType, 'local');
-        assert.strictEqual(event.action, 'checkout');
-        disposable.dispose();
-        done();
-      });
-
-      handler({
-        type: 'branchContextMenu',
-        branchName: 'feature/auth',
-        branchType: 'local',
-        action: 'checkout',
-      });
-    });
-
-    it('should fire onDidRequestBranchContextAction event for remote branch checkout', (done) => {
-      const disposable = provider.onDidRequestBranchContextAction((event) => {
-        assert.strictEqual(event.branchName, 'origin/main');
-        assert.strictEqual(event.branchType, 'remote');
-        assert.strictEqual(event.action, 'checkoutAsLocal');
-        disposable.dispose();
-        done();
-      });
-
-      handler({
-        type: 'branchContextMenu',
-        branchName: 'origin/main',
-        branchType: 'remote',
-        action: 'checkoutAsLocal',
-      });
-    });
-
-    it('should fire event for merge action', (done) => {
-      const disposable = provider.onDidRequestBranchContextAction((event) => {
-        assert.strictEqual(event.branchName, 'develop');
-        assert.strictEqual(event.action, 'merge');
-        disposable.dispose();
-        done();
-      });
-
-      handler({
-        type: 'branchContextMenu',
-        branchName: 'develop',
-        branchType: 'local',
-        action: 'merge',
-      });
-    });
-
-    it('should fire event for delete action on local branch', (done) => {
-      const disposable = provider.onDidRequestBranchContextAction((event) => {
-        assert.strictEqual(event.branchName, 'old-feature');
-        assert.strictEqual(event.branchType, 'local');
-        assert.strictEqual(event.action, 'delete');
-        disposable.dispose();
-        done();
-      });
-
-      handler({
-        type: 'branchContextMenu',
-        branchName: 'old-feature',
-        branchType: 'local',
-        action: 'delete',
-      });
-    });
-
-    it('should fire event for deleteRemote action on remote branch', (done) => {
-      const disposable = provider.onDidRequestBranchContextAction((event) => {
-        assert.strictEqual(event.branchName, 'origin/old-feature');
-        assert.strictEqual(event.branchType, 'remote');
-        assert.strictEqual(event.action, 'deleteRemote');
-        disposable.dispose();
-        done();
-      });
-
-      handler({
-        type: 'branchContextMenu',
-        branchName: 'origin/old-feature',
-        branchType: 'remote',
-        action: 'deleteRemote',
-      });
-    });
-
-    it('should ignore branchContextMenu message without branchName', () => {
-      let eventFired = false;
-      const disposable = provider.onDidRequestBranchContextAction(() => {
-        eventFired = true;
-      });
-
-      handler({ type: 'branchContextMenu', branchType: 'local', action: 'checkout' });
-      assert.strictEqual(eventFired, false, 'Should not fire event without branchName');
-      disposable.dispose();
-    });
-
-    it('should ignore branchContextMenu message without branchType', () => {
-      let eventFired = false;
-      const disposable = provider.onDidRequestBranchContextAction(() => {
-        eventFired = true;
-      });
-
-      handler({ type: 'branchContextMenu', branchName: 'main', action: 'checkout' });
-      assert.strictEqual(eventFired, false, 'Should not fire event without branchType');
-      disposable.dispose();
-    });
-
-    it('should ignore branchContextMenu message without action', () => {
-      let eventFired = false;
-      const disposable = provider.onDidRequestBranchContextAction(() => {
-        eventFired = true;
-      });
-
-      handler({ type: 'branchContextMenu', branchName: 'main', branchType: 'local' });
-      assert.strictEqual(eventFired, false, 'Should not fire event without action');
-      disposable.dispose();
     });
   });
 
@@ -461,24 +341,24 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
 
   describe('panelResize message', () => {
     it('should update panel widths', () => {
-      handler({ type: 'panelResize', widths: [25, 45, 30] });
+      handler({ type: 'panelResize', widths: [55, 45] });
 
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [25, 45, 30]);
+      assert.deepStrictEqual(widths, [55, 45]);
     });
 
     it('should persist widths to workspace state', () => {
-      handler({ type: 'panelResize', widths: [30, 40, 30] });
+      handler({ type: 'panelResize', widths: [70, 30] });
 
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [30, 40, 30]);
+      assert.deepStrictEqual(widths, [70, 30]);
     });
 
     it('should ignore panelResize message without widths', () => {
       handler({ type: 'panelResize' });
 
       const widths = provider.getPanelWidths();
-      assert.deepStrictEqual(widths, [20, 50, 30], 'Should remain at defaults');
+      assert.deepStrictEqual(widths, [60, 40], 'Should remain at defaults');
     });
   });
 
@@ -516,7 +396,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
   });
 
   describe('message routing completeness', () => {
-    it('should handle all 8 required message types without throwing', () => {
+    it('should handle all 7 required message types without throwing', () => {
       // Set up state needed for branchClick
       const commits = [createMockCommit('abc1234567890', 'Initial commit')];
       const branchMap = new Map<string, string[]>();
@@ -525,12 +405,11 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
 
       const messages = [
         { type: 'branchClick', branchName: 'main' },
-        { type: 'branchContextMenu', branchName: 'main', branchType: 'local', action: 'checkout' },
         { type: 'selectCommit', commitHash: 'abc1234567890' },
         { type: 'toggleCommitSelection', commitHash: 'abc1234567890' },
         { type: 'commitContextMenu', action: 'cherryPick', commitHashes: ['abc1234567890'] },
         { type: 'doubleClickFile', commitHash: 'abc1234567890', path: 'src/app.ts' },
-        { type: 'panelResize', widths: [25, 50, 25] },
+        { type: 'panelResize', widths: [55, 45] },
         { type: 'loadMoreCommits' },
       ];
 

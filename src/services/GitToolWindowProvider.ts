@@ -1,6 +1,6 @@
 /**
  * Git Tool Window Provider implementation.
- * Provides the main Git tool window with a 3-panel layout (Branch Panel, Graph Panel, Details Panel).
+ * Provides the main Git tool window with a 2-panel layout (Graph Panel, Details Panel).
  * Implements VS Code's WebviewViewProvider interface.
  */
 
@@ -10,7 +10,6 @@ import {
   ILogState,
   IConsoleEntry,
   ILogFilter,
-  IBranchPanelData,
   ICommitDetails,
   IChangedFile,
 } from './interfaces';
@@ -102,15 +101,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   private _webviewView: vscode.WebviewView | undefined;
   private _extendedLogState: IExtendedLogState;
   private _disposables: vscode.Disposable[] = [];
-  private _panelWidths: [number, number, number];
+  private _panelWidths: [number, number];
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
   private _scrollToCommitHash: string | undefined;
-  private _branchPanelData: IBranchPanelData = {
-    head: { name: 'main', isDetached: false },
-    local: [],
-    remote: [],
-  };
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
 
@@ -143,17 +137,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   private readonly _onDidRequestLoadMoreCommits = new vscode.EventEmitter<void>();
 
   /**
-   * Event emitter for branch context menu actions.
-   * Requirement 2.7, 2.8: Branch context menu with checkout, merge, rebase, etc.
-   * Requirement 5.1: When a branch is checked out via the Branch_Panel context menu.
-   */
-  private readonly _onDidRequestBranchContextAction = new vscode.EventEmitter<{
-    branchName: string;
-    branchType: 'local' | 'remote';
-    action: string;
-  }>();
-
-  /**
    * Event emitter that fires when the webview is first resolved, signaling
    * the extension host to fetch initial branch and commit data.
    * Requirement 5.3: Load branch data, commit history on first open.
@@ -182,12 +165,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    */
   public readonly onDidRequestLoadMoreCommits = this._onDidRequestLoadMoreCommits.event;
   public readonly onDidRequestCommitDiff = this._onDidRequestCommitDiff.event;
-
-  /**
-   * Event fired when a branch context menu action is requested.
-   * Requirements: 2.7, 2.8, 5.1
-   */
-  public readonly onDidRequestBranchContextAction = this._onDidRequestBranchContextAction.event;
 
   /**
    * Event fired when the webview is first resolved, signaling the extension host
@@ -227,7 +204,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       this._onDidRequestCommitDiff,
       this._onDidRequestLogFilter,
       this._onDidRequestLoadMoreCommits,
-      this._onDidRequestBranchContextAction,
       this._onDidRequestInitialData,
       this._onDidRequestRefresh
     );
@@ -525,11 +501,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           this._handleBranchClick(message.branchName);
         }
         break;
-      case 'branchContextMenu':
-        if (message.branchName && message.branchType && message.action) {
-          this._handleBranchContextMenu(message.branchName, message.branchType, message.action);
-        }
-        break;
       case 'loadMoreCommits':
         this._handleLoadMoreCommits();
         break;
@@ -588,6 +559,19 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
+   * Navigate the graph to a branch's HEAD commit.
+   * Public wrapper around the branch-click logic so that external callers
+   * (e.g. the native BRANCHES tree view selection handler) can scroll the
+   * graph to a given branch.
+   *
+   * Requirement 2.6: When a user clicks on a branch, the Graph Panel scrolls to
+   * and highlights the latest commit of that branch.
+   */
+  public navigateToBranch(branchName: string): void {
+    this._handleBranchClick(branchName);
+  }
+
+  /**
    * Handle branch click to scroll the Graph Panel to the branch's HEAD commit.
    * Finds the branch's HEAD commit hash from the loaded commit nodes and branch map,
    * then selects that commit to scroll to it in the graph.
@@ -633,25 +617,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Handle branch context menu action from the Branch Panel.
-   * Fires the onDidRequestBranchContextAction event so that the extension host
-   * can execute the appropriate branch operation (checkout, merge, rebase, etc.).
-   *
-   * Requirements: 2.7, 2.8, 5.1
-   *
-   * @param branchName - The name of the branch the action was invoked on
-   * @param branchType - Whether the branch is 'local' or 'remote'
-   * @param action - The context menu action to perform (e.g. 'checkout', 'merge', 'delete')
-   */
-  private _handleBranchContextMenu(branchName: string, branchType: 'local' | 'remote', action: string): void {
-    this._onDidRequestBranchContextAction.fire({
-      branchName,
-      branchType,
-      action,
-    });
-  }
-
-  /**
    * Handle the loadMoreCommits message from the webview.
    * Fires the onDidRequestLoadMoreCommits event so that the extension host
    * can fetch the next batch of commits and append them.
@@ -669,9 +634,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    *
    * Requirements: 1.3, 1.4
    *
-   * @param widths - The new panel width percentages [branch, graph, details]
+   * @param widths - The new panel width percentages [graph, details]
    */
-  private _handlePanelResize(widths: [number, number, number]): void {
+  private _handlePanelResize(widths: [number, number]): void {
     // Update internal panel widths state
     this._panelWidths = widths;
 
@@ -685,9 +650,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Get the current panel widths.
    * Returns the persisted panel width percentages.
    *
-   * @returns The current panel width percentages [branch, graph, details]
+   * @returns The current panel width percentages [graph, details]
    */
-  public getPanelWidths(): [number, number, number] {
+  public getPanelWidths(): [number, number] {
     return [...this._panelWidths];
   }
 
@@ -729,7 +694,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Get the HTML content for the webview.
-   * Now delegates to the 3-panel layout (Requirement 6.1).
+   * Now delegates to the 2-panel layout (Requirement 6.1).
    */
   private _getHtmlContent(webview: vscode.Webview): string {
     // Requirement 5.4: If no repository, show init prompt
@@ -737,8 +702,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       return this._getNoRepositoryHtml(webview);
     }
 
-    // Build branch data from stored branch panel data
-    const branchData = this._branchPanelData;
     const commitNodes = this._extendedLogState.commitNodes;
     const selectedCommits = this._extendedLogState.selectedCommits;
     const expandedCommit = this._extendedLogState.expandedCommit;
@@ -763,7 +726,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     return this._getThreePanelHtmlContent(
       webview,
-      branchData,
       commitNodes,
       commitDetails,
       this._panelWidths,
@@ -774,38 +736,23 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Update the branch panel data.
-   * Called by the extension host when branch data is fetched from GitService.
+   * Generate the complete HTML document for the 2-panel layout.
    *
-   * @param branchData - The branch panel data to display
-   */
-  public updateBranches(branchData: IBranchPanelData): void {
-    this._branchPanelData = branchData;
-    this._hasRepository = true;
-    this._updateWebview();
-    this._onDidChangeState.fire();
-  }
-
-  /**
-   * Generate the complete HTML document for the 3-panel layout.
-   *
-   * Produces a flexbox-based layout with three panels (Branch, Graph, Details)
-   * arranged horizontally from left to right, separated by two draggable dividers.
+   * Produces a flexbox-based layout with two panels (Graph, Details)
+   * arranged horizontally from left to right, separated by a draggable divider.
    *
    * Panel widths are set via inline styles based on the provided panelWidths
    * percentages. When the container width is less than 500px, panels stack
    * vertically via CSS.
    *
-   * This method is public for testability. It will replace _getHtmlContent()
-   * in Task 7.
+   * This method is public for testability.
    *
    * Requirements: 1.1, 1.2, 1.5
    *
    * @param webview - The VS Code Webview instance (used for CSP source)
-   * @param branchData - Branch panel data to render
    * @param commitNodes - Commit nodes for the graph panel
    * @param commitDetails - Optional commit details for the details panel
-   * @param panelWidths - Panel width percentages [branch, graph, details], defaults to [20, 50, 30]
+   * @param panelWidths - Panel width percentages [graph, details], defaults to [60, 40]
    * @param selectedCommits - Set of selected commit hashes
    * @param loadedCount - Number of commits currently loaded
    * @param totalAvailable - Total commits available
@@ -813,10 +760,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    */
   public _getThreePanelHtmlContent(
     webview: vscode.Webview,
-    branchData: IBranchPanelData,
     commitNodes: ICommitNode[],
     commitDetails?: ICommitDetails,
-    panelWidths?: [number, number, number],
+    panelWidths?: [number, number],
     selectedCommits?: Set<string>,
     loadedCount?: number,
     totalAvailable?: number
@@ -825,7 +771,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     const widths = panelWidths || this._panelWidths;
 
     // Generate panel content using existing methods
-    const branchPanelHtml = this._getBranchPanelHtml(branchData);
+    // Branch panel removed — branches are now displayed in the native BRANCHES tree view
     const graphPanelHtml = this._getGraphPanelHtml(
       commitNodes,
       selectedCommits,
@@ -840,11 +786,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     // Clear the scroll target after rendering so it's only used once
     this._scrollToCommitHash = undefined;
 
-    // Generate context menu HTML outside of panel overflow containers
-    // to prevent clipping by panel `overflow: auto`.
-    // Requirements: 4.1, 4.2, 4.4, 4.5, 4.6, 4.7
-    const branchContextMenuHtml = this._getBranchContextMenuHtml();
+    // Commit context menu (branch context menu removed — handled by native tree view)
     const commitContextMenuHtml = this._getCommitContextMenuHtml();
+
+    // Use 2-panel widths directly
+    const graphWidth = widths[0];
+    const detailsWidth = widths[1];
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -859,18 +806,13 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 </head>
 <body>
   <div class="three-panel-layout" role="application" aria-label="Git Tool Window">
-    <div id="branch-panel" class="panel" style="width: ${widths[0]}%;" role="region" aria-label="Branch Panel">
-      ${branchPanelHtml}
-    </div>
-    <div class="panel-divider" data-divider="0" role="separator" aria-label="Resize Branch and Graph panels" tabindex="0"></div>
-    <div id="graph-panel" class="panel" style="width: ${widths[1]}%;" role="region" aria-label="Graph Panel">
+    <div id="graph-panel" class="panel" style="width: ${graphWidth}%;" role="region" aria-label="Graph Panel">
       ${graphPanelHtml}
     </div>
     <div class="panel-divider" data-divider="1" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
-    <div id="details-panel" class="panel" style="width: ${widths[2]}%;" role="region" aria-label="Details Panel">
+    <div id="details-panel" class="panel" style="width: ${detailsWidth}%;" role="region" aria-label="Details Panel">
       ${detailsPanelHtml}
     </div>
-    ${branchContextMenuHtml}
     ${commitContextMenuHtml}
   </div>
 
@@ -923,22 +865,22 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Get CSS styles for the 3-panel flexbox layout.
+   * Get CSS styles for the 2-panel flexbox layout.
    *
    * Includes:
    * - Flexbox row layout for horizontal panel arrangement
    * - Panel overflow and sizing rules
    * - Draggable divider styling
    * - Vertical stacking when container width < 500px (Requirement 1.5)
-   * - All existing panel styles (branch, graph, details)
+   * - All existing panel styles (graph, details)
    *
-   * @returns CSS string for the 3-panel layout
+   * @returns CSS string for the 2-panel layout
    */
   private _getThreePanelStyles(): string {
     return `
       ${this._getInlineStyles()}
 
-      /* Three-Panel Layout - Requirements 1.1, 1.2 */
+      /* Panel Layout - Requirements 1.1, 1.2 */
       .three-panel-layout {
         display: flex;
         flex-direction: row;
@@ -995,7 +937,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
         .three-panel-layout > .panel {
           width: 100% !important;
-          height: 33.33%;
+          height: 50%;
           min-height: 100px;
         }
 
@@ -1015,7 +957,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
       .three-panel-layout.vertical-layout > .panel {
         width: 100% !important;
-        height: 33.33%;
+        height: 50%;
         min-height: 100px;
       }
 
@@ -1230,192 +1172,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Generate HTML for the Branch Panel in the 3-panel layout.
-   * Renders a tree with three top-level categories:
-   *   - "HEAD (Current Branch)" — shows the current branch name or detached hash
-   *   - "Local" — all local branches in case-insensitive alphabetical order
-   *   - "Remote" — remote branches grouped by remote name
-   *
-   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
-   *
-   * @param branchData - The branch panel data to render
-   * @returns HTML string for the branch panel content
-   */
-  public _getBranchPanelHtml(branchData: IBranchPanelData): string {
-    // --- HEAD (Current Branch) category ---
-    let headContent: string;
-    if (branchData.head.isDetached) {
-      const hash = branchData.head.commitHash || branchData.head.name;
-      headContent = `
-        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(hash)}" data-type="detached">
-          <span class="branch-icon">⎇</span>
-          <span class="branch-name">${this._escapeHtml(hash)}</span>
-          <span class="branch-detached-label">(detached)</span>
-        </div>`;
-    } else {
-      headContent = `
-        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(branchData.head.name)}" data-type="head">
-          <span class="branch-icon">⎇</span>
-          <span class="branch-name">${this._escapeHtml(branchData.head.name)}</span>
-        </div>`;
-    }
-
-    // --- Local category ---
-    const sortedLocal = [...branchData.local].sort((a, b) =>
-      a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-    );
-
-    const localBranchesHtml = sortedLocal
-      .map(
-        (branch) => `
-        <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="local">
-          <span class="branch-icon">⎇</span>
-          <span class="branch-name">${this._escapeHtml(branch.name)}</span>
-        </div>`
-      )
-      .join('');
-
-    // --- Remote category ---
-    const remoteGroups = branchData.remote;
-    let remoteGroupsHtml = '';
-
-    for (const group of remoteGroups) {
-      const sortedBranches = [...group.branches].sort((a, b) =>
-        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-      );
-
-      const remoteBranchesHtml = sortedBranches
-        .map(
-          (branch) => `
-          <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="remote" data-remote="${this._escapeHtml(group.remoteName)}">
-            <span class="branch-icon">☁</span>
-            <span class="branch-name">${this._escapeHtml(branch.name)}</span>
-          </div>`
-        )
-        .join('');
-
-      remoteGroupsHtml += `
-        <div class="branch-category branch-remote-group">
-          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
-            <span class="expand-icon">▼</span>
-            <span class="branch-category-name">${this._escapeHtml(group.remoteName)}</span>
-          </div>
-          <div class="branch-category-children">
-            ${remoteBranchesHtml}
-          </div>
-        </div>`;
-    }
-
-    // --- Assemble the full branch panel tree ---
-    return `
-      <div class="branch-panel" role="tree" aria-label="Branches">
-        <div class="branch-category" data-category="head">
-          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
-            <span class="expand-icon">▼</span>
-            <span class="branch-category-name">HEAD (Current Branch)</span>
-          </div>
-          <div class="branch-category-children">
-            ${headContent}
-          </div>
-        </div>
-
-        <div class="branch-category" data-category="local">
-          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
-            <span class="expand-icon">▼</span>
-            <span class="branch-category-name">Local</span>
-          </div>
-          <div class="branch-category-children">
-            ${localBranchesHtml}
-          </div>
-        </div>
-
-        <div class="branch-category" data-category="remote">
-          <div class="branch-category-header" role="button" tabindex="0" aria-expanded="true">
-            <span class="expand-icon">▼</span>
-            <span class="branch-category-name">Remote</span>
-          </div>
-          <div class="branch-category-children">
-            ${remoteGroupsHtml}
-          </div>
-        </div>
-      </div>`;
-  }
-
-  /**
-   * Get the branch context menu HTML overlay.
-   * Renders two context menus: one for local branches and one for remote branches.
-   * The menus are hidden by default and shown on right-click via JS handlers.
-   * These menus are rendered outside the panel overflow containers (at the top-level
-   * layout div) to prevent clipping by panel `overflow: auto`.
-   *
-   * Requirements: 2.7, 2.8, 4.1, 4.2, 4.6, 4.7
-   *
-   * @returns HTML string for the branch context menu overlays
-   */
-  public _getBranchContextMenuHtml(): string {
-    return `
-      <div id="branch-context-menu-local" class="branch-context-menu context-menu" hidden role="menu" aria-label="Local branch actions">
-        <div class="context-menu-item" data-action="checkout" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">⎇</span>
-          Checkout
-        </div>
-        <div class="context-menu-item" data-action="newBranch" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">➕</span>
-          New Branch
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="merge" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🔀</span>
-          Merge into Current
-        </div>
-        <div class="context-menu-item" data-action="rebase" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">↗</span>
-          Rebase Current onto This
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="compare" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🔍</span>
-          Compare with Current
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="rename" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">✏️</span>
-          Rename
-        </div>
-        <div class="context-menu-item context-menu-danger" data-action="delete" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🗑️</span>
-          Delete
-        </div>
-      </div>
-
-      <div id="branch-context-menu-remote" class="branch-context-menu context-menu" hidden role="menu" aria-label="Remote branch actions">
-        <div class="context-menu-item" data-action="checkoutAsLocal" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">⎇</span>
-          Checkout as Local
-        </div>
-        <div class="context-menu-item" data-action="newBranch" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">➕</span>
-          New Branch
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="merge" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🔀</span>
-          Merge into Current
-        </div>
-        <div class="context-menu-item" data-action="pull" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">⬇</span>
-          Pull into Current
-        </div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item context-menu-danger" data-action="deleteRemote" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🗑️</span>
-          Delete Remote
-        </div>
-      </div>`;
-  }
-
-  /**
-   * Generate the Graph Panel HTML for the 3-panel layout.
+   * Generate the Graph Panel HTML for the 2-panel layout.
    *
    * Renders commit rows in reverse chronological order (as provided by the
    * commitNodes array). Each row contains:
@@ -1564,7 +1321,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   }
 
   /**
-   * Generate the Details Panel HTML for the 3-panel layout.
+   * Generate the Details Panel HTML for the 2-panel layout.
    *
    * Displays full commit metadata and a list of changed files with
    * IntelliJ-style color-coded status indicators.
@@ -2850,35 +2607,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           }
         })();
 
-        // ─── Event delegation for branch items ───────────────────────────
-        // CSP blocks inline onclick/oncontextmenu attributes, so we use
-        // event delegation on the document instead.
-
-        // Branch item click → handleBranchClick
-        document.addEventListener('click', function(e) {
-          const branchItem = e.target.closest('.branch-item[data-branch]');
-          if (branchItem) {
-            const branchName = branchItem.getAttribute('data-branch');
-            if (branchName) {
-              vscode.postMessage({ type: 'branchClick', branchName: branchName });
-            }
-          }
-        });
-
-        // Branch item right-click → showBranchContextMenu
-        document.addEventListener('contextmenu', function(e) {
-          const branchItem = e.target.closest('.branch-item[data-branch][data-type]');
-          if (branchItem) {
-            const branchName = branchItem.getAttribute('data-branch');
-            const branchType = branchItem.getAttribute('data-type');
-            if (branchName && (branchType === 'local' || branchType === 'remote')) {
-              e.preventDefault();
-              e.stopPropagation();
-              showBranchContextMenu(e, branchName, branchType);
-            }
-          }
-        });
-
         // ─── Event delegation for commit rows ────────────────────────────
 
         // Commit row click → handleCommitClick
@@ -3337,87 +3065,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           }
         };
 
-        // Branch context menu - Requirements 2.7, 2.8
-        let branchContextMenuTarget = null;
-        let branchContextMenuType = null;
-
-        window.showBranchContextMenu = function(event, branchName, branchType) {
-          event.preventDefault();
-          event.stopPropagation();
-
-          branchContextMenuTarget = branchName;
-          branchContextMenuType = branchType;
-
-          // Hide both menus first
-          const localMenu = document.getElementById('branch-context-menu-local');
-          const remoteMenu = document.getElementById('branch-context-menu-remote');
-          if (localMenu) localMenu.hidden = true;
-          if (remoteMenu) remoteMenu.hidden = true;
-
-          // Show the appropriate menu
-          const menuId = branchType === 'local' ? 'branch-context-menu-local' : 'branch-context-menu-remote';
-          const contextMenu = document.getElementById(menuId);
-          if (contextMenu) {
-            const x = event.clientX;
-            const y = event.clientY;
-
-            const menuWidth = 220;
-            const menuHeight = 250;
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-
-            const left = x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x;
-            const top = y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y;
-
-            contextMenu.style.left = left + 'px';
-            contextMenu.style.top = top + 'px';
-            contextMenu.hidden = false;
-          }
-        };
-
-        // Hide branch context menus when clicking elsewhere
-        document.addEventListener('click', (e) => {
-          const localMenu = document.getElementById('branch-context-menu-local');
-          const remoteMenu = document.getElementById('branch-context-menu-remote');
-          if (localMenu && !localMenu.contains(e.target)) {
-            localMenu.hidden = true;
-          }
-          if (remoteMenu && !remoteMenu.contains(e.target)) {
-            remoteMenu.hidden = true;
-          }
-        });
-
-        // Hide branch context menus on Escape key
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') {
-            const localMenu = document.getElementById('branch-context-menu-local');
-            const remoteMenu = document.getElementById('branch-context-menu-remote');
-            if (localMenu) localMenu.hidden = true;
-            if (remoteMenu) remoteMenu.hidden = true;
-          }
-        });
-
-        // Handle branch context menu item clicks
-        document.addEventListener('click', (e) => {
-          const menuItem = e.target.closest('.branch-context-menu .context-menu-item');
-          if (menuItem && branchContextMenuTarget && branchContextMenuType) {
-            const action = menuItem.dataset.action;
-            if (action) {
-              vscode.postMessage({
-                type: 'branchContextMenu',
-                branchName: branchContextMenuTarget,
-                branchType: branchContextMenuType,
-                action: action
-              });
-              // Hide both menus
-              const localMenu = document.getElementById('branch-context-menu-local');
-              const remoteMenu = document.getElementById('branch-context-menu-remote');
-              if (localMenu) localMenu.hidden = true;
-              if (remoteMenu) remoteMenu.hidden = true;
-            }
-          }
-        });
-
         window.handleFileKeydown = function(event, path) {
           switch (event.key) {
             case 'Enter':
@@ -3526,7 +3173,7 @@ interface IWebviewMessage {
   filter?: IWebviewLogFilter | null;
   branchName?: string;
   branchType?: 'local' | 'remote';
-  widths?: [number, number, number];
+  widths?: [number, number];
 }
 
 /**

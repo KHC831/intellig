@@ -541,6 +541,10 @@
           "type": "webview",
           "id": "intellig.toolWindow",
           "name": "Git"
+        },
+        {
+          "id": "intellig.branchTree",
+          "name": "Branches"
         }
       ]
     },

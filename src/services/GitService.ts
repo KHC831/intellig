@@ -406,13 +406,17 @@ export class GitService implements IGitService {
     const args = ['checkout'];
 
     if (options?.createBranch) {
-      args.push('-b');
-    }
-    if (options?.force) {
-      args.push('-f');
+      args.push('-b', ref);
+    } else {
+      if (options?.force) {
+        args.push('-f');
+      }
+      args.push(ref);
     }
 
-    args.push(ref);
+    if (options?.createBranch && options?.force) {
+      args.push('-f');
+    }
 
     if (options?.track) {
       args.push('--track', options.track);

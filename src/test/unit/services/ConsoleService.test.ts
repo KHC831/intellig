@@ -318,11 +318,11 @@ describe('ConsoleService', () => {
   });
 
   describe('showConsole', () => {
-    it('should be a no-op in 3-panel layout (console tab removed)', () => {
+    it('should be a no-op in 2-panel layout (console tab removed)', () => {
       const mockProvider = new MockGitToolWindowProvider();
       consoleService.connectToToolWindow(mockProvider as unknown as IGitToolWindowProvider);
 
-      // showConsole is now a no-op since the 3-panel layout has no console tab
+      // showConsole is now a no-op since the 2-panel layout has no console tab
       consoleService.showConsole();
 
       // No tab-related state to check; just verify no errors

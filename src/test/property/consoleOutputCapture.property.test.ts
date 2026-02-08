@@ -5,7 +5,7 @@ import { IConsoleEntry } from '../../services/interfaces/IGitToolWindowProvider'
 /**
  * Local type for backward compatibility in tests.
  * The IConsoleState interface was removed when the tabbed layout was replaced
- * by the 3-panel layout.
+ * by the 2-panel layout.
  */
 interface IConsoleState {
   entries: IConsoleEntry[];

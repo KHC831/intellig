@@ -886,9 +886,28 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
               messageContains(combinedCommit.message, commits[1].message),
               'Combined commit should contain second commit message (squash keeps it)'
             );
-            assert.ok(
-              !messageContains(combinedCommit.message, commits[2].message),
-              'Combined commit should NOT contain third commit message (fixup discards it)'
+
+            // The fixup commit's message should be discarded. We can only verify
+            // absence when the fixup message is distinct from the kept messages,
+            // since messageContains would find a match if the messages overlap.
+            const fixupMsg = commits[2].message;
+            const keptMessages = [commits[0].message, commits[1].message];
+            const fixupMsgIsDistinct =
+              !keptMessages.some((m) => m.includes(fixupMsg) || fixupMsg.includes(m));
+            if (fixupMsgIsDistinct) {
+              assert.ok(
+                !messageContains(combinedCommit.message, fixupMsg),
+                'Combined commit should NOT contain third commit message (fixup discards it)'
+              );
+            }
+
+            // Regardless of message overlap, verify the combined message is exactly
+            // the join of the first two messages (squash keeps both, fixup discards third)
+            const expectedMessage = commits[0].message + '\n\n' + commits[1].message;
+            assert.strictEqual(
+              combinedCommit.message,
+              expectedMessage,
+              'Combined message should be first + second messages joined, without fixup message'
             );
 
             return true;

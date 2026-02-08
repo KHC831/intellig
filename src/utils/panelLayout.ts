@@ -1,5 +1,5 @@
 /**
- * Panel layout utility functions for the 3-panel Git Tool Window.
+ * Panel layout utility functions for the 2-panel Git Tool Window.
  * Contains pure functions for panel width constraint logic and
  * panel width persistence helpers.
  *
@@ -13,10 +13,10 @@ import * as vscode from 'vscode';
 const MIN_PANEL_WIDTH = 100;
 
 /** Number of panels in the layout. */
-const PANEL_COUNT = 3;
+const PANEL_COUNT = 2;
 
 /** Minimum container width that can accommodate all panels at their minimum size. */
-const MIN_CONTAINER_WIDTH = MIN_PANEL_WIDTH * PANEL_COUNT; // 300px
+const MIN_CONTAINER_WIDTH = MIN_PANEL_WIDTH * PANEL_COUNT; // 200px
 
 /**
  * Clamps panel widths to enforce the minimum width constraint and ensure
@@ -25,35 +25,35 @@ const MIN_CONTAINER_WIDTH = MIN_PANEL_WIDTH * PANEL_COUNT; // 300px
  * This is a pure function with no side effects.
  *
  * Algorithm:
- * 1. If container width < 300px, distribute equally (each gets containerWidth / 3).
+ * 1. If container width < 200px, distribute equally (each gets containerWidth / 2).
  * 2. Clamp any negative or below-minimum widths to 100px.
  * 3. Adjust the remaining panels proportionally so the total equals containerWidth.
  * 4. If proportional redistribution causes any panel to drop below minimum,
  *    iteratively clamp and redistribute until all constraints are satisfied.
  *
  * @param containerWidth - The total available width in pixels.
- * @param widths - The requested widths for [Branch, Graph, Details] panels in pixels.
- * @returns A tuple of three panel widths that satisfy all constraints.
+ * @param widths - The requested widths for [Graph, Details] panels in pixels.
+ * @returns A tuple of two panel widths that satisfy all constraints.
  *
  * Validates: Requirements 1.3
  */
 export function clampPanelWidths(
   containerWidth: number,
-  widths: [number, number, number]
-): [number, number, number] {
+  widths: [number, number]
+): [number, number] {
   // Handle non-positive container width: return minimums (best effort)
   if (containerWidth <= 0) {
-    return [0, 0, 0];
+    return [0, 0];
   }
 
   // If container is too small for all panels at minimum, distribute equally
   if (containerWidth < MIN_CONTAINER_WIDTH) {
     const equalWidth = containerWidth / PANEL_COUNT;
-    return [equalWidth, equalWidth, equalWidth];
+    return [equalWidth, equalWidth];
   }
 
   // Work with a mutable copy
-  const result: [number, number, number] = [...widths];
+  const result: [number, number] = [...widths];
 
   // Phase 1: Clamp all panels to at least the minimum
   for (let i = 0; i < PANEL_COUNT; i++) {
@@ -63,7 +63,7 @@ export function clampPanelWidths(
   }
 
   // Phase 2: Adjust so the sum equals containerWidth
-  const currentSum = result[0] + result[1] + result[2];
+  const currentSum = result[0] + result[1];
   const diff = containerWidth - currentSum;
 
   if (Math.abs(diff) < 1e-9) {
@@ -74,7 +74,7 @@ export function clampPanelWidths(
   if (diff > 0) {
     // We need to distribute extra space. Add proportionally to panels
     // based on their current share of the total.
-    const sumCurrent = result[0] + result[1] + result[2];
+    const sumCurrent = result[0] + result[1];
     for (let i = 0; i < PANEL_COUNT; i++) {
       result[i] += diff * (result[i] / sumCurrent);
     }
@@ -86,10 +86,10 @@ export function clampPanelWidths(
   }
 
   // Final safety: ensure exact sum via rounding adjustment on the last panel
-  const finalSum = result[0] + result[1] + result[2];
+  const finalSum = result[0] + result[1];
   const roundingError = containerWidth - finalSum;
   if (Math.abs(roundingError) > 1e-9) {
-    result[2] += roundingError;
+    result[1] += roundingError;
   }
 
   // Final safety: ensure no panel is below minimum (can happen due to floating point)
@@ -108,7 +108,7 @@ export function clampPanelWidths(
  * Iterates until all panels are at or above minimum and the deficit is consumed.
  */
 function redistributeDeficit(
-  result: [number, number, number],
+  result: [number, number],
   deficit: number
 ): void {
   let remaining = deficit;
@@ -142,25 +142,25 @@ function redistributeDeficit(
 /** Workspace state key for persisted panel widths. */
 const PANEL_WIDTHS_KEY = 'intellig.panelWidths';
 
-/** Default panel width ratios: [Branch 20%, Graph 50%, Details 30%]. */
-export const DEFAULT_PANEL_WIDTHS: [number, number, number] = [20, 50, 30];
+/** Default panel width ratios: [Graph 60%, Details 40%]. */
+export const DEFAULT_PANEL_WIDTHS: [number, number] = [60, 40];
 
 /**
  * Validates whether a value is a valid panel width tuple.
  *
- * A valid tuple is an array of exactly 3 numbers where:
+ * A valid tuple is an array of exactly 2 numbers where:
  * - Each value is between 5 and 90 (inclusive)
  * - The values sum to approximately 100 (within ±1 tolerance for floating point)
  *
  * @param value - The value to validate.
  * @returns True if the value is a valid panel width tuple.
  */
-function isValidPanelWidths(value: unknown): value is [number, number, number] {
-  if (!Array.isArray(value) || value.length !== 3) {
+function isValidPanelWidths(value: unknown): value is [number, number] {
+  if (!Array.isArray(value) || value.length !== 2) {
     return false;
   }
 
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     if (typeof value[i] !== 'number' || !Number.isFinite(value[i])) {
       return false;
     }
@@ -169,7 +169,7 @@ function isValidPanelWidths(value: unknown): value is [number, number, number] {
     }
   }
 
-  const sum = (value[0] as number) + (value[1] as number) + (value[2] as number);
+  const sum = (value[0] as number) + (value[1] as number);
   if (Math.abs(sum - 100) > 1) {
     return false;
   }
@@ -181,13 +181,13 @@ function isValidPanelWidths(value: unknown): value is [number, number, number] {
  * Saves panel width ratios to VS Code workspace state.
  *
  * @param state - The VS Code Memento (workspace state) to persist to.
- * @param widths - The panel width ratios as percentages, e.g. [20, 50, 30].
+ * @param widths - The panel width ratios as percentages, e.g. [60, 40].
  *
  * Validates: Requirements 1.4
  */
 export function savePanelWidths(
   state: vscode.Memento,
-  widths: [number, number, number]
+  widths: [number, number]
 ): void {
   void state.update(PANEL_WIDTHS_KEY, widths);
 }
@@ -195,9 +195,9 @@ export function savePanelWidths(
 /**
  * Loads panel width ratios from VS Code workspace state.
  *
- * Falls back to DEFAULT_PANEL_WIDTHS ([20, 50, 30]) if:
+ * Falls back to DEFAULT_PANEL_WIDTHS ([60, 40]) if:
  * - No value is stored
- * - The stored value is not an array of 3 numbers
+ * - The stored value is not an array of 2 numbers
  * - Any value is outside the range [5, 90]
  * - The values do not sum to approximately 100
  *
@@ -208,11 +208,11 @@ export function savePanelWidths(
  */
 export function loadPanelWidths(
   state: vscode.Memento
-): [number, number, number] {
+): [number, number] {
   const stored = state.get<unknown>(PANEL_WIDTHS_KEY);
 
   if (isValidPanelWidths(stored)) {
-    return [stored[0], stored[1], stored[2]];
+    return [stored[0], stored[1]];
   }
 
   return [...DEFAULT_PANEL_WIDTHS];
