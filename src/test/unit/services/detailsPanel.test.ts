@@ -1,7 +1,5 @@
 /**
  * Unit tests for _getDetailsPanelHtml() method in GitToolWindowProvider.
- *
- * Requirements: 4.1, 4.2
  */
 
 import '../../../test/setup';
@@ -39,7 +37,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     provider.dispose();
   });
 
-  describe('Requirement 4.1: Commit metadata display', () => {
+  describe('Commit metadata display', () => {
     it('should display the commit message', () => {
       const details = makeCommitDetails({ message: 'Implement new feature' });
       const html = provider._getDetailsPanelHtml(details);
@@ -145,7 +143,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 4.2: Changed files with IntelliJ-style color coding', () => {
+  describe('Changed files with IntelliJ-style color coding', () => {
     it('should display changed files with status indicators', () => {
       const details = makeCommitDetails({
         changedFiles: [
@@ -338,7 +336,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 4.3: Data attributes on changed files for event delegation', () => {
+  describe('Data attributes on changed files for event delegation', () => {
     it('should have data-commit-hash and data-path attributes on changed file items', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
@@ -408,7 +406,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 4.4: Placeholder state when no commit is selected', () => {
+  describe('Placeholder state when no commit is selected', () => {
     it('should return placeholder HTML with a message to select a commit', () => {
       const html = provider._getDetailsPanelPlaceholderHtml();
 
@@ -443,7 +441,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 4.5: Multi-commit details display', () => {
+  describe('Multi-commit details display', () => {
     function makeMultipleCommitDetails(count: number): ICommitDetails[] {
       return Array.from({ length: count }, (_, i) => makeCommitDetails({
         hash: `hash${i}${'0'.repeat(33)}`,

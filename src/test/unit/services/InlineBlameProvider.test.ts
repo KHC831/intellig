@@ -7,8 +7,6 @@
  * - Hover message generation
  * - Age-based color calculation
  * - Relative date formatting
- *
- * Requirements: 9.1, 9.3, 9.4 (Blame), 17.12
  */
 
 import * as assert from 'assert';

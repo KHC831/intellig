@@ -178,7 +178,6 @@ describe('Feature: git-graph-details-improvements - Commit Row Content Property 
 
   describe('Property 3: Commit row displays title, author, and absolute date', () => {
     /**
-     * **Validates: Requirements 3.1, 3.2, 3.3**
      *
      * For any commit with a non-empty message, author name, and author date,
      * the HTML output of _getGraphPanelHtml() SHALL contain:

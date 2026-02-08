@@ -3,8 +3,6 @@
  *
  * Tests the pure label resolution function and the CommandTitleProvider class
  * behavior including selection handling, title updates, and disposal.
- *
- * Requirements: 5.1, 5.2, 5.3
  */
 
 import '../setup';
@@ -364,7 +362,7 @@ describe('CommandTitleProvider', () => {
     });
   });
 
-  describe('edge cases (Requirement 5.3)', () => {
+  describe('edge cases', () => {
     it('should return "HEAD" when head object exists but name is empty string', () => {
       const branchTreeProvider = createMockBranchTreeProvider('');
       const gitService = createMockGitService();

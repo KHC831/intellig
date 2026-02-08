@@ -2,8 +2,6 @@
  * Console Service implementation.
  * Captures and displays Git command output in the Console View.
  * Implements real-time output streaming for Git operations.
- *
- * Requirement 1.4: Console View displays command and output in real-time
  */
 
 import * as vscode from 'vscode';

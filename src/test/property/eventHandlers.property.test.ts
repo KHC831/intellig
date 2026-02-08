@@ -7,8 +7,6 @@
  * - For any commit row rendered in the Graph Panel HTML, the row element has a data-hash
  *   attribute with the commit hash, enabling event delegation for click and context menu
  *   handlers.
- *
- * **Validates: Requirements 3.1, 4.4**
  */
 
 import '../setup';
@@ -170,7 +168,6 @@ describe('Feature: intellig-ui-fixes - Event Handlers Property Tests', () => {
 
   describe('Property 6: Commit rows have data-hash attribute for event delegation', () => {
     /**
-     * **Validates: Requirements 3.1, 4.4**
      *
      * For any commit row rendered in the Graph Panel HTML, the row element shall
      * have a data-hash attribute with the commit hash, enabling event delegation

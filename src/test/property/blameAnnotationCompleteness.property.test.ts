@@ -7,13 +7,11 @@ import { IBlameInfo } from '../../services/interfaces/IBlameService';
  * Property-based tests for Blame Annotation Completeness.
  * Feature: intellig-vscode, Property 29: Blame Annotation Completeness
  *
- * **Validates: Requirements 9.1, 9.2, 9.3 (Blame)**
  *
  * Property Description:
  * For any line in a tracked file, the blame annotation SHALL include the author,
  * date, and commit message summary for the commit that last modified that line.
  *
- * Requirements:
  * - 9.1 (Blame): WHEN a user enables inline blame, THE Extension SHALL display
  *                the last commit info at the end of the current line
  * - 9.2 (Blame): WHEN a user enables gutter blame, THE Extension SHALL display
@@ -146,7 +144,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Get blame information for a file.
-     * Requirements: 9.1, 9.2, 9.3 (Blame)
      *
      * @param path - The file path
      * @returns The blame information for the file
@@ -161,7 +158,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Get blame for a specific line.
-     * Requirements: 9.1, 9.2, 9.3 (Blame)
      *
      * @param path - The file path
      * @param lineNumber - The line number (1-indexed)
@@ -178,7 +174,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Check if a blame line has all required fields for annotation display.
-     * Requirements: 9.3 (Blame) - author, relative date, and commit message summary
      *
      * @param blameLine - The blame line to check
      * @returns True if all required fields are present and valid
@@ -214,7 +209,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Format blame annotation for display (inline or gutter).
-     * Requirements: 9.1, 9.2, 9.3 (Blame)
      *
      * @param blameLine - The blame line to format
      * @returns Formatted annotation string
@@ -266,8 +260,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
   describe('Property 29: Blame Annotation Completeness', () => {
     /**
      * Property: Every blame line has a non-empty author field.
-     *
-     * **Validates: Requirements 9.3 (Blame)**
      */
     it('Property: Every blame line has a non-empty author field', () => {
       fc.assert(
@@ -294,8 +286,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Every blame line has a valid date field.
-     *
-     * **Validates: Requirements 9.3 (Blame)**
      */
     it('Property: Every blame line has a valid date field', () => {
       fc.assert(
@@ -320,8 +310,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Every blame line has a non-empty commit message.
-     *
-     * **Validates: Requirements 9.3 (Blame)**
      */
     it('Property: Every blame line has a non-empty commit message', () => {
       fc.assert(
@@ -348,8 +336,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Every blame line has a valid commit hash.
-     *
-     * **Validates: Requirements 9.1, 9.2 (Blame)**
      */
     it('Property: Every blame line has a valid commit hash', () => {
       fc.assert(
@@ -376,8 +362,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Blame info covers all lines in the file (completeness).
-     *
-     * **Validates: Requirements 9.1, 9.2 (Blame)**
      */
     it('Property: Blame info covers all lines in the file (completeness)', () => {
       fc.assert(
@@ -405,8 +389,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Getting blame for a specific line returns complete information.
-     *
-     * **Validates: Requirements 9.1, 9.2, 9.3 (Blame)**
      */
     it('Property: Getting blame for a specific line returns complete information', () => {
       fc.assert(
@@ -440,8 +422,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Blame annotations can be formatted for display.
-     *
-     * **Validates: Requirements 9.1, 9.2, 9.3 (Blame)**
      */
     it('Property: Blame annotations can be formatted for display', () => {
       fc.assert(
@@ -474,8 +454,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: All blame lines pass completeness check.
-     *
-     * **Validates: Requirements 9.1, 9.2, 9.3 (Blame)**
      */
     it('Property: All blame lines pass completeness check', () => {
       fc.assert(
@@ -501,8 +479,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Blame info path matches the requested file path.
-     *
-     * **Validates: Requirements 9.1, 9.2 (Blame)**
      */
     it('Property: Blame info path matches the requested file path', () => {
       fc.assert(
@@ -527,8 +503,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Getting blame for non-existent file throws error.
-     *
-     * **Validates: Requirements 9.1, 9.2 (Blame)**
      */
     it('Property: Getting blame for non-existent file throws error', () => {
       fc.assert(
@@ -557,8 +531,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Getting blame for non-existent line throws error.
-     *
-     * **Validates: Requirements 9.1, 9.2 (Blame)**
      */
     it('Property: Getting blame for non-existent line throws error', () => {
       fc.assert(
@@ -583,8 +555,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Author email is present when author is present.
-     *
-     * **Validates: Requirements 9.3 (Blame)**
      */
     it('Property: Author email is present when author is present', () => {
       fc.assert(
@@ -616,8 +586,6 @@ describe('Blame Annotation Completeness Property Tests', () => {
 
     /**
      * Property: Blame lines have unique line numbers within a file.
-     *
-     * **Validates: Requirements 9.1, 9.2 (Blame)**
      */
     it('Property: Blame lines have unique line numbers within a file', () => {
       fc.assert(

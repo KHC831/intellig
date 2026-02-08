@@ -207,7 +207,6 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
 
   describe('Property 7: Commit row contains required fields', () => {
     /**
-     * **Validates: Requirements 3.1**
      *
      * For any ICommitNode, the generated commit row HTML SHALL contain the
      * commit's short hash, the first line of the commit message (or a
@@ -278,7 +277,6 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
 
   describe('Property 8: Multi-select toggle correctness', () => {
     /**
-     * **Validates: Requirements 3.4**
      *
      * For any set of currently selected commit hashes and any commit hash,
      * toggling that hash SHALL add it to the set if it was not present, or

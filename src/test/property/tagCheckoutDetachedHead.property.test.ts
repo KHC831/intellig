@@ -6,13 +6,11 @@ import { ITag, IAuthor, IHead } from '../../services/interfaces/IGitService';
  * Property-based tests for Tag Checkout Detached HEAD.
  * Feature: intellig-vscode, Property 45: Tag Checkout Detached HEAD
  *
- * **Validates: Requirements 13.7**
  *
  * Property Description:
  * For any tag checkout, the repository SHALL be in detached HEAD state
  * pointing to the tag's target commit.
  *
- * Requirements:
  * - 13.7: WHEN a user selects "Checkout Tag", THE Extension SHALL checkout
  *         the tag in detached HEAD state with a warning
  */
@@ -182,7 +180,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Checkout a tag.
-     * Requirement 13.7: Checkout the tag in detached HEAD state with a warning.
      *
      * @param tagName - The name of the tag to checkout
      * @returns true if checkout succeeded, false if tag doesn't exist
@@ -284,8 +281,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
   describe('Property 45: Tag Checkout Detached HEAD', () => {
     /**
      * Property: Checking out a tag results in detached HEAD state.
-     *
-     * **Validates: Requirements 13.7**
      */
     it('Property: Checking out a tag results in detached HEAD state', () => {
       fc.assert(
@@ -340,8 +335,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Property: Detached HEAD points to the tag's target commit.
-     *
-     * **Validates: Requirements 13.7**
      */
     it("Property: Detached HEAD points to the tag's target commit", () => {
       fc.assert(
@@ -374,8 +367,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Property: Tag checkout produces a warning about detached HEAD state.
-     *
-     * **Validates: Requirements 13.7**
      */
     it('Property: Tag checkout produces a warning about detached HEAD state', () => {
       fc.assert(
@@ -414,8 +405,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Property: Both annotated and lightweight tags result in detached HEAD.
-     *
-     * **Validates: Requirements 13.7**
      */
     it('Property: Both annotated and lightweight tags result in detached HEAD', () => {
       fc.assert(
@@ -481,8 +470,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Property: Checking out a branch after tag checkout exits detached HEAD state.
-     *
-     * **Validates: Requirements 13.7**
      */
     it('Property: Checking out a branch after tag checkout exits detached HEAD state', () => {
       fc.assert(
@@ -543,8 +530,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Property: Cannot checkout a non-existent tag.
-     *
-     * **Validates: Requirements 13.7**
      */
     it('Property: Cannot checkout a non-existent tag', () => {
       fc.assert(
@@ -584,8 +569,6 @@ describe('Tag Checkout Detached HEAD Property Tests', () => {
 
     /**
      * Property: Multiple tag checkouts maintain detached HEAD state.
-     *
-     * **Validates: Requirements 13.7**
      */
     it('Property: Multiple tag checkouts maintain detached HEAD state', () => {
       fc.assert(

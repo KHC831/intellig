@@ -6,13 +6,11 @@ import { IRemote } from '../../services/interfaces/IGitService';
  * Property-based tests for Fetch Update.
  * Feature: intellig-vscode, Property 40: Fetch Update
  *
- * **Validates: Requirements 12.4, 12.5**
  *
  * Property Description:
  * For any fetch operation, all remote tracking refs SHALL be updated to match
  * the current state of the remote repository.
  *
- * Requirements:
  * - 12.4: WHEN a user selects 'Fetch', THE Extension SHALL fetch updates from all configured remotes
  * - 12.5: WHEN a user selects 'Fetch' on a specific remote, THE Extension SHALL fetch only from that remote
  */
@@ -209,7 +207,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Fetch updates from all configured remotes.
-     * Requirement 12.4: Fetch updates from all configured remotes.
      *
      * @returns Result of the fetch operation
      */
@@ -242,7 +239,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Fetch updates from a specific remote.
-     * Requirement 12.5: Fetch only from that remote.
      *
      * @param remoteName - The name of the remote to fetch from
      * @returns Result of the fetch operation
@@ -303,7 +299,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Fetch updates from all remotes (convenience method).
-     * Requirement 12.4: Fetch updates from all configured remotes.
      *
      * @returns Result of the fetch operation
      */
@@ -338,8 +333,6 @@ describe('Fetch Update Property Tests', () => {
   describe('Property 40: Fetch Update', () => {
     /**
      * Property: Fetch updates all remote tracking refs to match remote state.
-     *
-     * **Validates: Requirements 12.4, 12.5**
      */
     it('Property: Fetch updates all remote tracking refs to match remote state', () => {
       fc.assert(
@@ -391,8 +384,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch from specific remote only updates that remote's tracking refs.
-     *
-     * **Validates: Requirements 12.5**
      */
     it("Property: Fetch from specific remote only updates that remote's tracking refs", () => {
       fc.assert(
@@ -443,8 +434,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch all updates tracking refs for all configured remotes.
-     *
-     * **Validates: Requirements 12.4**
      */
     it('Property: Fetch all updates tracking refs for all configured remotes', () => {
       fc.assert(
@@ -507,8 +496,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch is idempotent when remote state hasn't changed.
-     *
-     * **Validates: Requirements 12.4, 12.5**
      */
     it("Property: Fetch is idempotent when remote state hasn't changed", () => {
       fc.assert(
@@ -557,8 +544,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch updates refs when remote state changes.
-     *
-     * **Validates: Requirements 12.4, 12.5**
      */
     it('Property: Fetch updates refs when remote state changes', () => {
       fc.assert(
@@ -627,8 +612,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch from non-existent remote fails gracefully.
-     *
-     * **Validates: Requirements 12.5**
      */
     it('Property: Fetch from non-existent remote fails gracefully', () => {
       fc.assert(
@@ -661,8 +644,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch records operation in history.
-     *
-     * **Validates: Requirements 12.4, 12.5**
      */
     it('Property: Fetch records operation in history', () => {
       fc.assert(
@@ -706,8 +687,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch all records operations for each remote.
-     *
-     * **Validates: Requirements 12.4**
      */
     it('Property: Fetch all records operations for each remote', () => {
       fc.assert(
@@ -756,8 +735,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch handles empty remote state correctly.
-     *
-     * **Validates: Requirements 12.4, 12.5**
      */
     it('Property: Fetch handles empty remote state correctly', () => {
       fc.assert(
@@ -787,8 +764,6 @@ describe('Fetch Update Property Tests', () => {
 
     /**
      * Property: Fetch preserves tracking refs for branches that still exist.
-     *
-     * **Validates: Requirements 12.4, 12.5**
      */
     it('Property: Fetch preserves tracking refs for branches that still exist', () => {
       fc.assert(

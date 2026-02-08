@@ -2,8 +2,6 @@
  * Property-based tests for Checkout and Rebase command handler.
  *
  * Feature: branch-context-menu, Property 6: Checkout and Rebase executes operations in correct order
- *
- * **Validates: Requirements 7.4**
  */
 
 import '../setup';
@@ -198,7 +196,6 @@ function createBranchTreeItem(branchName: string): BranchTreeItem {
 describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', () => {
   describe('Property 6: Checkout and Rebase executes operations in correct order', () => {
     /**
-     * **Validates: Requirements 7.4**
      *
      * For any non-current branch, when the Checkout and Rebase command handler
      * is invoked, the handler SHALL first call checkout for the right-clicked

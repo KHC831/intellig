@@ -1,8 +1,6 @@
 /**
  * Branch Comparison View interface.
  * Defines the contract for the branch comparison UI component.
- *
- * Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
  */
 
 import * as vscode from 'vscode';
@@ -60,7 +58,6 @@ export interface IBranchComparisonActionResult {
  * Provides branch comparison functionality with UI for selecting branches,
  * viewing commits unique to each branch, and viewing file differences.
  *
- * Requirements:
  * - 15.1: Prompt for target branch to compare
  * - 15.2: Display commits unique to each branch
  * - 15.3: Display files that differ between branches
@@ -86,7 +83,6 @@ export interface IBranchComparisonView {
 
   /**
    * Show the branch comparison view.
-   * Requirement 15.1: Prompt for target branch to compare
    *
    * @param repository - The repository to compare branches in
    * @param branch1 - Optional first branch (defaults to current branch)
@@ -129,7 +125,6 @@ export interface IBranchComparisonView {
 
   /**
    * Compare with remote tracking branch.
-   * Requirement 15.5: Compare local branch with its remote tracking branch
    *
    * @param repository - The repository
    * @param localBranch - The local branch to compare (defaults to current)
@@ -142,7 +137,6 @@ export interface IBranchComparisonView {
 
   /**
    * View the diff for a specific file between the two branches.
-   * Requirement 15.4: Display diff for selected file
    *
    * @param filePath - The file path to view diff for
    */

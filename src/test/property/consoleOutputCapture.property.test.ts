@@ -20,13 +20,11 @@ import {
  * Property-based tests for Console Output Capture.
  * Feature: intellig-vscode, Property 3: Console Output Capture
  *
- * **Validates: Requirements 1.4**
  *
  * Property Description:
  * For any Git operation executed through the extension, the Console View SHALL contain
  * both the command executed and its output.
  *
- * Requirements:
  * - 1.4: WHEN Git operations produce output, THE Console_View SHALL display the command
  *        and its output in real-time
  */
@@ -143,7 +141,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Log a Git command and its output to the console.
-     * Requirement 1.4: Console View displays command and output
      */
     logCommand(
       command: string,
@@ -301,8 +298,6 @@ describe('Console Output Capture Property Tests', () => {
   describe('Property 3: Console Output Capture', () => {
     /**
      * Property: Every logged command appears in the console entries.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Every logged command appears in the console entries', () => {
       fc.assert(
@@ -330,8 +325,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Every logged command's output is captured in the console.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Every logged command output is captured in the console', () => {
       fc.assert(
@@ -359,8 +352,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Console captures both command and output for any Git operation.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Console captures both command and output for any Git operation', () => {
       fc.assert(
@@ -389,8 +380,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: All commands in a sequence are captured in order.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: All commands in a sequence are captured in order', () => {
       fc.assert(
@@ -432,8 +421,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Exit code is correctly captured for each command.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Exit code is correctly captured for each command', () => {
       fc.assert(
@@ -461,8 +448,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Error status is correctly determined from exit code.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Error status is correctly determined from exit code', () => {
       fc.assert(
@@ -490,8 +475,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Streaming output accumulates correctly.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Streaming output accumulates correctly', () => {
       fc.assert(
@@ -540,8 +523,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Streaming error is captured correctly.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Streaming error is captured correctly', () => {
       fc.assert(
@@ -578,8 +559,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: logError correctly captures error commands.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: logError correctly captures error commands', () => {
       fc.assert(
@@ -610,8 +589,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: logError with Error object extracts message correctly.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: logError with Error object extracts message correctly', () => {
       fc.assert(
@@ -639,8 +616,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Console entries have timestamps.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Console entries have timestamps', () => {
       fc.assert(
@@ -673,8 +648,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Clear removes all entries.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Clear removes all entries', () => {
       fc.assert(
@@ -712,8 +685,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Max entries limit is respected.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Max entries limit is respected', () => {
       fc.assert(
@@ -755,8 +726,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Event is fired for each new entry.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Event is fired for each new entry', () => {
       fc.assert(
@@ -801,8 +770,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Clear event is fired when clearing.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Clear event is fired when clearing', () => {
       fc.assert(
@@ -838,8 +805,6 @@ describe('Console Output Capture Property Tests', () => {
 
     /**
      * Property: Console state reflects all logged entries.
-     *
-     * **Validates: Requirements 1.4**
      */
     it('Property: Console state reflects all logged entries', () => {
       fc.assert(

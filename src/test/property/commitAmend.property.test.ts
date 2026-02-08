@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
  * Property-based tests for Commit Amend Message Loading.
  * Feature: intellig-vscode, Property 4: Commit Amend Message Loading
  *
- * **Validates: Requirements 3.3**
  *
  * Property Description:
  * For any repository with at least one commit, enabling the Amend option SHALL
@@ -158,7 +157,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Handle amend toggle - simulates the _handleAmendToggle method
-     * Requirement 3.3: Amend option populates previous commit message
      */
     async handleAmendToggle(amend: boolean, repo: IRepository): Promise<void> {
       this._amendMode = amend;
@@ -212,8 +210,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
     /**
      * Property: For any repository with at least one commit, enabling the Amend option
      * SHALL populate the commit message field with the previous commit's message.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Enabling amend populates commit message with previous commit message', async () => {
       await fc.assert(
@@ -241,8 +237,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: The previous commit message includes both subject and body when present.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Previous commit message includes subject and body when body exists', async () => {
       // Generate commits that always have a body
@@ -291,8 +285,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: The previous commit message is just the subject when no body exists.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Previous commit message is just subject when no body exists', async () => {
       // Generate commits without a body
@@ -344,8 +336,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: Disabling amend does not clear a user-entered message.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Disabling amend preserves user-entered message', async () => {
       await fc.assert(
@@ -378,8 +368,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: Enabling amend with existing message does not overwrite it.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Enabling amend with existing message does not overwrite it', async () => {
       await fc.assert(
@@ -410,8 +398,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: Re-enabling amend after disabling loads the same previous message.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Re-enabling amend loads the same previous message', async () => {
       await fc.assert(
@@ -444,8 +430,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: The loaded message matches the most recent commit by date.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Loaded message matches the most recent commit by date', async () => {
       await fc.assert(
@@ -481,8 +465,6 @@ describe('Commit Amend Message Loading Property Tests', () => {
 
     /**
      * Property: Amend toggle is idempotent when already in the target state.
-     *
-     * **Validates: Requirements 3.3**
      */
     it('Property: Amend toggle is idempotent', async () => {
       await fc.assert(

@@ -6,8 +6,6 @@
  * - Pagination and batch loading
  * - Virtual list calculations
  * - Debounce and throttle functions
- *
- * Requirements: 9.9 (Log) - Implement lazy loading for large repositories
  */
 
 import * as assert from 'assert';

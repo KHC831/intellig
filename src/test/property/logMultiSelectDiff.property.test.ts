@@ -13,13 +13,11 @@ import {
  * Property-based tests for Log Multi-Select Diff.
  * Feature: intellig-vscode, Property 28: Log Multi-Select Diff
  *
- * **Validates: Requirements 9.8 (Log)**
  *
  * Property Description:
  * For any selection of multiple commits, the combined diff SHALL represent
  * the cumulative changes across all selected commits.
  *
- * Requirements:
  * - 9.8: WHEN a user selects multiple commits, THE Extension SHALL display
  *        the combined diff of those commits
  */
@@ -335,7 +333,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
      * This calculates the cumulative changes across all selected commits,
      * showing the total changes from the oldest commit's parent to the newest commit.
      *
-     * Requirement 9.8: WHEN a user selects multiple commits, THE Extension SHALL
      * display the combined diff of those commits.
      *
      * @param commitHashes - Array of commit hashes (can be in any order)
@@ -494,8 +491,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
   describe('Property 28: Log Multi-Select Diff', () => {
     /**
      * Property: Empty commit selection returns empty diff.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Empty commit selection returns empty diff', () => {
       fc.assert(
@@ -516,8 +511,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Single commit selection returns that commit's diff.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Single commit selection returns that commit diff', () => {
       fc.assert(
@@ -551,8 +544,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff represents cumulative changes from oldest to newest.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff represents cumulative changes from oldest to newest', () => {
       fc.assert(
@@ -585,8 +576,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Commit order in selection does not affect combined diff result.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Commit order in selection does not affect combined diff result', () => {
       fc.assert(
@@ -627,8 +616,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Selecting subset of commits shows changes only for that range.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Selecting subset of commits shows changes only for that range', () => {
       fc.assert(
@@ -658,8 +645,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff file paths are subset of individual commit file paths.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff file paths are subset of individual commit file paths', () => {
       fc.assert(
@@ -699,8 +684,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff correctly handles file additions.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff correctly handles file additions', () => {
       fc.assert(
@@ -739,8 +722,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff correctly handles file deletions.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff correctly handles file deletions', () => {
       fc.assert(
@@ -806,8 +787,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff correctly handles file modifications.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff correctly handles file modifications', () => {
       fc.assert(
@@ -875,8 +854,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff handles multiple files correctly.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff handles multiple files correctly', () => {
       fc.assert(
@@ -941,8 +918,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Combined diff is idempotent (same selection gives same result).
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Combined diff is idempotent', () => {
       fc.assert(
@@ -980,8 +955,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Non-existent commit hashes are handled gracefully.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Non-existent commit hashes are handled gracefully', () => {
       fc.assert(
@@ -1010,8 +983,6 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Property: Mixed valid and invalid hashes only process valid ones.
-     *
-     * **Validates: Requirements 9.8**
      */
     it('Property: Mixed valid and invalid hashes only process valid ones', () => {
       fc.assert(

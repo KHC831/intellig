@@ -9,7 +9,6 @@ import * as path from 'path';
  * Displays blame annotations in the editor gutter for all visible lines,
  * with age-based color gradients and click actions.
  *
- * Requirements: 9.2, 9.5, 9.7 (Blame)
  * - 9.2: Display blame information in the editor gutter for all visible lines
  * - 9.5: Click actions to view commit or copy hash
  * - 9.7: Use distinct colors to differentiate commits by age

@@ -12,7 +12,6 @@ import {
  * Property-based tests for Rebase Squash/Fixup Combination.
  * Feature: intellig-vscode, Property 16: Rebase Squash/Fixup Combination
  *
- * **Validates: Requirements 6.6**
  *
  * Property Description:
  * For any commits marked for squash or fixup, the resulting history SHALL contain a single
@@ -96,8 +95,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
   /**
    * Mock Rebase Service that simulates interactive rebase with squash/fixup behavior.
    * This allows us to test squash/fixup properties without actual Git operations.
-   *
-   * Requirements: 6.6
    */
   class MockRebaseService {
     private _session: IRebaseSession | undefined;
@@ -202,8 +199,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
      * Execute the rebase with the current plan.
      * Squash combines commits and keeps all commit messages.
      * Fixup combines commits but discards the fixup commit's message.
-     *
-     * Requirements: 6.6
      */
     executeRebase(): IRebaseResult {
       if (!this._session) {
@@ -428,8 +423,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
   describe('Property 16: Rebase Squash/Fixup Combination', () => {
     /**
      * Property: Squash action combines commits and keeps all commit messages.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Squash action combines commits and keeps all commit messages', () => {
       fc.assert(
@@ -495,8 +488,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Fixup action combines commits but discards the fixup commit's message.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Fixup action combines commits but discards the fixup commit message', () => {
       fc.assert(
@@ -561,8 +552,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Squash combines changes from all squashed commits.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Squash combines changes from all squashed commits', () => {
       fc.assert(
@@ -622,8 +611,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Fixup combines changes from all fixup commits.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Fixup combines changes from all fixup commits', () => {
       fc.assert(
@@ -683,8 +670,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Multiple squash actions combine correctly in sequence.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Multiple squash actions combine correctly in sequence', () => {
       fc.assert(
@@ -755,8 +740,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Multiple fixup actions combine correctly in sequence.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Multiple fixup actions combine correctly in sequence', () => {
       fc.assert(
@@ -827,8 +810,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Mixed squash and fixup actions combine correctly.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Mixed squash and fixup actions combine correctly', () => {
       fc.assert(
@@ -919,8 +900,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Squash/fixup results in single commit with combined changes.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Squash/fixup results in single commit with combined changes', () => {
       fc.assert(
@@ -984,8 +963,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Squash preserves message order (first commit message first).
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Squash preserves message order (first commit message first)', () => {
       fc.assert(
@@ -1041,8 +1018,6 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
 
     /**
      * Property: Squash/fixup does not affect commits not marked for squash/fixup.
-     *
-     * **Validates: Requirements 6.6**
      */
     it('Property: Squash/fixup does not affect other commits', () => {
       fc.assert(

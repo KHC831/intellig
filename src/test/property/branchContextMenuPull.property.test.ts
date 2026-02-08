@@ -2,8 +2,6 @@
  * Property-based tests for Pull Using Rebase and Pull Using Merge command handlers.
  *
  * Feature: branch-context-menu, Property 7: Pull strategy selection
- *
- * **Validates: Requirements 7.5, 7.6**
  */
 
 import '../setup';
@@ -204,7 +202,6 @@ function createRemoteBranchTreeItem(fullRef: string): BranchTreeItem {
 describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
   describe('Property 7: Pull strategy selection', () => {
     /**
-     * **Validates: Requirements 7.5, 7.6**
      *
      * For any remote branch, when a Pull command handler is invoked,
      * the handler SHALL call pull with rebase: true for the "Using Rebase"

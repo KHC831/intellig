@@ -4,8 +4,6 @@
  * This module provides performance-optimized graph generation for large commit histories.
  * It uses incremental processing and efficient data structures to handle repositories
  * with thousands of commits.
- *
- * Requirements: 9.9 (Log) - Optimize graph rendering for large histories
  */
 
 import { ICommit } from '../services/interfaces/IGitService';

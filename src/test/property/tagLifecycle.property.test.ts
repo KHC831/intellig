@@ -6,13 +6,11 @@ import { ITag, IAuthor } from '../../services/interfaces/IGitService';
  * Property-based tests for Tag Lifecycle.
  * Feature: intellig-vscode, Property 44: Tag Lifecycle
  *
- * **Validates: Requirements 13.5, 13.6**
  *
  * Property Description:
  * For any tag, creating SHALL add it to the tag list, pushing SHALL send it
  * to the remote, and deleting SHALL remove it from the local repository.
  *
- * Requirements:
  * - 13.5: WHEN a user selects "Delete Tag", THE Extension SHALL delete the
  *         local tag after confirmation
  * - 13.6: WHEN a user selects "Push Tag", THE Extension SHALL push the
@@ -133,7 +131,6 @@ describe('Tag Lifecycle Property Tests', () => {
     /**
      * Delete a local tag.
      * Simulates: git tag -d <name>
-     * Requirement 13.5: Delete the local tag
      */
     deleteTag(name: string): boolean {
       if (!this._localTags.has(name)) {
@@ -146,7 +143,6 @@ describe('Tag Lifecycle Property Tests', () => {
     /**
      * Push a tag to a remote.
      * Simulates: git push <remote> refs/tags/<name>
-     * Requirement 13.6: Push the selected tag to the remote
      */
     pushTag(name: string, remote: string): boolean {
       const tag = this._localTags.get(name);
@@ -243,8 +239,6 @@ describe('Tag Lifecycle Property Tests', () => {
   describe('Property 44: Tag Lifecycle', () => {
     /**
      * Property: Creating a tag adds it to the tag list.
-     *
-     * **Validates: Requirements 13.5, 13.6**
      */
     it('Property: Creating a tag adds it to the tag list', () => {
       fc.assert(
@@ -281,8 +275,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Deleting a tag removes it from the local repository.
-     *
-     * **Validates: Requirements 13.5**
      */
     it('Property: Deleting a tag removes it from the local repository', () => {
       fc.assert(
@@ -320,8 +312,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Pushing a tag sends it to the remote.
-     *
-     * **Validates: Requirements 13.6**
      */
     it('Property: Pushing a tag sends it to the remote', () => {
       fc.assert(
@@ -361,8 +351,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Tag lifecycle - create, push, delete local preserves remote.
-     *
-     * **Validates: Requirements 13.5, 13.6**
      */
     it('Property: Deleting local tag does not affect pushed remote tag', () => {
       fc.assert(
@@ -403,8 +391,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Cannot push a non-existent tag.
-     *
-     * **Validates: Requirements 13.6**
      */
     it('Property: Cannot push a non-existent tag', () => {
       fc.assert(
@@ -432,8 +418,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Cannot delete a non-existent tag.
-     *
-     * **Validates: Requirements 13.5**
      */
     it('Property: Cannot delete a non-existent tag', () => {
       fc.assert(
@@ -456,8 +440,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Multiple tags can be created and managed independently.
-     *
-     * **Validates: Requirements 13.5, 13.6**
      */
     it('Property: Multiple tags can be created and managed independently', () => {
       fc.assert(
@@ -536,8 +518,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Push history records all push operations.
-     *
-     * **Validates: Requirements 13.6**
      */
     it('Property: Push history records all push operations', () => {
       fc.assert(
@@ -580,8 +560,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Tag can be pushed to multiple remotes.
-     *
-     * **Validates: Requirements 13.6**
      */
     it('Property: Tag can be pushed to multiple remotes', () => {
       fc.assert(
@@ -623,8 +601,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Deleting remote tag removes it from specific remote only.
-     *
-     * **Validates: Requirements 13.5, 13.6**
      */
     it('Property: Deleting remote tag removes it from specific remote only', () => {
       fc.assert(
@@ -680,8 +656,6 @@ describe('Tag Lifecycle Property Tests', () => {
 
     /**
      * Property: Tag creation is idempotent (re-creating overwrites).
-     *
-     * **Validates: Requirements 13.5, 13.6**
      */
     it('Property: Re-creating a tag overwrites the existing one', () => {
       fc.assert(

@@ -1,7 +1,5 @@
 /**
  * Unit tests for RebaseEditor
- *
- * Requirements: 6.1, 6.2, 6.3
  */
 
 import * as assert from 'assert';

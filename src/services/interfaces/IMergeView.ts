@@ -52,8 +52,6 @@ export interface IMergeState {
 /**
  * Merge View interface
  * Provides three-way merge conflict resolution functionality
- *
- * Requirements: 10.2, 10.3, 10.4, 10.7, 17.9
  */
 export interface IMergeView {
   /**

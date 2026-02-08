@@ -2,11 +2,11 @@
  * Unit tests for GitService commit operations.
  *
  * Tests cover:
- * - commit() with CommitOptions support (Requirements 3.1, 3.3, 3.4, 3.5)
- * - amend() for amending previous commits (Requirements 3.3)
- * - stage() for file staging (Requirements 3.1)
- * - unstage() for file unstaging (Requirements 3.1)
- * - Empty commit message validation (Requirements 3.5)
+ * - commit() with CommitOptions support
+ * - amend() for amending previous commits
+ * - stage() for file staging
+ * - unstage() for file unstaging
+ * - Empty commit message validation
  */
 
 import * as assert from 'assert';
@@ -128,7 +128,7 @@ describe('GitService - Commit Operations', () => {
   });
 
   describe('commit()', () => {
-    describe('Basic commit functionality (Requirement 3.1)', () => {
+    describe('Basic commit functionality', () => {
       it('should execute git commit with message', async () => {
         await gitService.commit(mockRepo, 'Test commit message', {});
 
@@ -146,7 +146,7 @@ describe('GitService - Commit Operations', () => {
       });
     });
 
-    describe('Empty message validation (Requirement 3.5)', () => {
+    describe('Empty message validation', () => {
       it('should throw error for empty commit message', async () => {
         await assert.rejects(
           async () => gitService.commit(mockRepo, '', {}),
@@ -204,7 +204,7 @@ describe('GitService - Commit Operations', () => {
       });
     });
 
-    describe('Amend option (Requirement 3.3)', () => {
+    describe('Amend option', () => {
       it('should include --amend flag when amend option is true', async () => {
         await gitService.commit(mockRepo, 'Amended message', { amend: true });
 
@@ -230,7 +230,7 @@ describe('GitService - Commit Operations', () => {
       });
     });
 
-    describe('Sign-off option (Requirement 3.4)', () => {
+    describe('Sign-off option', () => {
       it('should include --signoff flag when signOff option is true', async () => {
         await gitService.commit(mockRepo, 'Signed commit', { signOff: true });
 
@@ -461,11 +461,11 @@ describe('GitService - Commit Operations', () => {
  * Unit tests for GitService branch operations.
  *
  * Tests cover:
- * - getBranches() for listing local and remote branches (Requirement 4.2)
- * - createBranch() with optional start point (Requirements 4.3, 4.4)
- * - checkout() with CheckoutOptions (Requirement 4.5)
- * - deleteBranch() with force option (Requirement 4.9)
- * - renameBranch() (Requirement 4.10)
+ * - getBranches() for listing local and remote branches
+ * - createBranch() with optional start point
+ * - checkout() with CheckoutOptions
+ * - deleteBranch() with force option
+ * - renameBranch()
  */
 describe('GitService - Branch Operations', () => {
   let gitService: GitService;
@@ -501,7 +501,7 @@ describe('GitService - Branch Operations', () => {
   });
 
   describe('getBranches()', () => {
-    describe('Listing local and remote branches (Requirement 4.2)', () => {
+    describe('Listing local and remote branches', () => {
       it('should execute git branch -a with format option', async () => {
         mockGitCli.setMockResult(
           'branch -a --format %(refname)|%(objectname)|%(upstream:short)|%(HEAD)',
@@ -606,7 +606,7 @@ describe('GitService - Branch Operations', () => {
   });
 
   describe('createBranch()', () => {
-    describe('Creating branch from current HEAD (Requirement 4.3)', () => {
+    describe('Creating branch from current HEAD', () => {
       it('should execute git branch with branch name', async () => {
         await gitService.createBranch(mockRepo, 'new-feature');
 
@@ -638,7 +638,7 @@ describe('GitService - Branch Operations', () => {
       });
     });
 
-    describe('Creating branch from start point (Requirement 4.4)', () => {
+    describe('Creating branch from start point', () => {
       it('should execute git branch with branch name and start point', async () => {
         await gitService.createBranch(mockRepo, 'new-feature', 'develop');
 
@@ -674,7 +674,7 @@ describe('GitService - Branch Operations', () => {
   });
 
   describe('checkout()', () => {
-    describe('Basic checkout (Requirement 4.5)', () => {
+    describe('Basic checkout', () => {
       it('should execute git checkout with ref', async () => {
         await gitService.checkout(mockRepo, 'feature-branch');
 
@@ -778,7 +778,7 @@ describe('GitService - Branch Operations', () => {
   });
 
   describe('deleteBranch()', () => {
-    describe('Basic branch deletion (Requirement 4.9)', () => {
+    describe('Basic branch deletion', () => {
       it('should execute git branch -d with branch name', async () => {
         await gitService.deleteBranch(mockRepo, 'old-feature');
 
@@ -838,7 +838,7 @@ describe('GitService - Branch Operations', () => {
   });
 
   describe('renameBranch()', () => {
-    describe('Basic branch renaming (Requirement 4.10)', () => {
+    describe('Basic branch renaming', () => {
       it('should execute git branch -m with old and new names', async () => {
         await gitService.renameBranch(mockRepo, 'old-name', 'new-name');
 
@@ -903,9 +903,9 @@ describe('GitService - Branch Operations', () => {
  * Unit tests for GitService hunk and line staging operations.
  *
  * Tests cover:
- * - stageHunk() for staging individual hunks (Requirements 3.6, 14.1, 14.2)
- * - stageLines() for staging specific lines (Requirements 3.7, 14.3)
- * - unstageHunk() for unstaging hunks (Requirements 14.5)
+ * - stageHunk() for staging individual hunks
+ * - stageLines() for staging specific lines
+ * - unstageHunk() for unstaging hunks
  */
 describe('GitService - Hunk and Line Staging Operations', () => {
   let gitService: GitService;
@@ -941,7 +941,7 @@ describe('GitService - Hunk and Line Staging Operations', () => {
   });
 
   describe('stageHunk()', () => {
-    describe('Basic hunk staging (Requirements 3.6, 14.1, 14.2)', () => {
+    describe('Basic hunk staging', () => {
       it('should execute git apply --cached with patch input', async () => {
         const hunk = {
           oldStart: 1,
@@ -1088,7 +1088,7 @@ describe('GitService - Hunk and Line Staging Operations', () => {
   });
 
   describe('unstageHunk()', () => {
-    describe('Basic hunk unstaging (Requirement 14.5)', () => {
+    describe('Basic hunk unstaging', () => {
       it('should execute git apply --cached -R with patch input', async () => {
         const hunk = {
           oldStart: 1,
@@ -1161,7 +1161,7 @@ describe('GitService - Hunk and Line Staging Operations', () => {
   });
 
   describe('stageLines()', () => {
-    describe('Basic line staging (Requirements 3.7, 14.3)', () => {
+    describe('Basic line staging', () => {
       it('should execute git apply --cached with patch input', async () => {
         const hunk = {
           oldStart: 1,
@@ -1254,8 +1254,8 @@ describe('GitService - Hunk and Line Staging Operations', () => {
  * Unit tests for GitService merge and rebase operations.
  *
  * Tests cover:
- * - mergeBranch() with conflict detection (Requirement 4.7)
- * - rebaseBranch() with conflict detection (Requirement 4.8)
+ * - mergeBranch() with conflict detection
+ * - rebaseBranch() with conflict detection
  */
 describe('GitService - Merge and Rebase Operations', () => {
   let gitService: GitService;
@@ -1291,7 +1291,7 @@ describe('GitService - Merge and Rebase Operations', () => {
   });
 
   describe('mergeBranch()', () => {
-    describe('Successful merge (Requirement 4.7)', () => {
+    describe('Successful merge', () => {
       it('should execute git merge with branch name', async () => {
         mockGitCli.setMockResult('merge feature-branch', {
           exitCode: 0,
@@ -1369,7 +1369,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
     });
 
-    describe('Merge with conflicts (Requirement 4.7)', () => {
+    describe('Merge with conflicts', () => {
       it('should return failure with conflicts when merge fails', async () => {
         mockGitCli.setMockResult('merge feature-branch', {
           exitCode: 1,
@@ -1489,7 +1489,7 @@ describe('GitService - Merge and Rebase Operations', () => {
   });
 
   describe('rebaseBranch()', () => {
-    describe('Successful rebase (Requirement 4.8)', () => {
+    describe('Successful rebase', () => {
       it('should execute git rebase with onto branch', async () => {
         mockGitCli.setMockResult('rebase main', {
           exitCode: 0,
@@ -1544,7 +1544,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
     });
 
-    describe('Rebase with conflicts (Requirement 4.8)', () => {
+    describe('Rebase with conflicts', () => {
       it('should return failure with conflicts when rebase fails', async () => {
         mockGitCli.setMockResult('rebase main', {
           exitCode: 1,
@@ -1650,7 +1650,7 @@ describe('GitService - Merge and Rebase Operations', () => {
  * Unit tests for GitService branch comparison operations.
  *
  * Tests cover:
- * - compareBranches() for comparing two branches (Requirements 4.11, 15.1, 15.2, 15.3, 15.5, 15.6)
+ * - compareBranches() for comparing two branches
  * - Calculating commits unique to each branch
  * - Calculating files that differ between branches
  * - Calculating ahead/behind counts
@@ -1689,7 +1689,7 @@ describe('GitService - Branch Comparison Operations', () => {
   });
 
   describe('compareBranches()', () => {
-    describe('Ahead/behind count calculation (Requirement 15.6)', () => {
+    describe('Ahead/behind count calculation', () => {
       it('should calculate ahead/behind counts correctly', async () => {
         // Mock the rev-list --left-right --count command
         mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
@@ -1805,7 +1805,7 @@ describe('GitService - Branch Comparison Operations', () => {
       });
     });
 
-    describe('Commits unique to each branch (Requirements 15.2)', () => {
+    describe('Commits unique to each branch', () => {
       it('should return commits unique to branch1 (ahead)', async () => {
         mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
           exitCode: 0,
@@ -1867,7 +1867,7 @@ describe('GitService - Branch Comparison Operations', () => {
       });
     });
 
-    describe('Files that differ between branches (Requirement 15.3)', () => {
+    describe('Files that differ between branches', () => {
       it('should return list of changed files', async () => {
         mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
           exitCode: 0,
@@ -1937,7 +1937,7 @@ describe('GitService - Branch Comparison Operations', () => {
       });
     });
 
-    describe('Comparing with remote branches (Requirement 15.5)', () => {
+    describe('Comparing with remote branches', () => {
       it('should compare local branch with remote tracking branch', async () => {
         mockGitCli.setMockResult('rev-list --left-right --count main...origin/main', {
           exitCode: 0,
@@ -2059,12 +2059,12 @@ describe('GitService - Branch Comparison Operations', () => {
  * Unit tests for GitService stash operations.
  *
  * Tests cover:
- * - stash() with message and StashOptions (Requirements 7.1, 7.2)
- * - stashList() for listing stashes (Requirement 7.3)
- * - stashApply() for applying stash without removing (Requirement 7.4)
- * - stashPop() for applying and removing stash (Requirement 7.5)
- * - stashDrop() for removing stashes (Requirement 7.6)
- * - stashShow() for viewing stash contents/diff (Requirement 7.7)
+ * - stash() with message and StashOptions
+ * - stashList() for listing stashes
+ * - stashApply() for applying stash without removing
+ * - stashPop() for applying and removing stash
+ * - stashDrop() for removing stashes
+ * - stashShow() for viewing stash contents/diff
  */
 describe('GitService - Stash Operations', () => {
   let gitService: GitService;
@@ -2100,7 +2100,7 @@ describe('GitService - Stash Operations', () => {
   });
 
   describe('stash()', () => {
-    describe('Basic stash functionality (Requirement 7.1)', () => {
+    describe('Basic stash functionality', () => {
       it('should execute git stash push without message', async () => {
         await gitService.stash(mockRepo);
 
@@ -2145,7 +2145,7 @@ describe('GitService - Stash Operations', () => {
       });
     });
 
-    describe('Include untracked files option (Requirement 7.2)', () => {
+    describe('Include untracked files option', () => {
       it('should include --include-untracked flag when includeUntracked is true', async () => {
         await gitService.stash(mockRepo, 'stash with untracked', { includeUntracked: true });
 
@@ -2169,7 +2169,7 @@ describe('GitService - Stash Operations', () => {
       });
     });
 
-    describe('Keep index option (Requirement 7.2)', () => {
+    describe('Keep index option', () => {
       it('should include --keep-index flag when keepIndex is true', async () => {
         await gitService.stash(mockRepo, 'stash keeping index', { keepIndex: true });
 
@@ -2214,7 +2214,7 @@ describe('GitService - Stash Operations', () => {
   });
 
   describe('stashList()', () => {
-    describe('Listing stashes (Requirement 7.3)', () => {
+    describe('Listing stashes', () => {
       it('should execute git stash list', async () => {
         await gitService.stashList(mockRepo);
 
@@ -2275,7 +2275,7 @@ describe('GitService - Stash Operations', () => {
   });
 
   describe('stashApply()', () => {
-    describe('Applying stash without removing (Requirement 7.4)', () => {
+    describe('Applying stash without removing', () => {
       it('should execute git stash apply with index', async () => {
         await gitService.stashApply(mockRepo, 0);
 
@@ -2317,7 +2317,7 @@ describe('GitService - Stash Operations', () => {
   });
 
   describe('stashPop()', () => {
-    describe('Applying and removing stash (Requirement 7.5)', () => {
+    describe('Applying and removing stash', () => {
       it('should execute git stash pop with index', async () => {
         await gitService.stashPop(mockRepo, 0);
 
@@ -2359,7 +2359,7 @@ describe('GitService - Stash Operations', () => {
   });
 
   describe('stashDrop()', () => {
-    describe('Removing stashes (Requirement 7.6)', () => {
+    describe('Removing stashes', () => {
       it('should execute git stash drop with index', async () => {
         await gitService.stashDrop(mockRepo, 0);
 
@@ -2401,7 +2401,7 @@ describe('GitService - Stash Operations', () => {
   });
 
   describe('stashShow()', () => {
-    describe('Viewing stash contents/diff (Requirement 7.7)', () => {
+    describe('Viewing stash contents/diff', () => {
       it('should execute git stash show -p with index', async () => {
         mockGitCli.setMockResult('stash show -p stash@{0}', {
           exitCode: 0,
@@ -2531,9 +2531,9 @@ diff --git a/src/file2.ts b/src/file2.ts
  * Unit tests for GitService remote management operations.
  *
  * Tests cover:
- * - getRemotes() for listing remotes with URLs (Requirement 12.6)
- * - addRemote() for adding new remotes (Requirement 12.7)
- * - removeRemote() for removing remotes (Requirement 12.8)
+ * - getRemotes() for listing remotes with URLs
+ * - addRemote() for adding new remotes
+ * - removeRemote() for removing remotes
  */
 describe('GitService - Remote Management Operations', () => {
   let gitService: GitService;
@@ -2569,7 +2569,7 @@ describe('GitService - Remote Management Operations', () => {
   });
 
   describe('getRemotes()', () => {
-    describe('Listing remotes with URLs (Requirement 12.6)', () => {
+    describe('Listing remotes with URLs', () => {
       it('should execute git remote -v command', async () => {
         mockGitCli.setMockResult('remote -v', {
           exitCode: 0,
@@ -2708,7 +2708,7 @@ describe('GitService - Remote Management Operations', () => {
   });
 
   describe('addRemote()', () => {
-    describe('Adding new remote (Requirement 12.7)', () => {
+    describe('Adding new remote', () => {
       it('should execute git remote add with name and URL', async () => {
         await gitService.addRemote(mockRepo, 'upstream', 'https://github.com/other/repo.git');
 
@@ -2799,7 +2799,7 @@ describe('GitService - Remote Management Operations', () => {
   });
 
   describe('removeRemote()', () => {
-    describe('Removing remote (Requirement 12.8)', () => {
+    describe('Removing remote', () => {
       it('should execute git remote remove with name', async () => {
         await gitService.removeRemote(mockRepo, 'upstream');
 
@@ -2915,9 +2915,9 @@ describe('GitService - Remote Management Operations', () => {
  * Unit tests for GitService fetch, pull, push operations.
  *
  * Tests cover:
- * - fetch() for all remotes or specific remote (Requirements 12.4, 12.5)
- * - pull() with rebase option (Requirements 12.3, 12.9)
- * - push() with PushOptions (force, upstream) (Requirements 12.1, 12.2, 12.10)
+ * - fetch() for all remotes or specific remote
+ * - pull() with rebase option
+ * - push() with PushOptions (force, upstream)
  */
 describe('GitService - Fetch, Pull, Push Operations', () => {
   let gitService: GitService;
@@ -2963,7 +2963,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
   });
 
   describe('fetch()', () => {
-    describe('Fetch from all remotes (Requirement 12.4)', () => {
+    describe('Fetch from all remotes', () => {
       it('should execute git fetch --all when no remote is specified', async () => {
         await gitService.fetch(mockRepo);
 
@@ -2995,7 +2995,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
     });
 
-    describe('Fetch from specific remote (Requirement 12.5)', () => {
+    describe('Fetch from specific remote', () => {
       it('should execute git fetch with specific remote name', async () => {
         await gitService.fetch(mockRepo, 'origin');
 
@@ -3029,7 +3029,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
   });
 
   describe('pull()', () => {
-    describe('Basic pull (Requirement 12.3)', () => {
+    describe('Basic pull', () => {
       it('should execute git pull without options', async () => {
         await gitService.pull(mockRepo);
 
@@ -3061,7 +3061,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
     });
 
-    describe('Pull with rebase option (Requirement 12.9)', () => {
+    describe('Pull with rebase option', () => {
       it('should include --rebase flag when rebase option is true', async () => {
         await gitService.pull(mockRepo, { rebase: true });
 
@@ -3123,7 +3123,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
   });
 
   describe('push()', () => {
-    describe('Basic push (Requirement 12.1)', () => {
+    describe('Basic push', () => {
       it('should execute git push without options', async () => {
         await gitService.push(mockRepo);
 
@@ -3155,7 +3155,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
     });
 
-    describe('Push with force option (Requirement 12.2)', () => {
+    describe('Push with force option', () => {
       it('should include --force flag when force option is true', async () => {
         await gitService.push(mockRepo, { force: true });
 
@@ -3206,7 +3206,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
     });
 
-    describe('Push with set-upstream option (Requirement 12.10)', () => {
+    describe('Push with set-upstream option', () => {
       it('should include --set-upstream flag when setUpstream option is true', async () => {
         await gitService.push(mockRepo, { setUpstream: true });
 
@@ -3406,11 +3406,11 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
  * Unit tests for GitService tag operations.
  *
  * Tests cover:
- * - getTags() for listing all tags (Requirement 13.1, 13.4)
- * - createTag() with annotated/lightweight logic (Requirements 13.2, 13.3)
- * - deleteTag() for deleting local tags (Requirement 13.5)
- * - pushTag() for pushing tags to remote (Requirement 13.6)
- * - checkout() for checking out tags in detached HEAD state (Requirement 13.7)
+ * - getTags() for listing all tags
+ * - createTag() with annotated/lightweight logic
+ * - deleteTag() for deleting local tags
+ * - pushTag() for pushing tags to remote
+ * - checkout() for checking out tags in detached HEAD state
  */
 describe('GitService - Tag Operations', () => {
   let gitService: GitService;
@@ -3446,7 +3446,7 @@ describe('GitService - Tag Operations', () => {
   });
 
   describe('getTags()', () => {
-    describe('Listing all tags (Requirement 13.1)', () => {
+    describe('Listing all tags', () => {
       it('should execute git tag -l with format option', async () => {
         mockGitCli.setMockResultByPrefix('tag -l --format', {
           exitCode: 0,
@@ -3494,7 +3494,7 @@ describe('GitService - Tag Operations', () => {
       });
     });
 
-    describe('Tag details (Requirement 13.4)', () => {
+    describe('Tag details', () => {
       it('should parse lightweight tags correctly', async () => {
         mockGitCli.setMockResultByPrefix('tag -l --format', {
           exitCode: 0,
@@ -3553,7 +3553,7 @@ describe('GitService - Tag Operations', () => {
   });
 
   describe('createTag()', () => {
-    describe('Creating lightweight tag (Requirement 13.2)', () => {
+    describe('Creating lightweight tag', () => {
       it('should execute git tag with just the name for lightweight tag', async () => {
         await gitService.createTag(mockRepo, 'v1.0.0');
 
@@ -3579,7 +3579,7 @@ describe('GitService - Tag Operations', () => {
       });
     });
 
-    describe('Creating annotated tag with message (Requirement 13.3)', () => {
+    describe('Creating annotated tag with message', () => {
       it('should execute git tag -a with message for annotated tag', async () => {
         await gitService.createTag(mockRepo, 'v2.0.0', 'Release version 2.0.0');
 
@@ -3653,7 +3653,7 @@ describe('GitService - Tag Operations', () => {
   });
 
   describe('deleteTag()', () => {
-    describe('Deleting local tag (Requirement 13.5)', () => {
+    describe('Deleting local tag', () => {
       it('should execute git tag -d with tag name', async () => {
         await gitService.deleteTag(mockRepo, 'v1.0.0');
 
@@ -3687,7 +3687,7 @@ describe('GitService - Tag Operations', () => {
   });
 
   describe('pushTag()', () => {
-    describe('Pushing tag to remote (Requirement 13.6)', () => {
+    describe('Pushing tag to remote', () => {
       it('should execute git push with tag ref to default remote', async () => {
         await gitService.pushTag(mockRepo, 'v1.0.0');
 
@@ -3729,7 +3729,7 @@ describe('GitService - Tag Operations', () => {
   });
 
   describe('checkout() with tags', () => {
-    describe('Checkout tag in detached HEAD state (Requirement 13.7)', () => {
+    describe('Checkout tag in detached HEAD state', () => {
       it('should execute git checkout with tag name', async () => {
         await gitService.checkout(mockRepo, 'v1.0.0');
 
@@ -3826,10 +3826,10 @@ describe('GitService - Tag Operations', () => {
  * Unit tests for GitService cherry-pick operations.
  *
  * Tests cover:
- * - cherryPick() for single and multiple commits (Requirements 11.1, 11.2)
- * - Cherry-pick conflict handling (Requirement 11.3)
- * - cherryPickAbort() for aborting cherry-pick (Requirement 11.4)
- * - cherryPickContinue() for continuing after conflict resolution (Requirement 11.5)
+ * - cherryPick() for single and multiple commits
+ * - Cherry-pick conflict handling
+ * - cherryPickAbort() for aborting cherry-pick
+ * - cherryPickContinue() for continuing after conflict resolution
  */
 describe('GitService - Cherry-Pick Operations', () => {
   let gitService: GitService;
@@ -3865,7 +3865,7 @@ describe('GitService - Cherry-Pick Operations', () => {
   });
 
   describe('cherryPick()', () => {
-    describe('Cherry-pick single commit (Requirement 11.1)', () => {
+    describe('Cherry-pick single commit', () => {
       it('should execute git cherry-pick with single commit hash', async () => {
         const result = await gitService.cherryPick(mockRepo, ['abc123def456']);
 
@@ -3897,7 +3897,7 @@ describe('GitService - Cherry-Pick Operations', () => {
       });
     });
 
-    describe('Cherry-pick multiple commits (Requirement 11.2)', () => {
+    describe('Cherry-pick multiple commits', () => {
       it('should execute git cherry-pick with multiple commit hashes in order', async () => {
         const commits = ['commit1', 'commit2', 'commit3'];
         await gitService.cherryPick(mockRepo, commits);
@@ -3942,7 +3942,7 @@ describe('GitService - Cherry-Pick Operations', () => {
       });
     });
 
-    describe('Cherry-pick conflict handling (Requirement 11.3)', () => {
+    describe('Cherry-pick conflict handling', () => {
       it('should return conflicts when cherry-pick fails due to conflicts', async () => {
         // Mock cherry-pick failure
         mockGitCli.setMockResult('cherry-pick conflicting-commit', {
@@ -4015,7 +4015,7 @@ describe('GitService - Cherry-Pick Operations', () => {
   });
 
   describe('cherryPickAbort()', () => {
-    describe('Abort cherry-pick operation (Requirement 11.4)', () => {
+    describe('Abort cherry-pick operation', () => {
       it('should execute git cherry-pick --abort', async () => {
         await gitService.cherryPickAbort(mockRepo);
 
@@ -4065,7 +4065,7 @@ describe('GitService - Cherry-Pick Operations', () => {
   });
 
   describe('cherryPickContinue()', () => {
-    describe('Continue cherry-pick after conflict resolution (Requirement 11.5)', () => {
+    describe('Continue cherry-pick after conflict resolution', () => {
       it('should execute git cherry-pick --continue', async () => {
         await gitService.cherryPickContinue(mockRepo);
 
@@ -4227,7 +4227,7 @@ describe('GitService - Cherry-Pick Operations', () => {
  * Unit tests for GitService revert operations.
  *
  * Tests cover:
- * - revert() for single and multiple commits (Requirement 9.5 - Log context menu)
+ * - revert() for single and multiple commits
  * - Revert conflict handling
  * - revertAbort() for aborting revert
  * - revertContinue() for continuing after conflict resolution
@@ -4266,7 +4266,7 @@ describe('GitService - Revert Operations', () => {
   });
 
   describe('revert()', () => {
-    describe('Revert single commit (Requirement 9.5)', () => {
+    describe('Revert single commit', () => {
       it('should execute git revert with single commit hash', async () => {
         const result = await gitService.revert(mockRepo, ['abc123def456']);
 
@@ -4307,7 +4307,7 @@ describe('GitService - Revert Operations', () => {
       });
     });
 
-    describe('Revert multiple commits (Requirement 9.5)', () => {
+    describe('Revert multiple commits', () => {
       it('should execute git revert with multiple commit hashes in order', async () => {
         const commits = ['commit1', 'commit2', 'commit3'];
         await gitService.revert(mockRepo, commits);
@@ -4358,7 +4358,7 @@ describe('GitService - Revert Operations', () => {
       });
     });
 
-    describe('Revert conflict handling (Requirement 9.5)', () => {
+    describe('Revert conflict handling', () => {
       it('should return conflicts when revert fails due to conflicts', async () => {
         // Mock revert failure
         mockGitCli.setMockResult('revert --no-edit conflicting-commit', {
@@ -4431,7 +4431,7 @@ describe('GitService - Revert Operations', () => {
   });
 
   describe('revertAbort()', () => {
-    describe('Abort revert operation (Requirement 9.5)', () => {
+    describe('Abort revert operation', () => {
       it('should execute git revert --abort', async () => {
         await gitService.revertAbort(mockRepo);
 
@@ -4481,7 +4481,7 @@ describe('GitService - Revert Operations', () => {
   });
 
   describe('revertContinue()', () => {
-    describe('Continue revert after conflict resolution (Requirement 9.5)', () => {
+    describe('Continue revert after conflict resolution', () => {
       it('should execute git revert --continue', async () => {
         await gitService.revertContinue(mockRepo);
 
@@ -4643,9 +4643,9 @@ describe('GitService - Revert Operations', () => {
  * Unit tests for GitService log/history operations.
  *
  * Tests cover:
- * - getLog() with LogOptions filtering (Requirements 9.1, 9.2, 9.6, 9.7)
- * - getCommit() for single commit details (Requirements 9.2, 9.3)
- * - getFileHistory() for file-specific history (Requirements 9.6)
+ * - getLog() with LogOptions filtering
+ * - getCommit() for single commit details
+ * - getFileHistory() for file-specific history
  * - Parsing log output into ICommit models
  */
 describe('GitService - Log Operations', () => {
@@ -4689,7 +4689,7 @@ describe('GitService - Log Operations', () => {
   });
 
   describe('getLog()', () => {
-    describe('Basic log retrieval (Requirements 9.1, 9.2)', () => {
+    describe('Basic log retrieval', () => {
       it('should execute git log with format option', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {
           exitCode: 0,
@@ -4808,7 +4808,7 @@ describe('GitService - Log Operations', () => {
       });
     });
 
-    describe('Log filtering by author (Requirement 9.6)', () => {
+    describe('Log filtering by author', () => {
       it('should include --author option when author is specified', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {
           exitCode: 0,
@@ -4841,7 +4841,7 @@ describe('GitService - Log Operations', () => {
       });
     });
 
-    describe('Log filtering by date range (Requirement 9.6)', () => {
+    describe('Log filtering by date range', () => {
       it('should include --since option when since date is specified', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {
           exitCode: 0,
@@ -4902,7 +4902,7 @@ describe('GitService - Log Operations', () => {
       });
     });
 
-    describe('Log filtering by path (Requirement 9.6)', () => {
+    describe('Log filtering by path', () => {
       it('should include path after -- when path is specified', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {
           exitCode: 0,
@@ -4947,7 +4947,7 @@ describe('GitService - Log Operations', () => {
       });
     });
 
-    describe('Log filtering by commit message search (Requirement 9.7)', () => {
+    describe('Log filtering by commit message search', () => {
       it('should include --grep option when grep is specified', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {
           exitCode: 0,
@@ -5043,7 +5043,7 @@ describe('GitService - Log Operations', () => {
   });
 
   describe('getCommit()', () => {
-    describe('Single commit retrieval (Requirements 9.2, 9.3)', () => {
+    describe('Single commit retrieval', () => {
       it('should execute git show with commit hash', async () => {
         const commitOutput =
           'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent123|Test commit\nCommit body\0';
@@ -5184,7 +5184,7 @@ describe('GitService - Log Operations', () => {
   });
 
   describe('getFileHistory()', () => {
-    describe('File-specific history retrieval (Requirement 9.6)', () => {
+    describe('File-specific history retrieval', () => {
       it('should call getLog with path option', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {
           exitCode: 0,
@@ -5273,7 +5273,7 @@ describe('GitService - Log Operations', () => {
  * Unit tests for GitService multi-commit diff operations.
  *
  * Tests cover:
- * - getMultiCommitDiff() for calculating combined diff across multiple commits (Requirement 9.8)
+ * - getMultiCommitDiff() for calculating combined diff across multiple commits
  */
 describe('GitService - Multi-Commit Diff Operations', () => {
   let gitService: GitService;
@@ -5338,7 +5338,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
       });
     });
 
-    describe('Multiple commits combined diff (Requirement 9.8)', () => {
+    describe('Multiple commits combined diff', () => {
       it('should get commit dates to determine range', async () => {
         // Mock commit date responses
         mockGitCli.setMockResult('show -s --format=%cI commit1', {

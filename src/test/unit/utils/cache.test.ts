@@ -7,8 +7,6 @@
  * - TTL expiration
  * - Cache invalidation
  * - GitCacheManager operations
- *
- * Requirements: 9.9 (Log) - Performance optimization for large repositories
  */
 
 import * as assert from 'assert';

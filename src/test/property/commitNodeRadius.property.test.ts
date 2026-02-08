@@ -158,7 +158,6 @@ function extractCircleRadii(svg: string): string[] {
 describe('Feature: git-graph-details-improvements - Commit Node Radius Property Tests', () => {
   describe('Property 1: Commit node circles use reduced radius', () => {
     /**
-     * **Validates: Requirements 1.1, 1.2**
      *
      * For any ICommitNode (including merge commits), the SVG output of
      * renderGraphSvg() SHALL contain a <circle> element with r="4"

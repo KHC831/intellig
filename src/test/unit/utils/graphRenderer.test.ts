@@ -6,8 +6,6 @@
  * - DEFAULT_GRAPH_CONFIG constant correctness
  * - getColumnX() helper function
  * - ActiveLaneMap type usage
- *
- * Requirements: 4.1, 4.2, 4.4, 5.1
  */
 
 import * as assert from 'assert';
@@ -25,11 +23,11 @@ import { ICommit } from '../../../services/interfaces/IGitService';
 
 describe('Graph Renderer - Core Types and Config', () => {
   describe('DEFAULT_GRAPH_CONFIG', () => {
-    it('should have columnWidth of 20 (Requirement 4.1: at least 20px)', () => {
+    it('should have columnWidth of 20', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.columnWidth, 20);
     });
 
-    it('should have rowHeight of 32 (Requirement 4.2: at least 32px)', () => {
+    it('should have rowHeight of 32', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.rowHeight, 32);
     });
 
@@ -37,7 +35,7 @@ describe('Graph Renderer - Core Types and Config', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 4);
     });
 
-    it('should have padding of 10 (Requirement 4.4: at least 10px)', () => {
+    it('should have padding of 10', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.padding, 10);
     });
 
@@ -149,7 +147,6 @@ describe('Graph Renderer - Core Types and Config', () => {
     });
   });
 });
-
 
 /**
  * Helper to create a minimal ICommit for testing.
@@ -360,7 +357,6 @@ describe('computeActiveLanes()', () => {
   });
 });
 
-
 describe('computeGraphWidth()', () => {
   it('should return 0 for empty nodes array', () => {
     assert.strictEqual(computeGraphWidth([], DEFAULT_GRAPH_CONFIG), 0);
@@ -440,7 +436,6 @@ describe('computeGraphWidth()', () => {
   });
 });
 
-
 // ============================================================
 // SVG parsing helpers for topology tests
 // ============================================================
@@ -477,7 +472,6 @@ function extractLines(svg: string) {
 
 // ============================================================
 // Unit tests for known graph topologies (Task 2.4)
-// Requirements: 1.1, 1.2, 2.1, 3.1, 4.1, 4.2, 4.4, 5.2
 // ============================================================
 
 describe('Graph Renderer - Known Graph Topologies', () => {

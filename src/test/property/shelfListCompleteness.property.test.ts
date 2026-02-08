@@ -6,13 +6,11 @@ import { IShelfItem, IShelfFile } from '../../services/interfaces/IShelfService'
  * Property-based tests for Shelf List Completeness.
  * Feature: intellig-vscode, Property 23: Shelf List Completeness
  *
- * **Validates: Requirements 8.3**
  *
  * Property Description:
  * For any shelf items, the shelf view SHALL display all items with their names
  * and timestamps.
  *
- * Requirements:
  * - 8.3: WHEN a user views the shelf, THE Extension SHALL display all shelved
  *        changesets with names and timestamps
  */
@@ -135,7 +133,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Shelve changes from the working directory.
-     * Requirement 8.1: Save selected changes to an IDE-managed shelf storage.
      *
      * @param name - Name for the shelf item
      * @param files - Files to shelve (if empty, shelve all working directory changes)
@@ -180,7 +177,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Get all shelf items.
-     * Requirement 8.3: Display all shelved changesets with names and timestamps.
      */
     getShelfItems(): IShelfItem[] {
       return Array.from(this._shelfItems.values());
@@ -214,8 +210,6 @@ describe('Shelf List Completeness Property Tests', () => {
   describe('Property 23: Shelf List Completeness', () => {
     /**
      * Property: Shelf list displays all created shelf items.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list displays all created shelf items', () => {
       fc.assert(
@@ -255,8 +249,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list displays items with their names.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list displays items with their names', () => {
       fc.assert(
@@ -298,8 +290,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list displays items with their timestamps.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list displays items with their timestamps', () => {
       fc.assert(
@@ -325,8 +315,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list is complete after multiple shelve operations.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list is complete after multiple shelve operations', () => {
       fc.assert(
@@ -380,8 +368,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list remains complete after deleting items.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list remains complete after deleting items', () => {
       fc.assert(
@@ -450,8 +436,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Empty shelf returns empty list.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Empty shelf returns empty list', () => {
       fc.assert(
@@ -467,8 +451,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list is idempotent (calling multiple times returns same result).
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list is idempotent', () => {
       fc.assert(
@@ -511,8 +493,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Each shelf item in list has unique ID.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Each shelf item in list has unique ID', () => {
       fc.assert(
@@ -546,8 +526,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list items contain file information.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list items contain file information', () => {
       fc.assert(
@@ -575,8 +553,6 @@ describe('Shelf List Completeness Property Tests', () => {
 
     /**
      * Property: Shelf list preserves all item properties after multiple operations.
-     *
-     * **Validates: Requirements 8.3**
      */
     it('Property: Shelf list preserves all item properties after multiple operations', () => {
       fc.assert(

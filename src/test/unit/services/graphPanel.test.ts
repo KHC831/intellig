@@ -1,7 +1,5 @@
 /**
  * Unit tests for _getGraphPanelHtml() method in GitToolWindowProvider.
- *
- * Requirements: 3.1, 3.2
  */
 
 import '../../../test/setup';
@@ -54,7 +52,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     provider.dispose();
   });
 
-  describe('Requirement 3.1: Commit rows with required fields', () => {
+  describe('Commit rows with required fields', () => {
     it('should render an empty message when no commits are provided', () => {
       const html = provider._getGraphPanelHtml([]);
 
@@ -138,7 +136,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 3.2: SVG graph visualization', () => {
+  describe('SVG graph visualization', () => {
     it('should render SVG graph for each commit row', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node]);
@@ -294,7 +292,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 3.3, 3.4: Commit click selection (single and Ctrl/Cmd multi-select)', () => {
+  describe('Commit click selection (single and Ctrl/Cmd multi-select)', () => {
     it('should include data-hash attribute on commit rows for event delegation', () => {
       const hash = 'abc1234567890abcdef1234567890abcdef123456';
       const node = makeCommitNode({}, { hash });
@@ -402,7 +400,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 3.5: Commit context menu with all required options', () => {
+  describe('Commit context menu with all required options', () => {
     it('should contain Cherry-pick option', () => {
       const html = provider._getCommitContextMenuHtml();
       assert.ok(html.includes('Cherry-pick'), 'Should contain Cherry-pick option');
@@ -488,7 +486,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 3.5: Commit rows have data-hash attribute for context menu event delegation', () => {
+  describe('Commit rows have data-hash attribute for context menu event delegation', () => {
     it('should include data-hash attribute on commit rows for context menu event delegation', () => {
       const hash = 'abc1234567890abcdef1234567890abcdef123456';
       const node = makeCommitNode({}, { hash });
@@ -597,7 +595,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Requirements 3.7, 3.8: Incremental commit loading', () => {
+  describe('Incremental commit loading', () => {
     it('should include data-loaded-count and data-total-available attributes when provided', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node], undefined, 200, 500);

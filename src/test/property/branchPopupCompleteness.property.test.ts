@@ -6,7 +6,6 @@ import { IBranch, BranchType } from '../../services/interfaces/IGitService';
  * Property-based tests for Branch Popup Completeness.
  * Feature: intellig-vscode, Property 9: Branch Popup Completeness
  *
- * **Validates: Requirements 4.2**
  *
  * Property Description:
  * For any repository, the branch popup SHALL display all local branches
@@ -177,8 +176,6 @@ describe('Branch Popup Completeness Property Tests', () => {
     /**
      * Build the list of branch items that would be displayed in the popup.
      * This mirrors the logic in BranchPopup._buildQuickPickItems()
-     *
-     * Requirement 4.2: Display all local and remote branches
      */
     buildBranchItems(): { localBranches: IBranch[]; remoteBranches: IBranch[] } {
       const branches = this.getBranches();
@@ -219,8 +216,6 @@ describe('Branch Popup Completeness Property Tests', () => {
   describe('Property 9: Branch Popup Completeness', () => {
     /**
      * Property: All local branches SHALL be displayed in the branch popup.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: All local branches are displayed in the popup', () => {
       fc.assert(
@@ -259,8 +254,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: All remote tracking branches SHALL be displayed in the branch popup.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: All remote tracking branches are displayed in the popup', () => {
       fc.assert(
@@ -299,8 +292,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: The branch popup SHALL display the complete set of all branches.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Branch popup displays complete set of all branches', () => {
       fc.assert(
@@ -337,8 +328,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: Local and remote branches SHALL be correctly categorized.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Branches are correctly categorized as local or remote', () => {
       fc.assert(
@@ -378,8 +367,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: No branches SHALL be duplicated in the popup.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: No branches are duplicated in the popup', () => {
       fc.assert(
@@ -428,8 +415,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: Empty repository (no branches) SHALL result in empty popup sections.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Empty branch list results in empty popup sections', () => {
       fc.assert(
@@ -454,8 +439,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: Repository with only local branches SHALL display only local section.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Repository with only local branches displays only local section', () => {
       fc.assert(
@@ -486,8 +469,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: Repository with only remote branches SHALL display only remote section.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Repository with only remote branches displays only remote section', () => {
       fc.assert(
@@ -521,8 +502,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: Branch popup completeness is preserved regardless of branch order.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Branch popup completeness is preserved regardless of input order', () => {
       fc.assert(
@@ -568,8 +547,6 @@ describe('Branch Popup Completeness Property Tests', () => {
 
     /**
      * Property: Large number of branches SHALL all be displayed.
-     *
-     * **Validates: Requirements 4.2**
      */
     it('Property: Large number of branches are all displayed', () => {
       // Generate a larger set of branches

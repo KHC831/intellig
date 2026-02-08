@@ -12,8 +12,6 @@
  * - doubleClickFile
  * - panelResize
  * - loadMoreCommits
- *
- * Requirements: 5.1, 5.2
  */
 
 import '../../../test/setup';

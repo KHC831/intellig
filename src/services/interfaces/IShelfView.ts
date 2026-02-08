@@ -1,8 +1,6 @@
 /**
  * Shelf View interface.
  * Provides shelf management UI with list display, context menu actions, and shelve dialog.
- *
- * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
  */
 
 import * as vscode from 'vscode';
@@ -11,7 +9,6 @@ import { IShelfItem, IShelveSelection, IUnshelveOptions } from './IShelfService'
 
 /**
  * Shelf context menu action types
- * Requirement 8.4, 8.5, 8.6: Shelf operations
  */
 export type ShelfContextAction = 'unshelve' | 'view' | 'delete';
 
@@ -74,7 +71,6 @@ export interface IShelfViewState {
  * Provides shelf management functionality including list display, context menu actions,
  * and shelve dialog.
  *
- * Requirements:
  * - 8.1: Save selected changes to IDE-managed shelf storage
  * - 8.2: Allow selecting specific files, changelists, or hunks to shelve
  * - 8.3: Display all shelved changesets with names and timestamps
@@ -85,7 +81,6 @@ export interface IShelfViewState {
 export interface IShelfView {
   /**
    * Show the shelf list view.
-   * Requirement 8.3: Display all shelved changesets with names and timestamps
    *
    * @param repository - The repository to show shelf items for
    * @returns Promise resolving when the view is shown
@@ -99,7 +94,6 @@ export interface IShelfView {
 
   /**
    * Refresh the shelf list.
-   * Requirement 8.3: Display all shelved changesets with names and timestamps
    */
   refresh(): Promise<void>;
 
@@ -117,8 +111,6 @@ export interface IShelfView {
 
   /**
    * Show the shelve dialog for creating a new shelf item.
-   * Requirement 8.1: Save selected changes to IDE-managed shelf storage
-   * Requirement 8.2: Allow selecting specific files, changelists, or hunks to shelve
    *
    * @param repository - The repository to shelve changes from
    * @returns Promise resolving to the dialog result
@@ -127,8 +119,6 @@ export interface IShelfView {
 
   /**
    * Unshelve changes back to working directory.
-   * Requirement 8.4: Restore shelved changes to working directory
-   * Requirement 8.5: Offer options to remove from shelf or keep a copy
    *
    * @param id - The shelf item ID to unshelve
    * @param options - Unshelve options
@@ -138,7 +128,6 @@ export interface IShelfView {
 
   /**
    * View a shelf item's contents as diff.
-   * Requirement 8.6: Display shelved content as diff
    *
    * @param id - The shelf item ID to view
    * @returns Promise resolving to the shelf diffs
@@ -155,7 +144,6 @@ export interface IShelfView {
 
   /**
    * Show context menu for a shelf item.
-   * Requirement 8.4, 8.5, 8.6: Context menu with unshelve, view, delete
    *
    * @param id - The shelf item ID to show menu for
    * @returns Promise resolving to the action result

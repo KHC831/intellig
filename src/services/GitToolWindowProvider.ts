@@ -34,19 +34,16 @@ const DEFAULT_MAX_CONSOLE_ENTRIES = 1000;
 
 /**
  * Initial number of commits to load when the Graph Panel is first displayed.
- * Requirement 3.7: Virtual scrolling for repositories with thousands of commits.
  */
 export const INITIAL_COMMIT_LOAD_COUNT = 200;
 
 /**
  * Number of additional commits to load when the user scrolls near the bottom.
- * Requirement 3.8: Incremental commit loading on scroll.
  */
 export const INCREMENTAL_COMMIT_LOAD_COUNT = 100;
 
 /**
  * IntelliJ-style file status colors
- * Requirement 17.10: Color coding consistent with IntelliJ's conventions
  */
 export const INTELLIJ_FILE_STATUS_COLORS: Record<FileStatus, string> = {
   modified: '#6897BB', // Blue for modified files
@@ -61,7 +58,6 @@ export const INTELLIJ_FILE_STATUS_COLORS: Record<FileStatus, string> = {
 
 /**
  * Context menu action types for Local Changes View
- * Requirement 2.7: Context menu with options
  */
 export type LocalChangesContextAction =
   | 'stage'
@@ -74,7 +70,6 @@ export type LocalChangesContextAction =
 
 /**
  * Context menu action types for Log View
- * Requirement 9.5: Context menu on commits
  */
 export type LogContextAction =
   | 'cherryPick'
@@ -134,22 +129,18 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Event emitter for requesting more commits to be loaded incrementally.
-   * Requirement 3.8: Incremental commit loading on scroll.
    */
   private readonly _onDidRequestLoadMoreCommits = new vscode.EventEmitter<void>();
 
   /**
    * Event emitter that fires when the webview is first resolved, signaling
    * the extension host to fetch initial branch and commit data.
-   * Requirement 5.3: Load branch data, commit history on first open.
-   * Requirement 5.4: Display no-repository prompt if git is unavailable.
    */
   private readonly _onDidRequestInitialData = new vscode.EventEmitter<void>();
 
   /**
    * Event emitter that fires when the repository changes and all panels
    * should be refreshed with the latest data.
-   * Requirement 5.2: Refresh all panels when the git repository changes.
    */
   private readonly _onDidRequestRefresh = new vscode.EventEmitter<void>();
 
@@ -163,7 +154,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Event fired when the webview requests more commits to be loaded.
-   * Requirement 3.8: Incremental commit loading on scroll.
    */
   public readonly onDidRequestLoadMoreCommits = this._onDidRequestLoadMoreCommits.event;
   public readonly onDidRequestCommitDiff = this._onDidRequestCommitDiff.event;
@@ -171,13 +161,11 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Event fired when the webview is first resolved, signaling the extension host
    * to fetch initial branch and commit data.
-   * Requirements: 5.3, 5.4
    */
   public readonly onDidRequestInitialData = this._onDidRequestInitialData.event;
 
   /**
    * Event fired when the repository changes and all panels should be refreshed.
-   * Requirement 5.2
    */
   public readonly onDidRequestRefresh = this._onDidRequestRefresh.event;
 
@@ -188,10 +176,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     // Initialize extended log state
     this._extendedLogState = this._createInitialExtendedLogState();
 
-    // Store workspace state for panel width persistence (Requirement 1.4)
+    // Store workspace state for panel width persistence
     this._workspaceState = workspaceState;
 
-    // Load persisted panel widths or use defaults (Requirement 1.4)
+    // Load persisted panel widths or use defaults
     this._panelWidths = workspaceState
       ? loadPanelWidths(workspaceState)
       : [...DEFAULT_PANEL_WIDTHS];
@@ -230,8 +218,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Called by VS Code when the view needs to be displayed.
    *
    * On first resolution, fires the `onDidRequestInitialData` event so the
-   * extension host can fetch initial branch and commit data (Requirement 5.3)
-   * or detect that no repository is available (Requirement 5.4).
+   * extension host can fetch initial branch and commit data
+   * or detect that no repository is available.
    */
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -281,8 +269,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     // Fire the initial data request event so the extension host can
     // fetch branches, commits, and detect repository availability.
-    // Requirement 5.3: Load branch data and commit history on first open.
-    // Requirement 5.4: Display no-repository prompt if git is unavailable.
     this._onDidRequestInitialData.fire();
   }
 
@@ -297,7 +283,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Refresh the tool window content.
    * Fires the onDidRequestRefresh event so the extension host can
    * re-fetch data and update all panels.
-   * Requirement 5.2: Refresh all panels when the git repository changes.
    */
   public refresh(): void {
     this._updateWebview();
@@ -335,7 +320,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Set repository availability.
    * When set to false, the webview displays a "no repository" prompt
-   * (Requirement 5.4).
+   *.
    */
   public setHasRepository(hasRepository: boolean): void {
     if (this._hasRepository !== hasRepository) {
@@ -349,7 +334,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Convenience method to set the no-repository state.
    * Displays a prompt to the user to initialize a repository.
    *
-   * Requirement 5.4: If the git repository is unavailable or not initialized,
    * display a single message prompting the user to initialize a repository.
    */
   public setNoRepository(): void {
@@ -358,7 +342,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Update the Log state with commits
-   * Requirement 9.1, 9.2: Display commit history with graph visualization
    */
   public updateLogState(
     commits: ICommit[],
@@ -385,7 +368,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Set the log filter
-   * Requirement 9.6: Log filtering
    */
   public setLogFilter(filter: ILogFilter | undefined): void {
     this._extendedLogState.filter = filter;
@@ -406,7 +388,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Select a commit in the log view
-   * Requirement 9.3: Commit selection and details
    */
   public selectCommit(hash: string): void {
     // Clear pending changed files when selecting a new commit
@@ -457,8 +438,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Update the commit details with fetched changed files.
    * Called by the extension host after fetching diff data for a selected commit.
    *
-   * Requirements: 4.1, 4.2, 4.3
-   *
    * @param hash - The commit hash to update details for
    * @param changedFiles - The changed files fetched from git diff
    * @param error - Optional error if the diff fetch failed
@@ -501,7 +480,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Toggle commit selection (for multi-select)
-   * Requirement 9.8: Multi-commit selection
    */
   public toggleCommitSelection(hash: string): void {
     if (this._extendedLogState.selectedCommits.has(hash)) {
@@ -560,7 +538,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         break;
       case 'doubleClickFile':
         if (message.commitHash && message.path) {
-          // Requirement 4.3: Double-click on a changed file in the Details Panel
           // opens a VS Code diff view for that file at the selected commit.
           this._handleCommitFileDoubleClick(message.commitHash, message.path);
         } else if (message.path) {
@@ -599,8 +576,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Handle applying log filter from webview
-   * Requirement 9.6: Log filtering by author, date range, file path
-   * Requirement 9.7: Log searching commit messages and content
    */
   private _handleApplyLogFilter(webviewFilter: IWebviewLogFilter | null): void {
     let filter: ILogFilter | undefined;
@@ -647,7 +622,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * (e.g. the native BRANCHES tree view selection handler) can scroll the
    * graph to a given branch.
    *
-   * Requirement 2.6: When a user clicks on a branch, the Graph Panel scrolls to
    * and highlights the latest commit of that branch.
    */
   public navigateToBranch(branchName: string): void {
@@ -659,7 +633,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Finds the branch's HEAD commit hash from the loaded commit nodes and branch map,
    * then selects that commit to scroll to it in the graph.
    *
-   * Requirement 2.6: When a user clicks on a branch, the Graph Panel scrolls to
    * and highlights the latest commit of that branch.
    */
   private _handleBranchClick(branchName: string): void {
@@ -705,8 +678,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Handle the loadMoreCommits message from the webview.
    * Fires the onDidRequestLoadMoreCommits event so that the extension host
    * can fetch the next batch of commits and append them.
-   *
-   * Requirements: 3.7, 3.8
    */
   private _handleLoadMoreCommits(): void {
     this._onDidRequestLoadMoreCommits.fire();
@@ -717,15 +688,13 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Receives new width percentages from the draggable dividers,
    * updates the internal state, and persists them to workspace state.
    *
-   * Requirements: 1.3, 1.4
-   *
    * @param widths - The new panel width percentages [graph, details]
    */
   private _handlePanelResize(widths: [number, number]): void {
     // Update internal panel widths state
     this._panelWidths = widths;
 
-    // Persist to workspace state if available (Requirement 1.4)
+    // Persist to workspace state if available
     if (this._workspaceState) {
       savePanelWidths(this._workspaceState, widths);
     }
@@ -744,8 +713,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Handle commit context menu action from the Graph Panel.
    * Fires the same event as the log context menu, since both operate on commits.
-   *
-   * Requirements: 3.5, 3.6
    */
   private _handleCommitContextMenu(action: LogContextAction, commitHashes: string[]): void {
     this._onDidRequestLogContextAction.fire({
@@ -756,7 +723,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Handle double-click on a file in commit details
-   * Requirement 9.4: Double-click shows diff for file in commit
    */
   private _handleCommitFileDoubleClick(commitHash: string, filePath: string): void {
     this._onDidRequestCommitDiff.fire({
@@ -779,10 +745,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Get the HTML content for the webview.
-   * Now delegates to the 2-panel layout (Requirement 6.1).
+   * Now delegates to the 2-panel layout.
    */
   private _getHtmlContent(webview: vscode.Webview): string {
-    // Requirement 5.4: If no repository, show init prompt
+    // If no repository, show init prompt
     if (!this._hasRepository) {
       return this._getNoRepositoryHtml(webview);
     }
@@ -837,8 +803,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * vertically via CSS.
    *
    * This method is public for testability.
-   *
-   * Requirements: 1.1, 1.2, 1.5
    *
    * @param webview - The VS Code Webview instance (used for CSP source)
    * @param commitNodes - Commit nodes for the graph panel
@@ -919,7 +883,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Generate the HTML for the no-repository state.
    * Displays a prompt to initialize a repository.
    *
-   * Requirement 5.4: If the git repository is unavailable or not initialized,
    * display a single message prompting the user to initialize a repository.
    */
   private _getNoRepositoryHtml(webview: vscode.Webview): string {
@@ -962,7 +925,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * - Flexbox row layout for horizontal panel arrangement
    * - Panel overflow and sizing rules
    * - Draggable divider styling
-   * - Vertical stacking when container width < 500px (Requirement 1.5)
+   * - Vertical stacking when container width < 500px
    * - All existing panel styles (graph, details)
    *
    * @returns CSS string for the 2-panel layout
@@ -971,7 +934,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     return `
       ${this._getInlineStyles()}
 
-      /* Panel Layout - Requirements 1.1, 1.2 */
+      /* Panel Layout*/
       .three-panel-layout {
         display: flex;
         flex-direction: row;
@@ -1020,7 +983,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         outline-offset: -1px;
       }
 
-      /* Vertical stacking for narrow containers - Requirement 1.5 */
+      /* Vertical stacking for narrow containers*/
       @container (max-width: 499px) {
         .three-panel-layout {
           flex-direction: column;
@@ -1082,8 +1045,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * - JS-based width check for vertical stacking at < 500px
    * - Keyboard arrow key support for divider repositioning
    *
-   * Requirements: 1.3, 1.4, 1.5
-   *
    * @returns JavaScript string for divider drag functionality
    */
   private _getDividerDragScript(): string {
@@ -1099,7 +1060,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         let startWidths = [];
         const MIN_PANEL_PX = 100;
 
-        // JS-based vertical stacking check (Requirement 1.5)
+        // JS-based vertical stacking check
         function checkVerticalLayout() {
           if (!layout) return;
           const width = layout.getBoundingClientRect().width;
@@ -1219,7 +1180,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
   /**
    * Get IntelliJ-style color for file status
-   * Requirement 17.10: Color coding consistent with IntelliJ's conventions
    */
   private _getFileStatusColor(status: FileStatus): string {
     return INTELLIJ_FILE_STATUS_COLORS[status] || '#FFFFFF';
@@ -1276,8 +1236,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * The method uses the existing graphRenderer utilities to produce color-coded
    * lane SVGs and the commitGraph utilities for lane computation.
    *
-   * Requirements: 3.1, 3.2, 3.7, 3.8
-   *
    * @param commitNodes - Array of ICommitNode in reverse chronological order
    * @param selectedCommits - Set of currently selected commit hashes (optional)
    * @param loadedCount - Number of commits currently loaded (optional, for incremental loading)
@@ -1312,7 +1270,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
         // Generate SVG graph for this row
         const activeLanes = activeLaneMap.get(index) || new Set<number>();
-        const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG);
+        const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
         // Format fields
         const messageSummary = this._escapeHtml(this._truncateMessage(commit.message, 60));
@@ -1343,7 +1301,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .join('');
 
     // Determine if more commits are available for incremental loading
-    // Requirements 3.7, 3.8: Virtual scrolling with incremental loading
     const loaded = loadedCount ?? commitNodes.length;
     const total = totalAvailable ?? commitNodes.length;
     const hasMore = loaded < total;
@@ -1369,8 +1326,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Renders a context menu with all 7 required options:
    * Cherry-pick, Revert, Create Branch, Create Tag, Reset to Here, Copy Hash, Show Diff.
    * The menu is hidden by default and shown on right-click via JS handlers.
-   *
-   * Requirements: 3.5, 3.6
    *
    * @returns HTML string for the commit context menu overlay
    */
@@ -1428,8 +1383,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * - Each file shows a color-coded status letter (M, A, D, R, etc.)
    * - File name and directory path are displayed separately
    * - Colors follow IntelliJ conventions via INTELLIJ_FILE_STATUS_COLORS
-   *
-   * Requirements: 4.1, 4.2
    *
    * @param commitDetails - The commit details data to render
    * @returns HTML string for the details panel content
@@ -1532,7 +1485,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Get placeholder HTML for the Details Panel when no commit is selected.
    *
-   * Requirement 4.4: When no commit is selected, the Details_Panel SHALL display
    * a placeholder message indicating that a commit should be selected.
    *
    * @returns HTML string for the placeholder state
@@ -1555,7 +1507,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * The combined changed files are computed by merging the changed files from all
    * selected commits, deduplicating by path and keeping the most recent status.
    *
-   * Requirement 4.5: When multiple commits are selected, the Details_Panel SHALL
    * display the combined changes across all selected commits.
    *
    * @param commitDetailsList - Array of commit details for the selected commits
@@ -1681,7 +1632,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Format date as absolute date-time string.
    * Format: YYYY-MM-DD H:MM AM/PM
-   * Requirement 3.3
    */
   public _formatAbsoluteDate(date: Date): string {
     const year = date.getFullYear();
@@ -2040,7 +1990,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         padding: 16px;
       }
 
-      /* Log View Styles - Requirement 17.5: IntelliJ-style log layout */
+      /* Log View Styles: IntelliJ-style log layout */
       .log-container {
         display: flex;
         flex-direction: column;
@@ -2056,7 +2006,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         gap: 4px;
       }
 
-      /* Log Filter Bar Styles - Requirement 9.6, 9.7 */
+      /* Log Filter Bar Styles*/
       .log-filter-bar {
         padding: 8px;
         background-color: var(--vscode-input-background);
@@ -2446,7 +2396,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         padding: 8px;
       }
 
-      /* Graph Panel Loading Indicator - Requirements 3.7, 3.8 */
+      /* Graph Panel Loading Indicator*/
       .graph-loading-indicator {
         display: flex;
         align-items: center;
@@ -2486,7 +2436,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
 
-      /* Branch Panel Styles - Requirements 2.1-2.5 */
+      /* Branch Panel Styles*/
       .branch-panel {
         padding: 4px 0;
         font-size: 13px;
@@ -2825,7 +2775,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           vscode.postMessage({ type: 'refresh' });
         };
 
-        // Log Filter functions - Requirement 9.6, 9.7
+        // Log Filter functions
         window.toggleLogFilters = function() {
           const filterBar = document.getElementById('log-filter-bar');
           if (filterBar) {
@@ -2936,7 +2886,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         });
 
         // Keyboard handler for commits
-        // Requirement 3.3, 3.4: Keyboard support for single and multi-select
         window.handleCommitKeydown = function(event, hash) {
           switch (event.key) {
             case 'Enter':
@@ -2976,7 +2925,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           }
         };
 
-        // Commit context menu for Graph Panel - Requirements 3.5, 3.6
+        // Commit context menu for Graph Panel
         let commitContextMenuHashes = [];
 
         window.showCommitContextMenu = function(event, hash) {
@@ -3164,7 +3113,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           }
         };
 
-        // Incremental commit loading - Requirements 3.7, 3.8
+        // Incremental commit loading
         // Monitor the graph panel scroll position and request more commits
         // when the user scrolls within 50px of the bottom.
         let loadMoreCommitsRequested = false;

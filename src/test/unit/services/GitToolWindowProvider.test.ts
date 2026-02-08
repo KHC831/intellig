@@ -151,7 +151,7 @@ describe('GitToolWindowProvider', () => {
   });
 });
 
-describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
+describe('Log View', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 
@@ -199,7 +199,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
   }
 
   describe('updateLogState', () => {
-    it('should update log state with commits (Requirement 9.1)', () => {
+    it('should update log state with commits', () => {
       const commits = [
         createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
@@ -213,7 +213,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       assert.strictEqual(extendedState.commitNodes[1].commit.hash, 'def4567890123');
     });
 
-    it('should generate graph visualization data (Requirement 9.1)', () => {
+    it('should generate graph visualization data', () => {
       const commits = [
         createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
@@ -227,7 +227,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       assert.ok(Array.isArray(extendedState.commitNodes[0].graphLines));
     });
 
-    it('should include branch labels on commits (Requirement 9.2)', () => {
+    it('should include branch labels on commits', () => {
       const commits = [createMockCommit('abc1234567890', 'First commit')];
       const branchMap = new Map<string, string[]>();
       branchMap.set('abc1234567890', ['main', 'feature/test']);
@@ -238,7 +238,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       assert.deepStrictEqual(extendedState.commitNodes[0].branches, ['main', 'feature/test']);
     });
 
-    it('should include tag labels on commits (Requirement 9.2)', () => {
+    it('should include tag labels on commits', () => {
       const commits = [createMockCommit('abc1234567890', 'First commit')];
       const tagMap = new Map<string, string[]>();
       tagMap.set('abc1234567890', ['v1.0.0', 'release']);
@@ -269,7 +269,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
   });
 
   describe('selectCommit', () => {
-    it('should select a commit (Requirement 9.3)', () => {
+    it('should select a commit', () => {
       const commits = [
         createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
@@ -314,7 +314,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
   });
 
   describe('toggleCommitSelection', () => {
-    it('should add commit to selection (Requirement 9.8)', () => {
+    it('should add commit to selection', () => {
       const commits = [
         createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
@@ -366,7 +366,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
   });
 
   describe('setLogFilter', () => {
-    it('should set log filter (Requirement 9.6)', () => {
+    it('should set log filter', () => {
       const filter = {
         author: 'Test Author',
         since: new Date('2024-01-01'),
@@ -390,7 +390,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
     });
   });
 
-  describe('Log Context Menu Actions (Requirement 9.5)', () => {
+  describe('Log Context Menu Actions', () => {
     it('should fire onDidRequestLogContextAction for cherry-pick', (done) => {
       const disposable = provider.onDidRequestLogContextAction((event) => {
         assert.strictEqual(event.action, 'cherryPick');
@@ -501,7 +501,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
     });
   });
 
-  describe('Commit File Diff (Requirement 9.4)', () => {
+  describe('Commit File Diff', () => {
     it('should fire onDidRequestCommitDiff when double-clicking a file in commit details', (done) => {
       const disposable = provider.onDidRequestCommitDiff((event) => {
         assert.strictEqual(event.commitHash, 'abc1234567890');
@@ -562,7 +562,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
     });
   });
 
-  describe('IntelliJ-style Log Layout (Requirement 17.5)', () => {
+  describe('IntelliJ-style Log Layout', () => {
     it('should display commit graph on the left with details on the right', () => {
       // This is a structural test - the layout is defined in the HTML template
       // We verify that the state supports this layout
@@ -578,7 +578,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
     });
   });
 
-  describe('Log Filtering UI (Requirement 9.6, 9.7)', () => {
+  describe('Log Filtering UI', () => {
     it('should fire onDidRequestLogFilter event when filter is applied', (done) => {
       const filter = {
         author: 'Test Author',
@@ -611,7 +611,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       )._onDidRequestLogFilter.fire(undefined);
     });
 
-    it('should support filtering by author (Requirement 9.6)', () => {
+    it('should support filtering by author', () => {
       const filter = { author: 'John Doe' };
       provider.setLogFilter(filter);
 
@@ -619,7 +619,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       assert.strictEqual(extState.filter?.author, 'John Doe');
     });
 
-    it('should support filtering by date range (Requirement 9.6)', () => {
+    it('should support filtering by date range', () => {
       const since = new Date('2024-01-01');
       const until = new Date('2024-12-31');
       const filter = { since, until };
@@ -630,7 +630,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       assert.deepStrictEqual(extState.filter?.until, until);
     });
 
-    it('should support filtering by file path (Requirement 9.6)', () => {
+    it('should support filtering by file path', () => {
       const filter = { path: 'src/services/' };
       provider.setLogFilter(filter);
 
@@ -638,7 +638,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
       assert.strictEqual(extState.filter?.path, 'src/services/');
     });
 
-    it('should support searching commit messages (Requirement 9.7)', () => {
+    it('should support searching commit messages', () => {
       const filter = { searchText: 'fix critical bug' };
       provider.setLogFilter(filter);
 
@@ -690,7 +690,7 @@ describe('Log View (Requirement 9.1, 9.2, 9.3, 9.4, 9.5, 17.5)', () => {
   });
 });
 
-describe('Initial Data Request and No-Repository State (Requirements 5.3, 5.4)', () => {
+describe('Initial Data Request and No-Repository State', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 

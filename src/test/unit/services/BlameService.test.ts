@@ -2,9 +2,9 @@
  * Unit tests for BlameService.
  *
  * Tests cover:
- * - getBlame() for file blame information (Requirements 9.1, 9.2, 9.3)
- * - getBlameForLine() for single line blame (Requirements 9.1, 9.2, 9.3)
- * - getPreviousRevisionBlame() for navigating to previous revision (Requirement 9.6)
+ * - getBlame() for file blame information
+ * - getBlameForLine() for single line blame
+ * - getPreviousRevisionBlame() for navigating to previous revision
  * - Caching behavior
  * - Error handling
  */
@@ -174,7 +174,7 @@ describe('BlameService', () => {
   });
 
   describe('getBlame()', () => {
-    describe('Basic blame functionality (Requirements 9.1, 9.2, 9.3)', () => {
+    describe('Basic blame functionality', () => {
       it('should execute git blame --porcelain with file path', async () => {
         mockGitCli.setMockResultByPrefix('blame --porcelain', {
           exitCode: 0,
@@ -372,7 +372,7 @@ describe('BlameService', () => {
   });
 
   describe('getBlameForLine()', () => {
-    describe('Single line blame (Requirements 9.1, 9.2, 9.3)', () => {
+    describe('Single line blame', () => {
       it('should return blame info for specific line', async () => {
         mockGitCli.setMockResultByPrefix('blame --porcelain', {
           exitCode: 0,
@@ -438,7 +438,7 @@ describe('BlameService', () => {
   });
 
   describe('getPreviousRevisionBlame()', () => {
-    describe('Navigate to previous revision (Requirement 9.6)', () => {
+    describe('Navigate to previous revision', () => {
       it('should get parent commit and blame at that revision', async () => {
         // Mock rev-parse to get parent commit
         mockGitCli.setMockResult('rev-parse abc123^', {

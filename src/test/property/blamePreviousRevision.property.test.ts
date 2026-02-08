@@ -7,13 +7,11 @@ import { IBlameInfo } from '../../services/interfaces/IBlameService';
  * Property-based tests for Blame Previous Revision.
  * Feature: intellig-vscode, Property 30: Blame Previous Revision
  *
- * **Validates: Requirements 9.6 (Blame)**
  *
  * Property Description:
  * For any blame annotation, selecting "Annotate Previous Revision" SHALL show
  * the blame state of the file before the selected commit was made.
  *
- * Requirements:
  * - 9.6 (Blame): WHEN a user selects "Annotate Previous Revision", THE Extension
  *                SHALL show blame for the file before the selected commit
  */
@@ -184,7 +182,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Get blame information for a file at a specific revision.
-     * Requirements: 9.1, 9.2, 9.3 (Blame)
      *
      * @param path - The file path
      * @param revision - Optional revision (commit hash)
@@ -226,7 +223,6 @@ describe('Blame Previous Revision Property Tests', () => {
      * Get blame information for the file at the previous revision.
      * This is the core functionality being tested.
      *
-     * Requirements: 9.6 (Blame) - Navigate to previous revision
      *
      * @param path - The file path
      * @param commit - The commit hash to get the previous revision from
@@ -268,8 +264,6 @@ describe('Blame Previous Revision Property Tests', () => {
   describe('Property 30: Blame Previous Revision', () => {
     /**
      * Property: Previous revision blame returns blame from parent commit.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame returns blame from parent commit', () => {
       fc.assert(
@@ -308,8 +302,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision of initial commit returns empty blame.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision of initial commit returns empty blame', () => {
       fc.assert(
@@ -345,8 +337,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision blame shows state before the selected commit.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame shows state before the selected commit', () => {
       fc.assert(
@@ -396,8 +386,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Navigating through previous revisions follows commit chain.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Navigating through previous revisions follows commit chain', () => {
       fc.assert(
@@ -447,8 +435,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision blame preserves file path.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame preserves file path', () => {
       fc.assert(
@@ -479,8 +465,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision blame for non-existent commit throws error.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame for non-existent commit throws error', () => {
       fc.assert(
@@ -511,8 +495,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision blame lines have valid structure.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame lines have valid structure', () => {
       fc.assert(
@@ -565,8 +547,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Consecutive previous revision calls traverse history correctly.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Consecutive previous revision calls traverse history correctly', () => {
       fc.assert(
@@ -606,8 +586,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision blame date is earlier than current commit date.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame is from an earlier point in history', () => {
       fc.assert(
@@ -648,8 +626,6 @@ describe('Blame Previous Revision Property Tests', () => {
 
     /**
      * Property: Previous revision blame maintains line number consistency.
-     *
-     * **Validates: Requirements 9.6 (Blame)**
      */
     it('Property: Previous revision blame maintains line number consistency', () => {
       fc.assert(

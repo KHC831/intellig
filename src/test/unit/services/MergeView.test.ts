@@ -5,7 +5,6 @@ import { IGitService, IRepository, IFileStatus } from '../../../services/interfa
 
 /**
  * Unit tests for MergeView
- * Requirements: 10.2, 10.3, 10.4, 10.7, 17.9
  */
 describe('MergeView', () => {
   let mergeView: MergeView;
@@ -133,7 +132,7 @@ describe('MergeView', () => {
     });
   });
 
-  describe('Conflict Resolution Actions (Requirement 10.4)', () => {
+  describe('Conflict Resolution Actions', () => {
     it('should support Accept Current action', () => {
       assert.strictEqual(typeof mergeView.acceptCurrent, 'function');
     });
@@ -147,7 +146,7 @@ describe('MergeView', () => {
     });
   });
 
-  describe('Accept All Actions (Requirement 10.8)', () => {
+  describe('Accept All Actions', () => {
     it('should support Accept All Current action', () => {
       assert.strictEqual(typeof mergeView.acceptAllCurrent, 'function');
     });
@@ -157,7 +156,7 @@ describe('MergeView', () => {
     });
   });
 
-  describe('Keyboard Navigation (Requirement 10.7)', () => {
+  describe('Keyboard Navigation', () => {
     it('should support navigating to next conflict', () => {
       assert.strictEqual(typeof mergeView.nextConflict, 'function');
     });
@@ -167,13 +166,13 @@ describe('MergeView', () => {
     });
   });
 
-  describe('Mark Resolved (Requirement 10.5)', () => {
+  describe('Mark Resolved', () => {
     it('should support marking file as resolved', () => {
       assert.strictEqual(typeof mergeView.markResolved, 'function');
     });
   });
 
-  describe('Three-Way Merge Display (Requirement 10.2, 17.9)', () => {
+  describe('Three-Way Merge Display', () => {
     it('should have show method for displaying merge view', () => {
       assert.strictEqual(typeof mergeView.show, 'function');
     });

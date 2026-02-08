@@ -4,8 +4,6 @@
  * Verifies that the view/item/context menu contributions are correctly
  * configured for each branch type: current local branch, non-current
  * local branch, and remote branch.
- *
- * Requirements: 2.3, 2.4, 2.5, 2.6, 2.7, 3.1–3.9, 4.1–4.10, 6.1, 6.2
  */
 
 import * as assert from 'assert';
@@ -103,12 +101,12 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.strictEqual(entry!.group, '3_manage@1');
     });
 
-    it('should NOT include Checkout command (Requirement 2.3)', () => {
+    it('should NOT include Checkout command', () => {
       const entry = entries.find((e) => e.command === 'intellig.branch.checkout');
       assert.strictEqual(entry, undefined, 'Checkout should not appear for current branch');
     });
 
-    it('should NOT include Delete command (Requirement 2.7)', () => {
+    it('should NOT include Delete command', () => {
       const entry = entries.find((e) => e.command === 'intellig.branch.delete');
       assert.strictEqual(entry, undefined, 'Delete should not appear for current branch');
     });

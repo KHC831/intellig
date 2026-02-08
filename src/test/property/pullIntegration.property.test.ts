@@ -6,13 +6,11 @@ import { ICommit, IPullOptions, IUpstream } from '../../services/interfaces/IGit
  * Property-based tests for Pull Integration.
  * Feature: intellig-vscode, Property 39: Pull Integration
  *
- * **Validates: Requirements 12.3**
  *
  * Property Description:
  * For any branch with upstream changes, pulling SHALL fetch and integrate those changes
  * into the local branch (via merge or rebase based on configuration).
  *
- * Requirements:
  * - 12.3: WHEN a user selects 'Pull', THE Extension SHALL fetch and merge (or rebase
  *         based on configuration) from the upstream remote
  */
@@ -266,7 +264,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Pull changes from the upstream branch.
-     * Requirement 12.3: Fetch and merge (or rebase based on configuration) from upstream.
      *
      * @param options - Pull options
      * @returns Result of the pull operation
@@ -347,8 +344,6 @@ describe('Pull Integration Property Tests', () => {
   describe('Property 39: Pull Integration', () => {
     /**
      * Property: Pull fetches and integrates upstream changes into local branch.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull fetches and integrates upstream changes into local branch', () => {
       fc.assert(
@@ -406,8 +401,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull with rebase option rebases local commits on top of remote.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull with rebase option rebases local commits on top of remote', () => {
       fc.assert(
@@ -461,8 +454,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull with merge option merges remote commits into local.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull with merge option merges remote commits into local', () => {
       fc.assert(
@@ -516,8 +507,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull uses default configuration when no option specified.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull uses default configuration when no option specified', () => {
       fc.assert(
@@ -557,8 +546,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull without upstream fails gracefully.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull without upstream fails gracefully', () => {
       fc.assert(
@@ -603,8 +590,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull with no new remote commits is a no-op.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull with no new remote commits is a no-op', () => {
       fc.assert(
@@ -653,8 +638,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull records operation in history.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull records operation in history', () => {
       fc.assert(
@@ -705,8 +688,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull from specific remote and branch works correctly.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull from specific remote and branch works correctly', () => {
       fc.assert(
@@ -757,8 +738,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Multiple pulls are idempotent when no new remote commits.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Multiple pulls are idempotent when no new remote commits', () => {
       fc.assert(
@@ -812,8 +791,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull always fetches before integrating.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull always fetches before integrating', () => {
       fc.assert(
@@ -855,8 +832,6 @@ describe('Pull Integration Property Tests', () => {
 
     /**
      * Property: Pull preserves commit order.
-     *
-     * **Validates: Requirements 12.3**
      */
     it('Property: Pull preserves commit order', () => {
       fc.assert(

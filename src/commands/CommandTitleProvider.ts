@@ -1,8 +1,6 @@
 /**
  * CommandTitleProvider implementation.
  * Dynamically updates command titles based on the selected branch and current HEAD branch.
- *
- * Requirements: 5.1, 5.2, 5.3
  */
 
 import * as vscode from 'vscode';

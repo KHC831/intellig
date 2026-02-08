@@ -6,8 +6,6 @@
  * - Simplified graph mode
  * - Batch processing
  * - Graph statistics calculation
- *
- * Requirements: 9.9 (Log) - Optimize graph rendering for large histories
  */
 
 import * as assert from 'assert';

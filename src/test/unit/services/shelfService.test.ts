@@ -11,8 +11,6 @@ import { Uri } from '../../mocks/vscode';
 /**
  * Unit tests for ShelfService.
  * Tests the shelf functionality for saving and restoring changes.
- *
- * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
  */
 describe('ShelfService', () => {
   let shelfService: ShelfService;

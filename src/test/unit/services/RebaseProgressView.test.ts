@@ -263,7 +263,7 @@ describe('RebaseProgressView', () => {
       });
     });
 
-    describe('Continue Rebase (Requirement 6.7)', () => {
+    describe('Continue Rebase', () => {
       it('should call continueRebase on the service', async () => {
         mockRebaseService.continueResult = { success: true, status: 'in-progress' };
 
@@ -311,7 +311,7 @@ describe('RebaseProgressView', () => {
       });
     });
 
-    describe('Abort Rebase (Requirement 6.8)', () => {
+    describe('Abort Rebase', () => {
       it('should call abortRebase on the service', async () => {
         await mockRebaseService.abortRebase(mockRepository);
 
@@ -344,7 +344,7 @@ describe('RebaseProgressView', () => {
       });
     });
 
-    describe('Skip Commit (Requirement 6.9)', () => {
+    describe('Skip Commit', () => {
       it('should call skipCommit on the service', async () => {
         mockRebaseService.skipResult = { success: true, status: 'in-progress' };
 

@@ -15,13 +15,11 @@ import {
  * Property-based tests for Cherry-Pick Abort Restoration.
  * Feature: intellig-vscode, Property 37: Cherry-Pick Abort Restoration
  *
- * **Validates: Requirements 11.4**
  *
  * Property Description:
  * For any cherry-pick operation that is aborted, the working directory and
  * branch SHALL be restored to their pre-cherry-pick state.
  *
- * Requirements:
  * - 11.4: WHEN a user aborts a cherry-pick, THE Extension SHALL restore the
  *         working directory to its pre-cherry-pick state
  */
@@ -351,7 +349,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Cherry-pick commits with potential for conflicts.
-     * Requirement 11.1, 11.2, 11.3: Cherry-pick commits in order with conflict handling.
      *
      * @param commitHashes - Array of commit hashes to cherry-pick
      * @param simulateConflict - Whether to simulate a conflict
@@ -431,7 +428,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Abort an in-progress cherry-pick operation.
-     * Requirement 11.4: Restore working directory to pre-cherry-pick state.
      */
     cherryPickAbort(): void {
       if (!this._cherryPickInProgress || !this._preCheryPickSnapshot) {
@@ -464,8 +460,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
   describe('Property 37: Cherry-Pick Abort Restoration', () => {
     /**
      * Property: Aborting cherry-pick restores the original branch HEAD.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick restores the original branch HEAD', () => {
       fc.assert(
@@ -531,8 +525,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Property: Aborting cherry-pick restores the original working directory files.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick restores the original working directory files', () => {
       fc.assert(
@@ -599,8 +591,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Property: Aborting cherry-pick restores the original file statuses.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick restores the original file statuses', () => {
       fc.assert(
@@ -667,8 +657,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Property: Aborting cherry-pick restores the original commit history.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick restores the original commit history', () => {
       fc.assert(
@@ -735,8 +723,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Property: Aborting cherry-pick clears the cherry-pick in progress state.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick clears the cherry-pick in progress state', () => {
       fc.assert(
@@ -798,8 +784,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Property: Aborting cherry-pick preserves the original branch name.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick preserves the original branch name', () => {
       fc.assert(
@@ -857,8 +841,6 @@ describe('Cherry-Pick Abort Restoration Property Tests', () => {
 
     /**
      * Property: Aborting cherry-pick when no cherry-pick is in progress throws error.
-     *
-     * **Validates: Requirements 11.4**
      */
     it('Property: Aborting cherry-pick when no cherry-pick is in progress throws error', () => {
       fc.assert(

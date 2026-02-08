@@ -186,7 +186,6 @@ describe('Feature: intellig-layout - Details Panel Property Tests', () => {
 
   describe('Property 9: Details panel contains commit metadata and changed files', () => {
     /**
-     * **Validates: Requirements 4.1, 4.2**
      *
      * For any commit with a non-empty list of changed files, the Details Panel
      * HTML SHALL contain the full commit hash, author name, author email,

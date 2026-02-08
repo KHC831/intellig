@@ -12,13 +12,11 @@ import { IConflictedFile } from '../../services/interfaces/IConflictResolutionSe
  * Property-based tests for Conflict File Detection.
  * Feature: intellig-vscode, Property 31: Conflict File Detection
  *
- * **Validates: Requirements 10.1**
  *
  * Property Description:
  * For any merge, rebase, or cherry-pick operation that results in conflicts,
  * all conflicted files SHALL appear in the Local Changes View with conflict status.
  *
- * Requirements:
  * - 10.1: WHEN merge conflicts occur, THE Extension SHALL display a list of
  *         conflicted files in the Local_Changes_View
  */
@@ -129,7 +127,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Set the file statuses for the repository.
-     * Requirement 10.1: Detect conflicted files from status.
      *
      * @param statuses - Array of file statuses
      */
@@ -160,7 +157,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Get conflicted files.
-     * Requirement 10.1: Display conflicted files in Local Changes View.
      */
     getConflictedFiles(): IConflictedFile[] {
       return [...this._conflictedFiles];
@@ -214,8 +210,6 @@ describe('Conflict File Detection Property Tests', () => {
   describe('Property 31: Conflict File Detection', () => {
     /**
      * Property: All files with 'U' status in index are detected as conflicted.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Files with U status in index are detected as conflicted', () => {
       fc.assert(
@@ -256,8 +250,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: All files with 'U' status in work tree are detected as conflicted.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Files with U status in work tree are detected as conflicted', () => {
       fc.assert(
@@ -298,8 +290,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: Files without 'U' status are not detected as conflicted.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Files without U status are not detected as conflicted', () => {
       fc.assert(
@@ -332,8 +322,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: Mixed file statuses correctly separate conflicted from non-conflicted.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Mixed statuses correctly identify conflicted files', () => {
       fc.assert(
@@ -384,8 +372,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: Conflicted file count matches files with U status.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Conflicted file count matches files with U status', () => {
       fc.assert(
@@ -431,8 +417,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: hasUnresolvedConflicts returns true when conflicts exist.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: hasUnresolvedConflicts returns true when conflicts exist', () => {
       fc.assert(
@@ -463,8 +447,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: hasUnresolvedConflicts returns false when no conflicts exist.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: hasUnresolvedConflicts returns false when no conflicts exist', () => {
       fc.assert(
@@ -495,8 +477,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: Conflicted files have resolved=false initially.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Conflicted files have resolved=false initially', () => {
       fc.assert(
@@ -531,8 +511,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: Conflict detection works for all conflictable repository states.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Conflict detection works for merging, rebasing, and cherry-picking states', () => {
       fc.assert(
@@ -570,8 +548,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: File paths are preserved in conflicted file detection.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: File paths are preserved in conflicted file detection', () => {
       fc.assert(
@@ -614,8 +590,6 @@ describe('Conflict File Detection Property Tests', () => {
 
     /**
      * Property: Empty file status list results in no conflicts.
-     *
-     * **Validates: Requirements 10.1**
      */
     it('Property: Empty file status list results in no conflicts', () => {
       fc.assert(

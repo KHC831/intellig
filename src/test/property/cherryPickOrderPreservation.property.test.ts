@@ -13,14 +13,12 @@ import {
  * Property-based tests for Cherry-Pick Order Preservation.
  * Feature: intellig-vscode, Property 36: Cherry-Pick Order Preservation
  *
- * **Validates: Requirements 11.2**
  *
  * Property Description:
  * For any ordered selection of commits to cherry-pick, the commits SHALL be
  * applied in the specified order, resulting in the same relative order in
  * the target branch.
  *
- * Requirements:
  * - 11.2: WHEN cherry-picking multiple commits, THE Extension SHALL apply
  *         them in the selected order
  */
@@ -252,7 +250,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
 
     /**
      * Cherry-pick multiple commits in the specified order.
-     * Requirement 11.2: Apply commits in the selected order.
      *
      * @param commitHashes - Array of commit hashes to cherry-pick, in order
      * @returns Cherry-pick result
@@ -347,8 +344,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
   describe('Property 36: Cherry-Pick Order Preservation', () => {
     /**
      * Property: Cherry-picked commits are applied in the specified order.
-     *
-     * **Validates: Requirements 11.2**
      */
     it('Property: Cherry-picked commits are applied in the specified order', () => {
       fc.assert(
@@ -400,8 +395,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
 
     /**
      * Property: Cherry-picked commits maintain relative order in target branch.
-     *
-     * **Validates: Requirements 11.2**
      */
     it('Property: Cherry-picked commits maintain relative order in target branch', () => {
       fc.assert(
@@ -452,8 +445,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
 
     /**
      * Property: Each cherry-picked commit has the previous cherry-picked commit as parent.
-     *
-     * **Validates: Requirements 11.2**
      */
     it('Property: Each cherry-picked commit has the previous cherry-picked commit as parent', () => {
       fc.assert(
@@ -503,8 +494,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
 
     /**
      * Property: Final branch HEAD is the last cherry-picked commit.
-     *
-     * **Validates: Requirements 11.2**
      */
     it('Property: Final branch HEAD is the last cherry-picked commit', () => {
       fc.assert(
@@ -546,8 +535,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
 
     /**
      * Property: Cherry-picking empty list succeeds with no changes.
-     *
-     * **Validates: Requirements 11.2**
      */
     it('Property: Cherry-picking empty list succeeds with no changes', () => {
       fc.assert(
@@ -581,8 +568,6 @@ describe('Cherry-Pick Order Preservation Property Tests', () => {
 
     /**
      * Property: Cherry-pick stops on first failure and preserves partial order.
-     *
-     * **Validates: Requirements 11.2**
      */
     it('Property: Cherry-pick stops on first failure and preserves partial order', () => {
       fc.assert(

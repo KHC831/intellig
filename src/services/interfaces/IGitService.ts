@@ -285,8 +285,6 @@ export interface ICherryPickResult {
 /**
  * Revert result
  * Contains information about the result of a revert operation.
- *
- * Requirements: 9.5 (Log context menu - Revert)
  */
 export interface IRevertResult {
   /** Whether the revert operation succeeded */
@@ -298,8 +296,6 @@ export interface IRevertResult {
 /**
  * Branch comparison result
  * Contains information about the differences between two branches.
- *
- * Requirements: 4.11, 15.1, 15.2, 15.3, 15.5, 15.6
  */
 export interface IBranchComparison {
   /** Commits in branch1 that are not in branch2 */
@@ -377,8 +373,6 @@ export interface IGitService {
    * @param repo - The repository
    * @param commits - Array of commit hashes (can be in any order)
    * @returns Array of diffs representing the combined changes
-   *
-   * Requirements: 9.8 (Log)
    */
   getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]>;
 
@@ -393,8 +387,6 @@ export interface IGitService {
    * @param repo - The repository
    * @param commits - Array of commit hashes to cherry-pick
    * @returns Cherry-pick result with success status and any conflicts
-   *
-   * Requirements: 11.1, 11.2, 11.3
    */
   cherryPick(repo: IRepository, commits: string[]): Promise<ICherryPickResult>;
 
@@ -403,8 +395,6 @@ export interface IGitService {
    * Restores the working directory to its pre-cherry-pick state.
    *
    * @param repo - The repository
-   *
-   * Requirements: 11.4
    */
   cherryPickAbort(repo: IRepository): Promise<void>;
 
@@ -413,8 +403,6 @@ export interface IGitService {
    *
    * @param repo - The repository
    * @returns Cherry-pick result with success status and any new conflicts
-   *
-   * Requirements: 11.5
    */
   cherryPickContinue(repo: IRepository): Promise<ICherryPickResult>;
 
@@ -425,8 +413,6 @@ export interface IGitService {
    * @param repo - The repository
    * @param commits - Array of commit hashes to revert
    * @returns Revert result with success status and any conflicts
-   *
-   * Requirements: 9.5 (Log context menu - Revert)
    */
   revert(repo: IRepository, commits: string[]): Promise<IRevertResult>;
 
@@ -435,8 +421,6 @@ export interface IGitService {
    * Restores the working directory to its pre-revert state.
    *
    * @param repo - The repository
-   *
-   * Requirements: 9.5 (Log context menu - Revert)
    */
   revertAbort(repo: IRepository): Promise<void>;
 
@@ -445,8 +429,6 @@ export interface IGitService {
    *
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
-   *
-   * Requirements: 9.5 (Log context menu - Revert)
    */
   revertContinue(repo: IRepository): Promise<IRevertResult>;
 
@@ -464,8 +446,6 @@ export interface IGitService {
    *
    * @param repo - The repository
    * @param path - The file path to revert
-   *
-   * Requirements: 2.7 (Local Changes View context menu - Revert)
    */
   revertFile(repo: IRepository, path: string): Promise<void>;
 

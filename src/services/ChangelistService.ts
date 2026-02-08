@@ -48,8 +48,6 @@ interface IChangelistStorageItem {
  * Changelist Service implementation.
  * Manages changelists for organizing uncommitted changes.
  * Changelists are an IDE-level feature (not Git) that helps organize work before committing.
- *
- * Requirements: 2.2, 2.3, 2.4, 2.5
  */
 export class ChangelistService implements IChangelistService {
   private _changelistCache: Map<string, IChangelist[]> = new Map();
@@ -72,8 +70,6 @@ export class ChangelistService implements IChangelistService {
    *
    * @param repo - The repository
    * @returns Array of changelists
-   *
-   * Requirements: 2.2
    */
   getChangelists(repo: IRepository): IChangelist[] {
     const repoKey = this.getRepoKey(repo);
@@ -110,8 +106,6 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    * @param name - Name for the new changelist
    * @returns The created changelist
-   *
-   * Requirements: 2.3
    */
   createChangelist(repo: IRepository, name: string): IChangelist {
     if (!name || name.trim().length === 0) {
@@ -165,8 +159,6 @@ export class ChangelistService implements IChangelistService {
    *
    * @param repo - The repository
    * @param id - ID of the changelist to delete
-   *
-   * Requirements: 2.5
    */
   deleteChangelist(repo: IRepository, id: string): void {
     // Cannot delete the default changelist
@@ -269,8 +261,6 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    * @param files - Array of file paths to move
    * @param changelistId - ID of the target changelist
-   *
-   * Requirements: 2.4
    */
   moveToChangelist(repo: IRepository, files: string[], changelistId: string): void {
     if (!files || files.length === 0) {
@@ -320,8 +310,6 @@ export class ChangelistService implements IChangelistService {
    *
    * @param repo - The repository
    * @returns The default changelist
-   *
-   * Requirements: 2.2
    */
   getDefaultChangelist(repo: IRepository): IChangelist {
     const changelists = this.getChangelists(repo);

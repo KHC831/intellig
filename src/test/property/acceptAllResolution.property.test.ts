@@ -8,13 +8,11 @@ import { IConflictRegion, ConflictResolution } from '../../services/interfaces/I
  * Property-based tests for Accept All Resolution.
  * Feature: intellig-vscode, Property 34: Accept All Resolution
  *
- * **Validates: Requirements 10.8**
  *
  * Property Description:
  * For any file with multiple conflicts, "Accept All Current" or "Accept All Incoming"
  * SHALL resolve all conflicts in that file with the chosen resolution.
  *
- * Requirements:
  * - 10.8: WHEN a user selects "Accept All Current" or "Accept All Incoming",
  *         THE Extension SHALL apply that resolution to all conflicts in the file
  */
@@ -292,7 +290,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Accept All Current - resolve all conflicts in a file with current version.
-     * Requirement 10.8: Accept All Current applies resolution to all conflicts.
      */
     acceptAllCurrent(filePath: string): IConflictResolutionResult {
       const conflicts = this._conflictedFiles.get(filePath);
@@ -318,7 +315,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Accept All Incoming - resolve all conflicts in a file with incoming version.
-     * Requirement 10.8: Accept All Incoming applies resolution to all conflicts.
      */
     acceptAllIncoming(filePath: string): IConflictResolutionResult {
       const conflicts = this._conflictedFiles.get(filePath);
@@ -370,8 +366,6 @@ describe('Accept All Resolution Property Tests', () => {
   describe('Property 34: Accept All Resolution', () => {
     /**
      * Property: Accept All Current resolves all conflicts in a file.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Current resolves all conflicts in a file', () => {
       fc.assert(
@@ -411,8 +405,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Incoming resolves all conflicts in a file.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Incoming resolves all conflicts in a file', () => {
       fc.assert(
@@ -452,8 +444,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Current sets resolution type to 'current' for all conflicts.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Current sets resolution type to current for all conflicts', () => {
       fc.assert(
@@ -492,8 +482,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Incoming sets resolution type to 'incoming' for all conflicts.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Incoming sets resolution type to incoming for all conflicts', () => {
       fc.assert(
@@ -532,8 +520,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Current produces content from current versions.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Current produces content from current versions', () => {
       fc.assert(
@@ -569,8 +555,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Incoming produces content from incoming versions.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Incoming produces content from incoming versions', () => {
       fc.assert(
@@ -606,8 +590,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Current resolves exactly the number of conflicts in the file.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Current resolves exactly the number of conflicts in the file', () => {
       fc.assert(
@@ -647,8 +629,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Incoming resolves exactly the number of conflicts in the file.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Incoming resolves exactly the number of conflicts in the file', () => {
       fc.assert(
@@ -688,8 +668,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All operations fail gracefully for non-existent files.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All operations fail gracefully for non-existent files', () => {
       fc.assert(
@@ -732,8 +710,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All Current and Accept All Incoming are mutually exclusive.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All Current and Accept All Incoming produce different resolutions', () => {
       fc.assert(
@@ -790,8 +766,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All operations work regardless of repository state (merging or rebasing).
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All operations work in both merging and rebasing states', () => {
       fc.assert(
@@ -832,8 +806,6 @@ describe('Accept All Resolution Property Tests', () => {
 
     /**
      * Property: Accept All operations are idempotent.
-     *
-     * **Validates: Requirements 10.8**
      */
     it('Property: Accept All operations are idempotent', () => {
       fc.assert(

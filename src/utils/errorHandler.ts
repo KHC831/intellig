@@ -1,8 +1,6 @@
 /**
  * Centralized Error Handler for Git Operations.
  * Provides error categorization, user-friendly messages, and recovery suggestions.
- *
- * Requirements: All error handling scenarios from design document
  */
 
 import { GitCommandError } from './gitCli';

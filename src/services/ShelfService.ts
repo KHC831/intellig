@@ -56,8 +56,6 @@ interface IShelfStorageFile {
  * Shelf Service implementation.
  * Manages IDE-specific shelf storage for temporary changes.
  * The shelf is separate from Git stash and persists across VS Code sessions.
- *
- * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
  */
 export class ShelfService implements IShelfService {
   private _gitCli: GitCli;
@@ -84,8 +82,6 @@ export class ShelfService implements IShelfService {
    * @param name - Name for the shelf item
    * @param changes - Selection of changes to shelve (files, changelists, or hunks)
    * @returns The created shelf item
-   *
-   * Requirements: 8.1, 8.2
    */
   async shelve(repo: IRepository, name: string, changes: IShelveSelection): Promise<IShelfItem> {
     const cwd = repo.rootUri.fsPath;
@@ -167,8 +163,6 @@ export class ShelfService implements IShelfService {
    * @param shelfId - ID of the shelf item to unshelve
    * @param options - Unshelve options (removeFromShelf, targetChangelist)
    * @returns Result of the unshelve operation
-   *
-   * Requirements: 8.4, 8.5
    */
   async unshelve(
     repo: IRepository,
@@ -238,8 +232,6 @@ export class ShelfService implements IShelfService {
    *
    * @param repo - The repository
    * @returns Array of shelf items
-   *
-   * Requirements: 8.3
    */
   getShelfItems(repo: IRepository): IShelfItem[] {
     const repoKey = this.getRepoKey(repo);
@@ -264,8 +256,6 @@ export class ShelfService implements IShelfService {
    *
    * @param repo - The repository
    * @param shelfId - ID of the shelf item to delete
-   *
-   * Requirements: 8.5
    */
   deleteShelfItem(repo: IRepository, shelfId: string): void {
     const storage = this.loadShelfStorage(repo);
@@ -297,8 +287,6 @@ export class ShelfService implements IShelfService {
    * @param repo - The repository
    * @param shelfId - ID of the shelf item
    * @returns Array of diffs for the shelf item
-   *
-   * Requirements: 8.6
    */
   getShelfDiff(repo: IRepository, shelfId: string): Promise<IDiff[]> {
     const items = this.getShelfItems(repo);

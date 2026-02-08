@@ -163,7 +163,6 @@ describe('Feature: git-graph-details-improvements - No Hash in Graph Rows Proper
 
   describe('Property 2: No commit hash displayed in graph rows', () => {
     /**
-     * **Validates: Requirements 2.1, 2.2**
      *
      * For any set of commit nodes, the HTML output of _getGraphPanelHtml()
      * SHALL NOT contain any element with class `commit-hash`.

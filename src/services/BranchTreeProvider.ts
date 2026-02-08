@@ -1,8 +1,6 @@
 /**
  * Branch Tree Provider implementation.
  * Provides a tree view of branches with context menu support.
- *
- * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 17.6
  */
 
 import * as vscode from 'vscode';
@@ -163,7 +161,6 @@ export class BranchTreeItem extends vscode.TreeItem {
  * Branch Tree Data Provider.
  * Provides tree data for the branches view with local branches, remote branches, and tags.
  *
- * Requirements:
  * - 5.1: Context menu for local branches
  * - 5.2: Context menu for remote branches
  * - 5.7: Disable checkout for current branch

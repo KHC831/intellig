@@ -3,8 +3,6 @@
  * Provides branch comparison UI with two branch selectors, commit lists,
  * file differences, and ahead/behind counts.
  * Uses VS Code's QuickPick API for a native-feeling experience.
- *
- * Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
  */
 
 import * as vscode from 'vscode';
@@ -45,7 +43,6 @@ interface IComparisonQuickPickItem extends vscode.QuickPickItem {
  * Provides branch comparison functionality including branch selection,
  * commit lists, file differences, and ahead/behind counts.
  *
- * Requirements:
  * - 15.1: Prompt for target branch to compare
  * - 15.2: Display commits unique to each branch
  * - 15.3: Display files that differ between branches
@@ -98,7 +95,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Show the branch comparison view.
-   * Requirement 15.1: Prompt for target branch to compare
    *
    * @param repository - The repository to compare branches in
    * @param branch1 - Optional first branch (defaults to current branch)
@@ -198,7 +194,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Compare with remote tracking branch.
-   * Requirement 15.5: Compare local branch with its remote tracking branch
    *
    * @param repository - The repository
    * @param localBranch - The local branch to compare (defaults to current)
@@ -235,7 +230,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * View the diff for a specific file between the two branches.
-   * Requirement 15.4: Display diff for selected file
    *
    * @param filePath - The file path to view diff for
    */
@@ -310,7 +304,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Prompt user to select a branch for comparison.
-   * Requirement 15.1: Prompt for target branch to compare
    */
   private async _promptForBranch(
     repository: IRepository,
@@ -398,7 +391,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Show the comparison results in a quick pick.
-   * Requirements 15.2, 15.3, 15.6: Display commits, files, and ahead/behind counts
    */
   private _showComparisonResults(): void {
     if (!this._state.comparison || !this._state.branch1 || !this._state.branch2) {
@@ -460,7 +452,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Build quick pick items from comparison results.
-   * Requirements 15.2, 15.3, 15.6: Display commits, files, and ahead/behind counts
    */
   private _buildComparisonQuickPickItems(
     comparison: IBranchComparison
@@ -490,7 +481,6 @@ export class BranchComparisonView implements IBranchComparisonView {
     });
 
     // Ahead commits section (commits in branch1 not in branch2)
-    // Requirement 15.2, 15.6: Display commits unique to each branch with counts
     if (comparison.aheadCount > 0) {
       items.push({
         label: `$(arrow-up) Ahead: ${comparison.aheadCount} commit${comparison.aheadCount !== 1 ? 's' : ''} in ${this._state.branch1}`,
@@ -510,7 +500,6 @@ export class BranchComparisonView implements IBranchComparisonView {
     }
 
     // Behind commits section (commits in branch2 not in branch1)
-    // Requirement 15.2, 15.6: Display commits unique to each branch with counts
     if (comparison.behindCount > 0) {
       items.push({
         label: `$(arrow-down) Behind: ${comparison.behindCount} commit${comparison.behindCount !== 1 ? 's' : ''} in ${this._state.branch2}`,
@@ -530,7 +519,6 @@ export class BranchComparisonView implements IBranchComparisonView {
     }
 
     // Changed files section
-    // Requirement 15.3: Display files that differ between branches
     if (comparison.changedFiles.length > 0) {
       items.push({
         label: `$(files) Changed Files: ${comparison.changedFiles.length}`,
@@ -590,7 +578,6 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Show file diff content in a virtual document.
-   * Requirement 15.4: Display diff for selected file
    */
   private async _showFileDiffContent(filePath: string): Promise<void> {
     if (!this._repository || !this._state.branch1 || !this._state.branch2) {

@@ -222,7 +222,7 @@ describe('RebaseService', () => {
       assert.strictEqual(session?.commits[2].action, 'drop');
     });
 
-    it('should support all rebase actions (Requirement 6.3)', () => {
+    it('should support all rebase actions', () => {
       const actions: RebaseAction[] = ['pick', 'reword', 'edit', 'squash', 'fixup', 'drop'];
 
       for (const action of actions) {
@@ -239,7 +239,7 @@ describe('RebaseService', () => {
       }
     });
 
-    it('should allow reordering commits via drag-and-drop (Requirement 6.2)', () => {
+    it('should allow reordering commits via drag-and-drop', () => {
       // Reorder: Third, First, Second
       const plan: IRebaseAction[] = [
         { hash: 'ghi789', action: 'pick' },
@@ -416,7 +416,7 @@ describe('RebaseService', () => {
       assert.ok(result.success);
     });
 
-    it('should return completed status when rebase finishes after skip (Requirement 6.9)', async () => {
+    it('should return completed status when rebase finishes after skip', async () => {
       mockGitCli.setExecResult(
         'rev-parse --abbrev-ref HEAD',
         createMockResult(0, 'feature-branch\n')
@@ -481,7 +481,7 @@ describe('RebaseService', () => {
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
     });
 
-    describe('continueRebase() (Requirement 6.7)', () => {
+    describe('continueRebase()', () => {
       it('should resume rebase after conflicts are resolved', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --continue', createMockResult(0, ''));
@@ -560,7 +560,7 @@ describe('RebaseService', () => {
       });
     });
 
-    describe('abortRebase() (Requirement 6.8)', () => {
+    describe('abortRebase()', () => {
       it('should restore repository to pre-rebase state', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --abort', createMockResult(0, ''));
@@ -647,7 +647,7 @@ describe('RebaseService', () => {
       });
     });
 
-    describe('skipCommit() (Requirement 6.9)', () => {
+    describe('skipCommit()', () => {
       it('should skip the current problematic commit', async () => {
         mockGitCli.clearCalls();
         mockGitCli.setExecResult('rebase --skip', createMockResult(0, ''));
@@ -784,7 +784,7 @@ describe('RebaseService', () => {
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
     });
 
-    describe('Reword Action (Requirement 6.4)', () => {
+    describe('Reword Action', () => {
       it('should allow setting reword action on a commit', () => {
         const plan: IRebaseAction[] = [
           { hash: 'abc123', action: 'reword', newMessage: 'New message for first commit' },
@@ -839,7 +839,7 @@ describe('RebaseService', () => {
       });
     });
 
-    describe('Edit Action (Requirement 6.5)', () => {
+    describe('Edit Action', () => {
       it('should allow setting edit action on a commit', () => {
         const plan: IRebaseAction[] = [
           { hash: 'abc123', action: 'edit' },
@@ -890,7 +890,7 @@ describe('RebaseService', () => {
       });
     });
 
-    describe('Squash and Fixup Actions (Requirement 6.6)', () => {
+    describe('Squash and Fixup Actions', () => {
       it('should allow setting squash action to combine commits', () => {
         const plan: IRebaseAction[] = [
           { hash: 'abc123', action: 'pick' },

@@ -7,8 +7,6 @@
  * after calling selectCommit(hash), the re-rendered HTML shall contain:
  * (a) a commit row with class="commit-row selected" and data-hash matching the selected hash, and
  * (b) a Details Panel section containing the commit's message, hash, author name, and date.
- *
- * **Validates: Requirements 3.2, 3.3, 3.4**
  */
 
 import '../setup';
@@ -181,7 +179,6 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
 
   describe('Property 4: Commit selection renders details and highlights row', () => {
     /**
-     * **Validates: Requirements 3.2, 3.3, 3.4**
      *
      * For any commit node in the commit list, after calling selectCommit(hash),
      * the re-rendered HTML shall contain:
@@ -219,7 +216,7 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
               // Select the commit
               testProvider.selectCommit(selectedHash);
 
-              // Verify internal state was updated (Requirement 3.2)
+              // Verify internal state was updated
               const stateAfterSelect = testProvider.getExtendedLogState();
               assert.strictEqual(
                 stateAfterSelect.expandedCommit,
@@ -232,7 +229,6 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
               );
 
               // (a) Verify Graph Panel HTML contains the selected row with correct class and data-hash
-              // Requirement 3.4: The Graph_Panel SHALL visually highlight the selected Commit_Row
               const graphHtml = testProvider._getGraphPanelHtml(
                 testProvider.getExtendedLogState().commitNodes,
                 stateAfterSelect.selectedCommits
@@ -262,7 +258,6 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
               }
 
               // (b) Verify Details Panel HTML contains the commit's metadata
-              // Requirement 3.3: Details_Panel displays commit message, full hash, author name, date
               const commitDetails = {
                 hash: selectedNode.commit.hash,
                 message: selectedNode.commit.message,

@@ -253,7 +253,6 @@ function extractPaths(svg: string): Array<{ d: string; stroke: string }> {
 describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () => {
   describe('Property 1: Commit node presence and position', () => {
     /**
-     * **Validates: Requirements 1.1**
      *
      * For any ICommitNode and valid IGraphRenderConfig, calling renderGraphSvg()
      * SHALL produce an SVG string containing a <circle> element whose cx attribute
@@ -299,7 +298,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
   describe('Property 2: Merge commit visual distinction', () => {
     /**
-     * **Validates: Requirements 1.2**
      *
      * For any ICommitNode where node.commit.parents.length > 1, the SVG output
      * SHALL contain a circle element with a stroke color different from its fill color.
@@ -359,7 +357,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
   describe('Property 3: Color determinism', () => {
     /**
-     * **Validates: Requirements 1.3, 2.5, 3.4, 5.1, 5.3, 5.4**
      *
      * For any lane index n, getColumnColor(n) SHALL always return the same value.
      * Furthermore, for any SVG produced by renderGraphSvg(), all elements associated
@@ -461,7 +458,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
   describe('Property 4: Active lane vertical lines', () => {
     /**
-     * **Validates: Requirements 2.1, 2.2, 7.2**
      *
      * For any commit row with a set of active lanes, the SVG output of renderGraphSvg()
      * SHALL contain a vertical line element for each active lane index in the set.
@@ -514,7 +510,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
   describe('Property 5: Merge and branch line rendering', () => {
     /**
-     * **Validates: Requirements 3.1, 3.2**
      *
      * For any ICommitNode with graphLines entries where fromColumn !== toColumn,
      * the SVG output SHALL contain a <path> element for each such line, connecting
@@ -567,7 +562,6 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
   describe('Property 8: Graceful handling of invalid lane data', () => {
     /**
-     * **Validates: Requirements 7.3**
      *
      * For any ICommitNode with out-of-bounds lane indices (negative values, or values
      * exceeding 1000), renderGraphSvg() SHALL not throw an exception and SHALL produce
@@ -825,7 +819,6 @@ function arbitraryCommitNodeArray(maxNodes: number, maxColumns: number): fc.Arbi
 describe('Feature: git-graph-visualization - computeGraphWidth Property Tests', () => {
   describe('Property 6: Dynamic graph width computation', () => {
     /**
-     * **Validates: Requirements 4.3**
      *
      * For any non-empty ICommitNode[] array and valid IGraphRenderConfig,
      * computeGraphWidth(nodes, config) SHALL return
@@ -907,7 +900,6 @@ describe('Feature: git-graph-visualization - computeGraphWidth Property Tests', 
 describe('Feature: git-graph-visualization - computeActiveLanes Property Tests', () => {
   describe('Property 7: Active lane computation invariants', () => {
     /**
-     * **Validates: Requirements 7.1**
      *
      * For any ICommitNode[] array, computeActiveLanes(nodes) SHALL produce a map
      * where for each row index i:

@@ -36,13 +36,10 @@ export interface IOperationCompletionResult {
 /**
  * Conflict Resolution Service interface
  * Provides conflict detection, resolution, and merge/rebase completion functionality
- *
- * Requirements: 10.1, 10.5, 10.6, 10.8
  */
 export interface IConflictResolutionService {
   /**
    * Get all conflicted files in the repository
-   * Requirement 10.1: Display conflicted files in Local Changes View
    *
    * @param repo - The repository
    * @returns Array of conflicted files
@@ -59,7 +56,6 @@ export interface IConflictResolutionService {
 
   /**
    * Mark a file as resolved
-   * Requirement 10.5: Enable marking the file as resolved
    *
    * @param repo - The repository
    * @param filePath - The file path to mark as resolved
@@ -78,7 +74,6 @@ export interface IConflictResolutionService {
 
   /**
    * Accept current (ours) version for a file and mark as resolved
-   * Requirement 10.8: Accept All Current
    *
    * @param repo - The repository
    * @param filePath - The file path
@@ -88,7 +83,6 @@ export interface IConflictResolutionService {
 
   /**
    * Accept incoming (theirs) version for a file and mark as resolved
-   * Requirement 10.8: Accept All Incoming
    *
    * @param repo - The repository
    * @param filePath - The file path
@@ -98,7 +92,6 @@ export interface IConflictResolutionService {
 
   /**
    * Accept current version for all conflicted files
-   * Requirement 10.8: Accept All Current
    *
    * @param repo - The repository
    * @returns Resolution result
@@ -107,7 +100,6 @@ export interface IConflictResolutionService {
 
   /**
    * Accept incoming version for all conflicted files
-   * Requirement 10.8: Accept All Incoming
    *
    * @param repo - The repository
    * @returns Resolution result
@@ -116,7 +108,6 @@ export interface IConflictResolutionService {
 
   /**
    * Check if merge/rebase can be completed (all conflicts resolved)
-   * Requirement 10.6: Enable completing merge/rebase when resolved
    *
    * @param repo - The repository
    * @returns True if operation can be completed
@@ -125,7 +116,6 @@ export interface IConflictResolutionService {
 
   /**
    * Complete the current merge operation
-   * Requirement 10.6: Enable completing merge when resolved
    *
    * @param repo - The repository
    * @returns Completion result
@@ -134,7 +124,6 @@ export interface IConflictResolutionService {
 
   /**
    * Complete the current rebase operation
-   * Requirement 10.6: Enable completing rebase when resolved
    *
    * @param repo - The repository
    * @returns Completion result

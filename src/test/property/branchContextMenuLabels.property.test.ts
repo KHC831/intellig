@@ -7,8 +7,6 @@
  * placeholders is resolved, the resulting label SHALL contain the exact branch name
  * in place of each placeholder. When the current branch is unavailable, the placeholder
  * SHALL resolve to "HEAD".
- *
- * **Validates: Requirements 5.1, 5.2, 5.3**
  */
 
 import '../setup';
@@ -99,7 +97,6 @@ const TEMPLATES: ReadonlyArray<{
 describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tests', () => {
   describe('Property 2: Dynamic label substitution correctness', () => {
     /**
-     * **Validates: Requirements 5.1, 5.2, 5.3**
      *
      * For any branch name (right-clicked or current), when a label template
      * containing placeholders is resolved, the resulting label SHALL contain
@@ -173,7 +170,6 @@ describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tes
     });
 
     /**
-     * **Validates: Requirement 5.3**
      *
      * When the current branch is unavailable (detached HEAD state),
      * the {current} placeholder SHALL resolve to "HEAD".

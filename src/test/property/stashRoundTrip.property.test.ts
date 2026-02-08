@@ -11,13 +11,11 @@ import {
  * Property-based tests for Stash Round-Trip.
  * Feature: intellig-vscode, Property 18: Stash Round-Trip
  *
- * **Validates: Requirements 7.1, 7.4, 7.5**
  *
  * Property Description:
  * For any set of uncommitted changes, stashing and then applying (or popping) SHALL
  * restore the working directory to contain the same changes.
  *
- * Requirements:
  * - 7.1: Stash saves uncommitted changes with optional message
  * - 7.4: Apply restores stash changes without removing from list
  * - 7.5: Pop restores stash changes and removes from list
@@ -124,7 +122,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Get the list of stashes
-     * Requirement 7.3: Display all stashes with messages and timestamps
      */
     stashList(): IStash[] {
       return [...this._stashes];
@@ -146,7 +143,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Create a stash from the current working directory changes.
-     * Requirement 7.1: Stash saves uncommitted changes with optional message
      *
      * @param message - Optional stash message
      * @param _options - Stash options (includeUntracked, keepIndex)
@@ -181,7 +177,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Apply a stash to the working directory without removing it from the list.
-     * Requirement 7.4: Apply restores stash changes without removing from list
      *
      * @param index - The stash index to apply
      */
@@ -204,7 +199,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Pop a stash - apply and remove from the list.
-     * Requirement 7.5: Pop restores stash changes and removes from list
      *
      * @param index - The stash index to pop
      */
@@ -222,7 +216,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Drop a stash without applying it.
-     * Requirement 7.6: Delete stash after confirmation
      *
      * @param index - The stash index to drop
      */
@@ -298,8 +291,6 @@ describe('Stash Round-Trip Property Tests', () => {
   describe('Property 18: Stash Round-Trip', () => {
     /**
      * Property: Stashing changes and then applying restores the exact same changes.
-     *
-     * **Validates: Requirements 7.1, 7.4**
      */
     it('Property: Stash and apply restores exact same changes', () => {
       fc.assert(
@@ -349,8 +340,6 @@ describe('Stash Round-Trip Property Tests', () => {
     /**
      * Property: Stashing changes and then popping restores the exact same changes
      * and removes the stash from the list.
-     *
-     * **Validates: Requirements 7.1, 7.5**
      */
     it('Property: Stash and pop restores changes and removes stash', () => {
       fc.assert(
@@ -388,8 +377,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Apply keeps the stash in the list while pop removes it.
-     *
-     * **Validates: Requirements 7.4, 7.5**
      */
     it('Property: Apply keeps stash in list, pop removes it', () => {
       fc.assert(
@@ -425,8 +412,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Stash messages are preserved correctly.
-     *
-     * **Validates: Requirements 7.1**
      */
     it('Property: Stash messages are preserved correctly', () => {
       fc.assert(
@@ -452,8 +437,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Default stash message is generated when no message is provided.
-     *
-     * **Validates: Requirements 7.1**
      */
     it('Property: Default stash message is generated when none provided', () => {
       fc.assert(
@@ -476,8 +459,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Multiple stash and apply operations maintain consistency.
-     *
-     * **Validates: Requirements 7.1, 7.4**
      */
     it('Property: Multiple stash and apply operations maintain consistency', () => {
       fc.assert(
@@ -534,8 +515,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Stash round-trip preserves file paths exactly.
-     *
-     * **Validates: Requirements 7.1, 7.4, 7.5**
      */
     it('Property: Stash round-trip preserves file paths exactly', () => {
       fc.assert(
@@ -566,8 +545,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Stash round-trip preserves file status codes exactly.
-     *
-     * **Validates: Requirements 7.1, 7.4, 7.5**
      */
     it('Property: Stash round-trip preserves file status codes exactly', () => {
       fc.assert(
@@ -613,8 +590,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Stashing with no changes should fail.
-     *
-     * **Validates: Requirements 7.1**
      */
     it('Property: Stashing with no changes should fail', () => {
       fc.assert(
@@ -638,8 +613,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Applying non-existent stash should fail.
-     *
-     * **Validates: Requirements 7.4**
      */
     it('Property: Applying non-existent stash should fail', () => {
       fc.assert(
@@ -664,8 +637,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Popping non-existent stash should fail.
-     *
-     * **Validates: Requirements 7.5**
      */
     it('Property: Popping non-existent stash should fail', () => {
       fc.assert(
@@ -693,8 +664,6 @@ describe('Stash Round-Trip Property Tests', () => {
 
     /**
      * Property: Stash indices are re-indexed after pop.
-     *
-     * **Validates: Requirements 7.5**
      */
     it('Property: Stash indices are re-indexed after pop', () => {
       fc.assert(

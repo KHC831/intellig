@@ -4,8 +4,6 @@
  * This module provides functionality to generate visual graph data from commit history,
  * showing branch and merge relationships. Each commit is assigned a column position
  * (lane) and lines connecting to parent commits.
- *
- * Requirements: 9.1 (Log) - Display commit history with graph visualization
  */
 
 import { ICommit } from '../services/interfaces/IGitService';
@@ -113,8 +111,6 @@ function findNextAvailableLane(state: ILaneState): number {
  * @param branchMap - Optional map of commit hash to branch names
  * @param tagMap - Optional map of commit hash to tag names
  * @returns Array of commit nodes with graph visualization data
- *
- * Requirements: 9.1 (Log) - Display commit history with graph visualization
  */
 export function generateCommitGraph(
   commits: ICommit[],
@@ -241,6 +237,67 @@ export function generateCommitGraph(
   }
 
   return result;
+}
+
+/**
+ * Compute the set of commit hashes that are terminal nodes (branch tips).
+ * A terminal node is a commit that is NOT a parent of any other commit in the graph.
+ *
+ * @param nodes - Array of commit nodes
+ * @returns Set of commit hashes that have no children in the graph
+ */
+export function computeTerminalNodes(nodes: ICommitNode[]): Set<string> {
+  // Build a set of all hashes that appear as parents of other commits
+  const parentHashes = new Set<string>();
+  for (const node of nodes) {
+    for (const parentHash of node.commit.parents) {
+      parentHashes.add(parentHash);
+    }
+  }
+
+  // Terminal nodes are commits whose hash does NOT appear as a parent
+  const terminalNodes = new Set<string>();
+  for (const node of nodes) {
+    if (!parentHashes.has(node.commit.hash)) {
+      terminalNodes.add(node.commit.hash);
+    }
+  }
+
+  return terminalNodes;
+}
+
+/**
+ * Build a map of commit hash -> number of child commits in the graph.
+ * For each commit, counts how many other commits in the graph list it as a parent.
+ *
+ * @param nodes - Array of commit nodes
+ * @returns Map of commit hash to child count
+ */
+export function computeChildCountMap(nodes: ICommitNode[]): Map<string, number> {
+  const childCountMap = new Map<string, number>();
+
+  for (const node of nodes) {
+    for (const parentHash of node.commit.parents) {
+      const currentCount = childCountMap.get(parentHash) || 0;
+      childCountMap.set(parentHash, currentCount + 1);
+    }
+  }
+
+  return childCountMap;
+}
+
+/**
+ * Determine if a commit is a branch split point.
+ * A branch split occurs when a commit's hash appears as a parent
+ * of more than one other commit in the loaded graph.
+ *
+ * @param commitHash - The hash of the commit to check
+ * @param childCountMap - Map of commit hash to child count (from computeChildCountMap)
+ * @returns True if the commit has more than one child in the graph
+ */
+export function isBranchSplit(commitHash: string, childCountMap: Map<string, number>): boolean {
+  const count = childCountMap.get(commitHash) || 0;
+  return count > 1;
 }
 
 /**

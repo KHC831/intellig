@@ -7,8 +7,6 @@
  * - Default widths when no workspace state is provided
  * - getPanelWidths() returning current state
  * - _getThreePanelHtmlContent() using persisted widths as defaults
- *
- * Requirements: 1.3, 1.4
  */
 
 import '../../../test/setup';

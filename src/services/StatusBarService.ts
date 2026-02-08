@@ -1,8 +1,6 @@
 /**
  * Status Bar Service implementation.
  * Provides status bar integration for displaying Git branch and sync information.
- *
- * Requirements: 4.1, 17.8
  */
 
 import * as vscode from 'vscode';
@@ -28,7 +26,6 @@ const DEFAULT_OPTIONS: Required<IStatusBarDisplayOptions> = {
  * Status Bar Service implementation.
  * Manages the Git status bar item that displays branch and sync information.
  *
- * Requirements:
  * - 4.1: Display current branch name in status bar
  * - 17.8: Display progress and status notifications similar to IntelliJ
  */
@@ -70,7 +67,6 @@ export class StatusBarService implements IStatusBarService {
     this._disposables.push(this._onDidChangeState);
 
     // Create status bar item
-    // Requirement 4.1: Display current branch name in status bar
     this._statusBarItem = vscode.window.createStatusBarItem(
       this._options.alignment,
       this._options.priority
@@ -132,7 +128,6 @@ export class StatusBarService implements IStatusBarService {
 
   /**
    * Update the status bar with the current repository state.
-   * Requirement 4.1: Display current branch name in status bar
    *
    * @param repository - The repository to display status for
    */
@@ -202,7 +197,6 @@ export class StatusBarService implements IStatusBarService {
 
   /**
    * Update the status bar display based on current state.
-   * Requirements:
    * - 4.1: Display current branch name in status bar
    * - Show ahead/behind counts if the branch has an upstream (e.g., "main ↑2 ↓1")
    */

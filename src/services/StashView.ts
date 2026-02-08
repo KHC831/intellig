@@ -2,8 +2,6 @@
  * Stash View implementation.
  * Provides stash management UI with list display, context menu actions, and creation dialog.
  * Uses VS Code's QuickPick API for a native-feeling experience.
- *
- * Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
  */
 
 import * as vscode from 'vscode';
@@ -31,7 +29,6 @@ interface IStashQuickPickItem extends vscode.QuickPickItem {
  * Provides stash management functionality including list display, context menu actions,
  * and stash creation dialog.
  *
- * Requirements:
  * - 7.1: Create Git stash with optional message
  * - 7.2: Offer options to include untracked files and keep index
  * - 7.3: Display all stashes with messages and timestamps
@@ -85,7 +82,6 @@ export class StashView implements IStashView {
 
   /**
    * Show the stash list view.
-   * Requirement 7.3: Display all stashes with messages and timestamps
    *
    * @param repository - The repository to show stashes for
    */
@@ -103,7 +99,6 @@ export class StashView implements IStashView {
 
   /**
    * Refresh the stash list.
-   * Requirement 7.3: Display all stashes with messages and timestamps
    */
   async refresh(): Promise<void> {
     if (!this._repository) {
@@ -163,8 +158,6 @@ export class StashView implements IStashView {
 
   /**
    * Show the stash creation dialog.
-   * Requirement 7.1: Create Git stash with optional message
-   * Requirement 7.2: Offer options to include untracked files and keep index
    *
    * @param repository - The repository to create stash in
    * @returns Promise resolving to the creation result
@@ -214,7 +207,6 @@ export class StashView implements IStashView {
 
   /**
    * Show stash options dialog.
-   * Requirement 7.2: Offer options to include untracked files and keep index
    */
   private async _showStashOptionsDialog(): Promise<IStashOptions | undefined> {
     const options: vscode.QuickPickItem[] = [
@@ -253,7 +245,6 @@ export class StashView implements IStashView {
 
   /**
    * Apply a stash to the working directory.
-   * Requirement 7.4: Apply stash contents to working directory
    *
    * @param index - The stash index to apply
    * @returns Promise resolving to the action result
@@ -288,7 +279,6 @@ export class StashView implements IStashView {
 
   /**
    * Pop a stash (apply and remove).
-   * Requirement 7.5: Apply and remove stash from list
    *
    * @param index - The stash index to pop
    * @returns Promise resolving to the action result
@@ -326,7 +316,6 @@ export class StashView implements IStashView {
 
   /**
    * Drop a stash after confirmation.
-   * Requirement 7.6: Delete stash after confirmation
    *
    * @param index - The stash index to drop
    * @returns Promise resolving to the action result
@@ -375,7 +364,6 @@ export class StashView implements IStashView {
 
   /**
    * View a stash's contents as diff.
-   * Requirement 7.7: Display stash contents as diff
    *
    * @param index - The stash index to view
    * @returns Promise resolving to the stash diffs
@@ -471,7 +459,6 @@ export class StashView implements IStashView {
 
   /**
    * Show context menu for a stash.
-   * Requirement 7.4, 7.5, 7.6, 7.7: Context menu with apply, pop, drop, view
    *
    * @param index - The stash index to show menu for
    * @returns Promise resolving to the action result
@@ -549,7 +536,6 @@ export class StashView implements IStashView {
 
   /**
    * Show the stash list as a quick pick.
-   * Requirement 7.3: Display all stashes with messages and timestamps
    */
   private async _showStashList(): Promise<void> {
     if (!this._repository) {
@@ -613,7 +599,6 @@ export class StashView implements IStashView {
 
   /**
    * Build quick pick items from stashes.
-   * Requirement 7.3: Display all stashes with messages and timestamps
    */
   private _buildStashQuickPickItems(): IStashQuickPickItem[] {
     const items: IStashQuickPickItem[] = [];

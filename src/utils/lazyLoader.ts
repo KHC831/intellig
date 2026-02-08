@@ -3,8 +3,6 @@
  *
  * This module provides utilities for lazy loading and pagination of large data sets,
  * particularly useful for handling large Git repositories with extensive histories.
- *
- * Requirements: 9.9 (Log) - Implement lazy loading for large repositories
  */
 
 /**

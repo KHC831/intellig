@@ -2,7 +2,7 @@
  * Tab State Preservation Property Tests
  *
  * NOTE: These tests have been removed as part of the migration from the tabbed
- * interface to the 2-panel layout (Requirement 6.1). The tabbed interface
+ * interface to the 2-panel layout. The tabbed interface
  * (Local Changes, Log, Console tabs) has been replaced by the unified
  * Graph Panel and Details Panel layout.
  *

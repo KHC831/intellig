@@ -92,7 +92,6 @@ function createMockMemento(): import('vscode').Memento {
 describe('Feature: intellig-layout - Two Panel Layout Property Tests', () => {
   describe('Property 2: Panel resize minimum width constraint', () => {
     /**
-     * **Validates: Requirements 1.3**
      *
      * For any container width (≥ 200px), any initial panel width distribution,
      * and any drag delta applied to a divider, the resulting panel widths SHALL
@@ -140,7 +139,6 @@ describe('Feature: intellig-layout - Two Panel Layout Property Tests', () => {
 
   describe('Property 3: Panel width persistence round-trip', () => {
     /**
-     * **Validates: Requirements 1.4**
      *
      * For any valid panel width ratio tuple [a, b] where each value is
      * between 5 and 90 and they sum to 100, saving the tuple to workspace
@@ -337,7 +335,6 @@ describe('Feature: intellig-layout - Two Panel HTML Structure Property Tests', (
 
   describe('Property 1: Two-panel HTML structure', () => {
     /**
-     * **Validates: Requirements 1.1**
      *
      * For any valid state (with hasRepository: true), the generated
      * HTML SHALL contain exactly two panel container elements (graph-panel,

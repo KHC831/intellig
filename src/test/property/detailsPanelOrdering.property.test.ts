@@ -9,8 +9,6 @@ import { FileStatus } from '../../services/interfaces/IGitService';
  * Property-based tests for Details Panel Section Ordering.
  * Feature: git-graph-details-improvements, Property 6: Changed files section appears before metadata
  *
- * **Validates: Requirement 5.1**
- *
  * Property Description:
  * For any commit details, in the HTML output of _getDetailsPanelHtml(),
  * the `details-changed-files` section SHALL appear before the `details-metadata`
@@ -107,8 +105,6 @@ describe('Details Panel Section Ordering Property Tests', () => {
     /**
      * Property: The details-changed-files section appears before the details-metadata
      * section in the HTML output for any commit details.
-     *
-     * **Validates: Requirement 5.1**
      */
     it('Property: details-changed-files section appears before details-metadata section', () => {
       fc.assert(

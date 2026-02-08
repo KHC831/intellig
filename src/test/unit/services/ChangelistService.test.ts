@@ -11,8 +11,6 @@ import { Uri } from '../../mocks/vscode';
 /**
  * Unit tests for ChangelistService.
  * Tests the changelist functionality for organizing uncommitted changes.
- *
- * Requirements: 2.2, 2.3, 2.4, 2.5
  */
 describe('ChangelistService', () => {
   let changelistService: ChangelistService;
@@ -103,7 +101,6 @@ describe('ChangelistService', () => {
 
   describe('getDefaultChangelist()', () => {
     /**
-     * Requirement 2.2: Default changelist always exists
      */
     it('should always return a default changelist', () => {
       const defaultChangelist = changelistService.getDefaultChangelist(mockRepo);
@@ -123,7 +120,6 @@ describe('ChangelistService', () => {
 
   describe('createChangelist()', () => {
     /**
-     * Requirement 2.3: Create custom changelists with names
      */
     it('should create a new changelist with the given name', () => {
       const changelist = changelistService.createChangelist(mockRepo, 'My Feature');
@@ -182,7 +178,6 @@ describe('ChangelistService', () => {
 
   describe('deleteChangelist()', () => {
     /**
-     * Requirement 2.5: Delete changelists (files move to default)
      */
     it('should delete a changelist', () => {
       const changelist = changelistService.createChangelist(mockRepo, 'To Delete');
@@ -279,7 +274,6 @@ describe('ChangelistService', () => {
 
   describe('moveToChangelist()', () => {
     /**
-     * Requirement 2.4: Move files between changelists
      */
     it('should move files to a changelist', () => {
       const changelist = changelistService.createChangelist(mockRepo, 'Target');

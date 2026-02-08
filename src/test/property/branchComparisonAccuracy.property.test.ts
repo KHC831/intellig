@@ -6,7 +6,6 @@ import { ICommit, IAuthor, IBranchComparison } from '../../services/interfaces/I
  * Property-based tests for Branch Comparison Accuracy.
  * Feature: intellig-vscode, Property 12: Branch Comparison Accuracy
  *
- * **Validates: Requirements 4.11, 15.2, 15.3, 15.6**
  *
  * Property Description:
  * For any two branches, the comparison view SHALL correctly identify commits unique
@@ -168,7 +167,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Perform the full branch comparison.
-     * Requirements: 4.11, 15.2, 15.3, 15.6
      */
     compareBranches(): IBranchComparison {
       const commitsAhead = this.getCommitsAhead();
@@ -188,8 +186,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
   describe('Property 12: Branch Comparison Accuracy', () => {
     /**
      * Property: Commits unique to branch1 are correctly identified as "ahead".
-     *
-     * **Validates: Requirements 15.2, 15.6**
      */
     it('Property: Commits unique to branch1 are correctly identified as ahead', () => {
       fc.assert(
@@ -245,8 +241,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Commits unique to branch2 are correctly identified as "behind".
-     *
-     * **Validates: Requirements 15.2, 15.6**
      */
     it('Property: Commits unique to branch2 are correctly identified as behind', () => {
       fc.assert(
@@ -302,8 +296,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Files that differ between branches are correctly identified.
-     *
-     * **Validates: Requirements 15.3**
      */
     it('Property: Files that differ between branches are correctly identified', () => {
       fc.assert(
@@ -357,8 +349,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Ahead/behind counts are non-negative integers.
-     *
-     * **Validates: Requirements 15.6**
      */
     it('Property: Ahead/behind counts are non-negative integers', () => {
       fc.assert(
@@ -410,8 +400,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Identical branches have zero ahead/behind counts and no changed files.
-     *
-     * **Validates: Requirements 4.11, 15.2, 15.3, 15.6**
      */
     it('Property: Identical branches have zero differences', () => {
       fc.assert(
@@ -453,8 +441,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Comparison is asymmetric - swapping branches swaps ahead/behind.
-     *
-     * **Validates: Requirements 15.2, 15.6**
      */
     it('Property: Swapping branches swaps ahead/behind counts', () => {
       fc.assert(
@@ -505,8 +491,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Changed files are symmetric - same files differ regardless of comparison direction.
-     *
-     * **Validates: Requirements 15.3**
      */
     it('Property: Changed files are symmetric', () => {
       fc.assert(
@@ -554,8 +538,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: No commit appears in both ahead and behind lists.
-     *
-     * **Validates: Requirements 15.2**
      */
     it('Property: No commit appears in both ahead and behind lists', () => {
       fc.assert(
@@ -597,8 +579,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Common ancestor commits are excluded from both ahead and behind.
-     *
-     * **Validates: Requirements 15.2**
      */
     it('Property: Common ancestor commits are excluded from comparison', () => {
       fc.assert(
@@ -650,8 +630,6 @@ describe('Branch Comparison Accuracy Property Tests', () => {
 
     /**
      * Property: Full comparison result is consistent and complete.
-     *
-     * **Validates: Requirements 4.11, 15.2, 15.3, 15.6**
      */
     it('Property: Full comparison result is consistent and complete', () => {
       fc.assert(

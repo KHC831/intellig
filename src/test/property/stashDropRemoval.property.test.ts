@@ -6,13 +6,11 @@ import { IStash, IFileStatus, StatusCode } from '../../services/interfaces/IGitS
  * Property-based tests for Stash Drop Removal.
  * Feature: intellig-vscode, Property 20: Stash Drop Removal
  *
- * **Validates: Requirements 7.6**
  *
  * Property Description:
  * For any stash, dropping it SHALL remove it from the stash list and it SHALL
  * no longer be recoverable through the extension.
  *
- * Requirements:
  * - 7.6: WHEN a user selects 'Drop Stash', THE Extension SHALL delete the stash after confirmation
  */
 describe('Stash Drop Removal Property Tests', () => {
@@ -106,7 +104,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Get the list of stashes.
-     * Requirement 7.3: Display all stashes with messages and timestamps
      */
     stashList(): IStash[] {
       return [...this._stashes];
@@ -167,7 +164,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Drop a stash without applying it.
-     * Requirement 7.6: Delete stash after confirmation
      *
      * @param index - The stash index to drop
      */
@@ -205,8 +201,6 @@ describe('Stash Drop Removal Property Tests', () => {
   describe('Property 20: Stash Drop Removal', () => {
     /**
      * Property: Dropping a stash removes it from the stash list.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping a stash removes it from the stash list', () => {
       fc.assert(
@@ -238,8 +232,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropped stash is no longer recoverable through the extension.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropped stash is no longer recoverable through the extension', () => {
       fc.assert(
@@ -279,8 +271,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Stash indices are re-indexed after drop.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Stash indices are re-indexed after drop', () => {
       fc.assert(
@@ -327,8 +317,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping non-existent stash should fail.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping non-existent stash should fail', () => {
       fc.assert(
@@ -356,8 +344,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping a stash does not affect other stashes.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping a stash does not affect other stashes', () => {
       fc.assert(
@@ -414,8 +400,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping all stashes results in empty stash list.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping all stashes results in empty stash list', () => {
       fc.assert(
@@ -450,8 +434,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping a stash from the middle re-indexes correctly.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping a stash from the middle re-indexes correctly', () => {
       fc.assert(
@@ -490,8 +472,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping the first stash (index 0) re-indexes correctly.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping the first stash (index 0) re-indexes correctly', () => {
       fc.assert(
@@ -535,8 +515,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping the last stash re-indexes correctly.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping the last stash re-indexes correctly', () => {
       fc.assert(
@@ -580,8 +558,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropped stash data is completely removed from storage.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropped stash data is completely removed from storage', () => {
       fc.assert(
@@ -628,8 +604,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Dropping stash on empty list should fail.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Dropping stash on empty list should fail', () => {
       fc.assert(
@@ -653,8 +627,6 @@ describe('Stash Drop Removal Property Tests', () => {
 
     /**
      * Property: Multiple consecutive drops work correctly.
-     *
-     * **Validates: Requirements 7.6**
      */
     it('Property: Multiple consecutive drops work correctly', () => {
       fc.assert(

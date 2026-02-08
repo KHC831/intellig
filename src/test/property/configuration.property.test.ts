@@ -11,7 +11,6 @@ import { getDefaultConfiguration } from '../../services/ConfigurationService';
  * Property-based tests for Configuration Persistence.
  * Feature: intellig-vscode, Property 47: Configuration Persistence
  *
- * **Validates: Requirements 16.1-16.7**
  *
  * Property Description:
  * For any configuration setting changed by the user, the setting SHALL persist
@@ -190,8 +189,6 @@ describe('Configuration Persistence Property Tests', () => {
     /**
      * Property: For any configuration setting changed by the user,
      * the setting SHALL persist across VS Code sessions.
-     *
-     * **Validates: Requirements 16.1-16.7**
      */
     it('Property: Any configuration setting persists across simulated sessions', () => {
       fc.assert(
@@ -226,8 +223,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Configuration values are applied consistently when retrieved.
-     *
-     * **Validates: Requirements 16.1-16.7**
      */
     it('Property: Configuration values are applied consistently on retrieval', () => {
       fc.assert(
@@ -273,8 +268,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Updating a single setting does not affect other settings.
-     *
-     * **Validates: Requirements 16.1-16.7**
      */
     it('Property: Updating one setting does not affect other settings', () => {
       fc.assert(
@@ -322,8 +315,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Default values are returned for unset configuration keys.
-     *
-     * **Validates: Requirements 16.1**
      */
     it('Property: Default values are returned for unset configuration keys', () => {
       fc.assert(
@@ -351,8 +342,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Sequence of updates results in final value being persisted.
-     *
-     * **Validates: Requirements 16.1-16.7**
      */
     it('Property: Sequence of updates results in final value being persisted', () => {
       fc.assert(
@@ -395,8 +384,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Boolean settings toggle correctly and persist.
-     *
-     * **Validates: Requirements 16.2, 16.3**
      */
     it('Property: Boolean settings toggle correctly and persist', () => {
       const booleanKeys: (keyof IExtensionConfiguration)[] = [
@@ -445,8 +432,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Enum settings accept only valid values and persist.
-     *
-     * **Validates: Requirements 16.5, 16.6**
      */
     it('Property: Enum settings accept valid values and persist', () => {
       fc.assert(
@@ -491,8 +476,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Color settings accept valid hex colors and persist.
-     *
-     * **Validates: Requirements 16.1**
      */
     it('Property: Color settings accept valid hex colors and persist', () => {
       const colorKeys: (keyof IExtensionConfiguration)[] = [
@@ -526,8 +509,6 @@ describe('Configuration Persistence Property Tests', () => {
 
     /**
      * Property: Numeric settings accept valid ranges and persist.
-     *
-     * **Validates: Requirements 16.1**
      */
     it('Property: Numeric settings accept valid values and persist', () => {
       fc.assert(

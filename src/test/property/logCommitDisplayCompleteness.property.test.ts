@@ -6,13 +6,11 @@ import { ICommit, IAuthor, IBranch, ITag } from '../../services/interfaces/IGitS
  * Property-based tests for Log Commit Display Completeness.
  * Feature: intellig-vscode, Property 25: Log Commit Display Completeness
  *
- * **Validates: Requirements 9.2 (Log)**
  *
  * Property Description:
  * For any commit in the log, the display SHALL include the commit hash, author name,
  * date, message summary, and any associated branch/tag labels.
  *
- * Requirements:
  * - 9.2: WHEN viewing the log, THE Extension SHALL display for each commit: hash,
  *        author, date, message summary, and branch/tag labels
  */
@@ -184,7 +182,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Generate the display entry for a commit.
-     * Requirement 9.2: Display hash, author, date, message summary, and branch/tag labels.
      *
      * @param commit - The commit to display
      * @returns The display entry with all required fields
@@ -209,7 +206,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Get all commit display entries for the log view.
-     * Requirement 9.2: Display all commits with their information.
      *
      * @returns Array of display entries for all commits
      */
@@ -219,7 +215,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Validate that a display entry contains all required fields.
-     * Requirement 9.2: Each commit must display hash, author, date, message summary.
      *
      * @param entry - The display entry to validate
      * @returns True if all required fields are present and valid
@@ -274,8 +269,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
   describe('Property 25: Log Commit Display Completeness', () => {
     /**
      * Property: Every commit display entry includes the commit hash.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Every commit display entry includes the commit hash', () => {
       fc.assert(
@@ -303,8 +296,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Every commit display entry includes the short hash.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Every commit display entry includes the short hash', () => {
       fc.assert(
@@ -331,8 +322,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Every commit display entry includes the author name.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Every commit display entry includes the author name', () => {
       fc.assert(
@@ -359,8 +348,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Every commit display entry includes the date.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Every commit display entry includes the date', () => {
       fc.assert(
@@ -388,8 +375,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Every commit display entry includes the message summary.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Every commit display entry includes the message summary', () => {
       fc.assert(
@@ -422,8 +407,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Commit display entry includes branch labels for associated branches.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Commit display entry includes branch labels for associated branches', () => {
       fc.assert(
@@ -477,8 +460,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Commit display entry includes tag labels for associated tags.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Commit display entry includes tag labels for associated tags', () => {
       fc.assert(
@@ -530,8 +511,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Display entry validation passes for all valid commits.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Display entry validation passes for all valid commits', () => {
       fc.assert(
@@ -553,8 +532,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Commits without branches or tags have empty label arrays.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Commits without branches or tags have empty label arrays', () => {
       fc.assert(
@@ -578,8 +555,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Multiple commits all have complete display entries.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Multiple commits all have complete display entries', () => {
       fc.assert(
@@ -630,8 +605,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Display entries correctly associate branches with their commits.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Display entries correctly associate branches with their commits', () => {
       fc.assert(
@@ -694,8 +667,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Display entries correctly associate tags with their commits.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Display entries correctly associate tags with their commits', () => {
       fc.assert(
@@ -756,8 +727,6 @@ describe('Log Commit Display Completeness Property Tests', () => {
 
     /**
      * Property: Multi-line commit messages have only first line as summary.
-     *
-     * **Validates: Requirements 9.2**
      */
     it('Property: Multi-line commit messages have only first line as summary', () => {
       fc.assert(

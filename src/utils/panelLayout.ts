@@ -2,9 +2,6 @@
  * Panel layout utility functions for the 2-panel Git Tool Window.
  * Contains pure functions for panel width constraint logic and
  * panel width persistence helpers.
- *
- * Requirements: 1.3 — Panel resize with minimum width of 100px per panel.
- * Requirements: 1.4 — Persist panel width ratios across VS Code sessions.
  */
 
 import * as vscode from 'vscode';
@@ -34,8 +31,6 @@ const MIN_CONTAINER_WIDTH = MIN_PANEL_WIDTH * PANEL_COUNT; // 200px
  * @param containerWidth - The total available width in pixels.
  * @param widths - The requested widths for [Graph, Details] panels in pixels.
  * @returns A tuple of two panel widths that satisfy all constraints.
- *
- * Validates: Requirements 1.3
  */
 export function clampPanelWidths(
   containerWidth: number,
@@ -138,7 +133,6 @@ function redistributeDeficit(
   }
 }
 
-
 /** Workspace state key for persisted panel widths. */
 const PANEL_WIDTHS_KEY = 'intellig.panelWidths';
 
@@ -182,8 +176,6 @@ function isValidPanelWidths(value: unknown): value is [number, number] {
  *
  * @param state - The VS Code Memento (workspace state) to persist to.
  * @param widths - The panel width ratios as percentages, e.g. [60, 40].
- *
- * Validates: Requirements 1.4
  */
 export function savePanelWidths(
   state: vscode.Memento,
@@ -203,8 +195,6 @@ export function savePanelWidths(
  *
  * @param state - The VS Code Memento (workspace state) to load from.
  * @returns A valid panel width ratio tuple.
- *
- * Validates: Requirements 1.4
  */
 export function loadPanelWidths(
   state: vscode.Memento

@@ -6,13 +6,11 @@ import { ICommit, IAuthor, IDiff, FileStatus } from '../../services/interfaces/I
  * Property-based tests for Log Commit Details.
  * Feature: intellig-vscode, Property 26: Log Commit Details
  *
- * **Validates: Requirements 9.3 (Log)**
  *
  * Property Description:
  * For any selected commit, the details view SHALL display the full commit message
  * and list of all changed files.
  *
- * Requirements:
  * - 9.3: WHEN a user selects a commit, THE Extension SHALL display the full commit
  *        details including changed files
  */
@@ -177,7 +175,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Get the full commit message (subject + body).
-     * Requirement 9.3: Display full commit details.
      *
      * @param commit - The commit
      * @returns The full commit message
@@ -191,7 +188,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Get the commit details view for a selected commit.
-     * Requirement 9.3: Display full commit details including changed files.
      *
      * @param commitHash - The hash of the selected commit
      * @returns The commit details view data, or undefined if commit not found
@@ -225,7 +221,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Validate that the commit details view contains all required information.
-     * Requirement 9.3: Full commit details including changed files.
      *
      * @param details - The commit details view to validate
      * @returns True if all required fields are present and valid
@@ -303,8 +298,6 @@ describe('Log Commit Details Property Tests', () => {
   describe('Property 26: Log Commit Details', () => {
     /**
      * Property: Commit details view displays the full commit message.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view displays the full commit message', () => {
       fc.assert(
@@ -343,8 +336,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view displays all changed files.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view displays all changed files', () => {
       fc.assert(
@@ -403,8 +394,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view includes file status for each changed file.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view includes file status for each changed file', () => {
       fc.assert(
@@ -458,8 +447,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view preserves renamed file information.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view preserves renamed file information', () => {
       fc.assert(
@@ -504,8 +491,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view validation passes for all valid commits.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view validation passes for all valid commits', () => {
       fc.assert(
@@ -535,8 +520,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit with no changed files shows empty file list.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit with no changed files shows empty file list', () => {
       fc.assert(
@@ -568,8 +551,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view includes author and committer information.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view includes author and committer information', () => {
       fc.assert(
@@ -616,8 +597,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view includes date information.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view includes date information', () => {
       fc.assert(
@@ -656,8 +635,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Commit details view includes parent commit references.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Commit details view includes parent commit references', () => {
       fc.assert(
@@ -694,8 +671,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Multi-line commit messages are fully displayed.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Multi-line commit messages are fully displayed', () => {
       fc.assert(
@@ -747,8 +722,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Binary file changes are indicated in the file list.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Binary file changes are indicated in the file list', () => {
       fc.assert(
@@ -785,8 +758,6 @@ describe('Log Commit Details Property Tests', () => {
 
     /**
      * Property: Non-existent commit returns undefined details view.
-     *
-     * **Validates: Requirements 9.3**
      */
     it('Property: Non-existent commit returns undefined details view', () => {
       fc.assert(

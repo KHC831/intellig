@@ -4,8 +4,6 @@
  * This module provides types, configuration, and rendering functions for
  * converting ICommitNode[] data into SVG markup for each commit row,
  * including pass-through lanes and inter-row connections.
- *
- * Requirements: 4.1, 4.2, 4.4, 5.1, 7.1, 2.1, 2.2
  */
 
 import { ICommitNode, getMaxGraphColumn, getColumnColor } from './commitGraph';
@@ -17,13 +15,13 @@ import { ICommitNode, getMaxGraphColumn, getColumnColor } from './commitGraph';
  * when generating SVG markup for the commit graph.
  */
 export interface IGraphRenderConfig {
-  /** Pixels between adjacent lanes (default: 20). Requirement 4.1 */
+  /** Pixels between adjacent lanes (default: 20) */
   columnWidth: number;
-  /** Pixels per commit row height (default: 32). Requirement 4.2 */
+  /** Pixels per commit row height (default: 32) */
   rowHeight: number;
   /** Commit circle radius in pixels (default: 6) */
   nodeRadius: number;
-  /** Horizontal padding on each side of the graph area in pixels (default: 10). Requirement 4.4 */
+  /** Horizontal padding on each side of the graph area in pixels (default: 10) */
   padding: number;
   /** Stroke width for all lines in pixels (default: 2) */
   lineWidth: number;
@@ -40,10 +38,10 @@ export type ActiveLaneMap = Map<number, Set<number>>;
 /**
  * Default graph rendering configuration matching IntelliJ IDEA's style.
  *
- * - columnWidth: 20px between lanes (Requirement 4.1: at least 20px)
- * - rowHeight: 32px per row (Requirement 4.2: at least 32px)
+ * - columnWidth: 20px between lanes
+ * - rowHeight: 32px per row
  * - nodeRadius: 4px commit circles
- * - padding: 10px horizontal padding (Requirement 4.4: at least 10px)
+ * - padding: 10px horizontal padding
  * - lineWidth: 2px stroke width
  */
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
@@ -66,8 +64,6 @@ export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
  * @param column - The graph column index (0-based lane index)
  * @param config - The graph render configuration
  * @returns The x-coordinate in pixels for the center of the given column
- *
- * Requirements: 5.1 (deterministic lane positioning)
  */
 export function getColumnX(column: number, config: IGraphRenderConfig): number {
   return column * config.columnWidth + config.padding + config.columnWidth / 2;
@@ -94,8 +90,6 @@ export function getColumnX(column: number, config: IGraphRenderConfig): number {
  *
  * @param nodes - Array of ICommitNode in topological order (newest first)
  * @returns Map from row index to the set of active lane indices at that row
- *
- * Requirements: 7.1, 2.1, 2.2
  */
 export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
   const result: ActiveLaneMap = new Map();
@@ -233,8 +227,6 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
  * @param nodes - Array of ICommitNode to measure
  * @param config - The graph render configuration
  * @returns The total width in pixels, or 0 if the nodes array is empty
- *
- * Requirements: 4.3
  */
 export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConfig): number {
   if (nodes.length === 0) {
@@ -244,7 +236,6 @@ export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConf
   return (maxCol + 1) * config.columnWidth + config.padding * 2;
 }
 
-
 /**
  * Check whether a lane index is valid for rendering.
  *
@@ -253,8 +244,6 @@ export function computeGraphWidth(nodes: ICommitNode[], config: IGraphRenderConf
  *
  * @param lane - The lane index to validate
  * @returns True if the lane index is valid for rendering
- *
- * Requirements: 7.3
  */
 function isValidLane(lane: number): boolean {
   return Number.isFinite(lane) && lane >= 0 && lane <= 1000;
@@ -276,15 +265,17 @@ function isValidLane(lane: number): boolean {
  * @param rowIndex - The row index of this commit (0-based)
  * @param activeLanes - Set of lane indices that are active at this row
  * @param config - The graph render configuration
+ * @param isTerminal - Whether this commit is a terminal node (branch tip with no children)
+ * @param isBranchSplitPoint - Whether this commit is a branch split point (has multiple children)
  * @returns An SVG string for this commit row
- *
- * Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.5, 5.1, 7.3
  */
 export function renderGraphSvg(
   node: ICommitNode,
   rowIndex: number,
   activeLanes: Set<number>,
-  config: IGraphRenderConfig
+  config: IGraphRenderConfig,
+  isTerminal: boolean = false,
+  isBranchSplitPoint: boolean = false
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;

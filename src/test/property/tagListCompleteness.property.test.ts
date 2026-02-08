@@ -6,13 +6,11 @@ import { ITag, IAuthor } from '../../services/interfaces/IGitService';
  * Property-based tests for Tag List Completeness.
  * Feature: intellig-vscode, Property 43: Tag List Completeness
  *
- * **Validates: Requirements 13.4**
  *
  * Property Description:
  * For any repository, the tag view SHALL display all local and remote tags
  * with their target commit references.
  *
- * Requirements:
  * - 13.4: WHEN a user views tags, THE Extension SHALL display all local and
  *         remote tags with their target commits
  */
@@ -167,8 +165,6 @@ describe('Tag List Completeness Property Tests', () => {
     /**
      * Get all tags (local and remote combined).
      * This simulates what getTags() should return - all tags visible to the user.
-     *
-     * Requirement 13.4: Display all local and remote tags with their target commits.
      */
     getTags(): ITag[] {
       const allTags = new Map<string, ITag>();
@@ -244,8 +240,6 @@ describe('Tag List Completeness Property Tests', () => {
   describe('Property 43: Tag List Completeness', () => {
     /**
      * Property: All local tags are included in the tag list.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: All local tags are included in the tag list', () => {
       fc.assert(
@@ -282,8 +276,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: All remote tags are included in the tag list.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: All remote tags are included in the tag list', () => {
       fc.assert(
@@ -325,8 +317,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Tag list contains both local and remote tags.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Tag list contains both local and remote tags', () => {
       fc.assert(
@@ -390,8 +380,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Each tag in the list has a valid commit reference.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Each tag in the list has a valid commit reference', () => {
       fc.assert(
@@ -431,8 +419,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Tag list count matches total number of unique tags.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Tag list count matches total number of unique tags', () => {
       fc.assert(
@@ -481,8 +467,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Empty repository returns empty tag list.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Empty repository returns empty tag list', () => {
       fc.assert(
@@ -500,8 +484,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Tags from multiple remotes are all included.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Tags from multiple remotes are all included', () => {
       fc.assert(
@@ -561,8 +543,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Annotated tags preserve all metadata in the list.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Annotated tags preserve all metadata in the list', () => {
       fc.assert(
@@ -610,8 +590,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Lightweight tags have minimal metadata in the list.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Lightweight tags have minimal metadata in the list', () => {
       fc.assert(
@@ -646,8 +624,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Tag names are preserved exactly in the list.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Tag names are preserved exactly in the list', () => {
       fc.assert(
@@ -680,8 +656,6 @@ describe('Tag List Completeness Property Tests', () => {
 
     /**
      * Property: Local tags take precedence over remote tags with same name.
-     *
-     * **Validates: Requirements 13.4**
      */
     it('Property: Local tags take precedence over remote tags with same name', () => {
       fc.assert(

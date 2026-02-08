@@ -6,7 +6,6 @@ import { IMergeResult } from '../../services/interfaces/IGitService';
  * Property-based tests for Merge Commit Creation.
  * Feature: intellig-vscode, Property 10: Merge Commit Creation
  *
- * **Validates: Requirements 4.7**
  *
  * Property Description:
  * For any two branches with divergent histories, merging SHALL create a commit with two parents
@@ -345,8 +344,6 @@ describe('Merge Commit Creation Property Tests', () => {
     /**
      * Merge a branch into the current branch.
      * Returns the merge result with the merge commit hash.
-     *
-     * Requirements: 4.7
      */
     mergeBranch(branchName: string): IMergeResult {
       const currentBranch = this._branches.get(this._head!);
@@ -515,8 +512,6 @@ describe('Merge Commit Creation Property Tests', () => {
   describe('Property 10: Merge Commit Creation', () => {
     /**
      * Property: Merging divergent branches creates a commit with two parents.
-     *
-     * **Validates: Requirements 4.7**
      */
     it('Property: Merging divergent branches creates a commit with two parents', () => {
       fc.assert(
@@ -590,8 +585,6 @@ describe('Merge Commit Creation Property Tests', () => {
 
     /**
      * Property: Fast-forward merge does not create a new commit.
-     *
-     * **Validates: Requirements 4.7**
      */
     it('Property: Fast-forward merge moves branch pointer without new commit', () => {
       fc.assert(
@@ -663,8 +656,6 @@ describe('Merge Commit Creation Property Tests', () => {
 
     /**
      * Property: Merge commit contains changes from both branches.
-     *
-     * **Validates: Requirements 4.7**
      */
     it('Property: Merge commit contains changes from both branches', () => {
       fc.assert(
@@ -736,8 +727,6 @@ describe('Merge Commit Creation Property Tests', () => {
 
     /**
      * Property: Merging the same branch twice is idempotent (already up to date).
-     *
-     * **Validates: Requirements 4.7**
      */
     it('Property: Merging same branch twice is idempotent', () => {
       fc.assert(
@@ -790,8 +779,6 @@ describe('Merge Commit Creation Property Tests', () => {
 
     /**
      * Property: Merge commit is reachable from the current branch history.
-     *
-     * **Validates: Requirements 4.7**
      */
     it('Property: Merge commit is in branch history after merge', () => {
       fc.assert(
@@ -851,8 +838,6 @@ describe('Merge Commit Creation Property Tests', () => {
 
     /**
      * Property: Both parent commits are reachable from merge commit.
-     *
-     * **Validates: Requirements 4.7**
      */
     it('Property: Both parent commits are reachable from merge commit', () => {
       fc.assert(

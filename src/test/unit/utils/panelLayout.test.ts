@@ -6,8 +6,6 @@
  * - Minimum width enforcement (100px per panel)
  * - Sum preservation (widths sum to container width)
  * - Edge cases (small containers, negative widths, zero widths)
- *
- * Requirements: 1.3 — Panel resize with minimum width of 100px per panel.
  */
 
 import * as assert from 'assert';

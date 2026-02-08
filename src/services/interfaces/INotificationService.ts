@@ -1,8 +1,6 @@
 /**
  * Notification Service interface.
  * Provides notification functionality for Git operations.
- *
- * Requirements: 17.8, Error handling scenarios
  */
 
 import * as vscode from 'vscode';
@@ -62,7 +60,6 @@ export type GitOperationType =
  * Notification Service interface.
  * Manages notifications for Git operations including progress, success, and error messages.
  *
- * Requirements:
  * - 17.8: Display progress and status notifications similar to IntelliJ
  * - Error handling: Provide user-friendly error messages with recovery suggestions
  */

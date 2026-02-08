@@ -12,7 +12,6 @@ import {
  * Property-based tests for Rebase Abort Restoration.
  * Feature: intellig-vscode, Property 17: Rebase Abort Restoration
  *
- * **Validates: Requirements 6.8**
  *
  * Property Description:
  * For any interactive rebase that is aborted, the repository SHALL be restored to its exact
@@ -105,8 +104,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
   /**
    * Mock Rebase Service that simulates interactive rebase with abort restoration behavior.
    * This allows us to test abort restoration properties without actual Git operations.
-   *
-   * Requirements: 6.8
    */
   class MockRebaseService {
     private _session: IRebaseSession | undefined;
@@ -240,8 +237,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
     /**
      * Start an interactive rebase session.
      * Captures the pre-rebase state for potential restoration.
-     *
-     * Requirements: 6.8
      */
     startInteractiveRebase(
       onto: string,
@@ -290,8 +285,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
     /**
      * Execute the rebase with the current plan.
      * Creates new commits based on the rebase actions.
-     *
-     * Requirements: 6.8
      */
     executeRebase(): IRebaseResult {
       if (!this._session) {
@@ -355,9 +348,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Abort the rebase and restore the repository to its pre-rebase state.
-     * This is the key behavior for Requirement 6.8.
-     *
-     * Requirements: 6.8
      */
     abortRebase(): void {
       if (!this._session) {
@@ -445,8 +435,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
   describe('Property 17: Rebase Abort Restoration', () => {
     /**
      * Property: Aborting a rebase restores the repository to its pre-rebase state.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Aborting a rebase restores the repository to its pre-rebase state', () => {
       fc.assert(
@@ -500,8 +488,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: All commits that existed before the rebase are preserved after abort.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: All commits that existed before the rebase are preserved after abort', () => {
       fc.assert(
@@ -557,8 +543,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: The branch pointer returns to its original position after abort.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: The branch pointer returns to its original position after abort', () => {
       fc.assert(
@@ -609,8 +593,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Working directory changes are preserved or restored appropriately after abort.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Working directory changes are preserved or restored after abort', () => {
       fc.assert(
@@ -670,8 +652,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Rebase session is cleared after abort.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Rebase session is cleared after abort', () => {
       fc.assert(
@@ -717,8 +697,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Rebased commits are discarded after abort.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Rebased commits are discarded after abort', () => {
       fc.assert(
@@ -760,8 +738,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Abort during edit pause restores pre-rebase state.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Abort during edit pause restores pre-rebase state', () => {
       fc.assert(
@@ -814,8 +790,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Abort with various rebase actions restores pre-rebase state.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Abort with various rebase actions restores pre-rebase state', () => {
       fc.assert(
@@ -874,8 +848,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Abort after partial rebase execution restores pre-rebase state.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Abort after partial rebase execution restores pre-rebase state', () => {
       fc.assert(
@@ -940,8 +912,6 @@ describe('Rebase Abort Restoration Property Tests', () => {
 
     /**
      * Property: Commit messages are preserved after abort.
-     *
-     * **Validates: Requirements 6.8**
      */
     it('Property: Commit messages are preserved after abort', () => {
       fc.assert(

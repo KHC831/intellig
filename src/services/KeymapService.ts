@@ -180,8 +180,6 @@ const KEYMAPS: Map<KeymapPreset, IKeymap> = new Map([
 /**
  * Keymap Service implementation.
  * Manages keyboard shortcut presets and provides keymap switching functionality.
- *
- * Requirements: 17.11
  */
 export class KeymapService implements IKeymapService {
   private _onDidChangeKeymap: vscode.EventEmitter<KeymapPreset>;

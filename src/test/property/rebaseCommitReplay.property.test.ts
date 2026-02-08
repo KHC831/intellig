@@ -5,7 +5,6 @@ import * as assert from 'assert';
  * Property-based tests for Rebase Commit Replay.
  * Feature: intellig-vscode, Property 11: Rebase Commit Replay
  *
- * **Validates: Requirements 4.8**
  *
  * Property Description:
  * For any rebase operation, the rebased commits SHALL have the same diffs as the original
@@ -358,8 +357,6 @@ describe('Rebase Commit Replay Property Tests', () => {
     /**
      * Rebase the current branch onto another branch.
      * Returns the mapping of original commit hashes to new commit hashes.
-     *
-     * Requirements: 4.8
      */
     rebaseBranch(onto: string): { success: boolean; commitMapping: Map<string, string> } {
       const currentBranch = this._branches.get(this._head!);
@@ -490,8 +487,6 @@ describe('Rebase Commit Replay Property Tests', () => {
   describe('Property 11: Rebase Commit Replay', () => {
     /**
      * Property: Rebased commits have the same diffs as original commits.
-     *
-     * **Validates: Requirements 4.8**
      */
     it('Property: Rebased commits have the same diffs as original commits', () => {
       fc.assert(
@@ -566,8 +561,6 @@ describe('Rebase Commit Replay Property Tests', () => {
 
     /**
      * Property: Rebased commits have new commit hashes.
-     *
-     * **Validates: Requirements 4.8**
      */
     it('Property: Rebased commits have new commit hashes', () => {
       fc.assert(
@@ -622,8 +615,6 @@ describe('Rebase Commit Replay Property Tests', () => {
 
     /**
      * Property: Rebased commits have updated parent references.
-     *
-     * **Validates: Requirements 4.8**
      */
     it('Property: Rebased commits have updated parent references', () => {
       fc.assert(
@@ -693,8 +684,6 @@ describe('Rebase Commit Replay Property Tests', () => {
 
     /**
      * Property: Multiple commits are rebased in order with correct parent chain.
-     *
-     * **Validates: Requirements 4.8**
      */
     it('Property: Multiple commits are rebased in order with correct parent chain', () => {
       fc.assert(
@@ -786,8 +775,6 @@ describe('Rebase Commit Replay Property Tests', () => {
 
     /**
      * Property: Rebased commits preserve commit messages.
-     *
-     * **Validates: Requirements 4.8**
      */
     it('Property: Rebased commits preserve commit messages', () => {
       fc.assert(
@@ -847,8 +834,6 @@ describe('Rebase Commit Replay Property Tests', () => {
 
     /**
      * Property: Branch HEAD points to last rebased commit after rebase.
-     *
-     * **Validates: Requirements 4.8**
      */
     it('Property: Branch HEAD points to last rebased commit after rebase', () => {
       fc.assert(

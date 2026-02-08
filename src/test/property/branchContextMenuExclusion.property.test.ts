@@ -6,8 +6,6 @@
  * For any command that should be hidden from the current branch context menu
  * (Checkout, Delete), the `when` clause in the menu contribution SHALL NOT
  * match the `intellig.localBranchCurrent` context value.
- *
- * **Validates: Requirements 2.3, 2.7**
  */
 
 import '../setup';
@@ -25,8 +23,8 @@ const CURRENT_BRANCH_CONTEXT = 'intellig.localBranchCurrent';
 
 /**
  * Commands that MUST be excluded from the current branch context menu.
- * - Checkout: not applicable because the branch is already checked out (Requirement 2.3)
- * - Delete: not applicable because you cannot delete the currently checked-out branch (Requirement 2.7)
+ * - Checkout: not applicable because the branch is already checked out
+ * - Delete: not applicable because you cannot delete the currently checked-out branch
  */
 const EXCLUDED_COMMANDS: ReadonlyArray<string> = [
   'intellig.branch.checkout',
@@ -96,7 +94,6 @@ describe('Feature: branch-context-menu - Excluded Commands Property Tests', () =
 
   describe('Property 1: Excluded commands do not appear for current branch', () => {
     /**
-     * **Validates: Requirements 2.3, 2.7**
      *
      * For any command that should be hidden from the current branch context menu
      * (Checkout, Delete), the when clause in the menu contribution SHALL NOT
@@ -198,7 +195,7 @@ describe('Feature: branch-context-menu - Excluded Commands Property Tests', () =
                 !entry.when.includes(CURRENT_BRANCH_CONTEXT),
                 `Excluded command "${excludedCommand}" has a menu entry with ` +
                 `when="${entry.when}" that matches the current branch context ` +
-                `(${CURRENT_BRANCH_CONTEXT}). This violates Requirements 2.3 and 2.7.`
+                `(${CURRENT_BRANCH_CONTEXT}). `
               );
             }
           }

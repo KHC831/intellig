@@ -6,7 +6,6 @@ import { IBranch, IHead, BranchType } from '../../services/interfaces/IGitServic
  * Property-based tests for Branch Lifecycle Consistency.
  * Feature: intellig-vscode, Property 8: Branch Lifecycle Consistency
  *
- * **Validates: Requirements 4.3, 4.4, 4.5, 4.9, 4.10**
  *
  * Property Description:
  * For any valid branch name and source ref, creating a branch SHALL add it to the branch list,
@@ -170,8 +169,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Create a new branch from the current HEAD or a specified start point.
-     * Requirement 4.3: Create branch from current HEAD
-     * Requirement 4.4: Create branch from specified source
      */
     createBranch(name: string, startPoint?: string): void {
       if (this._branches.has(name)) {
@@ -216,7 +213,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Checkout a branch, updating HEAD.
-     * Requirement 4.5: Checkout updates HEAD and working directory
      */
     checkout(ref: string): void {
       const branch = this._branches.get(ref);
@@ -241,7 +237,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Delete a branch.
-     * Requirement 4.9: Delete branch removes it from the list
      */
     deleteBranch(name: string, _force?: boolean): void {
       const branch = this._branches.get(name);
@@ -261,7 +256,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Rename a branch.
-     * Requirement 4.10: Rename preserves commit history
      */
     renameBranch(oldName: string, newName: string): void {
       const branch = this._branches.get(oldName);
@@ -329,8 +323,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
   describe('Property 8: Branch Lifecycle Consistency', () => {
     /**
      * Property: Creating a branch SHALL add it to the branch list.
-     *
-     * **Validates: Requirements 4.3, 4.4**
      */
     it('Property: Creating a branch adds it to the branch list', () => {
       fc.assert(
@@ -389,8 +381,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Creating a branch from a specific start point uses that commit.
-     *
-     * **Validates: Requirements 4.4**
      */
     it('Property: Creating a branch from start point uses that commit', () => {
       fc.assert(
@@ -430,8 +420,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Checking out a branch SHALL update HEAD.
-     *
-     * **Validates: Requirements 4.5**
      */
     it('Property: Checking out a branch updates HEAD', () => {
       fc.assert(
@@ -490,8 +478,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Renaming a branch SHALL preserve the branch's commit history.
-     *
-     * **Validates: Requirements 4.10**
      */
     it('Property: Renaming a branch preserves commit history', () => {
       fc.assert(
@@ -577,8 +563,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Deleting a branch SHALL remove it from the branch list.
-     *
-     * **Validates: Requirements 4.9**
      */
     it('Property: Deleting a branch removes it from the branch list', () => {
       fc.assert(
@@ -630,8 +614,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Full branch lifecycle - create, checkout, rename, delete.
-     *
-     * **Validates: Requirements 4.3, 4.4, 4.5, 4.9, 4.10**
      */
     it('Property: Full branch lifecycle maintains consistency', () => {
       fc.assert(
@@ -720,8 +702,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Cannot delete the currently checked out branch.
-     *
-     * **Validates: Requirements 4.9**
      */
     it('Property: Cannot delete currently checked out branch', () => {
       fc.assert(
@@ -756,8 +736,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Creating a branch with an existing name should fail.
-     *
-     * **Validates: Requirements 4.3**
      */
     it('Property: Creating branch with existing name fails', () => {
       fc.assert(
@@ -788,8 +766,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Renaming to an existing branch name should fail.
-     *
-     * **Validates: Requirements 4.10**
      */
     it('Property: Renaming to existing branch name fails', () => {
       fc.assert(
@@ -830,8 +806,6 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
 
     /**
      * Property: Branch operations are consistent across multiple operations.
-     *
-     * **Validates: Requirements 4.3, 4.4, 4.5, 4.9, 4.10**
      */
     it('Property: Multiple branch operations maintain consistency', () => {
       fc.assert(

@@ -7,14 +7,12 @@ import { FileStatus } from '../../services/interfaces/IGitService';
  * Property-based tests for Changelist File Management.
  * Feature: intellig-vscode, Property 2: Changelist File Management
  *
- * **Validates: Requirements 2.3, 2.4, 2.5**
  *
  * Property Description:
  * For any file and any sequence of changelist operations (create, move, delete changelist),
  * the file SHALL always belong to exactly one changelist, and deleting a non-default
  * changelist SHALL move its files to the Default Changelist.
  *
- * Requirements:
  * - 2.3: WHEN a user creates a new Changelist, THE Extension SHALL add it to the
  *        Local_Changes_View with the specified name
  * - 2.4: WHEN a user drags a file between Changelists, THE Extension SHALL move
@@ -127,7 +125,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Create a new changelist.
-     * Requirement 2.3: Add changelist with specified name.
      */
     createChangelist(name: string): IChangelist {
       if (!name || name.trim().length === 0) {
@@ -157,7 +154,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Delete a changelist.
-     * Requirement 2.5: Move files to Default Changelist when deleting.
      */
     deleteChangelist(id: string): void {
       if (id === DEFAULT_CHANGELIST_ID) {
@@ -187,7 +183,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Move files to a specific changelist.
-     * Requirement 2.4: Move file to target changelist.
      */
     moveToChangelist(files: string[], changelistId: string): void {
       if (!files || files.length === 0) {
@@ -286,8 +281,6 @@ describe('Changelist File Management Property Tests', () => {
   describe('Property 2: Changelist File Management', () => {
     /**
      * Property: Files always belong to exactly one changelist.
-     *
-     * **Validates: Requirements 2.3, 2.4, 2.5**
      */
     it('Property: Files always belong to exactly one changelist', () => {
       fc.assert(
@@ -347,8 +340,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Moving a file between changelists removes it from the source.
-     *
-     * **Validates: Requirements 2.4**
      */
     it('Property: Moving a file between changelists removes it from the source', () => {
       fc.assert(
@@ -404,8 +395,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Deleting a changelist moves its files to the Default Changelist.
-     *
-     * **Validates: Requirements 2.5**
      */
     it('Property: Deleting a changelist moves its files to the Default Changelist', () => {
       fc.assert(
@@ -462,8 +451,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: The Default Changelist always exists.
-     *
-     * **Validates: Requirements 2.3, 2.4, 2.5**
      */
     it('Property: The Default Changelist always exists', () => {
       fc.assert(
@@ -525,8 +512,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Creating a changelist adds it to the list.
-     *
-     * **Validates: Requirements 2.3**
      */
     it('Property: Creating a changelist adds it to the list', () => {
       fc.assert(
@@ -585,8 +570,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Cannot delete the default changelist.
-     *
-     * **Validates: Requirements 2.5**
      */
     it('Property: Cannot delete the default changelist', () => {
       fc.assert(
@@ -621,8 +604,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Changelist names must be unique.
-     *
-     * **Validates: Requirements 2.3**
      */
     it('Property: Changelist names must be unique', () => {
       fc.assert(
@@ -655,8 +636,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Sequence of create, move, delete operations maintains file invariant.
-     *
-     * **Validates: Requirements 2.3, 2.4, 2.5**
      */
     it('Property: Sequence of create, move, delete operations maintains file invariant', () => {
       // Define operation types
@@ -734,8 +713,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Empty changelist name should be rejected.
-     *
-     * **Validates: Requirements 2.3**
      */
     it('Property: Empty changelist name should be rejected', () => {
       fc.assert(
@@ -762,8 +739,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Moving files to non-existent changelist should fail.
-     *
-     * **Validates: Requirements 2.4**
      */
     it('Property: Moving files to non-existent changelist should fail', () => {
       fc.assert(
@@ -798,8 +773,6 @@ describe('Changelist File Management Property Tests', () => {
 
     /**
      * Property: Deleting non-existent changelist should fail.
-     *
-     * **Validates: Requirements 2.5**
      */
     it('Property: Deleting non-existent changelist should fail', () => {
       fc.assert(

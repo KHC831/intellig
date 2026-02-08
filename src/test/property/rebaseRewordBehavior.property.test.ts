@@ -12,7 +12,6 @@ import {
  * Property-based tests for Rebase Reword Behavior.
  * Feature: intellig-vscode, Property 14: Rebase Reword Behavior
  *
- * **Validates: Requirements 6.4**
  *
  * Property Description:
  * For any commit marked for reword in interactive rebase, the rebase SHALL pause to prompt
@@ -109,8 +108,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
   /**
    * Mock Rebase Service that simulates interactive rebase with reword behavior.
    * This allows us to test reword properties without actual Git operations.
-   *
-   * Requirements: 6.4
    */
   class MockRebaseService {
     private _session: IRebaseSession | undefined;
@@ -234,8 +231,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
     /**
      * Execute the rebase with the current plan.
      * When a commit is marked for reword, the rebase SHALL pause.
-     *
-     * Requirements: 6.4
      */
     executeRebase(): IRebaseResult {
       if (!this._session) {
@@ -255,7 +250,7 @@ describe('Rebase Reword Behavior Property Tests', () => {
         }
 
         if (commit.action === 'reword') {
-          // Pause for reword - this is the key behavior for Requirement 6.4
+          // Pause for reword
           this._pausedForReword = true;
           this._currentRewordCommit = commit;
           this._session.status = 'paused';
@@ -289,8 +284,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
     /**
      * Provide a new message for a reword action.
      * The resulting commit SHALL have the new message with the same diff.
-     *
-     * Requirements: 6.4
      */
     provideRewordMessage(newMessage: string): IRebaseResult {
       if (!this._session) {
@@ -424,8 +417,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
   describe('Property 14: Rebase Reword Behavior', () => {
     /**
      * Property: Rebase pauses when encountering a commit marked for reword.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Rebase pauses when encountering a commit marked for reword', () => {
       fc.assert(
@@ -488,8 +479,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
 
     /**
      * Property: Resulting commit has the new message after reword.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Resulting commit has the new message after reword', () => {
       fc.assert(
@@ -547,8 +536,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
 
     /**
      * Property: Resulting commit has the same diff after reword.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Resulting commit has the same diff after reword', () => {
       fc.assert(
@@ -601,8 +588,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
 
     /**
      * Property: Multiple reword commits pause at each one in sequence.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Multiple reword commits pause at each one in sequence', () => {
       fc.assert(
@@ -680,8 +665,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
 
     /**
      * Property: Reword preserves diff while changing message for any valid message.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Reword preserves diff while changing message for any valid message', () => {
       fc.assert(
@@ -735,8 +718,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
 
     /**
      * Property: Session status is 'paused' when waiting for reword message.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Session status is paused when waiting for reword message', () => {
       fc.assert(
@@ -776,8 +757,6 @@ describe('Rebase Reword Behavior Property Tests', () => {
 
     /**
      * Property: Reword does not affect commits before or after the reworded commit.
-     *
-     * **Validates: Requirements 6.4**
      */
     it('Property: Reword does not affect other commits in the rebase', () => {
       fc.assert(

@@ -2,8 +2,6 @@
  * Property-based tests for Show Diff with Working Tree command handler.
  *
  * Feature: branch-context-menu, Property 5: Show Diff uses correct branch reference
- *
- * **Validates: Requirements 7.3**
  */
 
 import '../setup';
@@ -195,7 +193,6 @@ function createBranchTreeItem(
 describe('Feature: branch-context-menu - Show Diff Property Tests', () => {
   describe('Property 5: Show Diff uses correct branch reference', () => {
     /**
-     * **Validates: Requirements 7.3**
      *
      * For any branch (local or remote), when the Show Diff with Working Tree
      * command handler is invoked, the handler SHALL open a diff comparison

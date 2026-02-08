@@ -349,7 +349,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Stash changes command
-  // Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
   const stashCommand = vscode.commands.registerCommand('intellig.stash', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -416,7 +415,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Shelve changes command
-  // Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
   const shelveCommand = vscode.commands.registerCommand('intellig.shelve', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -485,7 +483,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Toggle blame annotations command
-  // Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 (Blame)
   const toggleBlameCommand = vscode.commands.registerCommand('intellig.toggleBlame', () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -531,7 +528,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare with branch command
-  // Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
   const compareWithBranchCommand = vscode.commands.registerCommand(
     'intellig.compareWithBranch',
     async () => {
@@ -559,7 +555,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare with remote command
-  // Requirement: 15.5
   const compareWithRemoteCommand = vscode.commands.registerCommand(
     'intellig.compareWithRemote',
     async () => {
@@ -685,7 +680,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Merge View commands
-  // Requirements: 10.2, 10.3, 10.4, 10.7, 17.9
   const openMergeViewCommand = vscode.commands.registerCommand(
     'intellig.merge.openMergeView',
     async (fileUri?: vscode.Uri) => {
@@ -817,7 +811,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Conflict Resolution commands
-  // Requirements: 10.1, 10.5, 10.6, 10.8
   const markFileResolvedCommand = vscode.commands.registerCommand(
     'intellig.conflict.markResolved',
     async (fileUri?: vscode.Uri) => {
@@ -1123,7 +1116,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Interactive Rebase command
-  // Requirements: 6.1, 6.2, 6.3
   const interactiveRebaseCommand = vscode.commands.registerCommand(
     'intellig.rebase.interactive',
     async () => {
@@ -1322,7 +1314,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // File Explorer Context Menu Commands
-  // Requirements: 2.7, 17.6
 
   // Show History command for file explorer
   const explorerShowHistoryCommand = vscode.commands.registerCommand(
@@ -1666,7 +1657,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Editor Context Menu Commands
-  // Requirements: 9.5 (Blame)
 
   // Toggle Blame Annotations command for editor context menu
   const editorToggleBlameCommand = vscode.commands.registerCommand(
@@ -1978,11 +1968,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
  */
 function registerViews(context: vscode.ExtensionContext): void {
   // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
-  // Requirement 6.3: Register only the single webview view for the 2-panel layout
   gitToolWindowProvider = new GitToolWindowProvider(context.extensionUri, context.workspaceState);
 
   // Connect the Console Service to the Git Tool Window Provider
-  // This enables real-time Git command output display (Requirement 1.4)
+  // This enables real-time Git command output display
   if (extensionServices) {
     const consoleService = extensionServices.consoleService;
     if (consoleService instanceof ConsoleService) {
@@ -2079,14 +2068,12 @@ function registerViews(context: vscode.ExtensionContext): void {
     };
 
     // Wire up onDidRequestInitialData to load all data when webview first opens
-    // Requirement 5.3: Load branch data, commit history on first open
     const initialDataListener = gitToolWindowProvider.onDidRequestInitialData(() => {
       void loadAllPanelData();
     });
     context.subscriptions.push(initialDataListener);
 
     // Wire up onDidRequestRefresh to reload all data when repository changes
-    // Requirement 5.2: Refresh all panels when the git repository changes
     const refreshListener = gitToolWindowProvider.onDidRequestRefresh(() => {
       void loadAllPanelData();
     });
@@ -2105,7 +2092,6 @@ function registerViews(context: vscode.ExtensionContext): void {
     context.subscriptions.push(filterChangeListener);
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
-    // Requirements: 4.1, 4.2, 4.3
     const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
       let repositories = gitService.getRepositories();
       if (repositories.length === 0) {
@@ -2140,7 +2126,6 @@ function registerViews(context: vscode.ExtensionContext): void {
     context.subscriptions.push(commitSelectListener);
 
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
-    // Requirements: 6.1, 6.2, 6.3
     const commitDiffListener = gitToolWindowProvider.onDidRequestCommitDiff(async ({ commitHash, filePath }) => {
       let repositories = gitService.getRepositories();
       if (repositories.length === 0) {
@@ -2183,14 +2168,12 @@ function registerViews(context: vscode.ExtensionContext): void {
   }
 
   // Register branch context menu commands and other services
-  // Requirements: 5.1, 5.2, 5.7, 5.8, 17.6
   if (extensionServices) {
     const gitService = extensionServices.gitService;
 
     // Create BranchTreeProvider and tree view for context menu support
     // The tree view is used by CommandTitleProvider to listen for selection changes
     // and dynamically update command titles with branch names.
-    // Requirements: 5.1, 5.2, 5.3
     const branchTreeProvider = createBranchTreeProvider(gitService);
     const branchTreeView = vscode.window.createTreeView('intellig.branchTree', {
       treeDataProvider: branchTreeProvider,
@@ -2215,7 +2198,6 @@ function registerViews(context: vscode.ExtensionContext): void {
     }
 
     // Create and register CommandTitleProvider for dynamic label resolution
-    // Requirements: 5.1, 5.2, 5.3
     const commandTitleProvider = createCommandTitleProvider(gitService, branchTreeProvider);
     commandTitleProvider.register(context, branchTreeView);
     context.subscriptions.push(commandTitleProvider);
@@ -2226,44 +2208,36 @@ function registerViews(context: vscode.ExtensionContext): void {
     branchContextMenuCommands.register(context);
 
     // Initialize Status Bar Service
-    // Requirements: 4.1, 17.8 - Display current branch name in status bar
     statusBarService = createStatusBarService(gitService);
     context.subscriptions.push(statusBarService);
 
     // Initialize Notification Service
-    // Requirement: 17.8 - Display progress and status notifications
     notificationService = createNotificationService();
     context.subscriptions.push(notificationService);
 
     // Initialize Keymap Service
-    // Requirement: 17.11 - IntelliJ-style keyboard shortcuts
     keymapService = new KeymapService(extensionServices.configurationService);
     context.subscriptions.push(keymapService);
 
     // Initialize Stash View
-    // Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
     stashView = createStashView(gitService);
     context.subscriptions.push(stashView);
 
     // Initialize Shelf View
-    // Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
     shelfView = createShelfView(extensionServices.shelfService, (repo) =>
       gitService.getStatus(repo)
     );
     context.subscriptions.push(shelfView);
 
     // Initialize Branch Comparison View
-    // Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
     branchComparisonView = createBranchComparisonView(gitService);
     context.subscriptions.push(branchComparisonView);
 
     // Initialize Gutter Blame Provider
-    // Requirements: 9.2, 9.5, 9.7 (Blame)
     gutterBlameProvider = createGutterBlameProvider(extensionServices.blameService, gitService);
     context.subscriptions.push(gutterBlameProvider);
 
     // Initialize Rebase Progress View
-    // Requirements: 6.7, 6.8, 6.9
     rebaseProgressView = createRebaseProgressView(
       context.extensionUri,
       extensionServices.rebaseService

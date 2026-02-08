@@ -2,8 +2,6 @@
  * Rebase Editor implementation.
  * Provides a webview panel for interactive rebase operations.
  * Allows users to reorder commits, change actions, and execute the rebase.
- *
- * Requirements: 6.1, 6.2, 6.3
  */
 
 import * as vscode from 'vscode';
@@ -52,7 +50,6 @@ interface IWebviewMessage {
  * Rebase Editor class.
  * Provides a webview panel for interactive rebase planning and execution.
  *
- * Requirements:
  * - 6.1: Display rebase editor showing commits to be rebased
  * - 6.2: Allow reordering commits via drag-and-drop
  * - 6.3: Support pick, reword, edit, squash, fixup, and drop operations
@@ -78,8 +75,6 @@ export class RebaseEditor {
    * @param repository - The repository to rebase in
    * @param options - Editor options including the target to rebase onto
    * @returns Promise resolving to the editor result
-   *
-   * Requirement 6.1: Display rebase editor showing commits to be rebased
    */
   async show(repository: IRepository, options: IRebaseEditorOptions): Promise<IRebaseEditorResult> {
     this._repository = repository;
@@ -266,8 +261,6 @@ export class RebaseEditor {
 
   /**
    * Handle updating a commit's action.
-   *
-   * Requirement 6.3: Support pick, reword, edit, squash, fixup, and drop operations
    */
   private _handleUpdateAction(hash: string, action: RebaseAction): void {
     if (!this._session) {
@@ -283,8 +276,6 @@ export class RebaseEditor {
 
   /**
    * Handle reordering commits via drag-and-drop.
-   *
-   * Requirement 6.2: Allow reordering commits via drag-and-drop
    */
   private _handleReorder(fromIndex: number, toIndex: number): void {
     if (!this._session) {
@@ -385,10 +376,6 @@ export class RebaseEditor {
 
   /**
    * Get the commit list section HTML.
-   *
-   * Requirement 6.1: Display commits to be rebased
-   * Requirement 6.2: Drag-and-drop reordering
-   * Requirement 6.3: Action dropdown for each commit
    */
   private _getCommitListSection(): string {
     if (!this._session || this._session.commits.length === 0) {
@@ -440,8 +427,6 @@ export class RebaseEditor {
 
   /**
    * Get the action options HTML for the dropdown.
-   *
-   * Requirement 6.3: Support pick, reword, edit, squash, fixup, and drop operations
    */
   private _getActionOptions(currentAction: RebaseAction): string {
     const actions: { value: RebaseAction; label: string; description: string }[] = [

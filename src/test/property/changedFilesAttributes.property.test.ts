@@ -9,7 +9,6 @@ import { FileStatus } from '../../services/interfaces/IGitService';
  * Property-based tests for Changed Files Count and Data Attributes.
  * Feature: git-graph-details-improvements, Property 5: Changed files count and data attributes are correct
  *
- * **Validates: Requirements 4.2, 6.2**
  *
  * Property Description:
  * For any commit details with N changed files (N >= 0), the HTML output of
@@ -139,8 +138,6 @@ describe('Changed Files Count and Attributes Property Tests', () => {
      * Property: The HTML output contains "Changed Files (N)" with the correct count N,
      * and each changed file has data-commit-hash and data-path attributes matching
      * the commit hash and file path respectively.
-     *
-     * **Validates: Requirements 4.2, 6.2**
      */
     it('Property: changed files count text and data attributes match commit details', () => {
       fc.assert(

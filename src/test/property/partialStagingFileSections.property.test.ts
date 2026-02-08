@@ -7,7 +7,6 @@ import { IFileChange, IChangelist } from '../../services/interfaces/IChangelistS
  * Property-based tests for Partial Staging File Sections.
  * Feature: intellig-vscode, Property 46: Partial Staging File Sections
  *
- * **Validates: Requirements 14.4**
  *
  * Property Description:
  * For any file with partially staged changes, the file SHALL appear in both
@@ -385,8 +384,6 @@ describe('Partial Staging File Sections Property Tests', () => {
   describe('Property 46: Partial Staging File Sections', () => {
     /**
      * Property: Partially staged files appear in both staged and unstaged sections.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Partially staged files appear in both staged and unstaged sections', () => {
       fc.assert(
@@ -438,8 +435,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: Fully staged files appear only in staged section.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Fully staged files appear only in staged section', () => {
       fc.assert(
@@ -491,8 +486,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: Unstaged files appear only in unstaged section.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Unstaged files appear only in unstaged section', () => {
       fc.assert(
@@ -544,8 +537,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: Staging then unstaging returns file to unstaged-only state.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Staging then unstaging returns file to unstaged-only state', () => {
       fc.assert(
@@ -608,8 +599,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: Multiple files with different staging states are correctly categorized.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Multiple files with different staging states are correctly categorized', () => {
       fc.assert(
@@ -709,8 +698,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: Partial staging with single line staged still shows file in both sections.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Partial staging with single line staged shows file in both sections', () => {
       fc.assert(
@@ -759,8 +746,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: Partial staging with all but one line staged still shows file in both sections.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: Partial staging with all but one line staged shows file in both sections', () => {
       fc.assert(
@@ -814,8 +799,6 @@ describe('Partial Staging File Sections Property Tests', () => {
 
     /**
      * Property: File section membership is consistent with staging state.
-     *
-     * **Validates: Requirements 14.4**
      */
     it('Property: File section membership is consistent with staging state', () => {
       fc.assert(

@@ -1,8 +1,6 @@
 /**
  * Branch Context Menu Commands implementation.
  * Provides command handlers for branch, remote branch, and tag context menus.
- *
- * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 17.6
  */
 
 import * as vscode from 'vscode';
@@ -104,7 +102,7 @@ export class BranchContextMenuCommands {
       )
     );
 
-    // New command handlers (Requirements 7.1-7.6)
+    // New command handlers
     this._disposables.push(
       vscode.commands.registerCommand('intellig.branch.update', (item: BranchTreeItem) =>
         this._handleUpdate(item)
@@ -200,7 +198,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle checkout command for local branches.
-   * Requirement 5.1: Checkout option in context menu
    */
   private async _handleCheckout(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -249,7 +246,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle new branch from here command.
-   * Requirement 5.1: New Branch from Here option
    */
   private async _handleNewBranchFrom(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -295,7 +291,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle merge into current command.
-   * Requirement 5.1: Merge into Current option
    */
   private async _handleMergeIntoCurrent(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -322,7 +317,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle rebase current onto command.
-   * Requirement 5.1: Rebase Current onto This option
    */
   private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -351,7 +345,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle compare with current command.
-   * Requirement 5.1: Compare with Current option
    */
   private async _handleCompareWithCurrent(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -382,7 +375,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle rename command.
-   * Requirement 5.1: Rename option
    */
   private async _handleRename(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -423,7 +415,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle delete command.
-   * Requirement 5.1: Delete option
    */
   private async _handleDelete(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -452,13 +443,12 @@ export class BranchContextMenuCommands {
   }
 
   // ============================================
-  // New Command Handlers (Requirements 7.1-7.6)
+  // New Command Handlers
   // ============================================
 
   /**
    * Handle update command for local branches.
    * Fetches the latest changes from the upstream remote for the branch.
-   * Requirement 7.1: Update fetches from upstream remote
    */
   private async _handleUpdate(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -489,7 +479,6 @@ export class BranchContextMenuCommands {
   /**
    * Handle push command for local branches.
    * Pushes the branch to its upstream remote, or sets upstream if none configured.
-   * Requirement 7.2: Push targets correct branch
    */
   private async _handlePush(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -520,7 +509,6 @@ export class BranchContextMenuCommands {
   /**
    * Handle show diff with working tree command.
    * Opens a diff comparison between the right-clicked branch ref and the working tree.
-   * Requirement 7.3: Show Diff uses correct branch reference
    */
   private async _handleShowDiffWithWorkingTree(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -548,7 +536,6 @@ export class BranchContextMenuCommands {
   /**
    * Handle checkout and rebase command.
    * Checks out the right-clicked branch and rebases the previously current branch onto it.
-   * Requirement 7.4: Checkout and Rebase executes operations in correct order
    */
   private async _handleCheckoutAndRebase(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -632,8 +619,6 @@ export class BranchContextMenuCommands {
   /**
    * Handle pull using rebase command for remote branches.
    * Pulls the remote branch into the current branch using rebase strategy.
-   * Requirement 7.5: Pull using rebase strategy
-   * Requirement 8.3: Conflict warning notification
    */
   private async _handlePullUsingRebase(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -673,8 +658,6 @@ export class BranchContextMenuCommands {
   /**
    * Handle pull using merge command for remote branches.
    * Pulls the remote branch into the current branch using merge strategy.
-   * Requirement 7.6: Pull using merge strategy
-   * Requirement 8.3: Conflict warning notification
    */
   private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -731,7 +714,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle checkout as local branch command.
-   * Requirement 5.3: Create local tracking branch and switch to it
    */
   private async _handleCheckoutAsLocal(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -818,7 +800,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle cherry-pick commits command.
-   * Requirement 5.4: Display commit selection dialog for cherry-picking
    */
   private async _handleCherryPickCommits(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -873,7 +854,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull into current command.
-   * Requirement 5.5: Fetch and merge remote branch into current
    */
   private async _handlePullIntoCurrent(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -902,7 +882,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle delete remote branch command.
-   * Requirement 5.6: Delete branch from remote with confirmation and warning
    */
   private async _handleDeleteRemote(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -946,7 +925,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle tag checkout (detached) command.
-   * Requirement 5.8: Checkout tag in detached HEAD state
    */
   private async _handleTagCheckoutDetached(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -978,7 +956,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle new branch from tag command.
-   * Requirement 5.8: New Branch from Here option for tags
    */
   private async _handleTagNewBranchFrom(item: BranchTreeItem): Promise<void> {
     // Reuse the same logic as branch new branch from
@@ -987,7 +964,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle tag cherry-pick command.
-   * Requirement 5.8: Cherry-pick option for tags
    */
   private async _handleTagCherryPick(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -1016,7 +992,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle delete tag command.
-   * Requirement 5.8: Delete Tag option
    */
   private async _handleTagDelete(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -1046,7 +1021,6 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle push tag command.
-   * Requirement 5.8: Push Tag option
    */
   private async _handleTagPush(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();

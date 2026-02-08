@@ -4,8 +4,6 @@
  * Tests uncommitted changes dialog for Checkout and Rebase,
  * conflict warning for merge/rebase results, and missing repository
  * early return behavior.
- *
- * Requirements: 8.1, 8.2, 8.3
  */
 
 import '../setup';
@@ -247,7 +245,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     restoreMessageFunctions();
   });
 
-  // ─── Missing Repository Early Return (Requirement 8.1) ───────────────────
+ // ─── Missing Repository Early Return ───────────────────
 
   describe('Missing repository early return', () => {
     it('_handleUpdate should return early when repository is undefined', async () => {
@@ -321,7 +319,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
-  // ─── Uncommitted Changes Dialog (Requirement 8.2) ────────────────────────
+ // ─── Uncommitted Changes Dialog ────────────────────────
 
   describe('Uncommitted changes dialog for Checkout and Rebase', () => {
     it('should show warning dialog with Stash/Force/Cancel options when checkout fails due to uncommitted changes', async () => {
@@ -447,7 +445,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
-  // ─── Conflict Warning (Requirement 8.3) ──────────────────────────────────
+ // ─── Conflict Warning ──────────────────────────────────
 
   describe('Conflict warning for merge/rebase results', () => {
     it('_handleCheckoutAndRebase should show warning with conflict count when rebase has conflicts', async () => {
@@ -587,7 +585,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
-  // ─── General Error Handling (Requirement 8.1) ─────────────────────────────
+ // ─── General Error Handling ─────────────────────────────
 
   describe('General error handling', () => {
     it('_handleUpdate should show error message when fetch fails', async () => {

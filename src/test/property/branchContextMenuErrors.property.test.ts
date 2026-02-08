@@ -3,8 +3,6 @@
  *
  * Feature: branch-context-menu, Property 8: Git errors produce error notifications
  * Feature: branch-context-menu, Property 9: Conflict results produce warning notifications
- *
- * **Validates: Requirements 8.1, 8.3**
  */
 
 import '../setup';
@@ -342,7 +340,6 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
   describe('Property 8: Git errors produce error notifications', () => {
     /**
-     * **Validates: Requirements 8.1**
      *
      * For any command handler, when the underlying git service throws an error,
      * the handler SHALL display an error notification containing the error message text.
@@ -505,7 +502,6 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
   describe('Property 9: Conflict results produce warning notifications', () => {
     /**
-     * **Validates: Requirements 8.3**
      *
      * For any merge or rebase result that contains a non-empty conflicts array,
      * the handler SHALL display a warning notification that includes the count

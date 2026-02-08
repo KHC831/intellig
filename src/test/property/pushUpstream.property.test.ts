@@ -6,13 +6,11 @@ import { IPushOptions, ICommit, IUpstream } from '../../services/interfaces/IGit
  * Property-based tests for Push Upstream.
  * Feature: intellig-vscode, Property 38: Push Upstream
  *
- * **Validates: Requirements 12.1**
  *
  * Property Description:
  * For any branch with a configured upstream, pushing SHALL send all local commits
  * not present on the remote to the upstream branch.
  *
- * Requirements:
  * - 12.1: WHEN a user selects 'Push', THE Extension SHALL push the current branch
  *         to its configured upstream remote
  * - 12.2: WHEN pushing with no upstream configured, THE Extension SHALL prompt to
@@ -265,8 +263,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Push the current branch to its upstream.
-     * Requirement 12.1: Push the current branch to its configured upstream remote.
-     * Requirement 12.2: Prompt to set upstream if not configured.
      *
      * @param options - Push options
      * @returns Result of the push operation
@@ -336,8 +332,6 @@ describe('Push Upstream Property Tests', () => {
   describe('Property 38: Push Upstream', () => {
     /**
      * Property: Push sends local commits to the upstream branch.
-     *
-     * **Validates: Requirements 12.1**
      */
     it('Property: Push sends local commits to the upstream branch', () => {
       fc.assert(
@@ -396,8 +390,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push with no upstream prompts to set upstream.
-     *
-     * **Validates: Requirements 12.1, 12.2**
      */
     it('Property: Push with no upstream prompts to set upstream', () => {
       fc.assert(
@@ -437,8 +429,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push with setUpstream option configures the upstream.
-     *
-     * **Validates: Requirements 12.1, 12.2**
      */
     it('Property: Push with setUpstream option configures the upstream', () => {
       fc.assert(
@@ -485,8 +475,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push preserves commit order.
-     *
-     * **Validates: Requirements 12.1**
      */
     it('Property: Push preserves commit order', () => {
       fc.assert(
@@ -547,8 +535,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push with force option works correctly.
-     *
-     * **Validates: Requirements 12.1, 12.9**
      */
     it('Property: Push with force option works correctly', () => {
       fc.assert(
@@ -600,8 +586,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push only sends commits not already on remote.
-     *
-     * **Validates: Requirements 12.1**
      */
     it('Property: Push only sends commits not already on remote', () => {
       fc.assert(
@@ -671,8 +655,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push with forceWithLease option works correctly.
-     *
-     * **Validates: Requirements 12.1, 12.9**
      */
     it('Property: Push with forceWithLease option works correctly', () => {
       fc.assert(
@@ -716,8 +698,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Multiple pushes are idempotent when no new commits.
-     *
-     * **Validates: Requirements 12.1**
      */
     it('Property: Multiple pushes are idempotent when no new commits', () => {
       fc.assert(
@@ -771,8 +751,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push records operation in history.
-     *
-     * **Validates: Requirements 12.1**
      */
     it('Property: Push records operation in history', () => {
       fc.assert(
@@ -823,8 +801,6 @@ describe('Push Upstream Property Tests', () => {
 
     /**
      * Property: Push to specific remote and branch works correctly.
-     *
-     * **Validates: Requirements 12.1**
      */
     it('Property: Push to specific remote and branch works correctly', () => {
       fc.assert(

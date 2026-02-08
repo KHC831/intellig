@@ -5,7 +5,6 @@ import * as vscode from 'vscode';
  * Provides inline blame annotations at the end of the current line,
  * showing commit information for the line where the cursor is positioned.
  *
- * Requirements: 9.1, 9.3, 9.4 (Blame), 17.12
  * - 9.1: Display blame annotations for file (inline at end of current line)
  * - 9.3: Show commit message on hover
  * - 9.4: Show tooltip with full commit details

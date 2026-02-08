@@ -2,8 +2,6 @@
  * Commit Dialog implementation.
  * Provides a comprehensive commit dialog with diff preview and advanced options.
  * Implements IntelliJ-style commit workflow.
- *
- * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 17.3
  */
 
 import * as vscode from 'vscode';
@@ -62,7 +60,6 @@ interface IWebviewMessage {
  * Commit Dialog class.
  * Provides a webview panel for composing and submitting commits.
  *
- * Requirements:
  * - 3.1: Display commit message input area and list of staged changes
  * - 3.2: Display diff preview when file is selected
  * - 3.3: Amend option populates previous commit message
@@ -211,7 +208,6 @@ export class CommitDialog {
 
   /**
    * Load the previous commit message for amend mode.
-   * Requirement 3.3: Amend option populates previous commit message
    */
   private async _loadPreviousCommitMessage(): Promise<void> {
     if (!this._repository) {
@@ -332,7 +328,6 @@ export class CommitDialog {
 
   /**
    * Handle commit action.
-   * Requirement 3.5: Prevent commit with empty message
    */
   private async _handleCommit(message: IWebviewMessage): Promise<void> {
     if (!this._repository) {
@@ -342,7 +337,6 @@ export class CommitDialog {
     const commitMessage = message.message ?? this._commitMessage;
 
     // Validate commit message
-    // Requirement 3.5: Empty message should be prevented
     if (!commitMessage.trim()) {
       void vscode.window.showErrorMessage('Commit message cannot be empty');
       return;
@@ -406,7 +400,6 @@ export class CommitDialog {
 
   /**
    * Handle file selection for diff preview.
-   * Requirement 3.2: Display diff preview when file is selected
    */
   private async _handleFileSelect(path: string): Promise<void> {
     if (!this._repository) {
@@ -441,7 +434,6 @@ export class CommitDialog {
 
   /**
    * Handle amend toggle.
-   * Requirement 3.3: Amend option populates previous commit message
    */
   private async _handleAmendToggle(amend: boolean): Promise<void> {
     this._amendMode = amend;
@@ -496,9 +488,6 @@ export class CommitDialog {
 
   /**
    * Handle staging a single hunk.
-   * Requirement 3.6: Individual hunk staging
-   * Requirement 14.1: Display change hunks with individual staging controls
-   * Requirement 14.2: Stage only that hunk
    */
   private async _handleStageHunk(hunkIndex: number): Promise<void> {
     if (!this._repository || !this._selectedFilePath || !this._currentDiff) {
@@ -524,7 +513,6 @@ export class CommitDialog {
 
   /**
    * Handle unstaging a single hunk.
-   * Requirement 14.5: Unstage only that hunk
    */
   private async _handleUnstageHunk(hunkIndex: number): Promise<void> {
     if (!this._repository || !this._selectedFilePath || !this._currentDiff) {
@@ -550,8 +538,6 @@ export class CommitDialog {
 
   /**
    * Handle toggling a line selection for partial staging.
-   * Requirement 3.7: Stage specific lines within a hunk
-   * Requirement 14.3: Enable staging only those lines
    */
   private _handleToggleLine(hunkIndex: number, lineNumber: number): void {
     if (!this._selectedLines.has(hunkIndex)) {
@@ -604,8 +590,6 @@ export class CommitDialog {
 
   /**
    * Handle staging selected lines within a hunk.
-   * Requirement 3.7: Stage specific lines within a hunk
-   * Requirement 14.3: Enable staging only those lines
    */
   private async _handleStageSelectedLines(hunkIndex: number): Promise<void> {
     if (!this._repository || !this._selectedFilePath || !this._currentDiff) {
@@ -654,7 +638,6 @@ export class CommitDialog {
 
   /**
    * Get the HTML content for the webview.
-   * Requirement 17.3: IntelliJ-style commit dialog layout
    */
   private _getHtmlContent(webview: vscode.Webview): string {
     const nonce = this._getNonce();
@@ -695,7 +678,6 @@ export class CommitDialog {
 
   /**
    * Get the commit message section HTML.
-   * Requirement 3.1: Commit message input area
    */
   private _getMessageSection(): string {
     const escapedMessage = this._escapeHtml(this._commitMessage);
@@ -716,7 +698,6 @@ export class CommitDialog {
 
   /**
    * Get the files section HTML.
-   * Requirement 3.1: List of staged changes with checkboxes
    */
   private _getFilesSection(): string {
     const stagedFiles = this._stagedFiles.filter((f) => f.staged);
@@ -793,9 +774,6 @@ export class CommitDialog {
 
   /**
    * Get the diff preview section HTML.
-   * Requirement 3.2: Diff preview panel
-   * Requirement 3.6: Display individual hunks that can be staged/unstaged independently
-   * Requirement 17.3: Diff preview panel on the right side
    */
   private _getDiffPreviewSection(): string {
     if (!this._currentDiff || !this._selectedFilePath) {
@@ -836,8 +814,6 @@ export class CommitDialog {
 
   /**
    * Render a diff with staging controls as HTML.
-   * Requirement 3.6: Display individual hunks with staging controls
-   * Requirement 14.1: Display change hunks with individual staging controls
    */
   private _renderDiffWithControls(diff: IDiff, isStaged: boolean): string {
     if (diff.binary) {
@@ -855,10 +831,6 @@ export class CommitDialog {
 
   /**
    * Render a hunk with staging controls as HTML.
-   * Requirement 3.6: Individual hunk staging controls
-   * Requirement 3.7: Line selection for partial staging
-   * Requirement 14.1: Display change hunks with individual staging controls
-   * Requirement 14.7: Support staging via keyboard shortcuts
    */
   private _renderHunkWithControls(hunk: IHunk, hunkIndex: number, isStaged: boolean): string {
     const selectedLines = this._selectedLines.get(hunkIndex) || new Set<number>();
@@ -957,8 +929,6 @@ export class CommitDialog {
 
   /**
    * Get the options section HTML.
-   * Requirement 3.3: Amend option
-   * Requirement 3.4: Sign-off option
    */
   private _getOptionsSection(): string {
     return `

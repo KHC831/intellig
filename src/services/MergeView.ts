@@ -11,8 +11,6 @@ import { IGitService, IRepository } from './interfaces/IGitService';
 /**
  * Three-Way Merge View implementation
  * Provides a three-pane merge editor for conflict resolution
- *
- * Requirements: 10.2, 10.3, 10.4, 10.7, 17.9
  */
 export class MergeView implements IMergeView {
   private _panel: vscode.WebviewPanel | undefined;
@@ -34,7 +32,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Show the merge view for a conflicted file
-   * Requirement 10.2: Display Three_Way_Merge editor showing base, local, and remote versions
    */
   async show(file: string): Promise<void> {
     // Find the repository for this file
@@ -104,7 +101,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Accept the current (local) version for a conflict
-   * Requirement 10.4: Accept Current option
    */
   acceptCurrent(conflictId?: number): void {
     this._resolveConflict(conflictId, 'current');
@@ -112,7 +108,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Accept the incoming (remote) version for a conflict
-   * Requirement 10.4: Accept Incoming option
    */
   acceptIncoming(conflictId?: number): void {
     this._resolveConflict(conflictId, 'incoming');
@@ -120,7 +115,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Accept both versions for a conflict
-   * Requirement 10.4: Accept Both option
    */
   acceptBoth(conflictId?: number): void {
     this._resolveConflict(conflictId, 'both');
@@ -128,7 +122,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Accept current version for all conflicts
-   * Requirement 10.8: Accept All Current
    */
   acceptAllCurrent(): void {
     if (!this._mergeState) {
@@ -144,7 +137,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Accept incoming version for all conflicts
-   * Requirement 10.8: Accept All Incoming
    */
   acceptAllIncoming(): void {
     if (!this._mergeState) {
@@ -160,7 +152,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Navigate to the next conflict
-   * Requirement 10.7: Keyboard navigation between conflicts
    */
   nextConflict(): void {
     if (!this._mergeState || this._mergeState.conflicts.length === 0) {
@@ -174,7 +165,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Navigate to the previous conflict
-   * Requirement 10.7: Keyboard navigation between conflicts
    */
   previousConflict(): void {
     if (!this._mergeState || this._mergeState.conflicts.length === 0) {
@@ -189,7 +179,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Mark the file as resolved
-   * Requirement 10.5: Enable marking the file as resolved
    */
   async markResolved(): Promise<void> {
     if (!this._mergeState || !this._repository) {
@@ -585,7 +574,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Update the webview content
-   * Requirement 17.9: Side-by-side-by-side layout with base in center
    */
   private _updateWebviewContent(): void {
     if (!this._panel || !this._mergeState) {
@@ -938,7 +926,6 @@ export class MergeView implements IMergeView {
 
   /**
    * Generate the three panes HTML
-   * Requirement 17.9: Side-by-side-by-side layout with base in center
    */
   private _generatePanesHtml(): string {
     if (!this._mergeState) {

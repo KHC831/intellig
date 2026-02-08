@@ -7,8 +7,6 @@
  * calling _handleBranchClick(branchName) results in selectCommit being called with
  * the commit hash that maps to that branch. After selection, the generated HTML
  * shall contain a Details Panel with that commit's metadata.
- *
- * **Validates: Requirements 2.2, 2.3, 2.5**
  */
 
 import '../setup';
@@ -227,7 +225,6 @@ function arbitraryBranchClickScenario(): fc.Arbitrary<{
     });
 }
 
-
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 /**
@@ -253,7 +250,6 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
 
   describe('Property 3: Branch click selects correct commit', () => {
     /**
-     * **Validates: Requirements 2.2, 2.3, 2.5**
      *
      * For any branch name that exists in the branch map (mapping commit hashes
      * to branch name arrays), calling _handleBranchClick(branchName) shall

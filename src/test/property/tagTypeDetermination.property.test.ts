@@ -6,13 +6,11 @@ import { ITag, IAuthor } from '../../services/interfaces/IGitService';
  * Property-based tests for Tag Type Determination.
  * Feature: intellig-vscode, Property 42: Tag Type Determination
  *
- * **Validates: Requirements 13.2, 13.3**
  *
  * Property Description:
  * For any tag created with a message, the tag SHALL be annotated; for any tag
  * created without a message, the tag SHALL be lightweight.
  *
- * Requirements:
  * - 13.2: WHEN creating a tag with a message, THE Extension SHALL create an annotated tag
  * - 13.3: WHEN creating a tag without a message, THE Extension SHALL create a lightweight tag
  */
@@ -114,8 +112,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Create a tag.
-     * Requirement 13.2: Creating a tag with a message creates an annotated tag.
-     * Requirement 13.3: Creating a tag without a message creates a lightweight tag.
      *
      * @param name - The tag name
      * @param commit - The commit hash to tag
@@ -173,8 +169,6 @@ describe('Tag Type Determination Property Tests', () => {
   describe('Property 42: Tag Type Determination', () => {
     /**
      * Property: Tags created with a message are annotated.
-     *
-     * **Validates: Requirements 13.2**
      */
     it('Property: Tags created with a message are annotated', () => {
       fc.assert(
@@ -207,8 +201,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tags created without a message are lightweight.
-     *
-     * **Validates: Requirements 13.3**
      */
     it('Property: Tags created without a message are lightweight', () => {
       fc.assert(
@@ -249,8 +241,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tags created with undefined message are lightweight.
-     *
-     * **Validates: Requirements 13.3**
      */
     it('Property: Tags created with undefined message are lightweight', () => {
       fc.assert(
@@ -276,8 +266,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tags created with empty string message are lightweight.
-     *
-     * **Validates: Requirements 13.3**
      */
     it('Property: Tags created with empty string message are lightweight', () => {
       fc.assert(
@@ -303,8 +291,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tags created with whitespace-only message are lightweight.
-     *
-     * **Validates: Requirements 13.3**
      */
     it('Property: Tags created with whitespace-only message are lightweight', () => {
       fc.assert(
@@ -335,8 +321,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tag type is determined solely by message presence.
-     *
-     * **Validates: Requirements 13.2, 13.3**
      */
     it('Property: Tag type is determined solely by message presence', () => {
       fc.assert(
@@ -369,8 +353,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Annotated tags preserve tagger information.
-     *
-     * **Validates: Requirements 13.2**
      */
     it('Property: Annotated tags preserve tagger information', () => {
       fc.assert(
@@ -400,8 +382,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tag commit reference is preserved regardless of type.
-     *
-     * **Validates: Requirements 13.2, 13.3**
      */
     it('Property: Tag commit reference is preserved regardless of type', () => {
       fc.assert(
@@ -428,8 +408,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Tag name is preserved regardless of type.
-     *
-     * **Validates: Requirements 13.2, 13.3**
      */
     it('Property: Tag name is preserved regardless of type', () => {
       fc.assert(
@@ -456,8 +434,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Creating duplicate tag names fails.
-     *
-     * **Validates: Requirements 13.2, 13.3**
      */
     it('Property: Creating duplicate tag names fails', () => {
       fc.assert(
@@ -493,8 +469,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Multiple tags can be created with different names.
-     *
-     * **Validates: Requirements 13.2, 13.3**
      */
     it('Property: Multiple tags can be created with different names', () => {
       fc.assert(
@@ -550,8 +524,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Annotated tags have all required metadata fields.
-     *
-     * **Validates: Requirements 13.2**
      */
     it('Property: Annotated tags have all required metadata fields', () => {
       fc.assert(
@@ -580,8 +552,6 @@ describe('Tag Type Determination Property Tests', () => {
 
     /**
      * Property: Lightweight tags have minimal metadata.
-     *
-     * **Validates: Requirements 13.3**
      */
     it('Property: Lightweight tags have minimal metadata', () => {
       fc.assert(

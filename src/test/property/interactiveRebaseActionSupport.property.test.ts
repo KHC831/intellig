@@ -11,7 +11,6 @@ import {
  * Property-based tests for Interactive Rebase Action Support.
  * Feature: intellig-vscode, Property 13: Interactive Rebase Action Support
  *
- * **Validates: Requirements 6.3**
  *
  * Property Description:
  * For any commit in an interactive rebase session, all six actions (pick, reword, edit, squash, fixup, drop)
@@ -129,7 +128,7 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Get all available actions for a commit in the rebase session.
-     * Per Requirements 6.3, all six actions should be available.
+     * all six actions should be available.
      */
     getAvailableActionsForCommit(_commitHash: string): RebaseAction[] {
       // All six actions are always available for any commit
@@ -204,8 +203,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
   describe('Property 13: Interactive Rebase Action Support', () => {
     /**
      * Property: All six rebase actions are available for any commit in a rebase session.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: All six rebase actions are available for any commit', () => {
       fc.assert(
@@ -248,8 +245,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: Each of the six actions can be individually selected for any commit.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Each action can be selected for any commit', () => {
       fc.assert(
@@ -293,8 +288,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: Actions can be changed multiple times for the same commit.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Actions can be changed multiple times for the same commit', () => {
       fc.assert(
@@ -345,8 +338,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: All six actions are selectable for all commits simultaneously.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Different actions can be set for different commits simultaneously', () => {
       fc.assert(
@@ -395,8 +386,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: The 'pick' action is available and selectable (default action).
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Pick action is available and selectable', () => {
       fc.assert(
@@ -436,8 +425,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: The 'reword' action is available and selectable.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Reword action is available and selectable', () => {
       fc.assert(
@@ -473,8 +460,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: The 'edit' action is available and selectable.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Edit action is available and selectable', () => {
       fc.assert(
@@ -510,8 +495,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: The 'squash' action is available and selectable.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Squash action is available and selectable', () => {
       fc.assert(
@@ -547,8 +530,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: The 'fixup' action is available and selectable.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Fixup action is available and selectable', () => {
       fc.assert(
@@ -584,8 +565,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: The 'drop' action is available and selectable.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Drop action is available and selectable', () => {
       fc.assert(
@@ -621,8 +600,6 @@ describe('Interactive Rebase Action Support Property Tests', () => {
 
     /**
      * Property: Session maintains action selections across multiple commits.
-     *
-     * **Validates: Requirements 6.3**
      */
     it('Property: Session maintains action selections across multiple commits', () => {
       fc.assert(

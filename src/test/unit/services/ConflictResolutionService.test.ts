@@ -6,7 +6,6 @@ import { IGitCommandResult } from '../../../utils/gitCli';
 
 /**
  * Unit tests for ConflictResolutionService
- * Requirements: 10.1, 10.5, 10.6, 10.8
  */
 describe('ConflictResolutionService', () => {
   let conflictService: ConflictResolutionService;
@@ -78,7 +77,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('getConflictedFiles() - Requirement 10.1', () => {
+  describe('getConflictedFiles()', () => {
     it('should return empty array when no conflicts', async () => {
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
@@ -142,7 +141,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('markResolved() - Requirement 10.5', () => {
+  describe('markResolved()', () => {
     it('should stage the file to mark as resolved', async () => {
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
 
@@ -176,7 +175,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('acceptCurrent() - Requirement 10.8', () => {
+  describe('acceptCurrent()', () => {
     it('should checkout --ours and stage the file', async () => {
       let checkoutCalled = false;
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
@@ -194,7 +193,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('acceptIncoming() - Requirement 10.8', () => {
+  describe('acceptIncoming()', () => {
     it('should checkout --theirs and stage the file', async () => {
       let checkoutCalled = false;
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
@@ -212,7 +211,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('acceptAllCurrent() - Requirement 10.8', () => {
+  describe('acceptAllCurrent()', () => {
     it('should accept current for all conflicted files', async () => {
       const checkedOutFiles: string[] = [];
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
@@ -249,7 +248,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('acceptAllIncoming() - Requirement 10.8', () => {
+  describe('acceptAllIncoming()', () => {
     it('should accept incoming for all conflicted files', async () => {
       const checkedOutFiles: string[] = [];
       mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
@@ -278,7 +277,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('canCompleteOperation() - Requirement 10.6', () => {
+  describe('canCompleteOperation()', () => {
     it('should return false when repository is idle', async () => {
       mockRepo.state = 'idle';
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
@@ -315,7 +314,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('completeMerge() - Requirement 10.6', () => {
+  describe('completeMerge()', () => {
     it('should complete merge when no conflicts', async () => {
       mockRepo.state = 'merging';
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);
@@ -346,7 +345,7 @@ describe('ConflictResolutionService', () => {
     });
   });
 
-  describe('completeRebase() - Requirement 10.6', () => {
+  describe('completeRebase()', () => {
     it('should continue rebase when no conflicts', async () => {
       mockRepo.state = 'rebasing';
       mockGitService.getStatus = (): Promise<IFileStatus[]> => Promise.resolve([]);

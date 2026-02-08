@@ -54,8 +54,6 @@ interface IRepositoryCache {
 /**
  * Git Service implementation.
  * Provides all Git operations through the Git CLI.
- *
- * Requirements: 1.5, 12.4
  */
 export class GitService implements IGitService {
   private _gitCli: GitCli;
@@ -339,12 +337,9 @@ export class GitService implements IGitService {
    * @param message - The commit message
    * @param options - Commit options (amend, signOff, noVerify, allowEmpty)
    * @throws Error if commit message is empty (unless amending or allowEmpty is true)
-   *
-   * Requirements: 3.1, 3.3, 3.4, 3.5
    */
   async commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
     // Validate commit message - prevent empty messages unless amending or allowEmpty
-    // Requirement 3.5: Empty message should be prevented with validation error
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !options.amend && !options.allowEmpty) {
       throw new Error('Commit message cannot be empty');
@@ -352,11 +347,9 @@ export class GitService implements IGitService {
 
     const args = ['commit', '-m', message];
 
-    // Requirement 3.3: Amend option
     if (options.amend) {
       args.push('--amend');
     }
-    // Requirement 3.4: Sign-off option
     if (options.signOff) {
       args.push('--signoff');
     }
@@ -475,8 +468,6 @@ export class GitService implements IGitService {
    * @param repo - The repository
    * @param onto - The branch to rebase onto
    * @returns Rebase result with success status and any conflicts
-   *
-   * Requirements: 4.8
    */
   async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
     const result = await this._gitCli.exec(['rebase', onto], { cwd: repo.rootUri.fsPath });
@@ -510,8 +501,6 @@ export class GitService implements IGitService {
    * @param branch1 - The first branch (typically the current branch)
    * @param branch2 - The second branch to compare against
    * @returns Branch comparison result with commits ahead/behind and changed files
-   *
-   * Requirements: 4.11, 15.1, 15.2, 15.3, 15.5, 15.6
    */
   async compareBranches(
     repo: IRepository,
@@ -730,8 +719,6 @@ export class GitService implements IGitService {
    * @param repo - The repository
    * @param index - The stash index
    * @returns Array of diffs showing the stash contents
-   *
-   * Requirements: 7.7
    */
   async stashShow(repo: IRepository, index: number): Promise<IDiff[]> {
     const result = await this._gitCli.exec(['stash', 'show', '-p', `stash@{${index}}`], {
@@ -893,8 +880,6 @@ export class GitService implements IGitService {
    * @param repo - The repository
    * @param commits - Array of commit hashes (can be in any order)
    * @returns Array of diffs representing the combined changes
-   *
-   * Requirements: 9.8 (Log)
    */
   async getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
     if (commits.length === 0) {
@@ -977,8 +962,6 @@ export class GitService implements IGitService {
    * @param repo - The repository
    * @param commits - Array of commit hashes to cherry-pick
    * @returns Cherry-pick result with success status and any conflicts
-   *
-   * Requirements: 11.1, 11.2, 11.3
    */
   async cherryPick(repo: IRepository, commits: string[]): Promise<ICherryPickResult> {
     if (commits.length === 0) {
@@ -1009,8 +992,6 @@ export class GitService implements IGitService {
    * Restores the working directory to its pre-cherry-pick state.
    *
    * @param repo - The repository
-   *
-   * Requirements: 11.4
    */
   async cherryPickAbort(repo: IRepository): Promise<void> {
     await this._gitCli.exec(['cherry-pick', '--abort'], {
@@ -1025,8 +1006,6 @@ export class GitService implements IGitService {
    *
    * @param repo - The repository
    * @returns Cherry-pick result with success status and any new conflicts
-   *
-   * Requirements: 11.5
    */
   async cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
     const result = await this._gitCli.exec(['cherry-pick', '--continue'], {
@@ -1092,8 +1071,6 @@ export class GitService implements IGitService {
    * Restores the working directory to its pre-revert state.
    *
    * @param repo - The repository
-   *
-   * Requirements: 9.5 (Log context menu - Revert)
    */
   async revertAbort(repo: IRepository): Promise<void> {
     await this._gitCli.exec(['revert', '--abort'], {
@@ -1108,8 +1085,6 @@ export class GitService implements IGitService {
    *
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
-   *
-   * Requirements: 9.5 (Log context menu - Revert)
    */
   async revertContinue(repo: IRepository): Promise<IRevertResult> {
     const result = await this._gitCli.exec(['revert', '--continue'], {
@@ -1169,8 +1144,6 @@ export class GitService implements IGitService {
    * @param repo - The repository
    * @param path - The file path
    * @param hunk - The hunk to stage
-   *
-   * Requirements: 3.6, 14.1, 14.2
    */
   async stageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
     // Generate a patch for the hunk
@@ -1192,8 +1165,6 @@ export class GitService implements IGitService {
    * @param path - The file path
    * @param lines - Array of line numbers (1-indexed) in the new file to stage
    * @param hunk - The hunk containing the lines to stage
-   *
-   * Requirements: 3.7, 14.3
    */
   async stageLines(repo: IRepository, path: string, lines: number[], hunk: IHunk): Promise<void> {
     if (lines.length === 0) {
@@ -1218,8 +1189,6 @@ export class GitService implements IGitService {
    * @param repo - The repository
    * @param path - The file path
    * @param hunk - The hunk to unstage
-   *
-   * Requirements: 14.5
    */
   async unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
     // Generate a patch for the hunk
@@ -1240,8 +1209,6 @@ export class GitService implements IGitService {
    *
    * @param repo - The repository
    * @param path - The file path to revert
-   *
-   * Requirements: 2.7 (Local Changes View context menu - Revert)
    */
   async revertFile(repo: IRepository, path: string): Promise<void> {
     // Use git checkout -- <path> to discard changes

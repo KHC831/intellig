@@ -2,8 +2,6 @@
  * Notification Service implementation.
  * Provides notification functionality for Git operations including progress,
  * success, and error notifications.
- *
- * Requirements: 17.8, Error handling scenarios
  */
 
 import * as vscode from 'vscode';
@@ -91,7 +89,6 @@ const OPERATION_ERROR_PREFIXES: Record<GitOperationType, string> = {
  * Notification Service implementation.
  * Manages notifications for Git operations including progress, success, and error messages.
  *
- * Requirements:
  * - 17.8: Display progress and status notifications similar to IntelliJ
  * - Error handling: Provide user-friendly error messages with recovery suggestions
  */

@@ -12,13 +12,11 @@ import {
  * Property-based tests for Log Graph Accuracy.
  * Feature: intellig-vscode, Property 24: Log Graph Accuracy
  *
- * **Validates: Requirements 9.1 (Log)**
  *
  * Property Description:
  * For any repository, the Log View graph SHALL accurately represent the parent-child
  * relationships between commits, including merge commits with multiple parents.
  *
- * Requirements:
  * - 9.1: WHEN a user opens the Log_View, THE Extension SHALL display commit history
  *        with a graph showing branch and merge relationships
  */
@@ -148,8 +146,6 @@ describe('Log Graph Accuracy Property Tests', () => {
   describe('Property 24: Log Graph Accuracy', () => {
     /**
      * Property: Every commit in the graph has a valid column assignment (non-negative).
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Every commit has a valid non-negative column assignment', () => {
       fc.assert(
@@ -172,8 +168,6 @@ describe('Log Graph Accuracy Property Tests', () => {
     /**
      * Property: Graph lines accurately represent parent-child relationships.
      * Each commit should have graph lines connecting to all its parents.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Graph lines accurately represent parent-child relationships', () => {
       fc.assert(
@@ -215,8 +209,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Root commits (no parents) have no graph lines.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Root commits have no graph lines', () => {
       fc.assert(
@@ -241,8 +233,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Merge commits have multiple graph lines (one per parent).
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Merge commits have multiple graph lines for multiple parents', () => {
       fc.assert(
@@ -275,8 +265,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Single-parent commits have exactly one graph line.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Single-parent commits have exactly one graph line', () => {
       fc.assert(
@@ -307,8 +295,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Graph preserves commit order (output order matches input order).
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Graph preserves commit order', () => {
       fc.assert(
@@ -337,8 +323,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: All graph line columns are non-negative.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: All graph line columns are non-negative', () => {
       fc.assert(
@@ -366,8 +350,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Graph lines have valid types (commit, merge, or branch).
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Graph lines have valid types', () => {
       fc.assert(
@@ -392,8 +374,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Graph lines have non-empty color strings.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Graph lines have non-empty color strings', () => {
       fc.assert(
@@ -414,8 +394,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Empty commit list produces empty graph.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Empty commit list produces empty graph', () => {
       fc.assert(
@@ -432,8 +410,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Branch and tag maps are correctly associated with commits.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Branch and tag maps are correctly associated with commits', () => {
       fc.assert(
@@ -505,8 +481,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: First parent line is always of type 'commit' for merge commits.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: First parent line is type commit for merge commits', () => {
       fc.assert(
@@ -531,8 +505,6 @@ describe('Log Graph Accuracy Property Tests', () => {
 
     /**
      * Property: Graph handles linear history correctly.
-     *
-     * **Validates: Requirements 9.1**
      */
     it('Property: Graph handles linear history correctly', () => {
       fc.assert(

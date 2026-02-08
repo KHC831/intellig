@@ -6,13 +6,11 @@ import { IShelfItem, IShelfFile, IUnshelveOptions } from '../../services/interfa
  * Property-based tests for Shelf Round-Trip.
  * Feature: intellig-vscode, Property 21: Shelf Round-Trip
  *
- * **Validates: Requirements 8.1, 8.4**
  *
  * Property Description:
  * For any set of changes shelved, unshelving SHALL restore those exact changes
  * to the working directory.
  *
- * Requirements:
  * - 8.1: WHEN a user selects "Shelve Changes", THE Extension SHALL save selected
  *        changes to an IDE-managed shelf storage
  * - 8.4: WHEN a user selects "Unshelve", THE Extension SHALL restore the shelved
@@ -137,7 +135,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Shelve changes from the working directory.
-     * Requirement 8.1: Save selected changes to an IDE-managed shelf storage.
      *
      * @param name - Name for the shelf item
      * @param files - Files to shelve (if empty, shelve all working directory changes)
@@ -182,7 +179,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Unshelve changes back to working directory.
-     * Requirement 8.4: Restore the shelved changes to the working directory.
      *
      * @param shelfId - ID of the shelf item to unshelve
      * @param options - Unshelve options
@@ -280,8 +276,6 @@ describe('Shelf Round-Trip Property Tests', () => {
   describe('Property 21: Shelf Round-Trip', () => {
     /**
      * Property: Shelving changes and then unshelving restores the exact same changes.
-     *
-     * **Validates: Requirements 8.1, 8.4**
      */
     it('Property: Shelve and unshelve restores exact same changes', () => {
       fc.assert(
@@ -326,8 +320,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Shelf items preserve their names and content.
-     *
-     * **Validates: Requirements 8.1, 8.4**
      */
     it('Property: Shelf items preserve their names and content', () => {
       fc.assert(
@@ -364,8 +356,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Unshelving with removeFromShelf option removes the item.
-     *
-     * **Validates: Requirements 8.4**
      */
     it('Property: Unshelving with removeFromShelf removes the item', () => {
       fc.assert(
@@ -396,8 +386,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Unshelving with keepCopy option keeps the item.
-     *
-     * **Validates: Requirements 8.4**
      */
     it('Property: Unshelving with keepCopy (removeFromShelf: false) keeps the item', () => {
       fc.assert(
@@ -441,8 +429,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Shelf round-trip preserves file paths exactly.
-     *
-     * **Validates: Requirements 8.1, 8.4**
      */
     it('Property: Shelf round-trip preserves file paths exactly', () => {
       fc.assert(
@@ -475,8 +461,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Shelf round-trip preserves diff content exactly.
-     *
-     * **Validates: Requirements 8.1, 8.4**
      */
     it('Property: Shelf round-trip preserves diff content exactly', () => {
       fc.assert(
@@ -512,8 +496,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Multiple shelf and unshelve operations maintain consistency.
-     *
-     * **Validates: Requirements 8.1, 8.4**
      */
     it('Property: Multiple shelf and unshelve operations maintain consistency', () => {
       fc.assert(
@@ -568,8 +550,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Shelving with no changes should fail.
-     *
-     * **Validates: Requirements 8.1**
      */
     it('Property: Shelving with no changes should fail', () => {
       fc.assert(
@@ -597,8 +577,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Unshelving non-existent shelf item should fail.
-     *
-     * **Validates: Requirements 8.4**
      */
     it('Property: Unshelving non-existent shelf item should fail', () => {
       fc.assert(
@@ -628,8 +606,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Deleting a shelf item removes it from the list.
-     *
-     * **Validates: Requirements 8.1, 8.4**
      */
     it('Property: Deleting a shelf item removes it from the list', () => {
       fc.assert(
@@ -658,8 +634,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Deleting non-existent shelf item should fail.
-     *
-     * **Validates: Requirements 8.1**
      */
     it('Property: Deleting non-existent shelf item should fail', () => {
       fc.assert(
@@ -696,8 +670,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Unshelve default behavior removes from shelf.
-     *
-     * **Validates: Requirements 8.4**
      */
     it('Property: Unshelve default behavior removes from shelf', () => {
       fc.assert(
@@ -730,8 +702,6 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Shelf item IDs are unique.
-     *
-     * **Validates: Requirements 8.1**
      */
     it('Property: Shelf item IDs are unique', () => {
       fc.assert(

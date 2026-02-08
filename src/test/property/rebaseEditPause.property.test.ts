@@ -12,7 +12,6 @@ import {
  * Property-based tests for Rebase Edit Pause.
  * Feature: intellig-vscode, Property 15: Rebase Edit Pause
  *
- * **Validates: Requirements 6.5**
  *
  * Property Description:
  * For any commit marked for edit in interactive rebase, the rebase SHALL pause at that commit
@@ -95,8 +94,6 @@ describe('Rebase Edit Pause Property Tests', () => {
   /**
    * Mock Rebase Service that simulates interactive rebase with edit pause behavior.
    * This allows us to test edit pause properties without actual Git operations.
-   *
-   * Requirements: 6.5
    */
   class MockRebaseService {
     private _session: IRebaseSession | undefined;
@@ -223,8 +220,6 @@ describe('Rebase Edit Pause Property Tests', () => {
      * Execute the rebase with the current plan.
      * When a commit is marked for edit, the rebase SHALL pause at that commit
      * with the repository in a state allowing amendments.
-     *
-     * Requirements: 6.5
      */
     executeRebase(): IRebaseResult {
       if (!this._session) {
@@ -244,7 +239,7 @@ describe('Rebase Edit Pause Property Tests', () => {
         }
 
         if (commit.action === 'edit') {
-          // Pause for edit - this is the key behavior for Requirement 6.5
+          // Pause for edit - the repository should be in a state allowing amendments
           // The repository should be in a state allowing amendments
           this._pausedForEdit = true;
           this._currentEditCommit = commit;
@@ -282,8 +277,6 @@ describe('Rebase Edit Pause Property Tests', () => {
     /**
      * Add changes to the working directory during an edit pause.
      * This simulates making manual changes while paused for edit.
-     *
-     * Requirements: 6.5
      */
     addWorkingDirectoryChange(change: IFileChange): void {
       if (!this._pausedForEdit || !this._amendAllowed) {
@@ -294,8 +287,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Modify an existing file in the working directory during an edit pause.
-     *
-     * Requirements: 6.5
      */
     modifyWorkingDirectoryFile(path: string, newContent: string): void {
       if (!this._pausedForEdit || !this._amendAllowed) {
@@ -313,8 +304,6 @@ describe('Rebase Edit Pause Property Tests', () => {
      * Amend the current commit during an edit pause.
      * This should be called when the rebase is paused for edit.
      * The amended commit will include any working directory changes.
-     *
-     * Requirements: 6.5
      */
     amendEditCommit(message?: string): IRebaseResult {
       if (!this._session) {
@@ -352,8 +341,6 @@ describe('Rebase Edit Pause Property Tests', () => {
     /**
      * Continue the rebase after an edit pause.
      * This finalizes the edit and continues to the next commit.
-     *
-     * Requirements: 6.5
      */
     continueRebase(): IRebaseResult {
       if (!this._session) {
@@ -466,8 +453,6 @@ describe('Rebase Edit Pause Property Tests', () => {
   describe('Property 15: Rebase Edit Pause', () => {
     /**
      * Property: Rebase pauses when encountering a commit marked for edit.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Rebase pauses when encountering a commit marked for edit', () => {
       fc.assert(
@@ -530,8 +515,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Repository is in a state allowing amendments when paused for edit.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Repository is in a state allowing amendments when paused for edit', () => {
       fc.assert(
@@ -579,8 +562,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Manual changes can be made during edit pause.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Manual changes can be made during edit pause', () => {
       fc.assert(
@@ -628,8 +609,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Amend during edit pause includes working directory changes.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Amend during edit pause includes working directory changes', () => {
       fc.assert(
@@ -693,8 +672,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Session status is 'paused' when stopped for edit.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Session status is paused when stopped for edit', () => {
       fc.assert(
@@ -734,8 +711,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Multiple edit commits pause at each one in sequence.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Multiple edit commits pause at each one in sequence', () => {
       fc.assert(
@@ -793,8 +768,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Continue after edit pause proceeds to next commit.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Continue after edit pause proceeds to next commit', () => {
       fc.assert(
@@ -851,8 +824,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Edit pause allows modifying existing files.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Edit pause allows modifying existing files', () => {
       fc.assert(
@@ -902,8 +873,6 @@ describe('Rebase Edit Pause Property Tests', () => {
 
     /**
      * Property: Edit does not affect commits before or after the edited commit.
-     *
-     * **Validates: Requirements 6.5**
      */
     it('Property: Edit does not affect other commits in the rebase', () => {
       fc.assert(

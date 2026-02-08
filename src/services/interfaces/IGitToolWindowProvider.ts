@@ -11,8 +11,6 @@ import { ICommit, FileStatus } from './IGitService';
 /**
  * Changed file entry for the Details Panel.
  * Represents a file that was modified in a commit.
- *
- * Requirements: 4.2
  */
 export interface IChangedFile {
   path: string;
@@ -23,8 +21,6 @@ export interface IChangedFile {
 /**
  * Commit details data model for the Details Panel.
  * Contains full commit metadata and changed files.
- *
- * Requirements: 4.1, 4.2
  */
 export interface ICommitDetails {
   hash: string;
@@ -85,8 +81,6 @@ export { IChangelist, IFileChange };
 
 /**
  * Messages from the webview to the extension host.
- *
- * Requirements: 2.6, 3.3, 3.4, 3.5, 4.3, 1.3, 1.4, 3.8, 5.2
  */
 export type WebviewMessage =
   | { type: 'branchClick'; branchName: string }

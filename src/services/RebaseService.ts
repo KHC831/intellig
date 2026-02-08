@@ -16,8 +16,6 @@ import { GitCli, createGitCli, IGitCommandResult } from '../utils/gitCli';
 /**
  * Rebase Service implementation.
  * Manages interactive rebase operations including starting, modifying, and controlling rebases.
- *
- * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
  */
 export class RebaseService implements IRebaseService {
   private _gitCli: GitCli;
@@ -43,8 +41,6 @@ export class RebaseService implements IRebaseService {
    * @param repo - The repository to rebase in
    * @param onto - The commit/branch to rebase onto
    * @returns The rebase session with commits and their actions
-   *
-   * Requirements: 6.1, 6.2
    */
   async startInteractiveRebase(repo: IRepository, onto: string): Promise<IRebaseSession> {
     const cwd = repo.rootUri.fsPath;
@@ -129,8 +125,6 @@ export class RebaseService implements IRebaseService {
    *
    * @param repo - The repository
    * @param plan - The new plan with updated actions and order
-   *
-   * Requirements: 6.2, 6.3
    */
   updateRebasePlan(repo: IRepository, plan: IRebaseAction[]): void {
     const repoKey = this.getRepoKey(repo);
@@ -173,8 +167,6 @@ export class RebaseService implements IRebaseService {
    *
    * @param repo - The repository
    * @returns The result of continuing the rebase
-   *
-   * Requirements: 6.7
    */
   async continueRebase(repo: IRepository): Promise<IRebaseResult> {
     const cwd = repo.rootUri.fsPath;
@@ -221,8 +213,6 @@ export class RebaseService implements IRebaseService {
    * Abort the rebase and restore original state.
    *
    * @param repo - The repository
-   *
-   * Requirements: 6.8
    */
   async abortRebase(repo: IRepository): Promise<void> {
     const cwd = repo.rootUri.fsPath;
@@ -289,8 +279,6 @@ export class RebaseService implements IRebaseService {
    *
    * @param repo - The repository
    * @returns The result of starting the rebase
-   *
-   * Requirements: 6.4, 6.5, 6.6
    */
   async executeRebase(repo: IRepository): Promise<IRebaseResult> {
     const cwd = repo.rootUri.fsPath;
@@ -349,8 +337,6 @@ ${todoContent}EOF
    * @param session - The current rebase session
    * @param result - The Git command result
    * @returns The rebase result
-   *
-   * Requirements: 6.4, 6.5
    */
   private async handleRebaseResult(
     repo: IRepository,
@@ -377,7 +363,7 @@ ${todoContent}EOF
       return { success: false, status: 'conflict', conflictedFiles: conflicts };
     }
 
-    // Check if paused for edit action (Requirement 6.5)
+    // Check if paused for edit action
     // When paused for edit, the rebase is in progress but waiting for user amendments
     const isPausedForEdit = await this.isPausedForEdit(repo);
     if (isPausedForEdit) {
@@ -387,7 +373,7 @@ ${todoContent}EOF
       return { success: true, status: 'paused' };
     }
 
-    // Check if paused for reword action (Requirement 6.4)
+    // Check if paused for reword action
     // When paused for reword, Git is waiting for a new commit message
     const isPausedForReword = this.isPausedForReword(repo);
     if (isPausedForReword) {
@@ -417,8 +403,6 @@ ${todoContent}EOF
    *
    * @param repo - The repository
    * @returns True if paused for edit
-   *
-   * Requirement 6.5
    */
   private async isPausedForEdit(repo: IRepository): Promise<boolean> {
     const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
@@ -455,8 +439,6 @@ ${todoContent}EOF
    *
    * @param repo - The repository
    * @returns True if paused for reword
-   *
-   * Requirement 6.4
    */
   private isPausedForReword(repo: IRepository): boolean {
     const rebaseMergePath = path.join(repo.rootUri.fsPath, '.git', 'rebase-merge');
@@ -508,8 +490,6 @@ ${todoContent}EOF
    * @param repo - The repository
    * @param message - The new commit message
    * @returns The result of continuing the rebase with the new message
-   *
-   * Requirement 6.4
    */
   async provideRewordMessage(repo: IRepository, message: string): Promise<IRebaseResult> {
     const cwd = repo.rootUri.fsPath;
@@ -546,8 +526,6 @@ ${todoContent}EOF
    * @param repo - The repository
    * @param message - Optional new commit message
    * @returns The result of the amend operation
-   *
-   * Requirement 6.5
    */
   async amendEditCommit(repo: IRepository, message?: string): Promise<IRebaseResult> {
     const cwd = repo.rootUri.fsPath;

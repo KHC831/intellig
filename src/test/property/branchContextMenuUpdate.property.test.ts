@@ -3,8 +3,6 @@
  *
  * Feature: branch-context-menu, Property 3: Update command fetches from correct upstream
  * Feature: branch-context-menu, Property 4: Push command targets correct branch
- *
- * **Validates: Requirements 7.1, 7.2**
  */
 
 import '../setup';
@@ -203,7 +201,6 @@ function createBranchTreeItem(branchName: string, upstream?: IUpstream): BranchT
 describe('Feature: branch-context-menu - Update and Push Command Property Tests', () => {
   describe('Property 3: Update command fetches from correct upstream', () => {
     /**
-     * **Validates: Requirements 7.1**
      *
      * For any local branch with an upstream remote, when the Update command
      * handler is invoked, the handler SHALL call fetch on the git service
@@ -303,10 +300,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
     });
   });
 
-
   describe('Property 4: Push command targets correct branch', () => {
     /**
-     * **Validates: Requirements 7.2**
      *
      * For any local branch, when the Push command handler is invoked,
      * the handler SHALL call push on the git service with the branch name

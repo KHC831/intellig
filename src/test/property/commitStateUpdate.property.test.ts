@@ -24,13 +24,11 @@ interface ILocalChangesState {
  * Property-based tests for Commit State Update.
  * Feature: intellig-vscode, Property 7: Commit State Update
  *
- * **Validates: Requirements 3.8**
  *
  * Property Description:
  * For any successful commit operation, the committed files SHALL no longer appear
  * in the Local Changes View, and the Log View SHALL contain the new commit.
  *
- * Requirements:
  * - 3.8: WHEN a commit succeeds, THE Commit_Dialog SHALL close and THE Local_Changes_View
  *        SHALL update to reflect the committed changes
  */
@@ -251,7 +249,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Perform a commit operation.
-     * Requirement 3.8: After commit, committed files should no longer appear in Local Changes View,
      * and the Log View should contain the new commit.
      *
      * @param message - Commit message
@@ -355,8 +352,6 @@ describe('Commit State Update Property Tests', () => {
   describe('Property 7: Commit State Update', () => {
     /**
      * Property: After a successful commit, committed files no longer appear in Local Changes View.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Committed files are removed from Local Changes View', () => {
       fc.assert(
@@ -392,8 +387,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: After a successful commit, the Log View contains the new commit.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: New commit appears in Log View after successful commit', () => {
       fc.assert(
@@ -428,8 +421,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Commit message is preserved in the new commit.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Commit message is preserved in the new commit', () => {
       fc.assert(
@@ -455,8 +446,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Only staged files are removed from Local Changes View.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Only staged files are removed, unstaged files remain', () => {
       fc.assert(
@@ -515,8 +504,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: New commit has correct parent reference.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: New commit has correct parent reference', () => {
       fc.assert(
@@ -549,8 +536,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Commit with no staged files fails (unless allowEmpty).
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Commit with no staged files fails unless allowEmpty', () => {
       fc.assert(
@@ -571,8 +556,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Commit with allowEmpty option succeeds even with no staged files.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Commit with allowEmpty succeeds with no staged files', () => {
       fc.assert(
@@ -596,8 +579,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Amend commit replaces the previous commit in Log View.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Amend commit replaces previous commit in Log View', () => {
       fc.assert(
@@ -640,8 +621,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Multiple sequential commits maintain correct order in Log View.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Multiple sequential commits maintain correct order', () => {
       fc.assert(
@@ -691,8 +670,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: Local Changes View is empty after committing all staged files.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: Local Changes View is empty after committing all files', () => {
       fc.assert(
@@ -721,8 +698,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: New commit has valid timestamp.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: New commit has valid timestamp', () => {
       fc.assert(
@@ -753,8 +728,6 @@ describe('Commit State Update Property Tests', () => {
 
     /**
      * Property: New commit has valid hash format.
-     *
-     * **Validates: Requirements 3.8**
      */
     it('Property: New commit has valid hash format', () => {
       fc.assert(

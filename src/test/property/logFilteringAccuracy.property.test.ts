@@ -6,13 +6,11 @@ import { ICommit, IAuthor } from '../../services/interfaces/IGitService';
  * Property-based tests for Log Filtering Accuracy.
  * Feature: intellig-vscode, Property 27: Log Filtering Accuracy
  *
- * **Validates: Requirements 9.6, 9.7 (Log)**
  *
  * Property Description:
  * For any filter criteria (author, date range, path, message), the filtered log
  * SHALL contain only commits matching all specified criteria.
  *
- * Requirements:
  * - 9.6: THE Log_View SHALL support filtering by author, date range, file path, and commit message
  * - 9.7: THE Log_View SHALL support searching commit messages and content
  */
@@ -158,7 +156,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Check if a commit matches the author filter.
-     * Requirement 9.6: Filter by author.
      *
      * @param commit - The commit to check
      * @param authorFilter - The author name to filter by (case-insensitive partial match)
@@ -172,7 +169,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Check if a commit matches the date range filter.
-     * Requirement 9.6: Filter by date range.
      *
      * @param commit - The commit to check
      * @param since - Start date (inclusive)
@@ -195,7 +191,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Check if a commit matches the path filter.
-     * Requirement 9.6: Filter by file path.
      *
      * @param commitHash - The commit hash
      * @param pathFilter - The path to filter by (prefix match)
@@ -215,7 +210,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Check if a commit matches the search text filter.
-     * Requirement 9.7: Search commit messages and content.
      *
      * @param commit - The commit to check
      * @param searchText - The text to search for (case-insensitive)
@@ -233,7 +227,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Filter commits based on the provided criteria.
-     * Requirement 9.6, 9.7: Filter by author, date range, path, and message.
      *
      * @param filter - The filter criteria
      * @returns Array of commits matching all specified criteria
@@ -305,8 +298,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
   describe('Property 27: Log Filtering Accuracy', () => {
     /**
      * Property: Filtering by author returns only commits from that author.
-     *
-     * **Validates: Requirements 9.6**
      */
     it('Property: Filtering by author returns only commits from that author', () => {
       fc.assert(
@@ -349,8 +340,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Filtering by date range returns only commits within that range.
-     *
-     * **Validates: Requirements 9.6**
      */
     it('Property: Filtering by date range returns only commits within that range', () => {
       fc.assert(
@@ -402,8 +391,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Filtering by path returns only commits that modified that path.
-     *
-     * **Validates: Requirements 9.6**
      */
     it('Property: Filtering by path returns only commits that modified that path', () => {
       fc.assert(
@@ -449,8 +436,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Filtering by search text returns only commits with matching messages.
-     *
-     * **Validates: Requirements 9.7**
      */
     it('Property: Filtering by search text returns only commits with matching messages', () => {
       fc.assert(
@@ -496,8 +481,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Combined filters return only commits matching ALL criteria.
-     *
-     * **Validates: Requirements 9.6, 9.7**
      */
     it('Property: Combined filters return only commits matching ALL criteria', () => {
       fc.assert(
@@ -558,8 +541,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Empty filter returns all commits.
-     *
-     * **Validates: Requirements 9.6, 9.7**
      */
     it('Property: Empty filter returns all commits', () => {
       fc.assert(
@@ -587,8 +568,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Filter with no matches returns empty array.
-     *
-     * **Validates: Requirements 9.6, 9.7**
      */
     it('Property: Filter with no matches returns empty array', () => {
       fc.assert(
@@ -619,8 +598,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Author filter is case-insensitive.
-     *
-     * **Validates: Requirements 9.6**
      */
     it('Property: Author filter is case-insensitive', () => {
       fc.assert(
@@ -662,8 +639,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Search text filter is case-insensitive.
-     *
-     * **Validates: Requirements 9.7**
      */
     it('Property: Search text filter is case-insensitive', () => {
       fc.assert(
@@ -701,8 +676,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Date filter with since only returns commits after that date.
-     *
-     * **Validates: Requirements 9.6**
      */
     it('Property: Date filter with since only returns commits after that date', () => {
       fc.assert(
@@ -735,8 +708,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Date filter with until only returns commits before that date.
-     *
-     * **Validates: Requirements 9.6**
      */
     it('Property: Date filter with until only returns commits before that date', () => {
       fc.assert(
@@ -769,8 +740,6 @@ describe('Log Filtering Accuracy Property Tests', () => {
 
     /**
      * Property: Filtering preserves commit order.
-     *
-     * **Validates: Requirements 9.6, 9.7**
      */
     it('Property: Filtering preserves commit order', () => {
       fc.assert(

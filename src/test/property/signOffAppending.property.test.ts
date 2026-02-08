@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
  * Property-based tests for Sign-off Appending.
  * Feature: intellig-vscode, Property 5: Sign-off Appending
  *
- * **Validates: Requirements 3.4**
  *
  * Property Description:
  * For any commit message, enabling the Sign-off option SHALL result in a commit message
@@ -256,8 +255,6 @@ describe('Sign-off Appending Property Tests', () => {
     /**
      * Property: For any commit message and user configuration, enabling sign-off
      * SHALL result in a commit message that ends with a valid Signed-off-by line.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Enabling sign-off appends valid Signed-off-by line', () => {
       fc.assert(
@@ -284,8 +281,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: The Signed-off-by line contains the configured user name and email.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Signed-off-by line contains configured user name and email', () => {
       fc.assert(
@@ -321,8 +316,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: The Signed-off-by line follows the standard format.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Signed-off-by line follows standard format', () => {
       fc.assert(
@@ -351,8 +344,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: Sign-off is separated from the original message by a blank line.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Sign-off is separated from message by blank line', () => {
       fc.assert(
@@ -389,8 +380,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: Original message content is preserved when sign-off is added.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Original message content is preserved', () => {
       fc.assert(
@@ -419,8 +408,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: Without sign-off option, no Signed-off-by line is added.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Without sign-off option, no Signed-off-by line is added', () => {
       fc.assert(
@@ -448,8 +435,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: Sign-off works correctly with empty messages (when allowEmpty is true).
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Sign-off works with empty messages', () => {
       fc.assert(
@@ -478,8 +463,6 @@ describe('Sign-off Appending Property Tests', () => {
     /**
      * Property: Sign-off is idempotent in terms of format (multiple sign-offs are valid).
      * Note: Git allows multiple Signed-off-by lines (e.g., when multiple people sign off)
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Multiple sign-offs result in valid format', () => {
       fc.assert(
@@ -525,8 +508,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: Sign-off combined with amend option still produces valid sign-off.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Sign-off works correctly with amend option', () => {
       fc.assert(
@@ -552,8 +533,6 @@ describe('Sign-off Appending Property Tests', () => {
 
     /**
      * Property: Sign-off line email is properly formatted with angle brackets.
-     *
-     * **Validates: Requirements 3.4**
      */
     it('Property: Sign-off email is enclosed in angle brackets', () => {
       fc.assert(

@@ -10,13 +10,11 @@ import {
  * Property-based tests for Three-Way Merge Display.
  * Feature: intellig-vscode, Property 32: Three-Way Merge Display
  *
- * **Validates: Requirements 10.2, 10.3**
  *
  * Property Description:
  * For any conflicted file, the merge editor SHALL display three panes showing
  * the base version, current (local) version, and incoming (remote) version.
  *
- * Requirements:
  * - 10.2: WHEN a user opens a conflicted file, THE Extension SHALL display a
  *         Three_Way_Merge editor showing base, local (current), and remote (incoming) versions
  * - 10.3: WHEN viewing the Three_Way_Merge editor, THE Extension SHALL highlight
@@ -165,7 +163,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Create a merge state from conflicted file content.
-     * Requirement 10.2: Display three panes showing base, current, and incoming versions.
      *
      * @param file - The file path
      * @param base - The base version content
@@ -252,7 +249,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Check if the merge view displays three panes.
-     * Requirement 10.2: Display base, current, and incoming versions.
      */
     hasThreePanes(): boolean {
       if (!this._mergeState) {
@@ -288,7 +284,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Get all conflict regions.
-     * Requirement 10.3: Highlight conflicting sections in each pane.
      */
     getConflicts(): IConflictRegion[] {
       return this._mergeState?.conflicts ?? [];
@@ -296,7 +291,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Check if all conflicts have highlighting information (ranges).
-     * Requirement 10.3: Highlight conflicting sections.
      */
     allConflictsHaveHighlighting(): boolean {
       if (!this._mergeState) {
@@ -424,8 +418,6 @@ describe('Three-Way Merge Display Property Tests', () => {
   describe('Property 32: Three-Way Merge Display', () => {
     /**
      * Property: Merge view displays three panes for base, current, and incoming versions.
-     *
-     * **Validates: Requirements 10.2**
      */
     it('Property: Merge view displays three panes (base, current, incoming)', () => {
       fc.assert(
@@ -463,8 +455,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Base version content is preserved in merge view.
-     *
-     * **Validates: Requirements 10.2**
      */
     it('Property: Base version content is preserved', () => {
       fc.assert(
@@ -495,8 +485,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Current (local) version content is preserved in merge view.
-     *
-     * **Validates: Requirements 10.2**
      */
     it('Property: Current (local) version content is preserved', () => {
       fc.assert(
@@ -527,8 +515,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Incoming (remote) version content is preserved in merge view.
-     *
-     * **Validates: Requirements 10.2**
      */
     it('Property: Incoming (remote) version content is preserved', () => {
       fc.assert(
@@ -559,8 +545,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: All conflicts have highlighting information (ranges) in each pane.
-     *
-     * **Validates: Requirements 10.3**
      */
     it('Property: All conflicts have highlighting information in each pane', () => {
       fc.assert(
@@ -590,8 +574,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Each conflict region has content for all three versions.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Each conflict region has content for all three versions', () => {
       fc.assert(
@@ -624,8 +606,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Conflict count matches the number of conflicts provided.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Conflict count matches input', () => {
       fc.assert(
@@ -656,8 +636,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Conflict regions have valid ranges (non-negative line numbers).
-     *
-     * **Validates: Requirements 10.3**
      */
     it('Property: Conflict regions have valid ranges', () => {
       fc.assert(
@@ -715,8 +693,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Conflict content is preserved for base version.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Conflict base content is preserved', () => {
       fc.assert(
@@ -750,8 +726,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Conflict content is preserved for current version.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Conflict current content is preserved', () => {
       fc.assert(
@@ -785,8 +759,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Conflict content is preserved for incoming version.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Conflict incoming content is preserved', () => {
       fc.assert(
@@ -820,8 +792,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: File path is preserved in merge state.
-     *
-     * **Validates: Requirements 10.2**
      */
     it('Property: File path is preserved in merge state', () => {
       fc.assert(
@@ -858,8 +828,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Conflict IDs are unique within merge state.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Conflict IDs are unique within merge state', () => {
       fc.assert(
@@ -891,8 +859,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Resolved conflicts are tracked in resolvedConflicts set.
-     *
-     * **Validates: Requirements 10.2, 10.3**
      */
     it('Property: Resolved conflicts are tracked correctly', () => {
       fc.assert(
@@ -945,8 +911,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Navigation between conflicts works correctly.
-     *
-     * **Validates: Requirements 10.3**
      */
     it('Property: Navigation between conflicts cycles through all conflicts', () => {
       fc.assert(
@@ -984,8 +948,6 @@ describe('Three-Way Merge Display Property Tests', () => {
 
     /**
      * Property: Previous conflict navigation works correctly.
-     *
-     * **Validates: Requirements 10.3**
      */
     it('Property: Previous conflict navigation cycles through all conflicts', () => {
       fc.assert(

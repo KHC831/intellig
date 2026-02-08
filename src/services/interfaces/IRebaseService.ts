@@ -91,16 +91,12 @@ export interface IRebaseService {
   /**
    * Provide a new message for a reword action.
    * Should be called when the rebase is paused for reword.
-   *
-   * Requirement 6.4
    */
   provideRewordMessage(repo: IRepository, message: string): Promise<IRebaseResult>;
 
   /**
    * Amend the current commit during an edit pause.
    * Should be called when the rebase is paused for edit.
-   *
-   * Requirement 6.5
    */
   amendEditCommit(repo: IRepository, message?: string): Promise<IRebaseResult>;
 

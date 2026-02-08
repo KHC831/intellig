@@ -1,8 +1,6 @@
 /**
  * Status Bar Service interface.
  * Provides status bar integration for displaying Git information.
- *
- * Requirements: 4.1, 17.8
  */
 
 import * as vscode from 'vscode';
@@ -51,7 +49,6 @@ export interface IStatusBarState {
  * Status Bar Service interface.
  * Manages the Git status bar item that displays branch and sync information.
  *
- * Requirements:
  * - 4.1: Display current branch name in status bar
  * - 17.8: Display progress and status notifications similar to IntelliJ
  */

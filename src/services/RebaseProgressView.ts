@@ -2,8 +2,6 @@
  * Rebase Progress View implementation.
  * Displays the current rebase progress during an active rebase operation.
  * Shows current step, conflict resolution prompts, and control buttons.
- *
- * Requirements: 6.7, 6.8, 6.9
  */
 
 import * as vscode from 'vscode';
@@ -27,7 +25,6 @@ interface IWebviewMessage {
  * Rebase Progress View class.
  * Provides a webview panel for monitoring and controlling an active rebase.
  *
- * Requirements:
  * - 6.7: Continue rebase after resolving conflicts
  * - 6.8: Abort rebase and restore original state
  * - 6.9: Skip problematic commits
@@ -162,7 +159,6 @@ export class RebaseProgressView implements vscode.Disposable {
 
   /**
    * Handle continue rebase action.
-   * Requirement 6.7: Continue rebase after resolving conflicts
    */
   private async _handleContinue(): Promise<void> {
     if (!this._repository) {
@@ -180,7 +176,6 @@ export class RebaseProgressView implements vscode.Disposable {
 
   /**
    * Handle abort rebase action.
-   * Requirement 6.8: Abort rebase and restore original state
    */
   private async _handleAbort(): Promise<void> {
     if (!this._repository) {
@@ -212,7 +207,6 @@ export class RebaseProgressView implements vscode.Disposable {
 
   /**
    * Handle skip commit action.
-   * Requirement 6.9: Skip problematic commits
    */
   private async _handleSkip(): Promise<void> {
     if (!this._repository) {
@@ -241,7 +235,6 @@ export class RebaseProgressView implements vscode.Disposable {
 
   /**
    * Handle provide reword message action.
-   * Requirement 6.4: Prompt for new commit message during reword
    */
   private async _handleProvideRewordMessage(message: string): Promise<void> {
     if (!this._repository) {

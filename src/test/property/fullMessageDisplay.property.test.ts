@@ -8,8 +8,6 @@ import { Uri } from '../mocks/vscode';
  * Property-based tests for Full Message Display in the Details Panel.
  * Feature: git-graph-details-improvements, Property 4: Details panel shows full commit message with body
  *
- * **Validates: Requirement 3.4**
- *
  * Property Description:
  * For any commit details with a non-empty message and body, the HTML output of
  * _getDetailsPanelHtml() SHALL contain both the message text and the body text
@@ -76,8 +74,6 @@ describe('Full Message Display Property Tests', () => {
      * Property: For any commit details with a non-empty message and body,
      * the HTML output contains both the message and body text within the
      * commit-full-message pre element.
-     *
-     * **Validates: Requirement 3.4**
      */
     it('Property: HTML contains both message and body in commit-full-message element', () => {
       fc.assert(

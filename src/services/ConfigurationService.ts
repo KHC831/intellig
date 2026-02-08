@@ -64,8 +64,6 @@ const CONFIG_KEY_MAP: Record<keyof IExtensionConfiguration, string> = {
 /**
  * Configuration Service implementation.
  * Manages extension settings with support for workspace-specific overrides.
- *
- * Requirements: 16.1, 16.2, 16.3, 16.5, 16.6, 16.7
  */
 export class ConfigurationService implements IConfigurationService {
   private _onDidChangeConfiguration: vscode.EventEmitter<IExtensionConfiguration>;

@@ -2,8 +2,6 @@
  * Shelf View implementation.
  * Provides shelf management UI with list display, context menu actions, and shelve dialog.
  * Uses VS Code's QuickPick API for a native-feeling experience.
- *
- * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
  */
 
 import * as vscode from 'vscode';
@@ -45,7 +43,6 @@ interface IFileQuickPickItem extends vscode.QuickPickItem {
  * Provides shelf management functionality including list display, context menu actions,
  * and shelve dialog.
  *
- * Requirements:
  * - 8.1: Save selected changes to IDE-managed shelf storage
  * - 8.2: Allow selecting specific files, changelists, or hunks to shelve
  * - 8.3: Display all shelved changesets with names and timestamps
@@ -121,7 +118,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Show the shelf list view.
-   * Requirement 8.3: Display all shelved changesets with names and timestamps
    *
    * @param repository - The repository to show shelf items for
    */
@@ -139,7 +135,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Refresh the shelf list.
-   * Requirement 8.3: Display all shelved changesets with names and timestamps
    */
   refresh(): Promise<void> {
     if (!this._repository) {
@@ -198,8 +193,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Show the shelve dialog for creating a new shelf item.
-   * Requirement 8.1: Save selected changes to IDE-managed shelf storage
-   * Requirement 8.2: Allow selecting specific files, changelists, or hunks to shelve
    *
    * @param repository - The repository to shelve changes from
    * @returns Promise resolving to the dialog result
@@ -281,7 +274,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Show file selection dialog.
-   * Requirement 8.2: Allow selecting specific files, changelists, or hunks to shelve
    */
   private async _showFileSelectionDialog(files: IFileStatus[]): Promise<string[] | undefined> {
     const items: IFileQuickPickItem[] = files
@@ -325,8 +317,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Unshelve changes back to working directory.
-   * Requirement 8.4: Restore shelved changes to working directory
-   * Requirement 8.5: Offer options to remove from shelf or keep a copy
    *
    * @param id - The shelf item ID to unshelve
    * @param options - Unshelve options
@@ -382,7 +372,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Show unshelve options dialog.
-   * Requirement 8.5: Offer options to remove from shelf or keep a copy
    */
   private async _showUnshelveOptionsDialog(): Promise<IUnshelveOptions | undefined> {
     const options: vscode.QuickPickItem[] = [
@@ -413,7 +402,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * View a shelf item's contents as diff.
-   * Requirement 8.6: Display shelved content as diff
    *
    * @param id - The shelf item ID to view
    * @returns Promise resolving to the shelf diffs
@@ -558,7 +546,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Show context menu for a shelf item.
-   * Requirement 8.4, 8.5, 8.6: Context menu with unshelve, view, delete
    *
    * @param id - The shelf item ID to show menu for
    * @returns Promise resolving to the action result
@@ -624,7 +611,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Show the shelf list as a quick pick.
-   * Requirement 8.3: Display all shelved changesets with names and timestamps
    */
   private async _showShelfList(): Promise<void> {
     if (!this._repository) {
@@ -688,7 +674,6 @@ export class ShelfView implements IShelfView {
 
   /**
    * Build quick pick items from shelf items.
-   * Requirement 8.3: Display all shelved changesets with names and timestamps
    */
   private _buildShelfQuickPickItems(): IShelfQuickPickItem[] {
     const items: IShelfQuickPickItem[] = [];

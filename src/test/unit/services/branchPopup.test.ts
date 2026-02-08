@@ -2,7 +2,7 @@
  * Unit tests for BranchPopup service data handling.
  *
  * Tests cover:
- * - Branch data structures (Requirement 4.2)
+ * - Branch data structures
  * - Branch type handling (local vs remote)
  * - Branch properties (upstream, ahead/behind)
  *
@@ -61,7 +61,7 @@ describe('BranchPopup - Branch Data Structures', () => {
   });
 });
 
-describe('BranchPopup - Branch Filtering (Requirement 4.2)', () => {
+describe('BranchPopup - Branch Filtering', () => {
   const allBranches: IBranch[] = [
     {
       name: 'main',
@@ -216,7 +216,7 @@ describe('BranchPopup - Repository State', () => {
   });
 });
 
-describe('BranchPopup - Branch Actions (Requirements 4.3-4.11, 5.1-5.8)', () => {
+describe('BranchPopup - Branch Actions', () => {
   const branchActions = [
     'checkout',
     'new-branch',
@@ -247,7 +247,7 @@ describe('BranchPopup - Branch Actions (Requirements 4.3-4.11, 5.1-5.8)', () => 
   });
 });
 
-describe('BranchPopup - Status Bar Display (Requirement 4.1)', () => {
+describe('BranchPopup - Status Bar Display', () => {
   it('should extract branch name from refs/heads/ prefix', () => {
     const headName = 'refs/heads/main';
     const branchName = headName.replace('refs/heads/', '');

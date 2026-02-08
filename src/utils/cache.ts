@@ -3,8 +3,6 @@
  *
  * This module provides a generic LRU (Least Recently Used) cache implementation
  * and specialized caches for Git data to improve performance with large repositories.
- *
- * Requirements: 9.9 (Log) - Performance optimization for large repositories
  */
 
 /**

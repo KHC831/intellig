@@ -2,7 +2,7 @@
  * Unit tests for StatusBarService.
  *
  * Tests cover:
- * - Status bar state management (Requirement 4.1)
+ * - Status bar state management
  * - Branch name display
  * - Sync status display (ahead/behind)
  * - Detached HEAD state handling
@@ -17,7 +17,7 @@ import { IRepository, IHead } from '../../../services/interfaces/IGitService';
 import { IStatusBarState } from '../../../services/interfaces/IStatusBarService';
 import * as vscode from 'vscode';
 
-describe('StatusBarService - Status Bar State (Requirement 4.1)', () => {
+describe('StatusBarService - Status Bar State', () => {
   describe('Branch name extraction', () => {
     it('should extract branch name from refs/heads/ prefix', () => {
       const headName = 'refs/heads/main';

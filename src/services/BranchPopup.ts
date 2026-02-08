@@ -2,8 +2,6 @@
  * Branch Popup implementation.
  * Provides a quick pick style branch selector with IntelliJ-style branch management.
  * Uses VS Code's QuickPick API for a native-feeling experience.
- *
- * Requirements: 4.1, 4.2, 17.4
  */
 
 import * as vscode from 'vscode';
@@ -50,7 +48,6 @@ export interface IBranchPopupResult {
  * Branch Popup class.
  * Provides a quick pick style branch selector with filtering and actions.
  *
- * Requirements:
  * - 4.1: Display current branch name in status bar (status bar item)
  * - 4.2: Display branch management menu with all local and remote branches
  * - 17.4: Use popup menu style similar to IntelliJ's branch popup
@@ -65,7 +62,6 @@ export class BranchPopup {
     this._gitService = gitService;
 
     // Create status bar item for current branch display
-    // Requirement 4.1: Display current branch name in status bar
     this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this._statusBarItem.command = 'intellig.showBranchPopup';
     this._statusBarItem.tooltip = 'Click to manage branches';
@@ -106,7 +102,6 @@ export class BranchPopup {
 
   /**
    * Update the status bar with current branch information.
-   * Requirement 4.1: Display current branch name in status bar
    */
   private _updateStatusBar(repo: IRepository): void {
     if (repo.head?.name) {
@@ -142,8 +137,6 @@ export class BranchPopup {
 
   /**
    * Show the branch popup.
-   * Requirement 4.2: Display branch management menu with all local and remote branches
-   * Requirement 17.4: Use popup menu style similar to IntelliJ's branch popup
    *
    * @param repository - Optional repository to use (defaults to current)
    * @returns Promise resolving to the popup result
@@ -230,7 +223,6 @@ export class BranchPopup {
 
   /**
    * Build quick pick items from branches.
-   * Requirement 4.2: Display all local and remote branches
    */
   private _buildQuickPickItems(
     localBranches: IBranch[],
@@ -338,7 +330,6 @@ export class BranchPopup {
 
   /**
    * Show action menu for a selected branch.
-   * Requirement 5.1, 5.2: Context menu options for branches
    */
   private async _showBranchActionMenu(
     repo: IRepository,
@@ -352,7 +343,7 @@ export class BranchPopup {
     const actionItems: IBranchQuickPickItem[] = [];
 
     if (isRemoteBranch) {
-      // Remote branch actions (Requirement 5.2)
+      // Remote branch actions
       actionItems.push({
         label: '$(arrow-down) Checkout as Local Branch',
         description: 'Create a local tracking branch and switch to it',
@@ -409,7 +400,7 @@ export class BranchPopup {
         isAction: true,
       });
     } else {
-      // Local branch actions (Requirement 5.1)
+      // Local branch actions
       if (!isCurrentBranch) {
         actionItems.push({
           label: '$(arrow-right) Checkout',
@@ -541,7 +532,6 @@ export class BranchPopup {
 
   /**
    * Handle checkout action.
-   * Requirement 4.5: Switch to selected branch
    */
   private async _handleCheckout(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch) {
@@ -552,7 +542,6 @@ export class BranchPopup {
 
     if (isRemoteBranch) {
       // Checkout remote branch as local tracking branch
-      // Requirement 5.3: Create local tracking branch and switch to it
       const parts = branch.name.split('/');
       const remoteName = parts[0];
       const branchName = parts.slice(1).join('/');
@@ -584,7 +573,6 @@ export class BranchPopup {
 
   /**
    * Handle new branch action.
-   * Requirement 4.3: Create branch from current HEAD
    */
   private async _handleNewBranch(repo: IRepository): Promise<IBranchPopupResult> {
     const branchName = await vscode.window.showInputBox({
@@ -615,7 +603,6 @@ export class BranchPopup {
 
   /**
    * Handle new branch from specific ref.
-   * Requirement 4.4: Create branch from selected source
    */
   private async _handleNewBranchFrom(
     repo: IRepository,
@@ -676,7 +663,6 @@ export class BranchPopup {
 
   /**
    * Handle merge action.
-   * Requirement 4.7: Merge selected branch into current
    */
   private async _handleMerge(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch) {
@@ -698,7 +684,6 @@ export class BranchPopup {
 
   /**
    * Handle rebase action.
-   * Requirement 4.8: Rebase current branch onto selected
    */
   private async _handleRebase(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch) {
@@ -720,7 +705,6 @@ export class BranchPopup {
 
   /**
    * Handle compare action.
-   * Requirement 4.11: Compare with current branch
    */
   private async _handleCompare(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch) {
@@ -746,7 +730,6 @@ export class BranchPopup {
 
   /**
    * Handle rename action.
-   * Requirement 4.10: Rename branch
    */
   private async _handleRename(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch) {
@@ -782,7 +765,6 @@ export class BranchPopup {
 
   /**
    * Handle delete action.
-   * Requirement 4.9: Delete branch with confirmation
    */
   private async _handleDelete(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch) {
@@ -806,7 +788,6 @@ export class BranchPopup {
 
     if (isRemoteBranch) {
       // Delete remote branch
-      // Requirement 5.6: Delete remote branch
       const parts = branch.name.split('/');
       const remoteName = parts[0];
       const branchName = parts.slice(1).join('/');
@@ -829,7 +810,6 @@ export class BranchPopup {
 
   /**
    * Handle pull action for remote branch.
-   * Requirement 5.5: Pull remote branch into current
    */
   private async _handlePull(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
     if (!branch || branch.type !== 'remote') {

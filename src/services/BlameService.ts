@@ -16,7 +16,6 @@ interface IBlameCacheEntry {
  * Blame Service implementation.
  * Provides blame/annotation functionality for files in Git repositories.
  *
- * Requirements: 9.1, 9.2, 9.3, 9.6 (Blame)
  * - 9.1: Display blame annotations for file
  * - 9.2: Show commit info (hash, author, date) for each line
  * - 9.3: Show commit message on hover
@@ -124,8 +123,6 @@ export class BlameService implements IBlameService {
    * @param path - The file path (relative to repository root)
    * @param revision - Optional revision to get blame for (defaults to HEAD)
    * @returns Blame information for the file
-   *
-   * Requirements: 9.1, 9.2, 9.3 (Blame)
    */
   async getBlame(repo: IRepository, path: string, revision?: string): Promise<IBlameInfo> {
     const repoRoot = repo.rootUri.fsPath;
@@ -178,8 +175,6 @@ export class BlameService implements IBlameService {
    * @param path - The file path (relative to repository root)
    * @param line - The line number (1-indexed)
    * @returns Blame information for the specific line
-   *
-   * Requirements: 9.1, 9.2, 9.3 (Blame)
    */
   async getBlameForLine(repo: IRepository, path: string, line: number): Promise<IBlameLine> {
     // Get full blame info (will use cache if available)
@@ -213,8 +208,6 @@ export class BlameService implements IBlameService {
    * @param path - The file path (relative to repository root)
    * @param commit - The commit hash to get the previous revision from
    * @returns Blame information for the file at the previous revision
-   *
-   * Requirements: 9.6 (Blame) - Navigate to previous revision
    */
   async getPreviousRevisionBlame(
     repo: IRepository,

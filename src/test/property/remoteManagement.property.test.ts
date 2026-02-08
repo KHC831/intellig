@@ -6,13 +6,11 @@ import { IRemote } from '../../services/interfaces/IGitService';
  * Property-based tests for Remote Management.
  * Feature: intellig-vscode, Property 41: Remote Management
  *
- * **Validates: Requirements 12.6, 12.7, 12.8**
  *
  * Property Description:
  * For any remote added or removed, the remotes list SHALL accurately reflect
  * the current Git configuration.
  *
- * Requirements:
  * - 12.6: WHEN a user opens remote management, THE Extension SHALL display all
  *         configured remotes with their URLs
  * - 12.7: WHEN a user adds a remote, THE Extension SHALL prompt for name and URL
@@ -148,7 +146,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Get all configured remotes.
-     * Requirement 12.6: Display all configured remotes with their URLs.
      */
     getRemotes(): IRemote[] {
       return Array.from(this._remotes.values());
@@ -156,7 +153,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Add a new remote.
-     * Requirement 12.7: Add the remote configuration with name and URL.
      *
      * @param name - Name for the remote
      * @param url - URL for the remote
@@ -177,7 +173,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Remove a remote.
-     * Requirement 12.8: Delete the remote after confirmation.
      *
      * @param name - Name of the remote to remove
      * @throws Error if remote does not exist
@@ -216,8 +211,6 @@ describe('Remote Management Property Tests', () => {
   describe('Property 41: Remote Management', () => {
     /**
      * Property: Adding a remote adds it to the remotes list.
-     *
-     * **Validates: Requirements 12.6, 12.7**
      */
     it('Property: Adding a remote adds it to the remotes list', () => {
       fc.assert(
@@ -244,8 +237,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Removing a remote removes it from the remotes list.
-     *
-     * **Validates: Requirements 12.6, 12.8**
      */
     it('Property: Removing a remote removes it from the remotes list', () => {
       fc.assert(
@@ -271,8 +262,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Remote names must be unique.
-     *
-     * **Validates: Requirements 12.7**
      */
     it('Property: Remote names must be unique', () => {
       fc.assert(
@@ -301,8 +290,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Remotes list displays all configured remotes with their URLs.
-     *
-     * **Validates: Requirements 12.6**
      */
     it('Property: Remotes list displays all configured remotes with their URLs', () => {
       fc.assert(
@@ -339,8 +326,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Adding and removing remotes maintains list consistency.
-     *
-     * **Validates: Requirements 12.6, 12.7, 12.8**
      */
     it('Property: Adding and removing remotes maintains list consistency', () => {
       fc.assert(
@@ -397,8 +382,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Removing a non-existent remote should fail.
-     *
-     * **Validates: Requirements 12.8**
      */
     it('Property: Removing a non-existent remote should fail', () => {
       fc.assert(
@@ -435,8 +418,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Adding multiple remotes with unique names succeeds.
-     *
-     * **Validates: Requirements 12.6, 12.7**
      */
     it('Property: Adding multiple remotes with unique names succeeds', () => {
       fc.assert(
@@ -470,8 +451,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Remote names are case-insensitive for uniqueness.
-     *
-     * **Validates: Requirements 12.7**
      */
     it('Property: Remote names are case-insensitive for uniqueness', () => {
       fc.assert(
@@ -495,8 +474,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Removing all remotes results in empty list.
-     *
-     * **Validates: Requirements 12.6, 12.8**
      */
     it('Property: Removing all remotes results in empty list', () => {
       fc.assert(
@@ -526,8 +503,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Remote URLs are preserved exactly as provided.
-     *
-     * **Validates: Requirements 12.6, 12.7**
      */
     it('Property: Remote URLs are preserved exactly as provided', () => {
       fc.assert(
@@ -550,8 +525,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Adding a remote after removing it succeeds.
-     *
-     * **Validates: Requirements 12.7, 12.8**
      */
     it('Property: Adding a remote after removing it succeeds', () => {
       fc.assert(
@@ -579,8 +552,6 @@ describe('Remote Management Property Tests', () => {
 
     /**
      * Property: Remote list order is consistent.
-     *
-     * **Validates: Requirements 12.6**
      */
     it('Property: Remote list order is consistent', () => {
       fc.assert(

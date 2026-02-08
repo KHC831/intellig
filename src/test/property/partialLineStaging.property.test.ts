@@ -6,7 +6,6 @@ import { IHunk, IDiffLine, IDiff, DiffLineType } from '../../services/interfaces
  * Property-based tests for Partial Line Staging Accuracy.
  * Feature: intellig-vscode, Property 6: Partial Line Staging Accuracy
  *
- * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
  *
  * Property Description:
  * For any file with changes and any selection of specific lines within hunks,
@@ -240,8 +239,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
   describe('Property 6: Partial Line Staging Accuracy', () => {
     /**
      * Property: Staging specific lines results in only those lines being staged.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Selected lines are included in staged diff', () => {
       fc.assert(
@@ -273,8 +270,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Non-selected lines remain in unstaged diff.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Non-selected lines remain in unstaged diff', () => {
       fc.assert(
@@ -307,8 +302,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Selected lines are NOT in unstaged diff.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Selected lines are not in unstaged diff', () => {
       fc.assert(
@@ -340,8 +333,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Non-selected lines are NOT in staged diff.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Non-selected lines are not in staged diff', () => {
       fc.assert(
@@ -374,8 +365,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Context lines are preserved in both staged and unstaged diffs.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Context lines are preserved in both diffs', () => {
       fc.assert(
@@ -427,8 +416,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Staging empty selection results in no staged changes.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Empty selection results in no staged changes', () => {
       fc.assert(
@@ -456,8 +443,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Staging all lines results in all changes being staged.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Staging all lines stages all changes', () => {
       fc.assert(
@@ -496,8 +481,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Line selection is exact - only specified lines are affected.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Line selection is exact', () => {
       fc.assert(
@@ -547,8 +530,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
     /**
      * Property: Partial staging preserves total line count.
      * The sum of staged and unstaged change lines should equal the original.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Partial staging preserves total line count', () => {
       fc.assert(
@@ -592,8 +573,6 @@ describe('Partial Line Staging Accuracy Property Tests', () => {
 
     /**
      * Property: Multiple partial staging operations are cumulative.
-     *
-     * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
      */
     it('Property: Multiple staging operations are cumulative', () => {
       fc.assert(

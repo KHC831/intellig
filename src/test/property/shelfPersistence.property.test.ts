@@ -6,13 +6,11 @@ import { IShelfItem, IShelfFile } from '../../services/interfaces/IShelfService'
  * Property-based tests for Shelf Persistence.
  * Feature: intellig-vscode, Property 22: Shelf Persistence
  *
- * **Validates: Requirements 8.8**
  *
  * Property Description:
  * For any shelved changes, closing and reopening VS Code SHALL preserve the shelf items
  * with their names, timestamps, and content intact.
  *
- * Requirements:
  * - 8.8: THE Extension SHALL persist shelf data across VS Code sessions
  */
 describe('Shelf Persistence Property Tests', () => {
@@ -309,8 +307,6 @@ describe('Shelf Persistence Property Tests', () => {
   describe('Property 22: Shelf Persistence', () => {
     /**
      * Property: Shelf items persist across service instances (simulating VS Code restart).
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Shelf items persist across service instances (simulating VS Code restart)', () => {
       fc.assert(
@@ -352,8 +348,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Shelf item names are preserved after persistence.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Shelf item names are preserved after persistence', () => {
       fc.assert(
@@ -386,8 +380,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Shelf item timestamps are preserved after persistence.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Shelf item timestamps are preserved after persistence', () => {
       fc.assert(
@@ -421,8 +413,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Shelf item content (files and diffs) are preserved after persistence.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Shelf item content (files and diffs) are preserved after persistence', () => {
       fc.assert(
@@ -454,8 +444,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Multiple shelf items persist across service instances.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Multiple shelf items persist across service instances', () => {
       fc.assert(
@@ -512,8 +500,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Shelf item IDs are preserved after persistence.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Shelf item IDs are preserved after persistence', () => {
       fc.assert(
@@ -547,8 +533,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Deleted shelf items do not persist after restart.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Deleted shelf items do not persist after restart', () => {
       fc.assert(
@@ -585,8 +569,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Persistence survives multiple restarts.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Persistence survives multiple restarts', () => {
       fc.assert(
@@ -625,8 +607,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: File paths with special characters are preserved after persistence.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: File paths with special characters are preserved after persistence', () => {
       // Use a more specific arbitrary for paths with special characters
@@ -702,8 +682,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Persisted storage is valid JSON.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Persisted storage is valid JSON', () => {
       fc.assert(
@@ -737,8 +715,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Empty shelf persists correctly (no items after restart).
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Empty shelf persists correctly (no items after restart)', () => {
       fc.assert(
@@ -766,8 +742,6 @@ describe('Shelf Persistence Property Tests', () => {
 
     /**
      * Property: Shelf items with large diff content persist correctly.
-     *
-     * **Validates: Requirements 8.8**
      */
     it('Property: Shelf items with large diff content persist correctly', () => {
       // Generate larger diff content

@@ -6,13 +6,11 @@ import { IStash, IFileStatus, StatusCode } from '../../services/interfaces/IGitS
  * Property-based tests for Stash List Completeness.
  * Feature: intellig-vscode, Property 19: Stash List Completeness
  *
- * **Validates: Requirements 7.3**
  *
  * Property Description:
  * For any repository with stashes, the stash list SHALL display all stashes
  * with their messages and timestamps in the correct order (most recent first).
  *
- * Requirements:
  * - 7.3: Display all stashes with messages and timestamps
  */
 describe('Stash List Completeness Property Tests', () => {
@@ -106,7 +104,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Get the list of stashes.
-     * Requirement 7.3: Display all stashes with messages and timestamps
      */
     stashList(): IStash[] {
       return [...this._stashes];
@@ -168,8 +165,6 @@ describe('Stash List Completeness Property Tests', () => {
   describe('Property 19: Stash List Completeness', () => {
     /**
      * Property: Stash list displays all stashes that were created.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list displays all created stashes', () => {
       fc.assert(
@@ -201,8 +196,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list displays stashes with their messages.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list displays stashes with their messages', () => {
       fc.assert(
@@ -240,8 +233,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list displays stashes with timestamps.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list displays stashes with timestamps', () => {
       fc.assert(
@@ -267,8 +258,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list is ordered with most recent first.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list is ordered with most recent first', () => {
       fc.assert(
@@ -314,8 +303,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list timestamps are in descending order (most recent first).
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list timestamps are in descending order', () => {
       fc.assert(
@@ -347,8 +334,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Empty repository has empty stash list.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Empty repository has empty stash list', () => {
       fc.assert(
@@ -364,8 +349,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list remains complete after dropping stashes.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list remains complete after dropping stashes', () => {
       fc.assert(
@@ -421,8 +404,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list includes branch information.
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list includes branch information', () => {
       fc.assert(
@@ -442,8 +423,6 @@ describe('Stash List Completeness Property Tests', () => {
 
     /**
      * Property: Stash list is idempotent (calling multiple times returns same result).
-     *
-     * **Validates: Requirements 7.3**
      */
     it('Property: Stash list is idempotent', () => {
       fc.assert(

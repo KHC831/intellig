@@ -1,7 +1,5 @@
 /**
  * Unit tests for ConsoleService
- *
- * Requirement 1.4: Console View displays command and output in real-time
  */
 
 import '../../../test/setup';
@@ -429,7 +427,7 @@ describe('ConsoleService', () => {
     });
   });
 
-  describe('Real-time output capture (Requirement 1.4)', () => {
+  describe('Real-time output capture', () => {
     it('should capture command and output in real-time from GitCli', () => {
       const mockGitCli = new MockGitCli();
       const mockProvider = new MockGitToolWindowProvider();

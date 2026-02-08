@@ -13,14 +13,12 @@ import {
  * Property-based tests for Cherry-Pick Application.
  * Feature: intellig-vscode, Property 35: Cherry-Pick Application
  *
- * **Validates: Requirements 11.1**
  *
  * Property Description:
  * For any commit cherry-picked to the current branch, the resulting commit
  * SHALL have the same diff as the original commit but with a new hash and
  * the current branch as parent.
  *
- * Requirements:
  * - 11.1: WHEN a user selects "Cherry-pick" on a commit, THE Extension SHALL
  *         apply that commit to the current branch
  */
@@ -238,7 +236,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Cherry-pick a commit onto the current branch.
-     * Requirement 11.1: Apply the commit to the current branch.
      *
      * The resulting commit SHALL have:
      * - The same diff as the original commit
@@ -400,8 +397,6 @@ describe('Cherry-Pick Application Property Tests', () => {
   describe('Property 35: Cherry-Pick Application', () => {
     /**
      * Property: Cherry-picked commit has the same diff as the original.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-picked commit has the same diff as the original', () => {
       fc.assert(
@@ -449,8 +444,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-picked commit has a new hash different from the original.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-picked commit has a new hash different from the original', () => {
       fc.assert(
@@ -499,8 +492,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-picked commit has the current branch HEAD as parent.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-picked commit has the current branch HEAD as parent', () => {
       fc.assert(
@@ -543,8 +534,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-picked commit preserves the original commit message.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-picked commit preserves the original commit message', () => {
       fc.assert(
@@ -589,8 +578,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-picked commit preserves the original author.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-picked commit preserves the original author', () => {
       fc.assert(
@@ -633,8 +620,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-pick updates the current branch HEAD.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-pick updates the current branch HEAD', () => {
       fc.assert(
@@ -679,8 +664,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-pick of non-existent commit fails.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-pick of non-existent commit fails', () => {
       fc.assert(
@@ -726,8 +709,6 @@ describe('Cherry-Pick Application Property Tests', () => {
 
     /**
      * Property: Cherry-picked commit is retrievable by its new hash.
-     *
-     * **Validates: Requirements 11.1**
      */
     it('Property: Cherry-picked commit is retrievable by its new hash', () => {
       fc.assert(

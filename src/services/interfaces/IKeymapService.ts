@@ -34,8 +34,6 @@ export interface IKeymap {
 /**
  * Keymap Service interface for managing keyboard shortcut presets.
  * Supports switching between default and IntelliJ-style keymaps.
- *
- * Requirements: 17.11
  */
 export interface IKeymapService {
   /**

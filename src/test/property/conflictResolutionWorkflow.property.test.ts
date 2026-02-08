@@ -11,13 +11,11 @@ import {
  * Property-based tests for Conflict Resolution Workflow.
  * Feature: intellig-vscode, Property 33: Conflict Resolution Workflow
  *
- * **Validates: Requirements 10.5, 10.6**
  *
  * Property Description:
  * For any file with conflicts, resolving all conflicts SHALL enable the "Mark Resolved" action,
  * and resolving all files SHALL enable completing the merge/rebase operation.
  *
- * Requirements:
  * - 10.5: WHEN a user resolves all conflicts in a file, THE Extension SHALL enable marking the file as resolved
  * - 10.6: WHEN all conflicts are resolved, THE Extension SHALL enable completing the merge or rebase operation
  */
@@ -132,7 +130,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Get all conflicted files.
-     * Requirement 10.1: Display conflicted files in Local Changes View.
      */
     getConflictedFiles(): IConflictedFile[] {
       return [...this._conflictedFiles];
@@ -150,7 +147,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Check if a file can be marked as resolved.
-     * Requirement 10.5: Enable marking the file as resolved when conflicts are resolved.
      *
      * For this mock, we assume that a file can be marked as resolved if it exists
      * in the conflicted files list (simulating that the user has resolved the conflicts).
@@ -165,7 +161,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Mark a file as resolved.
-     * Requirement 10.5: Enable marking the file as resolved.
      *
      * @param path - The file path
      * @returns Resolution result
@@ -221,7 +216,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Check if merge/rebase can be completed (all conflicts resolved).
-     * Requirement 10.6: Enable completing merge/rebase when resolved.
      *
      * @returns True if operation can be completed
      */
@@ -235,7 +229,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Complete the current merge operation.
-     * Requirement 10.6: Enable completing merge when resolved.
      *
      * @returns Completion result
      */
@@ -258,7 +251,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Complete the current rebase operation.
-     * Requirement 10.6: Enable completing rebase when resolved.
      *
      * @returns Completion result
      */
@@ -297,8 +289,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
   describe('Property 33: Conflict Resolution Workflow', () => {
     /**
      * Property: Unresolved conflicted files can be marked as resolved.
-     *
-     * **Validates: Requirements 10.5**
      */
     it('Property: Unresolved conflicted files can be marked as resolved', () => {
       fc.assert(
@@ -322,8 +312,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Marking a file as resolved changes its resolved status.
-     *
-     * **Validates: Requirements 10.5**
      */
     it('Property: Marking a file as resolved changes its resolved status', () => {
       fc.assert(
@@ -360,8 +348,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Already resolved files cannot be marked as resolved again.
-     *
-     * **Validates: Requirements 10.5**
      */
     it('Property: Already resolved files cannot be marked as resolved again', () => {
       fc.assert(
@@ -391,8 +377,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Resolving all files enables operation completion.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Resolving all files enables operation completion', () => {
       fc.assert(
@@ -425,8 +409,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Partial resolution does not enable operation completion.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Partial resolution does not enable operation completion', () => {
       fc.assert(
@@ -473,8 +455,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Completing merge operation succeeds when all conflicts are resolved.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Completing merge operation succeeds when all conflicts are resolved', () => {
       fc.assert(
@@ -506,8 +486,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Completing rebase operation succeeds when all conflicts are resolved.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Completing rebase operation succeeds when all conflicts are resolved', () => {
       fc.assert(
@@ -539,8 +517,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Completing operation fails when conflicts remain unresolved.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Completing operation fails when conflicts remain unresolved', () => {
       fc.assert(
@@ -566,8 +542,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Resolved conflict count increases as files are marked resolved.
-     *
-     * **Validates: Requirements 10.5**
      */
     it('Property: Resolved conflict count increases as files are marked resolved', () => {
       fc.assert(
@@ -600,8 +574,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Unresolved conflict count decreases as files are marked resolved.
-     *
-     * **Validates: Requirements 10.5**
      */
     it('Property: Unresolved conflict count decreases as files are marked resolved', () => {
       fc.assert(
@@ -636,8 +608,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Marking multiple files as resolved works correctly.
-     *
-     * **Validates: Requirements 10.5**
      */
     it('Property: Marking multiple files as resolved works correctly', () => {
       fc.assert(
@@ -673,8 +643,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Operation completion clears conflicted files list.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Operation completion clears conflicted files list', () => {
       fc.assert(
@@ -705,8 +673,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Cannot complete operation when not in merging or rebasing state.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Cannot complete operation when not in merging or rebasing state', () => {
       fc.assert(
@@ -733,8 +699,6 @@ describe('Conflict Resolution Workflow Property Tests', () => {
 
     /**
      * Property: Completing wrong operation type fails.
-     *
-     * **Validates: Requirements 10.6**
      */
     it('Property: Completing wrong operation type fails', () => {
       fc.assert(
