@@ -5,7 +5,7 @@ import { IBlameInfo } from '../../services/interfaces/IBlameService';
 
 /**
  * Property-based tests for Blame Annotation Completeness.
- * Feature: intellij-git-vscode, Property 29: Blame Annotation Completeness
+ * Feature: intellig-vscode, Property 29: Blame Annotation Completeness
  *
  * **Validates: Requirements 9.1, 9.2, 9.3 (Blame)**
  *

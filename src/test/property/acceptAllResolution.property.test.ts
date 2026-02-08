@@ -6,7 +6,7 @@ import { IConflictRegion, ConflictResolution } from '../../services/interfaces/I
 
 /**
  * Property-based tests for Accept All Resolution.
- * Feature: intellij-git-vscode, Property 34: Accept All Resolution
+ * Feature: intellig-vscode, Property 34: Accept All Resolution
  *
  * **Validates: Requirements 10.8**
  *
@@ -116,12 +116,22 @@ describe('Accept All Resolution Property Tests', () => {
    * Mock Range class to simulate vscode.Range
    */
   class MockRange {
+    readonly startLine: number;
+    readonly startCharacter: number;
+    readonly endLine: number;
+    readonly endCharacter: number;
+
     constructor(
-      public readonly startLine: number,
-      public readonly startCharacter: number,
-      public readonly endLine: number,
-      public readonly endCharacter: number
-    ) {}
+      startLine: number,
+      startCharacter: number,
+      endLine: number,
+      endCharacter: number
+    ) {
+      this.startLine = startLine;
+      this.startCharacter = startCharacter;
+      this.endLine = endLine;
+      this.endCharacter = endCharacter;
+    }
 
     get start(): { line: number; character: number } {
       return { line: this.startLine, character: this.startCharacter };

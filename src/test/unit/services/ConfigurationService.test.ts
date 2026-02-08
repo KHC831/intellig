@@ -217,6 +217,6 @@ describe('getDefaultConfiguration', () => {
 describe('getConfigurationSection', () => {
   it('should return the configuration section name', () => {
     const section = getConfigurationSection();
-    assert.strictEqual(section, 'intellij-git');
+    assert.strictEqual(section, 'intellig');
   });
 });

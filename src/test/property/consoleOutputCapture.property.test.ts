@@ -18,7 +18,7 @@ import {
 
 /**
  * Property-based tests for Console Output Capture.
- * Feature: intellij-git-vscode, Property 3: Console Output Capture
+ * Feature: intellig-vscode, Property 3: Console Output Capture
  *
  * **Validates: Requirements 1.4**
  *

@@ -4,7 +4,7 @@ import { IMergeResult } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Merge Commit Creation.
- * Feature: intellij-git-vscode, Property 10: Merge Commit Creation
+ * Feature: intellig-vscode, Property 10: Merge Commit Creation
  *
  * **Validates: Requirements 4.7**
  *

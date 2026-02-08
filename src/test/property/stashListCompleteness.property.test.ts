@@ -4,7 +4,7 @@ import { IStash, IFileStatus, StatusCode } from '../../services/interfaces/IGitS
 
 /**
  * Property-based tests for Stash List Completeness.
- * Feature: intellij-git-vscode, Property 19: Stash List Completeness
+ * Feature: intellig-vscode, Property 19: Stash List Completeness
  *
  * **Validates: Requirements 7.3**
  *

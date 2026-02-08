@@ -10,7 +10,7 @@ import {
 /**
  * Configuration namespace for the extension settings
  */
-const CONFIGURATION_SECTION = 'intellij-git';
+const CONFIGURATION_SECTION = 'intellig';
 
 /**
  * Default configuration values

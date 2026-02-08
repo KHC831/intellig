@@ -8,49 +8,49 @@ import { IConfigurationService } from './interfaces/IConfigurationService';
  */
 const DEFAULT_KEYBINDINGS: IKeybinding[] = [
   {
-    command: 'intellij-git.commit',
+    command: 'intellig.commit',
     key: 'ctrl+k',
     mac: 'cmd+k',
     when: '!inDebugMode && !terminalFocus',
   },
   {
-    command: 'intellij-git.push',
+    command: 'intellig.push',
     key: 'ctrl+shift+k',
     mac: 'cmd+shift+k',
     when: '!inDebugMode && !terminalFocus',
   },
   {
-    command: 'intellij-git.pull',
+    command: 'intellig.pull',
     key: 'ctrl+t',
     mac: 'cmd+t',
     when: '!inDebugMode && !terminalFocus',
   },
   {
-    command: 'intellij-git.openGitToolWindow',
+    command: 'intellig.openGitToolWindow',
     key: 'alt+9',
     mac: 'cmd+9',
     when: '!inDebugMode',
   },
   {
-    command: 'intellij-git.showBranchPopup',
+    command: 'intellig.showBranchPopup',
     key: 'ctrl+shift+`',
     mac: 'cmd+shift+`',
     when: '!inDebugMode',
   },
   {
-    command: 'intellij-git.refresh',
+    command: 'intellig.refresh',
     key: 'ctrl+shift+r',
     mac: 'cmd+shift+r',
     when: '!inDebugMode && !terminalFocus',
   },
   {
-    command: 'intellij-git.stageSelected',
+    command: 'intellig.stageSelected',
     key: 'ctrl+alt+a',
     mac: 'cmd+alt+a',
     when: '!inDebugMode && !terminalFocus',
   },
   {
-    command: 'intellij-git.unstageSelected',
+    command: 'intellig.unstageSelected',
     key: 'ctrl+alt+z',
     mac: 'cmd+alt+z',
     when: '!inDebugMode && !terminalFocus',
@@ -74,77 +74,77 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [
 const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
   // Same as default - Commit: Ctrl+K
   {
-    command: 'intellij-git.commit',
+    command: 'intellig.commit',
     key: 'ctrl+k',
     mac: 'cmd+k',
     when: '!inDebugMode && !terminalFocus',
   },
   // Same as default - Push: Ctrl+Shift+K
   {
-    command: 'intellij-git.push',
+    command: 'intellig.push',
     key: 'ctrl+shift+k',
     mac: 'cmd+shift+k',
     when: '!inDebugMode && !terminalFocus',
   },
   // Same as default - Update Project (Pull): Ctrl+T
   {
-    command: 'intellij-git.pull',
+    command: 'intellig.pull',
     key: 'ctrl+t',
     mac: 'cmd+t',
     when: '!inDebugMode && !terminalFocus',
   },
   // VCS Operations Popup: Alt+` (backtick)
   {
-    command: 'intellij-git.showBranchPopup',
+    command: 'intellig.showBranchPopup',
     key: 'alt+`',
     mac: 'alt+`',
     when: '!inDebugMode',
   },
   // Annotate (Blame): Ctrl+Alt+Shift+A
   {
-    command: 'intellij-git.toggleBlame',
+    command: 'intellig.toggleBlame',
     key: 'ctrl+alt+shift+a',
     mac: 'cmd+alt+shift+a',
     when: 'editorTextFocus',
   },
   // Show History: Ctrl+H
   {
-    command: 'intellij-git.showHistory',
+    command: 'intellig.showHistory',
     key: 'ctrl+h',
     mac: 'cmd+h',
     when: '!inDebugMode',
   },
   // Compare with Branch: Ctrl+D
   {
-    command: 'intellij-git.branch.compareWithCurrent',
+    command: 'intellig.branch.compareWithCurrent',
     key: 'ctrl+d',
     mac: 'cmd+d',
     when: '!inDebugMode && !terminalFocus',
   },
   // Rollback (Revert): Ctrl+Alt+Z
   {
-    command: 'intellij-git.revertFile',
+    command: 'intellig.revertFile',
     key: 'ctrl+alt+z',
     mac: 'cmd+alt+z',
     when: '!inDebugMode && !terminalFocus',
   },
   // Git Tool Window: Alt+9 (same as default)
   {
-    command: 'intellij-git.openGitToolWindow',
+    command: 'intellig.openGitToolWindow',
     key: 'alt+9',
     mac: 'cmd+9',
     when: '!inDebugMode',
   },
   // Refresh: Ctrl+Shift+R (same as default)
   {
-    command: 'intellij-git.refresh',
+    command: 'intellig.refresh',
     key: 'ctrl+shift+r',
     mac: 'cmd+shift+r',
     when: '!inDebugMode && !terminalFocus',
   },
   // Stage Selected: Ctrl+Alt+A (same as default)
   {
-    command: 'intellij-git.stageSelected',
+    command: 'intellig.stageSelected',
     key: 'ctrl+alt+a',
     mac: 'cmd+alt+a',
     when: '!inDebugMode && !terminalFocus',

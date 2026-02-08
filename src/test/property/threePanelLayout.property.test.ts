@@ -1,7 +1,7 @@
 /**
  * Property-based tests for the three-panel layout infrastructure.
  *
- * Feature: intellij-git-layout
+ * Feature: intellig-layout
  *
  * Uses fast-check to verify universal correctness properties of the
  * panel resize constraint logic, panel width persistence round-trip,
@@ -93,7 +93,7 @@ function createMockMemento(): import('vscode').Memento {
 
 // ─── Property Tests ───────────────────────────────────────────────────────────
 
-describe('Feature: intellij-git-layout - Three Panel Layout Property Tests', () => {
+describe('Feature: intellig-layout - Three Panel Layout Property Tests', () => {
   describe('Property 2: Panel resize minimum width constraint', () => {
     /**
      * **Validates: Requirements 1.3**
@@ -103,7 +103,7 @@ describe('Feature: intellij-git-layout - Three Panel Layout Property Tests', () 
      * each be at least 100 pixels, and the sum of all panel widths SHALL equal
      * the container width.
      */
-    it('Feature: intellij-git-layout, Property 2: Panel resize minimum width constraint — all panels ≥ 100px and sum equals container width', () => {
+    it('Feature: intellig-layout, Property 2: Panel resize minimum width constraint — all panels ≥ 100px and sum equals container width', () => {
       fc.assert(
         fc.property(
           arbitraryContainerWidth(),
@@ -146,7 +146,7 @@ describe('Feature: intellij-git-layout - Three Panel Layout Property Tests', () 
       );
     });
 
-    it('Feature: intellij-git-layout, Property 2: Panel resize minimum width constraint — drag on second divider preserves constraints', () => {
+    it('Feature: intellig-layout, Property 2: Panel resize minimum width constraint — drag on second divider preserves constraints', () => {
       fc.assert(
         fc.property(
           arbitraryContainerWidth(),
@@ -198,7 +198,7 @@ describe('Feature: intellij-git-layout - Three Panel Layout Property Tests', () 
      * between 5 and 90 and they sum to 100, saving the tuple to workspace
      * state and then loading it SHALL produce an equivalent tuple.
      */
-    it('Feature: intellij-git-layout, Property 3: Panel width persistence round-trip — save then load produces equivalent tuple', () => {
+    it('Feature: intellig-layout, Property 3: Panel width persistence round-trip — save then load produces equivalent tuple', () => {
       fc.assert(
         fc.property(
           arbitraryValidPanelRatios(),
@@ -419,7 +419,7 @@ function createProvider(): GitToolWindowProvider {
 
 // ─── Property 1 Tests ────────────────────────────────────────────────────────
 
-describe('Feature: intellij-git-layout - Three Panel HTML Structure Property Tests', () => {
+describe('Feature: intellig-layout - Three Panel HTML Structure Property Tests', () => {
   let provider: GitToolWindowProvider;
   let mockWebview: Webview;
 
@@ -441,7 +441,7 @@ describe('Feature: intellij-git-layout - Three Panel HTML Structure Property Tes
      * graph-panel, details-panel) as direct children of the layout container,
      * in left-to-right order.
      */
-    it('Feature: intellij-git-layout, Property 1: Three-panel HTML structure — HTML contains exactly three panel containers in left-to-right order', () => {
+    it('Feature: intellig-layout, Property 1: Three-panel HTML structure — HTML contains exactly three panel containers in left-to-right order', () => {
       fc.assert(
         fc.property(
           arbitraryBranchPanelData(),

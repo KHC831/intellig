@@ -17,11 +17,11 @@ export type BranchTreeItemType = 'local-branch' | 'remote-branch' | 'tag' | 'cat
  * Context values for tree items (used in when clauses for menus)
  */
 export const CONTEXT_VALUES = {
-  LOCAL_BRANCH: 'intellij-git.localBranch',
-  LOCAL_BRANCH_CURRENT: 'intellij-git.localBranchCurrent',
-  REMOTE_BRANCH: 'intellij-git.remoteBranch',
-  TAG: 'intellij-git.tag',
-  CATEGORY: 'intellij-git.category',
+  LOCAL_BRANCH: 'intellig.localBranch',
+  LOCAL_BRANCH_CURRENT: 'intellig.localBranchCurrent',
+  REMOTE_BRANCH: 'intellig.remoteBranch',
+  TAG: 'intellig.tag',
+  CATEGORY: 'intellig.category',
 } as const;
 
 /**

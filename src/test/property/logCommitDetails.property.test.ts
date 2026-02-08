@@ -4,7 +4,7 @@ import { ICommit, IAuthor, IDiff, FileStatus } from '../../services/interfaces/I
 
 /**
  * Property-based tests for Log Commit Details.
- * Feature: intellij-git-vscode, Property 26: Log Commit Details
+ * Feature: intellig-vscode, Property 26: Log Commit Details
  *
  * **Validates: Requirements 9.3 (Log)**
  *

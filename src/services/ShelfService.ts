@@ -23,7 +23,7 @@ const SHELF_STORAGE_VERSION = 1;
  * Shelf storage file name.
  * Stored in the .git directory to keep it repository-specific.
  */
-const SHELF_STORAGE_FILE = 'intellij-git-shelf.json';
+const SHELF_STORAGE_FILE = 'intellig-shelf.json';
 
 /**
  * Shelf storage model for JSON persistence.

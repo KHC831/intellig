@@ -173,7 +173,7 @@ describe('savePanelWidths', () => {
   it('should store widths in workspace state under the correct key', () => {
     const memento = createMockMemento();
     savePanelWidths(memento, [25, 45, 30]);
-    const stored = memento.get<[number, number, number]>('intellij-git.panelWidths');
+    const stored = memento.get<[number, number, number]>('intellig.panelWidths');
     assert.deepStrictEqual(stored, [25, 45, 30]);
   });
 
@@ -181,7 +181,7 @@ describe('savePanelWidths', () => {
     const memento = createMockMemento();
     savePanelWidths(memento, [20, 50, 30]);
     savePanelWidths(memento, [30, 40, 30]);
-    const stored = memento.get<[number, number, number]>('intellij-git.panelWidths');
+    const stored = memento.get<[number, number, number]>('intellig.panelWidths');
     assert.deepStrictEqual(stored, [30, 40, 30]);
   });
 });
@@ -202,42 +202,42 @@ describe('loadPanelWidths', () => {
 
   it('should return default widths when stored value is not an array', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', 'not-an-array');
+    void memento.update('intellig.panelWidths', 'not-an-array');
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
 
   it('should return default widths when stored array has wrong length', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [20, 80]);
+    void memento.update('intellig.panelWidths', [20, 80]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
 
   it('should return default widths when stored values contain non-numbers', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [20, 'fifty', 30]);
+    void memento.update('intellig.panelWidths', [20, 'fifty', 30]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
 
   it('should return default widths when a value is below 5', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [3, 67, 30]);
+    void memento.update('intellig.panelWidths', [3, 67, 30]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
 
   it('should return default widths when a value is above 90', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [5, 91, 4]);
+    void memento.update('intellig.panelWidths', [5, 91, 4]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
 
   it('should return default widths when values do not sum to approximately 100', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [30, 30, 30]);
+    void memento.update('intellig.panelWidths', [30, 30, 30]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
@@ -245,21 +245,21 @@ describe('loadPanelWidths', () => {
   it('should accept widths that sum to approximately 100 (within ±1 tolerance)', () => {
     const memento = createMockMemento();
     // 33.33 + 33.33 + 33.34 = 100.0
-    void memento.update('intellij-git.panelWidths', [33.33, 33.33, 33.34]);
+    void memento.update('intellig.panelWidths', [33.33, 33.33, 33.34]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [33.33, 33.33, 33.34]);
   });
 
   it('should return default widths when stored value contains NaN', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [NaN, 50, 30]);
+    void memento.update('intellig.panelWidths', [NaN, 50, 30]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });
 
   it('should return default widths when stored value contains Infinity', () => {
     const memento = createMockMemento();
-    void memento.update('intellij-git.panelWidths', [Infinity, 50, 30]);
+    void memento.update('intellig.panelWidths', [Infinity, 50, 30]);
     const result = loadPanelWidths(memento);
     assert.deepStrictEqual(result, [20, 50, 30]);
   });

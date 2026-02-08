@@ -10,7 +10,7 @@ import {
 
 /**
  * Property-based tests for Rebase Reword Behavior.
- * Feature: intellij-git-vscode, Property 14: Rebase Reword Behavior
+ * Feature: intellig-vscode, Property 14: Rebase Reword Behavior
  *
  * **Validates: Requirements 6.4**
  *

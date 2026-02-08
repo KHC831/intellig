@@ -4,7 +4,7 @@ import { ITag, IAuthor } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Tag Lifecycle.
- * Feature: intellij-git-vscode, Property 44: Tag Lifecycle
+ * Feature: intellig-vscode, Property 44: Tag Lifecycle
  *
  * **Validates: Requirements 13.5, 13.6**
  *

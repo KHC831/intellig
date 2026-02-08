@@ -5,7 +5,7 @@ import { IFileChange, IChangelist } from '../../services/interfaces/IChangelistS
 
 /**
  * Property-based tests for Partial Staging File Sections.
- * Feature: intellij-git-vscode, Property 46: Partial Staging File Sections
+ * Feature: intellig-vscode, Property 46: Partial Staging File Sections
  *
  * **Validates: Requirements 14.4**
  *

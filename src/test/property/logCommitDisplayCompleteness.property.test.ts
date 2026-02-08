@@ -4,7 +4,7 @@ import { ICommit, IAuthor, IBranch, ITag } from '../../services/interfaces/IGitS
 
 /**
  * Property-based tests for Log Commit Display Completeness.
- * Feature: intellij-git-vscode, Property 25: Log Commit Display Completeness
+ * Feature: intellig-vscode, Property 25: Log Commit Display Completeness
  *
  * **Validates: Requirements 9.2 (Log)**
  *

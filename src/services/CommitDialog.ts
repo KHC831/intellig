@@ -126,7 +126,7 @@ export class CommitDialog {
       this._panel.reveal(vscode.ViewColumn.One);
     } else {
       this._panel = vscode.window.createWebviewPanel(
-        'intellij-git.commitDialog',
+        'intellig.commitDialog',
         'Commit',
         vscode.ViewColumn.One,
         {

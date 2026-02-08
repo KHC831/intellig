@@ -4,7 +4,7 @@ import { ICommit, IAuthor, IBranchComparison } from '../../services/interfaces/I
 
 /**
  * Property-based tests for Branch Comparison Accuracy.
- * Feature: intellij-git-vscode, Property 12: Branch Comparison Accuracy
+ * Feature: intellig-vscode, Property 12: Branch Comparison Accuracy
  *
  * **Validates: Requirements 4.11, 15.2, 15.3, 15.6**
  *

@@ -4,7 +4,7 @@ import { IRemote } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Remote Management.
- * Feature: intellij-git-vscode, Property 41: Remote Management
+ * Feature: intellig-vscode, Property 41: Remote Management
  *
  * **Validates: Requirements 12.6, 12.7, 12.8**
  *

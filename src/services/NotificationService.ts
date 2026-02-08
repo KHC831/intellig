@@ -100,7 +100,7 @@ export class NotificationService implements INotificationService {
   private _outputChannel: vscode.OutputChannel;
 
   constructor() {
-    this._outputChannel = vscode.window.createOutputChannel('IntelliJ Git');
+    this._outputChannel = vscode.window.createOutputChannel('IntelliG');
     this._disposables.push(this._outputChannel);
   }
 

@@ -10,7 +10,7 @@ import {
 
 /**
  * Property-based tests for Rebase Squash/Fixup Combination.
- * Feature: intellij-git-vscode, Property 16: Rebase Squash/Fixup Combination
+ * Feature: intellig-vscode, Property 16: Rebase Squash/Fixup Combination
  *
  * **Validates: Requirements 6.6**
  *

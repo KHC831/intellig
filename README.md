@@ -1,6 +1,6 @@
-# IntelliJ Git for VS Code
+# IntelliG for VS Code
 
-IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, interactive rebase, shelf, blame annotations, and more — into VS Code.
+IntelliG — IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, interactive rebase, shelf, blame annotations, and more — into VS Code.
 
 ## Prerequisites
 
@@ -127,4 +127,4 @@ src/
 | Blame Annotations   | —                 | Ctrl+Alt+Shift+A   |
 | Show History        | —                 | Ctrl+H             |
 
-Enable the IntelliJ keymap preset in settings: `intellij-git.useIntelliJKeymap: true`
+Enable the IntelliJ keymap preset in settings: `intellig.useIntelliJKeymap: true`

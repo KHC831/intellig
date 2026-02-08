@@ -67,7 +67,7 @@ export class BranchPopup {
     // Create status bar item for current branch display
     // Requirement 4.1: Display current branch name in status bar
     this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    this._statusBarItem.command = 'intellij-git.showBranchPopup';
+    this._statusBarItem.command = 'intellig.showBranchPopup';
     this._statusBarItem.tooltip = 'Click to manage branches';
     this._disposables.push(this._statusBarItem);
 

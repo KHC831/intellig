@@ -399,7 +399,7 @@ describe('ChangelistService', () => {
       changelistService.createChangelist(mockRepo, 'Storage Test');
 
       // Check that storage file exists
-      const storagePath = path.join(testRepoPath, '.git', 'intellij-git-changelists.json');
+      const storagePath = path.join(testRepoPath, '.git', 'intellig-changelists.json');
       assert.ok(fs.existsSync(storagePath), 'Storage file should exist');
 
       // Verify storage content

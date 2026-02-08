@@ -4,7 +4,7 @@ import { IShelfItem, IShelfFile } from '../../services/interfaces/IShelfService'
 
 /**
  * Property-based tests for Shelf List Completeness.
- * Feature: intellij-git-vscode, Property 23: Shelf List Completeness
+ * Feature: intellig-vscode, Property 23: Shelf List Completeness
  *
  * **Validates: Requirements 8.3**
  *

@@ -1,5 +1,5 @@
 /**
- * Service interfaces for the IntelliJ Git VS Code extension.
+ * Service interfaces for the IntelliG VS Code extension.
  * These interfaces define the contracts for all core services.
  */
 

@@ -9,7 +9,7 @@ import { getDefaultConfiguration } from '../../services/ConfigurationService';
 
 /**
  * Property-based tests for Configuration Persistence.
- * Feature: intellij-git-vscode, Property 47: Configuration Persistence
+ * Feature: intellig-vscode, Property 47: Configuration Persistence
  *
  * **Validates: Requirements 16.1-16.7**
  *

@@ -333,7 +333,7 @@ describe('ShelfService', () => {
       await shelfService.shelve(mockRepo, 'Storage Test', { files: ['test.txt'] });
 
       // Check that storage file exists
-      const storagePath = path.join(testRepoPath, '.git', 'intellij-git-shelf.json');
+      const storagePath = path.join(testRepoPath, '.git', 'intellig-shelf.json');
       assert.ok(fs.existsSync(storagePath), 'Storage file should exist');
 
       // Verify storage content

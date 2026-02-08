@@ -291,18 +291,18 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Requirement 3.3, 3.4: Commit click selection (single and Ctrl/Cmd multi-select)', () => {
-    it('should include handleCommitClick onclick handler on commit rows', () => {
+    it('should include data-hash attribute on commit rows for event delegation', () => {
       const hash = 'abc1234567890abcdef1234567890abcdef123456';
       const node = makeCommitNode({}, { hash });
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(
-        html.includes(`onclick="handleCommitClick(event, '${hash}')`),
-        'Should have handleCommitClick onclick handler with the commit hash'
+        html.includes(`data-hash="${hash}"`),
+        'Should have data-hash attribute with the commit hash for event delegation'
       );
     });
 
-    it('should include handleCommitClick for every commit row', () => {
+    it('should include data-hash attribute for every commit row', () => {
       const nodes = [
         makeCommitNode({}, { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }),
         makeCommitNode({}, { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }),
@@ -311,27 +311,27 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const html = provider._getGraphPanelHtml(nodes);
 
       assert.ok(
-        html.includes(`handleCommitClick(event, 'aaa1111111111111111111111111111111111111111')`),
-        'First commit should have handleCommitClick handler'
+        html.includes('data-hash="aaa1111111111111111111111111111111111111111"'),
+        'First commit should have data-hash attribute'
       );
       assert.ok(
-        html.includes(`handleCommitClick(event, 'bbb2222222222222222222222222222222222222222')`),
-        'Second commit should have handleCommitClick handler'
+        html.includes('data-hash="bbb2222222222222222222222222222222222222222"'),
+        'Second commit should have data-hash attribute'
       );
       assert.ok(
-        html.includes(`handleCommitClick(event, 'ccc3333333333333333333333333333333333333333')`),
-        'Third commit should have handleCommitClick handler'
+        html.includes('data-hash="ccc3333333333333333333333333333333333333333"'),
+        'Third commit should have data-hash attribute'
       );
     });
 
-    it('should pass the event object to handleCommitClick for modifier key detection', () => {
+    it('should have data-hash attribute on commit rows for modifier key detection via event delegation', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node]);
 
-      // The onclick should pass 'event' as the first argument for Ctrl/Cmd detection
+      // The data-hash attribute is used by event delegation to identify the commit
       assert.ok(
-        html.includes('handleCommitClick(event,'),
-        'Should pass event object as first argument to handleCommitClick'
+        html.includes('data-hash="'),
+        'Should have data-hash attribute for event delegation click handling'
       );
     });
 
@@ -484,19 +484,19 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 3.5: Commit rows have oncontextmenu handler', () => {
-    it('should include showCommitContextMenu oncontextmenu handler on commit rows', () => {
+  describe('Requirement 3.5: Commit rows have data-hash attribute for context menu event delegation', () => {
+    it('should include data-hash attribute on commit rows for context menu event delegation', () => {
       const hash = 'abc1234567890abcdef1234567890abcdef123456';
       const node = makeCommitNode({}, { hash });
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(
-        html.includes(`oncontextmenu="showCommitContextMenu(event, '${hash}')`),
-        'Should have showCommitContextMenu oncontextmenu handler with the commit hash'
+        html.includes(`data-hash="${hash}"`),
+        'Should have data-hash attribute for context menu event delegation'
       );
     });
 
-    it('should include showCommitContextMenu for every commit row', () => {
+    it('should include data-hash attribute for every commit row for context menu handling', () => {
       const nodes = [
         makeCommitNode({}, { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }),
         makeCommitNode({}, { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }),
@@ -504,26 +504,26 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const html = provider._getGraphPanelHtml(nodes);
 
       assert.ok(
-        html.includes(`showCommitContextMenu(event, 'aaa1111111111111111111111111111111111111111')`),
-        'First commit should have context menu handler'
+        html.includes('data-hash="aaa1111111111111111111111111111111111111111"'),
+        'First commit should have data-hash attribute for context menu'
       );
       assert.ok(
-        html.includes(`showCommitContextMenu(event, 'bbb2222222222222222222222222222222222222222')`),
-        'Second commit should have context menu handler'
+        html.includes('data-hash="bbb2222222222222222222222222222222222222222"'),
+        'Second commit should have data-hash attribute for context menu'
       );
     });
 
-    it('should include the commit context menu HTML in the graph panel output', () => {
+    it('should not include the commit context menu HTML in the graph panel output (moved to top-level layout)', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(html.includes('id="commit-context-menu"'), 'Graph panel should include the commit context menu overlay');
+      assert.ok(!html.includes('id="commit-context-menu"'), 'Graph panel should NOT include the commit context menu overlay (it is at the top-level layout)');
     });
 
-    it('should include the commit context menu HTML even when no commits are provided', () => {
+    it('should not include the commit context menu HTML in graph panel even when no commits are provided (moved to top-level layout)', () => {
       const html = provider._getGraphPanelHtml([]);
 
-      assert.ok(html.includes('id="commit-context-menu"'), 'Graph panel should include the commit context menu overlay even with no commits');
+      assert.ok(!html.includes('id="commit-context-menu"'), 'Graph panel should NOT include the commit context menu overlay even with no commits (it is at the top-level layout)');
     });
   });
 

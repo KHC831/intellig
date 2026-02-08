@@ -26,7 +26,7 @@ import { savePanelWidths, loadPanelWidths, DEFAULT_PANEL_WIDTHS } from '../utils
 /**
  * View ID for the Git Tool Window
  */
-export const GIT_TOOL_WINDOW_VIEW_ID = 'intellij-git.toolWindow';
+export const GIT_TOOL_WINDOW_VIEW_ID = 'intellig.toolWindow';
 
 /**
  * Default maximum number of console entries to keep
@@ -105,6 +105,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   private _panelWidths: [number, number, number];
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
+  private _scrollToCommitHash: string | undefined;
   private _branchPanelData: IBranchPanelData = {
     head: { name: 'main', isDetached: false },
     local: [],
@@ -619,16 +620,15 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     }
 
     if (targetCommitHash) {
-      // Select the commit, which will scroll to it and highlight it
-      this.selectCommit(targetCommitHash);
+      // Store the scroll target so the re-rendered HTML will include it.
+      // selectCommit() triggers _updateWebview() which fully replaces the DOM,
+      // so a postMessage('scrollToCommit') would arrive at a dead webview.
+      // Instead, we embed the scroll target in the HTML via data-scroll-to-commit
+      // and the inline script auto-scrolls on page load.
+      this._scrollToCommitHash = targetCommitHash;
 
-      // Send a message to the webview to scroll to the commit
-      if (this._webviewView) {
-        void this._webviewView.webview.postMessage({
-          type: 'scrollToCommit',
-          commitHash: targetCommitHash,
-        });
-      }
+      // Select the commit, which updates state and triggers _updateWebview()
+      this.selectCommit(targetCommitHash);
     }
   }
 
@@ -830,11 +830,21 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       commitNodes,
       selectedCommits,
       loadedCount,
-      totalAvailable
+      totalAvailable,
+      this._scrollToCommitHash
     );
     const detailsPanelHtml = commitDetails
       ? this._getDetailsPanelHtml(commitDetails)
       : this._getDetailsPanelPlaceholderHtml();
+
+    // Clear the scroll target after rendering so it's only used once
+    this._scrollToCommitHash = undefined;
+
+    // Generate context menu HTML outside of panel overflow containers
+    // to prevent clipping by panel `overflow: auto`.
+    // Requirements: 4.1, 4.2, 4.4, 4.5, 4.6, 4.7
+    const branchContextMenuHtml = this._getBranchContextMenuHtml();
+    const commitContextMenuHtml = this._getCommitContextMenuHtml();
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -860,6 +870,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     <div id="details-panel" class="panel" style="width: ${widths[2]}%;" role="region" aria-label="Details Panel">
       ${detailsPanelHtml}
     </div>
+    ${branchContextMenuHtml}
+    ${commitContextMenuHtml}
   </div>
 
   <script nonce="${nonce}">
@@ -893,14 +905,17 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 <body>
   <div class="no-repository">
     <p>No Git repository found in this workspace.</p>
-    <button class="init-repo-button" onclick="initRepository()">Initialize Repository</button>
+    <button class="init-repo-button" id="init-repo-btn">Initialize Repository</button>
   </div>
   <script nonce="${nonce}">
     (function() {
       const vscode = acquireVsCodeApi();
-      window.initRepository = function() {
-        vscode.postMessage({ type: 'initRepository' });
-      };
+      const btn = document.getElementById('init-repo-btn');
+      if (btn) {
+        btn.addEventListener('click', function() {
+          vscode.postMessage({ type: 'initRepository' });
+        });
+      }
     })();
   </script>
 </body>
@@ -1232,14 +1247,14 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     if (branchData.head.isDetached) {
       const hash = branchData.head.commitHash || branchData.head.name;
       headContent = `
-        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(hash)}" data-type="detached" onclick="handleBranchClick('${this._escapeHtml(hash)}')">
+        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(hash)}" data-type="detached">
           <span class="branch-icon">⎇</span>
           <span class="branch-name">${this._escapeHtml(hash)}</span>
           <span class="branch-detached-label">(detached)</span>
         </div>`;
     } else {
       headContent = `
-        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(branchData.head.name)}" data-type="head" onclick="handleBranchClick('${this._escapeHtml(branchData.head.name)}')">
+        <div class="branch-item branch-head-item" data-branch="${this._escapeHtml(branchData.head.name)}" data-type="head">
           <span class="branch-icon">⎇</span>
           <span class="branch-name">${this._escapeHtml(branchData.head.name)}</span>
         </div>`;
@@ -1253,7 +1268,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     const localBranchesHtml = sortedLocal
       .map(
         (branch) => `
-        <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="local" onclick="handleBranchClick('${this._escapeHtml(branch.name)}')" oncontextmenu="showBranchContextMenu(event, '${this._escapeHtml(branch.name)}', 'local')">
+        <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="local">
           <span class="branch-icon">⎇</span>
           <span class="branch-name">${this._escapeHtml(branch.name)}</span>
         </div>`
@@ -1272,7 +1287,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       const remoteBranchesHtml = sortedBranches
         .map(
           (branch) => `
-          <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="remote" data-remote="${this._escapeHtml(group.remoteName)}" onclick="handleBranchClick('${this._escapeHtml(branch.name)}')" oncontextmenu="showBranchContextMenu(event, '${this._escapeHtml(branch.name)}', 'remote')">
+          <div class="branch-item" data-branch="${this._escapeHtml(branch.name)}" data-type="remote" data-remote="${this._escapeHtml(group.remoteName)}">
             <span class="branch-icon">☁</span>
             <span class="branch-name">${this._escapeHtml(branch.name)}</span>
           </div>`
@@ -1323,16 +1338,17 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             ${remoteGroupsHtml}
           </div>
         </div>
-      </div>
-      ${this._getBranchContextMenuHtml()}`;
+      </div>`;
   }
 
   /**
    * Get the branch context menu HTML overlay.
    * Renders two context menus: one for local branches and one for remote branches.
    * The menus are hidden by default and shown on right-click via JS handlers.
+   * These menus are rendered outside the panel overflow containers (at the top-level
+   * layout div) to prevent clipping by panel `overflow: auto`.
    *
-   * Requirements: 2.7, 2.8
+   * Requirements: 2.7, 2.8, 4.1, 4.2, 4.6, 4.7
    *
    * @returns HTML string for the branch context menu overlays
    */
@@ -1418,13 +1434,15 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * @param selectedCommits - Set of currently selected commit hashes (optional)
    * @param loadedCount - Number of commits currently loaded (optional, for incremental loading)
    * @param totalAvailable - Total number of commits available in the repository (optional)
+   * @param scrollToCommitHash - Optional commit hash to auto-scroll to on page load
    * @returns HTML string for the graph panel content
    */
   public _getGraphPanelHtml(
     commitNodes: ICommitNode[],
     selectedCommits?: Set<string>,
     loadedCount?: number,
-    totalAvailable?: number
+    totalAvailable?: number,
+    scrollToCommitHash?: string
   ): string {
     const selected = selectedCommits || new Set<string>();
 
@@ -1432,8 +1450,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       return `
         <div class="graph-panel" role="listbox" aria-label="Commit Graph">
           <p class="empty-message">No commits found</p>
-        </div>
-        ${this._getCommitContextMenuHtml()}`;
+        </div>`;
     }
 
     // Compute active lanes for the entire commit list
@@ -1461,8 +1478,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         return `
         <div class="commit-row ${isSelected ? 'selected' : ''}"
              data-hash="${commit.hash}"
-             onclick="handleCommitClick(event, '${commit.hash}')"
-             oncontextmenu="showCommitContextMenu(event, '${commit.hash}')"
              role="option"
              tabindex="0"
              aria-selected="${isSelected}">
@@ -1492,12 +1507,13 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         </div>`
       : '';
 
+    const scrollAttr = scrollToCommitHash ? ` data-scroll-to-commit="${scrollToCommitHash}"` : '';
+
     return `
-      <div class="graph-panel" role="listbox" aria-label="Commit Graph" data-loaded-count="${loaded}" data-total-available="${total}">
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
         ${rowsHtml}
         ${loadingIndicatorHtml}
-      </div>
-      ${this._getCommitContextMenuHtml()}`;
+      </div>`;
   }
 
   /**
@@ -1584,7 +1600,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       ? commitDetails.parents
           .map(
             (p) =>
-              `<span class="parent-hash" onclick="selectCommit('${this._escapeHtml(p)}')" title="${this._escapeHtml(p)}">${this._escapeHtml(p.substring(0, 7))}</span>`
+              `<span class="parent-hash" data-parent-hash="${this._escapeHtml(p)}" title="${this._escapeHtml(p)}">${this._escapeHtml(p.substring(0, 7))}</span>`
           )
           .join(', ')
       : '<span class="no-parents">None (root commit)</span>';
@@ -1612,7 +1628,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           <div class="changed-file-item"
                data-path="${this._escapeHtml(file.path)}"
                data-status="${file.status}"
-               ondblclick="handleDetailFileDoubleClick('${this._escapeHtml(commitDetails.hash)}', '${this._escapeHtml(file.path)}')"
+               data-commit-hash="${this._escapeHtml(commitDetails.hash)}"
                role="listitem"
                tabindex="0">
             <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">
@@ -1639,7 +1655,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           </div>
           <div class="detail-row">
             <span class="detail-label">Hash:</span>
-            <span class="detail-value hash-value" onclick="copyToClipboard('${fullHash}')" title="Click to copy">${fullHash}</span>
+            <span class="detail-value hash-value" data-copy-text="${fullHash}" title="Click to copy">${fullHash}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Author:</span>
@@ -2810,7 +2826,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         });
 
         function scrollToCommit(commitHash) {
-          const commitRow = document.querySelector('[data-commit-hash="' + commitHash + '"]');
+          const commitRow = document.querySelector('[data-hash="' + commitHash + '"]');
           if (commitRow) {
             commitRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
             // Add a brief highlight effect
@@ -2820,6 +2836,131 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             }, 2000);
           }
         }
+
+        // Auto-scroll to commit on page load when data-scroll-to-commit is set.
+        // This handles the case where _updateWebview() fully replaces the DOM
+        // (e.g., after a branch click), so a postMessage would arrive too late.
+        (function autoScrollOnLoad() {
+          const graphPanel = document.querySelector('.graph-panel[data-scroll-to-commit]');
+          if (graphPanel) {
+            const targetHash = graphPanel.getAttribute('data-scroll-to-commit');
+            if (targetHash) {
+              scrollToCommit(targetHash);
+            }
+          }
+        })();
+
+        // ─── Event delegation for branch items ───────────────────────────
+        // CSP blocks inline onclick/oncontextmenu attributes, so we use
+        // event delegation on the document instead.
+
+        // Branch item click → handleBranchClick
+        document.addEventListener('click', function(e) {
+          const branchItem = e.target.closest('.branch-item[data-branch]');
+          if (branchItem) {
+            const branchName = branchItem.getAttribute('data-branch');
+            if (branchName) {
+              vscode.postMessage({ type: 'branchClick', branchName: branchName });
+            }
+          }
+        });
+
+        // Branch item right-click → showBranchContextMenu
+        document.addEventListener('contextmenu', function(e) {
+          const branchItem = e.target.closest('.branch-item[data-branch][data-type]');
+          if (branchItem) {
+            const branchName = branchItem.getAttribute('data-branch');
+            const branchType = branchItem.getAttribute('data-type');
+            if (branchName && (branchType === 'local' || branchType === 'remote')) {
+              e.preventDefault();
+              e.stopPropagation();
+              showBranchContextMenu(e, branchName, branchType);
+            }
+          }
+        });
+
+        // ─── Event delegation for commit rows ────────────────────────────
+
+        // Commit row click → handleCommitClick
+        document.addEventListener('click', function(e) {
+          const commitRow = e.target.closest('.commit-row[data-hash]');
+          if (commitRow) {
+            // Don't handle if click was on a context menu or inside details panel
+            if (e.target.closest('.context-menu') || e.target.closest('.details-panel')) {
+              return;
+            }
+            const hash = commitRow.getAttribute('data-hash');
+            if (hash) {
+              if (e.ctrlKey || e.metaKey) {
+                // Ctrl/Cmd+click: toggle multi-select
+                vscode.postMessage({ type: 'toggleCommitSelection', commitHash: hash });
+                commitRow.classList.toggle('selected');
+                var isNowSelected = commitRow.classList.contains('selected');
+                commitRow.setAttribute('aria-selected', String(isNowSelected));
+              } else {
+                // Plain click: single select
+                vscode.postMessage({ type: 'selectCommit', commitHash: hash });
+                document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+                  r.classList.remove('selected');
+                  r.setAttribute('aria-selected', 'false');
+                });
+                commitRow.classList.add('selected');
+                commitRow.setAttribute('aria-selected', 'true');
+              }
+            }
+          }
+        });
+
+        // Commit row right-click → showCommitContextMenu
+        document.addEventListener('contextmenu', function(e) {
+          const commitRow = e.target.closest('.commit-row[data-hash]');
+          if (commitRow) {
+            const hash = commitRow.getAttribute('data-hash');
+            if (hash) {
+              e.preventDefault();
+              e.stopPropagation();
+              showCommitContextMenu(e, hash);
+            }
+          }
+        });
+
+        // ─── Event delegation for details panel ──────────────────────────
+
+        // Parent hash click → selectCommit
+        document.addEventListener('click', function(e) {
+          const parentHash = e.target.closest('.parent-hash[data-parent-hash]');
+          if (parentHash) {
+            const hash = parentHash.getAttribute('data-parent-hash');
+            if (hash) {
+              vscode.postMessage({ type: 'selectCommit', commitHash: hash });
+            }
+          }
+        });
+
+        // Hash value click → copy to clipboard
+        document.addEventListener('click', function(e) {
+          const hashValue = e.target.closest('.hash-value[data-copy-text]');
+          if (hashValue) {
+            const text = hashValue.getAttribute('data-copy-text');
+            if (text) {
+              navigator.clipboard.writeText(text).catch(function(err) {
+                console.error('Failed to copy:', err);
+              });
+            }
+          }
+        });
+
+        // Changed file double-click → open diff
+        document.addEventListener('dblclick', function(e) {
+          const fileItem = e.target.closest('.changed-file-item[data-path][data-commit-hash]');
+          if (fileItem) {
+            const commitHash = fileItem.getAttribute('data-commit-hash');
+            const path = fileItem.getAttribute('data-path');
+            if (commitHash && path) {
+              vscode.postMessage({ type: 'doubleClickFile', commitHash: commitHash, path: path });
+            }
+          }
+        });
 
         // Hide context menu when clicking elsewhere
         document.addEventListener('click', (e) => {
@@ -2934,63 +3075,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           if (event.key === 'Enter') {
             applyLogFilters();
           }
-        };
-
-        // Log View functions
-        // Requirement 3.3: Left-click selects commit
-        // Requirement 3.4: Ctrl/Cmd+click toggles multi-select
-        window.handleCommitClick = function(event, hash) {
-          if (event.ctrlKey || event.metaKey) {
-            // Ctrl/Cmd+click: toggle multi-select
-            toggleCommitSelection(hash);
-            // Update visual selection state in the webview
-            const row = event.target.closest('.commit-row');
-            if (row) {
-              row.classList.toggle('selected');
-              const isNowSelected = row.classList.contains('selected');
-              row.setAttribute('aria-selected', String(isNowSelected));
-            }
-          } else {
-            // Plain click: single select
-            selectCommit(hash);
-            // Update visual selection state: clear all, select clicked
-            document.querySelectorAll('.commit-row.selected').forEach(function(r) {
-              r.classList.remove('selected');
-              r.setAttribute('aria-selected', 'false');
-            });
-            const row = event.target.closest('.commit-row');
-            if (row) {
-              row.classList.add('selected');
-              row.setAttribute('aria-selected', 'true');
-            }
-          }
-        };
-
-        window.selectCommit = function(hash) {
-          vscode.postMessage({ type: 'selectCommit', commitHash: hash });
-        };
-
-        window.toggleCommitSelection = function(hash) {
-          vscode.postMessage({ type: 'toggleCommitSelection', commitHash: hash });
-        };
-
-        window.closeCommitDetails = function() {
-          // Clear selection to close details panel
-          vscode.postMessage({ type: 'selectCommit', commitHash: '' });
-        };
-
-        // Detail panel: double-click on a changed file to open diff view
-        // Requirement 4.3: Double-click opens VS Code diff view for the file at the selected commit
-        window.handleDetailFileDoubleClick = function(commitHash, path) {
-          vscode.postMessage({ type: 'doubleClickFile', commitHash: commitHash, path: path });
-        };
-
-        window.copyToClipboard = function(text) {
-          navigator.clipboard.writeText(text).then(() => {
-            // Could show a notification here
-          }).catch(err => {
-            console.error('Failed to copy:', err);
-          });
         };
 
         // Log context menu
@@ -3256,11 +3340,6 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         // Branch context menu - Requirements 2.7, 2.8
         let branchContextMenuTarget = null;
         let branchContextMenuType = null;
-
-        // Branch click handler - Requirement 2.6
-        window.handleBranchClick = function(branchName) {
-          vscode.postMessage({ type: 'branchClick', branchName: branchName });
-        };
 
         window.showBranchContextMenu = function(event, branchName, branchType) {
           event.preventDefault();

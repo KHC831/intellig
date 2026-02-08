@@ -14,7 +14,7 @@ const CHANGELIST_STORAGE_VERSION = 1;
  * Changelist storage file name.
  * Stored in the .git directory to keep it repository-specific.
  */
-const CHANGELIST_STORAGE_FILE = 'intellij-git-changelists.json';
+const CHANGELIST_STORAGE_FILE = 'intellig-changelists.json';
 
 /**
  * Default changelist name.

@@ -1,7 +1,7 @@
 /**
  * Property-based tests for Branch Panel rendering.
  *
- * Feature: intellij-git-layout
+ * Feature: intellig-layout
  *
  * Uses fast-check to verify universal correctness properties of the
  * Branch Panel HTML generation in GitToolWindowProvider._getBranchPanelHtml().
@@ -195,7 +195,7 @@ function createProvider(): GitToolWindowProvider {
 
 // ─── Property Tests ───────────────────────────────────────────────────────────
 
-describe('Feature: intellij-git-layout - Branch Panel Property Tests', () => {
+describe('Feature: intellig-layout - Branch Panel Property Tests', () => {
   let provider: GitToolWindowProvider;
 
   beforeEach(() => {
@@ -215,7 +215,7 @@ describe('Feature: intellij-git-layout - Branch Panel Property Tests', () => {
      * the branch name when not detached, or the short commit hash with a
      * "(detached)" label when detached.
      */
-    it('Feature: intellij-git-layout, Property 4: HEAD display correctness — attached HEAD shows branch name, detached HEAD shows hash with (detached) label', () => {
+    it('Feature: intellig-layout, Property 4: HEAD display correctness — attached HEAD shows branch name, detached HEAD shows hash with (detached) label', () => {
       fc.assert(
         fc.property(
           arbitraryHead(),
@@ -274,7 +274,7 @@ describe('Feature: intellij-git-layout - Branch Panel Property Tests', () => {
      * For any non-empty list of local branches, the Branch Panel SHALL render
      * them in case-insensitive alphabetical order under the "Local" category.
      */
-    it('Feature: intellij-git-layout, Property 5: Local branches alphabetical ordering — branches appear in case-insensitive alphabetical order', () => {
+    it('Feature: intellig-layout, Property 5: Local branches alphabetical ordering — branches appear in case-insensitive alphabetical order', () => {
       fc.assert(
         fc.property(
           arbitraryLocalBranches(),
@@ -325,7 +325,7 @@ describe('Feature: intellij-git-layout - Branch Panel Property Tests', () => {
      * remote name, and each group SHALL contain exactly the branches belonging
      * to that remote.
      */
-    it('Feature: intellij-git-layout, Property 6: Remote branches grouped by remote — each remote group contains exactly its branches', () => {
+    it('Feature: intellig-layout, Property 6: Remote branches grouped by remote — each remote group contains exactly its branches', () => {
       fc.assert(
         fc.property(
           arbitraryRemoteGroups(),

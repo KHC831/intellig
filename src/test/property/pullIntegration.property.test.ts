@@ -4,7 +4,7 @@ import { ICommit, IPullOptions, IUpstream } from '../../services/interfaces/IGit
 
 /**
  * Property-based tests for Pull Integration.
- * Feature: intellij-git-vscode, Property 39: Pull Integration
+ * Feature: intellig-vscode, Property 39: Pull Integration
  *
  * **Validates: Requirements 12.3**
  *

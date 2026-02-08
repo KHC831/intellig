@@ -22,7 +22,7 @@ interface ILocalChangesState {
 
 /**
  * Property-based tests for Commit State Update.
- * Feature: intellij-git-vscode, Property 7: Commit State Update
+ * Feature: intellig-vscode, Property 7: Commit State Update
  *
  * **Validates: Requirements 3.8**
  *

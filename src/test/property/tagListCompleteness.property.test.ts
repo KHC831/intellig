@@ -4,7 +4,7 @@ import { ITag, IAuthor } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Tag List Completeness.
- * Feature: intellij-git-vscode, Property 43: Tag List Completeness
+ * Feature: intellig-vscode, Property 43: Tag List Completeness
  *
  * **Validates: Requirements 13.4**
  *

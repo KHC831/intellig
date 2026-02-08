@@ -4,7 +4,7 @@ import { IHunk, IDiffLine, IDiff, DiffLineType } from '../../services/interfaces
 
 /**
  * Property-based tests for Partial Line Staging Accuracy.
- * Feature: intellij-git-vscode, Property 6: Partial Line Staging Accuracy
+ * Feature: intellig-vscode, Property 6: Partial Line Staging Accuracy
  *
  * **Validates: Requirements 3.7, 14.2, 14.3, 14.5, 14.6**
  *

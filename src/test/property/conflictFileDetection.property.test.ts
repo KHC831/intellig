@@ -10,7 +10,7 @@ import { IConflictedFile } from '../../services/interfaces/IConflictResolutionSe
 
 /**
  * Property-based tests for Conflict File Detection.
- * Feature: intellij-git-vscode, Property 31: Conflict File Detection
+ * Feature: intellig-vscode, Property 31: Conflict File Detection
  *
  * **Validates: Requirements 10.1**
  *

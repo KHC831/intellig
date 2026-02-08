@@ -75,7 +75,7 @@ export class StatusBarService implements IStatusBarService {
       this._options.alignment,
       this._options.priority
     );
-    this._statusBarItem.command = 'intellij-git.showBranchPopup';
+    this._statusBarItem.command = 'intellig.showBranchPopup';
     this._statusBarItem.tooltip = 'Click to manage branches';
     this._disposables.push(this._statusBarItem);
 
@@ -304,10 +304,10 @@ export class StatusBarService implements IStatusBarService {
   setClickAction(action: StatusBarClickAction): void {
     switch (action) {
       case 'branch-popup':
-        this._statusBarItem.command = 'intellij-git.showBranchPopup';
+        this._statusBarItem.command = 'intellig.showBranchPopup';
         break;
       case 'sync':
-        this._statusBarItem.command = 'intellij-git.sync';
+        this._statusBarItem.command = 'intellig.sync';
         break;
       case 'none':
         this._statusBarItem.command = undefined;

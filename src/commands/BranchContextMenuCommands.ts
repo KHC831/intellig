@@ -31,46 +31,46 @@ export class BranchContextMenuCommands {
   register(context: vscode.ExtensionContext): void {
     // Local branch commands
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.branch.checkout', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.branch.checkout', (item: BranchTreeItem) =>
         this._handleCheckout(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.branch.newBranchFrom', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.branch.newBranchFrom', (item: BranchTreeItem) =>
         this._handleNewBranchFrom(item)
       )
     );
 
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.branch.mergeIntoCurrent',
+        'intellig.branch.mergeIntoCurrent',
         (item: BranchTreeItem) => this._handleMergeIntoCurrent(item)
       )
     );
 
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.branch.rebaseCurrentOnto',
+        'intellig.branch.rebaseCurrentOnto',
         (item: BranchTreeItem) => this._handleRebaseCurrentOnto(item)
       )
     );
 
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.branch.compareWithCurrent',
+        'intellig.branch.compareWithCurrent',
         (item: BranchTreeItem) => this._handleCompareWithCurrent(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.branch.rename', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.branch.rename', (item: BranchTreeItem) =>
         this._handleRename(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.branch.delete', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.branch.delete', (item: BranchTreeItem) =>
         this._handleDelete(item)
       )
     );
@@ -78,66 +78,66 @@ export class BranchContextMenuCommands {
     // Remote branch commands
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.remoteBranch.checkoutAsLocal',
+        'intellig.remoteBranch.checkoutAsLocal',
         (item: BranchTreeItem) => this._handleCheckoutAsLocal(item)
       )
     );
 
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.remoteBranch.cherryPickCommits',
+        'intellig.remoteBranch.cherryPickCommits',
         (item: BranchTreeItem) => this._handleCherryPickCommits(item)
       )
     );
 
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.remoteBranch.pullIntoCurrent',
+        'intellig.remoteBranch.pullIntoCurrent',
         (item: BranchTreeItem) => this._handlePullIntoCurrent(item)
       )
     );
 
     this._disposables.push(
       vscode.commands.registerCommand(
-        'intellij-git.remoteBranch.deleteRemote',
+        'intellig.remoteBranch.deleteRemote',
         (item: BranchTreeItem) => this._handleDeleteRemote(item)
       )
     );
 
     // Tag commands
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.tag.checkoutDetached', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.tag.checkoutDetached', (item: BranchTreeItem) =>
         this._handleTagCheckoutDetached(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.tag.newBranchFrom', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.tag.newBranchFrom', (item: BranchTreeItem) =>
         this._handleTagNewBranchFrom(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.tag.cherryPick', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.tag.cherryPick', (item: BranchTreeItem) =>
         this._handleTagCherryPick(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.tag.delete', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.tag.delete', (item: BranchTreeItem) =>
         this._handleTagDelete(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.tag.push', (item: BranchTreeItem) =>
+      vscode.commands.registerCommand('intellig.tag.push', (item: BranchTreeItem) =>
         this._handleTagPush(item)
       )
     );
 
     // Refresh command
     this._disposables.push(
-      vscode.commands.registerCommand('intellij-git.branches.refresh', () =>
+      vscode.commands.registerCommand('intellig.branches.refresh', () =>
         this._branchTreeProvider.refresh()
       )
     );

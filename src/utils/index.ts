@@ -1,5 +1,5 @@
 /**
- * Utility modules for the IntelliJ Git VS Code extension.
+ * Utility modules for the IntelliG VS Code extension.
  */
 
 // Git CLI wrapper

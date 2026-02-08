@@ -371,10 +371,10 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     // Add action links
     md.appendMarkdown(`---\n\n`);
     md.appendMarkdown(
-      `[View Commit](command:intellij-git.viewCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
+      `[View Commit](command:intellig.viewCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
     );
     md.appendMarkdown(
-      `[Copy Hash](command:intellij-git.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
+      `[Copy Hash](command:intellig.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
     );
 
     return md;

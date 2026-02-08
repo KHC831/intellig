@@ -549,9 +549,9 @@ describe('StatusBarService - Click Actions', () => {
   function getCommandForAction(action: string): string | undefined {
     switch (action) {
       case 'branch-popup':
-        return 'intellij-git.showBranchPopup';
+        return 'intellig.showBranchPopup';
       case 'sync':
-        return 'intellij-git.sync';
+        return 'intellig.sync';
       case 'none':
         return undefined;
       default:
@@ -567,12 +567,12 @@ describe('StatusBarService - Click Actions', () => {
 
   it('should map branch-popup action to correct command', () => {
     const command = getCommandForAction('branch-popup');
-    assert.strictEqual(command, 'intellij-git.showBranchPopup');
+    assert.strictEqual(command, 'intellig.showBranchPopup');
   });
 
   it('should map sync action to correct command', () => {
     const command = getCommandForAction('sync');
-    assert.strictEqual(command, 'intellij-git.sync');
+    assert.strictEqual(command, 'intellig.sync');
   });
 
   it('should map none action to undefined command', () => {

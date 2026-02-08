@@ -109,7 +109,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
     it('should load persisted widths from workspace state', () => {
       const memento = createMockMemento();
       // Pre-populate the workspace state with custom widths
-      void memento.update('intellij-git.panelWidths', [30, 40, 30]);
+      void memento.update('intellig.panelWidths', [30, 40, 30]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
@@ -120,7 +120,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
     it('should fall back to defaults when workspace state has invalid widths', () => {
       const memento = createMockMemento();
       // Store invalid widths (don't sum to 100)
-      void memento.update('intellij-git.panelWidths', [10, 10, 10]);
+      void memento.update('intellig.panelWidths', [10, 10, 10]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
@@ -130,7 +130,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
 
     it('should fall back to defaults when workspace state has corrupted data', () => {
       const memento = createMockMemento();
-      void memento.update('intellij-git.panelWidths', 'not-an-array');
+      void memento.update('intellig.panelWidths', 'not-an-array');
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const widths = provider.getPanelWidths();
@@ -166,7 +166,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       });
 
       // Verify the widths were persisted to workspace state
-      const stored = memento.get<[number, number, number]>('intellij-git.panelWidths');
+      const stored = memento.get<[number, number, number]>('intellig.panelWidths');
       assert.deepStrictEqual(stored, [35, 35, 30]);
       provider.dispose();
     });
@@ -212,7 +212,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const widths = provider.getPanelWidths();
       assert.deepStrictEqual(widths, [15, 55, 30]);
 
-      const stored = memento.get<[number, number, number]>('intellij-git.panelWidths');
+      const stored = memento.get<[number, number, number]>('intellig.panelWidths');
       assert.deepStrictEqual(stored, [15, 55, 30]);
       provider.dispose();
     });
@@ -233,7 +233,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
   describe('_getThreePanelHtmlContent() uses persisted widths', () => {
     it('should use persisted widths as default when no explicit widths are passed', () => {
       const memento = createMockMemento();
-      void memento.update('intellij-git.panelWidths', [30, 40, 30]);
+      void memento.update('intellig.panelWidths', [30, 40, 30]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const mockWebview = createMockWebview();
@@ -265,7 +265,7 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
 
     it('should use explicit widths when passed, overriding persisted widths', () => {
       const memento = createMockMemento();
-      void memento.update('intellij-git.panelWidths', [30, 40, 30]);
+      void memento.update('intellig.panelWidths', [30, 40, 30]);
 
       const provider = new GitToolWindowProvider(extensionUri, memento);
       const mockWebview = createMockWebview();

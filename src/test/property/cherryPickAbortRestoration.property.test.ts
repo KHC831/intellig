@@ -13,7 +13,7 @@ import {
 
 /**
  * Property-based tests for Cherry-Pick Abort Restoration.
- * Feature: intellij-git-vscode, Property 37: Cherry-Pick Abort Restoration
+ * Feature: intellig-vscode, Property 37: Cherry-Pick Abort Restoration
  *
  * **Validates: Requirements 11.4**
  *

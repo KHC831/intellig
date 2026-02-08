@@ -10,7 +10,7 @@ import {
 
 /**
  * Property-based tests for Log Graph Accuracy.
- * Feature: intellij-git-vscode, Property 24: Log Graph Accuracy
+ * Feature: intellig-vscode, Property 24: Log Graph Accuracy
  *
  * **Validates: Requirements 9.1 (Log)**
  *

@@ -4,7 +4,7 @@ import { IBranch, IHead, BranchType } from '../../services/interfaces/IGitServic
 
 /**
  * Property-based tests for Branch Lifecycle Consistency.
- * Feature: intellij-git-vscode, Property 8: Branch Lifecycle Consistency
+ * Feature: intellig-vscode, Property 8: Branch Lifecycle Consistency
  *
  * **Validates: Requirements 4.3, 4.4, 4.5, 4.9, 4.10**
  *

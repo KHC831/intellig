@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 
 /**
  * Property-based tests for Sign-off Appending.
- * Feature: intellij-git-vscode, Property 5: Sign-off Appending
+ * Feature: intellig-vscode, Property 5: Sign-off Appending
  *
  * **Validates: Requirements 3.4**
  *

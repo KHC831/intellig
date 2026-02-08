@@ -338,20 +338,20 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
   });
 
-  describe('Requirement 4.3: Double-click handler on changed files', () => {
-    it('should have ondblclick handler calling handleDetailFileDoubleClick on changed file items', () => {
+  describe('Requirement 4.3: Data attributes on changed files for event delegation', () => {
+    it('should have data-commit-hash and data-path attributes on changed file items', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
       const html = provider._getDetailsPanelHtml(details);
 
       assert.ok(
-        html.includes('ondblclick="handleDetailFileDoubleClick('),
-        'Should have ondblclick handler calling handleDetailFileDoubleClick'
+        html.includes('data-commit-hash="') && html.includes('data-path="'),
+        'Should have data-commit-hash and data-path attributes for event delegation'
       );
     });
 
-    it('should pass the commit hash to handleDetailFileDoubleClick', () => {
+    it('should pass the commit hash as data-commit-hash attribute', () => {
       const hash = 'abc1234567890abcdef1234567890abcdef123456';
       const details = makeCommitDetails({
         hash,
@@ -360,24 +360,24 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const html = provider._getDetailsPanelHtml(details);
 
       assert.ok(
-        html.includes(`handleDetailFileDoubleClick('${hash}'`),
-        'Should pass the commit hash to the double-click handler'
+        html.includes(`data-commit-hash="${hash}"`),
+        'Should have the commit hash in data-commit-hash attribute'
       );
     });
 
-    it('should pass the file path to handleDetailFileDoubleClick', () => {
+    it('should pass the file path as data-path attribute', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/utils/helpers.ts', status: 'modified' }],
       });
       const html = provider._getDetailsPanelHtml(details);
 
       assert.ok(
-        html.includes("handleDetailFileDoubleClick('abc1234567890abcdef1234567890abcdef123456', 'src/utils/helpers.ts')"),
-        'Should pass the file path to the double-click handler'
+        html.includes('data-path="src/utils/helpers.ts"'),
+        'Should have the file path in data-path attribute'
       );
     });
 
-    it('should have ondblclick handler on each changed file item', () => {
+    it('should have data-commit-hash and data-path on each changed file item', () => {
       const details = makeCommitDetails({
         changedFiles: [
           { path: 'src/a.ts', status: 'modified' },
@@ -386,24 +386,24 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      const matches = html.match(/ondblclick="handleDetailFileDoubleClick\(/g);
-      assert.strictEqual(matches?.length, 2, 'Should have ondblclick handler on each changed file');
+      const matches = html.match(/data-commit-hash="/g);
+      assert.strictEqual(matches?.length, 2, 'Should have data-commit-hash attribute on each changed file');
     });
 
-    it('should escape special characters in file paths within the double-click handler', () => {
+    it('should escape special characters in file paths within data attributes', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: "src/file'name.ts", status: 'modified' }],
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      // The path should be HTML-escaped
+      // The path should be HTML-escaped in the data attribute
       assert.ok(
-        html.includes('handleDetailFileDoubleClick('),
-        'Should have the double-click handler even with special characters'
+        html.includes('data-path="'),
+        'Should have the data-path attribute even with special characters'
       );
       assert.ok(
-        !html.includes("src/file'name.ts"),
-        'Should escape single quotes in file paths'
+        html.includes('data-commit-hash="'),
+        'Should have the data-commit-hash attribute even with special characters'
       );
     });
   });

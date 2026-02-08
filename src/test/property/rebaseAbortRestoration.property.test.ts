@@ -10,7 +10,7 @@ import {
 
 /**
  * Property-based tests for Rebase Abort Restoration.
- * Feature: intellij-git-vscode, Property 17: Rebase Abort Restoration
+ * Feature: intellig-vscode, Property 17: Rebase Abort Restoration
  *
  * **Validates: Requirements 6.8**
  *

@@ -11,7 +11,7 @@ import {
 
 /**
  * Property-based tests for Cherry-Pick Order Preservation.
- * Feature: intellij-git-vscode, Property 36: Cherry-Pick Order Preservation
+ * Feature: intellig-vscode, Property 36: Cherry-Pick Order Preservation
  *
  * **Validates: Requirements 11.2**
  *

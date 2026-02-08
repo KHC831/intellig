@@ -4,7 +4,7 @@ import { IStash, IFileStatus, StatusCode } from '../../services/interfaces/IGitS
 
 /**
  * Property-based tests for Stash Drop Removal.
- * Feature: intellij-git-vscode, Property 20: Stash Drop Removal
+ * Feature: intellig-vscode, Property 20: Stash Drop Removal
  *
  * **Validates: Requirements 7.6**
  *

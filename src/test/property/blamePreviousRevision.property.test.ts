@@ -5,7 +5,7 @@ import { IBlameInfo } from '../../services/interfaces/IBlameService';
 
 /**
  * Property-based tests for Blame Previous Revision.
- * Feature: intellij-git-vscode, Property 30: Blame Previous Revision
+ * Feature: intellig-vscode, Property 30: Blame Previous Revision
  *
  * **Validates: Requirements 9.6 (Blame)**
  *

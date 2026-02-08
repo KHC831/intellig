@@ -4,7 +4,7 @@ import { ITag, IAuthor, IHead } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Tag Checkout Detached HEAD.
- * Feature: intellij-git-vscode, Property 45: Tag Checkout Detached HEAD
+ * Feature: intellig-vscode, Property 45: Tag Checkout Detached HEAD
  *
  * **Validates: Requirements 13.7**
  *

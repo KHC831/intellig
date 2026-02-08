@@ -4,7 +4,7 @@ import { IShelfItem, IShelfFile } from '../../services/interfaces/IShelfService'
 
 /**
  * Property-based tests for Shelf Persistence.
- * Feature: intellij-git-vscode, Property 22: Shelf Persistence
+ * Feature: intellig-vscode, Property 22: Shelf Persistence
  *
  * **Validates: Requirements 8.8**
  *

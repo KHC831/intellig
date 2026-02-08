@@ -1,7 +1,7 @@
 /**
  * Property-based tests for Graph Panel rendering and multi-select toggle.
  *
- * Feature: intellij-git-layout
+ * Feature: intellig-layout
  *
  * Uses fast-check to verify universal correctness properties of the
  * Graph Panel HTML generation in GitToolWindowProvider._getGraphPanelHtml()
@@ -194,7 +194,7 @@ function expectedMessageSummary(message: string, maxLength: number = 60): string
 
 // ─── Property Tests ───────────────────────────────────────────────────────────
 
-describe('Feature: intellij-git-layout - Graph Panel Property Tests', () => {
+describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
   let provider: GitToolWindowProvider;
 
   beforeEach(() => {
@@ -213,7 +213,7 @@ describe('Feature: intellij-git-layout - Graph Panel Property Tests', () => {
      * commit's short hash, the first line of the commit message (or a
      * truncation thereof), the author name, and a date string.
      */
-    it('Feature: intellij-git-layout, Property 7: Commit row contains required fields — HTML contains short hash, message summary, author name, and date string', () => {
+    it('Feature: intellig-layout, Property 7: Commit row contains required fields — HTML contains short hash, message summary, author name, and date string', () => {
       fc.assert(
         fc.property(
           arbitraryCommitNode(),
@@ -285,7 +285,7 @@ describe('Feature: intellij-git-layout - Graph Panel Property Tests', () => {
      * remove it if it was present, and the resulting set size SHALL differ
      * from the original by exactly 1.
      */
-    it('Feature: intellij-git-layout, Property 8: Multi-select toggle correctness — toggling a hash changes set size by exactly 1', () => {
+    it('Feature: intellig-layout, Property 8: Multi-select toggle correctness — toggling a hash changes set size by exactly 1', () => {
       fc.assert(
         fc.property(
           arbitraryHashSet(),

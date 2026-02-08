@@ -5,7 +5,7 @@ import { FileStatus } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Changelist File Management.
- * Feature: intellij-git-vscode, Property 2: Changelist File Management
+ * Feature: intellig-vscode, Property 2: Changelist File Management
  *
  * **Validates: Requirements 2.3, 2.4, 2.5**
  *

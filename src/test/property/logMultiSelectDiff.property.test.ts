@@ -11,7 +11,7 @@ import {
 
 /**
  * Property-based tests for Log Multi-Select Diff.
- * Feature: intellij-git-vscode, Property 28: Log Multi-Select Diff
+ * Feature: intellig-vscode, Property 28: Log Multi-Select Diff
  *
  * **Validates: Requirements 9.8 (Log)**
  *

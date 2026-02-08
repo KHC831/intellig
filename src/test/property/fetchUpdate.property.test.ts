@@ -4,7 +4,7 @@ import { IRemote } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Fetch Update.
- * Feature: intellij-git-vscode, Property 40: Fetch Update
+ * Feature: intellig-vscode, Property 40: Fetch Update
  *
  * **Validates: Requirements 12.4, 12.5**
  *

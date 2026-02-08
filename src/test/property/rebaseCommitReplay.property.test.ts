@@ -3,7 +3,7 @@ import * as assert from 'assert';
 
 /**
  * Property-based tests for Rebase Commit Replay.
- * Feature: intellij-git-vscode, Property 11: Rebase Commit Replay
+ * Feature: intellig-vscode, Property 11: Rebase Commit Replay
  *
  * **Validates: Requirements 4.8**
  *

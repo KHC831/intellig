@@ -4,7 +4,7 @@ import { IShelfItem, IShelfFile, IUnshelveOptions } from '../../services/interfa
 
 /**
  * Property-based tests for Shelf Round-Trip.
- * Feature: intellij-git-vscode, Property 21: Shelf Round-Trip
+ * Feature: intellig-vscode, Property 21: Shelf Round-Trip
  *
  * **Validates: Requirements 8.1, 8.4**
  *

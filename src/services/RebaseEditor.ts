@@ -103,7 +103,7 @@ export class RebaseEditor {
       this._panel.reveal(vscode.ViewColumn.One);
     } else {
       this._panel = vscode.window.createWebviewPanel(
-        'intellij-git.rebaseEditor',
+        'intellig.rebaseEditor',
         'Interactive Rebase',
         vscode.ViewColumn.One,
         {

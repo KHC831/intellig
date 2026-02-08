@@ -8,7 +8,7 @@ import {
 
 /**
  * Property-based tests for Three-Way Merge Display.
- * Feature: intellij-git-vscode, Property 32: Three-Way Merge Display
+ * Feature: intellig-vscode, Property 32: Three-Way Merge Display
  *
  * **Validates: Requirements 10.2, 10.3**
  *
@@ -129,12 +129,22 @@ describe('Three-Way Merge Display Property Tests', () => {
    * Mock Range class to simulate vscode.Range
    */
   class MockRange {
+    readonly startLine: number;
+    readonly startCharacter: number;
+    readonly endLine: number;
+    readonly endCharacter: number;
+
     constructor(
-      public readonly startLine: number,
-      public readonly startCharacter: number,
-      public readonly endLine: number,
-      public readonly endCharacter: number
-    ) {}
+      startLine: number,
+      startCharacter: number,
+      endLine: number,
+      endCharacter: number
+    ) {
+      this.startLine = startLine;
+      this.startCharacter = startCharacter;
+      this.endLine = endLine;
+      this.endCharacter = endCharacter;
+    }
 
     get start(): { line: number; character: number } {
       return { line: this.startLine, character: this.startCharacter };

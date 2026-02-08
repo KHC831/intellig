@@ -4,7 +4,7 @@ import { IBranch, BranchType } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Branch Popup Completeness.
- * Feature: intellij-git-vscode, Property 9: Branch Popup Completeness
+ * Feature: intellig-vscode, Property 9: Branch Popup Completeness
  *
  * **Validates: Requirements 4.2**
  *

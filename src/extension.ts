@@ -116,7 +116,7 @@ let rebaseProgressView: RebaseProgressView | undefined;
  *                  storage paths, and other extension-specific utilities.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  console.log('IntelliJ Git extension is activating...');
+  console.log('IntelliG extension is activating...');
 
   try {
     // Get or create the extension services container
@@ -134,11 +134,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Set up event listeners
     setupEventListeners(context);
 
-    console.log('IntelliJ Git extension is now active');
+    console.log('IntelliG extension is now active');
   } catch (error) {
-    console.error('Failed to activate IntelliJ Git extension:', error);
+    console.error('Failed to activate IntelliG extension:', error);
     void vscode.window.showErrorMessage(
-      `Failed to activate IntelliJ Git extension: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to activate IntelliG extension: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
     throw error;
   }
@@ -149,7 +149,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
  * Clean up any resources and dispose of services.
  */
 export function deactivate(): void {
-  console.log('IntelliJ Git extension is deactivating...');
+  console.log('IntelliG extension is deactivating...');
 
   try {
     // Dispose the Merge View
@@ -240,7 +240,7 @@ export function deactivate(): void {
     resetExtensionServices();
     extensionServices = undefined;
 
-    console.log('IntelliJ Git extension is now deactivated');
+    console.log('IntelliG extension is now deactivated');
   } catch (error) {
     console.error('Error during extension deactivation:', error);
   }
@@ -254,7 +254,7 @@ export function deactivate(): void {
 function registerCommands(context: vscode.ExtensionContext): void {
   // Open Git Tool Window command
   const openGitToolWindowCommand = vscode.commands.registerCommand(
-    'intellij-git.openGitToolWindow',
+    'intellig.openGitToolWindow',
     () => {
       // Focus the Git Tool Window view
       void vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
@@ -262,7 +262,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Commit command
-  const commitCommand = vscode.commands.registerCommand('intellij-git.commit', async () => {
+  const commitCommand = vscode.commands.registerCommand('intellig.commit', async () => {
     // Get the Git service and find a repository
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -303,26 +303,26 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Push command
-  const pushCommand = vscode.commands.registerCommand('intellij-git.push', () => {
+  const pushCommand = vscode.commands.registerCommand('intellig.push', () => {
     // TODO: Implement in task 12.3
     void vscode.window.showInformationMessage('Push - Coming Soon');
   });
 
   // Pull command
-  const pullCommand = vscode.commands.registerCommand('intellij-git.pull', () => {
+  const pullCommand = vscode.commands.registerCommand('intellig.pull', () => {
     // TODO: Implement in task 12.3
     void vscode.window.showInformationMessage('Pull - Coming Soon');
   });
 
   // Fetch command
-  const fetchCommand = vscode.commands.registerCommand('intellij-git.fetch', () => {
+  const fetchCommand = vscode.commands.registerCommand('intellig.fetch', () => {
     // TODO: Implement in task 12.3
     void vscode.window.showInformationMessage('Fetch - Coming Soon');
   });
 
   // Branch popup command
   const branchPopupCommand = vscode.commands.registerCommand(
-    'intellij-git.showBranchPopup',
+    'intellig.showBranchPopup',
     async () => {
       // Get the Git service
       if (!extensionServices) {
@@ -344,7 +344,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Stash changes command
   // Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7
-  const stashCommand = vscode.commands.registerCommand('intellij-git.stash', async () => {
+  const stashCommand = vscode.commands.registerCommand('intellig.stash', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -384,7 +384,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Show stash list command
   const showStashListCommand = vscode.commands.registerCommand(
-    'intellij-git.showStashList',
+    'intellig.showStashList',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -411,7 +411,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Shelve changes command
   // Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6
-  const shelveCommand = vscode.commands.registerCommand('intellij-git.shelve', async () => {
+  const shelveCommand = vscode.commands.registerCommand('intellig.shelve', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -453,7 +453,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Show shelf list command
   const showShelfListCommand = vscode.commands.registerCommand(
-    'intellij-git.showShelfList',
+    'intellig.showShelfList',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -480,7 +480,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Toggle blame annotations command
   // Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7 (Blame)
-  const toggleBlameCommand = vscode.commands.registerCommand('intellij-git.toggleBlame', () => {
+  const toggleBlameCommand = vscode.commands.registerCommand('intellig.toggleBlame', () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -502,7 +502,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Toggle gutter blame annotations command
   const toggleGutterBlameCommand = vscode.commands.registerCommand(
-    'intellij-git.toggleGutterBlame',
+    'intellig.toggleGutterBlame',
     () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -527,7 +527,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Compare with branch command
   // Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
   const compareWithBranchCommand = vscode.commands.registerCommand(
-    'intellij-git.compareWithBranch',
+    'intellig.compareWithBranch',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -555,7 +555,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Compare with remote command
   // Requirement: 15.5
   const compareWithRemoteCommand = vscode.commands.registerCommand(
-    'intellij-git.compareWithRemote',
+    'intellig.compareWithRemote',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -581,7 +581,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Refresh command - refreshes all Git views
-  const refreshCommand = vscode.commands.registerCommand('intellij-git.refresh', async () => {
+  const refreshCommand = vscode.commands.registerCommand('intellig.refresh', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -598,7 +598,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Stage selected files command
   const stageSelectedCommand = vscode.commands.registerCommand(
-    'intellij-git.stageSelected',
+    'intellig.stageSelected',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -639,7 +639,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Unstage selected files command
   const unstageSelectedCommand = vscode.commands.registerCommand(
-    'intellij-git.unstageSelected',
+    'intellig.unstageSelected',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -681,7 +681,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Merge View commands
   // Requirements: 10.2, 10.3, 10.4, 10.7, 17.9
   const openMergeViewCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.openMergeView',
+    'intellig.merge.openMergeView',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -742,7 +742,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const acceptCurrentCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.acceptCurrent',
+    'intellig.merge.acceptCurrent',
     () => {
       if (mergeView) {
         mergeView.acceptCurrent();
@@ -751,7 +751,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const acceptIncomingCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.acceptIncoming',
+    'intellig.merge.acceptIncoming',
     () => {
       if (mergeView) {
         mergeView.acceptIncoming();
@@ -759,14 +759,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptBothCommand = vscode.commands.registerCommand('intellij-git.merge.acceptBoth', () => {
+  const acceptBothCommand = vscode.commands.registerCommand('intellig.merge.acceptBoth', () => {
     if (mergeView) {
       mergeView.acceptBoth();
     }
   });
 
   const acceptAllCurrentCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.acceptAllCurrent',
+    'intellig.merge.acceptAllCurrent',
     () => {
       if (mergeView) {
         mergeView.acceptAllCurrent();
@@ -775,7 +775,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const acceptAllIncomingCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.acceptAllIncoming',
+    'intellig.merge.acceptAllIncoming',
     () => {
       if (mergeView) {
         mergeView.acceptAllIncoming();
@@ -784,7 +784,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const nextConflictCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.nextConflict',
+    'intellig.merge.nextConflict',
     () => {
       if (mergeView) {
         mergeView.nextConflict();
@@ -793,7 +793,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const previousConflictCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.previousConflict',
+    'intellig.merge.previousConflict',
     () => {
       if (mergeView) {
         mergeView.previousConflict();
@@ -802,7 +802,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const markResolvedCommand = vscode.commands.registerCommand(
-    'intellij-git.merge.markResolved',
+    'intellig.merge.markResolved',
     async () => {
       if (mergeView) {
         await mergeView.markResolved();
@@ -813,7 +813,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Conflict Resolution commands
   // Requirements: 10.1, 10.5, 10.6, 10.8
   const markFileResolvedCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.markResolved',
+    'intellig.conflict.markResolved',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -865,7 +865,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const acceptAllCurrentFilesCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.acceptAllCurrent',
+    'intellig.conflict.acceptAllCurrent',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -911,7 +911,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const acceptAllIncomingFilesCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.acceptAllIncoming',
+    'intellig.conflict.acceptAllIncoming',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -957,7 +957,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const completeMergeCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.completeMerge',
+    'intellig.conflict.completeMerge',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -997,7 +997,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const completeRebaseCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.completeRebase',
+    'intellig.conflict.completeRebase',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1041,7 +1041,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const abortMergeCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.abortMerge',
+    'intellig.conflict.abortMerge',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1079,7 +1079,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   const abortRebaseCommand = vscode.commands.registerCommand(
-    'intellij-git.conflict.abortRebase',
+    'intellig.conflict.abortRebase',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1119,7 +1119,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Interactive Rebase command
   // Requirements: 6.1, 6.2, 6.3
   const interactiveRebaseCommand = vscode.commands.registerCommand(
-    'intellij-git.rebase.interactive',
+    'intellig.rebase.interactive',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1207,7 +1207,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Show History command for file explorer
   const explorerShowHistoryCommand = vscode.commands.registerCommand(
-    'intellij-git.explorer.showHistory',
+    'intellig.explorer.showHistory',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1278,7 +1278,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Compare with Branch command for file explorer
   const explorerCompareWithBranchCommand = vscode.commands.registerCommand(
-    'intellij-git.explorer.compareWithBranch',
+    'intellig.explorer.compareWithBranch',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1346,7 +1346,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Revert command for file explorer
   const explorerRevertCommand = vscode.commands.registerCommand(
-    'intellij-git.explorer.revert',
+    'intellig.explorer.revert',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1404,7 +1404,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Stage command for file explorer
   const explorerStageCommand = vscode.commands.registerCommand(
-    'intellij-git.explorer.stage',
+    'intellig.explorer.stage',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1451,7 +1451,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Unstage command for file explorer
   const explorerUnstageCommand = vscode.commands.registerCommand(
-    'intellij-git.explorer.unstage',
+    'intellig.explorer.unstage',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1498,7 +1498,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Show Diff command for file explorer
   const explorerShowDiffCommand = vscode.commands.registerCommand(
-    'intellij-git.explorer.showDiff',
+    'intellig.explorer.showDiff',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1551,7 +1551,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Toggle Blame Annotations command for editor context menu
   const editorToggleBlameCommand = vscode.commands.registerCommand(
-    'intellij-git.editor.toggleBlame',
+    'intellig.editor.toggleBlame',
     () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1575,7 +1575,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Show Line History command for editor context menu
   const editorShowLineHistoryCommand = vscode.commands.registerCommand(
-    'intellij-git.editor.showLineHistory',
+    'intellig.editor.showLineHistory',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1641,7 +1641,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Copy Commit Hash command for editor context menu
   const editorCopyCommitHashCommand = vscode.commands.registerCommand(
-    'intellij-git.editor.copyCommitHash',
+    'intellig.editor.copyCommitHash',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1691,7 +1691,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Show Commit command for editor context menu
   const editorShowCommitCommand = vscode.commands.registerCommand(
-    'intellij-git.editor.showCommit',
+    'intellig.editor.showCommit',
     async () => {
       if (!extensionServices) {
         void vscode.window.showErrorMessage('Extension services not initialized');
@@ -2137,9 +2137,9 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
 
   // Listen for configuration changes
   const configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration('intellij-git')) {
+    if (event.affectsConfiguration('intellig')) {
       // TODO: Handle configuration changes in task 1.3
-      console.log('IntelliJ Git configuration changed');
+      console.log('IntelliG configuration changed');
     }
   });
 

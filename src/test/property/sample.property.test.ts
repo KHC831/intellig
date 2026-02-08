@@ -3,7 +3,7 @@ import * as assert from 'assert';
 
 /**
  * Sample property-based tests to verify fast-check setup.
- * Feature: intellij-git-vscode
+ * Feature: intellig-vscode
  */
 describe('Sample Property Tests', () => {
   describe('Array operations', () => {

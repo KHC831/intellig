@@ -1,5 +1,5 @@
 /**
- * Services module for the IntelliJ Git VS Code extension.
+ * Services module for the IntelliG VS Code extension.
  */
 
 // Export all interfaces

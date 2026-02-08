@@ -392,7 +392,7 @@ describe('GitToolWindowProvider - _getBranchContextMenuHtml()', () => {
   });
 
   describe('Branch panel integration with context menus', () => {
-    it('should include context menu HTML in branch panel output', () => {
+    it('should NOT include context menu HTML in branch panel output (menus are at top-level layout)', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [makeBranch('develop')],
@@ -401,11 +401,35 @@ describe('GitToolWindowProvider - _getBranchContextMenuHtml()', () => {
 
       const html = provider._getBranchPanelHtml(data);
 
-      assert.ok(html.includes('branch-context-menu-local'), 'Branch panel should include local context menu');
-      assert.ok(html.includes('branch-context-menu-remote'), 'Branch panel should include remote context menu');
+      // Context menus are now rendered at the top-level layout div, not inside the branch panel,
+      // to prevent clipping by panel overflow: auto (Requirements 4.1, 4.2, 4.6, 4.7)
+      assert.ok(!html.includes('branch-context-menu-local'), 'Branch panel should NOT include local context menu (moved to top-level layout)');
+      assert.ok(!html.includes('branch-context-menu-remote'), 'Branch panel should NOT include remote context menu (moved to top-level layout)');
     });
 
-    it('should add oncontextmenu handlers to local branch items', () => {
+    it('should include context menu HTML in the full three-panel layout output', () => {
+      const data: IBranchPanelData = {
+        head: { name: 'main', isDetached: false },
+        local: [makeBranch('develop')],
+        remote: [{ remoteName: 'origin', branches: [makeBranch('origin/main', 'remote')] }],
+      };
+
+      const html = provider._getThreePanelHtmlContent(
+        {} as any,
+        data,
+        [],
+        undefined,
+        [20, 50, 30],
+        new Set<string>(),
+        0,
+        0
+      );
+
+      assert.ok(html.includes('branch-context-menu-local'), 'Three-panel layout should include local context menu');
+      assert.ok(html.includes('branch-context-menu-remote'), 'Three-panel layout should include remote context menu');
+    });
+
+    it('should add data-branch and data-type attributes to local branch items for event delegation', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [makeBranch('develop'), makeBranch('feature/auth')],
@@ -415,16 +439,16 @@ describe('GitToolWindowProvider - _getBranchContextMenuHtml()', () => {
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("showBranchContextMenu(event, 'develop', 'local')"),
-        'Local branch should have context menu handler'
+        html.includes('data-branch="develop"') && html.includes('data-type="local"'),
+        'Local branch develop should have data-branch and data-type="local" attributes'
       );
       assert.ok(
-        html.includes("showBranchContextMenu(event, 'feature/auth', 'local')"),
-        'Local branch feature/auth should have context menu handler'
+        html.includes('data-branch="feature/auth"') && html.includes('data-type="local"'),
+        'Local branch feature/auth should have data-branch and data-type="local" attributes'
       );
     });
 
-    it('should add oncontextmenu handlers to remote branch items', () => {
+    it('should add data-branch and data-type attributes to remote branch items for event delegation', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [],
@@ -439,8 +463,8 @@ describe('GitToolWindowProvider - _getBranchContextMenuHtml()', () => {
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("showBranchContextMenu(event, 'origin/main', 'remote')"),
-        'Remote branch should have context menu handler with remote type'
+        html.includes('data-branch="origin/main"') && html.includes('data-type="remote"'),
+        'Remote branch should have data-branch and data-type="remote" attributes'
       );
     });
   });
@@ -459,7 +483,7 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
   });
 
   describe('Branch item onclick handlers in HTML', () => {
-    it('should add onclick handler to HEAD branch item when not detached', () => {
+    it('should add data-branch attribute to HEAD branch item when not detached', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [],
@@ -469,12 +493,12 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("handleBranchClick('main')"),
-        'HEAD branch item should have onclick handler calling handleBranchClick'
+        html.includes('data-branch="main"'),
+        'HEAD branch item should have data-branch="main" attribute'
       );
     });
 
-    it('should add onclick handler to HEAD branch item when detached', () => {
+    it('should add data-branch attribute to HEAD branch item when detached', () => {
       const data: IBranchPanelData = {
         head: { name: 'abc1234', isDetached: true, commitHash: 'abc1234' },
         local: [],
@@ -484,12 +508,12 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("handleBranchClick('abc1234')"),
-        'Detached HEAD branch item should have onclick handler calling handleBranchClick'
+        html.includes('data-branch="abc1234"'),
+        'Detached HEAD branch item should have data-branch="abc1234" attribute'
       );
     });
 
-    it('should add onclick handler to local branch items', () => {
+    it('should add data-branch attribute to local branch items', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [makeBranch('develop'), makeBranch('feature/auth')],
@@ -499,16 +523,16 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("handleBranchClick('develop')"),
-        'Local branch develop should have onclick handler'
+        html.includes('data-branch="develop"'),
+        'Local branch develop should have data-branch attribute'
       );
       assert.ok(
-        html.includes("handleBranchClick('feature/auth')"),
-        'Local branch feature/auth should have onclick handler'
+        html.includes('data-branch="feature/auth"'),
+        'Local branch feature/auth should have data-branch attribute'
       );
     });
 
-    it('should add onclick handler to remote branch items', () => {
+    it('should add data-branch attribute to remote branch items', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [],
@@ -523,16 +547,16 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("handleBranchClick('origin/main')"),
-        'Remote branch origin/main should have onclick handler'
+        html.includes('data-branch="origin/main"'),
+        'Remote branch origin/main should have data-branch attribute'
       );
       assert.ok(
-        html.includes("handleBranchClick('origin/develop')"),
-        'Remote branch origin/develop should have onclick handler'
+        html.includes('data-branch="origin/develop"'),
+        'Remote branch origin/develop should have data-branch attribute'
       );
     });
 
-    it('should have both onclick and oncontextmenu on local branch items', () => {
+    it('should have both data-branch and data-type attributes on local branch items for event delegation', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [makeBranch('develop')],
@@ -542,16 +566,16 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("handleBranchClick('develop')"),
-        'Local branch should have onclick handler'
+        html.includes('data-branch="develop"'),
+        'Local branch should have data-branch attribute'
       );
       assert.ok(
-        html.includes("showBranchContextMenu(event, 'develop', 'local')"),
-        'Local branch should still have context menu handler'
+        html.includes('data-type="local"'),
+        'Local branch should have data-type="local" attribute for event delegation'
       );
     });
 
-    it('should have both onclick and oncontextmenu on remote branch items', () => {
+    it('should have both data-branch and data-type attributes on remote branch items for event delegation', () => {
       const data: IBranchPanelData = {
         head: { name: 'main', isDetached: false },
         local: [],
@@ -566,12 +590,12 @@ describe('GitToolWindowProvider - Branch click handler (Requirement 2.6)', () =>
       const html = provider._getBranchPanelHtml(data);
 
       assert.ok(
-        html.includes("handleBranchClick('origin/main')"),
-        'Remote branch should have onclick handler'
+        html.includes('data-branch="origin/main"'),
+        'Remote branch should have data-branch attribute'
       );
       assert.ok(
-        html.includes("showBranchContextMenu(event, 'origin/main', 'remote')"),
-        'Remote branch should still have context menu handler'
+        html.includes('data-type="remote"'),
+        'Remote branch should have data-type="remote" attribute for event delegation'
       );
     });
   });

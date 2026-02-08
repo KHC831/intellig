@@ -140,7 +140,7 @@ function redistributeDeficit(
 
 
 /** Workspace state key for persisted panel widths. */
-const PANEL_WIDTHS_KEY = 'intellij-git.panelWidths';
+const PANEL_WIDTHS_KEY = 'intellig.panelWidths';
 
 /** Default panel width ratios: [Branch 20%, Graph 50%, Details 30%]. */
 export const DEFAULT_PANEL_WIDTHS: [number, number, number] = [20, 50, 30];

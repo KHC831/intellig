@@ -9,7 +9,7 @@ import {
 
 /**
  * Property-based tests for Stash Round-Trip.
- * Feature: intellij-git-vscode, Property 18: Stash Round-Trip
+ * Feature: intellig-vscode, Property 18: Stash Round-Trip
  *
  * **Validates: Requirements 7.1, 7.4, 7.5**
  *

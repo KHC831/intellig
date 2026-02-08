@@ -9,7 +9,7 @@ import {
 
 /**
  * Property-based tests for Interactive Rebase Action Support.
- * Feature: intellij-git-vscode, Property 13: Interactive Rebase Action Support
+ * Feature: intellig-vscode, Property 13: Interactive Rebase Action Support
  *
  * **Validates: Requirements 6.3**
  *

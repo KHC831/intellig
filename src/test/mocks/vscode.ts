@@ -71,7 +71,7 @@ function initializeDefaultConfig(): void {
   intellijGitConfig.set('deletedFileColor', '#6C6C6C');
   intellijGitConfig.set('ignoredFileColor', '#848504');
   intellijGitConfig.set('conflictFileColor', '#FF0000');
-  configurationStore.set('intellij-git', intellijGitConfig);
+  configurationStore.set('intellig', intellijGitConfig);
 }
 
 // Initialize on module load

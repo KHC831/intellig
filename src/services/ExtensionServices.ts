@@ -162,7 +162,7 @@ export class ExtensionServices implements IExtensionServices {
       return Promise.reject(new Error('Cannot initialize disposed ExtensionServices'));
     }
 
-    console.log('Initializing IntelliJ Git extension services...');
+    console.log('Initializing IntelliG extension services...');
 
     try {
       // Initialize ConfigurationService first as other services may depend on it
@@ -201,7 +201,7 @@ export class ExtensionServices implements IExtensionServices {
       });
 
       this._initialized = true;
-      console.log('IntelliJ Git extension services initialized successfully');
+      console.log('IntelliG extension services initialized successfully');
       return Promise.resolve();
     } catch (error) {
       console.error('Failed to initialize extension services:', error);
@@ -286,7 +286,7 @@ export class ExtensionServices implements IExtensionServices {
       return;
     }
 
-    console.log('Disposing IntelliJ Git extension services...');
+    console.log('Disposing IntelliG extension services...');
 
     // Dispose services in reverse order of dependency
     try {
@@ -315,7 +315,7 @@ export class ExtensionServices implements IExtensionServices {
     this._disposed = true;
     this._initialized = false;
 
-    console.log('IntelliJ Git extension services disposed');
+    console.log('IntelliG extension services disposed');
   }
 
   /**

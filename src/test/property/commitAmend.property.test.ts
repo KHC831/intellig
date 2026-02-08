@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 
 /**
  * Property-based tests for Commit Amend Message Loading.
- * Feature: intellij-git-vscode, Property 4: Commit Amend Message Loading
+ * Feature: intellig-vscode, Property 4: Commit Amend Message Loading
  *
  * **Validates: Requirements 3.3**
  *

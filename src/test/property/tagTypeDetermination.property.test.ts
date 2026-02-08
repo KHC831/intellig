@@ -4,7 +4,7 @@ import { ITag, IAuthor } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Tag Type Determination.
- * Feature: intellij-git-vscode, Property 42: Tag Type Determination
+ * Feature: intellig-vscode, Property 42: Tag Type Determination
  *
  * **Validates: Requirements 13.2, 13.3**
  *

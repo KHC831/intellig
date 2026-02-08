@@ -4,7 +4,7 @@ import { ICommit, IAuthor } from '../../services/interfaces/IGitService';
 
 /**
  * Property-based tests for Log Filtering Accuracy.
- * Feature: intellij-git-vscode, Property 27: Log Filtering Accuracy
+ * Feature: intellig-vscode, Property 27: Log Filtering Accuracy
  *
  * **Validates: Requirements 9.6, 9.7 (Log)**
  *

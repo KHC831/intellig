@@ -71,7 +71,7 @@ export class RebaseProgressView implements vscode.Disposable {
       this._panel.reveal(vscode.ViewColumn.One);
     } else {
       this._panel = vscode.window.createWebviewPanel(
-        'intellij-git.rebaseProgress',
+        'intellig.rebaseProgress',
         'Rebase Progress',
         vscode.ViewColumn.One,
         {

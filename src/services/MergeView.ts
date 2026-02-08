@@ -57,7 +57,7 @@ export class MergeView implements IMergeView {
       this._panel.reveal(vscode.ViewColumn.One);
     } else {
       this._panel = vscode.window.createWebviewPanel(
-        'intellij-git.mergeView',
+        'intellig.mergeView',
         `Merge: ${path.basename(file)}`,
         vscode.ViewColumn.One,
         {

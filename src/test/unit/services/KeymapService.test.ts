@@ -39,7 +39,7 @@ describe('KeymapService', () => {
 
     it('should initialize with intellij keymap when useIntelliJKeymap is true', () => {
       // Set up configuration before creating service
-      setMockConfigValue('intellij-git', 'useIntelliJKeymap', true);
+      setMockConfigValue('intellig', 'useIntelliJKeymap', true);
       const newConfigService = new ConfigurationService();
       const newKeymapService = new KeymapService(newConfigService);
 
@@ -56,7 +56,7 @@ describe('KeymapService', () => {
     });
 
     it('should return "intellij" when useIntelliJKeymap is true', () => {
-      setMockConfigValue('intellij-git', 'useIntelliJKeymap', true);
+      setMockConfigValue('intellig', 'useIntelliJKeymap', true);
       const newConfigService = new ConfigurationService();
       const newKeymapService = new KeymapService(newConfigService);
 
@@ -142,9 +142,9 @@ describe('KeymapService', () => {
 
   describe('getKeybindingForCommand', () => {
     it('should return keybinding for existing command', () => {
-      const keybinding = keymapService.getKeybindingForCommand('intellij-git.commit');
+      const keybinding = keymapService.getKeybindingForCommand('intellig.commit');
       assert.ok(keybinding);
-      assert.strictEqual(keybinding.command, 'intellij-git.commit');
+      assert.strictEqual(keybinding.command, 'intellig.commit');
     });
 
     it('should return undefined for non-existing command', () => {
@@ -153,14 +153,14 @@ describe('KeymapService', () => {
     });
 
     it('should return keybinding with key property', () => {
-      const keybinding = keymapService.getKeybindingForCommand('intellij-git.commit');
+      const keybinding = keymapService.getKeybindingForCommand('intellig.commit');
       assert.ok(keybinding);
       assert.ok(keybinding.key);
       assert.strictEqual(typeof keybinding.key, 'string');
     });
 
     it('should return keybinding with mac property for commit command', () => {
-      const keybinding = keymapService.getKeybindingForCommand('intellij-git.commit');
+      const keybinding = keymapService.getKeybindingForCommand('intellig.commit');
       assert.ok(keybinding);
       assert.ok(keybinding.mac);
       assert.strictEqual(typeof keybinding.mac, 'string');
@@ -173,7 +173,7 @@ describe('KeymapService', () => {
     });
 
     it('should return true when intellij keymap is active', () => {
-      setMockConfigValue('intellij-git', 'useIntelliJKeymap', true);
+      setMockConfigValue('intellig', 'useIntelliJKeymap', true);
       const newConfigService = new ConfigurationService();
       const newKeymapService = new KeymapService(newConfigService);
 
@@ -235,7 +235,7 @@ describe('getDefaultKeymap', () => {
   it('should include commit keybinding', () => {
     const keymap = getDefaultKeymap();
     const commitBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.commit'
+      (kb: IKeybinding) => kb.command === 'intellig.commit'
     );
     assert.ok(commitBinding);
     assert.strictEqual(commitBinding.key, 'ctrl+k');
@@ -245,7 +245,7 @@ describe('getDefaultKeymap', () => {
   it('should include push keybinding', () => {
     const keymap = getDefaultKeymap();
     const pushBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.push'
+      (kb: IKeybinding) => kb.command === 'intellig.push'
     );
     assert.ok(pushBinding);
     assert.strictEqual(pushBinding.key, 'ctrl+shift+k');
@@ -255,7 +255,7 @@ describe('getDefaultKeymap', () => {
   it('should include pull keybinding', () => {
     const keymap = getDefaultKeymap();
     const pullBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.pull'
+      (kb: IKeybinding) => kb.command === 'intellig.pull'
     );
     assert.ok(pullBinding);
     assert.strictEqual(pullBinding.key, 'ctrl+t');
@@ -287,7 +287,7 @@ describe('getIntelliJKeymap', () => {
   it('should include VCS Operations Popup keybinding with Alt+`', () => {
     const keymap = getIntelliJKeymap();
     const vcsPopupBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.showBranchPopup'
+      (kb: IKeybinding) => kb.command === 'intellig.showBranchPopup'
     );
     assert.ok(vcsPopupBinding);
     assert.strictEqual(vcsPopupBinding.key, 'alt+`');
@@ -296,7 +296,7 @@ describe('getIntelliJKeymap', () => {
   it('should include Annotate (Blame) keybinding with Ctrl+Alt+Shift+A', () => {
     const keymap = getIntelliJKeymap();
     const blameBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.toggleBlame'
+      (kb: IKeybinding) => kb.command === 'intellig.toggleBlame'
     );
     assert.ok(blameBinding);
     assert.strictEqual(blameBinding.key, 'ctrl+alt+shift+a');
@@ -305,7 +305,7 @@ describe('getIntelliJKeymap', () => {
   it('should include Show History keybinding with Ctrl+H', () => {
     const keymap = getIntelliJKeymap();
     const historyBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.showHistory'
+      (kb: IKeybinding) => kb.command === 'intellig.showHistory'
     );
     assert.ok(historyBinding);
     assert.strictEqual(historyBinding.key, 'ctrl+h');
@@ -314,7 +314,7 @@ describe('getIntelliJKeymap', () => {
   it('should include Compare with Branch keybinding with Ctrl+D', () => {
     const keymap = getIntelliJKeymap();
     const compareBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.branch.compareWithCurrent'
+      (kb: IKeybinding) => kb.command === 'intellig.branch.compareWithCurrent'
     );
     assert.ok(compareBinding);
     assert.strictEqual(compareBinding.key, 'ctrl+d');
@@ -323,7 +323,7 @@ describe('getIntelliJKeymap', () => {
   it('should include Rollback (Revert) keybinding with Ctrl+Alt+Z', () => {
     const keymap = getIntelliJKeymap();
     const revertBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.revertFile'
+      (kb: IKeybinding) => kb.command === 'intellig.revertFile'
     );
     assert.ok(revertBinding);
     assert.strictEqual(revertBinding.key, 'ctrl+alt+z');
@@ -374,10 +374,10 @@ describe('IntelliJ Keymap Keybindings', () => {
     const intellijKeymap = getIntelliJKeymap();
 
     const defaultCommit = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.commit'
+      (kb: IKeybinding) => kb.command === 'intellig.commit'
     );
     const intellijCommit = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.commit'
+      (kb: IKeybinding) => kb.command === 'intellig.commit'
     );
 
     assert.ok(defaultCommit);
@@ -390,10 +390,10 @@ describe('IntelliJ Keymap Keybindings', () => {
     const intellijKeymap = getIntelliJKeymap();
 
     const defaultPush = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.push'
+      (kb: IKeybinding) => kb.command === 'intellig.push'
     );
     const intellijPush = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.push'
+      (kb: IKeybinding) => kb.command === 'intellig.push'
     );
 
     assert.ok(defaultPush);
@@ -406,10 +406,10 @@ describe('IntelliJ Keymap Keybindings', () => {
     const intellijKeymap = getIntelliJKeymap();
 
     const defaultPull = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.pull'
+      (kb: IKeybinding) => kb.command === 'intellig.pull'
     );
     const intellijPull = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.pull'
+      (kb: IKeybinding) => kb.command === 'intellig.pull'
     );
 
     assert.ok(defaultPull);
@@ -422,10 +422,10 @@ describe('IntelliJ Keymap Keybindings', () => {
     const intellijKeymap = getIntelliJKeymap();
 
     const defaultPopup = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.showBranchPopup'
+      (kb: IKeybinding) => kb.command === 'intellig.showBranchPopup'
     );
     const intellijPopup = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellij-git.showBranchPopup'
+      (kb: IKeybinding) => kb.command === 'intellig.showBranchPopup'
     );
 
     assert.ok(defaultPopup);

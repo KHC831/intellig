@@ -5,11 +5,11 @@ describe('Extension Test Suite', () => {
   void vscode.window.showInformationMessage('Start all tests.');
 
   it('Extension should be present', () => {
-    assert.ok(vscode.extensions.getExtension('intellij-git-vscode.intellij-git'));
+    assert.ok(vscode.extensions.getExtension('intellig-vscode.intellig'));
   });
 
   it('Extension should activate', async () => {
-    const extension = vscode.extensions.getExtension('intellij-git-vscode.intellij-git');
+    const extension = vscode.extensions.getExtension('intellig-vscode.intellig');
     if (extension) {
       await extension.activate();
       assert.strictEqual(extension.isActive, true);

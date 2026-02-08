@@ -1,7 +1,7 @@
 /**
  * Property-based tests for Details Panel rendering.
  *
- * Feature: intellij-git-layout
+ * Feature: intellig-layout
  *
  * Uses fast-check to verify universal correctness properties of the
  * Details Panel HTML generation in GitToolWindowProvider._getDetailsPanelHtml().
@@ -173,7 +173,7 @@ function createProvider(): GitToolWindowProvider {
 
 // ─── Property Tests ───────────────────────────────────────────────────────────
 
-describe('Feature: intellij-git-layout - Details Panel Property Tests', () => {
+describe('Feature: intellig-layout - Details Panel Property Tests', () => {
   let provider: GitToolWindowProvider;
 
   beforeEach(() => {
@@ -193,7 +193,7 @@ describe('Feature: intellij-git-layout - Details Panel Property Tests', () => {
      * commit date, commit message, and every changed file path with its status
      * indicator.
      */
-    it('Feature: intellij-git-layout, Property 9: Details panel contains commit metadata and changed files — HTML contains full hash, author name, email, date, message, and all file paths with status indicators', () => {
+    it('Feature: intellig-layout, Property 9: Details panel contains commit metadata and changed files — HTML contains full hash, author name, email, date, message, and all file paths with status indicators', () => {
       fc.assert(
         fc.property(
           arbitraryCommitDetails(),

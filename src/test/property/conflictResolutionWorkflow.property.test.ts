@@ -9,7 +9,7 @@ import {
 
 /**
  * Property-based tests for Conflict Resolution Workflow.
- * Feature: intellij-git-vscode, Property 33: Conflict Resolution Workflow
+ * Feature: intellig-vscode, Property 33: Conflict Resolution Workflow
  *
  * **Validates: Requirements 10.5, 10.6**
  *

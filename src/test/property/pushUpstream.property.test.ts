@@ -4,7 +4,7 @@ import { IPushOptions, ICommit, IUpstream } from '../../services/interfaces/IGit
 
 /**
  * Property-based tests for Push Upstream.
- * Feature: intellij-git-vscode, Property 38: Push Upstream
+ * Feature: intellig-vscode, Property 38: Push Upstream
  *
  * **Validates: Requirements 12.1**
  *

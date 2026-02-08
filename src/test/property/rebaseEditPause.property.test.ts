@@ -10,7 +10,7 @@ import {
 
 /**
  * Property-based tests for Rebase Edit Pause.
- * Feature: intellij-git-vscode, Property 15: Rebase Edit Pause
+ * Feature: intellig-vscode, Property 15: Rebase Edit Pause
  *
  * **Validates: Requirements 6.5**
  *

@@ -11,7 +11,7 @@ import {
 
 /**
  * Property-based tests for Cherry-Pick Application.
- * Feature: intellij-git-vscode, Property 35: Cherry-Pick Application
+ * Feature: intellig-vscode, Property 35: Cherry-Pick Application
  *
  * **Validates: Requirements 11.1**
  *
