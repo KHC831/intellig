@@ -99,6 +99,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   private _panelWidths: [number, number];
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
+  private _isLoading: boolean = true;
   private _scrollToCommitHash: string | undefined;
   private _pendingChangedFiles: IChangedFile[] | undefined;
   private _pendingChangedFilesError: unknown | undefined;
@@ -338,7 +339,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    *.
    */
   public setHasRepository(hasRepository: boolean): void {
-    if (this._hasRepository !== hasRepository) {
+    const wasLoading = this._isLoading;
+    this._isLoading = false;
+    if (this._hasRepository !== hasRepository || wasLoading) {
       this._hasRepository = hasRepository;
       this._updateWebview();
       this._onDidChangeState.fire();
@@ -377,6 +380,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     };
 
     this._hasRepository = true;
+    this._isLoading = false;
     this._updateWebview();
     this._onDidChangeState.fire();
   }
@@ -418,14 +422,20 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     // Send a partial update to the details panel via postMessage
     // instead of a full _updateWebview() to preserve graph scroll position.
-    // The graph panel selection is already handled client-side by the inline script.
+    // Also update the graph row selection highlighting and scroll to the commit.
     if (this._webviewView) {
+      // Update graph row selection
+      void this._webviewView.webview.postMessage({
+        type: 'selectGraphRow',
+        commitHash: hash,
+      });
+
       const node = this._extendedLogState.commitNodes.find(n => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
           hash: node.commit.hash,
           message: node.commit.message,
-          body: node.commit.message.includes('\n') ? node.commit.message.split('\n').slice(1).join('\n').trim() : undefined,
+          body: node.commit.body,
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
@@ -475,7 +485,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         const commitDetails: ICommitDetails = {
           hash: node.commit.hash,
           message: node.commit.message,
-          body: node.commit.message.includes('\n') ? node.commit.message.split('\n').slice(1).join('\n').trim() : undefined,
+          body: node.commit.body,
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
@@ -832,6 +842,11 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Now delegates to the 2-panel layout.
    */
   private _getHtmlContent(webview: vscode.Webview): string {
+    // Show loading state while initial data is being fetched
+    if (this._isLoading) {
+      return this._getLoadingHtml(webview);
+    }
+
     // If no repository, show init prompt
     if (!this._hasRepository) {
       return this._getNoRepositoryHtml(webview);
@@ -849,7 +864,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         commitDetails = {
           hash: node.commit.hash,
           message: node.commit.message,
-          body: node.commit.message.includes('\n') ? node.commit.message.split('\n').slice(1).join('\n').trim() : undefined,
+          body: node.commit.body,
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
@@ -959,6 +974,49 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     ${this._getInlineScript()}
     ${this._getDividerDragScript()}
   </script>
+</body>
+</html>`;
+  }
+
+  /**
+   * Get the loading HTML shown while initial data is being fetched.
+   */
+  private _getLoadingHtml(webview: vscode.Webview): string {
+    const nonce = getNonce();
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <title>Git Tool Window</title>
+  <style>
+    ${this._getInlineStyles()}
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: var(--vscode-descriptionForeground);
+      font-size: 13px;
+    }
+    .loading-spinner-icon {
+      font-size: 24px;
+      animation: spin 1.5s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <span class="loading-spinner-icon">&#x27F3;</span>
+    <p>Loading git graph\u2026</p>
+  </div>
 </body>
 </html>`;
   }
@@ -2806,6 +2864,19 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             const detailsPanel = document.getElementById('details-panel');
             if (detailsPanel) {
               detailsPanel.innerHTML = message.html;
+            }
+          }
+          if (message.type === 'selectGraphRow' && message.commitHash) {
+            // Update graph row selection highlighting
+            document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+              r.classList.remove('selected');
+              r.setAttribute('aria-selected', 'false');
+            });
+            const targetRow = document.querySelector('.commit-row[data-hash="' + message.commitHash + '"]');
+            if (targetRow) {
+              targetRow.classList.add('selected');
+              targetRow.setAttribute('aria-selected', 'true');
+              targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
           }
         });

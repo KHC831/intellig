@@ -136,7 +136,6 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
 
   describe('Property 5: Branch labels rendered for all branch references', () => {
     /**
-     * **Validates: Requirements 2.3, 2.5**
      *
      * For any commit node with a non-empty branches array, the rendered commit
      * row HTML should contain a label element for each branch name in the array.
@@ -174,7 +173,6 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
     });
 
     /**
-     * **Validates: Requirements 2.3, 2.5**
      *
      * For any commit node with an empty branches array, the rendered HTML
      * should be an empty string.
@@ -192,7 +190,6 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
 
   describe('Property 6: Branch label local/remote classification', () => {
     /**
-     * **Validates: Requirements 2.4**
      *
      * For any branch name string, if the name contains a '/' (remote prefix pattern),
      * classifyBranchName should return 'remote'; otherwise it should return 'local'.
@@ -213,7 +210,6 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
     });
 
     /**
-     * **Validates: Requirements 2.4**
      *
      * For any branch name string that starts with a remote prefix (contains '/'),
      * classifyBranchName should return 'remote'.
@@ -234,7 +230,6 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
     });
 
     /**
-     * **Validates: Requirements 2.4**
      *
      * For any branch name string, _getBranchLabelsHtml should apply the correct
      * CSS class: 'branch-label-remote' for remote branches and 'branch-label-local'
@@ -264,7 +259,6 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
     });
 
     /**
-     * **Validates: Requirements 2.4**
      *
      * For any commit node with a mix of local and remote branches,
      * the rendered HTML should have the correct number of local and remote labels.

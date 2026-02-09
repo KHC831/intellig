@@ -101,7 +101,6 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
 
   describe('Property 1: Repository selector visibility matches repository count', () => {
     /**
-     * **Validates: Requirements 1.1, 1.2**
      *
      * For any list of repositories, the repository selector HTML should be present
      * if and only if the list contains more than one repository. When exactly one
@@ -142,7 +141,6 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
 
   describe('Property 2: Repository selection updates provider state', () => {
     /**
-     * **Validates: Requirements 1.3**
      *
      * For any valid repository index within the available repositories list,
      * calling the repository selection handler should update the provider's
@@ -185,7 +183,6 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
 
   describe('Property 3: Repository selector displays folder names', () => {
     /**
-     * **Validates: Requirements 1.4**
      *
      * For any list of repositories with root URIs, the rendered repository
      * selector HTML should contain the folder name (last path segment) of

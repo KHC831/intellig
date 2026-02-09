@@ -673,7 +673,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
   });
 
-  describe('Default config minimum spacing requirements - Req 4.1, 4.2, 4.4', () => {
+  describe('Default config minimum spacing', () => {
     it('should have columnWidth >= 20 (Req 4.1)', () => {
       assert.ok(DEFAULT_GRAPH_CONFIG.columnWidth >= 20,
         `columnWidth ${DEFAULT_GRAPH_CONFIG.columnWidth} should be >= 20`);
@@ -1122,7 +1122,6 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
 
 // ============================================================
 // Unit tests for bezier curve connectivity (Task 2.5)
-// Validates: Requirements 3.7, 3.8
 // ============================================================
 
 describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {

@@ -306,7 +306,6 @@ function extractPaths(svg: string): Array<{ d: string; stroke: string }> {
 describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests', () => {
   describe('Property 7: Merge commit renders diamond icon with lane color', () => {
     /**
-     * **Validates: Requirements 3.1, 3.5**
      *
      * For any commit node with more than one parent (merge commit), the SVG output
      * should contain a rotated <rect> (diamond) element filled with the color returned
@@ -352,7 +351,6 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
 
   describe('Property 8: Branch split renders split icon with lane color', () => {
     /**
-     * **Validates: Requirements 3.2, 3.5**
      *
      * For any commit node flagged as a branch split point (and NOT a merge commit),
      * the SVG output should contain tick mark <line> elements using the color from
@@ -385,7 +383,6 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
 
   describe('Property 9: Merge precedence over branch split', () => {
     /**
-     * **Validates: Requirements 3.6**
      *
      * For any commit node that is both a merge commit (parents.length > 1) and a
      * branch split point, the SVG output should contain the diamond (merge) icon
@@ -424,7 +421,6 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
 
   describe('Property 4: Terminal node rendering omits top line and shows ring', () => {
     /**
-     * **Validates: Requirements 2.1, 2.2**
      *
      * For any commit node rendered as a terminal node (isTerminal=true), the SVG output
      * should contain an outer ring circle element AND should NOT contain a vertical line
@@ -464,7 +460,6 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
 
   describe('Property 10: Graph curves are fully connected', () => {
     /**
-     * **Validates: Requirements 3.7, 3.8**
      *
      * For any commit node with graph lines where fromColumn differs from toColumn,
      * the bezier curve path in the SVG should start at coordinates

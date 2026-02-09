@@ -115,11 +115,15 @@ describe('GitToolWindowProvider', () => {
 
     it('should not fire event when value is the same', () => {
       let eventCount = 0;
+
+      // First call transitions from loading state, so it fires once
+      provider.setHasRepository(false);
+
       const disposable = provider.onDidChangeState(() => {
         eventCount++;
       });
 
-      provider.setHasRepository(false); // Same as initial value
+      provider.setHasRepository(false); // Same as current value, should not fire
       assert.strictEqual(eventCount, 0);
 
       disposable.dispose();
@@ -839,13 +843,15 @@ describe('Initial Data Request and No-Repository State', () => {
     });
 
     it('should not fire event when already in no-repository state', () => {
-      // Initial state is hasRepository: false
+      // Transition out of loading state first
+      provider.setNoRepository();
+
       let eventFired = false;
       const disposable = provider.onDidChangeState(() => {
         eventFired = true;
       });
 
-      provider.setNoRepository();
+      provider.setNoRepository(); // Already in no-repo state, should not fire
       assert.strictEqual(eventFired, false);
 
       disposable.dispose();
