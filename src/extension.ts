@@ -34,7 +34,7 @@ import {
 } from './services';
 import type { IRepository } from './services';
 import { createCommandTitleProvider } from './commands/CommandTitleProvider';
-import { createBranchContextMenuCommands } from './commands';
+import { createBranchContextMenuCommands, createCommitContextMenuCommands } from './commands';
 
 /**
  * Global reference to the extension services container.
@@ -2254,6 +2254,18 @@ function registerViews(context: vscode.ExtensionContext): void {
     // These are the actual VS Code command handlers invoked by the tree view context menus.
     const branchContextMenuCommands = createBranchContextMenuCommands(gitService, branchTreeProvider);
     branchContextMenuCommands.register(context);
+
+    // Register commit context menu commands for the Git Graph Panel.
+    // These handle right-click actions on commit rows in the graph view.
+    if (gitToolWindowProvider) {
+      const commitContextMenuCommands = createCommitContextMenuCommands(
+        gitService,
+        extensionServices.rebaseService,
+        gitToolWindowProvider,
+        (gitService as any).gitCli
+      );
+      commitContextMenuCommands.register(context);
+    }
 
     // Initialize Status Bar Service
     statusBarService = createStatusBarService(gitService);

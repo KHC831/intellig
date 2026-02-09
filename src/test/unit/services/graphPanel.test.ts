@@ -401,44 +401,79 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Commit context menu with all required options', () => {
-    it('should contain Cherry-pick option', () => {
+    it('should contain Copy Revision Number option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Cherry-pick'), 'Should contain Cherry-pick option');
+      assert.ok(html.includes('Copy Revision Number'), 'Should contain Copy Revision Number option');
     });
 
-    it('should contain Revert option', () => {
+    it('should contain Create Patch option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Revert'), 'Should contain Revert option');
+      assert.ok(html.includes('Create Patch'), 'Should contain Create Patch option');
     });
 
-    it('should contain Create Branch option', () => {
+    it('should contain Cherry-Pick option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Create Branch'), 'Should contain Create Branch option');
+      assert.ok(html.includes('Cherry-Pick'), 'Should contain Cherry-Pick option');
     });
 
-    it('should contain Create Tag option', () => {
+    it('should contain Checkout Revision option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Create Tag'), 'Should contain Create Tag option');
+      assert.ok(html.includes('Checkout Revision'), 'Should contain Checkout Revision option');
     });
 
-    it('should contain Reset to Here option', () => {
+    it('should contain Show Repository at Revision option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Reset to Here'), 'Should contain Reset to Here option');
+      assert.ok(html.includes('Show Repository at Revision'), 'Should contain Show Repository at Revision option');
     });
 
-    it('should contain Copy Hash option', () => {
+    it('should contain Compare with Local option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Copy Hash'), 'Should contain Copy Hash option');
+      assert.ok(html.includes('Compare with Local'), 'Should contain Compare with Local option');
     });
 
-    it('should contain Show Diff option', () => {
+    it('should contain Reset Current Branch to Here option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Show Diff'), 'Should contain Show Diff option');
+      assert.ok(html.includes('Reset Current Branch to Here'), 'Should contain Reset Current Branch to Here option');
     });
 
-    it('should contain all 7 required context menu options', () => {
+    it('should contain Revert Commit option', () => {
       const html = provider._getCommitContextMenuHtml();
-      const requiredOptions = ['Cherry-pick', 'Revert', 'Create Branch', 'Create Tag', 'Reset to Here', 'Copy Hash', 'Show Diff'];
+      assert.ok(html.includes('Revert Commit'), 'Should contain Revert Commit option');
+    });
+
+    it('should contain Undo Commit option', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(html.includes('Undo Commit'), 'Should contain Undo Commit option');
+    });
+
+    it('should contain Drop Commit option', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(html.includes('Drop Commit'), 'Should contain Drop Commit option');
+    });
+
+    it('should contain Edit Commit Message option', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(html.includes('Edit Commit Message'), 'Should contain Edit Commit Message option');
+    });
+
+    it('should contain Merge into Current Branch option', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(html.includes('Merge into Current Branch'), 'Should contain Merge into Current Branch option');
+    });
+
+    it('should contain Interactively Rebase from Here option', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(html.includes('Interactively Rebase from Here'), 'Should contain Interactively Rebase from Here option');
+    });
+
+    it('should contain all 13 required context menu options', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const requiredOptions = [
+        'Copy Revision Number', 'Create Patch', 'Cherry-Pick',
+        'Checkout Revision', 'Show Repository at Revision', 'Compare with Local',
+        'Reset Current Branch to Here', 'Revert Commit', 'Undo Commit', 'Drop Commit', 'Edit Commit Message',
+        'Merge into Current Branch', 'Interactively Rebase from Here',
+      ];
       for (const option of requiredOptions) {
         assert.ok(html.includes(option), `Should contain "${option}" option`);
       }
@@ -446,7 +481,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should have correct data-action attributes for all menu items', () => {
       const html = provider._getCommitContextMenuHtml();
-      const requiredActions = ['cherryPick', 'revert', 'createBranch', 'createTag', 'resetToHere', 'copyHash', 'showDiff'];
+      const requiredActions = [
+        'copyHash', 'createPatch', 'cherryPick',
+        'checkoutRevision', 'showRepoAtRevision', 'compareWithLocal',
+        'resetToHere', 'revert', 'undoCommit', 'dropCommit', 'editCommitMessage',
+        'mergeIntoCurrent', 'interactiveRebase',
+      ];
       for (const action of requiredActions) {
         assert.ok(html.includes(`data-action="${action}"`), `Should have data-action="${action}"`);
       }
@@ -468,7 +508,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have role="menuitem" on each menu item', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      assert.strictEqual(menuItemCount, 7, 'Should have 7 menu items with role="menuitem"');
+      assert.strictEqual(menuItemCount, 13, 'Should have 13 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -476,13 +516,36 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('aria-label="Commit actions"'), 'Should have aria-label');
     });
 
-    it('should mark Reset to Here as a danger action', () => {
+    it('should mark Reset Current Branch to Here as a danger action', () => {
       const html = provider._getCommitContextMenuHtml();
-      // Find the resetToHere item and check it has context-menu-danger class
       const resetIdx = html.indexOf('data-action="resetToHere"');
       assert.ok(resetIdx !== -1, 'Should have resetToHere action');
       const resetSection = html.substring(Math.max(0, resetIdx - 100), resetIdx);
-      assert.ok(resetSection.includes('context-menu-danger'), 'Reset to Here should have danger class');
+      assert.ok(resetSection.includes('context-menu-danger'), 'Reset Current Branch to Here should have danger class');
+    });
+
+    it('should mark Drop Commit as a danger action', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const dropIdx = html.indexOf('data-action="dropCommit"');
+      assert.ok(dropIdx !== -1, 'Should have dropCommit action');
+      const dropSection = html.substring(Math.max(0, dropIdx - 100), dropIdx);
+      assert.ok(dropSection.includes('context-menu-danger'), 'Drop Commit should have danger class');
+    });
+
+    it('should have data-head-hash attribute on the menu root element', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(html.includes('data-head-hash='), 'Should have data-head-hash attribute');
+    });
+
+    it('should not contain any context-menu-icon elements', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(!html.includes('context-menu-icon'), 'Should not contain any context-menu-icon elements');
+    });
+
+    it('should have three context-menu-separator dividers between four sections', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const separatorCount = (html.match(/context-menu-separator/g) || []).length;
+      assert.strictEqual(separatorCount, 3, 'Should have 3 separators between 4 sections');
     });
   });
 

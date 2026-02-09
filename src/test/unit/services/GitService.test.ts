@@ -4993,6 +4993,7 @@ describe('GitService - Log Operations', () => {
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
         assert.ok(lastCommand.args.includes('--all'), 'Should include --all option');
+        assert.ok(lastCommand.args.includes('--exclude=refs/stash'), 'Should exclude stash refs');
       });
 
       it('should not include --all option when all is false', async () => {

@@ -803,7 +803,7 @@ export class GitService implements IGitService {
       args.push(`--grep=${options.grep}`);
     }
     if (options?.all) {
-      args.push('--all');
+      args.push('--exclude=refs/stash', '--all');
     }
     if (options?.path) {
       args.push('--', options.path);

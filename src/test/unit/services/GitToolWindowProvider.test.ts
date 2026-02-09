@@ -428,9 +428,9 @@ describe('Log View', () => {
       });
     });
 
-    it('should fire onDidRequestLogContextAction for createBranch', (done) => {
+    it('should fire onDidRequestLogContextAction for createPatch', (done) => {
       const disposable = provider.onDidRequestLogContextAction((event) => {
-        assert.strictEqual(event.action, 'createBranch');
+        assert.strictEqual(event.action, 'createPatch');
         disposable.dispose();
         done();
       });
@@ -438,14 +438,14 @@ describe('Log View', () => {
       (
         provider as unknown as { _onDidRequestLogContextAction: { fire: (event: unknown) => void } }
       )._onDidRequestLogContextAction.fire({
-        action: 'createBranch',
+        action: 'createPatch',
         commitHashes: ['abc1234567890'],
       });
     });
 
-    it('should fire onDidRequestLogContextAction for createTag', (done) => {
+    it('should fire onDidRequestLogContextAction for checkoutRevision', (done) => {
       const disposable = provider.onDidRequestLogContextAction((event) => {
-        assert.strictEqual(event.action, 'createTag');
+        assert.strictEqual(event.action, 'checkoutRevision');
         disposable.dispose();
         done();
       });
@@ -453,7 +453,7 @@ describe('Log View', () => {
       (
         provider as unknown as { _onDidRequestLogContextAction: { fire: (event: unknown) => void } }
       )._onDidRequestLogContextAction.fire({
-        action: 'createTag',
+        action: 'checkoutRevision',
         commitHashes: ['abc1234567890'],
       });
     });
@@ -475,13 +475,19 @@ describe('Log View', () => {
 
     it('should support all context menu action types', () => {
       const actions = [
-        'cherryPick',
-        'revert',
-        'createBranch',
-        'createTag',
-        'resetToHere',
-        'showDiff',
         'copyHash',
+        'createPatch',
+        'cherryPick',
+        'checkoutRevision',
+        'showRepoAtRevision',
+        'compareWithLocal',
+        'resetToHere',
+        'revert',
+        'undoCommit',
+        'dropCommit',
+        'editCommitMessage',
+        'mergeIntoCurrent',
+        'interactiveRebase',
       ];
       const receivedActions: string[] = [];
 

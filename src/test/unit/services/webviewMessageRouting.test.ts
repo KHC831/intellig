@@ -252,6 +252,171 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       });
     });
 
+    it('should fire event for copyHash action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'copyHash');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'copyHash',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for createPatch action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'createPatch');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'createPatch',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for checkoutRevision action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'checkoutRevision');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'checkoutRevision',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for showRepoAtRevision action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'showRepoAtRevision');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'showRepoAtRevision',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for compareWithLocal action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'compareWithLocal');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'compareWithLocal',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for resetToHere action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'resetToHere');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'resetToHere',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for undoCommit action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'undoCommit');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'undoCommit',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for dropCommit action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'dropCommit');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'dropCommit',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for editCommitMessage action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'editCommitMessage');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'editCommitMessage',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for mergeIntoCurrent action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'mergeIntoCurrent');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'mergeIntoCurrent',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
+    it('should fire event for interactiveRebase action', (done) => {
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        assert.strictEqual(event.action, 'interactiveRebase');
+        assert.deepStrictEqual(event.commitHashes, ['abc1234567890']);
+        disposable.dispose();
+        done();
+      });
+
+      handler({
+        type: 'commitContextMenu',
+        action: 'interactiveRebase',
+        commitHashes: ['abc1234567890'],
+      });
+    });
+
     it('should support multi-commit context menu actions', (done) => {
       const disposable = provider.onDidRequestLogContextAction((event) => {
         assert.strictEqual(event.action, 'cherryPick');
@@ -267,6 +432,41 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
         action: 'cherryPick',
         commitHashes: ['abc1234567890', 'def4567890123'],
       });
+    });
+
+    it('should correctly route all 13 action types', () => {
+      const allActions = [
+        'copyHash',
+        'createPatch',
+        'cherryPick',
+        'checkoutRevision',
+        'showRepoAtRevision',
+        'compareWithLocal',
+        'resetToHere',
+        'revert',
+        'undoCommit',
+        'dropCommit',
+        'editCommitMessage',
+        'mergeIntoCurrent',
+        'interactiveRebase',
+      ];
+
+      const receivedActions: string[] = [];
+      const disposable = provider.onDidRequestLogContextAction((event) => {
+        receivedActions.push(event.action);
+      });
+
+      for (const action of allActions) {
+        handler({
+          type: 'commitContextMenu',
+          action,
+          commitHashes: ['abc1234567890'],
+        });
+      }
+
+      assert.strictEqual(receivedActions.length, 13, 'All 13 action types should be routed');
+      assert.deepStrictEqual(receivedActions, allActions, 'Actions should be routed in order');
+      disposable.dispose();
     });
 
     it('should ignore commitContextMenu message without action', () => {

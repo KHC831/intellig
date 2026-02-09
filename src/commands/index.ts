@@ -8,6 +8,11 @@ export {
 } from './BranchContextMenuCommands';
 
 export {
+  CommitContextMenuCommands,
+  createCommitContextMenuCommands,
+} from './CommitContextMenuCommands';
+
+export {
   CommandTitleProvider,
   createCommandTitleProvider,
   resolveLabel,

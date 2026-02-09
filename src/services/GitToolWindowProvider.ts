@@ -72,13 +72,19 @@ export type LocalChangesContextAction =
  * Context menu action types for Log View
  */
 export type LogContextAction =
+  | 'copyHash'
+  | 'createPatch'
   | 'cherryPick'
-  | 'revert'
-  | 'createBranch'
-  | 'createTag'
+  | 'checkoutRevision'
+  | 'showRepoAtRevision'
+  | 'compareWithLocal'
   | 'resetToHere'
-  | 'showDiff'
-  | 'copyHash';
+  | 'revert'
+  | 'undoCommit'
+  | 'dropCommit'
+  | 'editCommitMessage'
+  | 'mergeIntoCurrent'
+  | 'interactiveRebase';
 
 /**
  * Extended Log state with commit nodes for graph visualization
@@ -1545,45 +1551,42 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   /**
    * Get the commit context menu HTML overlay for the Graph Panel.
    * Renders a context menu with all 7 required options:
-   * Cherry-pick, Revert, Create Branch, Create Tag, Reset to Here, Copy Hash, Show Diff.
+   * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,
+   * Show Repository at Revision, Compare with Local, Reset Current Branch to Here,
+   * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message,
+   * Merge into Current Branch, Interactively Rebase from Here.
+   *
+   * Items are organized into four sections separated by dividers:
+   * Navigation & Inspection, Branch Operations, History Manipulation, Merge & Integration.
+   *
    * The menu is hidden by default and shown on right-click via JS handlers.
+   * The data-head-hash attribute stores the HEAD commit hash for disabled state logic.
    *
    * @returns HTML string for the commit context menu overlay
    */
   public _getCommitContextMenuHtml(): string {
+    const headHash = this._extendedLogState.commitNodes.length > 0
+      ? this._extendedLogState.commitNodes[0].commit.hash
+      : '';
+
     return `
-      <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions">
-        <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🍒</span>
-          Cherry-pick
-        </div>
-        <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">↩️</span>
-          Revert
-        </div>
+      <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${headHash}">
+        <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">Copy Revision Number</div>
+        <div class="context-menu-item" data-action="createPatch" role="menuitem" tabindex="0">Create Patch\u2026</div>
+        <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">Cherry-Pick</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="createBranch" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🌿</span>
-          Create Branch
-        </div>
-        <div class="context-menu-item" data-action="createTag" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">🏷️</span>
-          Create Tag
-        </div>
+        <div class="context-menu-item" data-action="checkoutRevision" role="menuitem" tabindex="0">Checkout Revision</div>
+        <div class="context-menu-item" data-action="showRepoAtRevision" role="menuitem" tabindex="0">Show Repository at Revision</div>
+        <div class="context-menu-item" data-action="compareWithLocal" role="menuitem" tabindex="0">Compare with Local</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item context-menu-danger" data-action="resetToHere" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">⚠️</span>
-          Reset to Here
-        </div>
+        <div class="context-menu-item" data-action="editCommitMessage" role="menuitem" tabindex="0">Edit Commit Message</div>
+        <div class="context-menu-item context-menu-danger" data-action="resetToHere" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
+        <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">Revert Commit</div>
+        <div class="context-menu-item" data-action="undoCommit" role="menuitem" tabindex="0">Undo Commit</div>
+        <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">📋</span>
-          Copy Hash
-        </div>
-        <div class="context-menu-item" data-action="showDiff" role="menuitem" tabindex="0">
-          <span class="context-menu-icon">📄</span>
-          Show Diff
-        </div>
+        <div class="context-menu-item" data-action="mergeIntoCurrent" role="menuitem" tabindex="0">Merge into Current Branch</div>
+        <div class="context-menu-item" data-action="interactiveRebase" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
       </div>`;
   }
 
@@ -2121,11 +2124,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         background-color: var(--vscode-inputValidation-errorBackground);
       }
 
-      .context-menu-icon {
-        width: 20px;
-        margin-right: 8px;
-        text-align: center;
-        font-size: 12px;
+      .context-menu-item.disabled {
+        opacity: 0.4;
+        cursor: default;
+        pointer-events: none;
       }
 
       .context-menu-arrow {
@@ -3220,7 +3222,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             const y = event.clientY;
 
             const menuWidth = 220;
-            const menuHeight = 300;
+            const menuHeight = 400;
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
 
@@ -3229,6 +3231,34 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
             contextMenu.style.left = left + 'px';
             contextMenu.style.top = top + 'px';
+
+            const undoItem = contextMenu.querySelector('[data-action="undoCommit"]');
+            const editMsgItem = contextMenu.querySelector('[data-action="editCommitMessage"]');
+            const dropItem = contextMenu.querySelector('[data-action="dropCommit"]');
+            const headHash = contextMenu.getAttribute('data-head-hash') || '';
+            const isSingleCommit = commitContextMenuHashes.length === 1;
+            const isHeadCommit = isSingleCommit && commitContextMenuHashes[0] === headHash;
+
+            if (undoItem) {
+              if (isHeadCommit) {
+                undoItem.classList.remove('disabled');
+              } else {
+                undoItem.classList.add('disabled');
+              }
+            }
+
+            if (editMsgItem) {
+              editMsgItem.classList.add('disabled');
+            }
+
+            if (dropItem) {
+              if (isSingleCommit) {
+                dropItem.classList.remove('disabled');
+              } else {
+                dropItem.classList.add('disabled');
+              }
+            }
+
             contextMenu.hidden = false;
           }
         };
@@ -3242,6 +3272,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
           const menuItem = e.target.closest('#commit-context-menu .context-menu-item');
           if (menuItem && commitContextMenuHashes.length > 0) {
+            if (menuItem.classList.contains('disabled')) return;
             const action = menuItem.dataset.action;
             if (action) {
               vscode.postMessage({

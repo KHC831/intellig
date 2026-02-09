@@ -204,6 +204,23 @@ export const workspace = {
   },
 
   workspaceFolders: undefined as unknown[] | undefined,
+
+  fs: {
+    readFile: async (_uri: Uri): Promise<Uint8Array> => new Uint8Array(),
+    writeFile: async (_uri: Uri, _content: Uint8Array): Promise<void> => {},
+    delete: async (_uri: Uri): Promise<void> => {},
+    rename: async (_oldUri: Uri, _newUri: Uri): Promise<void> => {},
+    copy: async (_source: Uri, _target: Uri): Promise<void> => {},
+    createDirectory: async (_uri: Uri): Promise<void> => {},
+    readDirectory: async (_uri: Uri): Promise<[string, number][]> => [],
+    stat: async (_uri: Uri): Promise<{ type: number; ctime: number; mtime: number; size: number }> => ({
+      type: 1,
+      ctime: 0,
+      mtime: 0,
+      size: 0,
+    }),
+    isWritableFileSystem: (_scheme: string): boolean | undefined => true,
+  },
 };
 
 // Mock FileSystemWatcher
@@ -275,6 +292,22 @@ export const window = {
   ): Promise<string | undefined> => {
     return undefined;
   },
+  showQuickPick: async (
+    _items: unknown[],
+    _options?: unknown
+  ): Promise<unknown | undefined> => {
+    return undefined;
+  },
+  showInputBox: async (
+    _options?: unknown
+  ): Promise<string | undefined> => {
+    return undefined;
+  },
+  showSaveDialog: async (
+    _options?: unknown
+  ): Promise<Uri | undefined> => {
+    return undefined;
+  },
   onDidChangeActiveTextEditor(_listener: (e: unknown) => void): { dispose: () => void } {
     return { dispose: () => {} };
   },
@@ -293,6 +326,14 @@ export const window = {
   },
   activeTextEditor: undefined as unknown,
   visibleTextEditors: [] as unknown[],
+};
+
+// Mock env namespace
+export const env = {
+  clipboard: {
+    readText: async (): Promise<string> => '',
+    writeText: async (_value: string): Promise<void> => {},
+  },
 };
 
 // Mock commands namespace
@@ -338,6 +379,11 @@ export class Uri {
 
   static parse(value: string): Uri {
     return new Uri('file', '', value, '', '');
+  }
+
+  static joinPath(base: Uri, ...pathSegments: string[]): Uri {
+    const joined = pathSegments.reduce((acc, seg) => `${acc}/${seg}`, base.path);
+    return new Uri(base.scheme, base.authority, joined, base.query, base.fragment);
   }
 
   toString(): string {
