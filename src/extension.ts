@@ -32,6 +32,7 @@ import {
   createRebaseProgressView,
   createBranchTreeProvider,
 } from './services';
+import type { IRepository } from './services';
 import { createCommandTitleProvider } from './commands/CommandTitleProvider';
 import { createBranchContextMenuCommands } from './commands';
 
@@ -1996,23 +1997,31 @@ function registerViews(context: vscode.ExtensionContext): void {
   if (extensionServices) {
     const gitService = extensionServices.gitService;
 
-    // Helper to load commits into the log view
-    const loadLogCommits = async (filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }): Promise<void> => {
+    // Helper to discover all repositories from all workspace folders
+    const discoverAllRepositories = async (): Promise<IRepository[]> => {
       let repositories = gitService.getRepositories();
       // If no repositories discovered yet, try to discover from workspace folders
       if (repositories.length === 0) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-          const repo = await gitService.getRepository(workspaceFolders[0].uri);
-          if (repo) {
-            repositories = [repo];
+        if (workspaceFolders) {
+          for (const folder of workspaceFolders) {
+            const repo = await gitService.getRepository(folder.uri);
+            if (repo) {
+              repositories = gitService.getRepositories();
+              if (repositories.length > 0) {
+                break;
+              }
+            }
           }
+          // Re-fetch after discovery attempts
+          repositories = gitService.getRepositories();
         }
       }
-      if (repositories.length === 0) {
-        return;
-      }
-      const repo = repositories[0];
+      return repositories;
+    };
+
+    // Helper to load commits into the log view for a specific repository
+    const loadLogCommitsForRepo = async (repo: IRepository, filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }): Promise<void> => {
       try {
         const commits = await gitService.getLog(repo, {
           maxCount: 500,
@@ -2062,8 +2071,35 @@ function registerViews(context: vscode.ExtensionContext): void {
       }
     };
 
-    // Helper to load all panel data (commits)
+    // Helper to load commits into the log view (uses selected or first repository)
+    const loadLogCommits = async (filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }): Promise<void> => {
+      // Use the provider's selected repository if available
+      if (gitToolWindowProvider) {
+        const selectedRepo = gitToolWindowProvider.getSelectedRepository();
+        if (selectedRepo) {
+          await loadLogCommitsForRepo(selectedRepo, filter);
+          return;
+        }
+      }
+
+      // Fall back to discovering repositories
+      const repositories = await discoverAllRepositories();
+      if (repositories.length === 0) {
+        return;
+      }
+      const repo = repositories[0];
+      await loadLogCommitsForRepo(repo, filter);
+    };
+
+    // Helper to load all panel data (commits) and update repository list
     const loadAllPanelData = async (): Promise<void> => {
+      const repositories = await discoverAllRepositories();
+
+      // Pass all discovered repositories to the provider for the repository selector
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.setAvailableRepositories(repositories);
+      }
+
       await loadLogCommits();
     };
 
@@ -2079,6 +2115,12 @@ function registerViews(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(refreshListener);
 
+    // Auto-refresh the graph when the git repository changes (new commits, branch switches, etc.)
+    const repoChangeListener = gitService.onDidChangeRepository(() => {
+      void loadAllPanelData();
+    });
+    context.subscriptions.push(repoChangeListener);
+
     // Load commits when log filter changes
     const filterChangeListener = gitToolWindowProvider.onDidRequestLogFilter((filter) => {
       void loadLogCommits(filter ? {
@@ -2090,6 +2132,12 @@ function registerViews(context: vscode.ExtensionContext): void {
       } : undefined);
     });
     context.subscriptions.push(filterChangeListener);
+
+    // Wire up onDidSelectRepository to re-fetch commits/branches/tags for the selected repo
+    const repoSelectListener = gitToolWindowProvider.onDidSelectRepository(async (repo) => {
+      await loadLogCommitsForRepo(repo);
+    });
+    context.subscriptions.push(repoSelectListener);
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
     const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
@@ -2313,9 +2361,8 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function setupEventListeners(context: vscode.ExtensionContext): void {
-  // Listen for workspace folder changes
-  const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders((event) => {
-    // TODO: Handle workspace folder changes
+  // Listen for workspace folder changes and update the repository list
+  const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
     console.log(
       'Workspace folders changed:',
       event.added.length,
@@ -2323,6 +2370,19 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
       event.removed.length,
       'removed'
     );
+
+    // Update the repository list when workspace folders change
+    if (extensionServices && gitToolWindowProvider) {
+      const gitService = extensionServices.gitService;
+
+      // Discover repositories from all current workspace folders
+      for (const folder of event.added) {
+        await gitService.getRepository(folder.uri);
+      }
+
+      const repositories = gitService.getRepositories();
+      gitToolWindowProvider.setAvailableRepositories(repositories);
+    }
   });
 
   // Listen for configuration changes

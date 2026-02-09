@@ -46,7 +46,7 @@ export type ActiveLaneMap = Map<number, Set<number>>;
  */
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
   columnWidth: 20,
-  rowHeight: 32,
+  rowHeight: 24,
   nodeRadius: 4,
   padding: 10,
   lineWidth: 2,
@@ -267,6 +267,7 @@ function isValidLane(lane: number): boolean {
  * @param config - The graph render configuration
  * @param isTerminal - Whether this commit is a terminal node (branch tip with no children)
  * @param isBranchSplitPoint - Whether this commit is a branch split point (has multiple children)
+ * @param childLanes - Set of lane indices where child commits of this node live (for drawing split curves from top)
  * @returns An SVG string for this commit row
  */
 export function renderGraphSvg(
@@ -275,7 +276,8 @@ export function renderGraphSvg(
   activeLanes: Set<number>,
   config: IGraphRenderConfig,
   isTerminal: boolean = false,
-  isBranchSplitPoint: boolean = false
+  isBranchSplitPoint: boolean = false,
+  childLanes: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -305,12 +307,22 @@ export function renderGraphSvg(
   const maxCol = allColumns.length > 0 ? Math.max(...allColumns) : 0;
   const svgWidth = (maxCol + 1) * config.columnWidth + config.padding * 2;
 
-  // Determine if the commit's own lane has parents (continues below)
-  const hasParents = node.commit.parents.length > 0;
-
   // --- Step 1: Draw vertical pass-through lines for all active lanes ---
   // Pass-through lanes are lanes that are active but NOT the commit's own lane.
   // These are drawn as full-height vertical lines (y=0 to y=rowHeight).
+
+  // Collect lanes that this commit's bezier curves target (fromColumn→toColumn where they differ).
+  // When a bezier curve connects this commit to a parent at a different lane, the curve
+  // ends at the target lane at y=bottomY. Drawing a full pass-through at that lane creates
+  // a visual "2 lines" artifact. Instead, draw only the top half (y=0 to y=centerY) so the
+  // main branch line remains continuous from the row above while the bezier covers the bottom.
+  const bezierTargetLanes = new Set<number>();
+  for (const line of node.graphLines) {
+    if (isValidLane(line.fromColumn) && isValidLane(line.toColumn) && line.fromColumn !== line.toColumn) {
+      bezierTargetLanes.add(line.toColumn);
+    }
+  }
+
   for (const lane of activeLanes) {
     if (!isValidLane(lane)) {
       continue;
@@ -319,11 +331,24 @@ export function renderGraphSvg(
       // The commit's own lane is handled separately in step 2
       continue;
     }
+    // On a branch split row, suppress pass-through lines for diverging child lanes.
+    // These lanes only exist above the split point (the children), not below it.
+    if (isBranchSplitPoint && childLanes.has(lane)) {
+      continue;
+    }
     const x = getColumnX(lane, config);
     const color = getColumnColor(lane);
-    elements.push(
-      `<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
-    );
+    if (bezierTargetLanes.has(lane)) {
+      // Draw only the top half of the pass-through (y=0 to y=centerY).
+      // The bezier curve provides the visual connection for the bottom half.
+      elements.push(
+        `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+      );
+    } else {
+      elements.push(
+        `<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+      );
+    }
   }
 
   // --- Step 2: Draw the commit node's own vertical line segments ---
@@ -335,16 +360,20 @@ export function renderGraphSvg(
     const commitColor = getColumnColor(node.graphColumn);
 
     // Draw top-to-center segment if this is not the first row
-    // (i.e., there's a row above that connects to this lane)
-    if (rowIndex > 0) {
+    // and not a terminal node (terminal nodes have no line above the circle)
+    if (rowIndex > 0 && !isTerminal) {
       elements.push(
         `<line x1="${commitX}" y1="0" x2="${commitX}" y2="${centerY}" stroke="${commitColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
       );
     }
 
-    // Draw center-to-bottom segment if the commit has parents
-    // (i.e., the lane continues below to a parent commit)
-    if (hasParents) {
+    // Draw center-to-bottom segment if the commit has a parent in the same lane
+    // (i.e., the lane continues straight down). If all parents are in different lanes,
+    // the bezier curves handle the connection and no vertical stub is needed.
+    const hasSameLaneParent = node.graphLines.some(
+      (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
+    );
+    if (hasSameLaneParent) {
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
       );
@@ -371,7 +400,7 @@ export function renderGraphSvg(
     );
   }
 
-  // --- Step 4: Draw the commit node circle (on top of everything) ---
+  // --- Step 4: Draw the commit node icon (on top of everything) ---
   if (isValidLane(node.graphColumn)) {
     const cx = getColumnX(node.graphColumn, config);
     const cy = centerY;
@@ -379,14 +408,69 @@ export function renderGraphSvg(
     const isMerge = node.commit.parents.length > 1;
 
     if (isMerge) {
-      // Merge commits get a contrasting white stroke ring
+      // Merge commits get a diamond icon (rotated rect)
+      // Merge takes precedence even if also a branch split point
+      // Draw a background circle first to cover the line behind the diamond,
+      // preventing the line from showing through the white stroke gap
+      const side = nodeRadius * 1.8;
+      const bgRadius = side * 0.72; // covers the diamond's bounding circle
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="#ffffff" stroke-width="2"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${bgRadius}" fill="${fillColor}" stroke="none"/>`
+      );
+      elements.push(
+        `<rect x="${cx - side / 2}" y="${cy - side / 2}" width="${side}" height="${side}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.5" transform="rotate(45, ${cx}, ${cy})"/>`
+      );
+    } else if (isBranchSplitPoint) {
+      // Branch split: filled circle with two angled tick marks from bottom
+      elements.push(
+        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="2"/>`
+      );
+
+      // Two tick marks at ±30° from the bottom of the circle
+      // Bottom of circle is at (cx, cy + nodeRadius)
+      // Tick length is nodeRadius * 0.8
+      const tickLength = nodeRadius * 0.8;
+      const bottomX = cx;
+      const bottomCY = cy + nodeRadius;
+
+      // Left tick: -30° from vertical downward (i.e., 210° from positive x-axis)
+      // Angle from bottom going down-left: 180° + 30° = 210° in standard math coords
+      // In SVG coords (y increases downward), angle of 30° to the left of straight down
+      const angleLeft = (Math.PI / 6); // 30 degrees
+      const leftEndX = bottomX - tickLength * Math.sin(angleLeft);
+      const leftEndY = bottomCY + tickLength * Math.cos(angleLeft);
+
+      // Right tick: +30° from vertical downward
+      const rightEndX = bottomX + tickLength * Math.sin(angleLeft);
+      const rightEndY = bottomCY + tickLength * Math.cos(angleLeft);
+
+      elements.push(
+        `<line x1="${bottomX}" y1="${bottomCY}" x2="${leftEndX}" y2="${leftEndY}" stroke="${fillColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+      );
+      elements.push(
+        `<line x1="${bottomX}" y1="${bottomCY}" x2="${rightEndX}" y2="${rightEndY}" stroke="${fillColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
       );
     } else {
       // Normal commits: stroke matches fill (no visible border)
       elements.push(
         `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="2"/>`
+      );
+    }
+
+    // Terminal node: add outer ring circle
+    if (isTerminal) {
+      const ringRadius = nodeRadius + 2;
+      // Draw a filled background circle at the ring radius to cover any line behind the ring gap
+      elements.push(
+        `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1.5"/>`
+      );
+      // Draw the outer ring with a contrasting stroke on top
+      elements.push(
+        `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="none" stroke="#ffffff" stroke-width="1.5"/>`
+      );
+      // Redraw the inner filled circle on top so the center is the lane color
+      elements.push(
+        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1"/>`
       );
     }
   }

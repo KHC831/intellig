@@ -492,7 +492,14 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
     it('Property: Fixup action combines commits but discards the fixup commit message', () => {
       fc.assert(
         fc.property(
-          rebaseCommitsArb,
+          rebaseCommitsArb.filter((c) => {
+            // Ensure first 2 commits have distinct messages that are not substrings of each other
+            // so fixup assertions are meaningful
+            if (c.length < 2) { return false; }
+            const m0 = c[0].message;
+            const m1 = c[1].message;
+            return m0 !== m1 && !m0.includes(m1) && !m1.includes(m0);
+          }),
           branchNameArb,
           commitHashArb,
           fc.array(fileChangesArb, { minLength: 2, maxLength: 5 }),
@@ -744,7 +751,18 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
     it('Property: Multiple fixup actions combine correctly in sequence', () => {
       fc.assert(
         fc.property(
-          rebaseCommitsArb.filter((c) => c.length >= 3),
+          rebaseCommitsArb.filter((c) => {
+            if (c.length < 3) { return false; }
+            // Ensure first 3 commits have distinct messages that are not substrings of each other
+            const msgs = c.slice(0, 3).map(x => x.message);
+            if (new Set(msgs).size !== msgs.length) { return false; }
+            for (let i = 0; i < msgs.length; i++) {
+              for (let j = 0; j < msgs.length; j++) {
+                if (i !== j && msgs[i].includes(msgs[j])) { return false; }
+              }
+            }
+            return true;
+          }),
           branchNameArb,
           commitHashArb,
           fc.array(fileChangesArb, { minLength: 3, maxLength: 5 }),

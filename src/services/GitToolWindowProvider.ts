@@ -13,8 +13,8 @@ import {
   ICommitDetails,
   IChangedFile,
 } from './interfaces';
-import { FileStatus, ICommit } from './interfaces/IGitService';
-import { ICommitNode, generateCommitGraph } from '../utils/commitGraph';
+import { FileStatus, ICommit, IRepository } from './interfaces/IGitService';
+import { ICommitNode, generateCommitGraph, classifyBranchName, computeTerminalNodes, computeChildCountMap, isBranchSplit, computeChildLanesMap } from '../utils/commitGraph';
 import {
   computeActiveLanes,
   DEFAULT_GRAPH_CONFIG,
@@ -104,6 +104,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
   private _pendingChangedFilesError: unknown | undefined;
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
+  private _availableRepositories: IRepository[] = [];
+  private _selectedRepositoryIndex: number = 0;
 
   // Event emitters
   private readonly _onDidChangeState = new vscode.EventEmitter<void>();
@@ -144,6 +146,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    */
   private readonly _onDidRequestRefresh = new vscode.EventEmitter<void>();
 
+  /**
+   * Event emitter that fires when the user selects a different repository
+   * from the repository selector in the webview.
+   */
+  private readonly _onDidSelectRepository = new vscode.EventEmitter<IRepository>();
+
   // Public events
   public readonly onDidChangeState = this._onDidChangeState.event;
   public readonly onDidRequestContextAction = this._onDidRequestContextAction.event;
@@ -168,6 +176,12 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    * Event fired when the repository changes and all panels should be refreshed.
    */
   public readonly onDidRequestRefresh = this._onDidRequestRefresh.event;
+
+  /**
+   * Event fired when the user selects a different repository from the
+   * repository selector in the webview.
+   */
+  public readonly onDidSelectRepository = this._onDidSelectRepository.event;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -195,7 +209,8 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       this._onDidRequestLogFilter,
       this._onDidRequestLoadMoreCommits,
       this._onDidRequestInitialData,
-      this._onDidRequestRefresh
+      this._onDidRequestRefresh,
+      this._onDidSelectRepository
     );
   }
 
@@ -569,6 +584,11 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
           this._handlePanelResize(message.widths);
         }
         break;
+      case 'selectRepository':
+        if (message.repositoryIndex !== undefined) {
+          this._handleRepositorySelection(message.repositoryIndex);
+        }
+        break;
       default:
         console.warn('Unknown webview message type:', message);
     }
@@ -708,6 +728,70 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
    */
   public getPanelWidths(): [number, number] {
     return [...this._panelWidths];
+  }
+
+  /**
+   * Set the list of available repositories discovered in the workspace.
+   * If the currently selected repository index is out of bounds after the update,
+   * it falls back to the first available repository.
+   * If no repositories are available, the selected index is reset to 0.
+   *
+   * @param repos - Array of discovered repositories
+   */
+  public setAvailableRepositories(repos: IRepository[]): void {
+    this._availableRepositories = repos;
+
+    if (repos.length === 0) {
+      this._selectedRepositoryIndex = 0;
+    } else if (this._selectedRepositoryIndex >= repos.length) {
+      // Selected repository became unavailable (folder removed) — fall back to first
+      this._selectedRepositoryIndex = 0;
+    }
+
+    this._updateWebview();
+    this._onDidChangeState.fire();
+  }
+
+  /**
+   * Get the currently selected repository.
+   * Returns undefined if no repositories are available.
+   *
+   * @returns The selected repository, or undefined if none available
+   */
+  public getSelectedRepository(): IRepository | undefined {
+    if (this._availableRepositories.length === 0) {
+      return undefined;
+    }
+    return this._availableRepositories[this._selectedRepositoryIndex];
+  }
+
+  /**
+   * Handle repository selection from the webview.
+   * Clamps the index to the valid range (0 to repos.length - 1) and logs a warning
+   * if the index is out of bounds. Updates the selected index and fires the
+   * onDidSelectRepository event so the extension host can re-fetch data.
+   *
+   * @param index - The repository index selected by the user
+   */
+  private _handleRepositorySelection(index: number): void {
+    if (this._availableRepositories.length === 0) {
+      return;
+    }
+
+    // Clamp to valid range
+    let clampedIndex = index;
+    if (index < 0 || index >= this._availableRepositories.length) {
+      console.warn(
+        `Repository index ${index} out of bounds (0-${this._availableRepositories.length - 1}). Clamping to valid range.`
+      );
+      clampedIndex = Math.max(0, Math.min(index, this._availableRepositories.length - 1));
+    }
+
+    this._selectedRepositoryIndex = clampedIndex;
+    this._onDidChangeState.fire();
+
+    const selectedRepo = this._availableRepositories[clampedIndex];
+    this._onDidSelectRepository.fire(selectedRepo);
   }
 
   /**
@@ -864,7 +948,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     <div id="graph-panel" class="panel" style="width: ${graphWidth}%;" role="region" aria-label="Graph Panel">
       ${graphPanelHtml}
     </div>
-    <div class="panel-divider" data-divider="1" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
+    <div class="panel-divider" data-divider="0" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
     <div id="details-panel" class="panel" style="width: ${detailsWidth}%;" role="region" aria-label="Details Panel">
       ${detailsPanelHtml}
     </div>
@@ -971,6 +1055,15 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         flex-shrink: 0;
         position: relative;
         z-index: 10;
+      }
+
+      .panel-divider::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -3px;
+        right: -3px;
       }
 
       .panel-divider:hover,
@@ -1262,6 +1355,11 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
     // Compute active lanes for the entire commit list
     const activeLaneMap = computeActiveLanes(commitNodes);
 
+    // Compute terminal nodes and child count map for icon rendering
+    const terminalNodes = computeTerminalNodes(commitNodes);
+    const childCountMap = computeChildCountMap(commitNodes);
+    const childLanesMap = computeChildLanesMap(commitNodes);
+
     // Build commit rows
     const rowsHtml = commitNodes
       .map((node, index) => {
@@ -1270,7 +1368,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
         // Generate SVG graph for this row
         const activeLanes = activeLaneMap.get(index) || new Set<number>();
-        const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+        const isTerminal = terminalNodes.has(commit.hash);
+        const isSplitPoint = isBranchSplit(commit.hash, childCountMap);
+        const childLanes = childLanesMap.get(commit.hash) || new Set<number>();
+        const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG, isTerminal, isSplitPoint, childLanes);
 
         // Format fields
         const messageSummary = this._escapeHtml(this._truncateMessage(commit.message, 60));
@@ -1279,6 +1380,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         const authorEmail = this._escapeHtml(commit.author.email);
         const absoluteDate = this._formatAbsoluteDate(commit.authorDate);
         const fullDate = commit.authorDate.toLocaleString();
+
+        // Generate branch labels HTML
+        const branchLabelsHtml = this._getBranchLabelsHtml(node);
 
         return `
         <div class="commit-row ${isSelected ? 'selected' : ''}"
@@ -1290,11 +1394,9 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
             ${graphSvg}
           </div>
           <div class="commit-info">
-            <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
-            <div class="commit-meta">
-              <span class="commit-author" title="${authorEmail}">${authorName}</span>
-              <span class="commit-date" title="${fullDate}">${absoluteDate}</span>
-            </div>
+            <div class="commit-title" title="${fullMessage}">${messageSummary}${branchLabelsHtml}</div>
+            <span class="commit-author" title="${authorEmail}">${authorName}</span>
+            <span class="commit-date" title="${fullDate}">${absoluteDate}</span>
           </div>
         </div>`;
       })
@@ -1314,10 +1416,71 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
 
     const scrollAttr = scrollToCommitHash ? ` data-scroll-to-commit="${scrollToCommitHash}"` : '';
 
+    const repositorySelectorHtml = this._getRepositorySelectorHtml();
+
     return `
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
+        ${repositorySelectorHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
+      </div>`;
+  }
+
+  /**
+   * Get the branch labels HTML for a commit node.
+   * Renders `<span>` elements for each branch name on the commit node.
+   * Applies `branch-label-local` or `branch-label-remote` CSS class based on
+   * the classification from `classifyBranchName`.
+   * Branch names are escaped for HTML safety.
+   *
+   * @param node - The commit node to render branch labels for
+   * @returns HTML string with branch label spans, or empty string if no branches
+   */
+  public _getBranchLabelsHtml(node: ICommitNode): string {
+    if (!node.branches || node.branches.length === 0) {
+      return '';
+    }
+
+    const labels = node.branches.map((branchName) => {
+      const classification = classifyBranchName(branchName);
+      const cssClass = classification === 'remote' ? 'branch-label-remote' : 'branch-label-local';
+      const escapedName = this._escapeHtml(branchName);
+      return `<span class="${cssClass}">${escapedName}</span>`;
+    });
+
+    return labels.join('');
+  }
+
+  /**
+   * Get the repository selector HTML for the graph panel header.
+   * Renders a `<select>` dropdown when multiple repositories are available.
+   * When 0 or 1 repositories exist, returns an empty string (selector is hidden).
+   *
+   * The dropdown displays the folder name (last path segment of rootUri.fsPath)
+   * for each repository and sends a `selectRepository` message with the
+   * selected `repositoryIndex` when the user changes the selection.
+   *
+   * @returns HTML string for the repository selector, or empty string if not needed
+   */
+  public _getRepositorySelectorHtml(): string {
+    if (this._availableRepositories.length <= 1) {
+      return '';
+    }
+
+    const optionsHtml = this._availableRepositories
+      .map((repo, index) => {
+        const fsPath = repo.rootUri.fsPath;
+        const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
+        const selected = index === this._selectedRepositoryIndex ? ' selected' : '';
+        return `<option value="${index}"${selected}>${folderName}</option>`;
+      })
+      .join('');
+
+    return `
+      <div class="repository-selector-container">
+        <select class="repository-selector" onchange="(function(el){ const vscode = acquireVsCodeApi(); vscode.postMessage({ type: 'selectRepository', repositoryIndex: Number(el.value) }); })(this)">
+          ${optionsHtml}
+        </select>
       </div>`;
   }
 
@@ -2135,10 +2298,10 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .commit-row {
         display: flex;
         align-items: center;
-        min-height: 44px;
-        padding: 0 8px;
+        height: 24px;
+        padding: 0;
         cursor: pointer;
-        border-bottom: 1px solid var(--vscode-panel-border);
+        border-bottom: none;
         transition: background-color 0.1s ease;
       }
 
@@ -2164,7 +2327,7 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .commit-graph {
         flex-shrink: 0;
         width: var(--graph-width, 80px);
-        height: 44px;
+        height: 24px;
         overflow: hidden;
         display: flex;
         align-items: center;
@@ -2189,23 +2352,27 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         min-width: 0;
         overflow: hidden;
         display: flex;
-        flex-direction: column;
-        justify-content: center;
+        flex-direction: row;
+        align-items: center;
+        padding: 0 8px;
       }
 
       .commit-header {
         display: flex;
         align-items: center;
         gap: 6px;
-        margin-bottom: 2px;
+        margin-bottom: 0;
       }
 
       .commit-title {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 13px;
-        line-height: 1.4;
+        font-size: 12px;
+        line-height: 24px;
+        flex: 1;
+        min-width: 0;
+        text-align: left;
       }
 
       .commit-meta {
@@ -2214,18 +2381,29 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
         gap: 12px;
         font-size: 11px;
         color: var(--vscode-descriptionForeground);
-        line-height: 1.4;
+        line-height: 1.2;
       }
 
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        max-width: 150px;
+        width: 140px;
+        flex-shrink: 0;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+        text-align: left;
+        padding-left: 12px;
       }
 
       .commit-date {
+        width: 145px;
         flex-shrink: 0;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+        text-align: left;
+        padding-left: 12px;
+        white-space: nowrap;
       }
 
       /* Branch and Tag Labels */
@@ -2247,6 +2425,24 @@ export class GitToolWindowProvider implements IGitToolWindowProvider {
       .branch-label.head-label {
         background-color: var(--vscode-gitDecoration-addedResourceForeground, #629755);
         color: white;
+      }
+
+      .branch-label-local {
+        background: #2d5a1e;
+        color: #a5d6a7;
+        font-size: 11px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
+      }
+
+      .branch-label-remote {
+        background: #1a3a5c;
+        color: #90caf9;
+        font-size: 11px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
       }
 
       .tag-label {
@@ -3205,6 +3401,7 @@ interface IWebviewMessage {
   branchName?: string;
   branchType?: 'local' | 'remote';
   widths?: [number, number];
+  repositoryIndex?: number;
 }
 
 /**

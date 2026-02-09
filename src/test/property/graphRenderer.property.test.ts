@@ -267,28 +267,39 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           arbitraryGraphRenderConfig(),
           (node, rowIndex, config) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
 
             const expectedCx = getColumnX(node.graphColumn, config);
             const expectedCy = config.rowHeight / 2;
             const expectedR = config.nodeRadius;
+            const isMerge = node.commit.parents.length > 1;
 
-            const circles = extractCircles(svg);
-            assert.ok(circles.length >= 1, 'SVG should contain at least one circle element');
+            if (isMerge) {
+              // Merge commits render a diamond (rotated <rect>) instead of a circle
+              const rectRegex = /<rect\s+[^>]*transform="rotate\(45,\s*([^,]+),\s*([^)]+)\)"\s*\/>/;
+              const rectMatch = svg.match(rectRegex);
+              assert.ok(
+                rectMatch,
+                `SVG should contain a rotated rect (diamond) for merge commit at cx=${expectedCx}, cy=${expectedCy}`
+              );
+            } else {
+              const circles = extractCircles(svg);
+              assert.ok(circles.length >= 1, 'SVG should contain at least one circle element');
 
-            // Find the commit node circle
-            const commitCircle = circles.find(
-              (c) =>
-                parseFloat(c.cx) === expectedCx &&
-                parseFloat(c.cy) === expectedCy &&
-                parseFloat(c.r) === expectedR
-            );
+              // Find the commit node circle
+              const commitCircle = circles.find(
+                (c) =>
+                  parseFloat(c.cx) === expectedCx &&
+                  parseFloat(c.cy) === expectedCy &&
+                  parseFloat(c.r) === expectedR
+              );
 
-            assert.ok(
-              commitCircle,
-              `SVG should contain a circle at cx=${expectedCx}, cy=${expectedCy}, r=${expectedR}. ` +
-                `Found circles: ${JSON.stringify(circles)}`
-            );
+              assert.ok(
+                commitCircle,
+                `SVG should contain a circle at cx=${expectedCx}, cy=${expectedCy}, r=${expectedR}. ` +
+                  `Found circles: ${JSON.stringify(circles)}`
+              );
+            }
           }
         ),
         { numRuns: 100 }
@@ -311,17 +322,25 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
-            const circles = extractCircles(svg);
-            assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
+            // Merge commits now render a diamond (rotated <rect>) with white stroke
+            // instead of a circle with contrasting stroke
+            const rectRegex = /<rect\s+[^>]*fill="([^"]+)"\s+stroke="([^"]+)"[^>]*transform="rotate\(45/;
+            const rectMatch = svg.match(rectRegex);
+            assert.ok(rectMatch, 'SVG should contain a rotated rect (diamond) for merge commit');
 
-            // The last circle is the commit node (drawn on top)
-            const commitCircle = circles[circles.length - 1];
+            const fill = rectMatch![1];
+            const stroke = rectMatch![2];
             assert.notStrictEqual(
-              commitCircle.fill,
-              commitCircle.stroke,
-              `Merge commit circle should have different fill (${commitCircle.fill}) and stroke (${commitCircle.stroke})`
+              fill,
+              stroke,
+              `Merge commit diamond should have different fill (${fill}) and stroke (${stroke})`
+            );
+            assert.strictEqual(
+              stroke,
+              '#ffffff',
+              `Merge commit diamond should have white stroke, got ${stroke}`
             );
           }
         ),
@@ -336,7 +355,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
             const circles = extractCircles(svg);
             assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
@@ -392,19 +411,33 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
             const expectedColor = getColumnColor(node.graphColumn);
-            const circles = extractCircles(svg);
-            assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
+            const isMerge = node.commit.parents.length > 1;
 
-            // The commit node circle's fill should match the lane color
-            const commitCircle = circles[circles.length - 1];
-            assert.strictEqual(
-              commitCircle.fill,
-              expectedColor,
-              `Commit node fill (${commitCircle.fill}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
-            );
+            if (isMerge) {
+              // Merge commits render a diamond (rotated <rect>) — check fill color
+              const rectRegex = /<rect\s+[^>]*fill="([^"]+)"/;
+              const rectMatch = svg.match(rectRegex);
+              assert.ok(rectMatch, 'SVG should contain a rect for merge commit');
+              assert.strictEqual(
+                rectMatch![1],
+                expectedColor,
+                `Merge commit diamond fill (${rectMatch![1]}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
+              );
+            } else {
+              const circles = extractCircles(svg);
+              assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
+
+              // The commit node circle's fill should match the lane color
+              const commitCircle = circles[circles.length - 1];
+              assert.strictEqual(
+                commitCircle.fill,
+                expectedColor,
+                `Commit node fill (${commitCircle.fill}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
+              );
+            }
           }
         ),
         { numRuns: 100 }
@@ -425,30 +458,57 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
                 : extraLane;
 
             const activeLanes = new Set([node.graphColumn, passThroughLane]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
             const expectedColor = getColumnColor(passThroughLane);
             const expectedX = getColumnX(passThroughLane, DEFAULT_GRAPH_CONFIG);
 
-            const lines = extractLines(svg);
-            // Find the pass-through line for this lane (full height, y1=0 to y2=rowHeight)
-            const passThroughLine = lines.find(
-              (l) =>
-                parseFloat(l.x1) === expectedX &&
-                parseFloat(l.y1) === 0 &&
-                parseFloat(l.x2) === expectedX &&
-                parseFloat(l.y2) === DEFAULT_GRAPH_CONFIG.rowHeight
+            // Check if this lane is a bezier target (cross-lane graphLine ends here)
+            const isBezierTarget = node.graphLines.some(
+              (l) => l.fromColumn !== l.toColumn && l.toColumn === passThroughLane
             );
 
-            assert.ok(
-              passThroughLine,
-              `Should have a pass-through line at x=${expectedX} for lane ${passThroughLane}`
-            );
-            assert.strictEqual(
-              passThroughLine!.stroke,
-              expectedColor,
-              `Pass-through line stroke (${passThroughLine!.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
-            );
+            const lines = extractLines(svg);
+
+            if (isBezierTarget) {
+              // Bezier target lanes get half-height pass-through (y=0 to y=centerY)
+              const halfHeightLine = lines.find(
+                (l) =>
+                  parseFloat(l.x1) === expectedX &&
+                  parseFloat(l.y1) === 0 &&
+                  parseFloat(l.x2) === expectedX &&
+                  parseFloat(l.y2) === DEFAULT_GRAPH_CONFIG.rowHeight / 2
+              );
+
+              assert.ok(
+                halfHeightLine,
+                `Should have a half-height pass-through line at x=${expectedX} for bezier-target lane ${passThroughLane}`
+              );
+              assert.strictEqual(
+                halfHeightLine!.stroke,
+                expectedColor,
+                `Half-height pass-through line stroke (${halfHeightLine!.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
+              );
+            } else {
+              // Non-bezier-target lanes get full-height pass-through
+              const passThroughLine = lines.find(
+                (l) =>
+                  parseFloat(l.x1) === expectedX &&
+                  parseFloat(l.y1) === 0 &&
+                  parseFloat(l.x2) === expectedX &&
+                  parseFloat(l.y2) === DEFAULT_GRAPH_CONFIG.rowHeight
+              );
+
+              assert.ok(
+                passThroughLine,
+                `Should have a pass-through line at x=${expectedX} for lane ${passThroughLane}`
+              );
+              assert.strictEqual(
+                passThroughLine!.stroke,
+                expectedColor,
+                `Pass-through line stroke (${passThroughLine!.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
+              );
+            }
           }
         ),
         { numRuns: 100 }
@@ -474,9 +534,17 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Build active lanes set: always include the commit's own column + extra lanes
             const activeLanes = new Set([node.graphColumn, ...extraLanes]);
             const config = DEFAULT_GRAPH_CONFIG;
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
 
             const lines = extractLines(svg);
+
+            // Compute bezier target lanes (lanes where a cross-lane graphLine ends)
+            const bezierTargetLanes = new Set<number>();
+            for (const line of node.graphLines) {
+              if (line.fromColumn !== line.toColumn) {
+                bezierTargetLanes.add(line.toColumn);
+              }
+            }
 
             // Check each pass-through lane (active lanes that are NOT the commit's column)
             for (const lane of activeLanes) {
@@ -486,20 +554,38 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
               const expectedX = getColumnX(lane, config);
 
-              // Find a full-height vertical line for this lane
-              const fullHeightLine = lines.find(
-                (l) =>
-                  parseFloat(l.x1) === expectedX &&
-                  parseFloat(l.y1) === 0 &&
-                  parseFloat(l.x2) === expectedX &&
-                  parseFloat(l.y2) === config.rowHeight
-              );
+              if (bezierTargetLanes.has(lane)) {
+                // Bezier target lanes get a half-height pass-through (y=0 to y=centerY)
+                // to avoid the "2 lines" visual artifact
+                const halfHeightLine = lines.find(
+                  (l) =>
+                    parseFloat(l.x1) === expectedX &&
+                    parseFloat(l.y1) === 0 &&
+                    parseFloat(l.x2) === expectedX &&
+                    parseFloat(l.y2) === config.rowHeight / 2
+                );
 
-              assert.ok(
-                fullHeightLine,
-                `Should have a full-height vertical line (y1=0, y2=${config.rowHeight}) at x=${expectedX} for pass-through lane ${lane}. ` +
-                  `Active lanes: [${[...activeLanes]}], commit column: ${node.graphColumn}`
-              );
+                assert.ok(
+                  halfHeightLine,
+                  `Should have a half-height vertical line (y1=0, y2=${config.rowHeight / 2}) at x=${expectedX} for bezier-target pass-through lane ${lane}. ` +
+                    `Active lanes: [${[...activeLanes]}], commit column: ${node.graphColumn}`
+                );
+              } else {
+                // Non-bezier-target lanes get a full-height pass-through
+                const fullHeightLine = lines.find(
+                  (l) =>
+                    parseFloat(l.x1) === expectedX &&
+                    parseFloat(l.y1) === 0 &&
+                    parseFloat(l.x2) === expectedX &&
+                    parseFloat(l.y2) === config.rowHeight
+                );
+
+                assert.ok(
+                  fullHeightLine,
+                  `Should have a full-height vertical line (y1=0, y2=${config.rowHeight}) at x=${expectedX} for pass-through lane ${lane}. ` +
+                    `Active lanes: [${[...activeLanes]}], commit column: ${node.graphColumn}`
+                );
+              }
             }
           }
         ),
@@ -523,7 +609,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
             const config = DEFAULT_GRAPH_CONFIG;
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, config);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
 
             // Get all graphLines where fromColumn !== toColumn
             const crossLaneLines = node.graphLines.filter(
@@ -604,7 +690,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Should not throw
             let svg: string;
             try {
-              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
               assert.fail(`renderGraphSvg should not throw for negative lane index ${negativeColumn}: ${e}`);
               return;
@@ -656,7 +742,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Should not throw
             let svg: string;
             try {
-              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
               assert.fail(`renderGraphSvg should not throw for large lane index ${largeColumn}: ${e}`);
               return;
@@ -714,7 +800,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             // Should not throw
             let svg: string;
             try {
-              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+              svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
               assert.fail(`renderGraphSvg should not throw with mixed valid/invalid lanes: ${e}`);
               return;

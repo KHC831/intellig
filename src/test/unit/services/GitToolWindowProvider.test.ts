@@ -5,7 +5,7 @@
 import '../../../test/setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import { Uri } from '../../mocks/vscode';
+import { Uri, Webview } from '../../mocks/vscode';
 
 describe('GitToolWindowProvider', () => {
   let provider: GitToolWindowProvider;
@@ -874,6 +874,746 @@ describe('Initial Data Request and No-Repository State', () => {
 
       assert.ok(mockView.webview.html.length > 0, 'Webview HTML should be set');
       assert.ok(mockView.webview.html.includes('<!DOCTYPE html>'), 'Should contain valid HTML');
+    });
+  });
+});
+
+describe('Multi-Repository Selection State', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  /**
+   * Helper to create a mock IRepository.
+   */
+  function createMockRepository(rootPath: string): {
+    rootUri: ReturnType<typeof Uri.file>;
+    state: 'idle';
+    remotes: never[];
+    submodules: never[];
+  } {
+    return {
+      rootUri: Uri.file(rootPath),
+      state: 'idle' as const,
+      remotes: [],
+      submodules: [],
+    };
+  }
+
+  describe('setAvailableRepositories', () => {
+    it('should store the available repositories', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const selected = provider.getSelectedRepository();
+      assert.ok(selected, 'Should have a selected repository');
+      assert.strictEqual(selected!.rootUri.fsPath, '/workspace/repo-a');
+    });
+
+    it('should default to the first repository (index 0)', () => {
+      const repos = [
+        createMockRepository('/workspace/alpha'),
+        createMockRepository('/workspace/beta'),
+        createMockRepository('/workspace/gamma'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const selected = provider.getSelectedRepository();
+      assert.strictEqual(selected!.rootUri.fsPath, '/workspace/alpha');
+    });
+
+    it('should fire onDidChangeState event', (done) => {
+      const repos = [createMockRepository('/workspace/repo')];
+
+      const disposable = provider.onDidChangeState(() => {
+        disposable.dispose();
+        done();
+      });
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+    });
+
+    it('should fall back to first repository when selected index becomes out of bounds', () => {
+      const repos3 = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+
+      provider.setAvailableRepositories(repos3 as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Simulate selecting the third repo (index 2)
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(2);
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
+
+      // Now update with only 2 repos — index 2 is out of bounds
+      const repos2 = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+      provider.setAvailableRepositories(repos2 as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Should fall back to first repository
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/a');
+    });
+
+    it('should handle empty repository list', () => {
+      provider.setAvailableRepositories([]);
+
+      const selected = provider.getSelectedRepository();
+      assert.strictEqual(selected, undefined);
+    });
+
+    it('should preserve selected index when it is still valid after update', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Select the second repo (index 1)
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
+
+      // Update with 3 repos — index 1 is still valid
+      const updatedRepos = [
+        createMockRepository('/workspace/x'),
+        createMockRepository('/workspace/y'),
+        createMockRepository('/workspace/z'),
+      ];
+      provider.setAvailableRepositories(updatedRepos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Index 1 should still be selected
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/y');
+    });
+  });
+
+  describe('getSelectedRepository', () => {
+    it('should return undefined when no repositories are available', () => {
+      const selected = provider.getSelectedRepository();
+      assert.strictEqual(selected, undefined);
+    });
+
+    it('should return the first repository by default', () => {
+      const repos = [
+        createMockRepository('/workspace/first'),
+        createMockRepository('/workspace/second'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const selected = provider.getSelectedRepository();
+      assert.strictEqual(selected!.rootUri.fsPath, '/workspace/first');
+    });
+
+    it('should return the selected repository after selection change', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Select the second repo
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+
+      const selected = provider.getSelectedRepository();
+      assert.strictEqual(selected!.rootUri.fsPath, '/workspace/b');
+    });
+  });
+
+  describe('_handleRepositorySelection', () => {
+    it('should update the selected repository index', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(2);
+
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
+    });
+
+    it('should fire onDidChangeState event', (done) => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const disposable = provider.onDidChangeState(() => {
+        disposable.dispose();
+        done();
+      });
+
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+    });
+
+    it('should fire onDidSelectRepository event with the selected repository', (done) => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const disposable = provider.onDidSelectRepository((repo) => {
+        assert.strictEqual(repo.rootUri.fsPath, '/workspace/b');
+        disposable.dispose();
+        done();
+      });
+
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+    });
+
+    it('should clamp negative index to 0', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(-1);
+
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/a');
+    });
+
+    it('should clamp index exceeding array length to last valid index', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(99);
+
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
+    });
+
+    it('should do nothing when no repositories are available', () => {
+      let eventFired = false;
+      const disposable = provider.onDidSelectRepository(() => {
+        eventFired = true;
+      });
+
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(0);
+
+      assert.strictEqual(eventFired, false);
+      assert.strictEqual(provider.getSelectedRepository(), undefined);
+
+      disposable.dispose();
+    });
+  });
+
+  describe('selectRepository webview message handling', () => {
+    it('should handle selectRepository message via _handleWebviewMessage', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Simulate the webview message
+      (provider as unknown as { _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void })._handleWebviewMessage({
+        type: 'selectRepository',
+        repositoryIndex: 1,
+      });
+
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
+    });
+
+    it('should fire onDidSelectRepository when selectRepository message is received', (done) => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const disposable = provider.onDidSelectRepository((repo) => {
+        assert.strictEqual(repo.rootUri.fsPath, '/workspace/b');
+        disposable.dispose();
+        done();
+      });
+
+      (provider as unknown as { _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void })._handleWebviewMessage({
+        type: 'selectRepository',
+        repositoryIndex: 1,
+      });
+    });
+  });
+
+  describe('session persistence (Requirement 1.7)', () => {
+    it('should persist selected repository index across setAvailableRepositories calls when index is valid', () => {
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Select index 1
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
+
+      // Re-set same repos (simulating webview reload within same session)
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Index should still be 1
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
+    });
+  });
+
+  describe('_getRepositorySelectorHtml', () => {
+    it('should return empty string when no repositories are available', () => {
+      provider.setAvailableRepositories([]);
+      const html = provider._getRepositorySelectorHtml();
+      assert.strictEqual(html, '');
+    });
+
+    it('should return empty string when only one repository is available', () => {
+      const repos = [createMockRepository('/workspace/my-repo')];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.strictEqual(html, '');
+    });
+
+    it('should render a select dropdown when multiple repositories are available', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(html.includes('<select'), 'Should contain a <select> element');
+      assert.ok(html.includes('</select>'), 'Should close the <select> element');
+      assert.ok(html.includes('repository-selector'), 'Should have repository-selector class');
+    });
+
+    it('should display folder name (last path segment) for each repository', () => {
+      const repos = [
+        createMockRepository('/workspace/frontend'),
+        createMockRepository('/workspace/backend'),
+        createMockRepository('/home/user/projects/shared-lib'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(html.includes('frontend'), 'Should display folder name "frontend"');
+      assert.ok(html.includes('backend'), 'Should display folder name "backend"');
+      assert.ok(html.includes('shared-lib'), 'Should display folder name "shared-lib"');
+    });
+
+    it('should render an option for each repository with correct value', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(html.includes('value="0"'), 'Should have option with value 0');
+      assert.ok(html.includes('value="1"'), 'Should have option with value 1');
+    });
+
+    it('should mark the selected repository option as selected', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+        createMockRepository('/workspace/repo-c'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Select the second repo
+      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+
+      const html = provider._getRepositorySelectorHtml();
+      // The option with value="1" should have the selected attribute
+      assert.ok(html.includes('value="1" selected'), 'Second option should be marked as selected');
+      // The option with value="0" should NOT have selected
+      assert.ok(!html.includes('value="0" selected'), 'First option should not be marked as selected');
+    });
+
+    it('should include selectRepository message type in onchange handler', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(html.includes('selectRepository'), 'Should reference selectRepository message type');
+      assert.ok(html.includes('repositoryIndex'), 'Should reference repositoryIndex in the message');
+    });
+
+    it('should escape HTML special characters in folder names', () => {
+      const repos = [
+        createMockRepository('/workspace/repo<em>test'),
+        createMockRepository('/workspace/normal-repo'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(!html.includes('<em>'), 'Should escape HTML tags in folder names');
+      assert.ok(html.includes('&lt;em&gt;'), 'Should contain escaped tag');
+    });
+  });
+
+  describe('_getGraphPanelHtml repository selector integration', () => {
+    it('should include repository selector in graph panel when multiple repos exist', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      // Need commits to render the graph panel (not the empty state)
+      const commits = [
+        {
+          hash: 'abc1234567890',
+          shortHash: 'abc1234',
+          message: 'Test commit',
+          author: { name: 'Test', email: 'test@test.com' },
+          committer: { name: 'Test', email: 'test@test.com' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        },
+      ];
+      provider.updateLogState(commits);
+
+      const graphHtml = provider._getGraphPanelHtml(
+        provider.getExtendedLogState().commitNodes
+      );
+      assert.ok(graphHtml.includes('repository-selector'), 'Graph panel should include repository selector');
+      assert.ok(graphHtml.includes('repo-a'), 'Should show repo-a folder name');
+      assert.ok(graphHtml.includes('repo-b'), 'Should show repo-b folder name');
+    });
+
+    it('should not include repository selector in graph panel when only one repo exists', () => {
+      const repos = [createMockRepository('/workspace/only-repo')];
+      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+
+      const commits = [
+        {
+          hash: 'abc1234567890',
+          shortHash: 'abc1234',
+          message: 'Test commit',
+          author: { name: 'Test', email: 'test@test.com' },
+          committer: { name: 'Test', email: 'test@test.com' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        },
+      ];
+      provider.updateLogState(commits);
+
+      const graphHtml = provider._getGraphPanelHtml(
+        provider.getExtendedLogState().commitNodes
+      );
+      assert.ok(!graphHtml.includes('repository-selector'), 'Graph panel should not include repository selector');
+    });
+
+    it('should not include repository selector in graph panel when no repos exist', () => {
+      provider.setAvailableRepositories([]);
+
+      const graphHtml = provider._getGraphPanelHtml([]);
+      assert.ok(!graphHtml.includes('repository-selector'), 'Graph panel should not include repository selector');
+    });
+  });
+});
+
+
+describe('_getBranchLabelsHtml', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  /**
+   * Helper to create a minimal ICommitNode for branch label testing.
+   */
+  function makeNode(branches: string[]): {
+    commit: {
+      hash: string;
+      shortHash: string;
+      message: string;
+      author: { name: string; email: string };
+      committer: { name: string; email: string };
+      parents: string[];
+      authorDate: Date;
+      commitDate: Date;
+    };
+    graphColumn: number;
+    graphLines: { fromColumn: number; toColumn: number; color: string; type: 'commit' }[];
+    branches: string[];
+    tags: string[];
+  } {
+    return {
+      commit: {
+        hash: 'abc1234567890abcdef1234567890abcdef123456',
+        shortHash: 'abc1234',
+        message: 'Test commit',
+        author: { name: 'Test', email: 'test@test.com' },
+        committer: { name: 'Test', email: 'test@test.com' },
+        parents: [],
+        authorDate: new Date(),
+        commitDate: new Date(),
+      },
+      graphColumn: 0,
+      graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' as const }],
+      branches,
+      tags: [],
+    };
+  }
+
+  describe('empty branches', () => {
+    it('should return empty string when branches array is empty', () => {
+      const node = makeNode([]);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.strictEqual(html, '');
+    });
+
+    it('should return empty string when branches is undefined-like (empty array)', () => {
+      const node = makeNode([]);
+      node.branches = [];
+      const html = provider._getBranchLabelsHtml(node);
+      assert.strictEqual(html, '');
+    });
+  });
+
+  describe('local branch labels', () => {
+    it('should render a local branch with branch-label-local class', () => {
+      const node = makeNode(['main']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('branch-label-local'), 'Should have branch-label-local class');
+      assert.ok(html.includes('main'), 'Should contain branch name');
+    });
+
+    it('should render multiple local branches', () => {
+      const node = makeNode(['main', 'develop']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('main'), 'Should contain "main"');
+      assert.ok(html.includes('develop'), 'Should contain "develop"');
+      const localCount = (html.match(/branch-label-local/g) || []).length;
+      assert.strictEqual(localCount, 2, 'Should have 2 local branch labels');
+    });
+  });
+
+  describe('remote branch labels', () => {
+    it('should render a remote branch with branch-label-remote class', () => {
+      const node = makeNode(['origin/main']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('branch-label-remote'), 'Should have branch-label-remote class');
+      assert.ok(html.includes('origin/main'), 'Should contain branch name');
+    });
+
+    it('should render upstream remote branches as remote', () => {
+      const node = makeNode(['upstream/feature']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('branch-label-remote'), 'Should have branch-label-remote class');
+    });
+  });
+
+  describe('mixed local and remote branches', () => {
+    it('should render both local and remote branches with correct classes', () => {
+      const node = makeNode(['main', 'origin/main']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('branch-label-local'), 'Should have local class');
+      assert.ok(html.includes('branch-label-remote'), 'Should have remote class');
+      assert.ok(html.includes('main'), 'Should contain "main"');
+      assert.ok(html.includes('origin/main'), 'Should contain "origin/main"');
+    });
+
+    it('should render all branches when there are multiple local and remote', () => {
+      const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
+      const html = provider._getBranchLabelsHtml(node);
+      const localCount = (html.match(/branch-label-local/g) || []).length;
+      const remoteCount = (html.match(/branch-label-remote/g) || []).length;
+      assert.strictEqual(localCount, 2, 'Should have 2 local labels');
+      assert.strictEqual(remoteCount, 2, 'Should have 2 remote labels');
+    });
+  });
+
+  describe('HTML escaping', () => {
+    it('should escape HTML special characters in branch names', () => {
+      const node = makeNode(['feature/<script>']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(!html.includes('<script>'), 'Should not contain unescaped script tag');
+      assert.ok(html.includes('&lt;script&gt;'), 'Should contain escaped script tag');
+    });
+
+    it('should escape ampersands in branch names', () => {
+      const node = makeNode(['feature/a&b']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('&amp;'), 'Should escape ampersand');
+    });
+
+    it('should escape quotes in branch names', () => {
+      const node = makeNode(['feature/"test"']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(!html.includes('"test"'), 'Should not contain unescaped quotes in content');
+      assert.ok(html.includes('&quot;'), 'Should contain escaped quotes');
+    });
+  });
+
+  describe('span element structure', () => {
+    it('should render each branch as a <span> element', () => {
+      const node = makeNode(['main']);
+      const html = provider._getBranchLabelsHtml(node);
+      assert.ok(html.includes('<span'), 'Should contain <span> element');
+      assert.ok(html.includes('</span>'), 'Should close <span> element');
+    });
+
+    it('should render one <span> per branch', () => {
+      const node = makeNode(['main', 'develop', 'origin/main']);
+      const html = provider._getBranchLabelsHtml(node);
+      const spanCount = (html.match(/<span/g) || []).length;
+      assert.strictEqual(spanCount, 3, 'Should have 3 span elements');
+    });
+  });
+
+  describe('integration with _getGraphPanelHtml', () => {
+    it('should include branch labels in commit row when branches exist', () => {
+      const commits = [
+        {
+          hash: 'abc1234567890abcdef1234567890abcdef123456',
+          shortHash: 'abc1234',
+          message: 'Test commit',
+          author: { name: 'Test', email: 'test@test.com' },
+          committer: { name: 'Test', email: 'test@test.com' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        },
+      ];
+      const branchMap = new Map<string, string[]>();
+      branchMap.set('abc1234567890abcdef1234567890abcdef123456', ['main', 'origin/main']);
+
+      provider.updateLogState(commits, branchMap);
+
+      const graphHtml = provider._getGraphPanelHtml(
+        provider.getExtendedLogState().commitNodes
+      );
+      assert.ok(graphHtml.includes('branch-label-local'), 'Should include local branch label');
+      assert.ok(graphHtml.includes('branch-label-remote'), 'Should include remote branch label');
+    });
+
+    it('should not include branch labels when commit has no branches', () => {
+      const commits = [
+        {
+          hash: 'abc1234567890abcdef1234567890abcdef123456',
+          shortHash: 'abc1234',
+          message: 'Test commit',
+          author: { name: 'Test', email: 'test@test.com' },
+          committer: { name: 'Test', email: 'test@test.com' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        },
+      ];
+
+      provider.updateLogState(commits);
+
+      const graphHtml = provider._getGraphPanelHtml(
+        provider.getExtendedLogState().commitNodes
+      );
+      assert.ok(!graphHtml.includes('branch-label-local'), 'Should not include local branch label');
+      assert.ok(!graphHtml.includes('branch-label-remote'), 'Should not include remote branch label');
+    });
+  });
+
+  describe('branch label CSS styles in webview HTML', () => {
+    it('should include .branch-label-local CSS class with correct styles', () => {
+      const mockWebview = {
+        html: '',
+        options: {},
+        cspSource: 'https://mock.csp.source',
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        postMessage: () => Promise.resolve(true),
+        asWebviewUri: (uri: Uri) => uri,
+      } as unknown as Webview;
+
+      const html = provider._getThreePanelHtmlContent(
+        mockWebview as unknown as import('vscode').Webview,
+        []
+      );
+
+      assert.ok(html.includes('.branch-label-local'), 'Should include .branch-label-local CSS class');
+      assert.ok(html.includes('background: #2d5a1e'), 'Local label should have green background');
+      assert.ok(html.includes('color: #a5d6a7'), 'Local label should have light green text');
+    });
+
+    it('should include .branch-label-remote CSS class with correct styles', () => {
+      const mockWebview = {
+        html: '',
+        options: {},
+        cspSource: 'https://mock.csp.source',
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        postMessage: () => Promise.resolve(true),
+        asWebviewUri: (uri: Uri) => uri,
+      } as unknown as Webview;
+
+      const html = provider._getThreePanelHtmlContent(
+        mockWebview as unknown as import('vscode').Webview,
+        []
+      );
+
+      assert.ok(html.includes('.branch-label-remote'), 'Should include .branch-label-remote CSS class');
+      assert.ok(html.includes('background: #1a3a5c'), 'Remote label should have blue background');
+      assert.ok(html.includes('color: #90caf9'), 'Remote label should have light blue text');
+    });
+
+    it('should include correct font-size, padding, border-radius, and margin-left for branch labels', () => {
+      const mockWebview = {
+        html: '',
+        options: {},
+        cspSource: 'https://mock.csp.source',
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        postMessage: () => Promise.resolve(true),
+        asWebviewUri: (uri: Uri) => uri,
+      } as unknown as Webview;
+
+      const html = provider._getThreePanelHtmlContent(
+        mockWebview as unknown as import('vscode').Webview,
+        []
+      );
+
+      // Both classes share the same sizing/spacing properties
+      assert.ok(html.includes('font-size: 11px'), 'Should include font-size 11px');
+      assert.ok(html.includes('padding: 1px 5px'), 'Should include padding 1px 5px');
+      assert.ok(html.includes('border-radius: 3px'), 'Should include border-radius 3px');
+      assert.ok(html.includes('margin-left: 4px'), 'Should include margin-left 4px');
     });
   });
 });

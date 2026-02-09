@@ -27,8 +27,8 @@ describe('Graph Renderer - Core Types and Config', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.columnWidth, 20);
     });
 
-    it('should have rowHeight of 32', () => {
-      assert.strictEqual(DEFAULT_GRAPH_CONFIG.rowHeight, 32);
+    it('should have rowHeight of 24', () => {
+      assert.strictEqual(DEFAULT_GRAPH_CONFIG.rowHeight, 24);
     });
 
     it('should have nodeRadius of 4', () => {
@@ -50,10 +50,10 @@ describe('Graph Renderer - Core Types and Config', () => {
       );
     });
 
-    it('should meet minimum rowHeight requirement (>= 32)', () => {
+    it('should meet minimum rowHeight requirement (>= 24)', () => {
       assert.ok(
-        DEFAULT_GRAPH_CONFIG.rowHeight >= 32,
-        `rowHeight ${DEFAULT_GRAPH_CONFIG.rowHeight} should be >= 32`
+        DEFAULT_GRAPH_CONFIG.rowHeight >= 24,
+        `rowHeight ${DEFAULT_GRAPH_CONFIG.rowHeight} should be >= 24`
       );
     });
 
@@ -450,6 +450,16 @@ function extractCircles(svg: string) {
   return circles;
 }
 
+function extractRects(svg: string) {
+  const regex = /<rect\s+x="([^"]+)"\s+y="([^"]+)"\s+width="([^"]+)"\s+height="([^"]+)"\s+fill="([^"]+)"\s+stroke="([^"]+)"\s+stroke-width="([^"]+)"\s+transform="([^"]+)"\s*\/>/g;
+  const rects: Array<{ x: string; y: string; width: string; height: string; fill: string; stroke: string; strokeWidth: string; transform: string }> = [];
+  let match;
+  while ((match = regex.exec(svg)) !== null) {
+    rects.push({ x: match[1], y: match[2], width: match[3], height: match[4], fill: match[5], stroke: match[6], strokeWidth: match[7], transform: match[8] });
+  }
+  return rects;
+}
+
 function extractPaths(svg: string) {
   const regex = /<path\s+d="([^"]+)"\s+stroke="([^"]+)"\s+fill="[^"]+"\s+stroke-width="[^"]+"\s+stroke-linecap="[^"]+"\s*\/>/g;
   const paths: Array<{ d: string; stroke: string }> = [];
@@ -491,7 +501,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
     it('should render a circle at column 0 for each row', () => {
       for (let i = 0; i < nodes.length; i++) {
-        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config);
+        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config, false, false);
         const circles = extractCircles(svg);
         assert.strictEqual(circles.length, 1, `Row ${i} should have exactly 1 circle`);
         assert.strictEqual(circles[0].cx, col0X, `Row ${i} circle should be at column 0 x`);
@@ -501,7 +511,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
     it('should not have any bezier paths (no merges)', () => {
       for (let i = 0; i < nodes.length; i++) {
-        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config);
+        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config, false, false);
         const paths = extractPaths(svg);
         assert.strictEqual(paths.length, 0, `Row ${i} should have no bezier paths`);
       }
@@ -509,17 +519,17 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 
     it('should have vertical line segments for lane continuity', () => {
       // Row 0 (first row): should have center-to-bottom segment (has parents)
-      const svg0 = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg0 = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       const lines0 = extractLines(svg0);
       assert.ok(lines0.length > 0, 'Row 0 should have vertical line segments');
 
       // Row 1 (middle row): should have top-to-center and center-to-bottom segments
-      const svg1 = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config);
+      const svg1 = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config, false, false);
       const lines1 = extractLines(svg1);
       assert.ok(lines1.length >= 2, 'Row 1 should have at least 2 vertical line segments (top-to-center and center-to-bottom)');
 
       // Row 2 (root): should have top-to-center segment (rowIndex > 0) but no center-to-bottom (no parents)
-      const svg2 = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config);
+      const svg2 = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config, false, false);
       const lines2 = extractLines(svg2);
       assert.ok(lines2.length >= 1, 'Row 2 should have at least 1 vertical line segment (top-to-center)');
     });
@@ -539,7 +549,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     const activeLaneMap = computeActiveLanes(nodes);
 
     it('should render a bezier path for the merge line (col 0 to col 1)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'Merge commit should have exactly 1 bezier path');
       // The path should connect from col 0 x to col 1 x
@@ -547,23 +557,31 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       assert.ok(paths[0].d.includes(col1X), 'Path should end at column 1 x');
     });
 
-    it('should render the merge commit circle with a contrasting stroke (Req 1.2)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+    it('should render the merge commit as a diamond (rotated rect) with white stroke (Req 1.2)', () => {
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const rects = extractRects(svg);
+      assert.strictEqual(rects.length, 1, 'Should have exactly 1 rect (diamond) for merge commit');
+      // Diamond should have white stroke
+      assert.strictEqual(rects[0].stroke, '#ffffff', 'Merge diamond should have white stroke');
+      // Diamond should be rotated 45 degrees
+      assert.ok(rects[0].transform.includes('rotate(45'), 'Merge diamond should be rotated 45°');
+      // Diamond should have side length nodeRadius * 1.8
+      const expectedSide = (config.nodeRadius * 1.8).toString();
+      assert.strictEqual(rects[0].width, expectedSide, 'Diamond width should be nodeRadius * 1.8');
+      assert.strictEqual(rects[0].height, expectedSide, 'Diamond height should be nodeRadius * 1.8');
+      // Merge commit should NOT have a circle
       const circles = extractCircles(svg);
-      assert.strictEqual(circles.length, 1, 'Should have exactly 1 circle');
-      // Merge commits have a white stroke (#ffffff) different from fill
-      assert.notStrictEqual(circles[0].fill, circles[0].stroke,
-        'Merge commit circle should have contrasting stroke (fill !== stroke)');
+      assert.strictEqual(circles.length, 0, 'Merge commit should not have a circle');
     });
 
     it('should render non-merge parent commits without contrasting stroke', () => {
-      const svgP1 = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config);
+      const svgP1 = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config, false, false);
       const circlesP1 = extractCircles(svgP1);
       assert.strictEqual(circlesP1.length, 1);
       assert.strictEqual(circlesP1[0].fill, circlesP1[0].stroke,
         'Non-merge commit should have matching fill and stroke');
 
-      const svgP2 = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config);
+      const svgP2 = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config, false, false);
       const circlesP2 = extractCircles(svgP2);
       assert.strictEqual(circlesP2.length, 1);
       assert.strictEqual(circlesP2[0].fill, circlesP2[0].stroke,
@@ -586,13 +604,13 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     const activeLaneMap = computeActiveLanes(nodes);
 
     it('should render a merge bezier path on the merge commit row (M)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'M should have 1 bezier path (merge line)');
     });
 
     it('should render a branch bezier path on C (col 1 → col 0)', () => {
-      const svg = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config);
+      const svg = renderGraphSvg(nodes[2], 2, activeLaneMap.get(2)!, config, false, false);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 1, 'C should have 1 bezier path (branch line back to col 0)');
       // The path should connect from col 1 x to col 0 x
@@ -601,14 +619,22 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should have no bezier paths on B (same-lane commit line)', () => {
-      const svg = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config);
+      const svg = renderGraphSvg(nodes[1], 1, activeLaneMap.get(1)!, config, false, false);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 0, 'B should have no bezier paths (same-lane line)');
     });
 
-    it('should render a circle on every row', () => {
-      for (let i = 0; i < nodes.length; i++) {
-        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config);
+    it('should render a diamond on the merge row and a circle on every other row', () => {
+      // Row 0 is the merge commit — should have a diamond (rect), not a circle
+      const svg0 = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+      const rects0 = extractRects(svg0);
+      const circles0 = extractCircles(svg0);
+      assert.strictEqual(rects0.length, 1, 'Merge row should have exactly 1 diamond rect');
+      assert.strictEqual(circles0.length, 0, 'Merge row should have no circles');
+
+      // Rows 1-3 are non-merge commits — should have circles
+      for (let i = 1; i < nodes.length; i++) {
+        const svg = renderGraphSvg(nodes[i], i, activeLaneMap.get(i)!, config, false, false);
         const circles = extractCircles(svg);
         assert.strictEqual(circles.length, 1, `Row ${i} should have exactly 1 circle`);
       }
@@ -620,13 +646,13 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     const activeLaneMap = computeActiveLanes(nodes);
 
     it('should produce valid SVG wrapping', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       assert.ok(svg.startsWith('<svg'), 'SVG should start with <svg');
       assert.ok(svg.endsWith('</svg>'), 'SVG should end with </svg>');
     });
 
     it('should render a circle for the root commit', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       const circles = extractCircles(svg);
       assert.strictEqual(circles.length, 1, 'Root commit should have exactly 1 circle');
       assert.strictEqual(circles[0].cx, col0X);
@@ -634,14 +660,14 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
 
     it('should not have a center-to-bottom vertical line (no parents)', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       const lines = extractLines(svg);
       // Root commit at row 0: no top-to-center (rowIndex === 0) and no center-to-bottom (no parents)
       assert.strictEqual(lines.length, 0, 'Root commit at row 0 should have no vertical line segments');
     });
 
     it('should not have any bezier paths', () => {
-      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config);
+      const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
       const paths = extractPaths(svg);
       assert.strictEqual(paths.length, 0, 'Root commit should have no bezier paths');
     });
@@ -653,9 +679,9 @@ describe('Graph Renderer - Known Graph Topologies', () => {
         `columnWidth ${DEFAULT_GRAPH_CONFIG.columnWidth} should be >= 20`);
     });
 
-    it('should have rowHeight >= 32 (Req 4.2)', () => {
-      assert.ok(DEFAULT_GRAPH_CONFIG.rowHeight >= 32,
-        `rowHeight ${DEFAULT_GRAPH_CONFIG.rowHeight} should be >= 32`);
+    it('should have rowHeight >= 24 (Req 4.2)', () => {
+      assert.ok(DEFAULT_GRAPH_CONFIG.rowHeight >= 24,
+        `rowHeight ${DEFAULT_GRAPH_CONFIG.rowHeight} should be >= 24`);
     });
 
     it('should have padding >= 10 (Req 4.4)', () => {
@@ -680,6 +706,675 @@ describe('Graph Renderer - Known Graph Topologies', () => {
         assert.ok(color.startsWith('#'),
           `Color at index ${i} should start with #, got: ${color}`);
       }
+    });
+  });
+});
+
+// ============================================================
+// Unit tests for branch split icon rendering (Task 2.3)
+// ============================================================
+
+describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
+  const config = DEFAULT_GRAPH_CONFIG;
+  const col0X = getColumnX(0, config);
+  const centerYNum = config.rowHeight / 2;
+
+  describe('Branch split commit (non-merge, isBranchSplitPoint=true)', () => {
+    // A single commit at column 0 with one parent, flagged as branch split
+    const node = makeNode('aaa', ['bbb'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
+    const activeLanes = new Set([0]);
+
+    it('should render a filled circle at the commit position (Req 3.4)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const circles = extractCircles(svg);
+      assert.strictEqual(circles.length, 1, 'Branch split should have exactly 1 circle');
+      assert.strictEqual(circles[0].cx, col0X.toString());
+      assert.strictEqual(circles[0].cy, centerYNum.toString());
+      assert.strictEqual(circles[0].r, config.nodeRadius.toString());
+    });
+
+    it('should render two tick mark lines from the bottom of the circle (Req 3.4)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const lines = extractLines(svg);
+      // There should be vertical line segments (top-to-center, center-to-bottom) plus 2 tick marks = 4 lines
+      // Filter for tick marks: they start at the bottom of the circle (cx, cy + nodeRadius)
+      const bottomCY = centerYNum + config.nodeRadius;
+      const tickLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X && parseFloat(l.y1) === bottomCY
+      );
+      assert.strictEqual(tickLines.length, 2, 'Should have exactly 2 tick mark lines from bottom of circle');
+    });
+
+    it('should use lane color for tick marks (Req 3.5)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const lines = extractLines(svg);
+      const bottomCY = centerYNum + config.nodeRadius;
+      const tickLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X && parseFloat(l.y1) === bottomCY
+      );
+      const expectedColor = getColumnColor(0);
+      for (const tick of tickLines) {
+        assert.strictEqual(tick.stroke, expectedColor, 'Tick mark should use lane color');
+      }
+    });
+
+    it('should have tick marks at ±30° angles from bottom of circle', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const lines = extractLines(svg);
+      const bottomCY = centerYNum + config.nodeRadius;
+      const tickLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X && parseFloat(l.y1) === bottomCY
+      );
+      assert.strictEqual(tickLines.length, 2);
+
+      const tickLength = config.nodeRadius * 0.8;
+      const angle = Math.PI / 6; // 30 degrees
+
+      // Left tick: x2 < x1 (goes left)
+      const leftTick = tickLines.find(l => parseFloat(l.x2) < col0X);
+      assert.ok(leftTick, 'Should have a left tick mark');
+      const expectedLeftX = col0X - tickLength * Math.sin(angle);
+      const expectedLeftY = bottomCY + tickLength * Math.cos(angle);
+      assert.ok(
+        Math.abs(parseFloat(leftTick!.x2) - expectedLeftX) < 0.001,
+        `Left tick x2 should be ~${expectedLeftX}, got ${leftTick!.x2}`
+      );
+      assert.ok(
+        Math.abs(parseFloat(leftTick!.y2) - expectedLeftY) < 0.001,
+        `Left tick y2 should be ~${expectedLeftY}, got ${leftTick!.y2}`
+      );
+
+      // Right tick: x2 > x1 (goes right)
+      const rightTick = tickLines.find(l => parseFloat(l.x2) > col0X);
+      assert.ok(rightTick, 'Should have a right tick mark');
+      const expectedRightX = col0X + tickLength * Math.sin(angle);
+      const expectedRightY = bottomCY + tickLength * Math.cos(angle);
+      assert.ok(
+        Math.abs(parseFloat(rightTick!.x2) - expectedRightX) < 0.001,
+        `Right tick x2 should be ~${expectedRightX}, got ${rightTick!.x2}`
+      );
+      assert.ok(
+        Math.abs(parseFloat(rightTick!.y2) - expectedRightY) < 0.001,
+        `Right tick y2 should be ~${expectedRightY}, got ${rightTick!.y2}`
+      );
+    });
+
+    it('should NOT render a diamond (rect) for branch split', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+      const rects = extractRects(svg);
+      assert.strictEqual(rects.length, 0, 'Branch split should not have a diamond rect');
+    });
+  });
+
+  describe('Merge precedence over branch split (Req 3.6)', () => {
+    // A merge commit (2 parents) that is also a branch split point
+    const mergeAndSplitNode = makeNode('mmm', ['p1p', 'p2p'], 0, [
+      { fromColumn: 0, toColumn: 0, type: 'commit' },
+      { fromColumn: 0, toColumn: 1, type: 'merge' },
+    ]);
+    const activeLanes = new Set([0, 1]);
+
+    it('should render diamond (merge icon) when commit is both merge and branch split', () => {
+      const svg = renderGraphSvg(mergeAndSplitNode, 0, activeLanes, config, false, true);
+      const rects = extractRects(svg);
+      assert.strictEqual(rects.length, 1, 'Should have exactly 1 diamond rect for merge');
+      assert.ok(rects[0].transform.includes('rotate(45'), 'Diamond should be rotated 45°');
+    });
+
+    it('should NOT render tick marks when commit is both merge and branch split', () => {
+      const svg = renderGraphSvg(mergeAndSplitNode, 0, activeLanes, config, false, true);
+      const lines = extractLines(svg);
+      const bottomCY = centerYNum + config.nodeRadius;
+      const tickLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X && parseFloat(l.y1) === bottomCY
+      );
+      assert.strictEqual(tickLines.length, 0, 'Merge+split should not have tick marks (merge precedence)');
+    });
+
+    it('should NOT render a plain circle when commit is both merge and branch split', () => {
+      const svg = renderGraphSvg(mergeAndSplitNode, 0, activeLanes, config, false, true);
+      const circles = extractCircles(svg);
+      assert.strictEqual(circles.length, 0, 'Merge+split should not have a plain circle');
+    });
+  });
+
+  describe('Normal commit (not merge, not branch split)', () => {
+    const normalNode = makeNode('nnn', ['ppp'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
+    const activeLanes = new Set([0]);
+
+    it('should render a plain circle without tick marks', () => {
+      const svg = renderGraphSvg(normalNode, 1, activeLanes, config, false, false);
+      const circles = extractCircles(svg);
+      assert.strictEqual(circles.length, 1, 'Normal commit should have exactly 1 circle');
+
+      // No tick marks from bottom of circle
+      const lines = extractLines(svg);
+      const bottomCY = centerYNum + config.nodeRadius;
+      const tickLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X && parseFloat(l.y1) === bottomCY
+      );
+      assert.strictEqual(tickLines.length, 0, 'Normal commit should not have tick marks');
+    });
+
+    it('should not render a diamond', () => {
+      const svg = renderGraphSvg(normalNode, 1, activeLanes, config, false, false);
+      const rects = extractRects(svg);
+      assert.strictEqual(rects.length, 0, 'Normal commit should not have a diamond rect');
+    });
+  });
+
+  describe('Branch split at different columns', () => {
+    it('should render branch split icon at column 2 with correct lane color', () => {
+      const node = makeNode('aaa', ['bbb'], 2, [{ fromColumn: 2, toColumn: 2, type: 'commit' }]);
+      const activeLanes = new Set([0, 1, 2]);
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, true);
+
+      const col2X = getColumnX(2, config);
+      const expectedColor = getColumnColor(2);
+
+      const circles = extractCircles(svg);
+      // Find the branch split circle (at column 2)
+      const splitCircle = circles.find(c => parseFloat(c.cx) === col2X && c.r === config.nodeRadius.toString());
+      assert.ok(splitCircle, 'Should have a circle at column 2');
+      assert.strictEqual(splitCircle!.fill, expectedColor, 'Circle fill should use column 2 lane color');
+
+      // Check tick marks exist at column 2
+      const lines = extractLines(svg);
+      const bottomCY = centerYNum + config.nodeRadius;
+      const tickLines = lines.filter(l =>
+        parseFloat(l.x1) === col2X && parseFloat(l.y1) === bottomCY
+      );
+      assert.strictEqual(tickLines.length, 2, 'Should have 2 tick marks at column 2');
+      for (const tick of tickLines) {
+        assert.strictEqual(tick.stroke, expectedColor, 'Tick marks should use column 2 lane color');
+      }
+    });
+  });
+});
+
+
+// ============================================================
+// Unit tests for terminal node icon rendering (Task 2.4)
+// ============================================================
+
+describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
+  const config = DEFAULT_GRAPH_CONFIG;
+  const col0X = getColumnX(0, config);
+  const centerYNum = config.rowHeight / 2;
+
+  /**
+   * Helper to extract ring circles (stroke-only, no fill) from SVG.
+   * These have fill="none" and a stroke-width of "1.5".
+   */
+  function extractRingCircles(svg: string) {
+    const regex = /<circle\s+cx="([^"]+)"\s+cy="([^"]+)"\s+r="([^"]+)"\s+fill="none"\s+stroke="([^"]+)"\s+stroke-width="1\.5"\s*\/>/g;
+    const rings: Array<{ cx: string; cy: string; r: string; stroke: string }> = [];
+    let match;
+    while ((match = regex.exec(svg)) !== null) {
+      rings.push({ cx: match[1], cy: match[2], r: match[3], stroke: match[4] });
+    }
+    return rings;
+  }
+
+  describe('Terminal node (isTerminal=true, non-merge, non-split)', () => {
+    // A terminal commit at column 0 with one parent, at row 1 (not first row)
+    const node = makeNode('term', ['parent1'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
+    const activeLanes = new Set([0]);
+
+    it('should NOT render a top-to-center vertical line (Req 2.2)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const lines = extractLines(svg);
+      // There should be no line from y=0 to y=centerY at the commit's column
+      const topToCenterLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X &&
+        parseFloat(l.y1) === 0 &&
+        parseFloat(l.x2) === col0X &&
+        parseFloat(l.y2) === centerYNum
+      );
+      assert.strictEqual(topToCenterLines.length, 0, 'Terminal node should NOT have a top-to-center vertical line');
+    });
+
+    it('should still render a center-to-bottom vertical line (has parents)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const lines = extractLines(svg);
+      const centerToBottomLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X &&
+        parseFloat(l.y1) === centerYNum &&
+        parseFloat(l.x2) === col0X &&
+        parseFloat(l.y2) === config.rowHeight
+      );
+      assert.strictEqual(centerToBottomLines.length, 1, 'Terminal node with parents should have center-to-bottom line');
+    });
+
+    it('should render a filled circle at the commit position (Req 2.1)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const circles = extractCircles(svg);
+      // Terminal node renders 3 circles: bg circle at ringRadius, white-stroke ring (fill="none", not matched here),
+      // and inner filled circle at nodeRadius. extractCircles matches filled circles only (fill !== "none").
+      const filledCircles = circles.filter(c => c.fill !== 'none');
+      // There should be a bg circle (ringRadius) and an inner circle (nodeRadius)
+      assert.ok(filledCircles.length >= 2, `Terminal node should have at least 2 filled circles (bg + inner), got ${filledCircles.length}`);
+      // The inner circle should have r === nodeRadius
+      const innerCircle = filledCircles.find(c => c.r === config.nodeRadius.toString());
+      assert.ok(innerCircle, 'Terminal node should have an inner filled circle at nodeRadius');
+      assert.strictEqual(innerCircle!.cx, col0X.toString());
+      assert.strictEqual(innerCircle!.cy, centerYNum.toString());
+    });
+
+    it('should render an outer ring circle with radius nodeRadius + 2 (Req 2.1)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const rings = extractRingCircles(svg);
+      assert.strictEqual(rings.length, 1, 'Terminal node should have exactly 1 outer ring circle');
+      const expectedRingRadius = (config.nodeRadius + 2).toString();
+      assert.strictEqual(rings[0].r, expectedRingRadius, `Ring radius should be nodeRadius + 2 = ${expectedRingRadius}`);
+      assert.strictEqual(rings[0].cx, col0X.toString(), 'Ring should be centered at commit x');
+      assert.strictEqual(rings[0].cy, centerYNum.toString(), 'Ring should be centered at commit y');
+    });
+
+    it('should use white stroke for the outer ring (contrasting border)', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+      const rings = extractRingCircles(svg);
+      // The outer ring now uses a white stroke for contrast, with a filled bg circle behind it in lane color
+      assert.strictEqual(rings[0].stroke, '#ffffff', 'Ring stroke should be white for contrast');
+      // Verify the bg circle behind the ring uses the lane color
+      const circles = extractCircles(svg);
+      const expectedColor = getColumnColor(0);
+      const ringRadius = (config.nodeRadius + 2).toString();
+      const bgCircle = circles.find(c => c.r === ringRadius && c.fill === expectedColor);
+      assert.ok(bgCircle, 'Should have a background circle at ring radius with lane color fill');
+    });
+  });
+
+  describe('Non-terminal node (isTerminal=false) at row > 0', () => {
+    const node = makeNode('nterm', ['parent1'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
+    const activeLanes = new Set([0]);
+
+    it('should render a top-to-center vertical line', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const lines = extractLines(svg);
+      const topToCenterLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X &&
+        parseFloat(l.y1) === 0 &&
+        parseFloat(l.x2) === col0X &&
+        parseFloat(l.y2) === centerYNum
+      );
+      assert.strictEqual(topToCenterLines.length, 1, 'Non-terminal node should have a top-to-center vertical line');
+    });
+
+    it('should NOT render an outer ring circle', () => {
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const rings = extractRingCircles(svg);
+      assert.strictEqual(rings.length, 0, 'Non-terminal node should not have an outer ring circle');
+    });
+  });
+
+  describe('Terminal node at row 0 (first row)', () => {
+    const node = makeNode('term0', ['parent1'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
+    const activeLanes = new Set([0]);
+
+    it('should NOT render a top-to-center line (row 0 never has one)', () => {
+      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const lines = extractLines(svg);
+      const topToCenterLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X &&
+        parseFloat(l.y1) === 0 &&
+        parseFloat(l.x2) === col0X &&
+        parseFloat(l.y2) === centerYNum
+      );
+      assert.strictEqual(topToCenterLines.length, 0, 'Terminal node at row 0 should not have top-to-center line');
+    });
+
+    it('should render the outer ring circle', () => {
+      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const rings = extractRingCircles(svg);
+      assert.strictEqual(rings.length, 1, 'Terminal node at row 0 should have outer ring');
+    });
+  });
+
+  describe('Terminal node that is also a root commit (no parents)', () => {
+    const node = makeNode('termroot', [], 0);
+    const activeLanes = new Set([0]);
+
+    it('should have no vertical line segments at all', () => {
+      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const lines = extractLines(svg);
+      // Filter for lines at the commit's column
+      const commitLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X && parseFloat(l.x2) === col0X
+      );
+      assert.strictEqual(commitLines.length, 0, 'Terminal root commit should have no vertical lines');
+    });
+
+    it('should render the filled circle and outer ring', () => {
+      const svg = renderGraphSvg(node, 0, activeLanes, config, true, false);
+      const circles = extractCircles(svg);
+      // Terminal node has bg circle (ringRadius) + inner circle (nodeRadius) as filled circles
+      const filledCircles = circles.filter(c => c.fill !== 'none');
+      const rings = extractRingCircles(svg);
+      assert.ok(filledCircles.length >= 2, `Should have at least 2 filled circles (bg + inner), got ${filledCircles.length}`);
+      assert.strictEqual(rings.length, 1, 'Should have 1 outer ring');
+    });
+  });
+
+  describe('Terminal merge commit (isTerminal=true, merge)', () => {
+    // A merge commit that is also terminal
+    const mergeNode = makeNode('tmerge', ['p1', 'p2'], 0, [
+      { fromColumn: 0, toColumn: 0, type: 'commit' },
+      { fromColumn: 0, toColumn: 1, type: 'merge' },
+    ]);
+    const activeLanes = new Set([0, 1]);
+
+    it('should render diamond icon (merge) with outer ring', () => {
+      const svg = renderGraphSvg(mergeNode, 1, activeLanes, config, true, false);
+      const rects = extractRects(svg);
+      const rings = extractRingCircles(svg);
+      assert.strictEqual(rects.length, 1, 'Terminal merge should have diamond');
+      assert.strictEqual(rings.length, 1, 'Terminal merge should have outer ring');
+    });
+
+    it('should NOT render top-to-center line', () => {
+      const svg = renderGraphSvg(mergeNode, 1, activeLanes, config, true, false);
+      const lines = extractLines(svg);
+      const topToCenterLines = lines.filter(l =>
+        parseFloat(l.x1) === col0X &&
+        parseFloat(l.y1) === 0 &&
+        parseFloat(l.x2) === col0X &&
+        parseFloat(l.y2) === centerYNum
+      );
+      assert.strictEqual(topToCenterLines.length, 0, 'Terminal merge should not have top-to-center line');
+    });
+  });
+
+  describe('Terminal node at different column', () => {
+    it('should render ring at the correct column position', () => {
+      const node = makeNode('tcol2', ['parent1'], 2, [{ fromColumn: 2, toColumn: 2, type: 'commit' }]);
+      const activeLanes = new Set([0, 1, 2]);
+      const col2X = getColumnX(2, config);
+      const expectedColor = getColumnColor(2);
+
+      const svg = renderGraphSvg(node, 1, activeLanes, config, true, false);
+
+      // Helper to extract ring circles
+      const ringRegex = /<circle\s+cx="([^"]+)"\s+cy="([^"]+)"\s+r="([^"]+)"\s+fill="none"\s+stroke="([^"]+)"\s+stroke-width="1\.5"\s*\/>/g;
+      const rings: Array<{ cx: string; cy: string; r: string; stroke: string }> = [];
+      let match;
+      while ((match = ringRegex.exec(svg)) !== null) {
+        rings.push({ cx: match[1], cy: match[2], r: match[3], stroke: match[4] });
+      }
+
+      assert.strictEqual(rings.length, 1, 'Should have 1 outer ring');
+      assert.strictEqual(rings[0].cx, col2X.toString(), 'Ring should be at column 2 x');
+      assert.strictEqual(rings[0].stroke, '#ffffff', 'Ring should use white stroke for contrast');
+      // Verify the bg circle behind the ring uses column 2 lane color
+      const circleRegex2 = /<circle\s+cx="([^"]+)"\s+cy="([^"]+)"\s+r="([^"]+)"\s+fill="([^"]+)"\s+stroke="([^"]+)"\s+stroke-width="[^"]+"\s*\/>/g;
+      const allCircles: Array<{ cx: string; r: string; fill: string }> = [];
+      let match2;
+      while ((match2 = circleRegex2.exec(svg)) !== null) {
+        allCircles.push({ cx: match2[1], r: match2[3], fill: match2[4] });
+      }
+      const ringRadius = (config.nodeRadius + 2).toString();
+      const bgCircle = allCircles.find(c => c.cx === col2X.toString() && c.r === ringRadius && c.fill === expectedColor);
+      assert.ok(bgCircle, 'Should have a background circle at ring radius with column 2 lane color');
+    });
+  });
+});
+
+
+// ============================================================
+// Unit tests for bezier curve connectivity (Task 2.5)
+// Validates: Requirements 3.7, 3.8
+// ============================================================
+
+describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
+  const config = DEFAULT_GRAPH_CONFIG;
+  const centerY = config.rowHeight / 2;
+  const bottomY = config.rowHeight;
+
+  /**
+   * Parse a bezier path "M fromX,fromY C cp1x,cp1y cp2x,cp2y toX,toY"
+   * and return the start and end coordinates.
+   */
+  function parseBezierPath(d: string): { startX: number; startY: number; endX: number; endY: number } | null {
+    // Match: M <x>,<y> C <x>,<y> <x>,<y> <x>,<y>
+    const match = d.match(/^M\s+([\d.]+),([\d.]+)\s+C\s+([\d.]+),([\d.]+)\s+([\d.]+),([\d.]+)\s+([\d.]+),([\d.]+)$/);
+    if (!match) {
+      return null;
+    }
+    return {
+      startX: parseFloat(match[1]),
+      startY: parseFloat(match[2]),
+      endX: parseFloat(match[7]),
+      endY: parseFloat(match[8]),
+    };
+  }
+
+  describe('Bezier curves start at (fromX, centerY) and end at (toX, bottomY)', () => {
+    it('should start at (getColumnX(fromColumn), centerY) for a merge line from col 0 to col 1', () => {
+      const node = makeNode('mmm', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]);
+      const activeLanes = new Set([0, 1]);
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 1, 'Should have exactly 1 bezier path');
+
+      const parsed = parseBezierPath(paths[0].d);
+      assert.ok(parsed, 'Should be able to parse the bezier path');
+
+      const expectedFromX = getColumnX(0, config);
+      assert.strictEqual(parsed!.startX, expectedFromX, `Bezier should start at fromColumn x (${expectedFromX})`);
+      assert.strictEqual(parsed!.startY, centerY, `Bezier should start at centerY (${centerY})`);
+    });
+
+    it('should end at (getColumnX(toColumn), bottomY) for a merge line from col 0 to col 1', () => {
+      const node = makeNode('mmm', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]);
+      const activeLanes = new Set([0, 1]);
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      const parsed = parseBezierPath(paths[0].d);
+      assert.ok(parsed, 'Should be able to parse the bezier path');
+
+      const expectedToX = getColumnX(1, config);
+      assert.strictEqual(parsed!.endX, expectedToX, `Bezier should end at toColumn x (${expectedToX})`);
+      assert.strictEqual(parsed!.endY, bottomY, `Bezier should end at bottomY (${bottomY})`);
+    });
+
+    it('should have correct start/end for a branch line from col 1 to col 0', () => {
+      const node = makeNode('ccc', ['aaa'], 1, [
+        { fromColumn: 1, toColumn: 0, type: 'branch' },
+      ]);
+      const activeLanes = new Set([0, 1]);
+      const svg = renderGraphSvg(node, 2, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 1, 'Should have exactly 1 bezier path');
+
+      const parsed = parseBezierPath(paths[0].d);
+      assert.ok(parsed, 'Should be able to parse the bezier path');
+
+      const expectedFromX = getColumnX(1, config);
+      const expectedToX = getColumnX(0, config);
+      assert.strictEqual(parsed!.startX, expectedFromX, `Bezier should start at col 1 x (${expectedFromX})`);
+      assert.strictEqual(parsed!.startY, centerY, `Bezier should start at centerY (${centerY})`);
+      assert.strictEqual(parsed!.endX, expectedToX, `Bezier should end at col 0 x (${expectedToX})`);
+      assert.strictEqual(parsed!.endY, bottomY, `Bezier should end at bottomY (${bottomY})`);
+    });
+
+    it('should have correct start/end for a wide merge from col 0 to col 3', () => {
+      const node = makeNode('mmm', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 3, type: 'merge' },
+      ]);
+      const activeLanes = new Set([0, 1, 2, 3]);
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 1, 'Should have exactly 1 bezier path');
+
+      const parsed = parseBezierPath(paths[0].d);
+      assert.ok(parsed, 'Should be able to parse the bezier path');
+
+      const expectedFromX = getColumnX(0, config);
+      const expectedToX = getColumnX(3, config);
+      assert.strictEqual(parsed!.startX, expectedFromX, `Bezier should start at col 0 x`);
+      assert.strictEqual(parsed!.startY, centerY, `Bezier should start at centerY`);
+      assert.strictEqual(parsed!.endX, expectedToX, `Bezier should end at col 3 x`);
+      assert.strictEqual(parsed!.endY, bottomY, `Bezier should end at bottomY`);
+    });
+  });
+
+  describe('Vertical pass-through lines span full y=0 to y=rowHeight', () => {
+    it('should render pass-through lines from y=0 to y=rowHeight', () => {
+      // Node at column 0 with a pass-through lane at column 1
+      const node = makeNode('aaa', ['bbb'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+      ]);
+      const activeLanes = new Set([0, 1]); // lane 1 is a pass-through
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const lines = extractLines(svg);
+
+      const col1X = getColumnX(1, config);
+      const passThroughLines = lines.filter(l =>
+        parseFloat(l.x1) === col1X &&
+        parseFloat(l.x2) === col1X &&
+        parseFloat(l.y1) === 0 &&
+        parseFloat(l.y2) === config.rowHeight
+      );
+      assert.strictEqual(passThroughLines.length, 1, 'Pass-through lane should have a full-height vertical line from y=0 to y=rowHeight');
+    });
+
+    it('should render multiple pass-through lines each spanning full row height', () => {
+      // Node at column 0 with pass-through lanes at columns 1 and 2
+      const node = makeNode('aaa', ['bbb'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+      ]);
+      const activeLanes = new Set([0, 1, 2]); // lanes 1 and 2 are pass-throughs
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const lines = extractLines(svg);
+
+      for (const lane of [1, 2]) {
+        const laneX = getColumnX(lane, config);
+        const passThroughLines = lines.filter(l =>
+          parseFloat(l.x1) === laneX &&
+          parseFloat(l.x2) === laneX &&
+          parseFloat(l.y1) === 0 &&
+          parseFloat(l.y2) === config.rowHeight
+        );
+        assert.strictEqual(passThroughLines.length, 1, `Pass-through lane ${lane} should have a full-height vertical line`);
+      }
+    });
+  });
+
+  describe('Seamless row boundary connections (Req 3.8)', () => {
+    it('bezier curve end Y should equal rowHeight (where next row vertical lines start at y=0)', () => {
+      const node = makeNode('mmm', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]);
+      const activeLanes = new Set([0, 1]);
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      const parsed = parseBezierPath(paths[0].d);
+      assert.ok(parsed, 'Should parse bezier path');
+
+      // The bezier ends at bottomY = rowHeight, and the next row's vertical lines start at y=0
+      // This means the curve endpoint matches the next row's line start, creating seamless connection
+      assert.strictEqual(parsed!.endY, config.rowHeight, 'Bezier end Y should equal rowHeight for seamless connection');
+    });
+
+    it('pass-through vertical lines should start at y=0 (matching previous row bottom)', () => {
+      const node = makeNode('aaa', ['bbb'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+      ]);
+      const activeLanes = new Set([0, 1]);
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const lines = extractLines(svg);
+
+      const col1X = getColumnX(1, config);
+      const passThroughLines = lines.filter(l =>
+        parseFloat(l.x1) === col1X && parseFloat(l.x2) === col1X
+      );
+      assert.ok(passThroughLines.length > 0, 'Should have pass-through line at lane 1');
+      assert.strictEqual(parseFloat(passThroughLines[0].y1), 0, 'Pass-through line should start at y=0');
+      assert.strictEqual(parseFloat(passThroughLines[0].y2), config.rowHeight, 'Pass-through line should end at y=rowHeight');
+    });
+
+    it('same-lane lines should not produce bezier curves (handled by vertical segments)', () => {
+      const node = makeNode('aaa', ['bbb'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+      ]);
+      const activeLanes = new Set([0]);
+      const svg = renderGraphSvg(node, 1, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 0, 'Same-lane lines should not produce bezier curves');
+    });
+  });
+
+  describe('Multiple bezier curves on a single row', () => {
+    it('should render separate bezier curves for each cross-lane graph line', () => {
+      // A merge commit with lines going to columns 1 and 2
+      const node = makeNode('mmm', ['p1', 'p2', 'p3'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+        { fromColumn: 0, toColumn: 2, type: 'merge' },
+      ]);
+      const activeLanes = new Set([0, 1, 2]);
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 2, 'Should have 2 bezier paths for 2 cross-lane lines');
+
+      const fromX = getColumnX(0, config);
+      const toX1 = getColumnX(1, config);
+      const toX2 = getColumnX(2, config);
+
+      // Both paths should start at (fromX, centerY)
+      for (const path of paths) {
+        const parsed = parseBezierPath(path.d);
+        assert.ok(parsed, 'Should parse bezier path');
+        assert.strictEqual(parsed!.startX, fromX, 'Each bezier should start at fromColumn x');
+        assert.strictEqual(parsed!.startY, centerY, 'Each bezier should start at centerY');
+        assert.strictEqual(parsed!.endY, bottomY, 'Each bezier should end at bottomY');
+      }
+
+      // One path should end at col 1, the other at col 2
+      const endXValues = paths.map(p => parseBezierPath(p.d)!.endX).sort((a, b) => a - b);
+      assert.strictEqual(endXValues[0], toX1, 'First bezier should end at col 1 x');
+      assert.strictEqual(endXValues[1], toX2, 'Second bezier should end at col 2 x');
+    });
+  });
+
+  describe('Bezier curves with custom config', () => {
+    it('should use custom config values for coordinates', () => {
+      const customConfig: IGraphRenderConfig = {
+        columnWidth: 30,
+        rowHeight: 48,
+        nodeRadius: 6,
+        padding: 15,
+        lineWidth: 3,
+      };
+      const customCenterY = customConfig.rowHeight / 2;
+      const customBottomY = customConfig.rowHeight;
+
+      const node = makeNode('mmm', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]);
+      const activeLanes = new Set([0, 1]);
+      const svg = renderGraphSvg(node, 0, activeLanes, customConfig, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 1, 'Should have 1 bezier path');
+
+      const parsed = parseBezierPath(paths[0].d);
+      assert.ok(parsed, 'Should parse bezier path');
+
+      const expectedFromX = getColumnX(0, customConfig);
+      const expectedToX = getColumnX(1, customConfig);
+      assert.strictEqual(parsed!.startX, expectedFromX, 'Bezier start X should use custom config');
+      assert.strictEqual(parsed!.startY, customCenterY, 'Bezier start Y should use custom centerY');
+      assert.strictEqual(parsed!.endX, expectedToX, 'Bezier end X should use custom config');
+      assert.strictEqual(parsed!.endY, customBottomY, 'Bezier end Y should use custom bottomY');
     });
   });
 });

@@ -170,7 +170,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
             const radii = extractCircleRadii(svg);
 
@@ -204,26 +204,37 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
-            const radii = extractCircleRadii(svg);
-
-            // There should be at least one circle (the merge commit node)
-            assert.ok(radii.length >= 1, `SVG should contain at least one circle element for merge commit, got ${radii.length}`);
-
-            // All circles should have r="4" (reduced radius applies to merge commits too)
-            for (const r of radii) {
-              assert.strictEqual(
-                r,
-                '4',
-                `Merge commit node circles should have r="4", but found r="${r}"`
-              );
+            // Merge commits now render a diamond (rotated <rect>) instead of a circle.
+            // Verify the diamond is present with the correct dimensions based on nodeRadius.
+            // Match the width attribute specifically (not stroke-width)
+            const rectRegex = /<rect\s+x="[^"]*"\s+y="[^"]*"\s+width="([^"]+)"\s+height="([^"]+)"[^>]*\/>/g;
+            const rects: Array<{ width: string; height: string }> = [];
+            let match;
+            while ((match = rectRegex.exec(svg)) !== null) {
+              rects.push({ width: match[1], height: match[2] });
             }
 
+            // There should be at least one rect (the merge commit diamond)
+            assert.ok(rects.length >= 1, `SVG should contain at least one rect element for merge commit diamond, got ${rects.length}`);
+
+            // The diamond side length should be nodeRadius * 1.8 = 4 * 1.8 = 7.199999... 
+            const expectedSide = DEFAULT_GRAPH_CONFIG.nodeRadius * 1.8;
+            const hasDiamond = rects.some(
+              (r) => Math.abs(parseFloat(r.width) - expectedSide) < 0.01 &&
+                     Math.abs(parseFloat(r.height) - expectedSide) < 0.01
+            );
+            assert.ok(
+              hasDiamond,
+              `Merge commit diamond should have width/height≈${expectedSide}, found: ${rects.map(r => `${r.width}x${r.height}`).join(', ')}`
+            );
+
             // No circle should have r="6" (the old radius)
+            const radii = extractCircleRadii(svg);
             assert.ok(
               !radii.includes('6'),
-              'No merge commit circle should have the old radius r="6"'
+              'No merge commit element should have the old radius r="6"'
             );
           }
         ),
@@ -238,7 +249,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG);
+            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
 
             const radii = extractCircleRadii(svg);
 

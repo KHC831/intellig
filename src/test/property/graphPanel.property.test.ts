@@ -221,10 +221,10 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
 
             const commit = node.commit;
 
-            // 1. Short hash must be present
+            // 1. Full hash must be present (used in data-hash attribute)
             assert.ok(
-              html.includes(commit.shortHash),
-              `HTML should contain the short hash "${commit.shortHash}"`
+              html.includes(commit.hash),
+              `HTML should contain the full hash "${commit.hash}" in data-hash attribute`
             );
 
             // 2. Message summary (first line, possibly truncated) must be present
@@ -252,21 +252,13 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
               'HTML should contain a non-empty date string in the commit-date span'
             );
 
-            // Additionally verify the date string matches one of the expected patterns
+            // Additionally verify the date string matches the expected absolute date format
+            // The _formatAbsoluteDate method produces strings like "2024-01-15 3:30 PM"
             const dateText = dateMatch![1].trim();
-            const validDatePatterns = [
-              /^just now$/,
-              /^\d+ minutes? ago$/,
-              /^\d+ hours? ago$/,
-              /^\d+ days? ago$/,
-              /^\d+ weeks? ago$/,
-              /^\d+ months? ago$/,
-              /^\d+ years? ago$/,
-            ];
-            const matchesAnyPattern = validDatePatterns.some(p => p.test(dateText));
+            const absoluteDatePattern = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\s+(AM|PM)$/;
             assert.ok(
-              matchesAnyPattern,
-              `Date string "${dateText}" should match a valid relative date pattern`
+              absoluteDatePattern.test(dateText),
+              `Date string "${dateText}" should match absolute date format YYYY-MM-DD H:MM AM/PM`
             );
           }
         ),

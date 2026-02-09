@@ -334,6 +334,19 @@ export function isMergeCommit(commit: ICommit): boolean {
 }
 
 /**
+ * Classify a branch name as local or remote.
+ * A branch is considered remote if it contains a '/' character, indicating
+ * it is a remote tracking branch (e.g., "origin/main", "upstream/develop").
+ * Otherwise it is classified as local (e.g., "main", "develop", "feature-branch").
+ *
+ * @param name - The branch name to classify
+ * @returns 'remote' if the branch name contains a '/', 'local' otherwise
+ */
+export function classifyBranchName(name: string): 'local' | 'remote' {
+  return name.includes('/') ? 'remote' : 'local';
+}
+
+/**
  * Check if a commit is a root commit (has no parents).
  *
  * @param commit - The commit to check
@@ -368,4 +381,30 @@ export function getActiveLaneCount(nodes: ICommitNode[], index: number): number 
   }
 
   return activeLanes.size;
+}
+
+/**
+ * Compute a map of parent commit hash → Set of child commit graph columns.
+ * For each commit that appears as a parent of another commit, records which
+ * columns (lanes) the child commits occupy.
+ *
+ * This is used to draw split curves on the parent's row showing lines
+ * diverging from the parent node up to the child lanes.
+ *
+ * @param nodes - Array of commit nodes
+ * @returns Map of parent hash to set of child column indices
+ */
+export function computeChildLanesMap(nodes: ICommitNode[]): Map<string, Set<number>> {
+  const childLanesMap = new Map<string, Set<number>>();
+
+  for (const node of nodes) {
+    for (const parentHash of node.commit.parents) {
+      if (!childLanesMap.has(parentHash)) {
+        childLanesMap.set(parentHash, new Set());
+      }
+      childLanesMap.get(parentHash)!.add(node.graphColumn);
+    }
+  }
+
+  return childLanesMap;
 }

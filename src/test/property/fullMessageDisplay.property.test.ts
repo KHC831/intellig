@@ -113,7 +113,9 @@ describe('Full Message Display Property Tests', () => {
 
           // The body should appear after the message, separated by two newlines
           const messageIndex = preContent.indexOf(commitDetails.message);
-          const bodyIndex = preContent.indexOf(commitDetails.body!);
+          // Search for the body starting after the message to handle cases where
+          // the body is a substring of the message (e.g., body="u", message="ua")
+          const bodyIndex = preContent.indexOf(commitDetails.body!, messageIndex + commitDetails.message.length);
           assert.ok(
             bodyIndex > messageIndex,
             `Body (index ${bodyIndex}) should appear after message (index ${messageIndex}) in the pre element`

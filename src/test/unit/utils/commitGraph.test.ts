@@ -20,6 +20,7 @@ import {
   computeTerminalNodes,
   computeChildCountMap,
   isBranchSplit,
+  classifyBranchName,
   ICommitNode,
 } from '../../../utils/commitGraph';
 import { ICommit } from '../../../services/interfaces/IGitService';
@@ -853,6 +854,52 @@ describe('Commit Graph - Complex Scenarios', () => {
       // Both merge commits should have 2 lines each
       assert.strictEqual(result[0].graphLines.length, 2);
       assert.strictEqual(result[1].graphLines.length, 2);
+    });
+  });
+});
+
+describe('classifyBranchName()', () => {
+  describe('local branches', () => {
+    it('should classify "main" as local', () => {
+      assert.strictEqual(classifyBranchName('main'), 'local');
+    });
+
+    it('should classify "develop" as local', () => {
+      assert.strictEqual(classifyBranchName('develop'), 'local');
+    });
+
+    it('should classify "feature-branch" as local', () => {
+      assert.strictEqual(classifyBranchName('feature-branch'), 'local');
+    });
+
+    it('should classify a single word branch name as local', () => {
+      assert.strictEqual(classifyBranchName('hotfix'), 'local');
+    });
+
+    it('should classify an empty string as local', () => {
+      assert.strictEqual(classifyBranchName(''), 'local');
+    });
+  });
+
+  describe('remote branches', () => {
+    it('should classify "origin/main" as remote', () => {
+      assert.strictEqual(classifyBranchName('origin/main'), 'remote');
+    });
+
+    it('should classify "origin/develop" as remote', () => {
+      assert.strictEqual(classifyBranchName('origin/develop'), 'remote');
+    });
+
+    it('should classify "upstream/feature-branch" as remote', () => {
+      assert.strictEqual(classifyBranchName('upstream/feature-branch'), 'remote');
+    });
+
+    it('should classify "origin/feature/nested-name" as remote', () => {
+      assert.strictEqual(classifyBranchName('origin/feature/nested-name'), 'remote');
+    });
+
+    it('should classify any "remoteName/" pattern as remote', () => {
+      assert.strictEqual(classifyBranchName('my-remote/branch'), 'remote');
     });
   });
 });

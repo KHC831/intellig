@@ -98,8 +98,7 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
         []
       );
 
-      assert.ok(!html.includes('data-divider="0"'), 'Should NOT have divider 0 (removed with branch panel)');
-      assert.ok(html.includes('data-divider="1"'), 'Should have divider (index 1)');
+      assert.ok(html.includes('data-divider="0"'), 'Should have divider (index 0)');
 
       const dividerMatches = html.match(/class="panel-divider"/g);
       assert.ok(dividerMatches, 'Should have panel-divider elements');
@@ -113,11 +112,11 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
       );
 
       const graphStart = html.indexOf('id="graph-panel"');
-      const divider1 = html.indexOf('data-divider="1"');
+      const divider0 = html.indexOf('data-divider="0"');
       const detailsStart = html.indexOf('id="details-panel"');
 
-      assert.ok(divider1 > graphStart, 'Divider 1 should be after graph panel start');
-      assert.ok(divider1 < detailsStart, 'Divider 1 should be before details panel');
+      assert.ok(divider0 > graphStart, 'Divider 0 should be after graph panel start');
+      assert.ok(divider0 < detailsStart, 'Divider 0 should be before details panel');
     });
 
     it('should have role="application" on the layout container', () => {
