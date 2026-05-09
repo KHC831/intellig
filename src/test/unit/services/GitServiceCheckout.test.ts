@@ -288,18 +288,18 @@ describe('GitService - Command Argument Correctness', () => {
   // fetch() argument construction
   // ============================================
   describe('fetch() argument construction', () => {
-    it('fetch all: git fetch --all', async () => {
+    it('fetch all: git fetch --porcelain --all', async () => {
       await gitService.fetch(mockRepo);
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['fetch', '--all']);
+      assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', '--all']);
     });
 
-    it('fetch specific remote: git fetch <remote>', async () => {
+    it('fetch specific remote: git fetch --porcelain <remote>', async () => {
       await gitService.fetch(mockRepo, 'origin');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['fetch', 'origin']);
+      assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', 'origin']);
     });
   });
 

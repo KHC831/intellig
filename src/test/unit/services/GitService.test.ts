@@ -2525,6 +2525,194 @@ diff --git a/src/file2.ts b/src/file2.ts
       });
     });
   });
+
+  // ─── T2-09 ────────────────────────────────────────────────────────────────
+
+  describe('stashBranch() — T2-09', () => {
+    it('runs `git stash branch <name> stash@{<index>}` for the given index', async () => {
+      await gitService.stashBranch(mockRepo, 2, 'feature/stashed-work');
+
+      const last = mockGitCli.getLastCommand();
+      assert.ok(last);
+      assert.deepStrictEqual(last!.args, [
+        'stash',
+        'branch',
+        'feature/stashed-work',
+        'stash@{2}',
+      ]);
+    });
+
+    it('uses the correct working directory', async () => {
+      await gitService.stashBranch(mockRepo, 0, 'wip');
+      const last = mockGitCli.getLastCommand();
+      assert.strictEqual((last!.options as { cwd: string }).cwd, '/test/repo');
+    });
+
+    it('throws when the branch name is empty', async () => {
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 0, ''),
+        /Branch name cannot be empty/
+      );
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 0, '   '),
+        /Branch name cannot be empty/
+      );
+    });
+
+    it('throws when the index is negative or non-integer', async () => {
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, -1, 'x'),
+        /Invalid stash index/
+      );
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 1.5, 'x'),
+        /Invalid stash index/
+      );
+    });
+
+    it('trims whitespace around the branch name', async () => {
+      await gitService.stashBranch(mockRepo, 0, '  feature/x  ');
+      const last = mockGitCli.getLastCommand();
+      assert.deepStrictEqual(last!.args, ['stash', 'branch', 'feature/x', 'stash@{0}']);
+    });
+
+    it('surfaces "branch already exists" errors from git', async () => {
+      mockGitCli.setMockResult('stash branch existing-branch stash@{0}', {
+        exitCode: 128,
+        stdout: '',
+        stderr: "fatal: A branch named 'existing-branch' already exists.",
+      });
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 0, 'existing-branch'),
+        /already exists/
+      );
+    });
+
+    it('surfaces conflict errors from git during apply', async () => {
+      mockGitCli.setMockResult('stash branch wip stash@{0}', {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'CONFLICT (content): Merge conflict in file.txt',
+      });
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 0, 'wip'),
+        /conflict|CONFLICT/
+      );
+    });
+
+    it('surfaces "bad stash" errors for invalid indexes at the git level', async () => {
+      mockGitCli.setMockResult('stash branch wip stash@{99}', {
+        exitCode: 128,
+        stdout: '',
+        stderr: "fatal: bad revision 'stash@{99}'",
+      });
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 99, 'wip'),
+        /bad revision|stash@\{99\}/
+      );
+    });
+  });
+
+  describe('stashRename() — T2-09', () => {
+    /**
+     * The implementation uses three git calls:
+     *   rev-parse stash@{i} → <hash>
+     *   stash store -m <newMessage> <hash>
+     *   stash drop stash@{i+1}
+     *
+     * We stub the rev-parse to return a known hash so the downstream calls
+     * can be verified deterministically.
+     */
+    const TEST_HASH = 'abc1234def5678901234567890123456789abcde';
+
+    beforeEach(() => {
+      mockGitCli.setMockResult(`rev-parse stash@{0}`, {
+        exitCode: 0,
+        stdout: TEST_HASH + '\n',
+        stderr: '',
+      });
+      mockGitCli.setMockResult(`rev-parse stash@{2}`, {
+        exitCode: 0,
+        stdout: TEST_HASH + '\n',
+        stderr: '',
+      });
+    });
+
+    it('issues rev-parse, stash store, and stash drop in that order', async () => {
+      await gitService.stashRename(mockRepo, 2, 'WIP: new name');
+
+      const commands = mockGitCli.executedCommands.map((c) => c.args.join(' '));
+      const revIdx = commands.indexOf('rev-parse stash@{2}');
+      const storeIdx = commands.findIndex((c) => c.startsWith('stash store -m WIP: new name '));
+      const dropIdx = commands.indexOf('stash drop stash@{3}');
+
+      assert.ok(revIdx >= 0, `rev-parse should run, got commands: ${commands.join(' | ')}`);
+      assert.ok(storeIdx >= 0, `stash store should run, got: ${commands.join(' | ')}`);
+      assert.ok(dropIdx >= 0, `stash drop stash@{3} should run, got: ${commands.join(' | ')}`);
+      assert.ok(revIdx < storeIdx && storeIdx < dropIdx, 'order must be rev-parse → store → drop');
+    });
+
+    it('stores with the provided message and resolved commit hash', async () => {
+      await gitService.stashRename(mockRepo, 0, 'renamed subject');
+      const storeCall = mockGitCli.executedCommands.find((c) =>
+        c.args[0] === 'stash' && c.args[1] === 'store'
+      );
+      assert.ok(storeCall);
+      assert.deepStrictEqual(storeCall!.args, [
+        'stash',
+        'store',
+        '-m',
+        'renamed subject',
+        TEST_HASH,
+      ]);
+    });
+
+    it('drops stash@{index+1} after storing (accounting for the shift)', async () => {
+      await gitService.stashRename(mockRepo, 2, 'x');
+      const dropCall = mockGitCli.executedCommands.find(
+        (c) => c.args[0] === 'stash' && c.args[1] === 'drop'
+      );
+      assert.ok(dropCall);
+      assert.deepStrictEqual(dropCall!.args, ['stash', 'drop', 'stash@{3}']);
+    });
+
+    it('throws on negative or non-integer index before any git call', async () => {
+      await assert.rejects(() => gitService.stashRename(mockRepo, -1, 'x'), /Invalid stash index/);
+      await assert.rejects(() => gitService.stashRename(mockRepo, 1.5, 'x'), /Invalid stash index/);
+    });
+
+    it('surfaces rev-parse failures for invalid indexes', async () => {
+      mockGitCli.setMockResult('rev-parse stash@{99}', {
+        exitCode: 128,
+        stdout: '',
+        stderr: "fatal: bad revision 'stash@{99}'",
+      });
+      await assert.rejects(
+        () => gitService.stashRename(mockRepo, 99, 'x'),
+        /bad revision/
+      );
+    });
+
+    it('rolls back the duplicate entry if drop fails', async () => {
+      // Make the drop fail; the impl should then attempt to drop stash@{0}
+      // to undo the store.
+      mockGitCli.setMockResult('stash drop stash@{1}', {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'could not drop',
+      });
+
+      await assert.rejects(
+        () => gitService.stashRename(mockRepo, 0, 'x'),
+        /could not drop/
+      );
+
+      // Verify rollback drop ran.
+      const commands = mockGitCli.executedCommands.map((c) => c.args.join(' '));
+      const rollback = commands.lastIndexOf('stash drop stash@{0}');
+      assert.ok(rollback >= 0, `rollback drop stash@{0} must have been attempted, got: ${commands.join(' | ')}`);
+    });
+  });
 });
 
 /**
@@ -2964,12 +3152,12 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
   describe('fetch()', () => {
     describe('Fetch from all remotes', () => {
-      it('should execute git fetch --all when no remote is specified', async () => {
+      it('should execute git fetch --porcelain --all when no remote is specified', async () => {
         await gitService.fetch(mockRepo);
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['fetch', '--all']);
+        assert.deepStrictEqual(lastCommand.args, ['fetch', '--porcelain', '--all']);
       });
 
       it('should pass the correct working directory', async () => {
@@ -2981,7 +3169,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
       });
 
       it('should throw on error when fetch fails', async () => {
-        mockGitCli.setMockResult('fetch --all', {
+        mockGitCli.setMockResult('fetch --porcelain --all', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: unable to access remote',
@@ -3001,7 +3189,7 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['fetch', 'origin']);
+        assert.deepStrictEqual(lastCommand.args, ['fetch', '--porcelain', 'origin']);
       });
 
       it('should fetch from upstream remote', async () => {
@@ -3009,11 +3197,11 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['fetch', 'upstream']);
+        assert.deepStrictEqual(lastCommand.args, ['fetch', '--porcelain', 'upstream']);
       });
 
       it('should throw on error when fetching from non-existent remote', async () => {
-        mockGitCli.setMockResult('fetch nonexistent', {
+        mockGitCli.setMockResult('fetch --porcelain nonexistent', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: 'nonexistent' does not appear to be a git repository",
@@ -5342,12 +5530,12 @@ describe('GitService - Multi-Commit Diff Operations', () => {
     describe('Multiple commits combined diff', () => {
       it('should get commit dates to determine range', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
@@ -5371,19 +5559,19 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
         // Verify commit dates were fetched
         const dateCommands = mockGitCli.executedCommands.filter(
-          (cmd) => cmd.args[0] === 'show' && cmd.args[1] === '-s' && cmd.args[2] === '--format=%cI'
+          (cmd) => cmd.args[0] === 'show' && cmd.args[1] === '-s' && cmd.args[2] === '--format=%cI%x09%P'
         );
         assert.strictEqual(dateCommands.length, 2, 'Should fetch dates for both commits');
       });
 
       it('should compute diff from oldest commit parent to newest commit', async () => {
         // Mock commit date responses - commit2 is older
-        mockGitCli.setMockResult('show -s --format=%cI commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
@@ -5428,17 +5616,17 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
       it('should handle three or more commits', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
           exitCode: 0,
           stdout: '2024-01-20T10:00:00Z\n', // newest
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n', // oldest
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit3', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit3', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n', // middle
           stderr: '',
@@ -5470,12 +5658,12 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
       it('should handle initial commit with no parent', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI initial_commit', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P initial_commit', {
           exitCode: 0,
           stdout: '2024-01-01T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI later_commit', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P later_commit', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
@@ -5508,12 +5696,12 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
       it('should return combined diff with multiple files', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
@@ -5558,12 +5746,12 @@ diff --git a/file2.ts b/file2.ts
 
       it('should pass correct working directory', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
@@ -5597,17 +5785,17 @@ diff --git a/file2.ts b/file2.ts
 
       it('should handle commits in any order', async () => {
         // Mock commit date responses - provide in reverse chronological order
-        mockGitCli.setMockResult('show -s --format=%cI newest', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P newest', {
           exitCode: 0,
           stdout: '2024-01-20T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI middle', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P middle', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI oldest', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P oldest', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
@@ -5640,12 +5828,12 @@ diff --git a/file2.ts b/file2.ts
 
       it('should return empty array when no valid commit info found', async () => {
         // Mock commit date responses - all fail
-        mockGitCli.setMockResult('show -s --format=%cI commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: bad object commit1',
         });
-        mockGitCli.setMockResult('show -s --format=%cI commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: bad object commit2',
@@ -5654,6 +5842,67 @@ diff --git a/file2.ts b/file2.ts
         const diffs = await gitService.getMultiCommitDiff(mockRepo, ['commit1', 'commit2']);
 
         assert.deepStrictEqual(diffs, [], 'Should return empty array for invalid commits');
+      });
+
+      /**
+       * SR-R3 LOW / TR-5: when two commits share a commit date, the sort
+       * must still produce a deterministic (and topologically correct)
+       * oldest/newest pick regardless of input order. A naive
+       * single-key sort would leave the choice up to input ordering,
+       * which the UI cannot control (different selection paths hand the
+       * same two commits over in different orders).
+       */
+      it('SR-R3: same-timestamp commits sort stably and topologically across input permutations', async () => {
+        // Two commits with identical timestamps; "child" lists "parent"
+        // as its git parent, so the range must be
+        //   base = parent^  → diff to child (newest).
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P parent', {
+          exitCode: 0,
+          stdout: '2024-05-01T12:00:00Z\tgrandparent\n',
+          stderr: '',
+        });
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P child', {
+          exitCode: 0,
+          stdout: '2024-05-01T12:00:00Z\tparent\n',
+          stderr: '',
+        });
+        mockGitCli.setMockResult('rev-parse parent^', {
+          exitCode: 0,
+          stdout: 'grandparent\n',
+          stderr: '',
+        });
+        mockGitCli.setMockResult('diff grandparent child', {
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+        // Forward order.
+        await gitService.getMultiCommitDiff(mockRepo, ['parent', 'child']);
+        const forwardDiff = mockGitCli.executedCommands
+          .slice()
+          .reverse()
+          .find((cmd) => cmd.args[0] === 'diff');
+        assert.ok(forwardDiff, 'forward pass should issue a diff command');
+        assert.deepStrictEqual(
+          forwardDiff!.args.slice(0, 3),
+          ['diff', 'grandparent', 'child'],
+          'forward pass should diff from parent^ to the child (newest)'
+        );
+
+        // Reset and rerun with the selection reversed.
+        mockGitCli.clearCommands();
+        await gitService.getMultiCommitDiff(mockRepo, ['child', 'parent']);
+        const reverseDiff = mockGitCli.executedCommands
+          .slice()
+          .reverse()
+          .find((cmd) => cmd.args[0] === 'diff');
+        assert.ok(reverseDiff, 'reverse pass should issue a diff command');
+        assert.deepStrictEqual(
+          reverseDiff!.args.slice(0, 3),
+          ['diff', 'grandparent', 'child'],
+          'reverse pass must produce the same diff range — input order is irrelevant'
+        );
       });
     });
   });
