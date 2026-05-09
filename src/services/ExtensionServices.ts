@@ -8,6 +8,8 @@ import {
   IConfigurationService,
   IConsoleService,
   IConflictResolutionService,
+  IAutoFetchService,
+  IPatchService,
 } from './interfaces';
 import { ConfigurationService } from './ConfigurationService';
 import { GitService } from './GitService';
@@ -17,6 +19,9 @@ import { ChangelistService } from './ChangelistService';
 import { BlameService } from './BlameService';
 import { ConsoleService } from './ConsoleService';
 import { ConflictResolutionService } from './ConflictResolutionService';
+import { AutoFetchService } from './AutoFetchService';
+import { PatchService } from './PatchService';
+import { BlameOptionsSource } from './BlameOptionsSource';
 
 /**
  * Extension services container interface.
@@ -31,6 +36,14 @@ export interface IExtensionServices {
   readonly configurationService: IConfigurationService;
   readonly consoleService: IConsoleService;
   readonly conflictResolutionService: IConflictResolutionService;
+  readonly autoFetchService: IAutoFetchService;
+  readonly patchService: IPatchService;
+  /**
+   * Persistent source of T2-08 blame options (ignoreWhitespace, detect
+   * movements, hidden revisions). Shared by both blame providers and the
+   * menu-command handlers so flag changes trigger a single re-blame.
+   */
+  readonly blameOptionsSource: BlameOptionsSource;
 
   /**
    * Initialize all services
@@ -56,6 +69,9 @@ export class ExtensionServices implements IExtensionServices {
   private _configurationService: IConfigurationService | undefined;
   private _consoleService: ConsoleService | undefined;
   private _conflictResolutionService: IConflictResolutionService | undefined;
+  private _autoFetchService: IAutoFetchService | undefined;
+  private _patchService: IPatchService | undefined;
+  private _blameOptionsSource: BlameOptionsSource | undefined;
 
   private _initialized = false;
   private _disposed = false;
@@ -133,6 +149,33 @@ export class ExtensionServices implements IExtensionServices {
   }
 
   /**
+   * Get the Auto-Fetch service instance
+   * @throws Error if services not initialized
+   */
+  get autoFetchService(): IAutoFetchService {
+    this.ensureInitialized();
+    return this._autoFetchService!;
+  }
+
+  /**
+   * Get the Patch service instance (T1-12).
+   * @throws Error if services not initialized
+   */
+  get patchService(): IPatchService {
+    this.ensureInitialized();
+    return this._patchService!;
+  }
+
+  /**
+   * Get the Blame options source (T2-08).
+   * @throws Error if services not initialized
+   */
+  get blameOptionsSource(): BlameOptionsSource {
+    this.ensureInitialized();
+    return this._blameOptionsSource!;
+  }
+
+  /**
    * Check if services have been initialized
    */
   get isInitialized(): boolean {
@@ -194,6 +237,19 @@ export class ExtensionServices implements IExtensionServices {
       // Provides conflict detection, resolution, and merge/rebase completion
       this._conflictResolutionService = new ConflictResolutionService(this._gitService);
 
+      // Initialize AutoFetchService (T1-03).
+      // Schedules periodic fetches across all open repositories.
+      this._autoFetchService = new AutoFetchService(this._gitService);
+
+      // Initialize PatchService (T1-12).
+      // Wraps git apply / git am / git diff for the Apply Patch + Create
+      // Patch from Local Changes dialogs.
+      this._patchService = new PatchService(this._gitService);
+
+      // T2-08: blame options source backed by workspaceState for persistent
+      // hidden-revision set + config for flag toggles.
+      this._blameOptionsSource = new BlameOptionsSource(context.workspaceState);
+
       // Register the services container with the extension context
       // so it can be accessed by other components
       context.subscriptions.push({
@@ -246,6 +302,12 @@ export class ExtensionServices implements IExtensionServices {
       case 'conflictResolutionService':
         this._conflictResolutionService = service as IConflictResolutionService;
         break;
+      case 'autoFetchService':
+        this._autoFetchService = service as IAutoFetchService;
+        break;
+      case 'patchService':
+        this._patchService = service as IPatchService;
+        break;
       default:
         throw new Error(`Unknown service: ${serviceName}`);
     }
@@ -272,6 +334,10 @@ export class ExtensionServices implements IExtensionServices {
         return this._consoleService !== undefined;
       case 'conflictResolutionService':
         return this._conflictResolutionService !== undefined;
+      case 'autoFetchService':
+        return this._autoFetchService !== undefined;
+      case 'patchService':
+        return this._patchService !== undefined;
       default:
         return false;
     }
@@ -290,6 +356,9 @@ export class ExtensionServices implements IExtensionServices {
 
     // Dispose services in reverse order of dependency
     try {
+      this._blameOptionsSource?.dispose();
+      this._patchService?.dispose();
+      this._autoFetchService?.dispose();
       this._conflictResolutionService?.dispose();
       this._consoleService?.dispose();
       this._blameService?.dispose();
@@ -311,6 +380,9 @@ export class ExtensionServices implements IExtensionServices {
     this._configurationService = undefined;
     this._consoleService = undefined;
     this._conflictResolutionService = undefined;
+    this._autoFetchService = undefined;
+    this._patchService = undefined;
+    this._blameOptionsSource = undefined;
 
     this._disposed = true;
     this._initialized = false;
@@ -343,6 +415,8 @@ interface IServiceMap {
   configurationService: IConfigurationService;
   consoleService: IConsoleService;
   conflictResolutionService: IConflictResolutionService;
+  autoFetchService: IAutoFetchService;
+  patchService: IPatchService;
 }
 
 /**
