@@ -498,11 +498,13 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (T2-01 per-fil
                 );
 
                 // Collect the path from the right URI for coverage assertion.
-                for (const expected of expectedPaths) {
-                  if (call.rightUri.fsPath.endsWith(expected)) {
-                    actualPaths.add(expected);
-                    break;
-                  }
+                // Use exact relative-path match rather than endsWith() — otherwise
+                // paths like ["V", "aV", "a"] produce non-deterministic matches
+                // because "/test-repo/aV".endsWith("V") is true (surfaces only
+                // under the 10x stress runner; fast-check shrinks to this shape).
+                const rel = call.rightUri.fsPath.replace(/^\/test-repo[\\/]/, '');
+                if (expectedPaths.has(rel)) {
+                  actualPaths.add(rel);
                 }
               }
 
@@ -518,6 +520,53 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (T2-01 per-fil
           }
         ),
         { numRuns: 50 }
+      );
+    });
+
+    /**
+     * Pinned regression: surfaced by the 10x property stress runner.
+     * Input ["a", [{path:"V"}, {path:"aV"}, {path:"a"}]] caused the original
+     * endsWith() matching loop to skip "aV" because "/test-repo/aV".endsWith("V")
+     * is true and the inner for-loop broke on first hit. Fixed by matching on
+     * the exact repo-relative path instead.
+     */
+    it('pinned: paths where one is a suffix of another are all counted', async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.constant('a'),
+          fc.constant<IRefDiffFile[]>([
+            { path: 'V', status: 'M' },
+            { path: 'aV', status: 'A' },
+            { path: 'a', status: 'D' },
+          ]),
+          async (branchName, changedFiles) => {
+            const { diffCalls, restore } = installStubs((items) => [...items]);
+            try {
+              const gitService = createMockGitService(changedFiles);
+              const provider = createMockBranchTreeProvider(gitService);
+              const commands = new BranchContextMenuCommands(gitService, provider);
+              const item = createBranchTreeItem(branchName, 'local');
+              await (
+                commands as unknown as {
+                  _handleShowDiffWithWorkingTree: (i: BranchTreeItem) => Promise<void>;
+                }
+              )._handleShowDiffWithWorkingTree(item);
+              assert.strictEqual(diffCalls.length, changedFiles.length);
+              const expectedPaths = new Set(changedFiles.map((f) => f.path));
+              const actualPaths = new Set<string>();
+              for (const call of diffCalls) {
+                const rel = call.rightUri.fsPath.replace(/^\/test-repo[\\/]/, '');
+                if (expectedPaths.has(rel)) {
+                  actualPaths.add(rel);
+                }
+              }
+              assert.strictEqual(actualPaths.size, expectedPaths.size);
+            } finally {
+              restore();
+            }
+          }
+        ),
+        { numRuns: 1 }
       );
     });
   });
