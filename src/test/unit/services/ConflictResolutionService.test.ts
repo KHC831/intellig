@@ -434,4 +434,95 @@ describe('ConflictResolutionService', () => {
       assert.doesNotThrow(() => conflictService.dispose());
     });
   });
+
+  describe('per-repo conflicts-active state (multi-root)', () => {
+    // LOW-3 regression: the aggregate `intellig.conflicts.active` context key
+    // must reflect "any repo conflicted" across multiple roots. A single-bool
+    // impl would let one repo's clean state stomp another repo's conflicted
+    // state depending on watcher firing order.
+    it('aggregate stays true while any repo still reports conflicts', async () => {
+      const repoA: IRepository = {
+        rootUri: vscode.Uri.file('/mock/repo-A'),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      };
+      const repoB: IRepository = {
+        rootUri: vscode.Uri.file('/mock/repo-B'),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      };
+
+      // Mark repo A conflicted.
+      await (
+        conflictService as unknown as {
+          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+        }
+      )._setConflictsActive(repoA, true);
+      assert.strictEqual(conflictService.getConflictsActive(), true);
+      assert.strictEqual(conflictService.getConflictsActiveForRepo(repoA), true);
+      assert.strictEqual(conflictService.getConflictsActiveForRepo(repoB), false);
+
+      // Mark repo B conflicted as well.
+      await (
+        conflictService as unknown as {
+          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+        }
+      )._setConflictsActive(repoB, true);
+      assert.strictEqual(conflictService.getConflictsActive(), true);
+
+      // Clear repo B — aggregate should STAY true because repo A is still
+      // conflicted. This is the bug the old single-bool impl hit.
+      await (
+        conflictService as unknown as {
+          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+        }
+      )._setConflictsActive(repoB, false);
+      assert.strictEqual(
+        conflictService.getConflictsActive(),
+        true,
+        'aggregate must remain true while repo A still has conflicts'
+      );
+      assert.strictEqual(conflictService.getConflictsActiveForRepo(repoA), true);
+      assert.strictEqual(conflictService.getConflictsActiveForRepo(repoB), false);
+
+      // Clear repo A — now aggregate flips to false.
+      await (
+        conflictService as unknown as {
+          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+        }
+      )._setConflictsActive(repoA, false);
+      assert.strictEqual(conflictService.getConflictsActive(), false);
+    });
+
+    it('per-repo snapshot is independent for each root', async () => {
+      const repoA: IRepository = {
+        rootUri: vscode.Uri.file('/mock/repo-A'),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      };
+      const repoB: IRepository = {
+        rootUri: vscode.Uri.file('/mock/repo-B'),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      };
+
+      await (
+        conflictService as unknown as {
+          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+        }
+      )._setConflictsActive(repoA, true);
+      await (
+        conflictService as unknown as {
+          _setConflictsActive: (repo: IRepository, active: boolean) => Promise<void>;
+        }
+      )._setConflictsActive(repoB, false);
+
+      assert.strictEqual(conflictService.getConflictsActiveForRepo(repoA), true);
+      assert.strictEqual(conflictService.getConflictsActiveForRepo(repoB), false);
+    });
+  });
 });
