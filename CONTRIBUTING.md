@@ -75,6 +75,29 @@ npm run watch
 # Then press F5 in VS Code to launch the Extension Development Host.
 ```
 
+## Release Dogfood
+
+Before declaring an extension change done, press F5 (see [Local Development](#local-development)) to launch the Extension Development Host and verify each of the following. Automated tests do not cover runtime behavior like idle-loop detection, CPU usage, or UX regressions.
+
+1. **Activation is silent.** Open a workspace with a git repo. Wait 60 seconds. The dev-host console and the Git Output channel must show activation messages only once and stay quiet afterward. Repeating subprocess spam (`Git: status`, `Git: log` cycling) indicates a refresh loop — do not ship.
+
+2. **CPU settles.** After activation, switch to the dev host and do nothing for 30 seconds. Check Activity Monitor / Task Manager for the extension host process. CPU should drop to near-zero when idle.
+
+3. **Golden-path features work.** Run one command from each major area:
+   - Log tab: open the Git tool window; commits render.
+   - Branch menu: right-click a branch → "Show Diff with Working Tree" opens diff tabs.
+   - Commit tool window (if `intellig.useCommitToolWindow` is on): Local Changes + Shelf tabs render.
+   - Push/pull: `IntelliG: Push` and `IntelliG: Pull` work against a test remote.
+   - Rebase: interactive rebase of the last 2 commits opens the editor; pick/squash succeed.
+   - Stash: `IntelliG: Stash Changes`, then `IntelliG: Show Shelf List`.
+   - Conflicts: create a merge conflict (`git merge <conflicting-branch>`); the resolve dialog opens; "Accept Yours" / "Accept Theirs" / "Abort" each succeed.
+
+4. **Flags toggle cleanly.** Toggle `intellig.useCommitToolWindow` and `intellig.useTabbedGitToolWindow` off → on → off. Views rebind without activation errors or stale state.
+
+5. **Deactivation is clean.** Close the dev host. It exits within ~2 seconds. No orphaned `node` processes in Activity Monitor.
+
+If any of the above fails: do not ship.
+
 ## Packaging
 
 ```bash
