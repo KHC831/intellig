@@ -71,10 +71,60 @@ export class GitService implements IGitService {
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   private _onDidFetch: vscode.EventEmitter<{ repo: IRepository; result: IFetchResult }>;
   private _disposables: vscode.Disposable[] = [];
-  private _fileWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
+  /**
+   * File watchers per repository root. One root may have multiple watchers
+   * because we watch a narrow allow-list of `.git/` entries (HEAD, index,
+   * refs/**, packed-refs, in-progress markers) rather than a single `**\/*`
+   * glob — the broad glob causes a refresh loop because every `git status`
+   * / `git log` / `git rev-parse` touches `.git/index`, `.git/logs/**`, or
+   * `.git/objects/**`, re-triggering the watcher → `loadRepository` → the
+   * same git reads again.
+   */
+  private _fileWatchers: Map<string, vscode.FileSystemWatcher[]> = new Map();
+  /** Per-rootPath debounce timers for coalescing watcher event bursts. */
+  private _refreshTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  /** In-flight `loadRepository` promises, keyed by rootPath. */
+  private _reloading: Map<string, Promise<IRepository>> = new Map();
 
   /** Cache TTL in milliseconds (5 seconds) */
   private static readonly CACHE_TTL = 5000;
+
+  /**
+   * Debounce window for coalescing watcher bursts before triggering a
+   * repository refresh. 250 ms matches the VS Code built-in git extension's
+   * debounce and is long enough to absorb the stream of `.git/index` /
+   * `.git/refs/**` writes a single user-visible operation (commit, fetch,
+   * checkout) produces while still feeling responsive.
+   */
+  private static readonly WATCHER_DEBOUNCE_MS = 250;
+
+  /**
+   * Narrow allow-list of `.git/` entries we react to. Ordered roughly by
+   * hit frequency; each entry becomes its own `FileSystemWatcher` with a
+   * `RelativePattern(gitDir, entry)` glob.
+   *
+   * Deliberately EXCLUDED:
+   *  - `objects/**` — every git read/write touches this; watching it causes
+   *    an infinite refresh loop.
+   *  - `logs/**` — reflog updates fire on every command; no user-visible
+   *    state the UI needs to re-render.
+   *  - `FETCH_HEAD` — redundant with `onDidFetch` which fires when our own
+   *    `fetch()` call completes.
+   *  - `ORIG_HEAD` — a side-effect file written by reset/merge; the real
+   *    branch change is captured by HEAD/refs/** which we already watch.
+   */
+  private static readonly WATCHED_GIT_PATTERNS: readonly string[] = [
+    'HEAD',
+    'index',
+    'refs/**',
+    'packed-refs',
+    'MERGE_HEAD',
+    'CHERRY_PICK_HEAD',
+    'REVERT_HEAD',
+    'BISECT_LOG',
+    'rebase-merge/**',
+    'rebase-apply/**',
+  ];
 
   /**
    * Event fired when a repository changes
@@ -301,7 +351,18 @@ export class GitService implements IGitService {
   }
 
   /**
-   * Set up a file watcher for repository changes.
+   * Set up file watchers for repository changes.
+   *
+   * This installs one `FileSystemWatcher` per entry in
+   * {@link GitService.WATCHED_GIT_PATTERNS}. All watchers feed into a
+   * single debounced handler that:
+   *   1. Coalesces bursts (typical: a user commit writes `index`, `HEAD`,
+   *      and several `refs/**` entries back-to-back) into one refresh.
+   *   2. Guards against self-triggered reloads — if a `loadRepository`
+   *      call is still in flight when the debounce fires, we wait for
+   *      that call before re-debouncing. This prevents the refresh loop
+   *      where the reload's own git subprocesses cause more watcher
+   *      events that fire while the reload is still running.
    *
    * @param rootPath - The repository root path
    */
@@ -310,24 +371,67 @@ export class GitService implements IGitService {
       return;
     }
 
-    // Watch for changes in .git directory
     const gitDir = vscode.Uri.file(`${rootPath}/.git`);
-    const pattern = new vscode.RelativePattern(gitDir, '**/*');
-    const watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
     const handleChange = (): void => {
-      this.invalidateCache(rootPath);
-      void this.loadRepository(rootPath).then((repo) => {
-        this._onDidChangeRepository.fire(repo);
-      });
+      const existing = this._refreshTimers.get(rootPath);
+      if (existing) {
+        clearTimeout(existing);
+      }
+      const timer = setTimeout(() => {
+        this._refreshTimers.delete(rootPath);
+        // If a reload is already in flight, chain onto it and re-debounce
+        // the trailing-edge event. This is the in-flight guard that breaks
+        // the self-triggered refresh loop: we never start a second reload
+        // while the first is still running.
+        const inFlight = this._reloading.get(rootPath);
+        if (inFlight) {
+          void inFlight.finally(() => {
+            handleChange();
+          });
+          return;
+        }
+        void this._performDebouncedRefresh(rootPath);
+      }, GitService.WATCHER_DEBOUNCE_MS);
+      this._refreshTimers.set(rootPath, timer);
     };
 
-    watcher.onDidChange(handleChange);
-    watcher.onDidCreate(handleChange);
-    watcher.onDidDelete(handleChange);
+    const watchers: vscode.FileSystemWatcher[] = [];
+    for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(gitDir, pattern)
+      );
+      watcher.onDidChange(handleChange);
+      watcher.onDidCreate(handleChange);
+      watcher.onDidDelete(handleChange);
+      watchers.push(watcher);
+      this._disposables.push(watcher);
+    }
 
-    this._fileWatchers.set(rootPath, watcher);
-    this._disposables.push(watcher);
+    this._fileWatchers.set(rootPath, watchers);
+  }
+
+  /**
+   * Execute the debounced refresh: invalidate cache, reload, fire the
+   * repository-change event. Records the in-flight promise so concurrent
+   * watcher bursts can chain onto it rather than stacking.
+   *
+   * Errors are swallowed (logged to stderr) — a transient git failure
+   * must not crash the watcher callback chain, or we'd silently stop
+   * reacting to future file changes.
+   */
+  private async _performDebouncedRefresh(rootPath: string): Promise<void> {
+    this.invalidateCache(rootPath);
+    const reload = this.loadRepository(rootPath);
+    this._reloading.set(rootPath, reload);
+    try {
+      const repo = await reload;
+      this._onDidChangeRepository.fire(repo);
+    } catch (err) {
+      console.error(`GitService: repository reload for ${rootPath} failed:`, err);
+    } finally {
+      this._reloading.delete(rootPath);
+    }
   }
 
   /**
@@ -336,11 +440,19 @@ export class GitService implements IGitService {
    * @param rootPath - The repository root path
    */
   private removeRepositoryWatcher(rootPath: string): void {
-    const watcher = this._fileWatchers.get(rootPath);
-    if (watcher) {
-      watcher.dispose();
+    const watchers = this._fileWatchers.get(rootPath);
+    if (watchers) {
+      for (const watcher of watchers) {
+        watcher.dispose();
+      }
       this._fileWatchers.delete(rootPath);
     }
+    const timer = this._refreshTimers.get(rootPath);
+    if (timer) {
+      clearTimeout(timer);
+      this._refreshTimers.delete(rootPath);
+    }
+    this._reloading.delete(rootPath);
     this._repositories.delete(rootPath);
   }
 
@@ -1955,10 +2067,18 @@ export class GitService implements IGitService {
     this._onDidFetch.dispose();
     this._gitCli.dispose();
 
-    for (const watcher of this._fileWatchers.values()) {
-      watcher.dispose();
+    for (const watchers of this._fileWatchers.values()) {
+      for (const watcher of watchers) {
+        watcher.dispose();
+      }
     }
     this._fileWatchers.clear();
+
+    for (const timer of this._refreshTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._refreshTimers.clear();
+    this._reloading.clear();
 
     for (const disposable of this._disposables) {
       disposable.dispose();

@@ -136,6 +136,32 @@ export interface WorkspaceConfiguration {
 // Configuration change event listeners
 const configChangeListeners: ((e: ConfigurationChangeEvent) => void)[] = [];
 
+/**
+ * Test-only registry of active FileSystemWatcher mocks. Tests can read this
+ * to assert which patterns a service subscribed to and to synthesize
+ * `onDidChange` / `onDidCreate` / `onDidDelete` events without having to go
+ * through the real VS Code API.
+ *
+ * Exposed via {@link getCreatedFileSystemWatchers}.
+ */
+interface IMockFileSystemWatcher extends FileSystemWatcher {
+  _pattern: string | RelativePattern;
+  _fireCreate: (uri: Uri) => void;
+  _fireChange: (uri: Uri) => void;
+  _fireDelete: (uri: Uri) => void;
+}
+
+const createdFileSystemWatchers: IMockFileSystemWatcher[] = [];
+
+/**
+ * Return a snapshot of all currently-active FileSystemWatcher mocks.
+ * Tests use this to verify subscription patterns and to fire synthetic
+ * change events against the watchers a service installed.
+ */
+export function getCreatedFileSystemWatchers(): IMockFileSystemWatcher[] {
+  return [...createdFileSystemWatchers];
+}
+
 // Mock ConfigurationChangeEvent
 export interface ConfigurationChangeEvent {
   affectsConfiguration(section: string, scope?: unknown): boolean;
@@ -209,7 +235,7 @@ export const workspace = {
   },
 
   createFileSystemWatcher(
-    _globPattern: string,
+    globPattern: string | RelativePattern,
     _ignoreCreateEvents?: boolean,
     _ignoreChangeEvents?: boolean,
     _ignoreDeleteEvents?: boolean
@@ -218,7 +244,16 @@ export const workspace = {
     const changeEmitter = new EventEmitter<Uri>();
     const deleteEmitter = new EventEmitter<Uri>();
 
-    return {
+    const watcher: FileSystemWatcher & {
+      _pattern: string | RelativePattern;
+      _fireCreate: (uri: Uri) => void;
+      _fireChange: (uri: Uri) => void;
+      _fireDelete: (uri: Uri) => void;
+    } = {
+      _pattern: globPattern,
+      _fireCreate: (uri: Uri): void => createEmitter.fire(uri),
+      _fireChange: (uri: Uri): void => changeEmitter.fire(uri),
+      _fireDelete: (uri: Uri): void => deleteEmitter.fire(uri),
       onDidCreate: createEmitter.event,
       onDidChange: changeEmitter.event,
       onDidDelete: deleteEmitter.event,
@@ -226,8 +261,15 @@ export const workspace = {
         createEmitter.dispose();
         changeEmitter.dispose();
         deleteEmitter.dispose();
+        const idx = createdFileSystemWatchers.indexOf(watcher);
+        if (idx >= 0) {
+          createdFileSystemWatchers.splice(idx, 1);
+        }
       },
     };
+
+    createdFileSystemWatchers.push(watcher);
+    return watcher;
   },
 
   onDidChangeTextDocument(_listener: (e: unknown) => void): { dispose: () => void } {
@@ -264,6 +306,25 @@ export interface FileSystemWatcher {
   onDidChange: Event<Uri>;
   onDidDelete: Event<Uri>;
   dispose(): void;
+}
+
+// Mock RelativePattern — minimal shape consumed by createFileSystemWatcher
+// and by tests that inspect the pattern after it's been passed in.
+export class RelativePattern {
+  readonly baseUri: Uri;
+  readonly base: string;
+  readonly pattern: string;
+
+  constructor(base: Uri | string, pattern: string) {
+    if (typeof base === 'string') {
+      this.base = base;
+      this.baseUri = Uri.file(base);
+    } else {
+      this.baseUri = base;
+      this.base = base.fsPath;
+    }
+    this.pattern = pattern;
+  }
 }
 
 // Mock WebviewViewProvider
