@@ -7,9 +7,12 @@ import * as vscode from 'vscode';
 import { IStash, IStashOptions, IDiff, IRepository } from './IGitService';
 
 /**
- * Stash context menu action types
+ * Stash context menu action types.
+ *
+ * T2-09 adds `'branch'` (git stash branch) and `'rename'` (rewrite the stash
+ * message via `git stash store` plumbing).
  */
-export type StashContextAction = 'apply' | 'pop' | 'drop' | 'view';
+export type StashContextAction = 'apply' | 'pop' | 'drop' | 'view' | 'branch' | 'rename';
 
 /**
  * Result from stash creation dialog
@@ -136,6 +139,24 @@ export interface IStashView {
    * @returns Promise resolving to the action result
    */
   dropStash(index: number): Promise<IStashActionResult>;
+
+  /**
+   * Create a branch from a stash. Prompts for the branch name, then wraps
+   * {@link IGitService.stashBranch}. T2-09.
+   *
+   * @param index - The stash index to branch from
+   * @returns Promise resolving to the action result
+   */
+  branchFromStash(index: number): Promise<IStashActionResult>;
+
+  /**
+   * Rename a stash. Prompts for the new message, then wraps
+   * {@link IGitService.stashRename}. T2-09.
+   *
+   * @param index - The stash index to rename
+   * @returns Promise resolving to the action result
+   */
+  renameStash(index: number): Promise<IStashActionResult>;
 
   /**
    * View a stash's contents as diff.

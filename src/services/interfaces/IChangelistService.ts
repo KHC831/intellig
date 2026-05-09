@@ -18,6 +18,12 @@ export interface IChangelist {
   id: string;
   name: string;
   isDefault: boolean;
+  /**
+   * Optional free-form description shown in the changelist tree / edit dialog.
+   * Introduced in storage schema v2. Absent when migrating from v1 storage
+   * until the first save after migration.
+   */
+  description?: string;
   files: IFileChange[];
 }
 
@@ -55,6 +61,49 @@ export interface IChangelistService {
    * Get the default changelist (always exists)
    */
   getDefaultChangelist(repo: IRepository): IChangelist;
+
+  /**
+   * Set the active changelist for the given repository.
+   * The active changelist is used as the default target for new file
+   * assignments made through the UI.
+   *
+   * @param repo - The repository
+   * @param id - ID of the changelist to mark active. Must reference an
+   *   existing changelist; otherwise an error is thrown.
+   */
+  setActiveChangelist(repo: IRepository, id: string): Promise<void>;
+
+  /**
+   * Get the currently active changelist for the given repository.
+   * Falls back to the default changelist if no active id has been set.
+   */
+  getActiveChangelist(repo: IRepository): Promise<IChangelist>;
+
+  /**
+   * Reconcile the stored changelist assignments with the current git
+   * working-tree status. Git status is the source of truth for which
+   * files are dirty; storage only holds path → changelistId overlays.
+   *
+   * Steps (see cluster-C-tool-windows.md §4.4):
+   *  a. fetch current git status
+   *  b. prune storage entries whose path is no longer dirty
+   *  c. add any missing dirty-file entries to the default changelist
+   *  d. persist
+   *  e. fire {@link onDidChangeChangelists}
+   *
+   * Concurrent calls for the same repository coalesce to a single
+   * in-flight reconcile.
+   */
+  reconcileWithGitStatus(repo: IRepository): Promise<void>;
+
+  /**
+   * Return the changelist id that owns the given working-tree path,
+   * or `undefined` if the path is not tracked by any changelist.
+   *
+   * Paths are compared as-stored (no case normalization) to match
+   * git's behavior on the current platform.
+   */
+  getChangelistForFile(repo: IRepository, filePath: string): Promise<string | undefined>;
 
   /**
    * Event fired when changelists change

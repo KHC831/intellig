@@ -59,3 +59,9 @@ export * from './INotificationService';
 
 // Keymap Service
 export * from './IKeymapService';
+
+// Auto-Fetch Service
+export * from './IAutoFetchService';
+
+// Patch Service
+export * from './IPatchService';

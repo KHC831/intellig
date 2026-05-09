@@ -2,6 +2,30 @@ import * as vscode from 'vscode';
 import { IRepository } from './IGitService';
 
 /**
+ * Operation context carried through a conflict-producing git op. Describes the
+ * operation that produced the conflicts and which top-level actions are
+ * available to the user. Consumed by the Resolve Conflicts dialog and its
+ * callers.
+ */
+export interface IConflictOpContext {
+  /** Which git operation produced these conflicts. */
+  operation:
+    | 'merge'
+    | 'rebase'
+    | 'cherryPick'
+    | 'revert'
+    | 'unshelve'
+    | 'unstash'
+    | 'applyPatch';
+  /** Optional human-readable target (branch, tag, shelf name…) shown in the title. */
+  target?: string;
+  /** Whether the `Abort {Op}` button should be available. */
+  canAbort: boolean;
+  /** Whether the `Continue` button should be available. */
+  canContinue: boolean;
+}
+
+/**
  * Conflicted file information
  */
 export interface IConflictedFile {
@@ -160,6 +184,22 @@ export interface IConflictResolutionService {
    * Event fired when conflicts change
    */
   onDidChangeConflicts: vscode.Event<{ repo: IRepository; conflicts: IConflictedFile[] }>;
+
+  /**
+   * Open (or reveal + update) the Resolve Conflicts dialog for a repository.
+   * Invoked by callers that just completed a conflict-producing git op
+   * (merge / rebase / cherry-pick / revert / unshelve / unstash) — see
+   * caller-invoked pattern in design REVIEW.md §1.5.
+   *
+   * When the `intellig.autoOpenResolveConflictsDialog` config is `false`,
+   * this method only publishes the `intellig.conflicts.active` context key
+   * (driving the status-bar prompt) and does not open a dialog.
+   */
+  openResolveConflictsDialog(
+    repo: IRepository,
+    conflicts: IConflictedFile[],
+    opContext: IConflictOpContext
+  ): Promise<void>;
 
   /**
    * Dispose of resources

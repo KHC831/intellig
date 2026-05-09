@@ -9,8 +9,21 @@ import { IShelfItem, IShelveSelection, IUnshelveOptions } from './IShelfService'
 
 /**
  * Shelf context menu action types
+ *
+ * T2-10 additions:
+ *  - `unshelveSilent`: Ctrl+Alt+U path, applies with default removeFromShelf.
+ *  - `rename`: Rename… → prompts for new name.
+ *  - `restore`: available only when the entry is Already-Unshelved.
+ *  - `createPatch`: export the entry via PatchService.
  */
-export type ShelfContextAction = 'unshelve' | 'view' | 'delete';
+export type ShelfContextAction =
+  | 'unshelve'
+  | 'unshelveSilent'
+  | 'view'
+  | 'delete'
+  | 'rename'
+  | 'restore'
+  | 'createPatch';
 
 /**
  * Result from shelve dialog
