@@ -8,6 +8,7 @@ import {
   IShelveSelection,
   IUnshelveOptions,
   IUnshelveResult,
+  IImportPatchOptions,
 } from './interfaces/IShelfService';
 import { IRepository, IDiff, IHunk } from './interfaces/IGitService';
 import { GitCli, createGitCli } from '../utils/gitCli';
@@ -16,8 +17,12 @@ import { parseDiff } from '../utils/gitParser';
 /**
  * Shelf storage file format version.
  * Increment this when making breaking changes to the storage format.
+ *
+ * v1: initial format (id, name, timestamp, files).
+ * v2 (T2-10): adds optional `unshelvedAt` to mark Already-Unshelved entries.
+ *   Backward-compat: v1 files load as v2 with `unshelvedAt` absent.
  */
-const SHELF_STORAGE_VERSION = 1;
+const SHELF_STORAGE_VERSION = 2;
 
 /**
  * Shelf storage file name.
@@ -41,6 +46,8 @@ interface IShelfStorageItem {
   name: string;
   timestamp: number;
   files: IShelfStorageFile[];
+  /** v2 (T2-10): epoch ms of successful unshelve, if the entry is Already-Unshelved. */
+  unshelvedAt?: number;
 }
 
 /**
@@ -180,6 +187,9 @@ export class ShelfService implements IShelfService {
     }
 
     const conflicts: string[] = [];
+    // T2-10: track files that applied cleanly so removeAppliedFiles can
+    // prune just those paths.
+    const appliedCleanly: string[] = [];
 
     // Apply each file's diff
     for (const file of shelfItem.files) {
@@ -203,18 +213,35 @@ export class ShelfService implements IShelfService {
 
             if (fallbackResult.exitCode !== 0) {
               conflicts.push(file.path);
+            } else {
+              appliedCleanly.push(file.path);
             }
           }
+        } else {
+          appliedCleanly.push(file.path);
         }
       } catch {
         conflicts.push(file.path);
       }
     }
 
-    // Remove from shelf if requested (default is true)
-    const removeFromShelf = options?.removeFromShelf !== false;
-    if (removeFromShelf && conflicts.length === 0) {
-      this.deleteShelfItem(repo, shelfId);
+    // T2-10: honor removeAppliedFiles — prune cleanly-applied files from
+    // the entry and delete the entry if nothing remains. This path takes
+    // precedence over removeFromShelf because it is strictly more granular.
+    const removeAppliedFiles = options?.removeAppliedFiles === true;
+    if (removeAppliedFiles && appliedCleanly.length > 0) {
+      const remaining = shelfItem.files.map((f) => f.path).filter((p) => !appliedCleanly.includes(p));
+      this.filterShelfFiles(repo, shelfId, remaining);
+    } else {
+      // Standard removeFromShelf semantics (default is true).
+      const removeFromShelf = options?.removeFromShelf !== false;
+      if (removeFromShelf && conflicts.length === 0) {
+        this.deleteShelfItem(repo, shelfId);
+      } else if (conflicts.length === 0) {
+        // T2-10: kept on shelf but fully applied → mark as
+        // Already-Unshelved so the default filter elides it.
+        this.markAsUnshelved(repo, shelfId);
+      }
     }
 
     // Fire change event
@@ -278,6 +305,152 @@ export class ShelfService implements IShelfService {
     // Fire change event
     const items = this.getShelfItems(repo);
     this._onDidChangeShelf.fire(items);
+  }
+
+  // ===========================================================================
+  // T2-10 additions: rename / importPatch / markAsUnshelved / restoreShelf /
+  // filterShelfFiles.
+  // ===========================================================================
+
+  /**
+   * Rename a shelf entry. Throws when the entry does not exist.
+   */
+  renameShelf(repo: IRepository, shelfId: string, newName: string): void {
+    const storage = this.loadShelfStorage(repo);
+    const item = storage.items.find((i) => i.id === shelfId);
+    if (!item) {
+      throw new Error(`Shelf item not found: ${shelfId}`);
+    }
+    const trimmed = newName.trim();
+    if (trimmed.length === 0) {
+      throw new Error('Shelf name cannot be empty');
+    }
+    item.name = trimmed;
+    this.saveShelfStorage(repo, storage);
+
+    // Invalidate cache and fire event.
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+  }
+
+  /**
+   * Import a `.patch` / `.diff` file (or inline patch text) as a new shelf
+   * entry. The patch's body is captured verbatim as the entry's single
+   * file's diff so subsequent unshelve applies it through the standard
+   * `git apply` path.
+   *
+   * The entry is added in an "unapplied" state (no working-tree mutation);
+   * callers typically follow with unshelve when they want to actually apply.
+   */
+  async importPatch(repo: IRepository, options: IImportPatchOptions): Promise<IShelfItem> {
+    if (!options.patchPath && options.patchContent === undefined) {
+      throw new Error('importPatch: either patchPath or patchContent is required');
+    }
+    if (options.patchPath && options.patchContent !== undefined) {
+      throw new Error('importPatch: patchPath and patchContent are mutually exclusive');
+    }
+
+    let content: string;
+    if (options.patchPath) {
+      content = await fs.promises.readFile(options.patchPath, 'utf-8');
+    } else {
+      content = options.patchContent!;
+    }
+    if (content.trim().length === 0) {
+      throw new Error('importPatch: patch content is empty');
+    }
+
+    const name =
+      options.name?.trim() ||
+      (options.patchPath ? path.basename(options.patchPath) : 'Imported patch');
+
+    // The patch may touch multiple files, but storage currently keys each
+    // shelf file by its repo-relative path. For the MVP we store the entire
+    // patch body under a synthetic `imported-patch` path; git apply reads
+    // the file headers from the diff itself, so the synthetic path doesn't
+    // affect the apply behavior.
+    const shelfItem: IShelfItem = {
+      id: this.generateShelfId(),
+      name,
+      timestamp: new Date(),
+      files: [{ path: 'imported-patch', diff: content }],
+    };
+
+    this.saveShelfItem(repo, shelfItem);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+
+    return shelfItem;
+  }
+
+  /**
+   * Mark a shelf entry as successfully applied. Idempotent.
+   */
+  markAsUnshelved(repo: IRepository, shelfId: string): void {
+    const storage = this.loadShelfStorage(repo);
+    const item = storage.items.find((i) => i.id === shelfId);
+    if (!item) {
+      return; // Idempotent — silently no-op when the entry is already gone.
+    }
+    if (item.unshelvedAt !== undefined) {
+      return;
+    }
+    item.unshelvedAt = Date.now();
+    this.saveShelfStorage(repo, storage);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+  }
+
+  /**
+   * Re-activate an Already-Unshelved entry. Idempotent.
+   */
+  restoreShelf(repo: IRepository, shelfId: string): void {
+    const storage = this.loadShelfStorage(repo);
+    const item = storage.items.find((i) => i.id === shelfId);
+    if (!item) {
+      return;
+    }
+    if (item.unshelvedAt === undefined) {
+      return;
+    }
+    item.unshelvedAt = undefined;
+    this.saveShelfStorage(repo, storage);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+  }
+
+  /**
+   * Remove every file from a shelf entry whose path is NOT in
+   * `remainingPaths`. If the resulting entry has zero files the whole
+   * entry is deleted.
+   *
+   * @returns the updated entry, or `undefined` when it was deleted.
+   */
+  filterShelfFiles(
+    repo: IRepository,
+    shelfId: string,
+    remainingPaths: string[]
+  ): IShelfItem | undefined {
+    const storage = this.loadShelfStorage(repo);
+    const index = storage.items.findIndex((i) => i.id === shelfId);
+    if (index < 0) {
+      return undefined;
+    }
+    const retainSet = new Set(remainingPaths);
+    const item = storage.items[index];
+    item.files = item.files.filter((f) => retainSet.has(f.path));
+    if (item.files.length === 0) {
+      storage.items.splice(index, 1);
+      this.saveShelfStorage(repo, storage);
+      this._shelfCache.delete(this.getRepoKey(repo));
+      this._onDidChangeShelf.fire(this.getShelfItems(repo));
+      return undefined;
+    }
+    this.saveShelfStorage(repo, storage);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    const updated = this.storageItemToShelfItem(item);
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+    return updated;
   }
 
   /**
@@ -425,6 +598,7 @@ export class ShelfService implements IShelfService {
         originalContent: '', // Not storing original content for now
         patchContent: file.diff,
       })),
+      unshelvedAt: item.unshelvedAt?.getTime(),
     };
 
     // Add to storage
@@ -452,12 +626,18 @@ export class ShelfService implements IShelfService {
         const content = fs.readFileSync(storagePath, 'utf8');
         const storage = JSON.parse(content) as IShelfStorage;
 
-        // Validate version
+        // Validate version. v1 → v2 is a pure additive migration: new
+        // optional `unshelvedAt` field. Entries without the field simply
+        // remain "not yet unshelved". Re-tag the version in-place so the
+        // next save writes the current schema.
         if (storage.version !== SHELF_STORAGE_VERSION) {
-          // Handle version migration if needed
-          console.warn(
-            `Shelf storage version mismatch: expected ${SHELF_STORAGE_VERSION}, got ${storage.version}`
-          );
+          if (storage.version === 1) {
+            storage.version = SHELF_STORAGE_VERSION;
+          } else {
+            console.warn(
+              `Shelf storage version mismatch: expected ${SHELF_STORAGE_VERSION}, got ${storage.version}`
+            );
+          }
         }
 
         return storage;
@@ -523,6 +703,8 @@ export class ShelfService implements IShelfService {
         path: file.path,
         diff: file.patchContent,
       })),
+      unshelvedAt:
+        storageItem.unshelvedAt !== undefined ? new Date(storageItem.unshelvedAt) : undefined,
     };
   }
 

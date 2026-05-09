@@ -6,6 +6,24 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IDiff, IHunk, ICommitOptions } from './interfaces/IGitService';
+import {
+  RECENT_MESSAGES_STATE_KEY,
+  updateRecentMessagesLru,
+} from './CommitToolWindow';
+import { generateNonce } from '../utils/webviewNonce';
+
+/**
+ * workspaceState key persisting the gear-menu `--no-verify` toggle so it
+ * survives between dialog invocations.
+ */
+export const LAST_NO_VERIFY_STATE_KEY = 'intellig.commit.lastNoVerify';
+
+/**
+ * Configuration key for the optional default author override.
+ * When set to a valid `Name <email>` string, the CommitDialog pre-fills
+ * the author field on open; the user can still edit or clear it.
+ */
+export const COMMIT_AUTHOR_CONFIG_KEY = 'commitAuthor';
 
 /**
  * Options for opening the commit dialog
@@ -42,6 +60,143 @@ interface IStagedFile {
 }
 
 /**
+ * Options for {@link performCommit}.
+ *
+ * T1-04 extracted the commit-execution body of {@link CommitDialog._handleCommit}
+ * into a standalone helper so the new {@link CommitToolWindow} (WebviewView-based
+ * Commit surface) can call the exact same code path. Behavior must be identical
+ * — only the UI wrapper differs.
+ */
+export interface IPerformCommitOptions {
+  /** Non-empty commit message. Caller must validate before invoking. */
+  message: string;
+  /** Paths the user wants included in this commit (a mix of staged + unstaged). */
+  selectedFiles: string[];
+  /** All files currently known to the calling UI (used to compute stage/unstage deltas). */
+  allFiles: Array<{ path: string; staged: boolean }>;
+  /** Amend-the-previous-commit mode. */
+  amend?: boolean;
+  /** Append a `Signed-off-by` trailer. */
+  signOff?: boolean;
+  /**
+   * Optional author override in `Name <email>` format. Invalid values
+   * cause {@link performCommit} to return `{ success: false, error: … }`
+   * without running any git commands. T2-06.
+   */
+  author?: string;
+  /**
+   * Skip git commit hooks (`--no-verify`). Mirrors the gear-menu toggle
+   * in the Commit dialog. T2-06.
+   */
+  noVerify?: boolean;
+}
+
+/**
+ * Result from {@link performCommit}.
+ */
+export interface IPerformCommitResult {
+  /** True when the commit landed. */
+  success: boolean;
+  /** User-facing error message when {@link success} is false. */
+  error?: string;
+  /** Paths that ended up in the commit. Echoes {@link IPerformCommitOptions.selectedFiles} on success. */
+  files?: string[];
+}
+
+/**
+ * Execute a commit against {@link IGitService} using the partial-staging flow
+ * that both {@link CommitDialog} and {@link CommitToolWindow} share.
+ *
+ * The helper:
+ *   1. Stages any selected-but-unstaged files (delta-based).
+ *   2. Unstages any staged-but-deselected files (delta-based).
+ *   3. Calls {@link IGitService.commit} with {amend, signOff}.
+ *
+ * Errors are captured and returned via {@link IPerformCommitResult.error}; the
+ * helper never throws. Callers render their own toast.
+ */
+export async function performCommit(
+  gitService: IGitService,
+  repository: IRepository,
+  options: IPerformCommitOptions
+): Promise<IPerformCommitResult> {
+  const trimmed = options.message.trim();
+  if (!trimmed) {
+    return { success: false, error: 'Commit message cannot be empty' };
+  }
+  if (!options.selectedFiles || options.selectedFiles.length === 0) {
+    return { success: false, error: 'No files selected for commit' };
+  }
+
+  // T2-06: validate author override (if supplied) before touching the
+  // working tree.
+  const authorTrimmed = options.author?.trim() ?? '';
+  if (authorTrimmed.length > 0 && !isValidAuthorFormat(authorTrimmed)) {
+    return {
+      success: false,
+      error: `Invalid author format: "${authorTrimmed}". Expected "Name <email@example.com>".`,
+    };
+  }
+
+  try {
+    const selectedSet = new Set(options.selectedFiles);
+
+    // Stage selected files that aren't already staged.
+    const filesToStage = options.allFiles
+      .filter((f) => selectedSet.has(f.path) && !f.staged)
+      .map((f) => f.path);
+    if (filesToStage.length > 0) {
+      await gitService.stage(repository, filesToStage);
+    }
+
+    // Unstage files that are staged but not selected.
+    const filesToUnstage = options.allFiles
+      .filter((f) => !selectedSet.has(f.path) && f.staged)
+      .map((f) => f.path);
+    if (filesToUnstage.length > 0) {
+      await gitService.unstage(repository, filesToUnstage);
+    }
+
+    const commitOptions: ICommitOptions = {
+      amend: options.amend ?? false,
+      signOff: options.signOff ?? false,
+      noVerify: options.noVerify ?? false,
+    };
+    if (authorTrimmed.length > 0) {
+      commitOptions.author = authorTrimmed;
+    }
+    await gitService.commit(repository, options.message, commitOptions);
+
+    return { success: true, files: options.selectedFiles };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * Author-format regex used by the T2-06 author-override field.
+ *
+ * Requires `Name <email@domain>` where the name has no angle brackets,
+ * the email has no whitespace / angle brackets and contains `@`. Loose
+ * enough to accept most real-world author strings; strict enough to
+ * reject accidental free-form input.
+ */
+export const AUTHOR_FORMAT_REGEX = /^[^<>]+ <[^<>@\s]+@[^<>\s]+>$/;
+
+/**
+ * Validate an author string against {@link AUTHOR_FORMAT_REGEX}. Empty
+ * / whitespace-only strings are treated as "no override" and return true
+ * so callers can skip the override silently.
+ */
+export function isValidAuthorFormat(value: string | undefined): boolean {
+  if (!value) return true;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return true;
+  return AUTHOR_FORMAT_REGEX.test(trimmed);
+}
+
+/**
  * Message types from webview to extension
  */
 interface IWebviewMessage {
@@ -54,6 +209,10 @@ interface IWebviewMessage {
   hunkIndex?: number;
   lineNumber?: number;
   lines?: number[];
+  /** T2-06: author override payload from the `authorChange` message. */
+  author?: string;
+  /** T2-06: gear-menu `--no-verify` toggle payload. */
+  noVerify?: boolean;
 }
 
 /**
@@ -85,11 +244,25 @@ export class CommitDialog {
   /** Whether partial staging mode is active */
   private _partialStagingMode: boolean = false;
 
+  // T2-06 state ────────────────────────────────────────────────────────────
+  /** Optional workspaceState for persisting recent-messages LRU & gear toggles. */
+  private readonly _workspaceState: vscode.Memento | undefined;
+  /** Custom author override ("Name <email>" or empty). */
+  private _author: string = '';
+  /** Last validation error for the author field, surfaced to the webview. */
+  private _authorError: string | undefined;
+  /** Gear toggle: skip git commit hooks on next commit. */
+  private _noVerify: boolean = false;
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    gitService: IGitService
+    gitService: IGitService,
+    workspaceState?: vscode.Memento
   ) {
     this._gitService = gitService;
+    this._workspaceState = workspaceState;
+    // Seed the gear toggle from persisted workspaceState (defaults false).
+    this._noVerify = this._workspaceState?.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
   }
 
   /**
@@ -106,6 +279,20 @@ export class CommitDialog {
     this._repository = repository;
     this._amendMode = options?.amend ?? false;
     this._commitMessage = options?.initialMessage ?? '';
+
+    // T2-06: seed author field from `intellig.commitAuthor` config unless
+    // the caller already supplied one. Invalid configured values still
+    // populate the input so the user sees and can fix them.
+    if (!this._author) {
+      const cfg = vscode.workspace.getConfiguration('intellig');
+      const configured = cfg.get<string>(COMMIT_AUTHOR_CONFIG_KEY, '');
+      if (configured && configured.trim().length > 0) {
+        this._author = configured.trim();
+        this._authorError = isValidAuthorFormat(this._author)
+          ? undefined
+          : 'Expected "Name <email@example.com>".';
+      }
+    }
 
     // Load staged files
     await this._loadStagedFiles(options?.preSelectedFiles);
@@ -323,7 +510,124 @@ export class CommitDialog {
           this._handleDeselectAllLinesInHunk(message.hunkIndex);
         }
         break;
+
+      // ─── T2-06 ──────────────────────────────────────────────────────────
+      case 'authorChange':
+        this._handleAuthorChange(message.author ?? '');
+        break;
+      case 'toggleNoVerify':
+        await this._handleToggleNoVerify(message.noVerify ?? false);
+        break;
+      case 'openRecentMessages':
+        await this._handleOpenRecentMessages();
+        break;
+      case 'openGearMenu':
+        await this._handleOpenGearMenu();
+        break;
     }
+  }
+
+  /**
+   * T2-06: update the in-memory author field and refresh the webview so
+   * validation errors surface below the input.
+   */
+  private _handleAuthorChange(value: string): void {
+    this._author = value;
+    this._authorError = isValidAuthorFormat(value)
+      ? undefined
+      : 'Expected "Name <email@example.com>".';
+    this._updateWebview();
+  }
+
+  /**
+   * T2-06: persist the `--no-verify` gear toggle across dialog sessions.
+   */
+  private async _handleToggleNoVerify(value: boolean): Promise<void> {
+    this._noVerify = value;
+    if (this._workspaceState) {
+      await this._workspaceState.update(LAST_NO_VERIFY_STATE_KEY, value);
+    }
+  }
+
+  /**
+   * T2-06: populate a QuickPick from the recent-messages LRU and, if the
+   * user selects one, pre-fill the commit-message textarea.
+   *
+   * The LRU is shared with {@link CommitToolWindow} via the
+   * {@link RECENT_MESSAGES_STATE_KEY} workspaceState key, so picking a
+   * message typed in the new tool window shows up in the classic dialog
+   * and vice versa.
+   */
+  private async _handleOpenRecentMessages(): Promise<void> {
+    if (!this._workspaceState) {
+      void vscode.window.showInformationMessage('No recent commit messages yet.');
+      return;
+    }
+    const recent = this._readRecentMessages();
+    if (recent.length === 0) {
+      void vscode.window.showInformationMessage('No recent commit messages yet.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      recent.map((m, i) => ({
+        label: m.split('\n')[0].slice(0, 80),
+        description: i === 0 ? '(most recent)' : undefined,
+        detail: m.includes('\n') ? m : undefined,
+        message: m,
+      })),
+      {
+        title: 'Recent commit messages',
+        placeHolder: 'Pick a message to pre-fill the editor',
+        matchOnDescription: true,
+        matchOnDetail: true,
+      }
+    );
+    if (!picked) return;
+    this._commitMessage = picked.message;
+    this._updateWebview();
+  }
+
+  /**
+   * T2-06: gear menu. Two entries ship in this step — one disabled stub
+   * ("Run before-commit checks") and one functional toggle (`--no-verify`).
+   * Additional entries (Reformat, Optimize Imports, etc.) land in the
+   * T2-06 follow-up.
+   */
+  private async _handleOpenGearMenu(): Promise<void> {
+    const items = buildGearMenuItems(this._noVerify);
+    const picked = await vscode.window.showQuickPick(items, {
+      title: 'Commit options',
+      placeHolder: 'Pick an option',
+    });
+    if (!picked) return;
+    if (picked.id === 'noVerify') {
+      await this._handleToggleNoVerify(!this._noVerify);
+      this._updateWebview();
+    } else if (picked.id === 'beforeCommit') {
+      void vscode.window.showInformationMessage(
+        'Before-commit checks are coming in a later T2-06 step.'
+      );
+    }
+  }
+
+  /**
+   * Read the recent-messages LRU from workspaceState. Always returns an
+   * array; empty when no state is wired or the key is absent.
+   */
+  private _readRecentMessages(): string[] {
+    if (!this._workspaceState) return [];
+    const value = this._workspaceState.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
+    return Array.isArray(value) ? value : [];
+  }
+
+  /**
+   * Push a successful commit onto the recent-messages LRU. No-op when
+   * workspaceState isn't wired (keeps tests and legacy callers happy).
+   */
+  private async _pushRecentMessage(message: string): Promise<void> {
+    if (!this._workspaceState) return;
+    const updated = updateRecentMessagesLru(this._readRecentMessages(), message);
+    await this._workspaceState.update(RECENT_MESSAGES_STATE_KEY, updated);
   }
 
   /**
@@ -335,67 +639,56 @@ export class CommitDialog {
     }
 
     const commitMessage = message.message ?? this._commitMessage;
-
-    // Validate commit message
-    if (!commitMessage.trim()) {
-      void vscode.window.showErrorMessage('Commit message cannot be empty');
-      return;
-    }
-
-    // Get selected files
     const selectedFiles = this._stagedFiles.filter((f) => f.selected).map((f) => f.path);
 
-    if (selectedFiles.length === 0) {
-      void vscode.window.showErrorMessage('No files selected for commit');
+    // T2-06: validate author format before we do any git work so the
+    // dialog surfaces the error without staging/unstaging first.
+    if (this._author.trim().length > 0 && !isValidAuthorFormat(this._author)) {
+      this._authorError = 'Expected "Name <email@example.com>".';
+      this._updateWebview();
+      void vscode.window.showErrorMessage(
+        'Commit failed: invalid author format. Expected "Name <email@example.com>".'
+      );
       return;
     }
 
-    try {
-      // Stage selected files that aren't already staged
-      const filesToStage = this._stagedFiles
-        .filter((f) => f.selected && !f.staged)
-        .map((f) => f.path);
+    // T1-04 — delegate to the shared helper so CommitDialog and
+    // CommitToolWindow go through identical code paths. T2-06 adds
+    // `author` + `noVerify` pass-through.
+    const result = await performCommit(this._gitService, this._repository, {
+      message: commitMessage,
+      selectedFiles,
+      allFiles: this._stagedFiles.map((f) => ({ path: f.path, staged: f.staged })),
+      amend: this._amendMode,
+      signOff: this._signOffMode,
+      author: this._author,
+      noVerify: this._noVerify,
+    });
 
-      if (filesToStage.length > 0) {
-        await this._gitService.stage(this._repository, filesToStage);
-      }
-
-      // Unstage files that are staged but not selected
-      const filesToUnstage = this._stagedFiles
-        .filter((f) => !f.selected && f.staged)
-        .map((f) => f.path);
-
-      if (filesToUnstage.length > 0) {
-        await this._gitService.unstage(this._repository, filesToUnstage);
-      }
-
-      // Build commit options
-      const options: ICommitOptions = {
-        amend: this._amendMode,
-        signOff: this._signOffMode,
-      };
-
-      // Perform the commit
-      await this._gitService.commit(this._repository, commitMessage, options);
-
-      // Show success message
-      void vscode.window.showInformationMessage(`Committed ${selectedFiles.length} file(s)`);
-
-      // Resolve the promise and close
-      if (this._resolvePromise) {
-        this._resolvePromise({
-          committed: true,
-          message: commitMessage,
-          files: selectedFiles,
-        });
-        this._resolvePromise = undefined;
-      }
-
-      this.hide();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Commit failed: ${errorMessage}`);
+    if (!result.success) {
+      void vscode.window.showErrorMessage(
+        result.error ? `Commit failed: ${result.error}` : 'Commit failed'
+      );
+      return;
     }
+
+    // T2-06: push the committed message onto the recent-messages LRU.
+    await this._pushRecentMessage(commitMessage);
+
+    void vscode.window.showInformationMessage(
+      `Committed ${(result.files ?? selectedFiles).length} file(s)`
+    );
+
+    if (this._resolvePromise) {
+      this._resolvePromise({
+        committed: true,
+        message: commitMessage,
+        files: result.files ?? selectedFiles,
+      });
+      this._resolvePromise = undefined;
+    }
+
+    this.hide();
   }
 
   /**
@@ -681,17 +974,79 @@ export class CommitDialog {
    */
   private _getMessageSection(): string {
     const escapedMessage = this._escapeHtml(this._commitMessage);
+    const hasRecent = this._readRecentMessages().length > 0;
+    const recentBtnTitle = hasRecent
+      ? 'Pick a recent commit message'
+      : 'No recent commit messages yet';
     return `
       <div class="section message-section">
         <div class="section-header">
           <span class="section-title">Commit Message</span>
+          <div class="section-header-actions">
+            <button
+              id="recent-messages-btn"
+              class="header-action-button"
+              type="button"
+              title="${this._escapeHtml(recentBtnTitle)}"
+              ${hasRecent ? '' : 'disabled'}
+              onclick="openRecentMessages()"
+            >∨</button>
+            <button
+              id="gear-btn"
+              class="header-action-button"
+              type="button"
+              title="Commit options"
+              onclick="openGearMenu()"
+            >⚙</button>
+          </div>
         </div>
-        <textarea 
-          id="commit-message" 
-          class="commit-message-input" 
+        <textarea
+          id="commit-message"
+          class="commit-message-input"
           placeholder="Enter commit message..."
           oninput="handleMessageChange(this.value)"
         >${escapedMessage}</textarea>
+        ${this._getAuthorSection()}
+        ${this._getNoVerifyBadge()}
+      </div>
+    `;
+  }
+
+  /**
+   * T2-06: author-override input below the commit-message textarea.
+   */
+  private _getAuthorSection(): string {
+    const escapedAuthor = this._escapeHtml(this._author);
+    const errorHtml = this._authorError
+      ? `<div class="author-error" role="alert">${this._escapeHtml(this._authorError)}</div>`
+      : '';
+    return `
+      <div class="author-section">
+        <label for="commit-author" class="author-label">
+          Author (optional):
+        </label>
+        <input
+          id="commit-author"
+          class="author-input"
+          type="text"
+          placeholder="Name &lt;email@example.com&gt;"
+          value="${escapedAuthor}"
+          oninput="handleAuthorChange(this.value)"
+        />
+        ${errorHtml}
+      </div>
+    `;
+  }
+
+  /**
+   * T2-06: small chip advertising the `--no-verify` state so the user is
+   * never surprised by a skipped-hook commit.
+   */
+  private _getNoVerifyBadge(): string {
+    if (!this._noVerify) return '';
+    return `
+      <div class="no-verify-badge" role="note">
+        ⚠ Git hooks will be skipped (<code>--no-verify</code>). Open the gear menu to turn this off.
       </div>
     `;
   }
@@ -1070,6 +1425,66 @@ export class CommitDialog {
       .commit-message-input::placeholder {
         color: var(--vscode-input-placeholderForeground);
       }
+
+      /* T2-06 ─────────────────────────────────────────────────────────── */
+      .section-header-actions {
+        display: inline-flex;
+        gap: 4px;
+      }
+      .header-action-button {
+        min-width: 22px;
+        height: 22px;
+        padding: 0 6px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--vscode-foreground);
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+      }
+      .header-action-button:hover:not(:disabled) {
+        background: var(--vscode-toolbar-hoverBackground);
+        border-color: var(--vscode-focusBorder);
+      }
+      .header-action-button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .author-section {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+      .author-label {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+      }
+      .author-input {
+        width: 100%;
+        padding: 4px 6px;
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border, transparent);
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+      }
+      .author-input:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+      }
+      .author-error {
+        color: var(--vscode-errorForeground);
+        font-size: 11px;
+      }
+      .no-verify-badge {
+        padding: 6px 8px;
+        font-size: 11px;
+        color: var(--vscode-editorWarning-foreground);
+        background: var(--vscode-inputValidation-warningBackground, transparent);
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+      /* ─── end T2-06 ───────────────────────────────────────────────────── */
 
       .files-section {
         flex: 1;
@@ -1486,6 +1901,19 @@ export class CommitDialog {
         vscode.postMessage({ type: 'deselectAllLinesInHunk', hunkIndex: hunkIndex });
       }
 
+      // ─── T2-06 ─────────────────────────────────────────────────────────
+      function handleAuthorChange(value) {
+        vscode.postMessage({ type: 'authorChange', author: value });
+      }
+
+      function openRecentMessages() {
+        vscode.postMessage({ type: 'openRecentMessages' });
+      }
+
+      function openGearMenu() {
+        vscode.postMessage({ type: 'openGearMenu' });
+      }
+
       function commit() {
         const messageEl = document.getElementById('commit-message');
         const message = messageEl ? messageEl.value : '';
@@ -1563,15 +1991,13 @@ export class CommitDialog {
   }
 
   /**
-   * Generate a nonce for CSP.
+   * Generate a nonce for CSP. Delegates to the shared CSPRNG-backed helper
+   * (`generateNonce`, base64url, 128-bit entropy) so every IntelliG webview
+   * uses the same nonce strategy. Was previously an inline
+   * `Math.random()`-based generator — see TL-13 / SR-R3 MEDIUM.
    */
   private _getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return generateNonce();
   }
 
   /**
@@ -1602,7 +2028,48 @@ export class CommitDialog {
  */
 export function createCommitDialog(
   extensionUri: vscode.Uri,
-  gitService: IGitService
+  gitService: IGitService,
+  workspaceState?: vscode.Memento
 ): CommitDialog {
-  return new CommitDialog(extensionUri, gitService);
+  return new CommitDialog(extensionUri, gitService, workspaceState);
+}
+
+/**
+ * Gear-menu entry shape used by the QuickPick in
+ * {@link CommitDialog._handleOpenGearMenu}.
+ */
+export interface IGearMenuItem extends vscode.QuickPickItem {
+  id: 'beforeCommit' | 'noVerify';
+}
+
+/**
+ * Build the two gear-menu entries that ship in this T2-06 step.
+ *
+ * Entry 1: disabled stub `Run before-commit checks` (marked via
+ *   `description: 'Coming soon'` — VS Code has no real "disabled" flag
+ *   on QuickPick items, so we signal it in the description and the
+ *   handler falls through to an informational toast). Follow-up T2-06
+ *   steps will wire Reformat / Optimize Imports / TODO / inspections.
+ *
+ * Entry 2: functional `--no-verify` toggle. The `$(check)` glyph shows
+ *   the current state so the user can see whether hooks will be skipped.
+ */
+export function buildGearMenuItems(noVerify: boolean): IGearMenuItem[] {
+  return [
+    {
+      id: 'beforeCommit',
+      label: 'Run before-commit checks',
+      description: 'Coming soon',
+      detail:
+        'T2-06 follow-up will wire Reformat / Optimize Imports / TODO / inspections. Click for details.',
+    },
+    {
+      id: 'noVerify',
+      label: `${noVerify ? '$(check)' : '$(circle-large-outline)'} Skip git hooks (--no-verify)`,
+      description: noVerify ? 'currently on' : 'currently off',
+      detail: noVerify
+        ? 'Pre-commit and commit-msg hooks will NOT run for the next commit.'
+        : 'Pre-commit and commit-msg hooks will run normally.',
+    },
+  ];
 }

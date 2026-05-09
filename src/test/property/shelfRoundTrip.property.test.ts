@@ -496,6 +496,19 @@ describe('Shelf Round-Trip Property Tests', () => {
 
     /**
      * Property: Multiple shelf and unshelve operations maintain consistency.
+     *
+     * TR-9 regression (R6 Gap-D 10× stress, seed -836909896): the original
+     * implementation keyed `originalChangesMap` by `namesArray[i]`, which
+     * collapsed duplicate names into a single entry. When the fast-check
+     * generator produced two entries with the same name (e.g.
+     * `namesArray = ['!','! ','_','_']`), the later shelve overwrote the
+     * earlier map entry, so comparing the earlier unshelve against
+     * `originalChangesMap.get(namesArray[i])` used the wrong expected
+     * contents — same map-key-collision class as TR-6/TR-7.
+     *
+     * Fix: track original changes by array index, not by name. This is
+     * seed-independent; no synthetic block needed because the change is
+     * purely in the bookkeeping, not the SUT.
      */
     it('Property: Multiple shelf and unshelve operations maintain consistency', () => {
       fc.assert(
@@ -506,14 +519,15 @@ describe('Shelf Round-Trip Property Tests', () => {
             // Setup
             const shelfService = new MockShelfService();
 
-            // Store original changes for each shelf
-            const originalChangesMap: Map<string, IShelfFile[]> = new Map();
+            // TR-9: key by array index (unique), not by name (can collide).
+            const originalChangesList: IShelfFile[][] = [];
 
             // Act: Create multiple shelf items
             const shelfIds: string[] = [];
-            for (let i = 0; i < Math.min(filesArray.length, namesArray.length); i++) {
+            const pairCount = Math.min(filesArray.length, namesArray.length);
+            for (let i = 0; i < pairCount; i++) {
               shelfService.setWorkingDirectoryChanges(filesArray[i]);
-              originalChangesMap.set(namesArray[i], [...filesArray[i]]);
+              originalChangesList.push([...filesArray[i]]);
               const shelfItem = shelfService.shelve(namesArray[i]);
               shelfIds.push(shelfItem.id);
             }
@@ -536,7 +550,7 @@ describe('Shelf Round-Trip Property Tests', () => {
 
               // Verify changes match
               const restoredChanges = shelfService.getWorkingDirectoryChanges();
-              const expectedChanges = originalChangesMap.get(namesArray[i])!;
+              const expectedChanges = originalChangesList[i];
               assert.ok(
                 shelfFilesEqual(expectedChanges, restoredChanges),
                 `Shelf item ${i} should restore correct changes`
@@ -545,6 +559,79 @@ describe('Shelf Round-Trip Property Tests', () => {
           }
         ),
         { numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-9 regression: seed -836909896 (R6 Gap-D 10× stress) shrank to
+     * `namesArray = ['!','! ','_','_']` — two duplicated shelf names
+     * collapsing the earlier entries in the map-keyed bookkeeping. The
+     * fix above keys by index, not name; this pinned block catches any
+     * re-introduction of name-keyed bookkeeping.
+     *
+     * See `src/test/property/pinnedSeeds.md` for the full catalog.
+     */
+    it('TR-9 regression: seed -836909896 does not flake multi-shelf consistency property', () => {
+      fc.assert(
+        fc.property(
+          fc.array(shelfFilesArb, { minLength: 2, maxLength: 5 }),
+          fc.array(shelfNameArb, { minLength: 2, maxLength: 5 }),
+          (filesArray, namesArray) => {
+            const shelfService = new MockShelfService();
+            const originalChangesList: IShelfFile[][] = [];
+            const shelfIds: string[] = [];
+            const pairCount = Math.min(filesArray.length, namesArray.length);
+            for (let i = 0; i < pairCount; i++) {
+              shelfService.setWorkingDirectoryChanges(filesArray[i]);
+              originalChangesList.push([...filesArray[i]]);
+              shelfIds.push(shelfService.shelve(namesArray[i]).id);
+            }
+
+            for (let i = 0; i < shelfIds.length; i++) {
+              shelfService.setWorkingDirectoryChanges([]);
+              const result = shelfService.unshelve(shelfIds[i], { removeFromShelf: false });
+              assert.ok(result.success);
+              assert.ok(
+                shelfFilesEqual(originalChangesList[i], shelfService.getWorkingDirectoryChanges())
+              );
+            }
+          }
+        ),
+        { seed: -836909896, numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-9 regression (synthetic): duplicate shelf names must not collapse
+     * the expected-changes bookkeeping.
+     */
+    it('TR-9 regression (synthetic): duplicate shelf names do not collapse restore bookkeeping', () => {
+      const shelfService = new MockShelfService();
+      const duplicateName = 'dup';
+      const filesA: IShelfFile[] = [
+        { path: 'a.txt', diff: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n+A\n' },
+      ];
+      const filesB: IShelfFile[] = [
+        { path: 'b.txt', diff: 'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,1 +1,1 @@\n+B\n' },
+      ];
+
+      shelfService.setWorkingDirectoryChanges(filesA);
+      const idA = shelfService.shelve(duplicateName).id;
+      shelfService.setWorkingDirectoryChanges(filesB);
+      const idB = shelfService.shelve(duplicateName).id;
+
+      shelfService.setWorkingDirectoryChanges([]);
+      assert.ok(shelfService.unshelve(idA, { removeFromShelf: false }).success);
+      assert.ok(
+        shelfFilesEqual(filesA, shelfService.getWorkingDirectoryChanges()),
+        'Unshelving the first of two same-named shelves must restore the first shelf, not the second'
+      );
+
+      shelfService.setWorkingDirectoryChanges([]);
+      assert.ok(shelfService.unshelve(idB, { removeFromShelf: false }).success);
+      assert.ok(
+        shelfFilesEqual(filesB, shelfService.getWorkingDirectoryChanges()),
+        'Unshelving the second of two same-named shelves must restore the second shelf'
       );
     });
 

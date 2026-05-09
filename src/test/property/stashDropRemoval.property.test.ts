@@ -374,27 +374,141 @@ describe('Stash Drop Removal Property Tests', () => {
             gitService.stashDrop(indexToDrop);
 
             // Assert: Remaining stashes have their original messages (excluding dropped one)
+            //
+            // Compare as a multiset (count of each message) rather than as a set:
+            // `stashMessageArb` does not de-dupe, so two stashes can legitimately
+            // share the same message. A set-based `includes` check would wrongly
+            // claim the dropped message is "still present" just because another
+            // stash happens to share the same text. The multiset comparison
+            // asserts that exactly one occurrence of `droppedMessage` was removed
+            // and every other occurrence is unchanged — which matches the
+            // property's real intent: "dropping affects only the dropped stash".
             const remainingStashes = gitService.stashList();
-            const remainingMessages = remainingStashes.map((s) => s.message);
-
-            // The dropped message should not be in the remaining list
-            assert.ok(
-              !remainingMessages.includes(droppedMessage),
-              'Dropped stash message should not be in remaining list'
-            );
-
-            // All other messages should still be present
-            for (let i = 0; i < stashListBefore.length; i++) {
-              if (i !== indexToDrop) {
-                assert.ok(
-                  remainingMessages.includes(stashListBefore[i].message),
-                  `Stash with message "${stashListBefore[i].message}" should still exist`
-                );
+            const countMessages = (stashes: { message: string }[]): Map<string, number> => {
+              const counts = new Map<string, number>();
+              for (const s of stashes) {
+                counts.set(s.message, (counts.get(s.message) ?? 0) + 1);
               }
+              return counts;
+            };
+            const before = countMessages(stashListBefore);
+            const after = countMessages(remainingStashes);
+
+            for (const [msg, beforeCount] of before) {
+              const afterCount = after.get(msg) ?? 0;
+              const expected = msg === droppedMessage ? beforeCount - 1 : beforeCount;
+              assert.strictEqual(
+                afterCount,
+                expected,
+                `Stash message "${msg}" should appear ${expected} time(s) after drop (was ${beforeCount}); got ${afterCount}`
+              );
+            }
+            // After the drop, no new messages should appear.
+            for (const msg of after.keys()) {
+              assert.ok(before.has(msg), `Unexpected message "${msg}" in remaining stashes`);
             }
           }
         ),
         { numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-7 regression: seed -1426149163 shrank to three stashes with messages
+     * ["!", "q", "q"] dropped at index 0. Because `MockGitService.stash` uses
+     * `unshift`, the resulting `stashList` is LIFO — `["q", "q", "!"]` — so
+     * dropping index 0 removes one of the two "q" stashes but the message
+     * "q" still appears in the remaining list via the other stash. The
+     * original assertion `!remainingMessages.includes(droppedMessage)` then
+     * incorrectly fires. The fix is a multiset comparison (one occurrence
+     * removed, not "no occurrences remain").
+     *
+     * We assert the concrete counterexample directly so the regression
+     * survives fast-check seed drift.
+     *
+     * See .agent/reviews/TEST_RUN_REPORT_ROUND4.md TR-7.
+     */
+    it('TR-7 regression: duplicate stash messages with LIFO drop tracks correctly', () => {
+      const gitService = new MockGitService();
+      const changes: IFileStatus = {
+        path: 'a',
+        indexStatus: 'M',
+        workTreeStatus: 'M',
+        renamed: undefined,
+      };
+      // Create three stashes with messages that have a duplicate.
+      gitService.setWorkingDirectoryChanges([changes]);
+      gitService.stash('!');
+      gitService.setWorkingDirectoryChanges([changes]);
+      gitService.stash('q');
+      gitService.setWorkingDirectoryChanges([changes]);
+      gitService.stash('q');
+
+      // LIFO: stashList() is ["q", "q", "!"]
+      const before = gitService.stashList();
+      assert.deepStrictEqual(
+        before.map((s) => s.message),
+        ['q', 'q', '!']
+      );
+
+      // Drop index 0 (the most recent "q").
+      gitService.stashDrop(0);
+
+      // Under the old assertion (includes("q") returns true), this would
+      // incorrectly fail. Multiset check correctly sees one "q" removed.
+      const after = gitService.stashList();
+      const afterCounts = after.reduce<Record<string, number>>((acc, s) => {
+        acc[s.message] = (acc[s.message] ?? 0) + 1;
+        return acc;
+      }, {});
+
+      assert.deepStrictEqual(afterCounts, { q: 1, '!': 1 });
+    });
+
+    /**
+     * TR-7 regression: the original seed -1426149163 itself, in case the
+     * counterexample form above is ever edited out.
+     */
+    it('TR-7 regression: seed -1426149163 does not flake the drop-isolation property', () => {
+      fc.assert(
+        fc.property(
+          fc.array(uncommittedChangesArb, { minLength: 3, maxLength: 5 }),
+          fc.array(stashMessageArb, { minLength: 3, maxLength: 5 }),
+          fc.nat({ max: 2 }),
+          (changesArray, messages, dropIndex) => {
+            const gitService = new MockGitService();
+            const stashCount = Math.min(changesArray.length, messages.length);
+
+            for (let i = 0; i < stashCount; i++) {
+              gitService.setWorkingDirectoryChanges(changesArray[i]);
+              gitService.stash(messages[i]);
+            }
+
+            const indexToDrop = dropIndex % stashCount;
+            const stashListBefore = gitService.stashList();
+            const droppedMessage = stashListBefore[indexToDrop].message;
+
+            gitService.stashDrop(indexToDrop);
+
+            const remainingStashes = gitService.stashList();
+            const countMessages = (stashes: { message: string }[]): Map<string, number> => {
+              const counts = new Map<string, number>();
+              for (const s of stashes) {
+                counts.set(s.message, (counts.get(s.message) ?? 0) + 1);
+              }
+              return counts;
+            };
+            const before = countMessages(stashListBefore);
+            const after = countMessages(remainingStashes);
+
+            for (const [msg, beforeCount] of before) {
+              const afterCount = after.get(msg) ?? 0;
+              const expected = msg === droppedMessage ? beforeCount - 1 : beforeCount;
+              assert.strictEqual(afterCount, expected);
+            }
+          }
+        ),
+        { seed: -1426149163, numRuns: 100 }
       );
     });
 

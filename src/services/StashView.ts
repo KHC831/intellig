@@ -13,6 +13,7 @@ import {
   IStashActionResult,
   StashContextAction,
 } from './interfaces/IStashView';
+import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
 
 /**
  * Quick pick item for stash list
@@ -42,6 +43,7 @@ export class StashView implements IStashView {
   private _repository: IRepository | undefined;
   private _state: IStashViewState;
   private _disposables: vscode.Disposable[] = [];
+  private _conflictResolutionService: IConflictResolutionService | undefined;
 
   // Event emitters
   private readonly _onDidChangeStashes = new vscode.EventEmitter<IStash[]>();
@@ -56,8 +58,12 @@ export class StashView implements IStashView {
   public readonly onDidSelectStash = this._onDidSelectStash.event;
   public readonly onDidRequestAction = this._onDidRequestAction.event;
 
-  constructor(gitService: IGitService) {
+  constructor(
+    gitService: IGitService,
+    conflictResolutionService?: IConflictResolutionService
+  ) {
     this._gitService = gitService;
+    this._conflictResolutionService = conflictResolutionService;
     this._state = this._createInitialState();
 
     // Register event emitters for disposal
@@ -272,9 +278,40 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // T1-08(a): on conflict, route to the Resolve Conflicts dialog instead
+      // of surfacing a raw error toast.
+      if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+        if (conflicts.length > 0) {
+          await this._conflictResolutionService.openResolveConflictsDialog(
+            this._repository,
+            conflicts,
+            {
+              operation: 'unstash',
+              target: `stash@{${index}}`,
+              canAbort: true,
+              canContinue: true,
+            }
+          );
+          return { success: false, action: 'apply', stash, error: errorMessage };
+        }
+      }
       void vscode.window.showErrorMessage(`Failed to apply stash: ${errorMessage}`);
       return { success: false, action: 'apply', stash, error: errorMessage };
     }
+  }
+
+  /**
+   * Heuristic: does this git error look like a conflict? We match on the
+   * standard phrases git emits for `stash apply`/`stash pop` conflicts.
+   */
+  private _looksLikeConflictError(errorMessage: string): boolean {
+    const lower = errorMessage.toLowerCase();
+    return (
+      lower.includes('conflict') ||
+      lower.includes('merge conflict') ||
+      lower.includes('needs merge')
+    );
   }
 
   /**
@@ -309,8 +346,139 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // T1-08(a): on conflict, route to the Resolve Conflicts dialog.
+      if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+        if (conflicts.length > 0) {
+          await this._conflictResolutionService.openResolveConflictsDialog(
+            this._repository,
+            conflicts,
+            {
+              operation: 'unstash',
+              target: `stash@{${index}}`,
+              canAbort: true,
+              canContinue: true,
+            }
+          );
+          return { success: false, action: 'pop', stash, error: errorMessage };
+        }
+      }
       void vscode.window.showErrorMessage(`Failed to pop stash: ${errorMessage}`);
       return { success: false, action: 'pop', stash, error: errorMessage };
+    }
+  }
+
+  /**
+   * Create a new branch rooted at the stash and apply it there. T2-09.
+   *
+   * Prompts the user for a branch name, validates it against the standard
+   * branch-name regex used elsewhere in the codebase, then delegates to
+   * {@link IGitService.stashBranch}. Conflicts during apply are routed to
+   * the Resolve Conflicts dialog (same pattern as `applyStash`/`popStash`).
+   *
+   * @param index - The stash index to branch from
+   */
+  async branchFromStash(index: number): Promise<IStashActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+    const stash = this._findStashByIndex(index);
+    if (!stash) {
+      return { success: false, error: `Stash not found: stash@{${index}}` };
+    }
+
+    const branchName = await vscode.window.showInputBox({
+      title: `Create branch from stash@{${index}}`,
+      prompt: 'Enter new branch name',
+      placeHolder: 'feature/my-stashed-work',
+      validateInput: (v) => {
+        if (!v || !v.trim()) return 'Branch name cannot be empty';
+        if (!/^[\w\-./]+$/.test(v)) return 'Branch name contains invalid characters';
+        return undefined;
+      },
+    });
+    if (!branchName) {
+      return { success: false };
+    }
+
+    try {
+      await this._gitService.stashBranch(this._repository, index, branchName);
+      void vscode.window.showInformationMessage(
+        `Created branch '${branchName}' from stash@{${index}} and applied it`
+      );
+      // The stash is dropped by `git stash branch` on success; refresh.
+      await this.refresh();
+
+      this._onDidRequestAction.fire({ action: 'branch', stash });
+      return { success: true, action: 'branch', stash };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // Conflicts during apply → Resolve Conflicts dialog (T1-08a pattern).
+      if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+        if (conflicts.length > 0) {
+          await this._conflictResolutionService.openResolveConflictsDialog(
+            this._repository,
+            conflicts,
+            {
+              operation: 'unstash',
+              target: `stash@{${index}} → ${branchName}`,
+              canAbort: true,
+              canContinue: true,
+            }
+          );
+          return { success: false, action: 'branch', stash, error: errorMessage };
+        }
+      }
+      void vscode.window.showErrorMessage(`Failed to create branch from stash: ${errorMessage}`);
+      return { success: false, action: 'branch', stash, error: errorMessage };
+    }
+  }
+
+  /**
+   * Rename a stash by prompting for a new message and delegating to
+   * {@link IGitService.stashRename} (git stash store plumbing). T2-09.
+   *
+   * After a successful rename, the stash list is refreshed. Note that the
+   * renamed entry moves to `stash@{0}` as a side effect of the underlying
+   * plumbing — this matches how `git stash` itself orders entries by
+   * recency-of-operation.
+   *
+   * @param index - The stash index to rename
+   */
+  async renameStash(index: number): Promise<IStashActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+    const stash = this._findStashByIndex(index);
+    if (!stash) {
+      return { success: false, error: `Stash not found: stash@{${index}}` };
+    }
+
+    const newMessage = await vscode.window.showInputBox({
+      title: `Rename stash@{${index}}`,
+      prompt: 'Enter new stash message',
+      value: stash.message ?? '',
+      placeHolder: 'WIP: updated description',
+      validateInput: (v) => {
+        if (typeof v !== 'string' || v.trim().length === 0) return 'Message cannot be empty';
+        return undefined;
+      },
+    });
+    if (newMessage === undefined) {
+      return { success: false };
+    }
+
+    try {
+      await this._gitService.stashRename(this._repository, index, newMessage);
+      void vscode.window.showInformationMessage(`Renamed stash@{${index}}`);
+      await this.refresh();
+      this._onDidRequestAction.fire({ action: 'rename', stash });
+      return { success: true, action: 'rename', stash };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to rename stash: ${errorMessage}`);
+      return { success: false, action: 'rename', stash, error: errorMessage };
     }
   }
 
@@ -469,6 +637,8 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
+    // T2-09: menu order matches IntelliJ: Apply, Pop, Drop, View, Rename…,
+    // Create Branch from Stash…. Labels that open a prompt use Unicode `…`.
     const actionItems: IStashQuickPickItem[] = [
       {
         label: '$(arrow-down) Apply',
@@ -485,6 +655,13 @@ export class StashView implements IStashView {
         isAction: true,
       },
       {
+        label: '$(trash) Drop',
+        description: 'Delete stash (requires confirmation)',
+        action: 'drop',
+        stash,
+        isAction: true,
+      },
+      {
         label: '$(eye) View',
         description: 'View stash contents as diff',
         action: 'view',
@@ -492,9 +669,16 @@ export class StashView implements IStashView {
         isAction: true,
       },
       {
-        label: '$(trash) Drop',
-        description: 'Delete stash (requires confirmation)',
-        action: 'drop',
+        label: '$(edit) Rename…',
+        description: 'Rename this stash entry',
+        action: 'rename',
+        stash,
+        isAction: true,
+      },
+      {
+        label: '$(git-branch) Create Branch from Stash…',
+        description: 'Create a new branch rooted at the stashed state',
+        action: 'branch',
         stash,
         isAction: true,
       },
@@ -529,6 +713,10 @@ export class StashView implements IStashView {
       case 'view':
         await this.viewStash(index);
         return { success: true, action: 'view' };
+      case 'branch':
+        return this.branchFromStash(index);
+      case 'rename':
+        return this.renameStash(index);
       default:
         return { success: false, error: 'Unknown action' };
     }
@@ -731,6 +919,9 @@ export class StashView implements IStashView {
  * @param gitService - The Git service to use
  * @returns A new StashView instance
  */
-export function createStashView(gitService: IGitService): StashView {
-  return new StashView(gitService);
+export function createStashView(
+  gitService: IGitService,
+  conflictResolutionService?: IConflictResolutionService
+): StashView {
+  return new StashView(gitService, conflictResolutionService);
 }

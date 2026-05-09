@@ -19,6 +19,7 @@ import {
   IShelfActionResult,
   ShelfContextAction,
 } from './interfaces/IShelfView';
+import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
 
 /**
  * Quick pick item for shelf list
@@ -56,6 +57,14 @@ export class ShelfView implements IShelfView {
   private _state: IShelfViewState;
   private _disposables: vscode.Disposable[] = [];
   private _getStatus: ((repo: IRepository) => Promise<IFileStatus[]>) | undefined;
+  private _conflictResolutionService: IConflictResolutionService | undefined;
+  /**
+   * T2-10: filter toggle. When `false` (default), entries with
+   * `unshelvedAt != undefined` are elided from the list. When `true`,
+   * they appear with an "(already unshelved)" description and expose the
+   * Restore action.
+   */
+  private _showAlreadyUnshelved: boolean = false;
 
   // Event emitters
   private readonly _onDidChangeShelfItems = new vscode.EventEmitter<IShelfItem[]>();
@@ -72,10 +81,12 @@ export class ShelfView implements IShelfView {
 
   constructor(
     shelfService: IShelfService,
-    getStatus?: (repo: IRepository) => Promise<IFileStatus[]>
+    getStatus?: (repo: IRepository) => Promise<IFileStatus[]>,
+    conflictResolutionService?: IConflictResolutionService
   ) {
     this._shelfService = shelfService;
     this._getStatus = getStatus;
+    this._conflictResolutionService = conflictResolutionService;
     this._state = this._createInitialState();
 
     // Register event emitters for disposal
@@ -108,9 +119,16 @@ export class ShelfView implements IShelfView {
 
   /**
    * Update state from shelf items.
+   *
+   * T2-10: filters out Already-Unshelved entries when the toggle is off.
+   * The underlying storage still holds those entries — the filter is
+   * purely a view-level concern.
    */
   private _updateStateFromItems(items: IShelfItem[]): void {
-    this._state.shelfItems = items.map((shelfItem) => ({
+    const filtered = this._showAlreadyUnshelved
+      ? items
+      : items.filter((i) => i.unshelvedAt === undefined);
+    this._state.shelfItems = filtered.map((shelfItem) => ({
       shelfItem,
       selected: shelfItem.id === this._state.selectedId,
     }));
@@ -347,9 +365,24 @@ export class ShelfView implements IShelfView {
       if (result.success) {
         void vscode.window.showInformationMessage(`Unshelved: "${shelfItem.name}"`);
       } else if (result.conflicts && result.conflicts.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Unshelved with conflicts in ${result.conflicts.length} file(s): ${result.conflicts.join(', ')}`
-        );
+        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to toast
+        // when conflictResolutionService isn't wired.
+        if (this._conflictResolutionService) {
+          await this._conflictResolutionService.openResolveConflictsDialog(
+            this._repository,
+            result.conflicts.map((p) => ({ path: p, resolved: false })),
+            {
+              operation: 'unshelve',
+              target: shelfItem.name,
+              canAbort: true,
+              canContinue: true,
+            }
+          );
+        } else {
+          void vscode.window.showWarningMessage(
+            `Unshelved with conflicts in ${result.conflicts.length} file(s): ${result.conflicts.join(', ')}`
+          );
+        }
       }
 
       // Refresh the shelf list
@@ -556,18 +589,54 @@ export class ShelfView implements IShelfView {
       return { success: false, error: `Shelf item not found: ${id}` };
     }
 
-    const actionItems: IShelfQuickPickItem[] = [
+    // T2-10: build the action list reactively. Restore is only meaningful
+    // for Already-Unshelved entries; everything else is always available.
+    const isAlreadyUnshelved = shelfItem.unshelvedAt !== undefined;
+    const actionItems: IShelfQuickPickItem[] = [];
+
+    if (isAlreadyUnshelved) {
+      actionItems.push({
+        label: '$(history) Restore',
+        description: 'Reactivate this already-unshelved entry',
+        action: 'restore',
+        shelfItem,
+        isAction: true,
+      });
+    }
+
+    actionItems.push(
       {
-        label: '$(arrow-down) Unshelve',
-        description: 'Restore shelved changes to working directory',
+        label: '$(arrow-down) Unshelve Changes…',
+        description: 'Restore shelved changes to working directory (with options prompt)',
         action: 'unshelve',
         shelfItem,
         isAction: true,
       },
       {
-        label: '$(eye) View',
+        label: '$(run-all) Unshelve Silently',
+        description: 'Restore and drop without prompting (Ctrl+Alt+U)',
+        action: 'unshelveSilent',
+        shelfItem,
+        isAction: true,
+      },
+      {
+        label: '$(eye) Show Diff',
         description: 'View shelved changes as diff',
         action: 'view',
+        shelfItem,
+        isAction: true,
+      },
+      {
+        label: '$(edit) Rename…',
+        description: 'Rename this shelf entry',
+        action: 'rename',
+        shelfItem,
+        isAction: true,
+      },
+      {
+        label: '$(desktop-download) Create Patch from Shelf…',
+        description: 'Export the shelf entry as a .patch file',
+        action: 'createPatch',
         shelfItem,
         isAction: true,
       },
@@ -577,11 +646,11 @@ export class ShelfView implements IShelfView {
         action: 'delete',
         shelfItem,
         isAction: true,
-      },
-    ];
+      }
+    );
 
     const selected = await vscode.window.showQuickPick(actionItems, {
-      title: `Shelf: ${shelfItem.name}`,
+      title: `Shelf: ${shelfItem.name}${isAlreadyUnshelved ? ' (already unshelved)' : ''}`,
       placeHolder: 'Select an action',
     });
 
@@ -599,14 +668,200 @@ export class ShelfView implements IShelfView {
     switch (action) {
       case 'unshelve':
         return this.unshelve(id);
+      case 'unshelveSilent':
+        return this.unshelveSilent(id);
       case 'delete':
         return this.deleteShelfItem(id);
       case 'view':
         await this.viewShelfItem(id);
         return { success: true, action: 'view' };
+      case 'rename':
+        return this.renameShelfItem(id);
+      case 'restore':
+        return this.restoreShelfItem(id);
+      case 'createPatch':
+        return this.createPatchFromShelf(id);
       default:
         return { success: false, error: 'Unknown action' };
     }
+  }
+
+  // ===========================================================================
+  // T2-10 public additions. Each delegates to ShelfService and fires the
+  // existing onDidRequestAction event so downstream listeners can react.
+  // ===========================================================================
+
+  /**
+   * Unshelve the entry silently — no options dialog, default drop-after.
+   * Still routes conflicts through the Resolve Conflicts dialog (T1-08).
+   */
+  async unshelveSilent(id: string): Promise<IShelfActionResult> {
+    const removeAppliedFiles = vscode.workspace
+      .getConfiguration('intellig.shelve')
+      .get<boolean>('removeAppliedFiles', false);
+    return this.unshelve(id, {
+      removeFromShelf: true,
+      removeAppliedFiles,
+    });
+  }
+
+  /**
+   * Prompt the user for a new name and rename the entry.
+   */
+  async renameShelfItem(id: string): Promise<IShelfActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+    const shelfItem = this._findShelfItemById(id);
+    if (!shelfItem) {
+      return { success: false, error: `Shelf item not found: ${id}` };
+    }
+    const newName = await vscode.window.showInputBox({
+      title: `Rename Shelf "${shelfItem.name}"`,
+      value: shelfItem.name,
+      prompt: 'Enter a new name for this shelf entry',
+      validateInput: (value) => {
+        if (!value.trim()) {
+          return 'Shelf name cannot be empty';
+        }
+        return undefined;
+      },
+    });
+    if (newName === undefined || newName.trim() === shelfItem.name) {
+      return { success: false };
+    }
+    try {
+      this._shelfService.renameShelf(this._repository, id, newName.trim());
+      void vscode.window.showInformationMessage(`Renamed shelf to "${newName.trim()}"`);
+      this._onDidRequestAction.fire({ action: 'rename', shelfItem });
+      return { success: true, action: 'rename', shelfItem };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to rename shelf: ${errorMessage}`);
+      return { success: false, action: 'rename', shelfItem, error: errorMessage };
+    }
+  }
+
+  /**
+   * Reactivate an Already-Unshelved entry by clearing its `unshelvedAt`.
+   */
+  async restoreShelfItem(id: string): Promise<IShelfActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+    const shelfItem = this._findShelfItemById(id);
+    if (!shelfItem) {
+      return { success: false, error: `Shelf item not found: ${id}` };
+    }
+    this._shelfService.restoreShelf(this._repository, id);
+    void vscode.window.showInformationMessage(`Restored shelf: "${shelfItem.name}"`);
+    this._onDidRequestAction.fire({ action: 'restore', shelfItem });
+    return { success: true, action: 'restore', shelfItem };
+  }
+
+  /**
+   * Export the entry as a `.patch` file on disk. Writes concatenated diffs
+   * from each of the entry's files; the resulting file is importable via
+   * PatchService.applyPatch or the Import Patches flow.
+   */
+  async createPatchFromShelf(id: string): Promise<IShelfActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+    const shelfItem = this._findShelfItemById(id);
+    if (!shelfItem) {
+      return { success: false, error: `Shelf item not found: ${id}` };
+    }
+
+    const defaultName = `${shelfItem.name.replace(/[^A-Za-z0-9._-]+/g, '_')}.patch`;
+    const defaultUri = vscode.Uri.joinPath(this._repository.rootUri, defaultName);
+    const target = await vscode.window.showSaveDialog({
+      title: `Export Shelf: ${shelfItem.name}`,
+      defaultUri,
+      filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+      saveLabel: 'Save Patch',
+    });
+    if (!target) {
+      return { success: false };
+    }
+
+    try {
+      const content = shelfItem.files.map((f) => f.diff).join('\n');
+      await vscode.workspace.fs.writeFile(target, Buffer.from(content, 'utf-8'));
+      void vscode.window.showInformationMessage(`Patch written to ${target.fsPath}`);
+      this._onDidRequestAction.fire({ action: 'createPatch', shelfItem });
+      return { success: true, action: 'createPatch', shelfItem };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to write patch: ${errorMessage}`);
+      return { success: false, action: 'createPatch', shelfItem, error: errorMessage };
+    }
+  }
+
+  /**
+   * Import `.patch`/`.diff` files as new shelf entries. One entry per file.
+   */
+  async importPatches(): Promise<IShelfActionResult[]> {
+    if (!this._repository) {
+      void vscode.window.showErrorMessage('No repository available');
+      return [];
+    }
+    const uris = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: true,
+      openLabel: 'Import Patches',
+      filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+    });
+    if (!uris || uris.length === 0) {
+      return [];
+    }
+    const results: IShelfActionResult[] = [];
+    for (const uri of uris) {
+      try {
+        const item = await this._shelfService.importPatch(this._repository, {
+          patchPath: uri.fsPath,
+        });
+        results.push({ success: true, shelfItem: item });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        results.push({ success: false, error: errorMessage });
+      }
+    }
+    const okCount = results.filter((r) => r.success).length;
+    if (okCount > 0) {
+      void vscode.window.showInformationMessage(
+        `Imported ${okCount} patch${okCount === 1 ? '' : 'es'} as shelf ${
+          okCount === 1 ? 'entry' : 'entries'
+        }.`
+      );
+    }
+    const failed = results.length - okCount;
+    if (failed > 0) {
+      void vscode.window.showWarningMessage(
+        `${failed} patch file${failed === 1 ? '' : 's'} could not be imported.`
+      );
+    }
+    await this.refresh();
+    return results;
+  }
+
+  /**
+   * Toggle whether Already-Unshelved entries are visible in the tree.
+   */
+  setShowAlreadyUnshelved(show: boolean): void {
+    if (this._showAlreadyUnshelved === show) {
+      return;
+    }
+    this._showAlreadyUnshelved = show;
+    void this.refresh();
+  }
+
+  /**
+   * Current visibility of Already-Unshelved entries.
+   */
+  getShowAlreadyUnshelved(): boolean {
+    return this._showAlreadyUnshelved;
   }
 
   /**
@@ -659,6 +914,14 @@ export class ShelfView implements IShelfView {
       if (selected.isAction && selected.label.includes('Shelve New')) {
         // Create new shelf item
         await this.showShelveDialog(this._repository!);
+      } else if (selected.isAction && selected.label.includes('Import Patches')) {
+        // T2-10: Import `.patch`/`.diff` files as shelf entries.
+        await this.importPatches();
+        await this._showShelfList();
+      } else if (selected.isAction && selected.label.includes('Already Unshelved')) {
+        // T2-10: toggle Already-Unshelved filter and re-show.
+        this.setShowAlreadyUnshelved(!this._showAlreadyUnshelved);
+        await this._showShelfList();
       } else if (selected.shelfItem) {
         // Show context menu for the selected shelf item
         await this.showContextMenu(selected.shelfItem.id);
@@ -680,8 +943,24 @@ export class ShelfView implements IShelfView {
 
     // Add "Shelve Changes" action at the top
     items.push({
-      label: '$(add) Shelve New Changes...',
+      label: '$(add) Shelve New Changes…',
       description: 'Shelve current changes',
+      isAction: true,
+    });
+
+    // T2-10: root-level Import Patches and filter toggle.
+    items.push({
+      label: '$(cloud-download) Import Patches…',
+      description: 'Import .patch / .diff files as new shelf entries',
+      isAction: true,
+    });
+    items.push({
+      label: this._showAlreadyUnshelved
+        ? '$(eye-closed) Hide Already Unshelved'
+        : '$(eye) Show Already Unshelved',
+      description: this._showAlreadyUnshelved
+        ? 'Hide entries that have been successfully applied'
+        : 'Include entries that have already been unshelved',
       isAction: true,
     });
 
@@ -845,7 +1124,8 @@ export class ShelfView implements IShelfView {
  */
 export function createShelfView(
   shelfService: IShelfService,
-  getStatus?: (repo: IRepository) => Promise<IFileStatus[]>
+  getStatus?: (repo: IRepository) => Promise<IFileStatus[]>,
+  conflictResolutionService?: IConflictResolutionService
 ): ShelfView {
-  return new ShelfView(shelfService, getStatus);
+  return new ShelfView(shelfService, getStatus, conflictResolutionService);
 }
