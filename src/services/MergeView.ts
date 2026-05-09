@@ -151,6 +151,48 @@ export class MergeView implements IMergeView {
   }
 
   /**
+   * T3-04 — auto-resolve every conflict where the right (incoming) side
+   * didn't meaningfully change relative to the base by taking the left
+   * (current) side. Returns the number of conflicts auto-resolved.
+   *
+   * A conflict is "non-conflicting from left" when:
+   *   - diff3 markers are present and `incomingContent === baseContent`, OR
+   *   - no base was recorded and `incomingContent` is empty while
+   *     `currentContent` is not (i.e. left-only addition).
+   * True both-sided conflicts stay unresolved.
+   */
+  applyAllNonConflictingFromLeft(): number {
+    if (!this._mergeState) return 0;
+    const ids = identifyNonConflictingConflicts(this._mergeState.conflicts, 'left');
+    let resolved = 0;
+    for (const id of ids) {
+      const conflict = this._mergeState.conflicts.find((c) => c.id === id);
+      if (conflict && !conflict.resolved) {
+        this._resolveConflict(id, 'current');
+        resolved++;
+      }
+    }
+    return resolved;
+  }
+
+  /**
+   * T3-04 — symmetric to {@link applyAllNonConflictingFromLeft}.
+   */
+  applyAllNonConflictingFromRight(): number {
+    if (!this._mergeState) return 0;
+    const ids = identifyNonConflictingConflicts(this._mergeState.conflicts, 'right');
+    let resolved = 0;
+    for (const id of ids) {
+      const conflict = this._mergeState.conflicts.find((c) => c.id === id);
+      if (conflict && !conflict.resolved) {
+        this._resolveConflict(id, 'incoming');
+        resolved++;
+      }
+    }
+    return resolved;
+  }
+
+  /**
    * Navigate to the next conflict
    */
   nextConflict(): void {
@@ -560,6 +602,12 @@ export class MergeView implements IMergeView {
       case 'acceptAllIncoming':
         this.acceptAllIncoming();
         break;
+      case 'applyAllNonConflictingFromLeft':
+        this.applyAllNonConflictingFromLeft();
+        break;
+      case 'applyAllNonConflictingFromRight':
+        this.applyAllNonConflictingFromRight();
+        break;
       case 'nextConflict':
         this.nextConflict();
         break;
@@ -830,6 +878,8 @@ export class MergeView implements IMergeView {
     </div>
     <button class="toolbar-button secondary" onclick="acceptAllCurrent()">Accept All Current</button>
     <button class="toolbar-button secondary" onclick="acceptAllIncoming()">Accept All Incoming</button>
+    <button class="toolbar-button secondary" onclick="applyNonConflictingLeft()" title="T3-04 — auto-resolve conflicts where only the left side changed">← Apply non-conflicting from Left</button>
+    <button class="toolbar-button secondary" onclick="applyNonConflictingRight()" title="T3-04 — auto-resolve conflicts where only the right side changed">→ Apply non-conflicting from Right</button>
     <button class="toolbar-button primary" onclick="markResolved()" ${allResolved ? '' : 'disabled'}>
       Mark as Resolved
     </button>
@@ -863,6 +913,14 @@ export class MergeView implements IMergeView {
 
     function acceptAllIncoming() {
       vscode.postMessage({ type: 'acceptAllIncoming' });
+    }
+
+    function applyNonConflictingLeft() {
+      vscode.postMessage({ type: 'applyAllNonConflictingFromLeft' });
+    }
+
+    function applyNonConflictingRight() {
+      vscode.postMessage({ type: 'applyAllNonConflictingFromRight' });
     }
 
     function nextConflict() {
@@ -1035,7 +1093,7 @@ export class MergeView implements IMergeView {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/'/g, '&#39;');
   }
 }
 
@@ -1044,4 +1102,125 @@ export class MergeView implements IMergeView {
  */
 export function createMergeView(extensionUri: vscode.Uri, gitService: IGitService): MergeView {
   return new MergeView(extensionUri, gitService);
+}
+
+// ─── T3-04 pure helper ────────────────────────────────────────────────────────
+
+/** Side of a conflict marker — left = current (ours), right = incoming (theirs). */
+export type NonConflictingSide = 'left' | 'right';
+
+/**
+ * Identify conflict-region ids that can be auto-resolved by taking the given
+ * side. A region is "non-conflicting from left" when the right-side content
+ * didn't meaningfully change:
+ *
+ *  - diff3 markers (base is known): `incomingContent === baseContent` means
+ *    only the left side changed — safe to take left.
+ *  - diff2 markers (no base): `incomingContent` is empty while
+ *    `currentContent` is non-empty → left-only addition — safe to take left.
+ *
+ * The `'right'` side is symmetric. True both-sided conflicts are left out.
+ *
+ * Pure so tests can exercise it without instantiating a webview.
+ */
+export function identifyNonConflictingConflicts(
+  conflicts: ReadonlyArray<{
+    id: number;
+    resolved: boolean;
+    baseContent: string;
+    currentContent: string;
+    incomingContent: string;
+  }>,
+  side: NonConflictingSide
+): number[] {
+  const out: number[] = [];
+  for (const c of conflicts) {
+    if (c.resolved) continue;
+    if (side === 'left') {
+      // Prefer diff3 check when base is known (non-empty).
+      if (c.baseContent.length > 0 && c.incomingContent === c.baseContent) {
+        out.push(c.id);
+        continue;
+      }
+      // Fall-back: diff2 style where the right side is empty but the left
+      // has content — only the left added lines.
+      if (
+        c.baseContent.length === 0 &&
+        c.incomingContent.length === 0 &&
+        c.currentContent.length > 0
+      ) {
+        out.push(c.id);
+      }
+    } else {
+      if (c.baseContent.length > 0 && c.currentContent === c.baseContent) {
+        out.push(c.id);
+        continue;
+      }
+      if (
+        c.baseContent.length === 0 &&
+        c.currentContent.length === 0 &&
+        c.incomingContent.length > 0
+      ) {
+        out.push(c.id);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Convenience: parse raw file contents with conflict markers and return the
+ * ids of conflicts resolvable from the given side. Used by tests that
+ * exercise the whole pipeline in one call.
+ *
+ * Note: this is a light parser used only for testing. It mirrors the
+ * private parser in {@link MergeView} for diff2 + diff3 marker shapes but
+ * ignores VS Code-specific {@link vscode.Range} plumbing.
+ */
+export function identifyNonConflictingHunks(
+  markerText: string,
+  side: NonConflictingSide
+): number[] {
+  const lines = markerText.split('\n');
+  interface Hunk {
+    id: number;
+    baseContent: string;
+    currentContent: string;
+    incomingContent: string;
+    resolved: boolean;
+  }
+  const hunks: Hunk[] = [];
+  let inConflict = false;
+  let section: 'current' | 'base' | 'incoming' = 'current';
+  let currentBuf: string[] = [];
+  let baseBuf: string[] = [];
+  let incomingBuf: string[] = [];
+  let nextId = 0;
+  for (const line of lines) {
+    if (line.startsWith('<<<<<<<')) {
+      inConflict = true;
+      section = 'current';
+      currentBuf = [];
+      baseBuf = [];
+      incomingBuf = [];
+    } else if (line.startsWith('|||||||') && inConflict) {
+      section = 'base';
+    } else if (line.startsWith('=======') && inConflict) {
+      section = 'incoming';
+    } else if (line.startsWith('>>>>>>>') && inConflict) {
+      hunks.push({
+        id: nextId++,
+        baseContent: baseBuf.join('\n'),
+        currentContent: currentBuf.join('\n'),
+        incomingContent: incomingBuf.join('\n'),
+        resolved: false,
+      });
+      inConflict = false;
+    } else if (inConflict) {
+      if (section === 'current') currentBuf.push(line);
+      else if (section === 'base') baseBuf.push(line);
+      else incomingBuf.push(line);
+    }
+  }
+  return identifyNonConflictingConflicts(hunks, side);
 }

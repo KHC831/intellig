@@ -1013,24 +1013,109 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
             // Execute rebase
             rebaseService.executeRebase();
 
-            // Assert: First message should appear before second message in combined message
+            // Assert: the combined message is exactly first + separator + second.
+            //
+            // TR-8 regression (R6 Gap-D 10× stress, seed -279145967): the
+            // previous form used `indexOf(commits[1].message)` to prove
+            // ordering, but when `commits[1].message` was a substring of
+            // `commits[0].message` (counterexample msg0="% ", msg1="%"),
+            // `indexOf` would locate msg1 *inside* msg0 and return an index
+            // smaller than or equal to the start of msg0 — making the
+            // strict `firstMsgIndex < secondMsgIndex` check fail even though
+            // `executeRebase` joined the messages in the right order.
+            //
+            // Anchoring on the exact join string (commits[0] + '\n\n' +
+            // commits[1], mirroring the sibling property on line ~905)
+            // captures the ordering intent without any substring-collision
+            // ambiguity.
             const rebasedCommits = rebaseService.getRebasedCommits();
             const squashedCommit = rebasedCommits[0];
+            const expectedMessage = commits[0].message + '\n\n' + commits[1].message;
 
-            const firstMsgIndex = squashedCommit.message.indexOf(commits[0].message);
-            const secondMsgIndex = squashedCommit.message.indexOf(commits[1].message);
-
-            assert.ok(firstMsgIndex >= 0, 'First message should be in combined message');
-            assert.ok(secondMsgIndex >= 0, 'Second message should be in combined message');
-            assert.ok(
-              firstMsgIndex < secondMsgIndex,
-              'First commit message should appear before second commit message'
+            assert.strictEqual(
+              squashedCommit.message,
+              expectedMessage,
+              'Combined squash message should be exactly commits[0] + "\\n\\n" + commits[1] (substring-collision safe)'
             );
 
             return true;
           }
         ),
         { numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-8 regression: seed -279145967 (R6 Gap-D 10× stress) shrank to
+     * `msg0="% ", msg1="%"` — a case where `commits[1].message` is a
+     * substring of `commits[0].message`, which broke the prior
+     * `indexOf`-based ordering assertion. The fix anchors on the exact
+     * join string (see the property immediately above); this pinned block
+     * guards against reintroduction of the `indexOf` pattern.
+     *
+     * See `src/test/property/pinnedSeeds.md` for the full catalog.
+     */
+    it('TR-8 regression: seed -279145967 does not flake the squash-order property', () => {
+      fc.assert(
+        fc.property(
+          rebaseCommitsArb,
+          branchNameArb,
+          commitHashArb,
+          fc.array(fileChangesArb, { minLength: 2, maxLength: 5 }),
+          (commits, branchName, ontoHash, fileChangesList): boolean => {
+            if (fileChangesList.length < commits.length) {
+              return true;
+            }
+
+            const rebaseService = new MockRebaseService();
+            for (let i = 0; i < commits.length; i++) {
+              const changes = fileChangesList[i % fileChangesList.length].map((f) => ({
+                path: `commit${i}_${f.path}`,
+                content: `commit${i}_${f.content}`,
+              }));
+              rebaseService.addCommit(commits[i].hash, commits[i].message, changes);
+            }
+
+            rebaseService.startInteractiveRebase(ontoHash, branchName, commits);
+            rebaseService.updateRebasePlan([{ hash: commits[1].hash, action: 'squash' }]);
+            rebaseService.executeRebase();
+
+            const rebasedCommits = rebaseService.getRebasedCommits();
+            const squashedCommit = rebasedCommits[0];
+            const expectedMessage = commits[0].message + '\n\n' + commits[1].message;
+            assert.strictEqual(squashedCommit.message, expectedMessage);
+
+            return true;
+          }
+        ),
+        { seed: -279145967, numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-8 regression (synthetic): reconstruct the minimal counterexample
+     * (msg1 is a proper substring of msg0) without relying on fast-check's
+     * PRNG, so the guard survives generator reshapes that would retire
+     * seed -279145967.
+     */
+    it('TR-8 regression (synthetic): substring-collision in messages does not flake squash-order', () => {
+      const rebaseService = new MockRebaseService();
+      const commits = [
+        { hash: '0000000000000000000000000000000000000000', message: '% ', action: 'pick' as const },
+        { hash: '0000000000000000000000000000000000000001', message: '%', action: 'pick' as const },
+      ];
+      const filePath = 'a.txt';
+      rebaseService.addCommit(commits[0].hash, commits[0].message, [{ path: filePath, content: ' ' }]);
+      rebaseService.addCommit(commits[1].hash, commits[1].message, [{ path: filePath, content: ' ' }]);
+      rebaseService.startInteractiveRebase('0000000000000000000000000000000000000000', 'a', commits);
+      rebaseService.updateRebasePlan([{ hash: commits[1].hash, action: 'squash' }]);
+      rebaseService.executeRebase();
+
+      const squashedCommit = rebaseService.getRebasedCommits()[0];
+      assert.strictEqual(
+        squashedCommit.message,
+        '% \n\n%',
+        'Combined message must be exactly msg0 + "\\n\\n" + msg1 even when msg1 is a substring of msg0'
       );
     });
 

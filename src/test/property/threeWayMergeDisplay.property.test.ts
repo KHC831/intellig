@@ -890,22 +890,129 @@ describe('Three-Way Merge Display Property Tests', () => {
             );
 
             // Assert: Each resolved conflict is in the set
+            //
+            // Look up by stable `id` rather than `baseContent`: real conflict regions
+            // can legitimately have duplicate base content (the generator does not
+            // de-dupe baseContent), so content-equality lookup is ambiguous and would
+            // match the wrong entry when two conflicts share the same baseContent.
+            // IDs, however, are guaranteed unique by `conflictRegionsArb`.
             for (const conflict of conflicts) {
               if (conflict.resolved) {
-                const mergeConflict = mergeState.conflicts.find(
-                  (c) => c.baseContent === conflict.baseContent
+                const mergeConflict = mergeState.conflicts.find((c) => c.id === conflict.id);
+                assert.ok(
+                  mergeConflict !== undefined,
+                  `Expected merge conflict for input id ${conflict.id}`
                 );
-                if (mergeConflict) {
-                  assert.ok(
-                    mergeState.resolvedConflicts.has(mergeConflict.id),
-                    `Resolved conflict ${mergeConflict.id} should be in resolvedConflicts set`
-                  );
-                }
+                assert.ok(
+                  mergeState.resolvedConflicts.has(mergeConflict.id),
+                  `Resolved conflict ${mergeConflict.id} should be in resolvedConflicts set`
+                );
               }
             }
           }
         ),
         { numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-6 regression: seed -1397824335 shrank to the counterexample below,
+     * where two conflicts share `baseContent = ":"` but only the second is
+     * resolved. The original assertion looked up merge conflicts by
+     * `baseContent` equality and therefore matched the *first* (unresolved)
+     * region, then asserted that its id was in `resolvedConflicts` — which
+     * it wasn't. The fix is to look up by stable `id` instead.
+     *
+     * Asserting the counterexample directly (rather than pinning only the
+     * fast-check seed) means this regression catches the bug deterministically
+     * regardless of fast-check version-to-version seed drift.
+     *
+     * See .agent/reviews/TEST_RUN_REPORT_ROUND4.md TR-6.
+     */
+    it('TR-6 regression: duplicate baseContent with mixed resolved status tracks correctly', () => {
+      const mergeService = new MockMergeViewService();
+      const conflicts = [
+        {
+          id: 0,
+          baseContent: ':',
+          currentContent: '!',
+          incomingContent: '!',
+          resolved: false,
+          resolution: undefined as ConflictResolution | undefined,
+        },
+        {
+          id: 1,
+          baseContent: ':',
+          currentContent: '!',
+          incomingContent: '!',
+          resolved: true,
+          resolution: undefined as ConflictResolution | undefined,
+        },
+        {
+          id: 2,
+          baseContent: '!',
+          currentContent: '!',
+          incomingContent: '!',
+          resolved: false,
+          resolution: undefined as ConflictResolution | undefined,
+        },
+      ];
+
+      const mergeState = mergeService.createMergeState('a', '! ', '!', '!', conflicts);
+
+      // Only the second conflict (id=1) is resolved.
+      assert.strictEqual(mergeState.resolvedConflicts.size, 1);
+
+      // Under the old assertion (lookup by baseContent), this would find the
+      // first conflict with baseContent=':' — id=0, which is NOT in the
+      // resolvedConflicts set — and incorrectly fail.
+      for (const conflict of conflicts) {
+        if (conflict.resolved) {
+          const mergeConflict = mergeState.conflicts.find((c) => c.id === conflict.id);
+          assert.ok(mergeConflict !== undefined);
+          assert.ok(
+            mergeState.resolvedConflicts.has(mergeConflict.id),
+            `Resolved conflict ${mergeConflict.id} should be in resolvedConflicts set`
+          );
+        }
+      }
+    });
+
+    /**
+     * TR-6 regression: the original seed -1397824335 itself, in case the
+     * counterexample form above is ever edited out by mistake.
+     */
+    it('TR-6 regression: seed -1397824335 does not flake the resolved-tracking property', () => {
+      fc.assert(
+        fc.property(
+          filePathArb,
+          fileContentArb,
+          fileContentArb,
+          fileContentArb,
+          conflictRegionsArb,
+          (file, base, current, incoming, conflicts) => {
+            const mergeService = new MockMergeViewService();
+            const mergeState = mergeService.createMergeState(
+              file,
+              base,
+              current,
+              incoming,
+              conflicts
+            );
+
+            const resolvedCount = conflicts.filter((c) => c.resolved).length;
+            assert.strictEqual(mergeState.resolvedConflicts.size, resolvedCount);
+
+            for (const conflict of conflicts) {
+              if (conflict.resolved) {
+                const mergeConflict = mergeState.conflicts.find((c) => c.id === conflict.id);
+                assert.ok(mergeConflict !== undefined);
+                assert.ok(mergeState.resolvedConflicts.has(mergeConflict.id));
+              }
+            }
+          }
+        ),
+        { seed: -1397824335, numRuns: 100 }
       );
     });
 

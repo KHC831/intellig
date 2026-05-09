@@ -590,9 +590,23 @@ describe('Rebase Edit Pause Property Tests', () => {
             const newChange: IFileChange = { path: newFileName, content: newContent };
             rebaseService.addWorkingDirectoryChange(newChange);
 
-            // Assert: The new change should be in the working directory
+            // Assert: The new change should be in the working directory.
+            // Search from the tail so a shrinker-generated collision between
+            // `newFileName` and a path already seeded in the commit's setup
+            // fileChanges (which the mock keeps by reference in the working
+            // directory on pause) picks up the append we just made rather
+            // than the stale seed entry. Equivalent to `.findLast`, written
+            // as a manual reverse loop because the project targets ES2022
+            // and `Array.prototype.findLast` is an ES2023 addition. See
+            // test-runner TR-1.
             const workingChanges = rebaseService.getWorkingDirectoryChanges();
-            const addedChange = workingChanges.find((c) => c.path === newFileName);
+            let addedChange: IFileChange | undefined;
+            for (let i = workingChanges.length - 1; i >= 0; i--) {
+              if (workingChanges[i].path === newFileName) {
+                addedChange = workingChanges[i];
+                break;
+              }
+            }
             assert.ok(addedChange, 'New change should be in working directory');
             assert.strictEqual(
               addedChange.content,
@@ -603,7 +617,11 @@ describe('Rebase Edit Pause Property Tests', () => {
             return true;
           }
         ),
-        { numRuns: 100 }
+        // TR-1: include a stable replay seed for the case that previously
+        // shrank to a (newFileName, pre-existing-file) collision. Keeping
+        // it here guards against regressions if the mock's aliasing
+        // behaviour is revisited.
+        { numRuns: 100, seed: -214908735 }
       );
     });
 

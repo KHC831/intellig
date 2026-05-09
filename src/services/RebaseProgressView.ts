@@ -12,6 +12,7 @@ import {
   RebaseStatus,
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
+import { generateNonce } from '../utils/webviewNonce';
 
 /**
  * Message types from webview to extension
@@ -1005,15 +1006,13 @@ export class RebaseProgressView implements vscode.Disposable {
   }
 
   /**
-   * Generate a nonce for content security policy.
+   * Generate a nonce for content security policy. Delegates to the shared
+   * CSPRNG-backed helper (`generateNonce`, base64url, 128-bit entropy) so
+   * every IntelliG webview uses the same nonce strategy. Was previously an
+   * inline `Math.random()`-based generator — see TL-13 / SR-R3 MEDIUM.
    */
   private _getNonce(): string {
-    let text = '';
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return generateNonce();
   }
 
   /**
@@ -1025,7 +1024,7 @@ export class RebaseProgressView implements vscode.Disposable {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/'/g, '&#39;');
   }
 
   /**
