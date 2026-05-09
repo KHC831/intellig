@@ -9,7 +9,12 @@ import '../setup';
 import * as assert from 'assert';
 import { resolveLabel, CommandTitleProvider } from '../../commands/CommandTitleProvider';
 import { EventEmitter } from '../mocks/vscode';
-import { IGitService, IRepository, IBranch } from '../../services/interfaces/IGitService';
+import {
+  IGitService,
+  IRepository,
+  IBranch,
+  IFetchResult,
+} from '../../services/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -33,6 +38,7 @@ function createMockGitService(): IGitService {
     renameBranch: async () => {},
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async () => ({ success: true }),
+    rebaseSkip: async () => ({ success: true }),
     compareBranches: async () => ({
       commitsAhead: [],
       commitsBehind: [],
@@ -40,7 +46,14 @@ function createMockGitService(): IGitService {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
+    fetch: async (): Promise<IFetchResult> => ({
+      updatedRefs: [],
+      ahead: 0,
+      behind: 0,
+      errors: [],
+    }),
+    onDidFetch: () => ({ dispose: () => {} }),
+    resetToCommit: async () => {},
     pull: async () => {},
     push: async () => {},
     getRemotes: async () => [],
@@ -52,6 +65,8 @@ function createMockGitService(): IGitService {
     stashPop: async () => {},
     stashDrop: async () => {},
     stashShow: async () => [],
+    stashBranch: async () => {},
+    stashRename: async () => {},
     createTag: async () => {},
     deleteTag: async () => {},
     pushTag: async () => {},
