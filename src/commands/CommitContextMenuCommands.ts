@@ -820,9 +820,16 @@ export class CommitContextMenuCommands {
         return;
       }
 
-      // Open the first file's diff as a starting point
+      // Open the first file's diff as a starting point.
+      // The `intellig-git:` TextDocumentContentProvider (registered in
+      // extension.ts::registerGitContentProvider) reads the URI query as the
+      // raw, URL-encoded git ref. Prior shape used the unregistered
+      // `git-show:` scheme with a JSON query, causing VS Code to fail to
+      // resolve the left-hand side of the diff (senior-R5 L-3, user-reported).
       const firstDiff = diffs[0];
-      const commitUri = vscode.Uri.parse(`git-show:${firstDiff.path}?${JSON.stringify({ ref: hash, path: firstDiff.path })}`);
+      const commitUri = vscode.Uri.parse(
+        `intellig-git:${firstDiff.path}?${encodeURIComponent(hash)}`
+      );
       const localUri = vscode.Uri.joinPath(repo.rootUri, firstDiff.path);
 
       await vscode.commands.executeCommand(
@@ -871,8 +878,10 @@ export class CommitContextMenuCommands {
       );
 
       if (selected) {
+        // See `_handleCompareWithLocal` above for why this uses the
+        // `intellig-git:` scheme with a URL-encoded ref in the query.
         const fileUri = vscode.Uri.parse(
-          `git-show:${selected.label}?${JSON.stringify({ ref: hash, path: selected.label })}`
+          `intellig-git:${selected.label}?${encodeURIComponent(hash)}`
         );
         await vscode.commands.executeCommand('vscode.open', fileUri);
       }

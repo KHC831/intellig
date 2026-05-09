@@ -566,6 +566,68 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('diff failed'));
     });
+
+    // Regression for senior-R5 L-3 / task #82 (user-reported crash):
+    // Compare-with-Local constructed its left-hand URI with the unregistered
+    // `git-show:` scheme and a JSON-encoded query. VS Code has no provider
+    // for that scheme, so it threw `Unable to resolve resource git-show:...`
+    // before the diff could open. The fix normalizes to the same shape the
+    // rest of extension.ts uses:
+    //   intellig-git:<path>?<encodeURIComponent(ref)>
+    // which is the exact contract `registerGitContentProvider` parses.
+    //
+    // Note: `src/test/mocks/vscode.ts::Uri.parse` stores the whole raw
+    // string in `path` with `scheme='file'` — same as other URI-shape
+    // tests in this suite (see `branchShowDiff.test.ts:252`). We assert on
+    // `toString()` content to get the meaningful invariant.
+    it('builds the left-hand URI with the registered `intellig-git:` scheme and a URL-encoded ref', async () => {
+      const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
+      (vscode.commands as any).executeCommand = async (cmd: string, ...args: unknown[]) => {
+        if (cmd === 'vscode.diff') {
+          diffCalls.push({
+            left: args[0] as vscode.Uri,
+            right: args[1] as vscode.Uri,
+            title: args[2] as string,
+          });
+        }
+      };
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getCommitDiff: async () => [
+          { path: 'docs/features/alert-system.md', status: 'modified', hunks: [], binary: false },
+        ],
+      } as any);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('compareWithLocal', [testHash]);
+
+      assert.strictEqual(diffCalls.length, 1, 'expected exactly one vscode.diff call');
+      const leftStr = diffCalls[0].left.toString();
+
+      // Left side: the git-revision URI handled by the intellig-git provider.
+      // Must be on the registered scheme — no `git-show:` drift.
+      assert.ok(
+        leftStr.includes('intellig-git:docs/features/alert-system.md'),
+        `left URI should be an intellig-git path, got: "${leftStr}"`
+      );
+      assert.ok(
+        !leftStr.includes('git-show:'),
+        `left URI must not use the legacy "git-show:" scheme, got: "${leftStr}"`
+      );
+      // The provider in extension.ts reads `uri.query` as the raw,
+      // URL-encoded git ref. No JSON blob, no `ref=` prefix — just the ref.
+      assert.ok(
+        leftStr.includes(`?${encodeURIComponent(testHash)}`) || leftStr.includes(`?${testHash}`),
+        `left URI query must be the URL-encoded ref (no JSON envelope); got: "${leftStr}"`
+      );
+      assert.ok(
+        !leftStr.includes('"ref"'),
+        `left URI query must NOT be a JSON envelope; got: "${leftStr}"`
+      );
+    });
   });
 
   // ─── showRepoAtRevision ───────────────────────────────────────────────────
@@ -630,6 +692,60 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('ls-tree failed'));
+    });
+
+    // Regression for senior-R5 L-3 / task #82 (see compareWithLocal note above).
+    // Show-Repo-at-Revision's QuickPick path had the same URI-scheme drift;
+    // picking a file would throw "Unable to resolve resource git-show:...".
+    it('opens the selected file with an `intellig-git:` URI and URL-encoded ref', async () => {
+      const openedUris: vscode.Uri[] = [];
+      (vscode.commands as any).executeCommand = async (cmd: string, ...args: unknown[]) => {
+        if (cmd === 'vscode.open') {
+          openedUris.push(args[0] as vscode.Uri);
+        }
+      };
+      (vscode.window as any).showQuickPick = async (items: any[]) => items[0];
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          if (cmdArgs[0] === 'ls-tree') {
+            return {
+              exitCode: 0,
+              stdout: 'docs/features/alert-system.md\nsrc/file2.ts\n',
+              stderr: '',
+              combined: '',
+            };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('showRepoAtRevision', [testHash]);
+
+      assert.strictEqual(openedUris.length, 1, 'expected exactly one vscode.open call');
+      const uriStr = openedUris[0].toString();
+      assert.ok(
+        uriStr.includes('intellig-git:docs/features/alert-system.md'),
+        `URI should be on the registered intellig-git: scheme, got: "${uriStr}"`
+      );
+      assert.ok(
+        !uriStr.includes('git-show:'),
+        `URI must not use the legacy "git-show:" scheme, got: "${uriStr}"`
+      );
+      assert.ok(
+        uriStr.includes(`?${encodeURIComponent(testHash)}`) || uriStr.includes(`?${testHash}`),
+        `URI query must be the URL-encoded ref (no JSON envelope); got: "${uriStr}"`
+      );
+      assert.ok(
+        !uriStr.includes('"ref"'),
+        `URI query must NOT be a JSON envelope; got: "${uriStr}"`
+      );
     });
   });
 

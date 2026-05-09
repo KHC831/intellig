@@ -240,18 +240,23 @@ export class BranchComparisonView implements IBranchComparisonView {
     }
 
     try {
-      // Create URIs for the two versions of the file
-      const branch1Uri = vscode.Uri.parse(`git-show:${filePath}?ref=${this._state.branch1}`).with({
-        scheme: 'git',
-        path: filePath,
-        query: JSON.stringify({ ref: this._state.branch1, path: filePath }),
-      });
+      // Create URIs for the two versions of the file.
+      // Uses the `intellig-git:` scheme registered by
+      // `registerGitContentProvider` in extension.ts. That provider reads
+      // `uri.query` as the raw, URL-encoded git ref (so refs containing `/`
+      // like `origin/main` round-trip correctly). Prior shape used the
+      // unregistered `git-show:` scheme with a JSON query and then `.with({
+      // scheme: 'git', ... })`, which made VS Code hand the URI to its own
+      // builtin `git` provider with an unexpected query shape — causing
+      // "Compare Branches → file diff" to throw "Unable to resolve resource"
+      // (senior-R5 L-3, user-reported).
+      const branch1Uri = vscode.Uri.parse(
+        `intellig-git:${filePath}?${encodeURIComponent(this._state.branch1)}`
+      );
 
-      const branch2Uri = vscode.Uri.parse(`git-show:${filePath}?ref=${this._state.branch2}`).with({
-        scheme: 'git',
-        path: filePath,
-        query: JSON.stringify({ ref: this._state.branch2, path: filePath }),
-      });
+      const branch2Uri = vscode.Uri.parse(
+        `intellig-git:${filePath}?${encodeURIComponent(this._state.branch2)}`
+      );
 
       // Open diff editor
       const title = `${this._getFileName(filePath)} (${this._state.branch1} ↔ ${this._state.branch2})`;
