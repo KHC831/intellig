@@ -51,6 +51,41 @@ export enum DecorationRangeBehavior {
   ClosedOpen = 3,
 }
 
+// Mock QuickPickItemKind enum — matches the values from the real vscode API
+// so code that uses it (QuickPick separators, etc.) works under unit tests.
+export enum QuickPickItemKind {
+  Separator = -1,
+  Default = 0,
+}
+
+// Mock StatusBarAlignment enum
+export enum StatusBarAlignment {
+  Left = 1,
+  Right = 2,
+}
+
+// Mock ViewColumn enum
+export enum ViewColumn {
+  Active = -1,
+  Beside = -2,
+  One = 1,
+  Two = 2,
+  Three = 3,
+  Four = 4,
+  Five = 5,
+  Six = 6,
+  Seven = 7,
+  Eight = 8,
+  Nine = 9,
+}
+
+// Mock ProgressLocation enum
+export enum ProgressLocation {
+  SourceControl = 1,
+  Window = 10,
+  Notification = 15,
+}
+
 // Mock configuration storage
 const configurationStore: Map<string, Map<string, unknown>> = new Map();
 
@@ -262,6 +297,20 @@ export interface Webview {
 export interface WebviewOptions {
   enableScripts?: boolean;
   localResourceRoots?: Uri[];
+  retainContextWhenHidden?: boolean;
+}
+
+// Mock WebviewPanel
+export interface WebviewPanel {
+  viewType: string;
+  title: string;
+  webview: Webview;
+  visible: boolean;
+  active: boolean;
+  onDidChangeViewState: Event<unknown>;
+  onDidDispose: Event<void>;
+  reveal(viewColumn?: ViewColumn, preserveFocus?: boolean): void;
+  dispose(): void;
 }
 
 // Mock WebviewViewResolveContext
@@ -308,6 +357,44 @@ export const window = {
   ): Promise<Uri | undefined> => {
     return undefined;
   },
+  createStatusBarItem(
+    _alignment?: unknown,
+    _priority?: number
+  ): {
+    text: string;
+    tooltip: string | undefined;
+    command: string | { title: string; command: string; arguments?: unknown[] } | undefined;
+    alignment: unknown;
+    priority: number | undefined;
+    show(): void;
+    hide(): void;
+    dispose(): void;
+    _shown: boolean;
+    _disposed: boolean;
+  } {
+    // Minimal stub implementation — captures `text`, `tooltip`, `command`
+    // so tests can assert on the rendered badge state. The underlying VS
+    // Code runtime creates a real StatusBarItem; here we only need observable
+    // state.
+    return {
+      text: '',
+      tooltip: undefined,
+      command: undefined,
+      alignment: _alignment,
+      priority: _priority,
+      _shown: false,
+      _disposed: false,
+      show(): void {
+        this._shown = true;
+      },
+      hide(): void {
+        this._shown = false;
+      },
+      dispose(): void {
+        this._disposed = true;
+      },
+    };
+  },
   onDidChangeActiveTextEditor(_listener: (e: unknown) => void): { dispose: () => void } {
     return { dispose: () => {} };
   },
@@ -323,6 +410,71 @@ export const window = {
   },
   createTextEditorDecorationType(_options: unknown): { dispose: () => void } {
     return { dispose: () => {} };
+  },
+  createWebviewPanel(
+    viewType: string,
+    title: string,
+    showOptions: ViewColumn | { viewColumn: ViewColumn; preserveFocus?: boolean },
+    _options?: WebviewOptions
+  ): WebviewPanel {
+    const messageEmitter = new EventEmitter<unknown>();
+    const disposeEmitter = new EventEmitter<void>();
+    const viewStateEmitter = new EventEmitter<unknown>();
+
+    const postedMessages: unknown[] = [];
+
+    const webview: Webview & { _posted: unknown[] } = {
+      html: '',
+      options: _options ?? {},
+      cspSource: 'vscode-webview://mock',
+      onDidReceiveMessage: messageEmitter.event,
+      postMessage: async (message: unknown): Promise<boolean> => {
+        postedMessages.push(message);
+        return true;
+      },
+      asWebviewUri: (localResource: Uri): Uri => localResource,
+      _posted: postedMessages,
+    };
+
+    let disposeCallCount = 0;
+    let revealCallCount = 0;
+
+    const panel: WebviewPanel & {
+      _disposeCallCount: number;
+      _revealCallCount: number;
+      _fireMessage: (message: unknown) => void;
+    } = {
+      viewType,
+      title,
+      webview,
+      visible: true,
+      active: true,
+      onDidChangeViewState: viewStateEmitter.event,
+      onDidDispose: disposeEmitter.event,
+      reveal: (_viewColumn?: ViewColumn, _preserveFocus?: boolean): void => {
+        revealCallCount++;
+        panel._revealCallCount = revealCallCount;
+      },
+      dispose: (): void => {
+        disposeCallCount++;
+        panel._disposeCallCount = disposeCallCount;
+        if (disposeCallCount === 1) {
+          disposeEmitter.fire();
+        }
+      },
+      _disposeCallCount: 0,
+      _revealCallCount: 0,
+      _fireMessage: (message: unknown): void => {
+        messageEmitter.fire(message);
+      },
+    };
+
+    // Use showOptions to avoid unused-var lint; accept either column or object.
+    if (typeof showOptions === 'object' && showOptions !== null) {
+      // no-op; columns aren't meaningful in the mock
+    }
+
+    return panel;
   },
   activeTextEditor: undefined as unknown,
   visibleTextEditors: [] as unknown[],

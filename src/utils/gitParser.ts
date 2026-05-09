@@ -596,6 +596,9 @@ export function parseBlame(output: string): IBlameLine[] {
   let currentMessage = '';
   let currentLine = 0;
   let previousCommit: string | undefined;
+  // Emitted by git blame's `previous <sha> <path>` header when -M/-C detect
+  // that the line was in a different file at the parent commit.
+  let previousFilename: string | undefined;
 
   for (const line of lines) {
     // Commit line: hash origLine finalLine [numLines]
@@ -632,10 +635,22 @@ export function parseBlame(output: string): IBlameLine[] {
       continue;
     }
 
-    // Previous commit
+    // Previous commit (+ optional path when -M/-C active).
+    //
+    // Format: `previous <sha> <path>` — `path` is the file name at the
+    // parent commit, which differs from the current path when git detected a
+    // rename/move. We capture both so callers can annotate-previous against
+    // the correct file.
     if (line.startsWith('previous ')) {
-      const parts = line.substring('previous '.length).split(' ');
-      previousCommit = parts[0];
+      const rest = line.substring('previous '.length);
+      const spaceIdx = rest.indexOf(' ');
+      if (spaceIdx >= 0) {
+        previousCommit = rest.substring(0, spaceIdx);
+        previousFilename = rest.substring(spaceIdx + 1);
+      } else {
+        previousCommit = rest;
+        previousFilename = undefined;
+      }
       continue;
     }
 
@@ -649,10 +664,12 @@ export function parseBlame(output: string): IBlameLine[] {
         date: currentDate || new Date(),
         message: currentMessage,
         previousCommit,
+        previousFilename,
       });
 
-      // Reset for next line
+      // Reset per-line headers.
       previousCommit = undefined;
+      previousFilename = undefined;
     }
   }
 
