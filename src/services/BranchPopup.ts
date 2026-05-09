@@ -1,16 +1,64 @@
 /**
  * Branch Popup implementation.
- * Provides a quick pick style branch selector with IntelliJ-style branch management.
- * Uses VS Code's QuickPick API for a native-feeling experience.
+ * Provides an IntelliJ-parity, sectioned QuickPick branch selector.
+ *
+ * Sections (top-to-bottom):
+ *   - Recent   (≤5 most-recently-checked-out branches, current branch excluded)
+ *   - Local    (all local branches, current highlighted with ● marker)
+ *   - Remote   (all remote branches, preserved as origin/<name>)
+ *   - Tags     (all tags)
+ *
+ * Favorites section (★) is deferred to T3-01 and intentionally omitted here.
+ *
+ * On selection:
+ *   - Local branch  → secondary action menu (Checkout, Merge into Current, Rebase Current onto …, Compare, etc.)
+ *   - Remote branch → secondary action menu (Checkout, Pull into Current Using Merge/Rebase, Compare, Cherry-Pick Commits, …)
+ *   - Tag           → secondary action menu (Checkout Detached, New Branch from Tag…, Cherry-Pick, Delete, Push)
+ *
+ * Recent list persisted in workspaceState under key `intellig.recentBranches` (per repo, 5-entry LRU).
+ * Auto-indent: when ≥3 branches share a `/` prefix, they are indented by 2 spaces in the label
+ * (purely cosmetic — the raw prefix remains for QuickPick native filtering to work).
  */
 
 import * as vscode from 'vscode';
-import { IGitService, IRepository, IBranch } from './interfaces/IGitService';
+import { IGitService, IRepository, IBranch, ITag } from './interfaces/IGitService';
+import { resolveRepo } from '../utils/resolveRepo';
 
 /**
- * Branch action types available in the popup
+ * Workspace-state key under which the recent-branches LRU map is persisted.
+ * Shape: `{ [repoRootFsPath: string]: string[] }` where the string[] is the
+ * list of branch names (most-recent first, ≤5 entries, deduped).
+ */
+export const RECENT_BRANCHES_STATE_KEY = 'intellig.recentBranches';
+
+/** Maximum number of recent branches retained in the LRU. */
+export const RECENT_BRANCHES_MAX = 5;
+
+/** Minimum sibling count before `/`-prefix auto-indent kicks in. */
+export const AUTO_INDENT_MIN_GROUP_SIZE = 3;
+
+/**
+ * T3-01 — Workspace-state key under which the favorites list is persisted.
+ *
+ * Shape: `string[]` — branch names (local or remote-qualified), insertion
+ * order preserved. Deduplicated. Branches that no longer exist in the repo
+ * are filtered out at render time rather than pruned at write time (matches
+ * IntelliJ's forgiving behaviour around transient/remote-only branches).
+ */
+export const FAVORITE_BRANCHES_STATE_KEY = 'intellig.favoriteBranches';
+
+/**
+ * Section identifier for an item in the main sectioned QuickPick.
+ *
+ * T3-01 added `favorites` at the top of the list.
+ */
+export type BranchPopupSection = 'favorites' | 'recent' | 'local' | 'remote' | 'tags';
+
+/**
+ * Branch action types available in the secondary action menu.
  */
 export type BranchAction =
+  // Shared
   | 'checkout'
   | 'new-branch'
   | 'new-branch-from'
@@ -20,46 +68,569 @@ export type BranchAction =
   | 'rename'
   | 'delete'
   | 'cherry-pick'
-  | 'pull';
+  | 'pull'
+  // Remote-branch specific (IntelliJ parity)
+  | 'remote.checkoutAsLocal'
+  | 'remote.checkoutAndRebase'
+  | 'remote.pullUsingMerge'
+  | 'remote.pullUsingRebase'
+  | 'remote.cherryPickCommits'
+  // Local-branch specific
+  | 'local.newBranchFrom'
+  | 'local.mergeIntoCurrent'
+  | 'local.rebaseCurrentOnto'
+  | 'local.push'
+  // Tag specific
+  | 'tag.checkoutDetached'
+  | 'tag.newBranchFrom'
+  | 'tag.cherryPick'
+  | 'tag.delete'
+  | 'tag.push';
 
 /**
- * Quick pick item for branches
+ * Quick pick item for branches / tags / actions.
  */
-interface IBranchQuickPickItem extends vscode.QuickPickItem {
+export interface IBranchQuickPickItem extends vscode.QuickPickItem {
   branch?: IBranch;
+  tag?: ITag;
+  section?: BranchPopupSection;
   action?: BranchAction;
+  commandId?: string;
   isAction?: boolean;
-  isSeparator?: boolean;
 }
 
 /**
- * Result from branch popup selection
+ * Result from branch popup selection.
  */
 export interface IBranchPopupResult {
-  /** The selected branch, if any */
   branch?: IBranch;
-  /** The action to perform */
+  tag?: ITag;
   action?: BranchAction;
-  /** Whether the popup was cancelled */
   cancelled: boolean;
 }
 
 /**
- * Branch Popup class.
- * Provides a quick pick style branch selector with filtering and actions.
+ * Pure helper — returns the normalized label used in the Recent LRU.
+ * For local branches, the name is used as-is (e.g. `main`, `feature/auth`).
+ * For remote branches, the full remote-qualified name is used (`origin/main`).
+ */
+function normalizeRecentKey(branch: IBranch): string {
+  return branch.name;
+}
+
+/**
+ * Push a branch onto the front of a 5-entry LRU, deduplicating existing entries
+ * and evicting from the tail. Pure — returns a new array.
+ */
+export function updateRecentLru(existing: readonly string[], name: string): string[] {
+  const deduped = existing.filter((n) => n !== name);
+  const next = [name, ...deduped];
+  return next.slice(0, RECENT_BRANCHES_MAX);
+}
+
+/**
+ * T3-01 — Add or remove a branch name from the favorites list.
  *
- * - 4.1: Display current branch name in status bar (status bar item)
- * - 4.2: Display branch management menu with all local and remote branches
- * - 17.4: Use popup menu style similar to IntelliJ's branch popup
+ * Insertion order is preserved, duplicates are removed. Pure — returns a new
+ * array. Exported for unit tests.
+ */
+export function updateFavoritesList(
+  existing: readonly string[],
+  branchName: string,
+  favorite: boolean
+): string[] {
+  const filtered = existing.filter((n) => n !== branchName);
+  return favorite ? [...filtered, branchName] : filtered;
+}
+
+/**
+ * T3-01 — Read the favorites list from workspaceState.
+ *
+ * Returns a defensive copy so callers can't mutate the stored array by
+ * reference. Exported for unit tests and for callers outside this module
+ * that want to know the current state.
+ */
+export function getFavorites(workspaceState: vscode.Memento | undefined): string[] {
+  if (!workspaceState) return [];
+  const raw = workspaceState.get<string[]>(FAVORITE_BRANCHES_STATE_KEY, []);
+  return Array.isArray(raw) ? [...raw] : [];
+}
+
+/**
+ * Detect `/`-prefix groups that have ≥ AUTO_INDENT_MIN_GROUP_SIZE siblings, so
+ * those branches can be visually indented in the popup.
+ * Returns the set of prefixes (e.g. `feature/`, `bugfix/`) that qualify.
+ */
+export function detectIndentablePrefixes(names: readonly string[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const name of names) {
+    const slash = name.indexOf('/');
+    if (slash <= 0) {
+      continue;
+    }
+    const prefix = name.substring(0, slash + 1);
+    counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
+  }
+  const result = new Set<string>();
+  for (const [prefix, count] of counts) {
+    if (count >= AUTO_INDENT_MIN_GROUP_SIZE) {
+      result.add(prefix);
+    }
+  }
+  return result;
+}
+
+/**
+ * Apply auto-indent (2-space prefix) to a branch label if its name is in a
+ * qualifying `/`-prefix group. Purely cosmetic.
+ */
+export function formatBranchLabel(
+  name: string,
+  indentablePrefixes: Set<string>,
+  isCurrent: boolean
+): string {
+  // Current branch always uses `● ` marker, never indent.
+  if (isCurrent) {
+    return `● ${name}`;
+  }
+  for (const prefix of indentablePrefixes) {
+    if (name.startsWith(prefix)) {
+      return `  ${name}`;
+    }
+  }
+  return name;
+}
+
+/**
+ * Build the sectioned QuickPick item list for the main branch popup.
+ * Pure function — takes data in, returns items out. Safe to unit-test without
+ * a VS Code host.
+ *
+ * Empty sections are suppressed (no header with no items).
+ */
+export function buildSectionedItems(input: {
+  localBranches: IBranch[];
+  remoteBranches: IBranch[];
+  tags: ITag[];
+  recentBranchNames: readonly string[];
+  /** T3-01 — favorite branch names, insertion-order preserved. */
+  favoriteBranchNames?: readonly string[];
+  currentBranchName?: string;
+}): IBranchQuickPickItem[] {
+  const {
+    localBranches,
+    remoteBranches,
+    tags,
+    recentBranchNames,
+    favoriteBranchNames,
+    currentBranchName,
+  } = input;
+
+  const items: IBranchQuickPickItem[] = [];
+
+  // Index local + remote branches by name for Recent / Favorites resolution.
+  const allBranches: IBranch[] = [...localBranches, ...remoteBranches];
+  const byName = new Map<string, IBranch>();
+  for (const b of allBranches) {
+    byName.set(b.name, b);
+  }
+
+  // Set of favorite names for quick lookup when emitting star buttons.
+  const favoriteSet = new Set(favoriteBranchNames ?? []);
+
+  // ── Favorites (T3-01) ─────────────────────────────────────────────────
+  //
+  // Rendered above Recent so the user's pinned branches are always at the
+  // top of the picker. We filter to branches that currently exist (favorites
+  // referring to deleted branches are silently skipped).
+  if (favoriteBranchNames && favoriteBranchNames.length > 0) {
+    const favoriteResolved: IBranch[] = [];
+    for (const name of favoriteBranchNames) {
+      const branch = byName.get(name);
+      if (branch) {
+        favoriteResolved.push(branch);
+      }
+    }
+    if (favoriteResolved.length > 0) {
+      items.push({
+        label: '★ Favorites',
+        kind: vscode.QuickPickItemKind.Separator,
+      });
+      for (const branch of favoriteResolved) {
+        const marker = branch.type === 'remote' ? '$(cloud)' : '$(git-branch)';
+        items.push({
+          label: `★ ${marker} ${branch.name}`,
+          description: branch.type === 'remote' ? 'remote' : 'local',
+          buttons: [
+            {
+              iconPath: new vscode.ThemeIcon('star-full'),
+              tooltip: 'Unstar',
+            },
+          ],
+          branch,
+          section: 'favorites',
+        });
+      }
+    }
+  }
+
+  // ── Recent ────────────────────────────────────────────────────────────
+  const recentResolved: IBranch[] = [];
+  for (const name of recentBranchNames) {
+    if (name === currentBranchName) {
+      continue; // exclude current branch from Recent per spec
+    }
+    const branch = byName.get(name);
+    if (branch) {
+      recentResolved.push(branch);
+    }
+  }
+
+  if (recentResolved.length > 0) {
+    items.push({
+      label: 'Recent',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    for (const branch of recentResolved) {
+      const marker = branch.type === 'remote' ? '$(cloud)' : '$(git-branch)';
+      items.push({
+        label: `${marker} ${branch.name}`,
+        description: branch.type === 'remote' ? 'remote' : 'local',
+        branch,
+        section: 'recent',
+      });
+    }
+  }
+
+  // ── Local ─────────────────────────────────────────────────────────────
+  if (localBranches.length > 0) {
+    const localNames = localBranches.map((b) => b.name);
+    const localIndentablePrefixes = detectIndentablePrefixes(localNames);
+
+    items.push({
+      label: 'Local',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+
+    for (const branch of localBranches) {
+      const isCurrent = branch.name === currentBranchName || branch.isHead;
+      const label = formatBranchLabel(branch.name, localIndentablePrefixes, isCurrent);
+      const isFav = favoriteSet.has(branch.name);
+      items.push({
+        label,
+        description: formatBranchDescription(branch, isCurrent),
+        detail: branch.upstream
+          ? `→ ${branch.upstream.remote}/${branch.upstream.name}`
+          : undefined,
+        buttons: [
+          {
+            iconPath: new vscode.ThemeIcon(isFav ? 'star-full' : 'star-empty'),
+            tooltip: isFav ? 'Unstar' : 'Add to Favorites',
+          },
+        ],
+        branch,
+        section: 'local',
+      });
+    }
+  }
+
+  // ── Remote ────────────────────────────────────────────────────────────
+  if (remoteBranches.length > 0) {
+    // For remote indent detection, strip the leading "<remote>/" so grouping
+    // works on the post-remote segment (e.g. `origin/feature/*`).
+    const remoteIndentablePrefixes = detectIndentablePrefixes(
+      remoteBranches.map((b) => {
+        const slash = b.name.indexOf('/');
+        return slash >= 0 ? b.name.substring(slash + 1) : b.name;
+      })
+    );
+
+    items.push({
+      label: 'Remote',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+
+    for (const branch of remoteBranches) {
+      // Compute the post-remote segment for indent-group matching.
+      const slash = branch.name.indexOf('/');
+      const postRemote = slash >= 0 ? branch.name.substring(slash + 1) : branch.name;
+      let label = `$(cloud) ${branch.name}`;
+      for (const prefix of remoteIndentablePrefixes) {
+        if (postRemote.startsWith(prefix)) {
+          label = `  $(cloud) ${branch.name}`;
+          break;
+        }
+      }
+      const isFav = favoriteSet.has(branch.name);
+      items.push({
+        label,
+        description: branch.commit ? branch.commit.substring(0, 7) : undefined,
+        buttons: [
+          {
+            iconPath: new vscode.ThemeIcon(isFav ? 'star-full' : 'star-empty'),
+            tooltip: isFav ? 'Unstar' : 'Add to Favorites',
+          },
+        ],
+        branch,
+        section: 'remote',
+      });
+    }
+  }
+
+  // ── Tags ──────────────────────────────────────────────────────────────
+  if (tags.length > 0) {
+    items.push({
+      label: 'Tags',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    for (const tag of tags) {
+      items.push({
+        label: `$(tag) ${tag.name}`,
+        description: tag.commit ? tag.commit.substring(0, 7) : undefined,
+        detail: tag.message,
+        tag,
+        section: 'tags',
+      });
+    }
+  }
+
+  return items;
+}
+
+/**
+ * Format the right-hand description of a local-branch QuickPick item.
+ */
+function formatBranchDescription(branch: IBranch, isCurrent: boolean): string {
+  const parts: string[] = [];
+  if (isCurrent) {
+    parts.push('current');
+  }
+  if (branch.ahead !== undefined && branch.ahead > 0) {
+    parts.push(`↑${branch.ahead}`);
+  }
+  if (branch.behind !== undefined && branch.behind > 0) {
+    parts.push(`↓${branch.behind}`);
+  }
+  if (parts.length === 0 && branch.commit) {
+    parts.push(branch.commit.substring(0, 7));
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Build the secondary action-menu items for a REMOTE branch selection.
+ * Labels mirror INTELLIJ_REFERENCE.md §"Branches popup — remote branch context menu".
+ *
+ * Routes to command IDs declared in package.json:
+ *   - intellig.remoteBranch.checkoutAsLocal
+ *   - intellig.branch.checkoutAndRebase          (shared with local)
+ *   - intellig.remoteBranch.pullUsingMerge
+ *   - intellig.remoteBranch.pullUsingRebase
+ *   - intellig.branch.compareWithCurrent         (shared with local)
+ *   - intellig.remoteBranch.cherryPickCommits
+ *   - intellig.remoteBranch.deleteRemote
+ */
+export function buildRemoteBranchActionMenu(branch: IBranch): IBranchQuickPickItem[] {
+  return [
+    {
+      label: '$(arrow-down) Checkout',
+      description: 'Create a local tracking branch and switch to it',
+      action: 'remote.checkoutAsLocal',
+      commandId: 'intellig.remoteBranch.checkoutAsLocal',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(git-pull-request) Checkout and Rebase onto Current',
+      description: `Checkout ${branch.name} and rebase it onto the previously current branch`,
+      action: 'remote.checkoutAndRebase',
+      commandId: 'intellig.branch.checkoutAndRebase',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(git-merge) Pull into Current Using Merge',
+      description: `Fetch ${branch.name} and merge into the current branch`,
+      action: 'remote.pullUsingMerge',
+      commandId: 'intellig.remoteBranch.pullUsingMerge',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(git-pull-request) Pull into Current Using Rebase',
+      description: `Fetch ${branch.name} and rebase current branch onto it`,
+      action: 'remote.pullUsingRebase',
+      commandId: 'intellig.remoteBranch.pullUsingRebase',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(diff) Compare with Current',
+      description: `Compare ${branch.name} with the current branch`,
+      action: 'compare',
+      commandId: 'intellig.branch.compareWithCurrent',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(git-commit) Cherry-Pick Commits',
+      description: `Choose commits from ${branch.name} to cherry-pick onto current`,
+      action: 'remote.cherryPickCommits',
+      commandId: 'intellig.remoteBranch.cherryPickCommits',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(trash) Delete',
+      description: `Delete the remote branch ${branch.name}`,
+      action: 'delete',
+      commandId: 'intellig.remoteBranch.deleteRemote',
+      branch,
+      isAction: true,
+    },
+  ];
+}
+
+/**
+ * Build the secondary action-menu items for a LOCAL non-current branch.
+ * Labels mirror INTELLIJ_REFERENCE.md §"Branches popup — local branch context menu".
+ */
+export function buildLocalBranchActionMenu(
+  branch: IBranch,
+  currentBranchName: string | undefined
+): IBranchQuickPickItem[] {
+  const current = currentBranchName ?? 'current branch';
+  return [
+    {
+      label: '$(arrow-right) Checkout',
+      description: `Switch to ${branch.name}`,
+      action: 'checkout',
+      commandId: 'intellig.branch.checkout',
+      branch,
+      isAction: true,
+    },
+    {
+      label: `$(add) New Branch from '${branch.name}'…`,
+      description: `Create a new branch starting from ${branch.name}`,
+      action: 'local.newBranchFrom',
+      commandId: 'intellig.branch.newBranchFrom',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(edit) Rename…',
+      description: `Rename ${branch.name}`,
+      action: 'rename',
+      commandId: 'intellig.branch.rename',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(trash) Delete',
+      description: `Delete ${branch.name}`,
+      action: 'delete',
+      commandId: 'intellig.branch.delete',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(diff) Compare with Current',
+      description: `Compare ${branch.name} with ${current}`,
+      action: 'compare',
+      commandId: 'intellig.branch.compareWithCurrent',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(git-merge) Merge into Current',
+      description: `Merge ${branch.name} into ${current}`,
+      action: 'local.mergeIntoCurrent',
+      commandId: 'intellig.branch.mergeIntoCurrent',
+      branch,
+      isAction: true,
+    },
+    {
+      label: `$(git-pull-request) Rebase Current onto '${branch.name}'`,
+      description: `Rebase ${current} onto ${branch.name}`,
+      action: 'local.rebaseCurrentOnto',
+      commandId: 'intellig.branch.rebaseCurrentOnto',
+      branch,
+      isAction: true,
+    },
+    {
+      label: '$(cloud-upload) Push…',
+      description: `Push ${branch.name} to its upstream remote`,
+      action: 'local.push',
+      commandId: 'intellig.branch.push',
+      branch,
+      isAction: true,
+    },
+  ];
+}
+
+/**
+ * Build the secondary action-menu items for a TAG.
+ * Labels mirror INTELLIJ_REFERENCE.md §"Branches popup — tag context menu".
+ */
+export function buildTagActionMenu(tag: ITag): IBranchQuickPickItem[] {
+  return [
+    {
+      label: '$(arrow-right) Checkout (Detached)',
+      description: `Check out tag ${tag.name} in detached HEAD state`,
+      action: 'tag.checkoutDetached',
+      commandId: 'intellig.tag.checkoutDetached',
+      tag,
+      isAction: true,
+    },
+    {
+      label: `$(add) New Branch from Tag…`,
+      description: `Create a new branch starting from tag ${tag.name}`,
+      action: 'tag.newBranchFrom',
+      commandId: 'intellig.tag.newBranchFrom',
+      tag,
+      isAction: true,
+    },
+    {
+      label: '$(git-commit) Cherry-Pick',
+      description: `Cherry-pick tag ${tag.name} onto the current branch`,
+      action: 'tag.cherryPick',
+      commandId: 'intellig.tag.cherryPick',
+      tag,
+      isAction: true,
+    },
+    {
+      label: '$(trash) Delete',
+      description: `Delete tag ${tag.name}`,
+      action: 'tag.delete',
+      commandId: 'intellig.tag.delete',
+      tag,
+      isAction: true,
+    },
+    {
+      label: '$(cloud-upload) Push',
+      description: `Push tag ${tag.name} to the default remote`,
+      action: 'tag.push',
+      commandId: 'intellig.tag.push',
+      tag,
+      isAction: true,
+    },
+  ];
+}
+
+/**
+ * Branch Popup class.
+ * Provides a quick pick style branch selector with filtering and IntelliJ-parity actions.
  */
 export class BranchPopup {
   private _gitService: IGitService;
   private _statusBarItem: vscode.StatusBarItem;
   private _disposables: vscode.Disposable[] = [];
   private _currentRepository: IRepository | undefined;
+  private _workspaceState: vscode.Memento | undefined;
 
-  constructor(gitService: IGitService) {
+  constructor(gitService: IGitService, workspaceState?: vscode.Memento) {
     this._gitService = gitService;
+    this._workspaceState = workspaceState;
 
     // Create status bar item for current branch display
     this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -81,34 +652,37 @@ export class BranchPopup {
 
   /**
    * Initialize the status bar with current repository info.
+   *
+   * R6-Gap-C (M-1): route through `resolveRepo(preferActive: true)` so the
+   * active-editor's repo drives the status-bar branch display in multi-root
+   * workspaces. Falls back to discovering the first workspace folder's repo
+   * when the git service hasn't yet enumerated any repositories (cold start).
    */
   private async _initializeStatusBar(): Promise<void> {
-    const repositories = this._gitService.getRepositories();
-    if (repositories.length > 0) {
-      this._currentRepository = repositories[0];
-      this._updateStatusBar(repositories[0]);
-    } else {
-      // Try to discover repository from workspace
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        const repo = await this._gitService.getRepository(workspaceFolders[0].uri);
-        if (repo) {
-          this._currentRepository = repo;
-          this._updateStatusBar(repo);
-        }
+    const repo = await resolveRepo(this._gitService, {
+      preferActive: true,
+      silent: true,
+    });
+    if (repo) {
+      this._currentRepository = repo;
+      this._updateStatusBar(repo);
+      return;
+    }
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      const discovered = await this._gitService.getRepository(workspaceFolders[0].uri);
+      if (discovered) {
+        this._currentRepository = discovered;
+        this._updateStatusBar(discovered);
       }
     }
   }
 
-  /**
-   * Update the status bar with current branch information.
-   */
+  /** Update the status bar with current branch information. */
   private _updateStatusBar(repo: IRepository): void {
     if (repo.head?.name) {
       const branchName = repo.head.name.replace('refs/heads/', '');
       let statusText = `$(git-branch) ${branchName}`;
-
-      // Add ahead/behind indicators if available
       if (repo.head.ahead > 0 || repo.head.behind > 0) {
         const indicators: string[] = [];
         if (repo.head.ahead > 0) {
@@ -119,17 +693,14 @@ export class BranchPopup {
         }
         statusText += ` ${indicators.join(' ')}`;
       }
-
       this._statusBarItem.text = statusText;
       this._statusBarItem.show();
     } else if (repo.head?.commit) {
-      // Detached HEAD state
       const shortHash = repo.head.commit.substring(0, 7);
       this._statusBarItem.text = `$(git-commit) ${shortHash}`;
       this._statusBarItem.tooltip = 'Detached HEAD - Click to manage branches';
       this._statusBarItem.show();
     } else {
-      // No commits yet
       this._statusBarItem.text = '$(git-branch) No commits yet';
       this._statusBarItem.show();
     }
@@ -145,7 +716,6 @@ export class BranchPopup {
     const repo = repository || this._currentRepository;
 
     if (!repo) {
-      // Try to get repository from workspace
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
         const discoveredRepo = await this._gitService.getRepository(workspaceFolders[0].uri);
@@ -154,67 +724,132 @@ export class BranchPopup {
           return { cancelled: true };
         }
         this._currentRepository = discoveredRepo;
-        return this._showBranchPicker(discoveredRepo);
+        return this._showSectionedPicker(discoveredRepo);
       }
       void vscode.window.showErrorMessage('No Git repository found');
       return { cancelled: true };
     }
 
-    return this._showBranchPicker(repo);
+    return this._showSectionedPicker(repo);
   }
 
   /**
-   * Show the branch picker quick pick.
+   * Record a successful checkout in the Recent LRU (per repo).
+   * Called by extension code whenever a checkout completes.
    */
-  private async _showBranchPicker(repo: IRepository): Promise<IBranchPopupResult> {
-    // Get all branches
-    const branches = await this._gitService.getBranches(repo);
+  public async recordCheckout(repo: IRepository, branch: IBranch): Promise<void> {
+    if (!this._workspaceState) {
+      return;
+    }
+    const repoKey = repo.rootUri.fsPath;
+    const all = this._readRecentMap();
+    const existing = all[repoKey] ?? [];
+    const updated = updateRecentLru(existing, normalizeRecentKey(branch));
+    all[repoKey] = updated;
+    await this._writeRecentMap(all);
+  }
 
-    // Separate local and remote branches
+  /** Read the per-repo Recent LRU map from workspaceState. */
+  private _readRecentMap(): Record<string, string[]> {
+    if (!this._workspaceState) {
+      return {};
+    }
+    return (
+      this._workspaceState.get<Record<string, string[]>>(RECENT_BRANCHES_STATE_KEY, {}) ?? {}
+    );
+  }
+
+  /** Write the per-repo Recent LRU map to workspaceState. */
+  private async _writeRecentMap(map: Record<string, string[]>): Promise<void> {
+    if (!this._workspaceState) {
+      return;
+    }
+    await this._workspaceState.update(RECENT_BRANCHES_STATE_KEY, map);
+  }
+
+  /** Show the main sectioned branch picker. */
+  private async _showSectionedPicker(repo: IRepository): Promise<IBranchPopupResult> {
+    // Load branches + tags in parallel
+    const [branches, tags] = await Promise.all([
+      this._gitService.getBranches(repo),
+      this._safeGetTags(repo),
+    ]);
+
     const localBranches = branches.filter((b) => b.type === 'local');
     const remoteBranches = branches.filter((b) => b.type === 'remote');
-
-    // Get current branch name
     const currentBranchName = repo.head?.name?.replace('refs/heads/', '');
 
-    // Create quick pick
+    const recentBranchNames = this._readRecentMap()[repo.rootUri.fsPath] ?? [];
+
     const quickPick = vscode.window.createQuickPick<IBranchQuickPickItem>();
     quickPick.title = 'Git Branches';
-    quickPick.placeholder = 'Search branches or select an action...';
+    quickPick.placeholder = 'Search branches, remotes, tags…';
     quickPick.matchOnDescription = true;
     quickPick.matchOnDetail = true;
 
-    // Build items list
-    const items = this._buildQuickPickItems(localBranches, remoteBranches, currentBranchName);
-    quickPick.items = items;
+    // T3-01 — render with the current favorites; `refreshItems` re-invokes
+    // `buildSectionedItems` so star toggles update the UI in-place without
+    // dismissing the picker.
+    const refreshItems = (): void => {
+      quickPick.items = buildSectionedItems({
+        localBranches,
+        remoteBranches,
+        tags,
+        recentBranchNames,
+        favoriteBranchNames: getFavorites(this._workspaceState),
+        currentBranchName,
+      });
+    };
+    refreshItems();
 
-    // Handle selection
     return new Promise<IBranchPopupResult>((resolve) => {
+      let resolved = false;
+      const finish = (r: IBranchPopupResult): void => {
+        if (!resolved) {
+          resolved = true;
+          resolve(r);
+        }
+      };
+
       quickPick.onDidAccept(async () => {
         const selected = quickPick.selectedItems[0];
         quickPick.hide();
 
         if (!selected) {
-          resolve({ cancelled: true });
+          finish({ cancelled: true });
           return;
         }
 
-        if (selected.isAction) {
-          // Handle action items
-          const result = await this._handleAction(repo, selected.action!, selected.branch);
-          resolve(result);
-        } else if (selected.branch) {
-          // Show action menu for selected branch
-          const result = await this._showBranchActionMenu(repo, selected.branch, currentBranchName);
-          resolve(result);
+        if (selected.branch) {
+          const result = await this._showBranchActionMenu(
+            repo,
+            selected.branch,
+            currentBranchName
+          );
+          finish(result);
+        } else if (selected.tag) {
+          const result = await this._showTagActionMenu(repo, selected.tag);
+          finish(result);
         } else {
-          resolve({ cancelled: true });
+          finish({ cancelled: true });
         }
+      });
+
+      // T3-01 — star button → toggle favorite for the item's branch and
+      // re-render in-place so the user can star multiple branches without
+      // dismissing the picker.
+      quickPick.onDidTriggerItemButton(async ({ item }) => {
+        const branch = item.branch;
+        if (!branch) return;
+        const currentFavs = getFavorites(this._workspaceState);
+        const isFav = currentFavs.includes(branch.name);
+        await this.updateFavorites(branch.name, !isFav);
+        refreshItems();
       });
 
       quickPick.onDidHide(() => {
         quickPick.dispose();
-        // Only resolve if not already resolved
+        finish({ cancelled: true });
       });
 
       quickPick.show();
@@ -222,307 +857,125 @@ export class BranchPopup {
   }
 
   /**
-   * Build quick pick items from branches.
+   * T3-01 — Toggle a branch's favorite status, persisted in workspaceState.
+   *
+   * Public so extension-level commands / tests can flip favorites without
+   * going through the QuickPick UI.
    */
-  private _buildQuickPickItems(
-    localBranches: IBranch[],
-    remoteBranches: IBranch[],
-    currentBranchName?: string
-  ): IBranchQuickPickItem[] {
-    const items: IBranchQuickPickItem[] = [];
-
-    // Add action items at the top
-    items.push({
-      label: '$(add) New Branch...',
-      description: 'Create a new branch from current HEAD',
-      action: 'new-branch',
-      isAction: true,
-    });
-
-    items.push({
-      label: '$(add) New Branch From...',
-      description: 'Create a new branch from a specific ref',
-      action: 'new-branch-from',
-      isAction: true,
-    });
-
-    // Separator
-    items.push({
-      label: '',
-      kind: vscode.QuickPickItemKind.Separator,
-      isSeparator: true,
-    });
-
-    // Local branches section
-    if (localBranches.length > 0) {
-      items.push({
-        label: 'Local Branches',
-        kind: vscode.QuickPickItemKind.Separator,
-        isSeparator: true,
-      });
-
-      for (const branch of localBranches) {
-        const isCurrentBranch = branch.name === currentBranchName || branch.isHead;
-        const icon = isCurrentBranch ? '$(check)' : '$(git-branch)';
-        const description = this._getBranchDescription(branch, isCurrentBranch);
-
-        items.push({
-          label: `${icon} ${branch.name}`,
-          description,
-          detail: branch.upstream
-            ? `→ ${branch.upstream.remote}/${branch.upstream.name}`
-            : undefined,
-          branch,
-        });
-      }
-    }
-
-    // Remote branches section
-    if (remoteBranches.length > 0) {
-      items.push({
-        label: 'Remote Branches',
-        kind: vscode.QuickPickItemKind.Separator,
-        isSeparator: true,
-      });
-
-      for (const branch of remoteBranches) {
-        // Parse remote name from branch name (e.g., "origin/main" -> "origin", "main")
-        const parts = branch.name.split('/');
-        const remoteName = parts[0];
-        const branchName = parts.slice(1).join('/');
-
-        items.push({
-          label: `$(cloud) ${branchName}`,
-          description: `on ${remoteName}`,
-          detail: `${branch.commit.substring(0, 7)}`,
-          branch,
-        });
-      }
-    }
-
-    return items;
+  public async updateFavorites(branchName: string, favorite: boolean): Promise<void> {
+    if (!this._workspaceState) return;
+    const existing = getFavorites(this._workspaceState);
+    const updated = updateFavoritesList(existing, branchName, favorite);
+    await this._workspaceState.update(FAVORITE_BRANCHES_STATE_KEY, updated);
   }
 
   /**
-   * Get description text for a branch.
+   * T3-01 — Read the current favorites list. Thin wrapper around
+   * {@link getFavorites} so callers with only a `BranchPopup` handle can
+   * inspect the state.
    */
-  private _getBranchDescription(branch: IBranch, isCurrentBranch: boolean): string {
-    const parts: string[] = [];
-
-    if (isCurrentBranch) {
-      parts.push('current');
-    }
-
-    if (branch.ahead !== undefined && branch.ahead > 0) {
-      parts.push(`↑${branch.ahead}`);
-    }
-
-    if (branch.behind !== undefined && branch.behind > 0) {
-      parts.push(`↓${branch.behind}`);
-    }
-
-    if (parts.length === 0) {
-      parts.push(branch.commit.substring(0, 7));
-    }
-
-    return parts.join(' ');
+  public getFavorites(): string[] {
+    return getFavorites(this._workspaceState);
   }
 
-  /**
-   * Show action menu for a selected branch.
-   */
+  /** Show the secondary action menu for the picked branch. */
   private async _showBranchActionMenu(
     repo: IRepository,
     branch: IBranch,
     currentBranchName?: string
   ): Promise<IBranchPopupResult> {
-    const isCurrentBranch = branch.name === currentBranchName || branch.isHead;
-    const isRemoteBranch = branch.type === 'remote';
+    const isCurrent = branch.name === currentBranchName || branch.isHead;
+    const isRemote = branch.type === 'remote';
 
-    // Build action items based on branch type
-    const actionItems: IBranchQuickPickItem[] = [];
-
-    if (isRemoteBranch) {
-      // Remote branch actions
-      actionItems.push({
-        label: '$(arrow-down) Checkout as Local Branch',
-        description: 'Create a local tracking branch and switch to it',
-        action: 'checkout',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(add) New Branch from Here',
-        description: 'Create a new branch starting from this commit',
-        action: 'new-branch-from',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(git-merge) Merge into Current',
-        description: `Merge ${branch.name} into ${currentBranchName || 'current branch'}`,
-        action: 'merge',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(git-pull-request) Rebase Current onto This',
-        description: `Rebase ${currentBranchName || 'current branch'} onto ${branch.name}`,
-        action: 'rebase',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(diff) Compare with Current',
-        description: `Compare ${branch.name} with ${currentBranchName || 'current branch'}`,
-        action: 'compare',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(arrow-down) Pull into Current',
-        description: `Fetch and merge ${branch.name} into current branch`,
-        action: 'pull',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(trash) Delete Remote Branch',
-        description: 'Delete this branch from the remote',
-        action: 'delete',
-        branch,
-        isAction: true,
-      });
-    } else {
-      // Local branch actions
-      if (!isCurrentBranch) {
-        actionItems.push({
-          label: '$(arrow-right) Checkout',
-          description: `Switch to ${branch.name}`,
-          action: 'checkout',
-          branch,
-          isAction: true,
-        });
-      } else {
-        actionItems.push({
-          label: '$(check) Current Branch',
-          description: 'You are already on this branch',
-          branch,
-        });
-      }
-
-      actionItems.push({
-        label: '$(add) New Branch from Here',
-        description: 'Create a new branch starting from this commit',
-        action: 'new-branch-from',
-        branch,
-        isAction: true,
-      });
-
-      if (!isCurrentBranch) {
-        actionItems.push({
-          label: '$(git-merge) Merge into Current',
-          description: `Merge ${branch.name} into ${currentBranchName || 'current branch'}`,
-          action: 'merge',
-          branch,
-          isAction: true,
-        });
-
-        actionItems.push({
-          label: '$(git-pull-request) Rebase Current onto This',
-          description: `Rebase ${currentBranchName || 'current branch'} onto ${branch.name}`,
-          action: 'rebase',
-          branch,
-          isAction: true,
-        });
-      }
-
-      actionItems.push({
-        label: '$(diff) Compare with Current',
-        description: `Compare ${branch.name} with ${currentBranchName || 'current branch'}`,
-        action: 'compare',
-        branch,
-        isAction: true,
-      });
-
-      actionItems.push({
-        label: '$(edit) Rename',
-        description: `Rename ${branch.name}`,
-        action: 'rename',
-        branch,
-        isAction: true,
-      });
-
-      if (!isCurrentBranch) {
-        actionItems.push({
-          label: '$(trash) Delete',
-          description: `Delete ${branch.name}`,
-          action: 'delete',
-          branch,
-          isAction: true,
-        });
-      }
+    // If user clicked the current branch, there's nothing meaningful to do.
+    if (isCurrent) {
+      void vscode.window.showInformationMessage(
+        `Already on '${branch.name}' — use the Local section to pick a different branch.`
+      );
+      return { branch, cancelled: true };
     }
 
-    // Show action picker
+    const actionItems = isRemote
+      ? buildRemoteBranchActionMenu(branch)
+      : buildLocalBranchActionMenu(branch, currentBranchName);
+
     const selected = await vscode.window.showQuickPick(actionItems, {
       title: `Branch: ${branch.name}`,
       placeHolder: 'Select an action',
     });
 
-    if (!selected || !selected.action) {
+    if (!selected) {
       return { cancelled: true };
     }
 
-    return this._handleAction(repo, selected.action, branch);
+    return this._dispatchSelectedAction(repo, selected);
+  }
+
+  /** Show the secondary action menu for the picked tag. */
+  private async _showTagActionMenu(
+    repo: IRepository,
+    tag: ITag
+  ): Promise<IBranchPopupResult> {
+    const actionItems = buildTagActionMenu(tag);
+
+    const selected = await vscode.window.showQuickPick(actionItems, {
+      title: `Tag: ${tag.name}`,
+      placeHolder: 'Select an action',
+    });
+
+    if (!selected) {
+      return { cancelled: true };
+    }
+
+    return this._dispatchSelectedAction(repo, selected);
   }
 
   /**
-   * Handle a branch action.
+   * Route the selected action-menu entry to its corresponding command ID.
+   *
+   * Existing branch/tag command handlers (see `BranchContextMenuCommands`) expect
+   * a `BranchTreeItem`-like argument with `.branch` / `.tag` fields. We construct
+   * a minimal shim and pass it through `vscode.commands.executeCommand`.
+   *
+   * If a command isn't registered, we show a "Coming soon" info message so the
+   * UI still works before the backing handler lands.
    */
-  private async _handleAction(
-    repo: IRepository,
-    action: BranchAction,
-    branch?: IBranch
+  private async _dispatchSelectedAction(
+    _repo: IRepository,
+    selected: IBranchQuickPickItem
   ): Promise<IBranchPopupResult> {
+    const commandId = selected.commandId;
+    if (!commandId) {
+      void vscode.window.showInformationMessage(
+        `Coming soon: ${typeof selected.label === 'string' ? selected.label : 'this action'}`
+      );
+      return { branch: selected.branch, tag: selected.tag, action: selected.action, cancelled: false };
+    }
+
+    // Minimal `BranchTreeItem`-compatible shim: the existing handlers only access
+    // `.branch` and `.tag` off of the argument.
+    const shim = { branch: selected.branch, tag: selected.tag };
+
     try {
-      switch (action) {
-        case 'checkout':
-          return await this._handleCheckout(repo, branch);
-
-        case 'new-branch':
-          return await this._handleNewBranch(repo);
-
-        case 'new-branch-from':
-          return await this._handleNewBranchFrom(repo, branch);
-
-        case 'merge':
-          return await this._handleMerge(repo, branch);
-
-        case 'rebase':
-          return await this._handleRebase(repo, branch);
-
-        case 'compare':
-          return await this._handleCompare(repo, branch);
-
-        case 'rename':
-          return await this._handleRename(repo, branch);
-
-        case 'delete':
-          return await this._handleDelete(repo, branch);
-
-        case 'pull':
-          return await this._handlePull(repo, branch);
-
-        default:
-          return { cancelled: true };
+      const allCommands = await vscode.commands.getCommands(true);
+      if (!allCommands.includes(commandId)) {
+        void vscode.window.showInformationMessage(
+          `Coming soon: ${typeof selected.label === 'string' ? selected.label : commandId}`
+        );
+        return {
+          branch: selected.branch,
+          tag: selected.tag,
+          action: selected.action,
+          cancelled: false,
+        };
       }
+      await vscode.commands.executeCommand(commandId, shim);
+      return {
+        branch: selected.branch,
+        tag: selected.tag,
+        action: selected.action,
+        cancelled: false,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Branch operation failed: ${errorMessage}`);
@@ -531,315 +984,23 @@ export class BranchPopup {
   }
 
   /**
-   * Handle checkout action.
+   * Load tags for a repository, swallowing errors so the popup still opens when
+   * the repository has no tags or the underlying git call fails.
    */
-  private async _handleCheckout(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch) {
-      return { cancelled: true };
+  private async _safeGetTags(repo: IRepository): Promise<ITag[]> {
+    try {
+      return await this._gitService.getTags(repo);
+    } catch {
+      return [];
     }
-
-    const isRemoteBranch = branch.type === 'remote';
-
-    if (isRemoteBranch) {
-      // Checkout remote branch as local tracking branch
-      const parts = branch.name.split('/');
-      const remoteName = parts[0];
-      const branchName = parts.slice(1).join('/');
-
-      // Check if local branch already exists
-      const branches = await this._gitService.getBranches(repo);
-      const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
-
-      if (localExists) {
-        // Just checkout the existing local branch
-        await this._gitService.checkout(repo, branchName);
-      } else {
-        // Create and checkout tracking branch
-        await this._gitService.checkout(repo, branchName, {
-          createBranch: true,
-          track: `${remoteName}/${branchName}`,
-        });
-      }
-
-      void vscode.window.showInformationMessage(`Switched to branch '${branchName}'`);
-    } else {
-      // Checkout local branch
-      await this._gitService.checkout(repo, branch.name);
-      void vscode.window.showInformationMessage(`Switched to branch '${branch.name}'`);
-    }
-
-    return { branch, action: 'checkout', cancelled: false };
   }
 
-  /**
-   * Handle new branch action.
-   */
-  private async _handleNewBranch(repo: IRepository): Promise<IBranchPopupResult> {
-    const branchName = await vscode.window.showInputBox({
-      prompt: 'Enter new branch name',
-      placeHolder: 'feature/my-new-branch',
-      validateInput: (value) => {
-        if (!value || !value.trim()) {
-          return 'Branch name cannot be empty';
-        }
-        if (!/^[\w\-./]+$/.test(value)) {
-          return 'Branch name contains invalid characters';
-        }
-        return undefined;
-      },
-    });
-
-    if (!branchName) {
-      return { cancelled: true };
-    }
-
-    await this._gitService.createBranch(repo, branchName);
-    await this._gitService.checkout(repo, branchName);
-
-    void vscode.window.showInformationMessage(`Created and switched to branch '${branchName}'`);
-
-    return { action: 'new-branch', cancelled: false };
-  }
-
-  /**
-   * Handle new branch from specific ref.
-   */
-  private async _handleNewBranchFrom(
-    repo: IRepository,
-    branch?: IBranch
-  ): Promise<IBranchPopupResult> {
-    let startPoint: string;
-
-    if (branch) {
-      startPoint = branch.name;
-    } else {
-      // Show branch picker to select start point
-      const branches = await this._gitService.getBranches(repo);
-      const items = branches.map((b) => ({
-        label: b.name,
-        description: b.type === 'remote' ? 'remote' : 'local',
-        branch: b,
-      }));
-
-      const selected = await vscode.window.showQuickPick(items, {
-        title: 'Select Start Point',
-        placeHolder: 'Select a branch to create from',
-      });
-
-      if (!selected) {
-        return { cancelled: true };
-      }
-
-      startPoint = selected.branch.name;
-    }
-
-    const branchName = await vscode.window.showInputBox({
-      prompt: `Enter new branch name (from ${startPoint})`,
-      placeHolder: 'feature/my-new-branch',
-      validateInput: (value) => {
-        if (!value || !value.trim()) {
-          return 'Branch name cannot be empty';
-        }
-        if (!/^[\w\-./]+$/.test(value)) {
-          return 'Branch name contains invalid characters';
-        }
-        return undefined;
-      },
-    });
-
-    if (!branchName) {
-      return { cancelled: true };
-    }
-
-    await this._gitService.createBranch(repo, branchName, startPoint);
-    await this._gitService.checkout(repo, branchName);
-
-    void vscode.window.showInformationMessage(
-      `Created and switched to branch '${branchName}' from '${startPoint}'`
-    );
-
-    return { action: 'new-branch-from', cancelled: false };
-  }
-
-  /**
-   * Handle merge action.
-   */
-  private async _handleMerge(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch) {
-      return { cancelled: true };
-    }
-
-    const result = await this._gitService.mergeBranch(repo, branch.name);
-
-    if (result.success) {
-      void vscode.window.showInformationMessage(`Merged '${branch.name}' successfully`);
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      void vscode.window.showWarningMessage(
-        `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-      );
-    }
-
-    return { branch, action: 'merge', cancelled: false };
-  }
-
-  /**
-   * Handle rebase action.
-   */
-  private async _handleRebase(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch) {
-      return { cancelled: true };
-    }
-
-    const result = await this._gitService.rebaseBranch(repo, branch.name);
-
-    if (result.success) {
-      void vscode.window.showInformationMessage(`Rebased onto '${branch.name}' successfully`);
-    } else if (result.conflicts && result.conflicts.length > 0) {
-      void vscode.window.showWarningMessage(
-        `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-      );
-    }
-
-    return { branch, action: 'rebase', cancelled: false };
-  }
-
-  /**
-   * Handle compare action.
-   */
-  private async _handleCompare(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch) {
-      return { cancelled: true };
-    }
-
-    const currentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
-    const comparison = await this._gitService.compareBranches(repo, currentBranch, branch.name);
-
-    // Show comparison summary
-    const message =
-      `Comparing ${currentBranch} with ${branch.name}:\n` +
-      `• ${comparison.aheadCount} commit(s) ahead\n` +
-      `• ${comparison.behindCount} commit(s) behind\n` +
-      `• ${comparison.changedFiles.length} file(s) changed`;
-
-    void vscode.window.showInformationMessage(message);
-
-    // TODO: Open comparison view (task 28.1)
-
-    return { branch, action: 'compare', cancelled: false };
-  }
-
-  /**
-   * Handle rename action.
-   */
-  private async _handleRename(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch) {
-      return { cancelled: true };
-    }
-
-    const newName = await vscode.window.showInputBox({
-      prompt: `Rename branch '${branch.name}' to:`,
-      value: branch.name,
-      validateInput: (value) => {
-        if (!value || !value.trim()) {
-          return 'Branch name cannot be empty';
-        }
-        if (value === branch.name) {
-          return 'New name must be different';
-        }
-        if (!/^[\w\-./]+$/.test(value)) {
-          return 'Branch name contains invalid characters';
-        }
-        return undefined;
-      },
-    });
-
-    if (!newName) {
-      return { cancelled: true };
-    }
-
-    await this._gitService.renameBranch(repo, branch.name, newName);
-    void vscode.window.showInformationMessage(`Renamed branch to '${newName}'`);
-
-    return { branch, action: 'rename', cancelled: false };
-  }
-
-  /**
-   * Handle delete action.
-   */
-  private async _handleDelete(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch) {
-      return { cancelled: true };
-    }
-
-    const isRemoteBranch = branch.type === 'remote';
-    const warningMessage = isRemoteBranch
-      ? `Are you sure you want to delete the remote branch '${branch.name}'? This cannot be undone.`
-      : `Are you sure you want to delete the branch '${branch.name}'?`;
-
-    const confirm = await vscode.window.showWarningMessage(
-      warningMessage,
-      { modal: true },
-      'Delete'
-    );
-
-    if (confirm !== 'Delete') {
-      return { cancelled: true };
-    }
-
-    if (isRemoteBranch) {
-      // Delete remote branch
-      const parts = branch.name.split('/');
-      const remoteName = parts[0];
-      const branchName = parts.slice(1).join('/');
-
-      // Use git push to delete remote branch
-      await this._gitService.push(repo, {
-        remote: remoteName,
-        branch: `:${branchName}`,
-      });
-
-      void vscode.window.showInformationMessage(`Deleted remote branch '${branch.name}'`);
-    } else {
-      // Delete local branch
-      await this._gitService.deleteBranch(repo, branch.name);
-      void vscode.window.showInformationMessage(`Deleted branch '${branch.name}'`);
-    }
-
-    return { branch, action: 'delete', cancelled: false };
-  }
-
-  /**
-   * Handle pull action for remote branch.
-   */
-  private async _handlePull(repo: IRepository, branch?: IBranch): Promise<IBranchPopupResult> {
-    if (!branch || branch.type !== 'remote') {
-      return { cancelled: true };
-    }
-
-    const parts = branch.name.split('/');
-    const remoteName = parts[0];
-    const branchName = parts.slice(1).join('/');
-
-    await this._gitService.pull(repo, {
-      remote: remoteName,
-      branch: branchName,
-    });
-
-    void vscode.window.showInformationMessage(`Pulled '${branch.name}' into current branch`);
-
-    return { branch, action: 'pull', cancelled: false };
-  }
-
-  /**
-   * Hide the branch popup (if shown).
-   */
+  /** Hide the branch popup (if shown). QuickPick handles its own hiding. */
   hide(): void {
-    // QuickPick handles its own hiding
+    /* no-op */
   }
 
-  /**
-   * Dispose of resources.
-   */
+  /** Dispose of resources. */
   dispose(): void {
     this._statusBarItem.dispose();
     for (const disposable of this._disposables) {
@@ -853,8 +1014,12 @@ export class BranchPopup {
  * Create a new BranchPopup instance.
  *
  * @param gitService - The Git service to use
+ * @param workspaceState - Optional Memento for persisting the Recent LRU
  * @returns A new BranchPopup instance
  */
-export function createBranchPopup(gitService: IGitService): BranchPopup {
-  return new BranchPopup(gitService);
+export function createBranchPopup(
+  gitService: IGitService,
+  workspaceState?: vscode.Memento
+): BranchPopup {
+  return new BranchPopup(gitService, workspaceState);
 }

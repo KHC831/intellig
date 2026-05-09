@@ -7,7 +7,21 @@ import * as vscode from 'vscode';
 import { IGitService, IRepository } from '../services/interfaces/IGitService';
 import { IRebaseService } from '../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../services/GitToolWindowProvider';
+import { showResetDialog } from '../services/ResetDialog';
 import { GitCli } from '../utils/gitCli';
+import { IConflictResolutionService } from '../services/interfaces/IConflictResolutionService';
+import { resolveRepo } from '../utils/resolveRepo';
+
+/**
+ * Signature of the repository resolver injected into
+ * {@link CommitContextMenuCommands}. Matches the default
+ * `resolveRepo(gitService, context)` but extracted so tests can stub the
+ * multi-root disambiguation without a real VS Code host.
+ */
+export type RepoResolver = (
+  gitService: IGitService,
+  context: { preferActive?: boolean; silent?: boolean }
+) => Promise<IRepository | undefined>;
 
 /**
  * Commit Context Menu Commands class.
@@ -18,18 +32,59 @@ export class CommitContextMenuCommands {
   private _rebaseService: IRebaseService;
   private _gitToolWindowProvider: GitToolWindowProvider;
   private _gitCli: GitCli;
+  private _conflictResolutionService: IConflictResolutionService | undefined;
   private _disposables: vscode.Disposable[] = [];
+  private _context: vscode.ExtensionContext | undefined;
+  private readonly _resolveRepo: RepoResolver;
 
   constructor(
     gitService: IGitService,
     rebaseService: IRebaseService,
     gitToolWindowProvider: GitToolWindowProvider,
-    gitCli?: GitCli
+    gitCli?: GitCli,
+    conflictResolutionService?: IConflictResolutionService,
+    repoResolver?: RepoResolver
   ) {
     this._gitService = gitService;
     this._rebaseService = rebaseService;
     this._gitToolWindowProvider = gitToolWindowProvider;
     this._gitCli = gitCli || new GitCli();
+    this._conflictResolutionService = conflictResolutionService;
+    this._resolveRepo = repoResolver ?? ((svc, ctx) => resolveRepo(svc, ctx));
+  }
+
+  /**
+   * Late-bind the conflict resolution service (for wiring migration).
+   */
+  setConflictResolutionService(service: IConflictResolutionService): void {
+    this._conflictResolutionService = service;
+  }
+
+  /**
+   * Open the Resolve Conflicts dialog for conflicts produced by the given op.
+   * No-op if the conflict resolution service isn't wired in.
+   */
+  private async _openResolveConflictsDialog(
+    repo: IRepository,
+    conflicts: string[],
+    opContext: {
+      operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
+      target?: string;
+    }
+  ): Promise<void> {
+    if (!this._conflictResolutionService || conflicts.length === 0) {
+      return;
+    }
+    await this._conflictResolutionService.openResolveConflictsDialog(
+      repo,
+      conflicts.map((p) => ({ path: p, resolved: false })),
+      {
+        operation: opContext.operation,
+        target: opContext.target,
+        canAbort: true,
+        canContinue: true,
+      }
+    );
   }
 
   /**
@@ -45,6 +100,7 @@ export class CommitContextMenuCommands {
    * @param context - The VS Code extension context
    */
   register(context: vscode.ExtensionContext): void {
+    this._context = context;
     const disposable = this._gitToolWindowProvider.onDidRequestLogContextAction(
       (event) => this._handleAction(event.action, event.commitHashes)
     );
@@ -53,11 +109,19 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Get the current repository.
+   * Resolve the repository the current action should target.
+   *
+   * R5 H-3: previously pinned `getRepositories()[0]`, which silently targeted
+   * the wrong repo in multi-root workspaces for every destructive action in
+   * this class. Routes through `resolveRepo(preferActive: true, silent: true)`
+   * so the action follows the same fallback chain as other multi-root-aware
+   * entry points (see `CommitToolWindow._firstRepo`, R1-HIGH SR-8).
    */
-  private _getRepository(): IRepository | undefined {
-    const repos = this._gitService.getRepositories();
-    return repos.length > 0 ? repos[0] : undefined;
+  private async _getRepository(): Promise<IRepository | undefined> {
+    return this._resolveRepo(this._gitService, {
+      preferActive: true,
+      silent: true,
+    });
   }
 
   /**
@@ -111,6 +175,177 @@ export class CommitContextMenuCommands {
   }
 
   /**
+   * T2-04 public entry point invoked by the `intellig.commit.dropSelectedChanges`
+   * palette command. Surfaced on the class (rather than through the
+   * webview-dispatcher event) because the LogContextAction union lives in
+   * `gitToolWindow/` which is out of scope for this step.
+   *
+   * Rewrites the HEAD commit to remove the user-selected files. Refuses
+   * on pushed commits or on non-HEAD ancestors. Single destructive-op
+   * confirm per the safety policy.
+   */
+  async dropSelectedChangesFromCommit(hash: string): Promise<void> {
+    const repo = await this._getRepository();
+    if (!repo || !hash) {
+      return;
+    }
+    await this._handleDropSelectedChanges(repo, hash);
+  }
+
+  /**
+   * Implementation for Drop Selected Changes. See
+   * {@link dropSelectedChangesFromCommit}.
+   */
+  private async _handleDropSelectedChanges(
+    repo: IRepository,
+    hash: string
+  ): Promise<void> {
+    const cwd = repo.rootUri.fsPath;
+    const shortHash = hash.substring(0, 8);
+
+    // 1. Safety: must be the HEAD commit. Dropping selected changes from
+    //    an ancestor requires interactive rebase with a scripted editor,
+    //    which is out of scope for the T2-04 MVP. Surface an explanatory
+    //    toast so the user knows this is intentional.
+    let isHead = false;
+    try {
+      const headResult = await this._gitCli.exec(['rev-parse', 'HEAD'], { cwd });
+      if (headResult.exitCode === 0) {
+        isHead = headResult.stdout.trim() === hash;
+      }
+    } catch {
+      // Treat unknown state as "not HEAD" — safer default.
+    }
+    if (!isHead) {
+      void vscode.window.showErrorMessage(
+        `Drop Selected Changes is only supported on the most recent commit in this release. ` +
+          `${shortHash} is not HEAD.`
+      );
+      return;
+    }
+
+    // 2. Safety: refuse on pushed commits (force-push territory).
+    if (await this._isCommitPushed(cwd, hash)) {
+      void vscode.window.showErrorMessage(
+        `${shortHash} has already been pushed. Drop Selected Changes would rewrite published ` +
+          `history — use the reset/force-push workflow instead.`
+      );
+      return;
+    }
+
+    // 3. File picker — user selects files to DROP.
+    let diffs;
+    try {
+      diffs = await this._gitService.getCommitDiff(repo, hash);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to list files for ${shortHash}: ${msg}`);
+      return;
+    }
+    if (!diffs || diffs.length === 0) {
+      void vscode.window.showInformationMessage(
+        `Commit ${shortHash} has no files to drop.`
+      );
+      return;
+    }
+
+    const pickItems = diffs.map((d) => ({
+      label: d.path,
+      description: d.status,
+      path: d.path,
+    }));
+    const dropPicks = await vscode.window.showQuickPick(pickItems, {
+      title: `Drop changes from ${shortHash} — select files to remove`,
+      placeHolder: 'These files will be excluded from the commit',
+      canPickMany: true,
+      matchOnDescription: true,
+    });
+    if (!dropPicks || dropPicks.length === 0) {
+      return;
+    }
+
+    // 4. Single destructive-op confirm (safety policy).
+    const confirm = await vscode.window.showWarningMessage(
+      `Drop ${dropPicks.length} file(s) from commit ${shortHash}? This rewrites history.`,
+      { modal: true },
+      'Drop',
+      'Cancel'
+    );
+    if (confirm !== 'Drop') {
+      return;
+    }
+
+    const droppedPaths = dropPicks.map((p) => p.path);
+    const keptPaths = diffs
+      .map((d) => d.path)
+      .filter((p) => !droppedPaths.includes(p));
+
+    // 5. Rewrite HEAD.
+    //    Strategy (safer than interactive rebase for HEAD-only):
+    //      a. git reset --soft HEAD^   (uncommit, keep index + working tree intact)
+    //      b. for each dropped file: git checkout HEAD -- <file>
+    //         (at this point HEAD is the parent; restore parent's content
+    //         in both index and working tree — effectively removing the
+    //         file's changes from the to-be-amended commit).
+    //      c. if all files were kept, re-commit as `git commit -C <hash>`.
+    //         If all files were dropped, the staging area equals parent →
+    //         HEAD is already at the parent; we simply don't create a new
+    //         commit (the original is gone).
+    try {
+      await this._gitCli.exec(['reset', '--soft', 'HEAD^'], { cwd, throwOnError: true });
+
+      if (droppedPaths.length > 0) {
+        await this._gitCli.exec(['checkout', 'HEAD', '--', ...droppedPaths], {
+          cwd,
+          throwOnError: true,
+        });
+      }
+
+      if (keptPaths.length > 0) {
+        // Re-commit with original author + message from the saved hash.
+        await this._gitCli.exec(['commit', '-C', hash], { cwd, throwOnError: true });
+        void vscode.window.showInformationMessage(
+          `Dropped ${droppedPaths.length} file(s) from ${shortHash}`
+        );
+      } else {
+        // Every file dropped → the commit effectively disappears. HEAD
+        // is already at the parent after the soft-reset + checkout pair.
+        void vscode.window.showInformationMessage(
+          `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped).`
+        );
+      }
+      this._gitToolWindowProvider.refresh();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to drop changes: ${msg}`);
+    }
+  }
+
+  /**
+   * Return true when the given commit is reachable from any remote-tracking
+   * branch — i.e., someone has already pushed it somewhere.
+   *
+   * Uses `git branch --contains <hash> --remotes`. An empty output means
+   * no remote branch contains the commit, so it's safe to rewrite.
+   */
+  private async _isCommitPushed(cwd: string, hash: string): Promise<boolean> {
+    try {
+      const res = await this._gitCli.exec(
+        ['branch', '--remotes', '--contains', hash],
+        { cwd }
+      );
+      if (res.exitCode !== 0) {
+        // Be conservative — if the query failed, assume pushed so we don't
+        // rewrite anything the user might regret.
+        return true;
+      }
+      return res.stdout.trim().length > 0;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
    * Copy the full SHA to the system clipboard.
    */
   private async _handleCopyHash(commitHashes: string[]): Promise<void> {
@@ -132,7 +367,7 @@ export class CommitContextMenuCommands {
    * Cherry-pick the selected commit(s) onto the current branch.
    */
   private async _handleCherryPick(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -145,23 +380,32 @@ export class CommitContextMenuCommands {
           `Cherry-picked ${commitHashes.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        const choice = await vscode.window.showWarningMessage(
-          `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
-          'Open Conflicts',
-          'Abort Cherry-Pick'
-        );
-        if (choice === 'Open Conflicts') {
-          for (const filePath of result.conflicts) {
-            const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
-            await vscode.commands.executeCommand('vscode.open', fileUri);
-          }
-        } else if (choice === 'Abort Cherry-Pick') {
-          try {
-            await this._gitService.cherryPickAbort(repo);
-            void vscode.window.showInformationMessage('Cherry-pick aborted.');
-          } catch (abortError) {
-            const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to abort cherry-pick: ${abortMsg}`);
+        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to the
+        // legacy toast if conflictResolutionService isn't wired yet.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'cherryPick',
+            target: commitHashes[0].substring(0, 8),
+          });
+        } else {
+          const choice = await vscode.window.showWarningMessage(
+            `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
+            'Open Conflicts',
+            'Abort Cherry-Pick'
+          );
+          if (choice === 'Open Conflicts') {
+            for (const filePath of result.conflicts) {
+              const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
+              await vscode.commands.executeCommand('vscode.open', fileUri);
+            }
+          } else if (choice === 'Abort Cherry-Pick') {
+            try {
+              await this._gitService.cherryPickAbort(repo);
+              void vscode.window.showInformationMessage('Cherry-pick aborted.');
+            } catch (abortError) {
+              const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
+              void vscode.window.showErrorMessage(`Failed to abort cherry-pick: ${abortMsg}`);
+            }
           }
         }
       }
@@ -210,12 +454,39 @@ export class CommitContextMenuCommands {
 
   /**
    * Revert the selected commit(s).
-   * Calls git revert directly — no stashing needed since revert creates a new commit.
+   *
+   * T2-04 — when a single commit is passed AND it touches more than one
+   * file, show a multi-select QuickPick so the user can deselect files
+   * to exclude from the revert. Default = all files selected. If the
+   * user keeps everything (or only one file was in the commit), the
+   * flow falls through to the normal `gitService.revert` path exactly
+   * as before. If files are deselected, we use the `git revert -n`
+   * plumbing:
+   *   1. `git revert -n <hash>` — stage the full revert without committing.
+   *   2. `git checkout HEAD -- <excluded files>` — undo the staged revert
+   *      for the files the user wants to keep reverted-of.
+   *   3. `git commit -m "Revert \"<subject>\""` — finalize the partial revert.
+   *
+   * Multi-commit reverts always run the full-commit flow (no deselection).
    */
   private async _handleRevert(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
+    }
+
+    // Selective-file revert is only offered on single-commit reverts.
+    if (commitHashes.length === 1) {
+      const outcome = await this._runSelectiveRevertIfApplicable(repo, commitHashes[0]);
+      if (outcome === 'handled') {
+        this._gitToolWindowProvider.refresh();
+        return;
+      }
+      if (outcome === 'cancelled') {
+        // User cancelled at the file-picker — no-op, no toast.
+        return;
+      }
+      // `fallThrough` → drop into the standard revert path below.
     }
 
     try {
@@ -226,23 +497,32 @@ export class CommitContextMenuCommands {
           `Reverted ${commitHashes.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        const choice = await vscode.window.showWarningMessage(
-          `Revert conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
-          'Open Conflicts',
-          'Abort Revert'
-        );
-        if (choice === 'Open Conflicts') {
-          for (const filePath of result.conflicts) {
-            const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
-            await vscode.commands.executeCommand('vscode.open', fileUri);
-          }
-        } else if (choice === 'Abort Revert') {
-          try {
-            await this._gitService.revertAbort(repo);
-            void vscode.window.showInformationMessage('Revert aborted.');
-          } catch (abortError) {
-            const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to abort revert: ${abortMsg}`);
+        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to the
+        // legacy toast if conflictResolutionService isn't wired yet.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'revert',
+            target: commitHashes[0].substring(0, 8),
+          });
+        } else {
+          const choice = await vscode.window.showWarningMessage(
+            `Revert conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
+            'Open Conflicts',
+            'Abort Revert'
+          );
+          if (choice === 'Open Conflicts') {
+            for (const filePath of result.conflicts) {
+              const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
+              await vscode.commands.executeCommand('vscode.open', fileUri);
+            }
+          } else if (choice === 'Abort Revert') {
+            try {
+              await this._gitService.revertAbort(repo);
+              void vscode.window.showInformationMessage('Revert aborted.');
+            } catch (abortError) {
+              const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
+              void vscode.window.showErrorMessage(`Failed to abort revert: ${abortMsg}`);
+            }
           }
         }
       }
@@ -254,11 +534,124 @@ export class CommitContextMenuCommands {
   }
 
   /**
+   * Implements the T2-04 selective-file revert QuickPick.
+   *
+   * Return value:
+   *  - `'fallThrough'` — no prompt shown (single-file commit, or diff
+   *    lookup failed); the caller should run the normal revert path.
+   *  - `'cancelled'`   — user pressed Esc at the QuickPick; caller should
+   *    return without showing any toast.
+   *  - `'handled'`     — selective revert ran (partial or full); caller
+   *    should skip the normal revert path.
+   */
+  private async _runSelectiveRevertIfApplicable(
+    repo: IRepository,
+    hash: string
+  ): Promise<'fallThrough' | 'cancelled' | 'handled'> {
+    let diffs;
+    try {
+      diffs = await this._gitService.getCommitDiff(repo, hash);
+    } catch {
+      return 'fallThrough';
+    }
+    if (!diffs || diffs.length <= 1) {
+      // Nothing meaningful to deselect — normal revert.
+      return 'fallThrough';
+    }
+
+    const items = diffs.map((d) => ({
+      label: d.path,
+      description: d.status,
+      picked: true,
+      path: d.path,
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+      title: `Revert ${hash.substring(0, 8)} — choose files to include`,
+      placeHolder: 'Deselect files to keep their changes intact',
+      canPickMany: true,
+      matchOnDescription: true,
+    });
+    if (!picked) {
+      return 'cancelled';
+    }
+    if (picked.length === 0) {
+      void vscode.window.showInformationMessage('No files selected — revert skipped.');
+      return 'handled';
+    }
+
+    const pickedPaths = new Set(picked.map((p) => p.path));
+    const excludedPaths = diffs
+      .map((d) => d.path)
+      .filter((p) => !pickedPaths.has(p));
+
+    if (excludedPaths.length === 0) {
+      // User kept everything — fall through to the standard flow.
+      return 'fallThrough';
+    }
+
+    // Partial revert via the `git revert -n` plumbing.
+    const cwd = repo.rootUri.fsPath;
+    try {
+      await this._gitCli.exec(['revert', '-n', hash], { cwd, throwOnError: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to start selective revert: ${msg}`);
+      return 'handled';
+    }
+
+    // Undo the staged revert for each excluded file — this restores the
+    // file to its HEAD (pre-revert-attempt) state in both index and
+    // working tree, so only the user's picked files remain reverted.
+    try {
+      await this._gitCli.exec(['checkout', 'HEAD', '--', ...excludedPaths], {
+        cwd,
+        throwOnError: true,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      // Best-effort abort so the working tree isn't half-reverted.
+      try {
+        await this._gitService.revertAbort(repo);
+      } catch {
+        // swallow; the primary error below is what the user needs to see
+      }
+      void vscode.window.showErrorMessage(
+        `Failed to exclude files from revert: ${msg}. Revert aborted.`
+      );
+      return 'handled';
+    }
+
+    // Finalize the commit.
+    let subject = hash.substring(0, 8);
+    try {
+      const commit = await this._gitService.getCommit(repo, hash);
+      if (commit.message) {
+        subject = commit.message.split('\n')[0];
+      }
+    } catch {
+      // Keep short-hash fallback.
+    }
+    const commitMessage = `Revert "${subject}"\n\nThis reverts parts of commit ${hash}.`;
+    try {
+      await this._gitCli.exec(['commit', '-m', commitMessage], { cwd, throwOnError: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to commit partial revert: ${msg}`);
+      return 'handled';
+    }
+
+    void vscode.window.showInformationMessage(
+      `Reverted ${pickedPaths.size} of ${diffs.length} file(s) from ${hash.substring(0, 8)}`
+    );
+    return 'handled';
+  }
+
+  /**
    * Checkout the selected commit in detached HEAD mode.
    * Uses the stash/force fallback pattern from BranchContextMenuCommands.
    */
   private async _handleCheckoutRevision(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -313,55 +706,72 @@ export class CommitContextMenuCommands {
 
   /**
    * Reset the current branch to the selected commit.
-   * Shows a quick pick with Soft/Mixed/Hard options.
+   * Opens the T1-11 ResetDialog (webview-based 4-mode picker with
+   * protected-branch guard and single destructive-op confirm).
    */
   private async _handleResetToHere(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
+      return;
+    }
+    if (!this._context) {
+      // Should not happen in production — register() wires this — but
+      // guard defensively so tests that skip register() don't crash.
+      void vscode.window.showErrorMessage(
+        'Reset dialog is unavailable: extension context not initialised.'
+      );
       return;
     }
 
     const hash = commitHashes[0];
 
-    const resetMode = await vscode.window.showQuickPick(
-      [
-        { label: 'Soft', description: 'Keep changes staged', mode: 'soft' },
-        { label: 'Mixed', description: 'Keep changes unstaged', mode: 'mixed' },
-        { label: 'Hard', description: 'Discard all changes', mode: 'hard' },
-      ],
-      {
-        title: 'Reset Current Branch',
-        placeHolder: 'Select reset mode',
-      }
-    );
-
-    if (!resetMode) {
-      return;
-    }
-
+    // Resolve commit subject for the dialog header; fall back to empty.
+    let subject = '';
     try {
-      const result = await this._gitCli.exec(
-        ['reset', `--${resetMode.mode}`, hash],
-        { cwd: repo.rootUri.fsPath, throwOnError: true }
-      );
-
-      if (result.exitCode === 0) {
-        void vscode.window.showInformationMessage(
-          `Reset to ${hash.substring(0, 8)} (${resetMode.mode})`
-        );
-      }
-      this._gitToolWindowProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to reset: ${errorMessage}`);
+      const commit = await this._gitService.getCommit(repo, hash);
+      subject = commit.message.split('\n')[0];
+    } catch {
+      // Leave subject blank — dialog still renders.
     }
+
+    const currentBranch = this._extractBranchName(repo.head?.name) ?? '';
+    const protectedBranches = this._readProtectedBranches();
+
+    showResetDialog(this._context, {
+      repo,
+      target: { hash, subject },
+      currentBranch,
+      protectedBranches,
+      gitService: this._gitService,
+      onResetComplete: () => {
+        this._gitToolWindowProvider.refresh();
+      },
+    });
+  }
+
+  /**
+   * Convert a refspec like `refs/heads/main` to its short branch name (`main`).
+   * Returns undefined for detached HEAD / falsy input.
+   */
+  private _extractBranchName(ref: string | undefined): string | undefined {
+    if (!ref) return undefined;
+    return ref.replace(/^refs\/heads\//, '');
+  }
+
+  /**
+   * Read `intellig.protectedBranches` from configuration.
+   */
+  private _readProtectedBranches(): string[] {
+    const cfg = vscode.workspace.getConfiguration('intellig');
+    const value = cfg.get<string[]>('protectedBranches', ['main', 'master']);
+    return Array.isArray(value) ? value.filter((s) => typeof s === 'string') : [];
   }
 
   /**
    * Generate a patch file from the selected commit and prompt the user to save it.
    */
   private async _handleCreatePatch(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -396,7 +806,7 @@ export class CommitContextMenuCommands {
    * Lists changed files and opens the diff for each.
    */
   private async _handleCompareWithLocal(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -432,7 +842,7 @@ export class CommitContextMenuCommands {
    * Opens the commit's changed files list so the user can browse the state at that point.
    */
   private async _handleShowRepoAtRevision(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -477,7 +887,7 @@ export class CommitContextMenuCommands {
    * Only works if the selected commit is the HEAD commit.
    */
   private async _handleUndoCommit(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -509,7 +919,7 @@ export class CommitContextMenuCommands {
    * Uses hash~1 as the onto target so the selected commit is included in the session.
    */
   private async _handleDropCommit(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -584,7 +994,7 @@ export class CommitContextMenuCommands {
    * Both paths stash uncommitted/unmerged changes first to avoid conflicts.
    */
   private async _handleEditCommitMessage(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -696,7 +1106,7 @@ export class CommitContextMenuCommands {
    * Merge the selected commit into the current branch.
    */
   private async _handleMergeIntoCurrent(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -711,23 +1121,32 @@ export class CommitContextMenuCommands {
           `Merged ${hash.substring(0, 8)} into current branch successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        const choice = await vscode.window.showWarningMessage(
-          `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
-          'Open Conflicts',
-          'Abort Merge'
-        );
-        if (choice === 'Open Conflicts') {
-          for (const filePath of result.conflicts) {
-            const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
-            await vscode.commands.executeCommand('vscode.open', fileUri);
-          }
-        } else if (choice === 'Abort Merge') {
-          try {
-            await this._gitCli.exec(['merge', '--abort'], { cwd: repo.rootUri.fsPath, throwOnError: true });
-            void vscode.window.showInformationMessage('Merge aborted.');
-          } catch (abortError) {
-            const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to abort merge: ${abortMsg}`);
+        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to the
+        // legacy toast if conflictResolutionService isn't wired yet.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'merge',
+            target: hash.substring(0, 8),
+          });
+        } else {
+          const choice = await vscode.window.showWarningMessage(
+            `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
+            'Open Conflicts',
+            'Abort Merge'
+          );
+          if (choice === 'Open Conflicts') {
+            for (const filePath of result.conflicts) {
+              const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
+              await vscode.commands.executeCommand('vscode.open', fileUri);
+            }
+          } else if (choice === 'Abort Merge') {
+            try {
+              await this._gitCli.exec(['merge', '--abort'], { cwd: repo.rootUri.fsPath, throwOnError: true });
+              void vscode.window.showInformationMessage('Merge aborted.');
+            } catch (abortError) {
+              const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
+              void vscode.window.showErrorMessage(`Failed to abort merge: ${abortMsg}`);
+            }
           }
         }
       }
@@ -742,7 +1161,7 @@ export class CommitContextMenuCommands {
    * Start an interactive rebase session from the selected commit.
    */
   private async _handleInteractiveRebase(commitHashes: string[]): Promise<void> {
-    const repo = this._getRepository();
+    const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -785,7 +1204,16 @@ export function createCommitContextMenuCommands(
   gitService: IGitService,
   rebaseService: IRebaseService,
   gitToolWindowProvider: GitToolWindowProvider,
-  gitCli?: GitCli
+  gitCli?: GitCli,
+  conflictResolutionService?: IConflictResolutionService,
+  repoResolver?: RepoResolver
 ): CommitContextMenuCommands {
-  return new CommitContextMenuCommands(gitService, rebaseService, gitToolWindowProvider, gitCli);
+  return new CommitContextMenuCommands(
+    gitService,
+    rebaseService,
+    gitToolWindowProvider,
+    gitCli,
+    conflictResolutionService,
+    repoResolver
+  );
 }

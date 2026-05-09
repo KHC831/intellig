@@ -204,7 +204,7 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
     unstageHunk: throwError,
     revertFile: throwError,
     dispose: () => {},
-  } as IGitService;
+  } as unknown as IGitService;
 }
 
 function createErrorThrowingRebaseService(errorMsg: string): IRebaseService {

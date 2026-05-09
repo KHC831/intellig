@@ -9,6 +9,90 @@ import { GitCli } from '../../../utils/gitCli';
 import { Uri } from '../../mocks/vscode';
 
 /**
+ * Minimal fake-timer shim — TR-2.
+ *
+ * Replaces `setTimeout` / `clearTimeout` on `globalThis` with a deterministic
+ * queue driven by {@link installFakeTimers}`.tick()`. Scoped to the current
+ * test; the `uninstall()` call restores the real timers so other tests
+ * aren't affected.
+ *
+ * This is intentionally tiny — we only need the debounced-reconcile path,
+ * which uses `setTimeout(..., 300)` and `clearTimeout`. No interval, no
+ * setImmediate, no Date.now() virtualisation. If the ChangelistService
+ * debounce ever grows those dependencies, upgrade to `@sinonjs/fake-timers`
+ * rather than extending this shim.
+ */
+interface IFakeTimerHandle {
+  id: number;
+  fireAt: number;
+  callback: () => void;
+}
+
+function installFakeTimers(): {
+  tick: (ms: number) => void;
+  uninstall: () => void;
+} {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  let now = 0;
+  let nextId = 1;
+  const queue: IFakeTimerHandle[] = [];
+
+  (globalThis as unknown as { setTimeout: (cb: () => void, ms: number) => unknown }).setTimeout = (
+    cb: () => void,
+    ms: number
+  ): unknown => {
+    const handle: IFakeTimerHandle = { id: nextId++, fireAt: now + (ms ?? 0), callback: cb };
+    queue.push(handle);
+    // Return a numeric-coerceable stand-in so code that stores the return
+    // value works regardless of whether it treats it as number or object.
+    return handle.id as unknown;
+  };
+
+  (globalThis as unknown as { clearTimeout: (h: unknown) => void }).clearTimeout = (
+    h: unknown
+  ): void => {
+    const id = typeof h === 'number' ? h : (h as IFakeTimerHandle | undefined)?.id;
+    if (id === undefined) return;
+    const idx = queue.findIndex((q) => q.id === id);
+    if (idx >= 0) queue.splice(idx, 1);
+  };
+
+  return {
+    tick: (ms: number): void => {
+      now += ms;
+      // Fire all timers whose deadline has passed, in insertion order.
+      while (true) {
+        const due = queue.findIndex((q) => q.fireAt <= now);
+        if (due < 0) break;
+        const [handle] = queue.splice(due, 1);
+        handle.callback();
+      }
+    },
+    uninstall: (): void => {
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = realSetTimeout;
+      (globalThis as unknown as { clearTimeout: typeof clearTimeout }).clearTimeout =
+        realClearTimeout;
+      queue.length = 0;
+    },
+  };
+}
+
+/**
+ * Flush the pending microtask queue. Needed between `tick()` and assertions
+ * because the debounce callback launches an async reconcile; each `await`
+ * inside that chain yields back to the microtask queue. Schedules a macrotask
+ * via the real timer to guarantee all microtasks drain.
+ */
+async function flushMicrotasks(): Promise<void> {
+  // Use `setImmediate` (Node) or a `Promise.resolve()` yield; both allow the
+  // current run of microtasks to complete before our await resolves.
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
+/**
  * Unit tests for ChangelistService.
  * Tests the changelist functionality for organizing uncommitted changes.
  */
@@ -403,7 +487,11 @@ describe('ChangelistService', () => {
         changelists: { name: string }[];
       };
 
-      assert.strictEqual(storage.version, 1, 'Storage version should be 1');
+      assert.strictEqual(
+        storage.version,
+        2,
+        'Storage version should be 2 after any write by the current service'
+      );
       const names = storage.changelists.map((cl) => cl.name);
       assert.ok(names.includes('Storage Test'), 'Should include created changelist');
     });
@@ -484,6 +572,433 @@ describe('ChangelistService', () => {
         assert.ok(eventFired, 'Event should be fired');
       } finally {
         disposable.dispose();
+      }
+    });
+  });
+
+  describe('storage schema migration (v1 → v2)', () => {
+    const storagePathOf = (repoRoot: string): string =>
+      path.join(repoRoot, '.git', 'intellig-changelists.json');
+
+    it('reading v1 JSON fills description: "" on each record', () => {
+      // Write a v1 file directly. No `description`, no `activeChangelistId`.
+      const v1 = {
+        version: 1,
+        changelists: [
+          { id: 'default', name: 'Default Changelist', isDefault: true, files: ['a.txt'] },
+          { id: 'feature', name: 'Feature', isDefault: false, files: [] },
+        ],
+      };
+      fs.writeFileSync(storagePathOf(testRepoPath), JSON.stringify(v1, null, 2), 'utf8');
+
+      const changelists = changelistService.getChangelists(mockRepo);
+
+      for (const cl of changelists) {
+        assert.strictEqual(
+          cl.description,
+          '',
+          `changelist ${cl.name} should have description: "" after v1 read`
+        );
+      }
+      assert.strictEqual(changelists.length, 2);
+    });
+
+    it('reading v2 JSON preserves description verbatim', () => {
+      const v2 = {
+        version: 2,
+        activeChangelistId: 'feature',
+        changelists: [
+          {
+            id: 'default',
+            name: 'Default Changelist',
+            isDefault: true,
+            description: '',
+            files: [],
+          },
+          {
+            id: 'feature',
+            name: 'Feature',
+            isDefault: false,
+            description: 'adds blame perf',
+            files: [],
+          },
+        ],
+      };
+      fs.writeFileSync(storagePathOf(testRepoPath), JSON.stringify(v2, null, 2), 'utf8');
+
+      const changelists = changelistService.getChangelists(mockRepo);
+      const feature = changelists.find((cl) => cl.id === 'feature');
+      assert.ok(feature, 'Feature changelist should be present');
+      assert.strictEqual(feature!.description, 'adds blame perf');
+    });
+
+    it('lazily rewrites v1 file as v2 on next save', () => {
+      const v1 = {
+        version: 1,
+        changelists: [
+          { id: 'default', name: 'Default Changelist', isDefault: true, files: [] },
+        ],
+      };
+      fs.writeFileSync(storagePathOf(testRepoPath), JSON.stringify(v1, null, 2), 'utf8');
+
+      // Read — does NOT rewrite the file yet (lazy).
+      changelistService.getChangelists(mockRepo);
+      const afterRead = JSON.parse(fs.readFileSync(storagePathOf(testRepoPath), 'utf8'));
+      assert.strictEqual(afterRead.version, 1, 'read alone must not rewrite file');
+
+      // Write path — creating a changelist triggers the first save.
+      changelistService.createChangelist(mockRepo, 'Triggers migration');
+      const afterWrite = JSON.parse(fs.readFileSync(storagePathOf(testRepoPath), 'utf8'));
+      assert.strictEqual(afterWrite.version, 2, 'write must stamp v2');
+      assert.strictEqual(typeof afterWrite.activeChangelistId, 'string');
+    });
+  });
+
+  describe('setActiveChangelist() / getActiveChangelist()', () => {
+    it('getActiveChangelist returns default when storage is empty', async () => {
+      const active = await changelistService.getActiveChangelist(mockRepo);
+      assert.strictEqual(active.id, 'default');
+      assert.strictEqual(active.isDefault, true);
+    });
+
+    it('setActiveChangelist with valid id persists and is reflected', async () => {
+      const cl = changelistService.createChangelist(mockRepo, 'Feature X');
+
+      await changelistService.setActiveChangelist(mockRepo, cl.id);
+
+      const active = await changelistService.getActiveChangelist(mockRepo);
+      assert.strictEqual(active.id, cl.id);
+
+      // Also visible across a fresh service instance (persistence check).
+      const fresh = createChangelistService();
+      try {
+        const active2 = await fresh.getActiveChangelist(mockRepo);
+        assert.strictEqual(active2.id, cl.id);
+      } finally {
+        fresh.dispose();
+      }
+    });
+
+    it('setActiveChangelist with unknown id throws', async () => {
+      await assert.rejects(
+        () => changelistService.setActiveChangelist(mockRepo, 'does-not-exist'),
+        /Changelist not found/
+      );
+    });
+
+    it('deleting the active changelist falls back to default as active', async () => {
+      const cl = changelistService.createChangelist(mockRepo, 'To Delete');
+      await changelistService.setActiveChangelist(mockRepo, cl.id);
+
+      changelistService.deleteChangelist(mockRepo, cl.id);
+
+      const active = await changelistService.getActiveChangelist(mockRepo);
+      assert.strictEqual(active.id, 'default');
+    });
+  });
+
+  describe('getChangelistForFile()', () => {
+    it('returns the changelist id when the file is tracked', async () => {
+      const cl = changelistService.createChangelist(mockRepo, 'Tracked');
+      changelistService.moveToChangelist(mockRepo, ['src/foo.ts'], cl.id);
+
+      const id = await changelistService.getChangelistForFile(mockRepo, 'src/foo.ts');
+      assert.strictEqual(id, cl.id);
+    });
+
+    it('returns undefined for an unknown path', async () => {
+      const id = await changelistService.getChangelistForFile(mockRepo, 'not/tracked.ts');
+      assert.strictEqual(id, undefined);
+    });
+  });
+
+  describe('reconcileWithGitStatus()', () => {
+    /**
+     * Build a minimal IGitService stub that returns the given statuses.
+     * The stub exposes a trigger to fire `onDidChangeRepository` so we
+     * can exercise the debounced hook as well.
+     */
+    function makeGitServiceStub(
+      statusesByRepo: Map<string, { path: string }[]>,
+      onStatusCalled?: (repoPath: string) => void
+    ): {
+      gitService: any;
+      fireRepoChange: (repo: IRepository) => void;
+      statusCallCount: () => number;
+    } {
+      let callCount = 0;
+      const repoChangeListeners: Array<(repo: IRepository) => void> = [];
+
+      const gitService = {
+        // Only the subset used by ChangelistService + the test's trigger
+        // is implemented; everything else throws if touched by accident.
+        getStatus: async (repo: IRepository): Promise<{ path: string }[]> => {
+          callCount++;
+          if (onStatusCalled) onStatusCalled(repo.rootUri.fsPath);
+          return statusesByRepo.get(repo.rootUri.fsPath) ?? [];
+        },
+        onDidChangeRepository: (listener: (repo: IRepository) => void) => {
+          repoChangeListeners.push(listener);
+          return {
+            dispose: () => {
+              const idx = repoChangeListeners.indexOf(listener);
+              if (idx >= 0) repoChangeListeners.splice(idx, 1);
+            },
+          };
+        },
+      };
+
+      return {
+        gitService,
+        fireRepoChange: (repo: IRepository) => {
+          for (const l of repoChangeListeners) l(repo);
+        },
+        statusCallCount: () => callCount,
+      };
+    }
+
+    it('empty storage + dirty files → all assigned to default changelist', async () => {
+      const stub = makeGitServiceStub(
+        new Map([[testRepoPath, [{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'c.txt' }]]])
+      );
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        await svc.reconcileWithGitStatus(mockRepo);
+        const def = svc.getDefaultChangelist(mockRepo);
+        const paths = def.files.map((f) => f.path).sort();
+        assert.deepStrictEqual(paths, ['a.txt', 'b.txt', 'c.txt']);
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('stale entries (path no longer dirty) are pruned', async () => {
+      const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'fresh.txt' }]]]));
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        // Seed storage with a file that will no longer be dirty after reconcile.
+        // Touch storage first so the default changelist exists in the JSON.
+        svc.getChangelists(mockRepo);
+        svc.moveToChangelist(mockRepo, ['stale.txt'], 'default');
+
+        await svc.reconcileWithGitStatus(mockRepo);
+        const def = svc.getDefaultChangelist(mockRepo);
+        const paths = def.files.map((f) => f.path);
+        assert.ok(!paths.includes('stale.txt'), 'stale.txt should be pruned');
+        assert.ok(paths.includes('fresh.txt'), 'fresh.txt should be added');
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('external `git add` does not change the changelist assignment', async () => {
+      const feature = changelistService.createChangelist(mockRepo, 'Feature');
+      changelistService.moveToChangelist(mockRepo, ['src/foo.ts'], feature.id);
+
+      // Simulate: file is still dirty per git status (staging is orthogonal).
+      const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'src/foo.ts' }]]]));
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        const owner = await svc.getChangelistForFile(mockRepo, 'src/foo.ts');
+        assert.strictEqual(owner, feature.id, 'assignment must survive reconcile');
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('external file rm → entry pruned from all changelists', async () => {
+      const cl = changelistService.createChangelist(mockRepo, 'Feature');
+      changelistService.moveToChangelist(mockRepo, ['will-be-gone.txt'], cl.id);
+
+      const stub = makeGitServiceStub(new Map([[testRepoPath, []]]));
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        const owner = await svc.getChangelistForFile(mockRepo, 'will-be-gone.txt');
+        assert.strictEqual(owner, undefined);
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('file rename → new path goes to default, old path is pruned', async () => {
+      const cl = changelistService.createChangelist(mockRepo, 'Feature');
+      changelistService.moveToChangelist(mockRepo, ['old-name.txt'], cl.id);
+
+      // Git status reports the renamed target path.
+      const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'new-name.txt' }]]]));
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        await svc.reconcileWithGitStatus(mockRepo);
+
+        const oldOwner = await svc.getChangelistForFile(mockRepo, 'old-name.txt');
+        const newOwner = await svc.getChangelistForFile(mockRepo, 'new-name.txt');
+        assert.strictEqual(oldOwner, undefined, 'old path pruned');
+        assert.strictEqual(newOwner, 'default', 'new path lands in default');
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('preserves path case exactly as reported by git (no normalization)', async () => {
+      // Git on a case-sensitive checkout reports the exact casing; we
+      // must not lower-case or otherwise normalize. On case-insensitive
+      // filesystems (HFS+, NTFS) git still reports the tracked casing;
+      // ChangelistService treats both as distinct strings.
+      const stub = makeGitServiceStub(
+        new Map([[testRepoPath, [{ path: 'Src/File.TS' }, { path: 'src/file.ts' }]]])
+      );
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        await svc.reconcileWithGitStatus(mockRepo);
+        const def = svc.getDefaultChangelist(mockRepo);
+        const paths = def.files.map((f) => f.path).sort();
+        assert.deepStrictEqual(paths, ['Src/File.TS', 'src/file.ts']);
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('multi-repo isolation: reconcile on repo A does not touch repo B storage', async () => {
+      // Build a second repo dir with its own .git folder.
+      const repoBPath = fs.mkdtempSync(path.join(os.tmpdir(), 'changelist-test-b-'));
+      fs.mkdirSync(path.join(repoBPath, '.git'));
+      const repoB: IRepository = {
+        rootUri: Uri.file(repoBPath),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      };
+
+      try {
+        const statuses = new Map<string, { path: string }[]>([
+          [testRepoPath, [{ path: 'only-in-a.txt' }]],
+          [repoBPath, [{ path: 'only-in-b.txt' }]],
+        ]);
+        const stub = makeGitServiceStub(statuses);
+        const svc = createChangelistService(stub.gitService as any);
+        try {
+          // Touch both repos so each has its own default changelist persisted.
+          svc.getChangelists(mockRepo);
+          svc.getChangelists(repoB);
+
+          // Seed both repos with pre-existing entries.
+          svc.moveToChangelist(mockRepo, ['only-in-a.txt'], 'default');
+          svc.moveToChangelist(repoB, ['only-in-b.txt'], 'default');
+
+          // Reconcile only repo A.
+          await svc.reconcileWithGitStatus(mockRepo);
+
+          const aDef = svc.getDefaultChangelist(mockRepo);
+          const bDef = svc.getDefaultChangelist(repoB);
+
+          assert.deepStrictEqual(
+            aDef.files.map((f) => f.path),
+            ['only-in-a.txt'],
+            'repo A reconciled'
+          );
+          assert.deepStrictEqual(
+            bDef.files.map((f) => f.path),
+            ['only-in-b.txt'],
+            'repo B untouched'
+          );
+        } finally {
+          svc.dispose();
+        }
+      } finally {
+        fs.rmSync(repoBPath, { recursive: true, force: true });
+      }
+    });
+
+    it('corrupt JSON → graceful reset to empty storage', async () => {
+      const storagePath = path.join(testRepoPath, '.git', 'intellig-changelists.json');
+      fs.writeFileSync(storagePath, '{ not valid json', 'utf8');
+
+      const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'rescued.txt' }]]]));
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        // getChangelists should not throw — it absorbs the parse error.
+        const before = svc.getChangelists(mockRepo);
+        assert.ok(
+          before.some((cl) => cl.isDefault),
+          'default changelist exists after corrupt read'
+        );
+
+        await svc.reconcileWithGitStatus(mockRepo);
+        const def = svc.getDefaultChangelist(mockRepo);
+        assert.deepStrictEqual(
+          def.files.map((f) => f.path),
+          ['rescued.txt']
+        );
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('concurrent reconcile calls coalesce into a single in-flight run', async () => {
+      let calls = 0;
+      const stub = makeGitServiceStub(
+        new Map([[testRepoPath, [{ path: 'x.txt' }]]]),
+        () => {
+          calls++;
+        }
+      );
+      const svc = createChangelistService(stub.gitService as any);
+      try {
+        const [a, b, c] = [
+          svc.reconcileWithGitStatus(mockRepo),
+          svc.reconcileWithGitStatus(mockRepo),
+          svc.reconcileWithGitStatus(mockRepo),
+        ];
+        await Promise.all([a, b, c]);
+        assert.strictEqual(calls, 1, 'only one getStatus call for three concurrent reconciles');
+      } finally {
+        svc.dispose();
+      }
+    });
+
+    it('onDidChangeRepository triggers debounced reconcile', async () => {
+      // TR-2: use a local fake-timer shim instead of waiting out the real
+      // 300 ms debounce. Drops test time from ~400 ms to <5 ms and makes
+      // the assertion deterministic regardless of event-loop scheduling.
+      const fake = installFakeTimers();
+      try {
+        const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'debounced.txt' }]]]));
+        const svc = createChangelistService(stub.gitService as any);
+        try {
+          // Fire several times in quick succession; debounce should collapse.
+          stub.fireRepoChange(mockRepo);
+          stub.fireRepoChange(mockRepo);
+          stub.fireRepoChange(mockRepo);
+
+          // No reconcile until the debounce elapses.
+          assert.strictEqual(stub.statusCallCount(), 0, 'no reconcile before timer fires');
+
+          // Advance past the 300 ms debounce window.
+          fake.tick(300);
+
+          // The timer callback kicks off the async reconcile; flush the
+          // microtask queue so the awaits inside reconcileWithGitStatus
+          // complete before we assert. Two flushes cover the
+          // `loadChangelistStorage`-then-`getStatus` chain.
+          await flushMicrotasks();
+          await flushMicrotasks();
+
+          assert.strictEqual(
+            stub.statusCallCount(),
+            1,
+            'debounce should coalesce bursty events to one reconcile'
+          );
+          const def = svc.getDefaultChangelist(mockRepo);
+          assert.ok(def.files.some((f) => f.path === 'debounced.txt'));
+        } finally {
+          svc.dispose();
+        }
+      } finally {
+        fake.uninstall();
       }
     });
   });

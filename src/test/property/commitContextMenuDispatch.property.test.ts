@@ -173,7 +173,7 @@ function createMockGitService(): IGitService {
     unstageHunk: async () => {},
     revertFile: async () => {},
     dispose: () => {},
-  } as IGitService;
+  } as unknown as IGitService;
 }
 
 /**

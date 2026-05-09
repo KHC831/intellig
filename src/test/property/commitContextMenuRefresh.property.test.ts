@@ -170,7 +170,7 @@ function createSuccessGitService(headCommitHash?: string): IGitService {
     unstageHunk: async () => {},
     revertFile: async () => {},
     dispose: () => {},
-  } as IGitService;
+  } as unknown as IGitService;
 }
 
 function createMockRebaseService(commitHash?: string): IRebaseService {

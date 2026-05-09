@@ -404,57 +404,45 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // ─── resetToHere ──────────────────────────────────────────────────────────
 
   describe('_handleResetToHere', () => {
-    it('calls git reset with selected mode and hash', async () => {
-      (vscode.window as any).showQuickPick = async (items: any[]) => items[0]; // Soft
-      createMessageTrackers();
-      const repo = createMockRepo();
-      const gitService = createMockGitService(repo);
-      const rebaseService = createMockRebaseService();
-      const provider = createMockProvider();
-      const gitCli = createMockGitCli();
-      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+    /**
+     * After T1-11 landed, `resetToHere` opens a ResetDialog (webview)
+     * instead of a QuickPick. The dialog requires `this._context` to be
+     * set by `register()`. Tests below exercise the dispatcher-level
+     * behaviour (invalid/missing commit, missing context); ResetDialog's
+     * own logic has its dedicated test file at
+     * `services/resetDialog.test.ts`.
+     */
 
-      await commands._handleAction('resetToHere', [testHash]);
-
-      const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
-      assert.ok(call, 'gitCli.exec should have been called');
-      const args = call!.args[0] as string[];
-      assert.ok(args.includes('reset'));
-      assert.ok(args.includes('--soft'));
-      assert.ok(args.includes(testHash));
-    });
-
-    it('does nothing when user cancels quick pick', async () => {
-      (vscode.window as any).showQuickPick = async () => undefined;
-      createMessageTrackers();
-      const repo = createMockRepo();
-      const gitService = createMockGitService(repo);
-      const rebaseService = createMockRebaseService();
-      const provider = createMockProvider();
-      const gitCli = createMockGitCli();
-      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
-
-      await commands._handleAction('resetToHere', [testHash]);
-
-      assert.strictEqual(gitCli.calls.length, 0);
-    });
-
-    it('shows error on failure', async () => {
-      (vscode.window as any).showQuickPick = async (items: any[]) => items[0];
+    it('no-ops when commitHashes is empty', async () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
-      const gitCli = createMockGitCli({
-        exec: async () => { throw new Error('reset failed'); },
-      });
-      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
 
+      await commands._handleAction('resetToHere', []);
+
+      assert.strictEqual(messages.error.length, 0);
+      assert.strictEqual(messages.info.length, 0);
+    });
+
+    it('shows a clear error if invoked without register() having been called', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      // No register() call → _context is undefined → expect guarded error.
       await commands._handleAction('resetToHere', [testHash]);
 
       assert.strictEqual(messages.error.length, 1);
-      assert.ok(messages.error[0].message.includes('reset failed'));
+      assert.ok(
+        messages.error[0].message.toLowerCase().includes('context not initialised') ||
+          messages.error[0].message.toLowerCase().includes('context not initialized')
+      );
     });
   });
 

@@ -6,7 +6,8 @@ import '../../../test/setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider, INTELLIJ_FILE_STATUS_COLORS } from '../../../services/GitToolWindowProvider';
 import { ICommitDetails } from '../../../services/interfaces';
-import { Uri } from '../../mocks/vscode';
+import { IRepository } from '../../../services/interfaces/IGitService';
+import { Uri, setMockConfigValue } from '../../mocks/vscode';
 
 /**
  * Helper to create a minimal ICommitDetails for testing.
@@ -703,6 +704,92 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
         assert.ok(html.includes('aria-label="Changed Files"'), 'Should have aria-label on files list');
       });
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // FU-1 — wire T3-09 issue-link utilities into the details panel.
+  // ──────────────────────────────────────────────────────────────────────
+  describe('FU-1 — commit message issue links', () => {
+    function makeRepoWithGitHub(): IRepository {
+      return {
+        rootUri: Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+        remotes: [{ name: 'origin', fetchUrl: 'https://github.com/acme/widgets.git' }],
+        submodules: [],
+      };
+    }
+
+    it('wraps #42 in a clickable <a> tag when the flag is on and a remote is parseable', () => {
+      provider.setAvailableRepositories([makeRepoWithGitHub()]);
+      setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
+      const details = makeCommitDetails({ message: 'fix: close #42' });
+      const html = provider._getDetailsPanelHtml(details);
+      assert.ok(
+        html.includes('<a class="commit-issue-link"'),
+        `expected an anchor tag for the issue ref; got:\n${html}`
+      );
+      assert.ok(
+        html.includes('https://github.com/acme/widgets/issues/42'),
+        'expected GitHub issue URL in the anchor href'
+      );
+    });
+
+    it('wraps GH-99 and PROJECT-123 style refs', () => {
+      provider.setAvailableRepositories([makeRepoWithGitHub()]);
+      setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
+      const details = makeCommitDetails({ message: 'GH-99 and PROJECT-123: cleanup' });
+      const html = provider._getDetailsPanelHtml(details);
+      assert.ok(html.includes('>GH-99</a>'), `expected GH-99 anchor; got: ${html}`);
+      assert.ok(
+        html.includes('>PROJECT-123</a>'),
+        `expected PROJECT-123 anchor; got: ${html}`
+      );
+    });
+
+    it('does NOT wrap `abc#42` (not a real reference)', () => {
+      provider.setAvailableRepositories([makeRepoWithGitHub()]);
+      setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
+      const details = makeCommitDetails({ message: 'see abc#42 for context' });
+      const html = provider._getDetailsPanelHtml(details);
+      assert.ok(
+        !html.includes('<a class="commit-issue-link"'),
+        `expected no issue-link anchors; got: ${html}`
+      );
+      assert.ok(html.includes('see abc#42 for context'), 'plain text preserved');
+    });
+
+    it('renders plain text when the `commitMessageIssueLinks` flag is off', () => {
+      provider.setAvailableRepositories([makeRepoWithGitHub()]);
+      setMockConfigValue('intellig', 'commitMessageIssueLinks', false);
+      const details = makeCommitDetails({ message: 'fix: close #42' });
+      const html = provider._getDetailsPanelHtml(details);
+      assert.ok(
+        !html.includes('<a class="commit-issue-link"'),
+        `flag off → no anchors; got: ${html}`
+      );
+      assert.ok(html.includes('#42'), 'raw reference still present as escaped text');
+      // Restore default for later tests in the suite.
+      setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
+    });
+
+    it('falls back to plain text when the repo has no remotes', () => {
+      const repo: IRepository = {
+        rootUri: Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      provider.setAvailableRepositories([repo]);
+      setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
+      const details = makeCommitDetails({ message: 'fix: close #42' });
+      const html = provider._getDetailsPanelHtml(details);
+      assert.ok(
+        !html.includes('<a class="commit-issue-link"'),
+        `no anchors without a remote; got: ${html}`
+      );
     });
   });
 });

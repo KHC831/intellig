@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from './interfaces/IGitService';
+import { resolveRepo } from '../utils/resolveRepo';
 
 /**
  * Tree item types for the branch tree
@@ -188,10 +189,22 @@ export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeIte
     void this._initializeRepository();
   }
 
+  /**
+   * Initialize the current repository for this tree provider.
+   *
+   * R6-Gap-C: route through `resolveRepo(preferActive: true)` so the
+   * branches view reflects the active editor's repo in multi-root
+   * workspaces, not an arbitrary first-enumerated repo. Falls back to
+   * discovering the first workspace folder when the git service hasn't
+   * populated any repos yet.
+   */
   private async _initializeRepository(): Promise<void> {
-    const repositories = this._gitService.getRepositories();
-    if (repositories.length > 0) {
-      this._currentRepository = repositories[0];
+    const repo = await resolveRepo(this._gitService, {
+      preferActive: true,
+      silent: true,
+    });
+    if (repo) {
+      this._currentRepository = repo;
     } else {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
