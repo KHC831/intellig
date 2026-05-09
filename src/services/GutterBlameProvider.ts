@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { IGutterBlameProvider } from './interfaces/IGutterBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine } from './interfaces/IGitService';
+import { BlameOptionsSource } from './BlameOptionsSource';
 import * as path from 'path';
 
 /**
@@ -42,14 +43,34 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    */
   readonly onDidChangeEnabled: vscode.Event<boolean>;
 
-  constructor(blameService: IBlameService, gitService: IGitService) {
+  private _optionsSource: BlameOptionsSource | undefined;
+
+  constructor(
+    blameService: IBlameService,
+    gitService: IGitService,
+    optionsSource?: BlameOptionsSource
+  ) {
     this._blameService = blameService;
     this._gitService = gitService;
+    this._optionsSource = optionsSource;
     this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
 
     // Set up event listeners
     this.setupEventListeners();
+
+    // T2-08: re-blame whenever the user toggles an option or hides/un-hides
+    // a revision. Cache is cleared so the new flags take effect.
+    if (this._optionsSource) {
+      this._disposables.push(
+        this._optionsSource.onDidChange(() => {
+          this._blameCache.clear();
+          if (this._enabled && this._currentEditor) {
+            void this.updateDecorations(this._currentEditor);
+          }
+        })
+      );
+    }
   }
 
   /**
@@ -271,6 +292,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
             continue;
           }
 
+          // T2-08: "Hide Revision" — any line whose commit the user has
+          // hidden is elided from the gutter. No decoration is rendered.
+          if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
+            continue;
+          }
+
           const decoration = this.createDecoration(editor, line, blameLine);
           if (decoration) {
             const ageKey = this.getAgeBracketKey(blameLine.date);
@@ -317,8 +344,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     let blameInfo = this._blameCache.get(cacheKey);
 
     if (!blameInfo) {
-      // Fetch blame info
-      blameInfo = await this._blameService.getBlame(repo, relativePath);
+      // Fetch blame info, piping through the current -w/-M/-C selection so
+      // git blame reflects the user's chosen options.
+      blameInfo = await this._blameService.getBlame(
+        repo,
+        relativePath,
+        undefined,
+        this._optionsSource?.asBlameOptions()
+      );
       this._blameCache.set(cacheKey, blameInfo);
     }
 
@@ -586,7 +619,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
  */
 export function createGutterBlameProvider(
   blameService: IBlameService,
-  gitService: IGitService
+  gitService: IGitService,
+  optionsSource?: BlameOptionsSource
 ): GutterBlameProvider {
-  return new GutterBlameProvider(blameService, gitService);
+  return new GutterBlameProvider(blameService, gitService, optionsSource);
 }

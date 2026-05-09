@@ -11,6 +11,7 @@ import {
   StatusBarClickAction,
 } from './interfaces/IStatusBarService';
 import { IGitService, IRepository } from './interfaces/IGitService';
+import { resolveRepo } from '../utils/resolveRepo';
 
 /**
  * Default status bar display options
@@ -23,11 +24,22 @@ const DEFAULT_OPTIONS: Required<IStatusBarDisplayOptions> = {
 };
 
 /**
+ * Default debounce window (ms) for coalescing rapid refresh triggers
+ * (e.g. fetch + repo-change firing back-to-back for the same tick).
+ */
+const DEFAULT_REFRESH_DEBOUNCE_MS = 150;
+
+/**
  * Status Bar Service implementation.
  * Manages the Git status bar item that displays branch and sync information.
  *
  * - 4.1: Display current branch name in status bar
  * - 17.8: Display progress and status notifications similar to IntelliJ
+ * - T2-12: Subscribes to `onDidFetch` (from T1-03 AutoFetchService) and
+ *   `onDidChangeRepository` so the ↑N ↓M badge refreshes after every fetch
+ *   or repo state mutation. Clicking the badge focuses the Incoming tab in
+ *   the Git tool window (falls back to opening the tool window when the
+ *   focusTab command isn't registered).
  */
 export class StatusBarService implements IStatusBarService {
   private _statusBarItem: vscode.StatusBarItem;
@@ -36,6 +48,12 @@ export class StatusBarService implements IStatusBarService {
   private _options: Required<IStatusBarDisplayOptions>;
   private _disposables: vscode.Disposable[] = [];
   private _onDidChangeState: vscode.EventEmitter<IStatusBarState>;
+  /** Repo most-recently passed to {@link update}. Used as the refresh source. */
+  private _activeRepo: IRepository | undefined;
+  /** Coalescing timer id for debounced refreshes. */
+  private _refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Debounce window in milliseconds; exposed for tests. */
+  private readonly _refreshDebounceMs: number;
 
   /**
    * Event fired when the status bar state changes.
@@ -47,10 +65,17 @@ export class StatusBarService implements IStatusBarService {
    *
    * @param gitService - The Git service to use for repository information
    * @param options - Display options for the status bar item
+   * @param refreshDebounceMs - Debounce window for refresh coalescing. Tests
+   *   pass `0` for immediate refresh; production uses the default (150ms).
    */
-  constructor(gitService: IGitService, options?: IStatusBarDisplayOptions) {
+  constructor(
+    gitService: IGitService,
+    options?: IStatusBarDisplayOptions,
+    refreshDebounceMs: number = DEFAULT_REFRESH_DEBOUNCE_MS
+  ) {
     this._gitService = gitService;
     this._options = { ...DEFAULT_OPTIONS, ...options };
+    this._refreshDebounceMs = refreshDebounceMs;
 
     // Initialize state
     this._state = {
@@ -71,14 +96,39 @@ export class StatusBarService implements IStatusBarService {
       this._options.alignment,
       this._options.priority
     );
-    this._statusBarItem.command = 'intellig.showBranchPopup';
+    // T2-12: click the status-bar badge → focus the Incoming tab in the Git
+    // tool window. `intellig.toolWindow.focusTab` is declared in package.json;
+    // the extension registers a handler (see extension.ts). When the command
+    // isn't available, VS Code silently no-ops — the fallback command
+    // (`intellig.openGitToolWindow`) is attempted first by the click handler
+    // via executeClickCommand(), but for the status-bar item itself we set
+    // the primary focusTab command and let the handler figure it out.
+    this._statusBarItem.command = {
+      title: 'Show Incoming Commits',
+      command: 'intellig.statusBar.click',
+      arguments: [],
+    };
     this._statusBarItem.tooltip = 'Click to manage branches';
     this._disposables.push(this._statusBarItem);
+
+    // Register the click-dispatch command that tries focusTab first, then
+    // falls back to opening the tool window. Idempotent registration
+    // (tolerates duplicate registrations by swallowing the throw).
+    this._registerClickDispatch();
 
     // Listen for repository changes to update status bar
     this._disposables.push(
       this._gitService.onDidChangeRepository((repo) => {
-        this.update(repo);
+        this._scheduleRefresh(repo);
+      })
+    );
+
+    // T2-12: listen for fetches so the incoming/outgoing counts reflect the
+    // latest remote-tracking state without waiting for a separate repo-change
+    // event.
+    this._disposables.push(
+      this._gitService.onDidFetch(({ repo }) => {
+        this._scheduleRefresh(repo);
       })
     );
 
@@ -87,27 +137,79 @@ export class StatusBarService implements IStatusBarService {
   }
 
   /**
+   * Register the status-bar click dispatch command — tries `focusTab` with
+   * the `incoming` tab, then falls back to `openGitToolWindow`. Registered
+   * defensively so a duplicate registration (hot-reload or test) doesn't
+   * break the constructor.
+   */
+  private _registerClickDispatch(): void {
+    try {
+      const disposable = vscode.commands.registerCommand('intellig.statusBar.click', async () => {
+        try {
+          await vscode.commands.executeCommand('intellig.toolWindow.focusTab', 'incoming');
+        } catch {
+          await vscode.commands.executeCommand('intellig.openGitToolWindow');
+        }
+      });
+      this._disposables.push(disposable);
+    } catch {
+      // Command already registered (another instance still alive, or reload).
+      // Safe no-op — the existing registration still works.
+    }
+  }
+
+  /**
+   * Schedule a debounced refresh. If multiple events fire inside the
+   * {@link _refreshDebounceMs} window, only the last one's repo is used.
+   */
+  private _scheduleRefresh(repo: IRepository): void {
+    this._activeRepo = repo;
+    if (this._refreshDebounceMs <= 0) {
+      this.update(repo);
+      return;
+    }
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+    }
+    this._refreshTimer = setTimeout(() => {
+      this._refreshTimer = undefined;
+      if (this._activeRepo) {
+        this.update(this._activeRepo);
+      }
+    }, this._refreshDebounceMs);
+  }
+
+  /**
    * Initialize the status bar with current repository info.
+   *
+   * R6-Gap-C: route through `resolveRepo(preferActive: true)` so the
+   * status bar branch indicator reflects the active editor's repo in
+   * multi-root workspaces, not an arbitrary first-enumerated repo.
+   * Falls back to the first workspace folder's repo when the git
+   * service is still empty.
    */
   private async _initialize(): Promise<void> {
-    const repositories = this._gitService.getRepositories();
-    if (repositories.length > 0) {
-      this.update(repositories[0]);
-    } else {
-      // Try to discover repository from workspace
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        const repo = await this._gitService.getRepository(workspaceFolders[0].uri);
-        if (repo) {
-          this.update(repo);
-        } else {
-          // No repository found - hide status bar
-          this.hide();
-        }
+    const repo = await resolveRepo(this._gitService, {
+      preferActive: true,
+      silent: true,
+    });
+    if (repo) {
+      this.update(repo);
+      return;
+    }
+    // Fallback: discover from workspace folders (git service not yet populated)
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders && workspaceFolders.length > 0) {
+      const discovered = await this._gitService.getRepository(workspaceFolders[0].uri);
+      if (discovered) {
+        this.update(discovered);
       } else {
-        // No workspace folders - hide status bar
+        // No repository found - hide status bar
         this.hide();
       }
+    } else {
+      // No workspace folders - hide status bar
+      this.hide();
     }
   }
 
@@ -332,6 +434,10 @@ export class StatusBarService implements IStatusBarService {
    * Dispose of the status bar service and its resources.
    */
   dispose(): void {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = undefined;
+    }
     for (const disposable of this._disposables) {
       disposable.dispose();
     }
@@ -344,11 +450,14 @@ export class StatusBarService implements IStatusBarService {
  *
  * @param gitService - The Git service to use for repository information
  * @param options - Display options for the status bar item
+ * @param refreshDebounceMs - Debounce window for refresh coalescing (default
+ *   150ms). Tests pass `0` for immediate refresh.
  * @returns A new StatusBarService instance
  */
 export function createStatusBarService(
   gitService: IGitService,
-  options?: IStatusBarDisplayOptions
+  options?: IStatusBarDisplayOptions,
+  refreshDebounceMs?: number
 ): StatusBarService {
-  return new StatusBarService(gitService, options);
+  return new StatusBarService(gitService, options, refreshDebounceMs);
 }

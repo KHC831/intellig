@@ -501,4 +501,91 @@ describe('InlineBlameProvider', () => {
       });
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // FU-1 — hover includes a clickable commit-hash link when the repo has a
+  // parseable remote URL. Falls back to plain hash when the parse fails.
+  // ────────────────────────────────────────────────────────────────────────
+  describe('hover message — issue-link wiring (FU-1)', () => {
+    const sampleBlame: IBlameLine = {
+      line: 1,
+      commit: 'abc123def456789012345678901234567890abcd',
+      author: 'Test Author',
+      authorEmail: 'test@example.com',
+      date: new Date('2024-01-15T12:00:00Z'),
+      message: 'fix: close #42',
+    };
+
+    it('contains the provider commit URL when the repo has a GitHub remote', () => {
+      const repo: IRepository = {
+        rootUri: Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+        remotes: [
+          { name: 'origin', fetchUrl: 'https://github.com/acme/widgets.git' },
+        ],
+        submodules: [],
+      };
+      const md = (inlineBlameProvider as unknown as {
+        createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+      }).createHoverMessage(sampleBlame, repo);
+      assert.ok(
+        md.value.includes('https://github.com/acme/widgets/commit/abc123def456789012345678901234567890abcd'),
+        `hover value should contain commit URL; got: ${md.value}`
+      );
+      // The short-hash should be rendered inside a markdown link.
+      assert.ok(
+        md.value.includes('[`abc123d`]'),
+        `hover value should link the short hash; got: ${md.value}`
+      );
+    });
+
+    it('falls back to plain hash when the repo has no remotes', () => {
+      const repo: IRepository = {
+        rootUri: Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      const md = (inlineBlameProvider as unknown as {
+        createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+      }).createHoverMessage(sampleBlame, repo);
+      // No "/commit/" provider URL, no short-hash markdown link.
+      assert.ok(!md.value.includes('/commit/'), `no provider URL; got: ${md.value}`);
+      assert.ok(
+        md.value.includes('**Commit:** `abc123d`'),
+        `plain hash rendered; got: ${md.value}`
+      );
+    });
+
+    it('falls back to plain hash when parseRemoteUrl returns undefined', () => {
+      const repo: IRepository = {
+        rootUri: Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
+        // Intentionally gibberish — parseRemoteUrl should return undefined.
+        remotes: [{ name: 'origin', fetchUrl: 'not a url at all' }],
+        submodules: [],
+      };
+      assert.doesNotThrow(() => {
+        const md = (inlineBlameProvider as unknown as {
+          createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+        }).createHoverMessage(sampleBlame, repo);
+        assert.ok(!md.value.includes('/commit/'), 'no provider URL on parse failure');
+        assert.ok(
+          md.value.includes('**Commit:** `abc123d`'),
+          `plain hash rendered; got: ${md.value}`
+        );
+      });
+    });
+
+    it('falls back to plain hash when repo is undefined', () => {
+      const md = (inlineBlameProvider as unknown as {
+        createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+      }).createHoverMessage(sampleBlame, undefined);
+      assert.ok(!md.value.includes('/commit/'), 'no provider URL when repo missing');
+      assert.ok(md.value.includes('`abc123d`'), 'plain short hash rendered');
+    });
+  });
 });

@@ -144,7 +144,7 @@ function createTrackingMockGitService(
     unstageHunk: async () => {},
     revertFile: async () => {},
     dispose: () => {},
-  } as IGitService & { operationCalls: OperationCall[] };
+  } as unknown as IGitService & { operationCalls: OperationCall[] };
 
   return service;
 }

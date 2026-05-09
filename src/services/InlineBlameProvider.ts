@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 import { IInlineBlameProvider } from './interfaces/IInlineBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
-import { IGitService, IBlameLine } from './interfaces/IGitService';
+import { IGitService, IBlameLine, IRepository } from './interfaces/IGitService';
+import { BlameOptionsSource } from './BlameOptionsSource';
+import { parseRemoteUrl, type IRemoteUrl } from '../utils/remoteUrl';
+import { commitUrl } from '../utils/hostingLinks';
 import * as path from 'path';
 
 /**
@@ -25,13 +28,28 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   private _blameCache: Map<string, IBlameInfo> = new Map();
 
   /**
+   * FU-1 — parsed remote URL cache, keyed by repository root fsPath. Used
+   * by the hover to turn the commit hash into a clickable link into the
+   * hosting provider's web UI. `undefined` entries are stored too so we
+   * don't re-parse the same unparseable URL on every hover.
+   */
+  private _remoteCache: Map<string, IRemoteUrl | undefined> = new Map();
+
+  /**
    * Event fired when the enabled state changes.
    */
   readonly onDidChangeEnabled: vscode.Event<boolean>;
 
-  constructor(blameService: IBlameService, gitService: IGitService) {
+  private _optionsSource: BlameOptionsSource | undefined;
+
+  constructor(
+    blameService: IBlameService,
+    gitService: IGitService,
+    optionsSource?: BlameOptionsSource
+  ) {
     this._blameService = blameService;
     this._gitService = gitService;
+    this._optionsSource = optionsSource;
     this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
 
@@ -40,6 +58,19 @@ export class InlineBlameProvider implements IInlineBlameProvider {
 
     // Set up event listeners
     this.setupEventListeners();
+
+    // T2-08: re-blame whenever the option source changes (flag toggle or
+    // hide/un-hide). Cache is dropped so the new flags take effect.
+    if (this._optionsSource) {
+      this._disposables.push(
+        this._optionsSource.onDidChange(() => {
+          this._blameCache.clear();
+          if (this._enabled && this._currentEditor) {
+            void this.updateDecoration(this._currentEditor, this._currentLine);
+          }
+        })
+      );
+    }
   }
 
   /**
@@ -226,8 +257,13 @@ export class InlineBlameProvider implements IInlineBlameProvider {
         return;
       }
 
+      // FU-1: resolve the repository once so we can feed its first remote
+      // URL into the hover markdown. Failure here is non-fatal — the hover
+      // still renders, just without the external commit link.
+      const repo = await this._gitService.getRepository(editor.document.uri);
+
       // Create the decoration
-      const decoration = this.createDecoration(editor, line, blameLine);
+      const decoration = this.createDecoration(editor, line, blameLine, repo);
       if (decoration) {
         editor.setDecorations(this._decorationType, [decoration]);
       }
@@ -264,13 +300,23 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     let blameInfo = this._blameCache.get(cacheKey);
 
     if (!blameInfo) {
-      // Fetch blame info
-      blameInfo = await this._blameService.getBlame(repo, relativePath);
+      // Fetch blame info, piping through the current -w/-M/-C selection.
+      blameInfo = await this._blameService.getBlame(
+        repo,
+        relativePath,
+        undefined,
+        this._optionsSource?.asBlameOptions()
+      );
       this._blameCache.set(cacheKey, blameInfo);
     }
 
     // Find the blame line (line numbers in blame are 1-indexed)
     const blameLine = blameInfo.lines.find((bl) => bl.line === line + 1);
+    // T2-08: skip hidden revisions — the inline decoration stays empty so
+    // the user doesn't see annotation for elided commits.
+    if (blameLine && this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
+      return undefined;
+    }
     return blameLine;
   }
 
@@ -285,7 +331,8 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   private createDecoration(
     editor: vscode.TextEditor,
     line: number,
-    blameLine: IBlameLine
+    blameLine: IBlameLine,
+    repo?: IRepository | undefined
   ): vscode.DecorationOptions | undefined {
     // Skip uncommitted changes
     if (blameLine.commit.startsWith('0000000')) {
@@ -296,7 +343,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     const inlineText = this.formatInlineText(blameLine);
 
     // Create hover message with full details
-    const hoverMessage = this.createHoverMessage(blameLine);
+    const hoverMessage = this.createHoverMessage(blameLine, repo);
 
     // Get the line range (end of line)
     const lineText = editor.document.lineAt(line);
@@ -336,10 +383,19 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   /**
    * Create a hover message with full commit details.
    *
+   * FU-1: when the repository has a parseable remote URL and the provider
+   * is known, the short hash renders as a clickable link into the provider's
+   * web UI. On remote-parse failure we fall back to the plain `` `hash` ``
+   * markdown so the hover never crashes.
+   *
    * @param blameLine - The blame information
+   * @param repo - The repository that owns the file (used for the remote URL)
    * @returns The hover message as MarkdownString
    */
-  private createHoverMessage(blameLine: IBlameLine): vscode.MarkdownString {
+  private createHoverMessage(
+    blameLine: IBlameLine,
+    repo?: IRepository | undefined
+  ): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
     md.isTrusted = true;
     md.supportHtml = true;
@@ -356,8 +412,17 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       minute: '2-digit',
     });
 
+    // FU-1: build the provider commit URL if we can. A failure at any step
+    // (no remotes, unparseable URL, unknown provider) leaves `providerLink`
+    // undefined and the hover falls back to the plain hash.
+    const providerLink = this._buildCommitProviderLink(repo, blameLine.commit);
+
     // Build the hover content
-    md.appendMarkdown(`**Commit:** \`${shortHash}\`\n\n`);
+    if (providerLink) {
+      md.appendMarkdown(`**Commit:** [\`${shortHash}\`](${providerLink})\n\n`);
+    } else {
+      md.appendMarkdown(`**Commit:** \`${shortHash}\`\n\n`);
+    }
     md.appendMarkdown(`**Author:** ${blameLine.author}`);
     if (blameLine.authorEmail) {
       md.appendMarkdown(` <${blameLine.authorEmail}>`);
@@ -375,8 +440,42 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     md.appendMarkdown(
       `[Copy Hash](command:intellig.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
     );
+    if (providerLink) {
+      md.appendMarkdown(` | [Open on Host](${providerLink})`);
+    }
 
     return md;
+  }
+
+  /**
+   * FU-1 — resolve the repo's first remote URL (preferring `origin`) and
+   * build a commit link into the hosting provider's web UI. Caches the
+   * parsed remote per repo so we don't re-parse the URL on every hover.
+   * Returns `undefined` when any step fails so the hover falls back to a
+   * plain hash.
+   */
+  private _buildCommitProviderLink(
+    repo: IRepository | undefined,
+    hash: string
+  ): string | undefined {
+    if (!repo) return undefined;
+    const key = repo.rootUri.fsPath;
+    let parsed: IRemoteUrl | undefined;
+    if (this._remoteCache.has(key)) {
+      parsed = this._remoteCache.get(key);
+    } else {
+      const remotes = repo.remotes ?? [];
+      if (remotes.length === 0) {
+        this._remoteCache.set(key, undefined);
+        return undefined;
+      }
+      const preferred = remotes.find((r) => r.name === 'origin') ?? remotes[0];
+      const url = preferred.fetchUrl ?? preferred.pushUrl;
+      parsed = parseRemoteUrl(url);
+      this._remoteCache.set(key, parsed);
+    }
+    if (!parsed) return undefined;
+    return commitUrl(parsed, hash);
   }
 
   /**
@@ -504,7 +603,8 @@ export class InlineBlameProvider implements IInlineBlameProvider {
  */
 export function createInlineBlameProvider(
   blameService: IBlameService,
-  gitService: IGitService
+  gitService: IGitService,
+  optionsSource?: BlameOptionsSource
 ): InlineBlameProvider {
-  return new InlineBlameProvider(blameService, gitService);
+  return new InlineBlameProvider(blameService, gitService, optionsSource);
 }

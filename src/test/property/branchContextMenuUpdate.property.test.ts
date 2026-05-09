@@ -148,7 +148,7 @@ function createTrackingMockGitService(): IGitService & {
     unstageHunk: async () => {},
     revertFile: async () => {},
     dispose: () => {},
-  } as IGitService & {
+  } as unknown as IGitService & {
     fetchCalls: Array<{ repo: IRepository; remote?: string }>;
     pushCalls: Array<{ repo: IRepository; options?: any }>;
   };

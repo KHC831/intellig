@@ -12,10 +12,18 @@
  * and are covered in the extension test suite.
  */
 
+import '../../setup';
 import * as assert from 'assert';
-import { IRepository, IHead } from '../../../services/interfaces/IGitService';
+import {
+  IFetchResult,
+  IGitService,
+  IRepository,
+  IHead,
+} from '../../../services/interfaces/IGitService';
 import { IStatusBarState } from '../../../services/interfaces/IStatusBarService';
 import * as vscode from 'vscode';
+import { StatusBarService, createStatusBarService } from '../../../services/StatusBarService';
+import { EventEmitter, Uri } from '../../mocks/vscode';
 
 describe('StatusBarService - Status Bar State', () => {
   describe('Branch name extraction', () => {
@@ -578,5 +586,457 @@ describe('StatusBarService - Click Actions', () => {
   it('should map none action to undefined command', () => {
     const command = getCommandForAction('none');
     assert.strictEqual(command, undefined);
+  });
+});
+
+// ─── T2-12: Incoming commits status-bar badge ────────────────────────────────
+
+describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
+  // The mock's createStatusBarItem returns a captureable stub. We pull
+  // `text` / `tooltip` / `command` off that to assert UI state.
+
+  interface StubStatusBarItem {
+    text: string;
+    tooltip: string | vscode.MarkdownString | undefined;
+    command: string | vscode.Command | undefined;
+    _shown: boolean;
+    _disposed: boolean;
+  }
+
+  interface Harness {
+    service: StatusBarService;
+    item: StubStatusBarItem;
+    gitService: IGitService & {
+      _fireFetch: (payload: { repo: IRepository; result: IFetchResult }) => void;
+      _fireRepoChange: (repo: IRepository) => void;
+      _setRepos: (repos: IRepository[]) => void;
+    };
+    executeCommandCalls: Array<{ command: string; args: unknown[] }>;
+    registeredCommands: Map<string, (...args: unknown[]) => unknown>;
+  }
+
+  function makeRepo(overrides: {
+    branch?: string;
+    ahead?: number;
+    behind?: number;
+    upstream?: { remote: string; name: string } | undefined;
+    state?: IRepository['state'];
+    rootPath?: string;
+  } = {}): IRepository {
+    const upstream =
+      'upstream' in overrides
+        ? overrides.upstream
+        : { remote: 'origin', name: overrides.branch ?? 'main' };
+    const head: IHead = {
+      name: `refs/heads/${overrides.branch ?? 'main'}`,
+      commit: 'deadbeefcafebabe0000000000000000deadbeef',
+      ahead: overrides.ahead ?? 0,
+      behind: overrides.behind ?? 0,
+      upstream,
+    };
+    return {
+      rootUri: Uri.file(overrides.rootPath ?? '/test/repo'),
+      state: overrides.state ?? 'idle',
+      head,
+      remotes: [{ name: 'origin' }],
+      submodules: [],
+    };
+  }
+
+  function makeHarness(options: { refreshDebounceMs?: number } = {}): Harness {
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const repoEmitter = new EventEmitter<IRepository>();
+    let repos: IRepository[] = [];
+
+    const gitService: Harness['gitService'] = {
+      onDidFetch: fetchEmitter.event,
+      onDidChangeRepository: repoEmitter.event,
+      getRepositories: () => repos,
+      getRepository: async () => (repos.length > 0 ? repos[0] : undefined),
+      _fireFetch: (payload: { repo: IRepository; result: IFetchResult }) =>
+        fetchEmitter.fire(payload),
+      _fireRepoChange: (repo: IRepository) => repoEmitter.fire(repo),
+      _setRepos: (next: IRepository[]) => {
+        repos = next;
+      },
+    } as unknown as Harness['gitService'];
+
+    // Capture the status-bar item by patching the mock for this test only.
+    let capturedItem: StubStatusBarItem | undefined;
+    const originalCreate = (vscode.window as unknown as {
+      createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
+    }).createStatusBarItem;
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = (
+      a?: unknown,
+      p?: number
+    ): StubStatusBarItem => {
+      capturedItem = originalCreate(a, p);
+      return capturedItem;
+    };
+
+    // Track executeCommand calls so we can assert click dispatch behaviour.
+    const executeCommandCalls: Array<{ command: string; args: unknown[] }> = [];
+    const originalExecute = vscode.commands.executeCommand;
+    (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = async (
+      command: string,
+      ...args: unknown[]
+    ) => {
+      executeCommandCalls.push({ command, args });
+      return undefined;
+    };
+
+    // Capture command registrations so the test can invoke the click
+    // dispatch directly.
+    const registeredCommands = new Map<string, (...args: unknown[]) => unknown>();
+    const originalRegister = vscode.commands.registerCommand;
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = (
+      command: string,
+      callback: (...args: unknown[]) => unknown
+    ) => {
+      registeredCommands.set(command, callback);
+      return { dispose: () => registeredCommands.delete(command) };
+    };
+
+    const service = createStatusBarService(
+      gitService as unknown as IGitService,
+      undefined,
+      options.refreshDebounceMs ?? 0
+    );
+
+    // Restore the mock overrides so the next test is clean. We keep our
+    // captured references.
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
+      originalCreate;
+    (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = originalExecute;
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = originalRegister;
+
+    if (!capturedItem) {
+      throw new Error('StatusBarService did not create a status bar item');
+    }
+
+    return {
+      service,
+      item: capturedItem,
+      gitService,
+      executeCommandCalls,
+      registeredCommands,
+    };
+  }
+
+  afterEach(() => {
+    // Any service left undisposed is leaked — tests are expected to call
+    // service.dispose() in their own teardown.
+  });
+
+  describe('badge text', () => {
+    it('renders ↑3 when ahead=3 behind=0', () => {
+      const h = makeHarness();
+      try {
+        const repo = makeRepo({ ahead: 3, behind: 0 });
+        h.service.update(repo);
+        assert.ok(h.item.text.includes('↑3'), `expected "↑3" in "${h.item.text}"`);
+        assert.ok(!h.item.text.includes('↓'), `expected no "↓" in "${h.item.text}"`);
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('renders ↓5 when ahead=0 behind=5', () => {
+      const h = makeHarness();
+      try {
+        const repo = makeRepo({ ahead: 0, behind: 5 });
+        h.service.update(repo);
+        assert.ok(h.item.text.includes('↓5'), `expected "↓5" in "${h.item.text}"`);
+        assert.ok(!h.item.text.includes('↑'), `expected no "↑" in "${h.item.text}"`);
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('renders ↑2 ↓4 when both > 0', () => {
+      const h = makeHarness();
+      try {
+        const repo = makeRepo({ ahead: 2, behind: 4 });
+        h.service.update(repo);
+        assert.ok(h.item.text.includes('↑2'), `expected "↑2" in "${h.item.text}"`);
+        assert.ok(h.item.text.includes('↓4'), `expected "↓4" in "${h.item.text}"`);
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('shows only the branch (no arrows) when ahead=0 behind=0', () => {
+      const h = makeHarness();
+      try {
+        const repo = makeRepo({ ahead: 0, behind: 0, branch: 'main' });
+        h.service.update(repo);
+        assert.ok(h.item.text.includes('main'));
+        assert.ok(!h.item.text.includes('↑'), `expected no arrow in "${h.item.text}"`);
+        assert.ok(!h.item.text.includes('↓'), `expected no arrow in "${h.item.text}"`);
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('shows only the branch when hasUpstream is false even with nonzero counts', () => {
+      const h = makeHarness();
+      try {
+        // Branch without upstream — hasUpstream=false masks the counts.
+        const repo = makeRepo({ ahead: 3, behind: 2, upstream: undefined });
+        h.service.update(repo);
+        assert.ok(!h.item.text.includes('↑'), `expected no "↑" in "${h.item.text}"`);
+        assert.ok(!h.item.text.includes('↓'), `expected no "↓" in "${h.item.text}"`);
+      } finally {
+        h.service.dispose();
+      }
+    });
+  });
+
+  describe('event subscription', () => {
+    it('refreshes on onDidFetch', () => {
+      const h = makeHarness();
+      try {
+        h.gitService._setRepos([makeRepo({ ahead: 0, behind: 0 })]);
+        // Initial state has no arrow.
+        h.service.update(makeRepo({ ahead: 0, behind: 0 }));
+        assert.ok(!h.item.text.includes('↑'));
+
+        // Fire onDidFetch with a repo that has divergence — badge refreshes.
+        const repo = makeRepo({ ahead: 1, behind: 2 });
+        h.gitService._fireFetch({
+          repo,
+          result: { updatedRefs: [], ahead: 1, behind: 2, errors: [] },
+        });
+        assert.ok(h.item.text.includes('↑1'), `after fetch: "${h.item.text}"`);
+        assert.ok(h.item.text.includes('↓2'));
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('refreshes on onDidChangeRepository', () => {
+      const h = makeHarness();
+      try {
+        h.service.update(makeRepo({ ahead: 0, behind: 0 }));
+        const repo = makeRepo({ ahead: 7, behind: 0 });
+        h.gitService._fireRepoChange(repo);
+        assert.ok(h.item.text.includes('↑7'));
+      } finally {
+        h.service.dispose();
+      }
+    });
+  });
+
+  describe('debounce', () => {
+    it('coalesces rapid events into a single refresh', async () => {
+      // Use a short non-zero debounce so we can observe the coalescing.
+      const h = makeHarness({ refreshDebounceMs: 30 });
+      try {
+        const updates: IStatusBarState[] = [];
+        h.service.onDidChangeState((state) => {
+          updates.push(state);
+        });
+
+        // Fire 5 rapid events with different counts.
+        for (let i = 1; i <= 5; i++) {
+          h.gitService._fireFetch({
+            repo: makeRepo({ ahead: i, behind: 0 }),
+            result: { updatedRefs: [], ahead: i, behind: 0, errors: [] },
+          });
+        }
+
+        // Before the debounce window elapses — no state change emitted.
+        assert.strictEqual(updates.length, 0, 'should debounce all events');
+
+        // Wait past the window.
+        await new Promise((r) => setTimeout(r, 60));
+
+        // Exactly one update, reflecting the LAST event (ahead=5).
+        assert.strictEqual(updates.length, 1, 'expected one coalesced refresh');
+        assert.strictEqual(updates[0].ahead, 5);
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('immediate refresh when debounceMs is 0', () => {
+      const h = makeHarness({ refreshDebounceMs: 0 });
+      try {
+        const updates: IStatusBarState[] = [];
+        h.service.onDidChangeState((state) => {
+          updates.push(state);
+        });
+        h.gitService._fireRepoChange(makeRepo({ ahead: 1, behind: 0 }));
+        h.gitService._fireRepoChange(makeRepo({ ahead: 2, behind: 0 }));
+        // Both updates fire synchronously when debounce is disabled.
+        assert.strictEqual(updates.length, 2);
+        assert.strictEqual(updates[1].ahead, 2);
+      } finally {
+        h.service.dispose();
+      }
+    });
+  });
+
+  describe('click command', () => {
+    it('sets the status-bar item.command to the click-dispatch command', () => {
+      const h = makeHarness();
+      try {
+        const cmd = h.item.command;
+        const commandId = typeof cmd === 'string' ? cmd : cmd?.command;
+        assert.strictEqual(commandId, 'intellig.statusBar.click');
+      } finally {
+        h.service.dispose();
+      }
+    });
+
+    it('click dispatch invokes intellig.toolWindow.focusTab with "incoming"', async () => {
+      const h = makeHarness();
+      const originalExecute = vscode.commands.executeCommand;
+      try {
+        const dispatch = h.registeredCommands.get('intellig.statusBar.click');
+        assert.ok(dispatch, 'click-dispatch command should have been registered');
+
+        // Install a capturing executeCommand *for the duration of this test*
+        // since the harness restores the original after constructor returns.
+        const calls: Array<{ command: string; args: unknown[] }> = [];
+        (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = async (
+          command: string,
+          ...args: unknown[]
+        ) => {
+          calls.push({ command, args });
+          return undefined;
+        };
+
+        await dispatch!();
+        // First call should be focusTab.
+        assert.strictEqual(calls.length >= 1, true, `got ${calls.length} calls`);
+        assert.strictEqual(calls[0].command, 'intellig.toolWindow.focusTab');
+        assert.strictEqual(calls[0].args[0], 'incoming');
+      } finally {
+        (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =
+          originalExecute;
+        h.service.dispose();
+      }
+    });
+
+    it('falls back to openGitToolWindow when focusTab throws', async () => {
+      const h = makeHarness();
+      const originalExecute = vscode.commands.executeCommand;
+      try {
+        const dispatch = h.registeredCommands.get('intellig.statusBar.click');
+        assert.ok(dispatch);
+
+        // Override executeCommand to throw on the first call (focusTab) and
+        // record the fallback.
+        const calls: Array<{ command: string; args: unknown[] }> = [];
+        (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = async (
+          command: string,
+          ...args: unknown[]
+        ) => {
+          calls.push({ command, args });
+          if (command === 'intellig.toolWindow.focusTab') {
+            throw new Error('command not registered');
+          }
+          return undefined;
+        };
+
+        await dispatch!();
+
+        // Should have tried focusTab, then fallen back to openGitToolWindow.
+        assert.strictEqual(calls.length, 2);
+        assert.strictEqual(calls[0].command, 'intellig.toolWindow.focusTab');
+        assert.strictEqual(calls[1].command, 'intellig.openGitToolWindow');
+      } finally {
+        (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =
+          originalExecute;
+        h.service.dispose();
+      }
+    });
+  });
+
+  // ─── R6-Gap-C: multi-root initial repo selection ────────────────────────────
+  describe('R6-Gap-C multi-root initial repo', () => {
+    it('initial branch display honors active-editor preference in multi-root workspace', async () => {
+      const repoA = makeRepo({ branch: 'main-A', ahead: 1, behind: 0, rootPath: '/repo-a' });
+      const repoB = makeRepo({ branch: 'main-B', ahead: 0, behind: 3, rootPath: '/repo-b' });
+
+      // Build a git service that already has both repos populated BEFORE the
+      // StatusBarService constructor runs (which kicks off `_initialize`).
+      const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+      const repoEmitter = new EventEmitter<IRepository>();
+      const gitService = {
+        onDidFetch: fetchEmitter.event,
+        onDidChangeRepository: repoEmitter.event,
+        getRepositories: () => [repoA, repoB],
+        getRepository: async () => repoA,
+      } as unknown as IGitService;
+
+      // Capture the status-bar item the same way makeHarness does.
+      let capturedItem: StubStatusBarItem | undefined;
+      const originalCreate = (vscode.window as unknown as {
+        createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
+      }).createStatusBarItem;
+      (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = (
+        a?: unknown,
+        p?: number
+      ): StubStatusBarItem => {
+        capturedItem = originalCreate(a, p);
+        return capturedItem;
+      };
+
+      // Swallow registerCommand calls and stub executeCommand (harness normally
+      // does this — duplicated here so the test is self-contained).
+      const originalRegister = vscode.commands.registerCommand;
+      (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = (
+        _command: string,
+        _callback: (...args: unknown[]) => unknown
+      ) => ({ dispose: () => {} });
+      const originalExecute = vscode.commands.executeCommand;
+      (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = async () =>
+        undefined;
+
+      const originalActive = (vscode.window as unknown as { activeTextEditor: unknown })
+        .activeTextEditor;
+      try {
+        // Point the active editor at a file under /repo-b.
+        (vscode.window as unknown as { activeTextEditor: unknown }).activeTextEditor = {
+          document: { uri: Uri.file('/repo-b/src/foo.ts') },
+        };
+
+        const service = createStatusBarService(gitService, undefined, 0);
+        try {
+          // _initialize() runs asynchronously in the constructor.
+          // Wait for the async chain (resolveRepo → update) to settle.
+          await new Promise((r) => setTimeout(r, 20));
+
+          assert.ok(capturedItem, 'Status bar item should have been created');
+          // The status bar should reflect repoB's branch (main-B with ↓3),
+          // NOT repoA's (which is what `repositories[0]` would have surfaced).
+          assert.ok(
+            capturedItem!.text.includes('main-B'),
+            `expected repoB's branch "main-B" in "${capturedItem!.text}"`
+          );
+          assert.ok(
+            capturedItem!.text.includes('↓3'),
+            `expected repoB's behind count in "${capturedItem!.text}"`
+          );
+          assert.ok(
+            !capturedItem!.text.includes('main-A'),
+            `did NOT expect repoA's branch in "${capturedItem!.text}"`
+          );
+        } finally {
+          service.dispose();
+        }
+      } finally {
+        (vscode.window as unknown as { activeTextEditor: unknown }).activeTextEditor =
+          originalActive;
+        (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
+          originalCreate;
+        (vscode.commands as unknown as { registerCommand: unknown }).registerCommand =
+          originalRegister;
+        (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =
+          originalExecute;
+      }
+    });
   });
 });

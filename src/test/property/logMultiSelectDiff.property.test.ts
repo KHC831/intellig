@@ -8,6 +8,7 @@ import {
   IDiffLine,
   FileStatus,
 } from '../../services/interfaces/IGitService';
+import { sortCommitsStable } from '../../utils/commitSort';
 
 /**
  * Property-based tests for Log Multi-Select Diff.
@@ -272,11 +273,29 @@ describe('Log Multi-Select Diff Property Tests', () => {
 
     /**
      * Get the file state at a specific commit (cumulative state).
+     *
+     * TR-3 follow-up: the walk guards against cycles in the parent chain
+     * with a `visited` set. Fast-check's shrinker can (and does) produce
+     * arbitrary hash inputs where two commits in the history end up with
+     * the same hash, making a commit its own ancestor. Without the guard
+     * that turns into a `RangeError: Maximum call stack size exceeded`
+     * surfaced as a flaky property failure unrelated to the property
+     * being tested. See `src/test/mocks/README.md` for the audit notes.
      */
-    private getFileStateAtCommit(hash: string | undefined): Map<string, string> {
+    private getFileStateAtCommit(
+      hash: string | undefined,
+      visited: Set<string> = new Set()
+    ): Map<string, string> {
       if (!hash) {
         return new Map(this._initialFileState);
       }
+
+      // Cycle in the parent chain — fall back to the initial state rather
+      // than recurse forever.
+      if (visited.has(hash)) {
+        return new Map(this._initialFileState);
+      }
+      visited.add(hash);
 
       const commit = this._commits.get(hash);
       if (!commit) {
@@ -284,7 +303,7 @@ describe('Log Multi-Select Diff Property Tests', () => {
       }
 
       // Start with parent state
-      const state = this.getFileStateAtCommit(commit.parents[0]);
+      const state = this.getFileStateAtCommit(commit.parents[0], visited);
 
       // Apply this commit's changes
       const changes = this._commitFileStates.get(hash);
@@ -361,11 +380,18 @@ describe('Log Multi-Select Diff Property Tests', () => {
         return [];
       }
 
-      // Sort by commit date (oldest first)
-      commits.sort((a, b) => a.commitDate.getTime() - b.commitDate.getTime());
+      // Sort by commit date (oldest first). On date ties (same `getTime()`),
+      // fall back to a topological ordering (parent-before-child) via the
+      // shared `sortCommitsStable` helper. A plain alphabetical hash tie-break
+      // is causally wrong: a delete-commit whose hash starts with '0' can
+      // sort before its own parent modify-commit, breaking the
+      // base-state → final-state reduction below. See
+      // `src/utils/commitSort.ts` and the TR-5 regression seed
+      // (-1310953740) pinned above.
+      const sortedCommits = sortCommitsStable(commits);
 
-      const oldestCommit = commits[0];
-      const newestCommit = commits[commits.length - 1];
+      const oldestCommit = sortedCommits[0];
+      const newestCommit = sortedCommits[sortedCommits.length - 1];
 
       // Get the state before the oldest commit (parent state)
       const baseState = this.getFileStateAtCommit(oldestCommit.parents[0]);
@@ -489,6 +515,138 @@ describe('Log Multi-Select Diff Property Tests', () => {
     });
 
   describe('Property 28: Log Multi-Select Diff', () => {
+    /**
+     * TR-4 regression: these two seeds reliably flaked the "order does not
+     * matter" property (line ~598) under V8's unstable sort when the arbitrary
+     * generated commits with tied `commitDate.getTime()` values. The fix was
+     * a stable-sort tie-breaker on `hash.localeCompare(b.hash)` inside
+     * `MockMultiCommitDiffService.getMultiCommitDiff`. These explicit-seed
+     * assertions guard against regression if someone removes the tie-breaker.
+     *
+     * See .agent/reviews/TEST_RUN_REPORT_ROUND2.md TR-4.
+     */
+    it('TR-4 regression: seed -1652220625 does not flake the order-invariance property', () => {
+      fc.assert(
+        fc.property(linearCommitHistoryArb, ({ service, commits }) => {
+          if (commits.length < 2) {
+            return true;
+          }
+          const allHashes = commits.map((c) => c.hash);
+          const diffOriginal = service.getMultiCommitDiff(allHashes);
+          const diffReversed = service.getMultiCommitDiff([...allHashes].reverse());
+          assert.strictEqual(
+            diffOriginal.length,
+            diffReversed.length,
+            'Commit order should not affect number of diffs'
+          );
+          assert.deepStrictEqual(
+            [...getFilePaths(diffOriginal)].sort(),
+            [...getFilePaths(diffReversed)].sort(),
+            'Commit order should not affect file paths in diff'
+          );
+          return true;
+        }),
+        { seed: -1652220625, numRuns: 100 }
+      );
+    });
+
+    it('TR-4 regression: seed 1635993410 does not flake the order-invariance property', () => {
+      fc.assert(
+        fc.property(linearCommitHistoryArb, ({ service, commits }) => {
+          if (commits.length < 2) {
+            return true;
+          }
+          const allHashes = commits.map((c) => c.hash);
+          const diffOriginal = service.getMultiCommitDiff(allHashes);
+          const diffReversed = service.getMultiCommitDiff([...allHashes].reverse());
+          assert.strictEqual(
+            diffOriginal.length,
+            diffReversed.length,
+            'Commit order should not affect number of diffs'
+          );
+          assert.deepStrictEqual(
+            [...getFilePaths(diffOriginal)].sort(),
+            [...getFilePaths(diffReversed)].sort(),
+            'Commit order should not affect file paths in diff'
+          );
+          return true;
+        }),
+        { seed: 1635993410, numRuns: 100 }
+      );
+    });
+
+    /**
+     * TR-5 regression: the Round-2 hash-alphabetical tie-breaker fixed the
+     * flake but was causally wrong — when the `dateArb` generated two
+     * identical `commitDate` values and the delete-commit's hash sorted
+     * before its parent's hash, the tie-breaker put the delete ahead of
+     * its parent in the "oldest → newest" range. `baseState` then resolved
+     * to the post-modify state (via the child's own parent pointer) and
+     * `finalState` resolved to the same post-modify state (via the parent
+     * itself), so the deletion vanished from the combined diff.
+     *
+     * The Round-3 fix introduces `sortCommitsStable` with a topological
+     * tie-breaker (parent-before-child) inside each date-tied group. This
+     * seed is the minimal reproduction reported by the R3 test runner.
+     *
+     * See .agent/reviews/TEST_RUN_REPORT_ROUND3.md TR-5.
+     */
+    it('TR-5 regression: seed -1310953740 does not flake the file-deletion property', () => {
+      fc.assert(
+        fc.property(
+          fc.array(commitHashArb, { minLength: 2, maxLength: 2 }),
+          fc.array(shortHashArb, { minLength: 2, maxLength: 2 }),
+          fc.array(commitMessageArb, { minLength: 2, maxLength: 2 }),
+          fc.array(authorArb, { minLength: 2, maxLength: 2 }),
+          fc.array(dateArb, { minLength: 2, maxLength: 2 }),
+          filePathArb,
+          lineContentArb,
+          (hashes, shortHashes, messages, authors, dates, filePath, content) => {
+            const service = new MockMultiCommitDiffService();
+
+            const initialState = new Map<string, string>();
+            initialState.set(filePath, content);
+            service.setInitialFileState(initialState);
+
+            const sortedDates = [...dates].sort((a, b) => a.getTime() - b.getTime());
+
+            const commit1 = createCommit(
+              hashes[0],
+              shortHashes[0],
+              [],
+              messages[0],
+              authors[0],
+              sortedDates[0]
+            );
+            const changes1 = new Map<string, string | null>();
+            changes1.set(filePath, content + '\nmodified');
+            service.addCommit(commit1, changes1);
+
+            const commit2 = createCommit(
+              hashes[1],
+              shortHashes[1],
+              [hashes[0]],
+              messages[1],
+              authors[1],
+              sortedDates[1]
+            );
+            const changes2 = new Map<string, string | null>();
+            changes2.set(filePath, null);
+            service.addCommit(commit2, changes2);
+
+            const combinedDiff = service.getMultiCommitDiff([hashes[0], hashes[1]]);
+
+            assert.strictEqual(combinedDiff.length, 1, 'Should have one diff');
+            assert.strictEqual(combinedDiff[0].path, filePath, 'Diff path should match');
+            assert.strictEqual(combinedDiff[0].status, 'deleted', 'Status should be deleted');
+
+            return true;
+          }
+        ),
+        { seed: -1310953740, numRuns: 100 }
+      );
+    });
+
     /**
      * Property: Empty commit selection returns empty diff.
      */

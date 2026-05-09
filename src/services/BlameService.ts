@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
+import { IBlameService, IBlameInfo, IBlameOptions } from './interfaces/IBlameService';
 import { IBlameLine, IRepository } from './interfaces/IGitService';
 import { GitCli, createGitCli } from '../utils/gitCli';
 import { parseBlame } from '../utils/gitParser';
@@ -62,15 +62,38 @@ export class BlameService implements IBlameService {
   }
 
   /**
-   * Generate a cache key for blame information.
+   * Generate a cache key for blame information. Includes blame-option flags so
+   * that toggling `-w`/`-M`/`-C` transparently invalidates prior results.
    *
    * @param repoRoot - The repository root path
    * @param path - The file path
    * @param revision - Optional revision
+   * @param options - Optional blame flags
    * @returns The cache key
    */
-  private getCacheKey(repoRoot: string, path: string, revision?: string): string {
-    return `${repoRoot}:${path}:${revision || 'HEAD'}`;
+  private getCacheKey(
+    repoRoot: string,
+    path: string,
+    revision?: string,
+    options?: IBlameOptions
+  ): string {
+    const flags = BlameService.serializeOptions(options);
+    return `${repoRoot}:${path}:${revision || 'HEAD'}:${flags}`;
+  }
+
+  /**
+   * Deterministic string representation of the blame-option flags. Used as a
+   * cache-key suffix so every flag combination gets its own entry.
+   */
+  private static serializeOptions(options?: IBlameOptions): string {
+    if (!options) {
+      return '-';
+    }
+    return [
+      options.ignoreWhitespace ? 'w' : '',
+      options.detectMovementsWithinFile ? 'M' : '',
+      options.detectMovementsAcrossFiles ? 'C' : '',
+    ].join('');
   }
 
   /**
@@ -122,11 +145,17 @@ export class BlameService implements IBlameService {
    * @param repo - The repository
    * @param path - The file path (relative to repository root)
    * @param revision - Optional revision to get blame for (defaults to HEAD)
+   * @param options - Optional blame flags (T2-08): `-w` / `-M` / `-C`.
    * @returns Blame information for the file
    */
-  async getBlame(repo: IRepository, path: string, revision?: string): Promise<IBlameInfo> {
+  async getBlame(
+    repo: IRepository,
+    path: string,
+    revision?: string,
+    options?: IBlameOptions
+  ): Promise<IBlameInfo> {
     const repoRoot = repo.rootUri.fsPath;
-    const cacheKey = this.getCacheKey(repoRoot, path, revision);
+    const cacheKey = this.getCacheKey(repoRoot, path, revision, options);
 
     // Check cache first
     const cached = this.getCachedBlame(cacheKey);
@@ -134,8 +163,23 @@ export class BlameService implements IBlameService {
       return cached;
     }
 
-    // Build git blame command
+    // Build git blame command. Flag order matters for readability only — git
+    // accepts them in any order. The order here mirrors IntelliJ's menu.
     const args = ['blame', '--porcelain'];
+
+    if (options?.ignoreWhitespace) {
+      args.push('-w');
+    }
+    if (options?.detectMovementsWithinFile) {
+      args.push('-M');
+    }
+    if (options?.detectMovementsAcrossFiles) {
+      // Pass `-C` twice so git also detects copies from files that weren't
+      // modified in the same commit. Matches IntelliJ's "across files" mode,
+      // which is the more thorough variant of `-C`.
+      args.push('-C');
+      args.push('-C');
+    }
 
     // Add revision if specified
     if (revision) {
@@ -174,11 +218,17 @@ export class BlameService implements IBlameService {
    * @param repo - The repository
    * @param path - The file path (relative to repository root)
    * @param line - The line number (1-indexed)
+   * @param options - Optional blame flags (passed through to getBlame).
    * @returns Blame information for the specific line
    */
-  async getBlameForLine(repo: IRepository, path: string, line: number): Promise<IBlameLine> {
+  async getBlameForLine(
+    repo: IRepository,
+    path: string,
+    line: number,
+    options?: IBlameOptions
+  ): Promise<IBlameLine> {
     // Get full blame info (will use cache if available)
-    const blameInfo = await this.getBlame(repo, path);
+    const blameInfo = await this.getBlame(repo, path, undefined, options);
 
     // Find the blame line for the requested line number
     const blameLine = blameInfo.lines.find((bl) => bl.line === line);
@@ -207,12 +257,14 @@ export class BlameService implements IBlameService {
    * @param repo - The repository
    * @param path - The file path (relative to repository root)
    * @param commit - The commit hash to get the previous revision from
+   * @param options - Optional blame flags (passed through to getBlame).
    * @returns Blame information for the file at the previous revision
    */
   async getPreviousRevisionBlame(
     repo: IRepository,
     path: string,
-    commit: string
+    commit: string,
+    options?: IBlameOptions
   ): Promise<IBlameInfo> {
     const repoRoot = repo.rootUri.fsPath;
 
@@ -238,7 +290,7 @@ export class BlameService implements IBlameService {
     }
 
     // Get blame for the file at the parent commit
-    return this.getBlame(repo, path, parentCommit);
+    return this.getBlame(repo, path, parentCommit, options);
   }
 
   /**

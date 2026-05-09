@@ -574,4 +574,135 @@ describe('BlameService', () => {
       newService.dispose();
     });
   });
+
+  // =========================================================================
+  // T2-08: -w / -M / -C flag forwarding + annotate-previous routing +
+  // previous-filename capture when -M/-C active.
+  // =========================================================================
+  describe('T2-08 blame options', () => {
+    beforeEach(() => {
+      mockGitCli.setMockResultByPrefix('blame', {
+        exitCode: 0,
+        stdout: sampleBlameOutput,
+        stderr: '',
+      });
+    });
+
+    it('passes -w when ignoreWhitespace=true', async () => {
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, {
+        ignoreWhitespace: true,
+      });
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd, 'blame command should have been executed');
+      assert.ok(cmd.args.includes('-w'), `expected -w in argv, got: ${cmd.args.join(' ')}`);
+    });
+
+    it('passes -M when detectMovementsWithinFile=true', async () => {
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, {
+        detectMovementsWithinFile: true,
+      });
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd);
+      assert.ok(cmd.args.includes('-M'), `expected -M in argv, got: ${cmd.args.join(' ')}`);
+    });
+
+    it('passes -C -C when detectMovementsAcrossFiles=true (thorough mode)', async () => {
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, {
+        detectMovementsAcrossFiles: true,
+      });
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd);
+      const cCount = cmd.args.filter((a) => a === '-C').length;
+      assert.strictEqual(cCount, 2, `expected -C twice, got ${cCount}: ${cmd.args.join(' ')}`);
+    });
+
+    it('combines -w, -M, -C when all flags set', async () => {
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, {
+        ignoreWhitespace: true,
+        detectMovementsWithinFile: true,
+        detectMovementsAcrossFiles: true,
+      });
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd);
+      assert.ok(cmd.args.includes('-w'));
+      assert.ok(cmd.args.includes('-M'));
+      assert.strictEqual(
+        cmd.args.filter((a) => a === '-C').length,
+        2,
+        'expected -C twice for across-files'
+      );
+    });
+
+    it('omits flags when options are undefined (default behavior unchanged)', async () => {
+      await blameService.getBlame(mockRepo, 'test.ts');
+      const cmd = mockGitCli.findCommand('blame');
+      assert.ok(cmd);
+      assert.ok(!cmd.args.includes('-w'));
+      assert.ok(!cmd.args.includes('-M'));
+      assert.ok(!cmd.args.includes('-C'));
+    });
+
+    it('keeps separate cache entries per flag combination', async () => {
+      // Fire two requests with different flags. Both should hit git.
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, { ignoreWhitespace: true });
+      await blameService.getBlame(mockRepo, 'test.ts', undefined, { ignoreWhitespace: false });
+      const blameCmds = mockGitCli.executedCommands.filter((c) => c.args[0] === 'blame');
+      assert.ok(
+        blameCmds.length >= 2,
+        `expected 2 blame calls for 2 flag sets, got ${blameCmds.length}`
+      );
+    });
+
+    it('annotate-previous: getPreviousRevisionBlame uses <sha>^ via rev-parse + passes options', async () => {
+      mockGitCli.setMockResult('rev-parse abc123^', {
+        exitCode: 0,
+        stdout: 'def456\n',
+        stderr: '',
+      });
+      mockGitCli.setMockResult('cat-file -e def456:test.ts', {
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+      mockGitCli.clearCommands();
+
+      await blameService.getPreviousRevisionBlame(mockRepo, 'test.ts', 'abc123', {
+        ignoreWhitespace: true,
+      });
+
+      const blameAtParent = mockGitCli.executedCommands.find(
+        (c) => c.args[0] === 'blame' && c.args.includes('def456')
+      );
+      assert.ok(blameAtParent, 'expected blame against parent commit');
+      assert.ok(
+        blameAtParent.args.includes('-w'),
+        `expected -w forwarded to parent blame: ${blameAtParent.args.join(' ')}`
+      );
+    });
+
+    it('parser captures previousFilename header when -M/-C reported a rename', async () => {
+      const withRename = `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1 1 1
+author Alice
+author-mail <alice@example.com>
+author-time 1609459200
+summary Rename file
+previous bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb old/location.ts
+filename new/location.ts
+\tconst x = 1;
+`;
+      mockGitCli.setMockResultByPrefix('blame', {
+        exitCode: 0,
+        stdout: withRename,
+        stderr: '',
+      });
+
+      const info = await blameService.getBlame(mockRepo, 'new/location.ts');
+      assert.strictEqual(info.lines.length, 1);
+      assert.strictEqual(
+        info.lines[0].previousCommit,
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+      );
+      assert.strictEqual(info.lines[0].previousFilename, 'old/location.ts');
+    });
+  });
 });

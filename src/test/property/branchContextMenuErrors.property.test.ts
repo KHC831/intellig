@@ -263,7 +263,7 @@ function createErrorThrowingMockGitService(
     revertFile: async () => {},
     dispose: () => {},
     ...overrides,
-  } as IGitService;
+  } as unknown as IGitService;
 
   return service;
 }

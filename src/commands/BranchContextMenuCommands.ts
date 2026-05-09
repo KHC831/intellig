@@ -4,8 +4,44 @@
  */
 
 import * as vscode from 'vscode';
-import { IGitService, IRepository } from '../services/interfaces/IGitService';
+import { IGitService, IRefDiffFile, IRepository } from '../services/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from '../services/BranchTreeProvider';
+import { IConflictResolutionService } from '../services/interfaces/IConflictResolutionService';
+import type { PullDialog } from '../services/PullDialog';
+import type { PushDialog } from '../services/PushDialog';
+import type { MergeDialog } from '../services/MergeDialog';
+import type { NewBranchDialog } from '../services/NewBranchDialog';
+
+/** Thunk that lazily returns the shared {@link PullDialog} singleton. */
+export type PullDialogAccessor = () => PullDialog | undefined;
+
+/**
+ * Thunk that opens a fresh Push Dialog pre-selected on the given repo + branch.
+ * Push dialogs are not singletons (row table reflects current state), so this
+ * is a one-shot opener rather than a getter.
+ */
+export type PushDialogOpener = (preselect: {
+  repo: IRepository;
+  branch?: string;
+}) => PushDialog | undefined;
+
+/**
+ * T3-02: open a fresh Merge Dialog for `repo` merging `sourceBranch` into
+ * the current branch.
+ */
+export type MergeDialogOpener = (preselect: {
+  repo: IRepository;
+  sourceBranch: string;
+}) => MergeDialog | undefined;
+
+/**
+ * T3-03: open a fresh New Branch Dialog with the given start point.
+ */
+export type NewBranchDialogOpener = (preselect: {
+  repo: IRepository;
+  startPoint?: string;
+  defaultName?: string;
+}) => NewBranchDialog | undefined;
 
 /**
  * Branch Context Menu Commands class.
@@ -14,11 +50,71 @@ import { BranchTreeItem, BranchTreeProvider } from '../services/BranchTreeProvid
 export class BranchContextMenuCommands {
   private _gitService: IGitService;
   private _branchTreeProvider: BranchTreeProvider;
+  private _conflictResolutionService: IConflictResolutionService | undefined;
+  private _pullDialogAccessor?: PullDialogAccessor;
+  private _pushDialogOpener?: PushDialogOpener;
+  private _mergeDialogOpener?: MergeDialogOpener;
+  private _newBranchDialogOpener?: NewBranchDialogOpener;
   private _disposables: vscode.Disposable[] = [];
 
-  constructor(gitService: IGitService, branchTreeProvider: BranchTreeProvider) {
+  constructor(
+    gitService: IGitService,
+    branchTreeProvider: BranchTreeProvider,
+    conflictResolutionService?: IConflictResolutionService,
+    pullDialogAccessor?: PullDialogAccessor,
+    pushDialogOpener?: PushDialogOpener,
+    mergeDialogOpener?: MergeDialogOpener,
+    newBranchDialogOpener?: NewBranchDialogOpener
+  ) {
     this._gitService = gitService;
     this._branchTreeProvider = branchTreeProvider;
+    this._conflictResolutionService = conflictResolutionService;
+    this._pullDialogAccessor = pullDialogAccessor;
+    this._pushDialogOpener = pushDialogOpener;
+    this._mergeDialogOpener = mergeDialogOpener;
+    this._newBranchDialogOpener = newBranchDialogOpener;
+  }
+
+  /**
+   * Late-bind the conflict resolution service. Used when the service isn't
+   * available at construction time (e.g. existing wiring that hasn't been
+   * updated yet). Safe no-op for duplicate calls.
+   */
+  setConflictResolutionService(service: IConflictResolutionService): void {
+    this._conflictResolutionService = service;
+  }
+
+  /**
+   * Open the Resolve Conflicts dialog for conflicts produced by the given op.
+   * No-op if the conflict resolution service hasn't been wired in (legacy
+   * callers that haven't migrated).
+   *
+   * T1-02 extends the operation union with `'pull'` (pull-using-rebase maps
+   * to `'rebase'`, pull-using-merge maps to `'merge'`) so Pull Dialog and
+   * branch-menu pull handlers share this helper with the existing
+   * merge/rebase/cherryPick/revert callers.
+   */
+  private async _openResolveConflictsDialog(
+    repo: IRepository,
+    conflicts: string[],
+    opContext: {
+      operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
+      target?: string;
+    }
+  ): Promise<void> {
+    if (!this._conflictResolutionService || conflicts.length === 0) {
+      return;
+    }
+    await this._conflictResolutionService.openResolveConflictsDialog(
+      repo,
+      conflicts.map((p) => ({ path: p, resolved: false })),
+      {
+        operation: opContext.operation,
+        target: opContext.target,
+        canAbort: true,
+        canContinue: true,
+      }
+    );
   }
 
   /**
@@ -258,6 +354,15 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    // T3-03: route through the New Branch Dialog when the opener is wired.
+    // Dialog handles name validation, tracking, overwrite, and checkout in a
+    // single webview with typed options. Falls back to the old showInputBox
+    // path when the opener is absent (test fixtures).
+    if (this._newBranchDialogOpener) {
+      this._newBranchDialogOpener({ repo, startPoint });
+      return;
+    }
+
     const branchName = await vscode.window.showInputBox({
       prompt: `Enter new branch name (from ${startPoint})`,
       placeHolder: 'feature/my-new-branch',
@@ -298,15 +403,33 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    // T3-02: route through the Merge Dialog when the opener is wired; the
+    // dialog handles options (ff-only / no-ff / squash / no-commit / -m)
+    // and conflict handoff itself. Fallback path (no opener) preserves the
+    // legacy direct-merge behaviour for tests.
+    if (this._mergeDialogOpener) {
+      this._mergeDialogOpener({ repo, sourceBranch: item.branch.name });
+      return;
+    }
+
     try {
       const result = await this._gitService.mergeBranch(repo, item.branch.name);
 
       if (result.success) {
         void vscode.window.showInformationMessage(`Merged '${item.branch.name}' successfully`);
       } else if (result.conflicts && result.conflicts.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
+        // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
+        // to a warning toast otherwise (legacy callers without the service).
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'merge',
+            target: item.branch.name,
+          });
+        } else {
+          void vscode.window.showWarningMessage(
+            `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+          );
+        }
       }
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -332,9 +455,18 @@ export class BranchContextMenuCommands {
           `Rebased onto '${item.branch.name}' successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
+        // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
+        // to a warning toast otherwise.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'rebase',
+            target: item.branch.name,
+          });
+        } else {
+          void vscode.window.showWarningMessage(
+            `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+          );
+        }
       }
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -486,6 +618,15 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    // Route through the T1-01 Push Dialog when available so the user gets
+    // the per-row target edit, force-with-lease dropdown, and protected-
+    // branch guard. Falls back to a direct push (original behaviour) when
+    // the opener is absent — e.g. in unit tests that don't wire the dialog.
+    if (this._pushDialogOpener) {
+      this._pushDialogOpener({ repo, branch: item.branch.name });
+      return;
+    }
+
     try {
       const upstream = item.branch.upstream;
       if (upstream) {
@@ -508,7 +649,22 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle show diff with working tree command.
-   * Opens a diff comparison between the right-clicked branch ref and the working tree.
+   * Opens a per-file diff comparison between the right-clicked branch ref and the working tree.
+   *
+   * BUG-17 (T2-01): the original implementation passed a single `vscode.diff` call
+   * using the repo root directory URI as the right-hand side. VS Code's built-in
+   * `vscode.diff` command only diffs files, not directories, so it silently failed.
+   *
+   * New flow:
+   *   1. List changed files between `<branchRef>` and the working tree
+   *      (`git diff --name-status -z <ref>` via `getChangedFilesAgainstWorkingTree`).
+   *   2. If zero files → `showInformationMessage`, return.
+   *   3. Else show a multi-select QuickPick of the changed files (with M/A/D/R/C/T/U status).
+   *   4. For each selected file, open a `vscode.diff` tab:
+   *        left  = `intellig-git:<filePath>?<branchRef>` (served by the git content provider)
+   *        right = on-disk working-tree file
+   *      title  = `<basename> (<branchRef> ↔ Working Tree)`
+   *   5. User cancels the QuickPick → no-op, no toast, no error.
    */
   private async _handleShowDiffWithWorkingTree(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -516,20 +672,70 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    try {
-      const branchRef = item.branch.name;
-      const leftUri = vscode.Uri.parse(`git-branch://${branchRef}`);
-      const rightUri = repo.rootUri;
+    const branchRef = item.branch.name;
 
-      await vscode.commands.executeCommand(
-        'vscode.diff',
-        leftUri,
-        rightUri,
-        `${branchRef} ↔ Working Tree`
-      );
+    let files: IRefDiffFile[];
+    try {
+      // Capability is declared optional on IGitService so implementations can opt in;
+      // all production impls provide it, but guard in case a mock omits it.
+      if (typeof this._gitService.getChangedFilesAgainstWorkingTree !== 'function') {
+        void vscode.window.showErrorMessage(
+          'Failed to show diff: Git service does not support ref-vs-working-tree diffs'
+        );
+        return;
+      }
+      files = await this._gitService.getChangedFilesAgainstWorkingTree(repo, branchRef);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to show diff: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to list changed files: ${errorMessage}`);
+      return;
+    }
+
+    if (files.length === 0) {
+      void vscode.window.showInformationMessage(
+        `No changes between ${branchRef} and working tree`
+      );
+      return;
+    }
+
+    // Multi-select QuickPick: one row per changed file, prefixed with the status code.
+    const items: Array<vscode.QuickPickItem & { file: IRefDiffFile }> = files.map((f) => ({
+      label: `${f.status} ${f.path}`,
+      description: f.oldPath ? `← ${f.oldPath}` : undefined,
+      file: f,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+      title: `Compare with ${branchRef}`,
+      placeHolder: 'Select files to diff against the working tree (multi-select)…',
+      canPickMany: true,
+      matchOnDescription: true,
+    });
+
+    // User cancelled (hit Esc) → `selected` is undefined.
+    // User accepted nothing → `selected` is an empty array; still a no-op.
+    if (!selected || selected.length === 0) {
+      return;
+    }
+
+    const rootFsPath = repo.rootUri.fsPath;
+    const separator = rootFsPath.endsWith('/') || rootFsPath.endsWith('\\') ? '' : '/';
+
+    for (const pick of selected) {
+      const filePath = pick.file.path;
+      const leftUri = vscode.Uri.parse(
+        `intellig-git:${filePath}?${encodeURIComponent(branchRef)}`
+      );
+      const rightUri = vscode.Uri.file(`${rootFsPath}${separator}${filePath}`);
+      const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
+      const title = `${basename} (${branchRef} ↔ Working Tree)`;
+
+      try {
+        await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to show diff for ${filePath}: ${errorMessage}`);
+      }
     }
   }
 
@@ -558,9 +764,18 @@ export class BranchContextMenuCommands {
           `Checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
+        // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
+        // to a warning toast otherwise.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'rebase',
+            target: previousCurrentBranch,
+          });
+        } else {
+          void vscode.window.showWarningMessage(
+            `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+          );
+        }
       }
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -582,9 +797,17 @@ export class BranchContextMenuCommands {
                 `Stashed changes, checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
-              void vscode.window.showWarningMessage(
-                `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-              );
+              // T1-08(a): auto-open Resolve Conflicts dialog when wired.
+              if (this._conflictResolutionService) {
+                await this._openResolveConflictsDialog(repo, result.conflicts, {
+                  operation: 'rebase',
+                  target: previousCurrentBranch,
+                });
+              } else {
+                void vscode.window.showWarningMessage(
+                  `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+                );
+              }
             }
             this._branchTreeProvider.refresh();
           } catch (stashError) {
@@ -600,9 +823,17 @@ export class BranchContextMenuCommands {
                 `Force checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
-              void vscode.window.showWarningMessage(
-                `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-              );
+              // T1-08(a): auto-open Resolve Conflicts dialog when wired.
+              if (this._conflictResolutionService) {
+                await this._openResolveConflictsDialog(repo, result.conflicts, {
+                  operation: 'rebase',
+                  target: previousCurrentBranch,
+                });
+              } else {
+                void vscode.window.showWarningMessage(
+                  `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+                );
+              }
             }
             this._branchTreeProvider.refresh();
           } catch (forceError) {
@@ -618,78 +849,89 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using rebase command for remote branches.
-   * Pulls the remote branch into the current branch using rebase strategy.
+   * Routes through the T1-02 Pull Dialog with the `rebase` preset and the
+   * remote/branch pre-filled from the menu item. Falls back to a direct
+   * pull if the dialog accessor isn't available.
    */
   private async _handlePullUsingRebase(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
-    if (!repo || !item.branch) {
-      return;
-    }
-
-    // Parse remote name and branch name from item.branch.name (e.g., "origin/main" -> "origin", "main")
-    const slashIndex = item.branch.name.indexOf('/');
-    const remoteName = slashIndex >= 0 ? item.branch.name.substring(0, slashIndex) : item.branch.name;
-    const branchName = slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
-
-    try {
-      await this._gitService.pull(repo, {
-        remote: remoteName,
-        branch: branchName,
-        rebase: true,
-      });
-      void vscode.window.showInformationMessage(
-        `Pulled '${item.branch.name}' into current branch using rebase`
-      );
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const conflictCount = this._parseConflictCount(errorMessage);
-      if (conflictCount > 0) {
-        void vscode.window.showWarningMessage(
-          `Rebase conflicts in ${conflictCount} file(s). Please resolve conflicts.`
-        );
-        this._branchTreeProvider.refresh();
-      } else {
-        void vscode.window.showErrorMessage(`Failed to pull using rebase: ${errorMessage}`);
-      }
-    }
+    await this._runPullFromBranchMenu(item, 'rebase');
   }
 
   /**
    * Handle pull using merge command for remote branches.
-   * Pulls the remote branch into the current branch using merge strategy.
+   * Routes through the T1-02 Pull Dialog with the `merge` preset.
    */
   private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
+    await this._runPullFromBranchMenu(item, 'merge');
+  }
+
+  /**
+   * Shared implementation for the pullUsing* handlers — delegates to the
+   * Pull Dialog with source pre-filled, or falls back to a direct pull
+   * when the dialog is unavailable.
+   */
+  private async _runPullFromBranchMenu(
+    item: BranchTreeItem,
+    preset: 'rebase' | 'merge'
+  ): Promise<void> {
     const repo = this._getRepository();
     if (!repo || !item.branch) {
       return;
     }
 
-    // Parse remote name and branch name from item.branch.name (e.g., "origin/main" -> "origin", "main")
+    // Parse remote name and branch name from item.branch.name
+    // (e.g., "origin/main" -> "origin", "main")
     const slashIndex = item.branch.name.indexOf('/');
-    const remoteName = slashIndex >= 0 ? item.branch.name.substring(0, slashIndex) : item.branch.name;
-    const branchName = slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
+    const remoteName =
+      slashIndex >= 0 ? item.branch.name.substring(0, slashIndex) : item.branch.name;
+    const branchName =
+      slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
 
+    const dialog = this._pullDialogAccessor?.();
+    if (dialog) {
+      await dialog.show(repo, preset, { remote: remoteName, branch: branchName });
+      this._branchTreeProvider.refresh();
+      return;
+    }
+
+    // Fallback path (tests and any legacy caller that didn't wire up the
+    // Pull Dialog): preserve the original direct-pull behaviour.
     try {
       await this._gitService.pull(repo, {
         remote: remoteName,
         branch: branchName,
-        rebase: false,
+        rebase: preset === 'rebase',
       });
+      const strategy = preset === 'rebase' ? 'rebase' : 'merge';
       void vscode.window.showInformationMessage(
-        `Pulled '${item.branch.name}' into current branch using merge`
+        `Pulled '${item.branch.name}' into current branch using ${strategy}`
       );
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const conflictCount = this._parseConflictCount(errorMessage);
       if (conflictCount > 0) {
-        void vscode.window.showWarningMessage(
-          `Merge conflicts in ${conflictCount} file(s). Please resolve conflicts.`
-        );
+        // T1-08(a) handoff: if the conflict service is wired in, auto-open the
+        // Resolve Conflicts dialog. Pull-using-rebase maps to `'rebase'` and
+        // pull-using-merge maps to `'merge'` — conceptually these are the same
+        // post-conflict states that merge / rebase produce directly.
+        if (this._conflictResolutionService) {
+          const conflicts = await this._conflictResolutionService.getConflictedFiles(repo);
+          await this._openResolveConflictsDialog(
+            repo,
+            conflicts.map((c) => c.path),
+            { operation: preset === 'rebase' ? 'rebase' : 'merge', target: item.branch.name }
+          );
+        } else {
+          const strategy = preset === 'rebase' ? 'Rebase' : 'Merge';
+          void vscode.window.showWarningMessage(
+            `${strategy} conflicts in ${conflictCount} file(s). Please resolve conflicts.`
+          );
+        }
         this._branchTreeProvider.refresh();
       } else {
-        void vscode.window.showErrorMessage(`Failed to pull using merge: ${errorMessage}`);
+        const strategy = preset === 'rebase' ? 'rebase' : 'merge';
+        void vscode.window.showErrorMessage(`Failed to pull using ${strategy}: ${errorMessage}`);
       }
     }
   }
@@ -841,9 +1083,17 @@ export class BranchContextMenuCommands {
           `Cherry-picked ${selected.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-        );
+        // T1-08(a): auto-open Resolve Conflicts dialog when wired.
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'cherryPick',
+            target: item.branch.name,
+          });
+        } else {
+          void vscode.window.showWarningMessage(
+            `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+          );
+        }
       }
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -854,30 +1104,14 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull into current command.
+   *
+   * Delegates to `_runPullFromBranchMenu` with the default ("merge")
+   * preset so the user gets the same Pull Dialog + conflict-handoff
+   * pipeline as the pullUsingMerge/Rebase entries. Matches the caller-
+   * invoked pattern introduced by T1-02 and extended by T1-08(a).
    */
   private async _handlePullIntoCurrent(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
-    if (!repo || !item.branch) {
-      return;
-    }
-
-    // Parse remote name from branch name
-    const parts = item.branch.name.split('/');
-    const remoteName = parts[0];
-    const branchName = parts.slice(1).join('/');
-
-    try {
-      await this._gitService.pull(repo, {
-        remote: remoteName,
-        branch: branchName,
-      });
-
-      void vscode.window.showInformationMessage(`Pulled '${item.branch.name}' into current branch`);
-      this._branchTreeProvider.refresh();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to pull: ${errorMessage}`);
-    }
+    await this._runPullFromBranchMenu(item, 'merge');
   }
 
   /**
@@ -1057,7 +1291,20 @@ export class BranchContextMenuCommands {
  */
 export function createBranchContextMenuCommands(
   gitService: IGitService,
-  branchTreeProvider: BranchTreeProvider
+  branchTreeProvider: BranchTreeProvider,
+  conflictResolutionService?: IConflictResolutionService,
+  pullDialogAccessor?: PullDialogAccessor,
+  pushDialogOpener?: PushDialogOpener,
+  mergeDialogOpener?: MergeDialogOpener,
+  newBranchDialogOpener?: NewBranchDialogOpener
 ): BranchContextMenuCommands {
-  return new BranchContextMenuCommands(gitService, branchTreeProvider);
+  return new BranchContextMenuCommands(
+    gitService,
+    branchTreeProvider,
+    conflictResolutionService,
+    pullDialogAccessor,
+    pushDialogOpener,
+    mergeDialogOpener,
+    newBranchDialogOpener
+  );
 }

@@ -16,6 +16,7 @@ import {
   IRepository,
   IBranch,
   IBasicRebaseResult,
+  IFetchResult,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 
@@ -58,7 +59,14 @@ function createMockGitService(overrides: Partial<IGitService> = {}): IGitService
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async () => {},
+    fetch: async (): Promise<IFetchResult> => ({
+      updatedRefs: [],
+      ahead: 0,
+      behind: 0,
+      errors: [],
+    }),
+    onDidFetch: () => ({ dispose: () => {} }),
+    resetToCommit: async () => {},
     pull: async () => {},
     push: async () => {},
     getRemotes: async () => [],
@@ -251,7 +259,10 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handleUpdate should return early when repository is undefined', async () => {
       let fetchCalled = false;
       const gitService = createMockGitService({
-        fetch: async () => { fetchCalled = true; },
+        fetch: async () => {
+          fetchCalled = true;
+          return { updatedRefs: [], ahead: 0, behind: 0, errors: [] };
+        },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
