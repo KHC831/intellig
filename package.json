@@ -46,10 +46,97 @@
         "icon": "$(check)"
       },
       {
+        "command": "intellig.showCommitToolWindow",
+        "title": "Show Commit Tool Window",
+        "category": "IntelliG",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "intellig.changelist.new",
+        "title": "New Changelist…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.setActive",
+        "title": "Set Active Changelist",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.rename",
+        "title": "Rename Changelist…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.delete",
+        "title": "Remove Changelist",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.editDescription",
+        "title": "Edit Changelist Description…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.moveFilesTo",
+        "title": "Move Files to Another Changelist…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.commitOnly",
+        "title": "Commit Only This Changelist…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.changelist.shelve",
+        "title": "Shelve Changelist",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.shelve.silent",
+        "title": "Shelve Silently",
+        "category": "IntelliG",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "intellig.unshelve.silent",
+        "title": "Unshelve Silently",
+        "category": "IntelliG",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "intellig.rebase.skip",
+        "title": "Rebase: Skip This Commit",
+        "category": "IntelliG",
+        "icon": "$(debug-step-over)"
+      },
+      {
+        "command": "intellig.localChanges.openFile",
+        "title": "Jump to Source (from Local Changes)",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.shelve.importPatches",
+        "title": "Import Patches into Shelf…",
+        "category": "IntelliG",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "intellig.showShelfList",
+        "title": "Show Shelf List",
+        "category": "IntelliG",
+        "icon": "$(list-unordered)"
+      },
+      {
         "command": "intellig.push",
         "title": "Push",
         "category": "IntelliG",
         "icon": "$(arrow-up)"
+      },
+      {
+        "command": "intellig.pushAllTags",
+        "title": "Push All Tags",
+        "category": "IntelliG",
+        "icon": "$(tag)"
       },
       {
         "command": "intellig.pull",
@@ -74,6 +161,17 @@
         "title": "Refresh",
         "category": "IntelliG",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "intellig.toolWindow.focusTab",
+        "title": "Focus Git Tool Window Tab",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.toolWindow.jumpToHash",
+        "title": "Jump to Commit…",
+        "category": "IntelliG",
+        "icon": "$(search)"
       },
       {
         "command": "intellig.stageSelected",
@@ -114,7 +212,7 @@
       },
       {
         "command": "intellig.branch.rename",
-        "title": "Rename...",
+        "title": "Rename…",
         "category": "IntelliG"
       },
       {
@@ -129,7 +227,7 @@
       },
       {
         "command": "intellig.branch.push",
-        "title": "Push...",
+        "title": "Push…",
         "category": "IntelliG"
       },
       {
@@ -213,6 +311,24 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.showResolveConflictsDialog",
+        "title": "Resolve Conflicts…",
+        "category": "IntelliG",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "intellig.patch.apply",
+        "title": "Apply Patch…",
+        "category": "IntelliG",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "intellig.patch.createFromLocal",
+        "title": "Create Patch from Local Changes…",
+        "category": "IntelliG",
+        "icon": "$(diff)"
+      },
+      {
         "command": "intellig.remoteBranch.deleteRemote",
         "title": "Delete",
         "category": "IntelliG"
@@ -224,22 +340,132 @@
       },
       {
         "command": "intellig.tag.newBranchFrom",
-        "title": "New Branch from Here",
+        "title": "New Branch from Tag…",
         "category": "IntelliG"
       },
       {
         "command": "intellig.tag.cherryPick",
-        "title": "Cherry-pick",
+        "title": "Cherry-Pick",
         "category": "IntelliG"
       },
       {
         "command": "intellig.tag.delete",
-        "title": "Delete Tag",
+        "title": "Delete",
         "category": "IntelliG"
       },
       {
         "command": "intellig.tag.push",
-        "title": "Push Tag",
+        "title": "Push",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.tag.new",
+        "title": "New Tag…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.newTag",
+        "title": "New Tag…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.stash.branchFromStash",
+        "title": "Create Branch from Stash…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.stash.rename",
+        "title": "Rename Stash…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.resetToHere",
+        "title": "Reset Current Branch to Here…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.copyHash",
+        "title": "Copy Revision Number",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.newBranch",
+        "title": "New Branch…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.checkoutRevision",
+        "title": "Checkout Revision",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.revert",
+        "title": "Revert Commit…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.dropSelectedChanges",
+        "title": "Drop Selected Changes…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.cherryPick",
+        "title": "Cherry-Pick",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.cherryPickWithoutCommit",
+        "title": "Cherry-Pick Without Commit",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.applySelectedChanges",
+        "title": "Apply Selected Changes…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.applyFilesToBranch",
+        "title": "Apply Files to Branch…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.showDiff",
+        "title": "Show Diff",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.compareWithHead",
+        "title": "Compare with HEAD",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.compareWith",
+        "title": "Compare with…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.showFileInRevision",
+        "title": "Show File in Revision",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.fileHistoryFromHere",
+        "title": "File History from Here",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.createPatch",
+        "title": "Create Patch…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.rebase.interactiveFromHere",
+        "title": "Interactively Rebase from Here…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.commit.openOnHost",
+        "title": "Open Commit on Host",
         "category": "IntelliG"
       },
       {
@@ -250,7 +476,7 @@
       },
       {
         "command": "intellig.rebase.interactive",
-        "title": "Interactive Rebase...",
+        "title": "Interactive Rebase…",
         "category": "IntelliG"
       },
       {
@@ -273,7 +499,7 @@
       },
       {
         "command": "intellig.explorer.compareWithBranch",
-        "title": "Git: Compare with Branch...",
+        "title": "Compare with Revision…",
         "category": "IntelliG",
         "icon": "$(git-compare)"
       },
@@ -302,6 +528,30 @@
         "icon": "$(diff)"
       },
       {
+        "command": "intellig.toggleBlame",
+        "title": "Annotate with Git Blame",
+        "category": "IntelliG",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "intellig.explorer.addToVcs",
+        "title": "Add to VCS",
+        "category": "IntelliG",
+        "icon": "$(add)"
+      },
+      {
+        "command": "intellig.explorer.compareWithRepoVersion",
+        "title": "Compare with the Same Repository Version",
+        "category": "IntelliG",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "intellig.explorer.createPatchFromFile",
+        "title": "Create Patch from File…",
+        "category": "IntelliG",
+        "icon": "$(diff)"
+      },
+      {
         "command": "intellig.editor.toggleBlame",
         "title": "Git: Toggle Blame Annotations",
         "category": "IntelliG",
@@ -324,6 +574,46 @@
         "title": "Git: Show Commit",
         "category": "IntelliG",
         "icon": "$(git-commit)"
+      },
+      {
+        "command": "intellig.blame.showCommit",
+        "title": "Show Commit",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.copyRevision",
+        "title": "Copy Revision Number",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.annotatePrevious",
+        "title": "Annotate Previous Revision",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.hideRevision",
+        "title": "Hide Revision",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.toggleIgnoreWhitespace",
+        "title": "Blame: Ignore Whitespaces",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.toggleDetectMovementsWithinFile",
+        "title": "Blame: Detect Movements Within File",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.toggleDetectMovementsAcrossFiles",
+        "title": "Blame: Detect Movements Across Files",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.blame.clearHiddenRevisions",
+        "title": "Blame: Clear Hidden Revisions",
+        "category": "IntelliG"
       }
     ],
     "menus": {
@@ -452,6 +742,126 @@
           "command": "intellig.remoteBranch.deleteRemote",
           "when": "viewItem == intellig.remoteBranch",
           "group": "5_manage@1"
+        },
+        {
+          "command": "intellig.tag.checkoutDetached",
+          "when": "viewItem == intellig.tag",
+          "group": "1_tag@1"
+        },
+        {
+          "command": "intellig.tag.newBranchFrom",
+          "when": "viewItem == intellig.tag",
+          "group": "1_tag@2"
+        },
+        {
+          "command": "intellig.tag.cherryPick",
+          "when": "viewItem == intellig.tag",
+          "group": "1_tag@3"
+        },
+        {
+          "command": "intellig.tag.delete",
+          "when": "viewItem == intellig.tag",
+          "group": "1_tag@4"
+        },
+        {
+          "command": "intellig.tag.push",
+          "when": "viewItem == intellig.tag",
+          "group": "1_tag@5"
+        },
+        {
+          "command": "intellig.commit.copyHash",
+          "when": "viewItem == intellig.logCommit",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "intellig.commit.newBranch",
+          "when": "viewItem == intellig.logCommit",
+          "group": "2_create@1"
+        },
+        {
+          "command": "intellig.commit.newTag",
+          "when": "viewItem == intellig.logCommit",
+          "group": "2_create@2"
+        },
+        {
+          "command": "intellig.commit.checkoutRevision",
+          "when": "viewItem == intellig.logCommit",
+          "group": "3_checkout@1"
+        },
+        {
+          "command": "intellig.commit.resetToHere",
+          "when": "viewItem == intellig.logCommit",
+          "group": "4_reset@1"
+        },
+        {
+          "command": "intellig.commit.revert",
+          "when": "viewItem == intellig.logCommit",
+          "group": "5_modify@1"
+        },
+        {
+          "command": "intellig.commit.cherryPick",
+          "when": "viewItem == intellig.logCommit",
+          "group": "5_modify@2"
+        },
+        {
+          "command": "intellig.commit.cherryPickWithoutCommit",
+          "when": "viewItem == intellig.logCommit",
+          "group": "5_modify@3"
+        },
+        {
+          "command": "intellig.commit.applySelectedChanges",
+          "when": "viewItem == intellig.logCommit",
+          "group": "5_modify@4"
+        },
+        {
+          "command": "intellig.commit.applyFilesToBranch",
+          "when": "viewItem == intellig.logCommit",
+          "group": "5_modify@5"
+        },
+        {
+          "command": "intellig.commit.dropSelectedChanges",
+          "when": "viewItem == intellig.logCommit",
+          "group": "5_modify@6"
+        },
+        {
+          "command": "intellig.commit.showDiff",
+          "when": "viewItem == intellig.logCommit",
+          "group": "6_view@1"
+        },
+        {
+          "command": "intellig.commit.compareWithHead",
+          "when": "viewItem == intellig.logCommit",
+          "group": "6_view@2"
+        },
+        {
+          "command": "intellig.commit.compareWith",
+          "when": "viewItem == intellig.logCommit",
+          "group": "6_view@3"
+        },
+        {
+          "command": "intellig.commit.showFileInRevision",
+          "when": "viewItem == intellig.logCommit",
+          "group": "7_files@1"
+        },
+        {
+          "command": "intellig.commit.fileHistoryFromHere",
+          "when": "viewItem == intellig.logCommit",
+          "group": "7_files@2"
+        },
+        {
+          "command": "intellig.rebase.interactiveFromHere",
+          "when": "viewItem == intellig.logCommit",
+          "group": "8_rebase@1"
+        },
+        {
+          "command": "intellig.commit.createPatch",
+          "when": "viewItem == intellig.logCommit",
+          "group": "9_patch@1"
+        },
+        {
+          "command": "intellig.commit.openOnHost",
+          "when": "viewItem == intellig.logCommit",
+          "group": "10_external@1"
         }
       ],
       "view/title": [],
@@ -460,32 +870,58 @@
           "submenu": "intellig.explorerSubmenu",
           "when": "explorerResourceIsFolder == false",
           "group": "intellig@1"
+        },
+        {
+          "command": "intellig.patch.apply",
+          "when": "explorerResourceIsFolder == false && resourceExtname =~ /\\.(patch|diff)$/",
+          "group": "9_patch@1"
         }
       ],
       "intellig.explorerSubmenu": [
         {
           "command": "intellig.explorer.showHistory",
-          "group": "1_history@1"
+          "group": "1_navigate@1"
         },
         {
-          "command": "intellig.explorer.showDiff",
-          "group": "1_history@2"
-        },
-        {
-          "command": "intellig.explorer.compareWithBranch",
-          "group": "1_history@3"
+          "command": "intellig.explorer.addToVcs",
+          "group": "2_add@1"
         },
         {
           "command": "intellig.explorer.stage",
-          "group": "2_staging@1"
+          "group": "2_add@2"
         },
         {
           "command": "intellig.explorer.unstage",
-          "group": "2_staging@2"
+          "group": "2_add@3"
         },
         {
           "command": "intellig.explorer.revert",
-          "group": "3_revert@1"
+          "group": "3_modify@1"
+        },
+        {
+          "command": "intellig.explorer.showDiff",
+          "group": "4_compare@1"
+        },
+        {
+          "command": "intellig.explorer.compareWithBranch",
+          "group": "4_compare@2"
+        },
+        {
+          "command": "intellig.explorer.compareWithRepoVersion",
+          "group": "4_compare@3"
+        },
+        {
+          "command": "intellig.toggleBlame",
+          "group": "5_blame@1"
+        },
+        {
+          "command": "intellig.explorer.createPatchFromFile",
+          "group": "6_patch@1"
+        },
+        {
+          "command": "intellig.patch.apply",
+          "group": "6_patch@2",
+          "when": "resourceExtname =~ /\\.(patch|diff)$/"
         }
       ],
       "editor/context": [
@@ -505,12 +941,60 @@
           "group": "2_history@1"
         },
         {
+          "command": "intellig.showHistory",
+          "group": "2_history@2"
+        },
+        {
           "command": "intellig.editor.copyCommitHash",
           "group": "3_commit@1"
         },
         {
           "command": "intellig.editor.showCommit",
           "group": "3_commit@2"
+        },
+        {
+          "command": "intellig.revertFile",
+          "group": "4_modify@1"
+        },
+        {
+          "command": "intellig.patch.apply",
+          "group": "6_patch@1"
+        }
+      ],
+      "editor/lineNumber/context": [
+        {
+          "command": "intellig.blame.showCommit",
+          "group": "1_commit@1"
+        },
+        {
+          "command": "intellig.blame.copyRevision",
+          "group": "1_commit@2"
+        },
+        {
+          "command": "intellig.blame.annotatePrevious",
+          "group": "2_navigate@1"
+        },
+        {
+          "command": "intellig.blame.hideRevision",
+          "group": "2_navigate@2"
+        },
+        {
+          "submenu": "intellig.blameOptionsSubmenu",
+          "group": "3_options@1"
+        }
+      ],
+      "intellig.blameOptionsSubmenu": [
+        {
+          "command": "intellig.blame.toggleIgnoreWhitespace",
+          "group": "1_whitespace@1"
+        },
+        {
+          "command": "intellig.blame.toggleDetectMovementsWithinFile",
+          "group": "2_movement@1"
+        },
+        {
+          "command": "intellig.blame.toggleDetectMovementsAcrossFiles",
+          "group": "2_movement@2"
         }
       ]
     },
@@ -524,6 +1008,11 @@
         "id": "intellig.editorSubmenu",
         "label": "Git",
         "icon": "$(git-branch)"
+      },
+      {
+        "id": "intellig.blameOptionsSubmenu",
+        "label": "Annotations Options",
+        "icon": "$(settings-gear)"
       }
     ],
     "viewsContainers": {
@@ -545,6 +1034,13 @@
         {
           "id": "intellig.branchTree",
           "name": "Branches"
+        },
+        {
+          "type": "webview",
+          "id": "intellig.commitToolWindow",
+          "name": "Commit",
+          "icon": "$(git-commit)",
+          "when": "workbenchState != empty && config.intellig.useCommitToolWindow"
         }
       ]
     },
@@ -556,10 +1052,22 @@
           "default": false,
           "description": "Add Signed-off-by line to commit messages by default"
         },
+        "intellig.commitMessageIssueLinks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Detect issue/PR references (e.g. #42, GH-101, PROJ-7) in commit messages and render them as clickable links to the configured hosting provider."
+        },
         "intellig.commitMessageTemplate": {
           "type": "string",
           "default": "",
           "description": "Default commit message template"
+        },
+        "intellig.commitAuthor": {
+          "type": "string",
+          "default": "",
+          "description": "Default author override in 'Name <email>' format. Leave empty to use git config.",
+          "pattern": "^(?:|[^<>]+ <[^<>@\\s]+@[^<>\\s]+>)$",
+          "patternErrorMessage": "Expected 'Name <email@example.com>' or empty."
         },
         "intellig.pullRebase": {
           "type": "boolean",
@@ -576,6 +1084,31 @@
           "default": 180,
           "description": "Auto-fetch interval in seconds"
         },
+        "intellig.autoOpenResolveConflictsDialog": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open the Resolve Conflicts dialog when a merge/rebase/cherry-pick/revert/unshelve/unstash produces conflicts."
+        },
+        "intellig.useTabbedGitToolWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental — show a tabbed Git tool window (Log / Console / Incoming / Update Info / History) instead of the single Log panel. When disabled, the UI is unchanged from earlier releases."
+        },
+        "intellig.useCommitToolWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Experimental — show the IntelliJ-style Commit tool window (Local Changes + Shelf tabs) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog (unchanged from earlier releases)."
+        },
+        "intellig.defaultRepo": {
+          "type": "string",
+          "default": "",
+          "description": "Repository basename or absolute path to use by default in multi-root workspaces. When empty, IntelliG uses the repo containing the active editor when unambiguous, otherwise prompts."
+        },
+        "intellig.log.highlightCherryPicked": {
+          "type": "boolean",
+          "default": true,
+          "description": "Dim commits that are already cherry-picked to the current branch's upstream and show a ✓ badge (T3-07). Uses `git log --cherry-mark`. Turn off if you find the visual cue too busy."
+        },
         "intellig.blameAnnotationStyle": {
           "type": "string",
           "enum": [
@@ -585,6 +1118,21 @@
           ],
           "default": "inline",
           "description": "Style for blame annotations"
+        },
+        "intellig.blame.ignoreWhitespace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ignore whitespace changes when computing Git blame (git blame -w). Matches IntelliJ's blame gutter Options menu."
+        },
+        "intellig.blame.detectMovementsWithinFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Detect moved lines within the same file when computing Git blame (git blame -M). Matches IntelliJ's blame gutter Options menu."
+        },
+        "intellig.blame.detectMovementsAcrossFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Detect lines moved or copied across files when computing Git blame (git blame -C -C). Matches IntelliJ's blame gutter Options menu."
         },
         "intellig.showStatusBarBranch": {
           "type": "boolean",
@@ -633,6 +1181,37 @@
           "type": "string",
           "default": "#FF0000",
           "description": "Color for conflicted files (red)"
+        },
+        "intellig.protectedBranches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master"
+          ],
+          "description": "Branches for which destructive operations are guarded: Reset modes Hard/Keep are disabled, and the Push dialog disables 'Force Push (Anyway)' (bare --force) when the target matches. '--force-with-lease' remains available. Remove a branch from this list to enable the guarded operations."
+        },
+        "intellig.shelve.removeAppliedFiles": {
+          "type": "boolean",
+          "default": false,
+          "description": "When unshelving silently, remove successfully-applied files from the shelf entry. If all files apply cleanly, the entry is deleted. Matches IntelliJ's 'Remove successfully applied files from shelf' option."
+        },
+        "intellig.fetchTags": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "all",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Follow git's default tag-fetching behavior (no --tags / --no-tags flag added).",
+            "Always pass --tags, fetching every tag regardless of reachability.",
+            "Always pass --no-tags, skipping tag fetch entirely."
+          ],
+          "default": "auto",
+          "description": "Tag-fetching policy applied to every fetch (manual + auto-fetch). Explicit user-passed --tags / --no-tags options in programmatic callers override this setting."
         }
       }
     },
@@ -642,6 +1221,23 @@
         "key": "ctrl+k",
         "mac": "cmd+k",
         "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellig.shelve.silent",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellig.unshelve.silent",
+        "key": "ctrl+alt+u",
+        "mac": "cmd+alt+u",
+        "when": "!inDebugMode && !terminalFocus"
+      },
+      {
+        "command": "intellig.showCommitToolWindow",
+        "key": "alt+0",
+        "when": "!terminalFocus"
       },
       {
         "command": "intellig.push",
@@ -660,6 +1256,12 @@
         "key": "alt+9",
         "mac": "cmd+9",
         "when": "!inDebugMode"
+      },
+      {
+        "command": "intellig.toolWindow.jumpToHash",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "focusedView == 'intellig.toolWindow' && intellig.toolWindow.activeTab == 'log'"
       },
       {
         "command": "intellig.showBranchPopup",
@@ -739,6 +1341,22 @@
         "key": "ctrl+alt+z",
         "mac": "cmd+alt+z",
         "when": "!inDebugMode && !terminalFocus && config.intellig.useIntelliJKeymap"
+      },
+      {
+        "command": "intellig.showShelfList",
+        "key": "ctrl+shift+u",
+        "mac": "cmd+shift+u",
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
+      },
+      {
+        "command": "intellig.localChanges.openFile",
+        "key": "f4",
+        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+      },
+      {
+        "command": "intellig.changelist.moveFilesTo",
+        "key": "f6",
+        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       }
     ]
   },
@@ -753,7 +1371,9 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "node ./out/test/runTest.js",
     "test:unit": "mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
-    "test:property": "mocha --require ts-node/register --timeout 30000 'src/test/property/**/*.property.test.ts'"
+    "test:property": "mocha --require ts-node/register --timeout 30000 'src/test/property/**/*.property.test.ts'",
+    "test:property:stress": "node scripts/propertyStress.mjs",
+    "test:ext-host": "npm run compile && node ./out/test/ext-host/runTests.js"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",

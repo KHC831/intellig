@@ -31,10 +31,34 @@ import {
   RebaseProgressView,
   createRebaseProgressView,
   createBranchTreeProvider,
+  PullDialog,
+  createPullDialog,
+  showApplyPatchDialog,
+  PushDialog,
+  showPushDialog,
+  MergeDialog,
+  showMergeDialog,
+  NewBranchDialog,
+  showNewBranchDialog,
+  CommitToolWindow,
+  createCommitToolWindow,
+  isCommitToolWindowEnabled,
+  COMMIT_TOOL_WINDOW_VIEW_ID,
+  ChangelistService,
 } from './services';
-import type { IRepository } from './services';
+import type { IBranch, IGitService, IRepository, ITag } from './services';
+import { findCommitByQuery } from './services/gitToolWindow/jumpToHash';
 import { createCommandTitleProvider } from './commands/CommandTitleProvider';
-import { createBranchContextMenuCommands, createCommitContextMenuCommands } from './commands';
+import {
+  createBranchContextMenuCommands,
+  createCommitContextMenuCommands,
+  CommitContextMenuCommands,
+} from './commands';
+import type { LogContextAction } from './services/GitToolWindowProvider';
+import { resolveRepo } from './utils/resolveRepo';
+import { isTabbedGitToolWindowEnabled } from './services/gitToolWindow/config';
+import { parseRemoteUrl } from './utils/remoteUrl';
+import { commitUrl } from './utils/hostingLinks';
 
 /**
  * Global reference to the extension services container.
@@ -51,6 +75,14 @@ let gitToolWindowProvider: GitToolWindowProvider | undefined;
  * Global reference to the Commit Dialog.
  */
 let commitDialog: CommitDialog | undefined;
+
+/**
+ * Global reference to the Commit Tool Window (T1-04).
+ * Registered even when the feature flag is off so programmatic callers can
+ * still obtain the instance; user-visible mounting is controlled by the
+ * `when` clause on the view contribution in package.json.
+ */
+let commitToolWindow: CommitToolWindow | undefined;
 
 /**
  * Global reference to the Branch Popup.
@@ -88,6 +120,12 @@ let statusBarService: StatusBarService | undefined;
 let notificationService: NotificationService | undefined;
 
 /**
+ * Global reference to the T1-02 Pull Dialog. Lazily constructed on first use
+ * so we don't instantiate it before extension services are ready.
+ */
+let pullDialog: PullDialog | undefined;
+
+/**
  * Global reference to the Keymap Service.
  */
 let keymapService: KeymapService | undefined;
@@ -113,6 +151,21 @@ let branchComparisonView: BranchComparisonView | undefined;
 let rebaseProgressView: RebaseProgressView | undefined;
 
 /**
+ * Global reference to the Commit Context Menu Commands instance.
+ * T1-07: used by top-level `intellig.commit.*` command handlers to
+ * delegate into the existing `_handleAction` dispatcher for reuse
+ * (copyHash, checkoutRevision, revert, cherryPick, createPatch).
+ */
+let commitContextMenuCommands: CommitContextMenuCommands | undefined;
+
+/**
+ * Global reference to the extension context. Held so non-command call paths
+ * (e.g. `openPushDialog` invoked from the branch context menu) can construct
+ * webviews that require `context.extensionUri` for `localResourceRoots`.
+ */
+let extensionContext: vscode.ExtensionContext | undefined;
+
+/**
  * This method is called when the extension is activated.
  * The extension is activated based on the activation events defined in package.json.
  *
@@ -123,6 +176,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   console.log('IntelliG extension is activating...');
 
   try {
+    // Hold a reference to the extension context for non-command call paths
+    // that need it later (e.g. the Push dialog constructed from branch menu).
+    extensionContext = context;
+
     // Get or create the extension services container
     extensionServices = getExtensionServices();
 
@@ -140,6 +197,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Set up event listeners
     setupEventListeners(context);
+
+    // Start the auto-fetch scheduler (T1-03).
+    // Registering in context.subscriptions lets VS Code dispose it on
+    // extension deactivation, so no manual cleanup is needed.
+    const autoFetchService = extensionServices.autoFetchService;
+    context.subscriptions.push(autoFetchService);
+    autoFetchService.start();
 
     console.log('IntelliG extension is now active');
   } catch (error) {
@@ -195,6 +259,12 @@ export function deactivate(): void {
       commitDialog = undefined;
     }
 
+    // T1-04 — Dispose the Commit Tool Window.
+    if (commitToolWindow) {
+      commitToolWindow.dispose();
+      commitToolWindow = undefined;
+    }
+
     // Dispose the Branch Popup
     if (branchPopup) {
       branchPopup.dispose();
@@ -246,6 +316,7 @@ export function deactivate(): void {
     // Reset the extension services (this will dispose all services)
     resetExtensionServices();
     extensionServices = undefined;
+    extensionContext = undefined;
 
     console.log('IntelliG extension is now deactivated');
   } catch (error) {
@@ -276,55 +347,375 @@ function registerCommands(context: vscode.ExtensionContext): void {
       return;
     }
 
-    const gitService = extensionServices.gitService;
-    const repositories = gitService.getRepositories();
-
-    if (repositories.length === 0) {
-      // Try to discover repositories
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        const repo = await gitService.getRepository(workspaceFolders[0].uri);
-        if (!repo) {
-          void vscode.window.showErrorMessage('No Git repository found in workspace');
-          return;
-        }
-        // Show commit dialog
-        if (!commitDialog) {
-          commitDialog = new CommitDialog(context.extensionUri, gitService);
-        }
-        await commitDialog.show(repo);
-      } else {
-        void vscode.window.showErrorMessage('No workspace folder open');
-      }
+    // T1-04 — when the Commit Tool Window flag is on, reveal the view
+    // instead of opening the modal CommitDialog.
+    if (isCommitToolWindowEnabled() && commitToolWindow) {
+      await commitToolWindow.show();
       return;
     }
 
-    // Use the first repository (or could show a picker if multiple)
-    const repo = repositories[0];
+    const gitService = extensionServices.gitService;
+
+    // T2-03 — multi-root repo targeting. Prefer the active editor's repo,
+    // fall back to QuickPick in multi-root workspaces.
+    let repo = await resolveRepo(gitService, {
+      preferActive: true,
+      pickerTitle: 'Commit — Choose Repository',
+      pickerPlaceholder: 'Select a repository to commit to',
+      silent: true,
+    });
+
+    if (!repo) {
+      // Last-ditch: try to discover a repo from the first workspace folder so
+      // invocations in a brand-new workspace (no repos cached yet) still work.
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        repo = await gitService.getRepository(workspaceFolders[0].uri);
+      }
+      if (!repo) {
+        void vscode.window.showErrorMessage('No Git repository found in workspace');
+        return;
+      }
+    }
 
     // Show commit dialog
     if (!commitDialog) {
-      commitDialog = new CommitDialog(context.extensionUri, gitService);
+      commitDialog = new CommitDialog(context.extensionUri, gitService, context.workspaceState);
     }
     await commitDialog.show(repo);
   });
 
-  // Push command
+  // T1-04 — focus the Commit tool window (Alt+0).
+  const showCommitToolWindowCommand = vscode.commands.registerCommand(
+    'intellig.showCommitToolWindow',
+    async () => {
+      if (commitToolWindow) {
+        await commitToolWindow.show();
+      } else {
+        await vscode.commands.executeCommand(`${COMMIT_TOOL_WINDOW_VIEW_ID}.focus`);
+      }
+    }
+  );
+
+  // T1-04 — changelist commands. These back the context menu in the Commit
+  // tool window's Local Changes tab.
+  // R6-Gap-C: every handler routes through `resolveRepo(preferActive)` so
+  // changelist ops in multi-root workspaces target the repo owning the
+  // active editor, not an arbitrary `repositories[0]`.
+  const changelistNewCommand = vscode.commands.registerCommand(
+    'intellig.changelist.new',
+    async () => {
+      if (!extensionServices) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
+      }
+      const name = await vscode.window.showInputBox({
+        prompt: 'Enter new changelist name',
+        validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
+      });
+      if (!name) return;
+      try {
+        extensionServices.changelistService.createChangelist(repo, name.trim());
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to create changelist: ${m}`);
+      }
+    }
+  );
+
+  const changelistSetActiveCommand = vscode.commands.registerCommand(
+    'intellig.changelist.setActive',
+    async (changelistId?: string) => {
+      if (!extensionServices) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo || !changelistId) return;
+      try {
+        await extensionServices.changelistService.setActiveChangelist(repo, changelistId);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to set active changelist: ${m}`);
+      }
+    }
+  );
+
+  const changelistRenameCommand = vscode.commands.registerCommand(
+    'intellig.changelist.rename',
+    async (changelistId?: string) => {
+      if (!extensionServices) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo || !changelistId) return;
+      const current = extensionServices.changelistService
+        .getChangelists(repo)
+        .find((cl) => cl.id === changelistId);
+      if (!current) return;
+      const newName = await vscode.window.showInputBox({
+        prompt: `Rename changelist '${current.name}' to:`,
+        value: current.name,
+        validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
+      });
+      if (!newName || newName.trim() === current.name) return;
+      try {
+        extensionServices.changelistService.renameChangelist(repo, changelistId, newName.trim());
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to rename changelist: ${m}`);
+      }
+    }
+  );
+
+  const changelistDeleteCommand = vscode.commands.registerCommand(
+    'intellig.changelist.delete',
+    async (changelistId?: string) => {
+      if (!extensionServices) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo || !changelistId) return;
+      try {
+        extensionServices.changelistService.deleteChangelist(repo, changelistId);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to delete changelist: ${m}`);
+      }
+    }
+  );
+
+  const changelistEditDescriptionCommand = vscode.commands.registerCommand(
+    'intellig.changelist.editDescription',
+    async (changelistId?: string) => {
+      if (!extensionServices) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo || !changelistId) return;
+      const service = extensionServices.changelistService;
+      const current = service.getChangelists(repo).find((cl) => cl.id === changelistId);
+      if (!current) return;
+      const newDescription = await vscode.window.showInputBox({
+        prompt: `Edit description for '${current.name}'`,
+        value: current.description ?? '',
+      });
+      if (newDescription === undefined) return;
+      // setDescription is an additive method shipped with T1-04.
+      if (service instanceof ChangelistService) {
+        try {
+          service.setDescription(repo, changelistId, newDescription);
+        } catch (err) {
+          const m = err instanceof Error ? err.message : 'Unknown error';
+          void vscode.window.showErrorMessage(`Failed to update description: ${m}`);
+        }
+      }
+    }
+  );
+
+  const changelistMoveFilesToCommand = vscode.commands.registerCommand(
+    'intellig.changelist.moveFilesTo',
+    async (files?: string[]) => {
+      if (!extensionServices) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo || !files || files.length === 0) return;
+      const service = extensionServices.changelistService;
+      const targets = service
+        .getChangelists(repo)
+        .map((cl) => ({ label: cl.name, id: cl.id }));
+      const picked = await vscode.window.showQuickPick(targets, {
+        title: `Move ${files.length} file${files.length === 1 ? '' : 's'} to…`,
+        placeHolder: 'Select target changelist',
+      });
+      if (!picked) return;
+      try {
+        service.moveToChangelist(repo, files, picked.id);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to move files: ${m}`);
+      }
+    }
+  );
+
+  // "Commit Only This Changelist" and "Shelve Changelist" are MVP stubs that
+  // surface a friendly message — the full wiring lands in follow-up work
+  // alongside the actual commit/shelve flows consuming the changelist filter.
+  const changelistCommitOnlyCommand = vscode.commands.registerCommand(
+    'intellig.changelist.commitOnly',
+    async (changelistId?: string) => {
+      if (!changelistId) return;
+      void vscode.window.showInformationMessage(
+        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the T2-06 gear options.'
+      );
+      if (commitToolWindow) {
+        await commitToolWindow.show();
+      }
+    }
+  );
+
+  const changelistShelveCommand = vscode.commands.registerCommand(
+    'intellig.changelist.shelve',
+    async (changelistId?: string) => {
+      if (!extensionServices || !changelistId) return;
+      const repo = await resolveRepo(extensionServices.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo) return;
+      const changelist = extensionServices.changelistService
+        .getChangelists(repo)
+        .find((cl) => cl.id === changelistId);
+      if (!changelist) return;
+      try {
+        await extensionServices.shelfService.shelve(repo, changelist.name, {
+          files: changelist.files.map((f) => f.path),
+        });
+        void vscode.window.showInformationMessage(
+          `Shelved ${changelist.files.length} file(s) from '${changelist.name}'`
+        );
+      } catch (err) {
+        const m = err instanceof Error ? err.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to shelve changelist: ${m}`);
+      }
+    }
+  );
+
+  context.subscriptions.push(
+    showCommitToolWindowCommand,
+    changelistNewCommand,
+    changelistSetActiveCommand,
+    changelistRenameCommand,
+    changelistDeleteCommand,
+    changelistEditDescriptionCommand,
+    changelistMoveFilesToCommand,
+    changelistCommitOnlyCommand,
+    changelistShelveCommand
+  );
+
+  // Push command — T1-01 Push dialog (webview table w/ per-row targets,
+  // force-with-lease default, protected-branch guard, multi-repo submit).
   const pushCommand = vscode.commands.registerCommand('intellig.push', () => {
-    // TODO: Implement in task 12.3
-    void vscode.window.showInformationMessage('Push - Coming Soon');
+    _openPushDialog();
   });
 
-  // Pull command
-  const pullCommand = vscode.commands.registerCommand('intellig.pull', () => {
-    // TODO: Implement in task 12.3
-    void vscode.window.showInformationMessage('Pull - Coming Soon');
+  // T3-08: Push All Tags — a standalone palette command that runs
+  // `git push --tags` on the active repo. Lives alongside the main Push
+  // dialog (which also surfaces the tag push radio) so IntelliJ users get
+  // a one-click entry point.
+  const pushAllTagsCommand = vscode.commands.registerCommand(
+    'intellig.pushAllTags',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Push All Tags — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      // Pick the default remote to display in the toast. `getRemotes()` is
+      // async; fall back to `'origin'` if the user's config doesn't list
+      // any remote (edge case — the push will still fail informatively).
+      let remoteName = 'origin';
+      try {
+        const remotes = await gitService.getRemotes(repo);
+        if (remotes.length > 0) {
+          remoteName = remotes[0].name;
+        }
+      } catch {
+        // Non-fatal — the push below surfaces the real error.
+      }
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Pushing all tags to ${remoteName}…`,
+            cancellable: false,
+          },
+          () => gitService.push(repo, { tags: true })
+        );
+        void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to push tags: ${message}`);
+      }
+    }
+  );
+
+  // Pull command — T1-02 Pull dialog (2-step QuickPick: source then flags).
+  const pullCommand = vscode.commands.registerCommand('intellig.pull', async () => {
+    const dialog = _getPullDialog();
+    if (!dialog) {
+      return;
+    }
+    await dialog.show();
   });
 
-  // Fetch command
-  const fetchCommand = vscode.commands.registerCommand('intellig.fetch', () => {
-    // TODO: Implement in task 12.3
-    void vscode.window.showInformationMessage('Fetch - Coming Soon');
+  // Fetch command (T1-03). Fetches all remotes for the selected repository,
+  // with a QuickPick when there are multiple repositories in the workspace.
+  const fetchCommand = vscode.commands.registerCommand('intellig.fetch', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    const gitService = extensionServices.gitService;
+
+    // T2-03 — unified multi-root resolver. Replaces the bespoke QuickPick
+    // that lived here; preferActive lets the resolver seed from the file
+    // the user is currently editing.
+    const repo = await resolveRepo(gitService, {
+      preferActive: true,
+      pickerTitle: 'Fetch — Choose Repository',
+      pickerPlaceholder: 'Select a repository to fetch',
+    });
+    if (!repo) {
+      return;
+    }
+
+    try {
+      const result = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Fetching from all remotes…',
+          cancellable: false,
+        },
+        () => gitService.fetch(repo, { all: true, prune: true })
+      );
+
+      // Reset auto-fetch backoff so the next scheduled tick isn't right on top
+      // of this manual one.
+      if (extensionServices.hasService('autoFetchService')) {
+        extensionServices.autoFetchService.resetBackoff();
+      }
+
+      const remoteCount = repo.remotes.length || 1;
+      const refCount = result.updatedRefs.length;
+      const message =
+        refCount > 0
+          ? `Fetched ${remoteCount} remote(s); ${refCount} ref(s) updated`
+          : `Fetched ${remoteCount} remote(s); already up to date`;
+      void vscode.window.showInformationMessage(message);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Fetch failed: ${msg}`);
+    }
   });
 
   // Branch popup command
@@ -344,8 +735,16 @@ function registerCommands(context: vscode.ExtensionContext): void {
         branchPopup = new BranchPopup(gitService);
       }
 
-      // Show the branch popup
-      await branchPopup.show();
+      // T2-03 — seed the popup with the repo the user is most likely targeting.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Branches — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      await branchPopup.show(repo);
     }
   );
 
@@ -357,29 +756,26 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
 
     const gitService = extensionServices.gitService;
-    const repositories = gitService.getRepositories();
 
-    if (repositories.length === 0) {
-      // Try to discover repositories
+    // T2-03 — resolve repo with active-editor preference.
+    let repo = await resolveRepo(gitService, {
+      preferActive: true,
+      pickerTitle: 'Stash — Choose Repository',
+      pickerPlaceholder: 'Select a repository',
+      silent: true,
+    });
+
+    if (!repo) {
+      // Discovery fallback when no cached repos exist yet.
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
-        const repo = await gitService.getRepository(workspaceFolders[0].uri);
-        if (!repo) {
-          void vscode.window.showErrorMessage('No Git repository found in workspace');
-          return;
-        }
-        // Create stash view if not exists and show it
-        if (!stashView) {
-          stashView = createStashView(gitService);
-        }
-        await stashView.showCreateDialog(repo);
-      } else {
-        void vscode.window.showErrorMessage('No workspace folder open');
+        repo = await gitService.getRepository(workspaceFolders[0].uri);
       }
-      return;
+      if (!repo) {
+        void vscode.window.showErrorMessage('No Git repository found in workspace');
+        return;
+      }
     }
-
-    const repo = repositories[0];
 
     // Create stash view if not exists and show create dialog
     if (!stashView) {
@@ -398,20 +794,46 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
 
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // T2-03 — resolve repo with active-editor preference.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Stashes — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Create stash view if not exists and show it
       if (!stashView) {
         stashView = createStashView(gitService);
       }
       await stashView.show(repo);
+    }
+  );
+
+  // T2-09: Create Branch from Stash — palette entry. Prompts the user to
+  // pick a stash (QuickPick) and delegates into `StashView.branchFromStash`
+  // which in turn prompts for the branch name.
+  const stashBranchFromStashCommand = vscode.commands.registerCommand(
+    'intellig.stash.branchFromStash',
+    async () => {
+      const picked = await _pickStashForAction('Create branch from stash');
+      if (!picked) return;
+      await picked.view.branchFromStash(picked.stash.index);
+    }
+  );
+
+  // T2-09: Rename Stash — palette entry. Prompts the user to pick a stash,
+  // then delegates into `StashView.renameStash` which prompts for the new
+  // message.
+  const stashRenameCommand = vscode.commands.registerCommand(
+    'intellig.stash.rename',
+    async () => {
+      const picked = await _pickStashForAction('Rename stash');
+      if (!picked) return;
+      await picked.view.renameStash(picked.stash.index);
     }
   );
 
@@ -423,31 +845,26 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
 
     const gitService = extensionServices.gitService;
-    const repositories = gitService.getRepositories();
+    // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+    let repo = await resolveRepo(gitService, {
+      preferActive: true,
+      silent: true,
+    });
 
-    if (repositories.length === 0) {
-      // Try to discover repositories
+    if (!repo) {
+      // Fallback: discover the first workspace folder's repo (cold start).
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (workspaceFolders && workspaceFolders.length > 0) {
-        const repo = await gitService.getRepository(workspaceFolders[0].uri);
+        repo = await gitService.getRepository(workspaceFolders[0].uri);
         if (!repo) {
           void vscode.window.showErrorMessage('No Git repository found in workspace');
           return;
         }
-        // Create shelf view if not exists and show shelve dialog
-        if (!shelfView) {
-          shelfView = createShelfView(extensionServices.shelfService, (r) =>
-            gitService.getStatus(r)
-          );
-        }
-        await shelfView.showShelveDialog(repo);
       } else {
         void vscode.window.showErrorMessage('No workspace folder open');
+        return;
       }
-      return;
     }
-
-    const repo = repositories[0];
 
     // Create shelf view if not exists and show shelve dialog
     if (!shelfView) {
@@ -455,6 +872,172 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
     await shelfView.showShelveDialog(repo);
   });
+
+  // T2-10: helper — ensure shelf view exists and return current repo + view.
+  // Kept local to the silent shelve/unshelve commands so we don't repeat the
+  // boilerplate in each handler.
+  async function _getShelfContext(): Promise<
+    { repo: IRepository; view: ShelfView } | undefined
+  > {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return undefined;
+    }
+    const gitService = extensionServices.gitService;
+    // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+    let repo = await resolveRepo(gitService, {
+      preferActive: true,
+      silent: true,
+    });
+    if (!repo) {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const discovered = await gitService.getRepository(workspaceFolders[0].uri);
+        if (!discovered) {
+          void vscode.window.showErrorMessage('No Git repository found in workspace');
+          return undefined;
+        }
+        repo = discovered;
+      } else {
+        void vscode.window.showErrorMessage('No workspace folder open');
+        return undefined;
+      }
+    }
+    if (!shelfView) {
+      shelfView = createShelfView(
+        extensionServices.shelfService,
+        (r) => gitService.getStatus(r),
+        extensionServices.conflictResolutionService
+      );
+    }
+    // ShelfView depends on _repository being set for several methods; the
+    // easiest path is to call refresh() which seeds it via the public show()
+    // path. Use show() lazily only if it hasn't been seeded yet.
+    await shelfView.show(repo).catch(() => {
+      // show() opens a QuickPick — we just want the repo binding side-effect.
+      // If it fails, fall through; the command handlers will surface their own
+      // errors.
+    });
+    return { repo, view: shelfView };
+  }
+
+  // T2-10: Silent Shelve (Ctrl+Shift+H). Shelves the active changelist with
+  // no dialog. Fallback name: "WIP <ISO timestamp>".
+  const shelveSilentCommand = vscode.commands.registerCommand(
+    'intellig.shelve.silent',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      let repo = await resolveRepo(gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo) {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+          void vscode.window.showErrorMessage('No workspace folder open');
+          return;
+        }
+        const discovered = await gitService.getRepository(workspaceFolders[0].uri);
+        if (!discovered) {
+          void vscode.window.showErrorMessage('No Git repository found in workspace');
+          return;
+        }
+        repo = discovered;
+      }
+
+      const changelistService = extensionServices.changelistService;
+      // Ensure the changelist store is in sync with git status before picking
+      // the active changelist — otherwise a just-edited file may still live
+      // under "default" when the user expects to capture it.
+      await changelistService.reconcileWithGitStatus(repo);
+      const active = await changelistService.getActiveChangelist(repo);
+
+      if (active.files.length === 0) {
+        void vscode.window.showInformationMessage(
+          `No files in active changelist '${active.name}' to shelve.`
+        );
+        return;
+      }
+
+      const fallbackName = `WIP ${new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19)}`;
+      const name = active.isDefault ? fallbackName : active.name;
+
+      try {
+        const item = await extensionServices.shelfService.shelve(repo, name, {
+          files: active.files.map((f) => f.path),
+        });
+        void vscode.window.showInformationMessage(
+          `Shelved ${item.files.length} file(s) to '${item.name}'.`
+        );
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Silent shelve failed: ${errorMessage}`);
+      }
+    }
+  );
+
+  // T2-10: Silent Unshelve (Ctrl+Alt+U). Applies the most-recent entry
+  // without prompting. If multiple entries exist (all non-unshelved), shows
+  // a QuickPick.
+  const unshelveSilentCommand = vscode.commands.registerCommand(
+    'intellig.unshelve.silent',
+    async () => {
+      const ctx = await _getShelfContext();
+      if (!ctx) {
+        return;
+      }
+      const active = extensionServices!.shelfService
+        .getShelfItems(ctx.repo)
+        .filter((i) => i.unshelvedAt === undefined);
+      if (active.length === 0) {
+        void vscode.window.showInformationMessage('No shelf entries to unshelve.');
+        return;
+      }
+
+      let targetId: string;
+      if (active.length === 1) {
+        targetId = active[0].id;
+      } else {
+        // Order newest-first for the QuickPick.
+        const sorted = active.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+        const picked = await vscode.window.showQuickPick(
+          sorted.map((i) => ({
+            label: i.name,
+            description: `${i.files.length} file${i.files.length === 1 ? '' : 's'} · ${i.timestamp.toLocaleString()}`,
+            id: i.id,
+          })),
+          { title: 'Unshelve Silently', placeHolder: 'Select a shelf entry to apply' }
+        );
+        if (!picked) {
+          return;
+        }
+        targetId = picked.id;
+      }
+
+      const result = await ctx.view.unshelveSilent(targetId);
+      if (!result.success && !result.conflicts) {
+        // Non-conflict errors are already surfaced by unshelve(); no-op here.
+      }
+    }
+  );
+
+  // T2-10: Import patches into the shelf. Reachable via command palette and
+  // the shelf list root action.
+  const shelveImportPatchesCommand = vscode.commands.registerCommand(
+    'intellig.shelve.importPatches',
+    async () => {
+      const ctx = await _getShelfContext();
+      if (!ctx) {
+        return;
+      }
+      await ctx.view.importPatches();
+    }
+  );
 
   // Show shelf list command
   const showShelfListCommand = vscode.commands.registerCommand(
@@ -466,14 +1049,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
+        // resolveRepo already surfaced the "No Git repository found" toast.
         return;
       }
-
-      const repo = repositories[0];
 
       // Create shelf view if not exists and show it
       if (!shelfView) {
@@ -494,7 +1077,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     if (!inlineBlameProvider) {
       inlineBlameProvider = createInlineBlameProvider(
         extensionServices.blameService,
-        extensionServices.gitService
+        extensionServices.gitService,
+        extensionServices.blameOptionsSource
       );
     }
 
@@ -517,7 +1101,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
       if (!gutterBlameProvider) {
         gutterBlameProvider = createGutterBlameProvider(
           extensionServices.blameService,
-          extensionServices.gitService
+          extensionServices.gitService,
+          extensionServices.blameOptionsSource
         );
       }
 
@@ -538,14 +1123,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Create branch comparison view if not exists and show it
       if (!branchComparisonView) {
@@ -565,14 +1149,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Create branch comparison view if not exists and compare with remote
       if (!branchComparisonView) {
@@ -598,6 +1181,93 @@ function registerCommands(context: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage('Git views refreshed');
   });
 
+  // T2-12 / T1-05 Phase 1: focus a specific tab in the Git tool window.
+  // Declared in package.json; bound here so the StatusBarService incoming
+  // badge (and future callers) can jump straight to a tab.
+  const focusTabCommand = vscode.commands.registerCommand(
+    'intellig.toolWindow.focusTab',
+    async (tab: string) => {
+      if (!gitToolWindowProvider) {
+        // Provider not yet ready — fall back to opening the tool window so
+        // the user still gets a reasonable response.
+        await vscode.commands.executeCommand('intellig.openGitToolWindow');
+        return;
+      }
+      const validTabs = ['log', 'console', 'incoming', 'updateInfo', 'history'] as const;
+      type TabId = (typeof validTabs)[number];
+      if (!validTabs.includes(tab as TabId)) {
+        return;
+      }
+      await gitToolWindowProvider.focusTab(tab as TabId);
+    }
+  );
+
+  // T3-06 — jump to a commit hash / branch / tag within the currently-loaded
+  // log. Accepts user input via an InputBox, resolves via `findCommitByQuery`
+  // (pure helper, operates only on already-loaded commits per spec), then
+  // delegates to `GitToolWindowProvider.scrollToCommit` which posts the
+  // webview message + re-renders with the scroll target.
+  const jumpToHashCommand = vscode.commands.registerCommand(
+    'intellig.toolWindow.jumpToHash',
+    async () => {
+      if (!extensionServices || !gitToolWindowProvider) {
+        void vscode.window.showErrorMessage('Git tool window not ready');
+        return;
+      }
+
+      const query = await vscode.window.showInputBox({
+        title: 'Jump to Commit',
+        prompt: 'Enter a commit SHA, branch name, or tag name',
+        placeHolder: 'e.g., abc1234 or main or v1.0.0',
+      });
+      if (!query) return;
+
+      const state = gitToolWindowProvider.getExtendedLogState();
+      const loadedCommits = state.commitNodes.map((n) => n.commit);
+
+      // Branches and tags for name-based matching. We fall back to empty
+      // arrays on error so the command degrades to pure SHA matching rather
+      // than failing outright.
+      const gitService = extensionServices.gitService;
+      // R6-Gap-C: prefer the tool-window's selected repo when set, otherwise
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo =
+        gitToolWindowProvider.getSelectedRepository() ??
+        (await resolveRepo(gitService, { preferActive: true, silent: true }));
+      let branches: IBranch[] = [];
+      let tags: ITag[] = [];
+      if (repo) {
+        try {
+          branches = await gitService.getBranches(repo);
+        } catch {
+          /* ignore — fall through to SHA-only matching */
+        }
+        try {
+          tags = await gitService.getTags(repo);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const match = findCommitByQuery(query, loadedCommits, branches, tags);
+      if (!match) {
+        void vscode.window.showWarningMessage(`No commit found matching '${query.trim()}'`);
+        return;
+      }
+
+      await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+      const scrolled = gitToolWindowProvider.scrollToCommit(match);
+      if (!scrolled) {
+        // Shouldn't happen given findCommitByQuery matched against the same
+        // loaded set, but surface a warning just in case (e.g. state drifted
+        // between the two calls).
+        void vscode.window.showWarningMessage(
+          `Commit ${match.substring(0, 7)} is not currently loaded in the graph`
+        );
+      }
+    }
+  );
+
   // Stage selected files command
   const stageSelectedCommand = vscode.commands.registerCommand(
     'intellig.stageSelected',
@@ -608,14 +1278,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo (that's the file being
+      // staged) in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get the active editor's file or selected files from explorer
       const activeEditor = vscode.window.activeTextEditor;
@@ -649,14 +1319,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo (that's the file being
+      // unstaged) in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get the active editor's file or selected files from explorer
       const activeEditor = vscode.window.activeTextEditor;
@@ -696,13 +1366,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
       } else {
         // If no file provided, show a picker for conflicted files
         const gitService = extensionServices.gitService;
-        const repositories = gitService.getRepositories();
-        if (repositories.length === 0) {
-          void vscode.window.showErrorMessage('No Git repository found');
+        // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+        const repo = await resolveRepo(gitService, {
+          preferActive: true,
+        });
+        if (!repo) {
           return;
         }
-
-        const repo = repositories[0];
         const status = await gitService.getStatus(repo);
         const conflictedFiles = status.filter(
           (f) => f.indexStatus === 'U' || f.workTreeStatus === 'U'
@@ -812,6 +1482,223 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Conflict Resolution commands
+  // T1-08(a): manual entry point for re-opening the Resolve Conflicts dialog.
+  // Used by the status-bar "Unresolved conflicts — click to resolve" prompt
+  // and by the VCS menu `Resolve Conflicts…` item (contributed elsewhere).
+  const showResolveConflictsDialogCommand = vscode.commands.registerCommand(
+    'intellig.showResolveConflictsDialog',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const conflictService = extensionServices.conflictResolutionService;
+      const gitService = extensionServices.gitService;
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
+        return;
+      }
+      const conflicts = await conflictService.getConflictedFiles(repo);
+      if (conflicts.length === 0) {
+        void vscode.window.showInformationMessage('No unresolved conflicts.');
+        return;
+      }
+      // Best-effort operation inference based on repository state.
+      const state = conflictService.getRepositoryState(repo);
+      const opContext = {
+        operation:
+          state === 'merging'
+            ? ('merge' as const)
+            : state === 'rebasing'
+              ? ('rebase' as const)
+              : state === 'cherry-picking'
+                ? ('cherryPick' as const)
+                : state === 'reverting'
+                  ? ('revert' as const)
+                  : ('merge' as const),
+        canAbort: true,
+        canContinue: true,
+      };
+      await conflictService.openResolveConflictsDialog(repo, conflicts, opContext);
+    }
+  );
+
+  // T3-05: Palette entry point — Skip This Commit during an in-progress
+  // rebase. Gated by the same `intellig.conflicts.active` context key the
+  // status-bar prompt uses, so it only appears while a rebase is paused
+  // on conflicts. Destructive; single confirm matches the dialog button.
+  const rebaseSkipCommand = vscode.commands.registerCommand(
+    'intellig.rebase.skip',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      const conflictService = extensionServices.conflictResolutionService;
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
+        return;
+      }
+
+      const state = conflictService.getRepositoryState(repo);
+      if (state !== 'rebasing') {
+        void vscode.window.showInformationMessage(
+          'Rebase --skip is only available while a rebase is in progress.'
+        );
+        return;
+      }
+
+      const choice = await vscode.window.showWarningMessage(
+        'Skip this commit? The changes will NOT be applied.',
+        { modal: true },
+        'Skip'
+      );
+      if (choice !== 'Skip') {
+        return;
+      }
+
+      try {
+        const res = await gitService.rebaseSkip(repo);
+        if (!res.success && res.conflicts && res.conflicts.length > 0) {
+          // More conflicts after the skip — reopen the Resolve Conflicts
+          // dialog for the user. Reuses the T1-08 auto-open path.
+          await conflictService.openResolveConflictsDialog(
+            repo,
+            res.conflicts.map((p) => ({ path: p, resolved: false })),
+            { operation: 'rebase', canAbort: true, canContinue: true }
+          );
+          return;
+        }
+        void vscode.window.showInformationMessage('Commit skipped.');
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`Failed to skip commit: ${errMsg}`);
+      }
+    }
+  );
+
+  // T3-13: stub commands for IntelliJ keymap parity. Each surfaces a
+  // "Coming soon" toast rather than crashing the keybinding resolver when
+  // the underlying feature hasn't shipped yet. The functionality will be
+  // filled in by the referenced Tier-2/3 task.
+  const localChangesOpenFileCommand = vscode.commands.registerCommand(
+    'intellig.localChanges.openFile',
+    () => {
+      void vscode.window.showInformationMessage(
+        'Jump to Source from Local Changes is coming in a later release.'
+      );
+    }
+  );
+  // NOTE: `intellig.toolWindow.jumpToHash` is the real T3-06 implementation
+  // (see `jumpToHashCommand` above). A duplicate stub registration previously
+  // lived here and crashed activation (VS Code throws on duplicate
+  // registerCommand). Removed during R5 senior-review ship-blocker fixes (C-1).
+
+  // T1-12: Apply Patch… — opens the ApplyPatchDialog for the active repo.
+  // When invoked with a URI (e.g. from an explorer context menu on a .patch
+  // file), pre-seeds the dialog with that path.
+  const applyPatchCommand = vscode.commands.registerCommand(
+    'intellig.patch.apply',
+    async (initialUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      // T2-03 — resolve with active-editor preference.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Apply Patch — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      showApplyPatchDialog(context, {
+        repo,
+        patchService: extensionServices.patchService,
+        conflictResolutionService: extensionServices.conflictResolutionService,
+        initialPatchPath: initialUri?.fsPath,
+      });
+    }
+  );
+
+  // T1-12: Create Patch from Local Changes… — prompts for target (file /
+  // clipboard) and writes the current diff.
+  const createPatchFromLocalCommand = vscode.commands.registerCommand(
+    'intellig.patch.createFromLocal',
+    async () => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      // T2-03 — resolve with active-editor preference.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Create Patch — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+
+      const target = await vscode.window.showQuickPick(
+        [
+          { label: '$(file) Save to file…', id: 'file' as const },
+          { label: '$(clippy) Copy to clipboard', id: 'clipboard' as const },
+        ],
+        { placeHolder: 'Where should the patch be written?' }
+      );
+      if (!target) {
+        return;
+      }
+
+      try {
+        if (target.id === 'clipboard') {
+          const patch = await extensionServices.patchService.createPatchFromLocalChanges(
+            repo,
+            { toClipboard: true }
+          );
+          if (!patch || patch.trim().length === 0) {
+            void vscode.window.showInformationMessage('No local changes to diff.');
+            return;
+          }
+          void vscode.window.showInformationMessage('Patch copied to clipboard.');
+          return;
+        }
+
+        const defaultUri = vscode.Uri.joinPath(repo.rootUri, 'changes.patch');
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri,
+          filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+          saveLabel: 'Save Patch',
+        });
+        if (!uri) {
+          return;
+        }
+        const patch = await extensionServices.patchService.createPatchFromLocalChanges(repo, {
+          outputPath: uri.fsPath,
+        });
+        if (!patch || patch.trim().length === 0) {
+          void vscode.window.showInformationMessage('No local changes to diff.');
+          return;
+        }
+        void vscode.window.showInformationMessage(`Patch created: ${uri.fsPath}`);
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`Failed to create patch: ${errMsg}`);
+      }
+    }
+  );
+
   const markFileResolvedCommand = vscode.commands.registerCommand(
     'intellig.conflict.markResolved',
     async (fileUri?: vscode.Uri) => {
@@ -822,14 +1709,16 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the fileUri's repo (when invoked from a context
+      // menu), falling back to the active-editor's repo in multi-root
+      // workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUri?.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get file path
       let filePath: string;
@@ -874,14 +1763,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
       const conflicts = await conflictService.getConflictedFiles(repo);
 
       if (conflicts.length === 0) {
@@ -920,14 +1808,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
       const conflicts = await conflictService.getConflictedFiles(repo);
 
       if (conflicts.length === 0) {
@@ -966,14 +1853,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Check if we can complete
       const canComplete = await conflictService.canCompleteOperation(repo);
@@ -1006,14 +1892,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Check if we can complete
       const canComplete = await conflictService.canCompleteOperation(repo);
@@ -1050,14 +1935,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       const confirm = await vscode.window.showWarningMessage(
         'Are you sure you want to abort the merge? All changes will be lost.',
@@ -1088,14 +1972,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       const confirm = await vscode.window.showWarningMessage(
         'Are you sure you want to abort the rebase? All changes will be lost.',
@@ -1127,29 +2010,24 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const rebaseService = extensionServices.rebaseService;
-      const repositories = gitService.getRepositories();
 
-      if (repositories.length === 0) {
-        // Try to discover repositories
+      // T2-03 — unified multi-root resolver.
+      let repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Interactive Rebase — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+        silent: true,
+      });
+
+      if (!repo) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-          const repo = await gitService.getRepository(workspaceFolders[0].uri);
-          if (!repo) {
-            void vscode.window.showErrorMessage('No Git repository found in workspace');
-            return;
-          }
-        } else {
-          void vscode.window.showErrorMessage('No workspace folder open');
+          repo = await gitService.getRepository(workspaceFolders[0].uri);
+        }
+        if (!repo) {
+          void vscode.window.showErrorMessage('No Git repository found in workspace');
           return;
         }
-      }
-
-      const repo =
-        repositories[0] ||
-        (await gitService.getRepository(vscode.workspace.workspaceFolders![0].uri));
-      if (!repo) {
-        void vscode.window.showErrorMessage('No Git repository found');
-        return;
       }
 
       // Get branches for the user to select the target
@@ -1211,20 +2089,37 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
 
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // T2-03 — resolve via the active editor's file path when available so
+      // multi-root invocations don't silently pick the wrong repo.
+      const activeEditor = vscode.window.activeTextEditor;
+      const hintRepoPath =
+        activeEditor && activeEditor.document.uri.scheme === 'file'
+          ? activeEditor.document.uri.fsPath
+          : undefined;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath,
+        preferActive: true,
+        pickerTitle: 'Show History — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
         return;
       }
 
-      const repo = repositories[0];
-
-      // Get the active editor's file, or show repo-level history
-      const activeEditor = vscode.window.activeTextEditor;
       const filePath = activeEditor
         ? vscode.workspace.asRelativePath(activeEditor.document.uri)
         : undefined;
+
+      // T2-07 — when the tabbed Git tool window is enabled and we have a
+      // file path, route to the embedded History tab instead of the legacy
+      // QuickPick. Repo-level history (filePath === undefined) still uses
+      // the QuickPick because the tab only supports per-file scope.
+      if (filePath && isTabbedGitToolWindowEnabled() && gitToolWindowProvider) {
+        await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
+        await gitToolWindowProvider.loadFileHistory(filePath);
+        return;
+      }
 
       try {
         const history = filePath
@@ -1273,18 +2168,24 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
-        return;
-      }
-
-      const repo = repositories[0];
 
       const activeEditor = vscode.window.activeTextEditor;
       if (!activeEditor) {
         void vscode.window.showErrorMessage('No file selected to revert');
+        return;
+      }
+
+      // T2-03 — the revert must land in the repo that owns the active file.
+      const hintRepoPath =
+        activeEditor.document.uri.scheme === 'file'
+          ? activeEditor.document.uri.fsPath
+          : undefined;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath,
+        pickerTitle: 'Revert File — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
         return;
       }
 
@@ -1326,14 +2227,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUri?.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get file path from URI or active editor
       let filePath: string;
@@ -1397,14 +2299,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUri?.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get file path from URI or active editor
       let filePath: string;
@@ -1465,14 +2368,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUri?.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get file path from URI or active editor
       let filePath: string;
@@ -1523,14 +2427,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUri?.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get file path from URI or active editor
       let filePath: string;
@@ -1570,14 +2475,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // fall back to the active-editor's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUri?.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
 
       // Get file path from URI or active editor
       let filePath: string;
@@ -1657,6 +2563,169 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
+  // ─── T2-11: Explorer / editor menu parity — new command bridges ──────────
+
+  function _resolveExplorerFileUri(
+    fileUri: vscode.Uri | undefined
+  ): vscode.Uri | undefined {
+    return resolveExplorerFileUri(fileUri, vscode.window.activeTextEditor?.document.uri);
+  }
+
+  // T2-11 — Add to VCS. Stages the file (equivalent to `git add <path>`), so
+  // it becomes tracked. Shown in the IntelliJ-parity explorer submenu.
+  const explorerAddToVcsCommand = vscode.commands.registerCommand(
+    'intellig.explorer.addToVcs',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const resolvedUri = _resolveExplorerFileUri(fileUri);
+      if (!resolvedUri) {
+        void vscode.window.showErrorMessage('No file selected to add to VCS');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: resolvedUri.fsPath,
+        pickerTitle: 'Add to VCS — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+      try {
+        await gitService.stage(repo, [filePath]);
+        void vscode.window.showInformationMessage(`Added to VCS: ${filePath}`);
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to add file to VCS: ${msg}`);
+      }
+    }
+  );
+
+  // T2-11 — Compare with the Same Repository Version.
+  // Opens a diff tab between the working-tree file and its HEAD revision.
+  // Reuses the `intellig-git:` URI scheme registered elsewhere in this file,
+  // matching the pattern shipped by T2-01 for ref-based diffs.
+  const explorerCompareWithRepoVersionCommand = vscode.commands.registerCommand(
+    'intellig.explorer.compareWithRepoVersion',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const resolvedUri = _resolveExplorerFileUri(fileUri);
+      if (!resolvedUri) {
+        void vscode.window.showErrorMessage('No file selected to compare');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: resolvedUri.fsPath,
+        pickerTitle: 'Compare with HEAD — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+      const leftUri = buildCompareWithRepoVersionLeftUri(filePath);
+      const title = buildCompareWithRepoVersionTitle(filePath);
+      try {
+        await vscode.commands.executeCommand('vscode.diff', leftUri, resolvedUri, title);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to compare with HEAD: ${msg}`);
+      }
+    }
+  );
+
+  // T2-11 — Create Patch from File.
+  // Delegates to PatchService.createPatchFromLocalChanges with a single-file
+  // filter. Matches the behaviour of T1-12's `intellig.patch.createFromLocal`
+  // but scoped to one file.
+  const explorerCreatePatchFromFileCommand = vscode.commands.registerCommand(
+    'intellig.explorer.createPatchFromFile',
+    async (fileUri?: vscode.Uri) => {
+      if (!extensionServices) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const resolvedUri = _resolveExplorerFileUri(fileUri);
+      if (!resolvedUri) {
+        void vscode.window.showErrorMessage('No file selected to create patch from');
+        return;
+      }
+
+      const gitService = extensionServices.gitService;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: resolvedUri.fsPath,
+        pickerTitle: 'Create Patch — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+
+      const target = await vscode.window.showQuickPick(
+        [
+          { label: '$(file) Save to file…', id: 'file' as const },
+          { label: '$(clippy) Copy to clipboard', id: 'clipboard' as const },
+        ],
+        { placeHolder: 'Where should the patch be written?' }
+      );
+      if (!target) {
+        return;
+      }
+
+      try {
+        if (target.id === 'clipboard') {
+          const patch = await extensionServices.patchService.createPatchFromLocalChanges(repo, {
+            files: [filePath],
+            toClipboard: true,
+          });
+          if (!patch || patch.trim().length === 0) {
+            void vscode.window.showInformationMessage('No local changes to diff for this file.');
+            return;
+          }
+          void vscode.window.showInformationMessage('Patch copied to clipboard.');
+          return;
+        }
+
+        const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
+        const defaultUri = vscode.Uri.joinPath(repo.rootUri, `${basename}.patch`);
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri,
+          filters: { 'Patch files': ['patch', 'diff'], 'All files': ['*'] },
+          saveLabel: 'Save Patch',
+        });
+        if (!uri) {
+          return;
+        }
+        const patch = await extensionServices.patchService.createPatchFromLocalChanges(repo, {
+          files: [filePath],
+          outputPath: uri.fsPath,
+        });
+        if (!patch || patch.trim().length === 0) {
+          void vscode.window.showInformationMessage('No local changes to diff for this file.');
+          return;
+        }
+        void vscode.window.showInformationMessage(`Patch saved to ${uri.fsPath}`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to create patch: ${msg}`);
+      }
+    }
+  );
+
   // Editor Context Menu Commands
 
   // Toggle Blame Annotations command for editor context menu
@@ -1672,7 +2741,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
       if (!inlineBlameProvider) {
         inlineBlameProvider = createInlineBlameProvider(
           extensionServices.blameService,
-          extensionServices.gitService
+          extensionServices.gitService,
+          extensionServices.blameOptionsSource
         );
       }
 
@@ -1700,14 +2770,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const blameService = extensionServices.blameService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the active-editor file's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: activeEditor.document.uri.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
       const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
       const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
 
@@ -1766,14 +2836,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const blameService = extensionServices.blameService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the active-editor file's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: activeEditor.document.uri.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
       const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
       const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
 
@@ -1816,14 +2886,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const blameService = extensionServices.blameService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      // R6-Gap-C: honor the active-editor file's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: activeEditor.document.uri.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
         return;
       }
-
-      const repo = repositories[0];
       const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
       const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
 
@@ -1909,23 +2979,515 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
+  // =========================================================================
+  // T2-08: Blame gutter menu commands.
+  //
+  // All commands resolve the blame line under the *active editor cursor* —
+  // VS Code doesn't expose the gutter click position, so the menu surface
+  // uses the current cursor as the anchor. This matches IntelliJ's own
+  // behavior when invoking the annotate menu by keyboard.
+  // =========================================================================
+  /**
+   * Resolve the current editor's repo + file-path + cursor-line + blame line.
+   * Shared by all blame-menu commands. Returns `undefined` when any piece is
+   * missing (no editor / no repo / file not in repo / uncommitted line).
+   */
+  async function _resolveBlameContext(): Promise<
+    | {
+        editor: vscode.TextEditor;
+        repo: import('./services').IRepository;
+        filePath: string;
+        line: number;
+        blameLine: import('./services').IBlameLine;
+      }
+    | undefined
+  > {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return undefined;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      void vscode.window.showErrorMessage('No active editor');
+      return undefined;
+    }
+    const gitService = extensionServices.gitService;
+    const blameService = extensionServices.blameService;
+    const repo = await gitService.getRepository(editor.document.uri);
+    if (!repo) {
+      void vscode.window.showErrorMessage('Current file is not in a Git repository');
+      return undefined;
+    }
+    const relative = (await import('path')).relative(
+      repo.rootUri.fsPath,
+      editor.document.uri.fsPath
+    );
+    const line = editor.selection.active.line + 1; // 1-indexed.
+    const blameLine = await blameService.getBlameForLine(
+      repo,
+      relative,
+      line,
+      extensionServices.blameOptionsSource.asBlameOptions()
+    );
+    if (blameLine.commit.startsWith('0000000')) {
+      void vscode.window.showInformationMessage('This line has not been committed yet.');
+      return undefined;
+    }
+    return { editor, repo, filePath: relative, line, blameLine };
+  }
+
+  // Show Commit — delegates to the existing intellig.editor.showCommit.
+  const blameShowCommitCommand = vscode.commands.registerCommand(
+    'intellig.blame.showCommit',
+    async () => {
+      await vscode.commands.executeCommand('intellig.editor.showCommit');
+    }
+  );
+
+  // Copy Revision Number — delegates to the existing copy-hash command.
+  const blameCopyRevisionCommand = vscode.commands.registerCommand(
+    'intellig.blame.copyRevision',
+    async () => {
+      await vscode.commands.executeCommand('intellig.editor.copyCommitHash');
+    }
+  );
+
+  // Annotate Previous Revision — re-blame the file at <sha>^ (parent of the
+  // blamed commit). Uses the parent SHA recorded by git blame when available.
+  const blameAnnotatePreviousCommand = vscode.commands.registerCommand(
+    'intellig.blame.annotatePrevious',
+    async () => {
+      const ctx = await _resolveBlameContext();
+      if (!ctx || !extensionServices) {
+        return;
+      }
+      try {
+        // Target the filename at the parent revision if git reported a rename.
+        const targetPath = ctx.blameLine.previousFilename ?? ctx.filePath;
+        const info = await extensionServices.blameService.getPreviousRevisionBlame(
+          ctx.repo,
+          targetPath,
+          ctx.blameLine.commit,
+          extensionServices.blameOptionsSource.asBlameOptions()
+        );
+        if (info.lines.length === 0) {
+          void vscode.window.showInformationMessage(
+            'No previous revision available for this line.'
+          );
+          return;
+        }
+        // Resolve the parent SHA for the toast.
+        const shortParent = (ctx.blameLine.previousCommit ?? `${ctx.blameLine.commit}^`).substring(
+          0,
+          7
+        );
+        void vscode.window.showInformationMessage(
+          `Annotated at ${shortParent}: ${info.lines.length} line(s) blamed.`
+        );
+        // Refresh providers so the gutter / inline decorations re-render
+        // against the new cached result; the providers keep HEAD-based blame
+        // as their default view, so we hint refresh here.
+        await gutterBlameProvider?.refresh();
+        await inlineBlameProvider?.refresh();
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Annotate Previous failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
+    }
+  );
+
+  // Hide Revision — adds the blamed commit to the hidden-revision set so the
+  // gutter / inline providers skip it on subsequent renders.
+  const blameHideRevisionCommand = vscode.commands.registerCommand(
+    'intellig.blame.hideRevision',
+    async () => {
+      const ctx = await _resolveBlameContext();
+      if (!ctx || !extensionServices) {
+        return;
+      }
+      await extensionServices.blameOptionsSource.hideRevision(ctx.blameLine.commit);
+      void vscode.window.showInformationMessage(
+        `Hiding revision ${ctx.blameLine.commit.substring(0, 7)} from blame.`
+      );
+    }
+  );
+
+  // Options submenu — toggle Ignore Whitespace.
+  const blameToggleIgnoreWhitespaceCommand = vscode.commands.registerCommand(
+    'intellig.blame.toggleIgnoreWhitespace',
+    async () => {
+      if (!extensionServices) {
+        return;
+      }
+      const next = await extensionServices.blameOptionsSource.toggleFlag('ignoreWhitespace');
+      void vscode.window.showInformationMessage(
+        `Blame: Ignore Whitespaces ${next ? 'enabled' : 'disabled'}.`
+      );
+    }
+  );
+
+  // Options submenu — toggle Detect Movements Within File.
+  const blameToggleDetectWithinCommand = vscode.commands.registerCommand(
+    'intellig.blame.toggleDetectMovementsWithinFile',
+    async () => {
+      if (!extensionServices) {
+        return;
+      }
+      const next = await extensionServices.blameOptionsSource.toggleFlag(
+        'detectMovementsWithinFile'
+      );
+      void vscode.window.showInformationMessage(
+        `Blame: Detect Movements Within File ${next ? 'enabled' : 'disabled'}.`
+      );
+    }
+  );
+
+  // Options submenu — toggle Detect Movements Across Files.
+  const blameToggleDetectAcrossCommand = vscode.commands.registerCommand(
+    'intellig.blame.toggleDetectMovementsAcrossFiles',
+    async () => {
+      if (!extensionServices) {
+        return;
+      }
+      const next = await extensionServices.blameOptionsSource.toggleFlag(
+        'detectMovementsAcrossFiles'
+      );
+      void vscode.window.showInformationMessage(
+        `Blame: Detect Movements Across Files ${next ? 'enabled' : 'disabled'}.`
+      );
+    }
+  );
+
+  // Utility — clears the hidden-revision set (surfaced via command palette).
+  const blameClearHiddenRevisionsCommand = vscode.commands.registerCommand(
+    'intellig.blame.clearHiddenRevisions',
+    async () => {
+      if (!extensionServices) {
+        return;
+      }
+      await extensionServices.blameOptionsSource.clearHiddenRevisions();
+      void vscode.window.showInformationMessage('Blame: hidden revisions cleared.');
+    }
+  );
+
+  // T1-09: New Tag — command-palette entry, defaults to HEAD.
+  const newTagCommand = vscode.commands.registerCommand('intellig.tag.new', async () => {
+    await _runNewTagFlow(undefined);
+  });
+
+  // T1-09: New Tag — invoked from the log commit context menu with a commit arg.
+  const commitNewTagCommand = vscode.commands.registerCommand(
+    'intellig.commit.newTag',
+    async (commitArg?: unknown) => {
+      const ref = _extractCommitHash(commitArg);
+      await _runNewTagFlow(ref);
+    }
+  );
+
+  // ─── T1-07: Log commit right-click menu parity ──────────────────────────
+  //
+  // These commands provide the palette- and menu-level surface for the
+  // log-commit context menu. Where an existing handler lives in
+  // `CommitContextMenuCommands._handleAction`, we delegate; otherwise
+  // we implement a thin flow directly below.
+
+  // Delegate to an existing CommitContextMenuCommands action.
+  async function _delegateLogAction(action: LogContextAction, commitArg: unknown): Promise<void> {
+    const hash = _extractCommitHash(commitArg);
+    if (!hash) {
+      void vscode.window.showErrorMessage(
+        'No commit selected for this action. Right-click a commit in the log to use it.'
+      );
+      return;
+    }
+    if (!commitContextMenuCommands) {
+      void vscode.window.showErrorMessage(
+        'Commit context menu handlers are not available yet.'
+      );
+      return;
+    }
+    await commitContextMenuCommands._handleAction(action, [hash]);
+  }
+
+  const commitCopyHashCommand = vscode.commands.registerCommand(
+    'intellig.commit.copyHash',
+    (commitArg?: unknown) => _delegateLogAction('copyHash', commitArg)
+  );
+
+  const commitCheckoutRevisionCommand = vscode.commands.registerCommand(
+    'intellig.commit.checkoutRevision',
+    (commitArg?: unknown) => _delegateLogAction('checkoutRevision', commitArg)
+  );
+
+  const commitRevertCommand = vscode.commands.registerCommand(
+    'intellig.commit.revert',
+    (commitArg?: unknown) => _delegateLogAction('revert', commitArg)
+  );
+
+  const commitCherryPickCommand = vscode.commands.registerCommand(
+    'intellig.commit.cherryPick',
+    (commitArg?: unknown) => _delegateLogAction('cherryPick', commitArg)
+  );
+
+  const commitCreatePatchCommand = vscode.commands.registerCommand(
+    'intellig.commit.createPatch',
+    (commitArg?: unknown) => _delegateLogAction('createPatch', commitArg)
+  );
+
+  const commitResetToHereCommand = vscode.commands.registerCommand(
+    'intellig.commit.resetToHere',
+    (commitArg?: unknown) => _delegateLogAction('resetToHere', commitArg)
+  );
+
+  // T2-04: Drop Selected Changes — rewrites the HEAD commit to remove
+  // user-selected files. Refuses on pushed or non-HEAD commits. Single
+  // destructive-op confirm modal. Invoked via the palette or the log-commit
+  // context menu entry declared in package.json.
+  const commitDropSelectedChangesCommand = vscode.commands.registerCommand(
+    'intellig.commit.dropSelectedChanges',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      if (!hash) {
+        void vscode.window.showErrorMessage(
+          'No commit selected. Right-click a commit in the log to use Drop Selected Changes.'
+        );
+        return;
+      }
+      if (!commitContextMenuCommands) {
+        void vscode.window.showErrorMessage(
+          'Commit context menu handlers are not available yet.'
+        );
+        return;
+      }
+      await commitContextMenuCommands.dropSelectedChangesFromCommit(hash);
+    }
+  );
+
+  // ─── T1-07 NEW commands ──────────────────────────────────────────────────
+
+  // New Branch from this commit.
+  // T3-03: route through the New Branch Dialog webview so the user gets
+  // the tracking / overwrite / checkout fields rather than a bare input
+  // box.
+  const commitNewBranchCommand = vscode.commands.registerCommand(
+    'intellig.commit.newBranch',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      const repo = await _pickRepositoryForCommit();
+      if (!repo || !extensionServices) return;
+      _openNewBranchDialog({ repo, startPoint: hash });
+    }
+  );
+
+  // Show diff of this commit vs its first parent.
+  const commitShowDiffCommand = vscode.commands.registerCommand(
+    'intellig.commit.showDiff',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      const repo = await _pickRepositoryForCommit();
+      if (!hash || !repo || !extensionServices) {
+        if (!hash) {
+          void vscode.window.showErrorMessage('No commit selected.');
+        }
+        return;
+      }
+      try {
+        const gitService = extensionServices.gitService;
+        const commit = await gitService.getCommit(repo, hash);
+        const parent = commit.parents.length > 0 ? commit.parents[0] : `${hash}~1`;
+        await _openCommitFileDiff(repo, hash, parent, gitService);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to show diff: ${msg}`);
+      }
+    }
+  );
+
+  // Compare this commit with HEAD (whole-commit diff).
+  const commitCompareWithHeadCommand = vscode.commands.registerCommand(
+    'intellig.commit.compareWithHead',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      const repo = await _pickRepositoryForCommit();
+      if (!hash || !repo || !extensionServices) {
+        if (!hash) {
+          void vscode.window.showErrorMessage('No commit selected.');
+        }
+        return;
+      }
+      await _openRefPairDiffPicker(repo, hash, 'HEAD', extensionServices.gitService);
+    }
+  );
+
+  // Compare this commit with a user-chosen ref (branch/tag/recent commit).
+  const commitCompareWithCommand = vscode.commands.registerCommand(
+    'intellig.commit.compareWith',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      const repo = await _pickRepositoryForCommit();
+      if (!hash || !repo || !extensionServices) {
+        if (!hash) {
+          void vscode.window.showErrorMessage('No commit selected.');
+        }
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      const target = await _pickRefForComparison(repo, gitService);
+      if (!target) return;
+      await _openRefPairDiffPicker(repo, hash, target, gitService);
+    }
+  );
+
+  // Show a file from this commit in a read-only editor.
+  const commitShowFileInRevisionCommand = vscode.commands.registerCommand(
+    'intellig.commit.showFileInRevision',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      const repo = await _pickRepositoryForCommit();
+      if (!hash || !repo || !extensionServices) {
+        if (!hash) {
+          void vscode.window.showErrorMessage('No commit selected.');
+        }
+        return;
+      }
+      try {
+        const gitService = extensionServices.gitService;
+        const diffs = await gitService.getCommitDiff(repo, hash);
+        if (diffs.length === 0) {
+          void vscode.window.showInformationMessage('No files changed in this commit.');
+          return;
+        }
+        const picked = await vscode.window.showQuickPick(
+          diffs.map((d) => ({ label: d.path, description: d.status })),
+          {
+            title: `Files in ${hash.substring(0, 8)}`,
+            placeHolder: 'Select a file to open at this revision',
+          }
+        );
+        if (!picked) return;
+        const uri = vscode.Uri.parse(`intellig-git:${picked.label}?${encodeURIComponent(hash)}`);
+        await vscode.commands.executeCommand('vscode.open', uri);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(`Failed to open file at revision: ${msg}`);
+      }
+    }
+  );
+
+  // File history starting at this commit — delegates to `intellig.showHistory`
+  // with the commit hash as the starting ref arg.
+  const commitFileHistoryFromHereCommand = vscode.commands.registerCommand(
+    'intellig.commit.fileHistoryFromHere',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      await vscode.commands.executeCommand('intellig.showHistory', hash ? { startRef: hash } : undefined);
+    }
+  );
+
+  // Interactively rebase starting at this commit — delegates to the existing
+  // interactive-rebase command, pre-selecting the commit as the onto target.
+  const rebaseInteractiveFromHereCommand = vscode.commands.registerCommand(
+    'intellig.rebase.interactiveFromHere',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      await vscode.commands.executeCommand(
+        'intellig.rebase.interactive',
+        hash ? { onto: hash } : undefined
+      );
+    }
+  );
+
+  // T3-09 — Open this commit on the configured hosting provider (GitHub /
+  // GitLab / Bitbucket, auto-detected from the repo's origin remote URL).
+  const commitOpenOnHostCommand = vscode.commands.registerCommand(
+    'intellig.commit.openOnHost',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      if (!hash) {
+        void vscode.window.showErrorMessage(
+          'No commit selected. Right-click a commit in the log first.'
+        );
+        return;
+      }
+      await _openCommitOnHost(hash);
+    }
+  );
+
+  // ─── T2-05 Cherry-Pick variants ────────────────────────────────────────────
+
+  // Cherry-Pick Without Commit: applies the commit to the index + worktree
+  // with `--no-commit` so the user can inspect / amend before committing.
+  const commitCherryPickWithoutCommitCommand = vscode.commands.registerCommand(
+    'intellig.commit.cherryPickWithoutCommit',
+    async (commitArg?: unknown) => {
+      await _runCherryPickVariant(commitArg, { noCommit: true });
+    }
+  );
+
+  // Apply Selected Changes…: QuickPick commit's files, apply only the
+  // selected subset to the index + worktree (cherry-pick-n + revert of
+  // non-selected files). Unicode ellipsis on the palette label because
+  // the dialog prompts.
+  const commitApplySelectedChangesCommand = vscode.commands.registerCommand(
+    'intellig.commit.applySelectedChanges',
+    async (commitArg?: unknown) => {
+      const hash = _extractCommitHash(commitArg);
+      if (!hash) {
+        void vscode.window.showErrorMessage('No commit selected.');
+        return;
+      }
+      const repo = await _pickRepositoryForCommit();
+      if (!repo || !extensionServices) {
+        return;
+      }
+      const gitService = extensionServices.gitService;
+      const files = await _pickCommitFiles(gitService, repo, hash, 'Apply Selected Changes');
+      if (!files || files.length === 0) {
+        return;
+      }
+      await _runCherryPickVariant(commitArg, { noCommit: true, files });
+    }
+  );
+
+  // Apply Files to Branch…: QuickPick commit's files, QuickPick a target
+  // branch, stash if dirty, switch, cherry-pick-n with file subset onto the
+  // target branch, then switch back. User can then commit on the target
+  // branch or discard via reset.
+  const commitApplyFilesToBranchCommand = vscode.commands.registerCommand(
+    'intellig.commit.applyFilesToBranch',
+    async (commitArg?: unknown) => {
+      await _runApplyFilesToBranchFlow(commitArg);
+    }
+  );
+
   // Register all commands with the extension context
   context.subscriptions.push(
     openGitToolWindowCommand,
     commitCommand,
     pushCommand,
+    pushAllTagsCommand,
     pullCommand,
     fetchCommand,
+    newTagCommand,
+    commitNewTagCommand,
     branchPopupCommand,
     stashCommand,
     showStashListCommand,
+    stashBranchFromStashCommand,
+    stashRenameCommand,
     shelveCommand,
+    shelveSilentCommand,
+    unshelveSilentCommand,
+    shelveImportPatchesCommand,
     showShelfListCommand,
     toggleBlameCommand,
     toggleGutterBlameCommand,
     compareWithBranchCommand,
     compareWithRemoteCommand,
     refreshCommand,
+    focusTabCommand,
+    jumpToHashCommand,
     stageSelectedCommand,
     unstageSelectedCommand,
     openMergeViewCommand,
@@ -1938,6 +3500,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
     previousConflictCommand,
     markResolvedCommand,
     markFileResolvedCommand,
+    showResolveConflictsDialogCommand,
+    rebaseSkipCommand,
+    localChangesOpenFileCommand,
+    applyPatchCommand,
+    createPatchFromLocalCommand,
     acceptAllCurrentFilesCommand,
     acceptAllIncomingFilesCommand,
     completeMergeCommand,
@@ -1954,11 +3521,44 @@ function registerCommands(context: vscode.ExtensionContext): void {
     explorerStageCommand,
     explorerUnstageCommand,
     explorerShowDiffCommand,
+    // T2-11 — Explorer/editor menu parity
+    explorerAddToVcsCommand,
+    explorerCompareWithRepoVersionCommand,
+    explorerCreatePatchFromFileCommand,
     // Editor Context Menu Commands
     editorToggleBlameCommand,
     editorShowLineHistoryCommand,
     editorCopyCommitHashCommand,
-    editorShowCommitCommand
+    editorShowCommitCommand,
+    // T2-08: Blame gutter right-click menu commands
+    blameShowCommitCommand,
+    blameCopyRevisionCommand,
+    blameAnnotatePreviousCommand,
+    blameHideRevisionCommand,
+    blameToggleIgnoreWhitespaceCommand,
+    blameToggleDetectWithinCommand,
+    blameToggleDetectAcrossCommand,
+    blameClearHiddenRevisionsCommand,
+    // T1-07 Log commit menu parity
+    commitCopyHashCommand,
+    commitCheckoutRevisionCommand,
+    commitRevertCommand,
+    commitCherryPickCommand,
+    commitCherryPickWithoutCommitCommand,
+    commitApplySelectedChangesCommand,
+    commitApplyFilesToBranchCommand,
+    commitCreatePatchCommand,
+    commitResetToHereCommand,
+    commitNewBranchCommand,
+    commitShowDiffCommand,
+    commitCompareWithHeadCommand,
+    commitCompareWithCommand,
+    commitShowFileInRevisionCommand,
+    commitFileHistoryFromHereCommand,
+    rebaseInteractiveFromHereCommand,
+    commitOpenOnHostCommand,
+    // T2-04 selective revert + drop
+    commitDropSelectedChangesCommand
   );
 }
 
@@ -1978,6 +3578,10 @@ function registerViews(context: vscode.ExtensionContext): void {
     if (consoleService instanceof ConsoleService) {
       consoleService.connectToToolWindow(gitToolWindowProvider);
     }
+
+    // T2-07 — wire the History tab to the GitService now that the service
+    // registry is up. Safe to call multiple times (last-writer-wins).
+    gitToolWindowProvider.attachGitService(extensionServices.gitService);
   }
 
   const gitToolWindowRegistration = vscode.window.registerWebviewViewProvider(
@@ -1991,6 +3595,128 @@ function registerViews(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(gitToolWindowRegistration);
+
+  // T1-04 — register the Commit tool window. The view contribution in
+  // package.json is gated by `config.intellig.useCommitToolWindow`, so when
+  // the flag is off the view slot is hidden and users see zero change.
+  if (extensionServices) {
+    commitToolWindow = createCommitToolWindow(
+      context.extensionUri,
+      extensionServices.gitService,
+      extensionServices.changelistService,
+      extensionServices.shelfService,
+      context.workspaceState
+    );
+
+    // T3-10: bind shelf/stash row controllers so the combined Shelf tab can
+    // dispatch context-menu actions. ShelfView / StashView already hold the
+    // QuickPick + error-handling UX; the controllers are thin adapters.
+    const gs = extensionServices.gitService;
+    const cs = extensionServices.conflictResolutionService;
+    const shelfSvc = extensionServices.shelfService;
+
+    // Ensure the ShelfView / StashView singletons exist — both are built
+    // lazily elsewhere in this file. Re-using them keeps the Shelf tab
+    // consistent with the palette commands (same UX, same confirm flow).
+    if (!shelfView) {
+      shelfView = createShelfView(shelfSvc, (r) => gs.getStatus(r), cs);
+    }
+    if (!stashView) {
+      stashView = createStashView(gs, cs);
+    }
+    const shelfViewRef = shelfView;
+    const stashViewRef = stashView;
+
+    // When the user first opens the Commit tool window, neither view has
+    // had `.show()` called, so their internal `_repository` is `undefined`.
+    // Controller methods assert `_repository` — delegate to an async helper
+    // that binds it on first use from the active repo.
+    const bindShelfRepo = async (): Promise<IRepository | undefined> => {
+      const repos = gs.getRepositories();
+      const repo = repos[0];
+      if (!repo) return undefined;
+      // StashView/ShelfView expose a private _repository; they're safe to
+      // seed through their `show()` entry points, but we don't want the
+      // QuickPick side effect. Instead set the field directly via the
+      // existing public `refresh(repo)` pattern — both views accept repo
+      // via `show()` as the only path, so we fall back to `show()` for the
+      // initial binding (it's a no-op beyond storing the repo).
+      (shelfViewRef as unknown as { _repository: IRepository })._repository = repo;
+      (stashViewRef as unknown as { _repository: IRepository })._repository = repo;
+      await shelfViewRef.refresh();
+      return repo;
+    };
+
+    commitToolWindow.setShelfTabControllers(
+      {
+        apply: async (id): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.unshelve(id);
+        },
+        showDiff: async (id): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.viewShelfItem(id);
+        },
+        delete: async (id): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.deleteShelfItem(id);
+        },
+        rename: async (id): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.renameShelfItem(id);
+        },
+        restore: async (id): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.restoreShelfItem(id);
+        },
+        importPatches: async (): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.importPatches();
+        },
+        createPatch: async (id): Promise<void> => {
+          await bindShelfRepo();
+          await shelfViewRef.createPatchFromShelf(id);
+        },
+      },
+      {
+        apply: async (idx): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.applyStash(idx);
+        },
+        pop: async (idx): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.popStash(idx);
+        },
+        drop: async (idx): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.dropStash(idx);
+        },
+        showDiff: async (idx): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.viewStash(idx);
+        },
+        rename: async (idx): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.renameStash(idx);
+        },
+        branchFromStash: async (idx): Promise<void> => {
+          await bindShelfRepo();
+          await stashViewRef.branchFromStash(idx);
+        },
+      }
+    );
+
+    const commitToolWindowRegistration = vscode.window.registerWebviewViewProvider(
+      COMMIT_TOOL_WINDOW_VIEW_ID,
+      commitToolWindow,
+      {
+        webviewOptions: {
+          retainContextWhenHidden: true,
+        },
+      }
+    );
+    context.subscriptions.push(commitToolWindowRegistration);
+  }
 
   // Wire up Log tab data loading
   // When the Log tab becomes active, fetch commits and display the graph
@@ -2065,13 +3791,63 @@ function registerViews(context: vscode.ExtensionContext): void {
 
         if (gitToolWindowProvider) {
           gitToolWindowProvider.updateLogState(commits, branchMap, tagMap);
+
+          // T3-07 — compute the cherry-mark map in the background and push
+          // it into the provider. We don't block the log render on it —
+          // cherry marks are a visual nicety, and the call is throttled by
+          // git spawn overhead (typically <100ms). Gated by the
+          // `intellig.log.highlightCherryPicked` flag.
+          void loadCherryMarksForRepo(repo);
         }
       } catch (error) {
         console.error('Failed to load git log:', error);
       }
     };
 
-    // Helper to load commits into the log view (uses selected or first repository)
+    /**
+     * T3-07 — compute `git log --cherry-mark` for the given repo against its
+     * upstream and push the `=`-marked hashes into the Log tab's state.
+     * Runs in the background; errors are swallowed so the UI stays calm.
+     */
+    const loadCherryMarksForRepo = async (repo: IRepository): Promise<void> => {
+      if (!gitToolWindowProvider) return;
+      const flagOn =
+        vscode.workspace
+          .getConfiguration('intellig.log')
+          .get<boolean>('highlightCherryPicked', true) ?? true;
+      if (!flagOn) {
+        gitToolWindowProvider.setCherryPickedHashes(undefined);
+        return;
+      }
+      // Resolve the upstream ref for the current branch. If the branch has
+      // no upstream configured, skip silently — there's nothing meaningful
+      // to diff against.
+      const headUpstream = repo.head?.upstream;
+      if (!headUpstream) {
+        gitToolWindowProvider.setCherryPickedHashes(undefined);
+        return;
+      }
+      const baseRef = `${headUpstream.remote}/${headUpstream.name}`;
+      try {
+        const gitServiceAny = gitService as IGitService & {
+          getCherryMarks?: (r: IRepository, b: string) => Promise<Map<string, string>>;
+        };
+        if (typeof gitServiceAny.getCherryMarks !== 'function') {
+          return;
+        }
+        const marks = await gitServiceAny.getCherryMarks(repo, baseRef);
+        const equivalent = new Set<string>();
+        for (const [hash, mark] of marks) {
+          if (mark === '=') equivalent.add(hash);
+        }
+        gitToolWindowProvider.setCherryPickedHashes(equivalent, baseRef);
+      } catch {
+        // Swallow — the feature degrades cleanly when git doesn't support
+        // --cherry-mark or the repo state is unusual.
+      }
+    };
+
+    // Helper to load commits into the log view (uses selected or active-editor repository)
     const loadLogCommits = async (filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }): Promise<void> => {
       // Use the provider's selected repository if available
       if (gitToolWindowProvider) {
@@ -2082,11 +3858,26 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
       }
 
-      // Fall back to discovering repositories
+      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces
+      // on initial load when no tool-window repo selection has been made yet.
+      const preferred = await resolveRepo(gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (preferred) {
+        await loadLogCommitsForRepo(preferred, filter);
+        return;
+      }
+
+      // Fall back to discovering repositories (cold start — git service empty).
       const repositories = await discoverAllRepositories();
       if (repositories.length === 0) {
         return;
       }
+      // ALLOWED: deterministic fallback on cold start when git service is
+      // still empty AND the active-editor's repo couldn't be resolved —
+      // no better signal is available. preferActive above handles the
+      // populated-service multi-root case.
       const repo = repositories[0];
       await loadLogCommitsForRepo(repo, filter);
     };
@@ -2141,20 +3932,22 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
     const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
-      let repositories = gitService.getRepositories();
-      if (repositories.length === 0) {
+      // R6-Gap-C: prefer the tool-window's selected repo (that's where the
+      // commit was clicked), falling back to the active-editor's repo in
+      // multi-root workspaces. The cold-start discovery path stays as a
+      // last-resort fallback.
+      let repo =
+        gitToolWindowProvider?.getSelectedRepository() ??
+        (await resolveRepo(gitService, { preferActive: true, silent: true }));
+      if (!repo) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-          const repo = await gitService.getRepository(workspaceFolders[0].uri);
-          if (repo) {
-            repositories = [repo];
-          }
+          repo = await gitService.getRepository(workspaceFolders[0].uri);
         }
       }
-      if (repositories.length === 0) {
+      if (!repo) {
         return;
       }
-      const repo = repositories[0];
       try {
         const diffs = await gitService.getCommitDiff(repo, hash);
         const changedFiles = diffs.map(d => ({
@@ -2175,20 +3968,22 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
     const commitDiffListener = gitToolWindowProvider.onDidRequestCommitDiff(async ({ commitHash, filePath }) => {
-      let repositories = gitService.getRepositories();
-      if (repositories.length === 0) {
+      // R6-Gap-C: prefer the tool-window's selected repo (that's where the
+      // diff was requested), falling back to the active-editor's repo in
+      // multi-root workspaces. The cold-start discovery path stays as a
+      // last-resort fallback.
+      let repo =
+        gitToolWindowProvider?.getSelectedRepository() ??
+        (await resolveRepo(gitService, { preferActive: true, silent: true }));
+      if (!repo) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-          const repo = await gitService.getRepository(workspaceFolders[0].uri);
-          if (repo) {
-            repositories = [repo];
-          }
+          repo = await gitService.getRepository(workspaceFolders[0].uri);
         }
       }
-      if (repositories.length === 0) {
+      if (!repo) {
         return;
       }
-      const repo = repositories[0];
       try {
         const diffs = await gitService.getCommitDiff(repo, commitHash);
         const fileDiff = diffs.find((d) => d.path === filePath || d.oldPath === filePath);
@@ -2252,17 +4047,33 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Register branch context menu commands for the native BRANCHES tree view.
     // These are the actual VS Code command handlers invoked by the tree view context menus.
-    const branchContextMenuCommands = createBranchContextMenuCommands(gitService, branchTreeProvider);
+    // T1-08(a): pass conflictResolutionService so conflict-producing ops auto-open the dialog.
+    // T1-02: pass pullDialog accessor so pullUsingRebase/pullUsingMerge route through the dialog.
+    // T1-01: pass pushDialog opener so branch.push routes through the dialog.
+    // T3-02 / T3-03: pass merge + new-branch dialog openers so branch.mergeInto and
+    // branch.newBranchFrom / tag.newBranchFrom route through their webview dialogs.
+    const branchContextMenuCommands = createBranchContextMenuCommands(
+      gitService,
+      branchTreeProvider,
+      extensionServices.conflictResolutionService,
+      _getPullDialog,
+      _openPushDialog,
+      _openMergeDialog,
+      _openNewBranchDialog
+    );
     branchContextMenuCommands.register(context);
 
     // Register commit context menu commands for the Git Graph Panel.
     // These handle right-click actions on commit rows in the graph view.
+    // T1-08(a): pass conflictResolutionService so cherry-pick/revert/merge route
+    // through the Resolve Conflicts dialog on conflict.
     if (gitToolWindowProvider) {
-      const commitContextMenuCommands = createCommitContextMenuCommands(
+      commitContextMenuCommands = createCommitContextMenuCommands(
         gitService,
         extensionServices.rebaseService,
         gitToolWindowProvider,
-        (gitService as any).gitCli
+        (gitService as any).gitCli,
+        extensionServices.conflictResolutionService
       );
       commitContextMenuCommands.register(context);
     }
@@ -2279,13 +4090,39 @@ function registerViews(context: vscode.ExtensionContext): void {
     keymapService = new KeymapService(extensionServices.configurationService);
     context.subscriptions.push(keymapService);
 
-    // Initialize Stash View
-    stashView = createStashView(gitService);
+    // T1-08(a): eagerly create the MergeView singleton so the Resolve Conflicts
+    // dialog can subscribe to `onDidResolve` from the moment the service is
+    // wired. MergeView is otherwise cheap — it only opens a panel on `show()`.
+    if (!mergeView) {
+      mergeView = createMergeView(context.extensionUri, gitService);
+    }
+    const conflictService = extensionServices.conflictResolutionService;
+    if (
+      conflictService &&
+      typeof (conflictService as { setResolveConflictsDependencies?: unknown })
+        .setResolveConflictsDependencies === 'function'
+    ) {
+      (
+        conflictService as unknown as {
+          setResolveConflictsDependencies: (
+            ctx: vscode.ExtensionContext,
+            mv: typeof mergeView
+          ) => void;
+        }
+      ).setResolveConflictsDependencies(context, mergeView);
+    }
+
+    // Initialize Stash View — T1-08(a): pass conflictResolutionService so that
+    // `apply`/`pop` conflicts route through the Resolve Conflicts dialog.
+    stashView = createStashView(gitService, extensionServices.conflictResolutionService);
     context.subscriptions.push(stashView);
 
-    // Initialize Shelf View
-    shelfView = createShelfView(extensionServices.shelfService, (repo) =>
-      gitService.getStatus(repo)
+    // Initialize Shelf View — T1-08(a): pass conflictResolutionService so that
+    // unshelve conflicts route through the Resolve Conflicts dialog.
+    shelfView = createShelfView(
+      extensionServices.shelfService,
+      (repo) => gitService.getStatus(repo),
+      extensionServices.conflictResolutionService
     );
     context.subscriptions.push(shelfView);
 
@@ -2294,7 +4131,11 @@ function registerViews(context: vscode.ExtensionContext): void {
     context.subscriptions.push(branchComparisonView);
 
     // Initialize Gutter Blame Provider
-    gutterBlameProvider = createGutterBlameProvider(extensionServices.blameService, gitService);
+    gutterBlameProvider = createGutterBlameProvider(
+      extensionServices.blameService,
+      gitService,
+      extensionServices.blameOptionsSource
+    );
     context.subscriptions.push(gutterBlameProvider);
 
     // Initialize Rebase Progress View
@@ -2328,21 +4169,23 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
         throw new Error('No git ref specified in URI query');
       }
 
-      let repositories = gitService.getRepositories();
-      if (repositories.length === 0) {
+      // R6-Gap-C: honor the URI's filePath as a repo hint so diff provider
+      // reaches for the correct repo in multi-root workspaces. Falls back
+      // to the active-editor's repo, then to workspace-folder discovery.
+      let repo = await resolveRepo(gitService, {
+        hintRepoPath: filePath,
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-          const repo = await gitService.getRepository(workspaceFolders[0].uri);
-          if (repo) {
-            repositories = [repo];
-          }
+          repo = await gitService.getRepository(workspaceFolders[0].uri);
         }
       }
-      if (repositories.length === 0) {
+      if (!repo) {
         throw new Error('No Git repository found');
       }
-
-      const repo = repositories[0];
       if (!(gitService instanceof GitService)) {
         throw new Error('GitService instance required for git show');
       }
@@ -2434,4 +4277,898 @@ export function getServices(): ExtensionServices | undefined {
  */
 export function getGitToolWindowProvider(): GitToolWindowProvider | undefined {
   return gitToolWindowProvider;
+}
+
+/**
+ * Lazily instantiate the T1-02 Pull Dialog, reusing the singleton after the
+ * first call. Returns `undefined` when extension services are unavailable
+ * (e.g. before activation has completed).
+ */
+function _getPullDialog(): PullDialog | undefined {
+  if (pullDialog) {
+    return pullDialog;
+  }
+  if (!extensionServices) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  pullDialog = createPullDialog(
+    extensionServices.gitService,
+    extensionServices.conflictResolutionService
+  );
+  return pullDialog;
+}
+
+/**
+ * Expose the Pull Dialog for cross-module callers (e.g. branch context menu
+ * entries that want to pre-fill source + preset).
+ */
+export function getPullDialog(): PullDialog | undefined {
+  return _getPullDialog();
+}
+
+// ─── T1-01: Push dialog ──────────────────────────────────────────────────────
+
+/**
+ * Open a fresh Push dialog. Unlike Pull, Push is constructed per-invocation
+ * because the row table is a snapshot of the current repo state (branches,
+ * commits-since badges) — reusing a singleton would render stale data.
+ *
+ * @param preselect - Optional single-repo/branch pre-selection. When omitted,
+ *   all workspace repos are shown with the active-editor repo pre-selected.
+ */
+export function _openPushDialog(preselect?: {
+  repo: IRepository;
+  branch?: string;
+}): PushDialog | undefined {
+  if (!extensionServices || !extensionContext) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  const gitService = extensionServices.gitService;
+  const repos = gitService.getRepositories();
+  if (repos.length === 0) {
+    void vscode.window.showErrorMessage('No Git repository found in workspace');
+    return undefined;
+  }
+  const protectedBranches = vscode.workspace
+    .getConfiguration('intellig')
+    .get<string[]>('protectedBranches', []);
+
+  return showPushDialog(extensionContext, {
+    repos,
+    preselect,
+    gitService,
+    protectedBranches,
+    pullDialogAccessor: _getPullDialog,
+    onPushComplete: () => {
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    },
+  });
+}
+
+/** Cross-module entry point — used by branch context menu, etc. */
+export function openPushDialog(preselect?: {
+  repo: IRepository;
+  branch?: string;
+}): PushDialog | undefined {
+  return _openPushDialog(preselect);
+}
+
+// ─── T3-02: Merge Dialog ─────────────────────────────────────────────────────
+
+/**
+ * Open a fresh Merge Dialog for `sourceBranch` into the current branch of
+ * `repo`. One dialog instance per invocation — the read-only summary
+ * reflects current state at open time.
+ */
+export function _openMergeDialog(preselect: {
+  repo: IRepository;
+  sourceBranch: string;
+}): MergeDialog | undefined {
+  if (!extensionServices || !extensionContext) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  return showMergeDialog(extensionContext, {
+    repo: preselect.repo,
+    sourceBranch: preselect.sourceBranch,
+    gitService: extensionServices.gitService,
+    conflictResolutionService: extensionServices.conflictResolutionService,
+    onMergeComplete: () => {
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    },
+  });
+}
+
+/** Cross-module entry point for callers that need the opener. */
+export function openMergeDialog(preselect: {
+  repo: IRepository;
+  sourceBranch: string;
+}): MergeDialog | undefined {
+  return _openMergeDialog(preselect);
+}
+
+// ─── T3-03: New Branch Dialog ────────────────────────────────────────────────
+
+/**
+ * Open a fresh New Branch Dialog. `startPoint` defaults to HEAD when
+ * omitted; when present it shows in the read-only "Start point" row.
+ */
+export function _openNewBranchDialog(preselect: {
+  repo: IRepository;
+  startPoint?: string;
+  defaultName?: string;
+}): NewBranchDialog | undefined {
+  if (!extensionServices || !extensionContext) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  return showNewBranchDialog(extensionContext, {
+    repo: preselect.repo,
+    gitService: extensionServices.gitService,
+    startPoint: preselect.startPoint,
+    defaultName: preselect.defaultName,
+    onBranchCreated: () => {
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    },
+  });
+}
+
+/** Cross-module entry point for callers that need the opener. */
+export function openNewBranchDialog(preselect: {
+  repo: IRepository;
+  startPoint?: string;
+  defaultName?: string;
+}): NewBranchDialog | undefined {
+  return _openNewBranchDialog(preselect);
+}
+
+// ─── T1-09: New Tag flow ─────────────────────────────────────────────────────
+
+/**
+ * Validate a git tag name using a subset of git-check-ref-format rules.
+ * Returns an error message when invalid, `undefined` when valid.
+ */
+export function validateTagName(name: string): string | undefined {
+  if (!name || name.trim().length === 0) {
+    return 'Tag name cannot be empty';
+  }
+  if (/\s/.test(name)) {
+    return 'Tag name cannot contain whitespace';
+  }
+  if (/[~^:?*[\\]/.test(name)) {
+    return 'Tag name cannot contain any of ~ ^ : ? * [ \\';
+  }
+  if (name.includes('..')) {
+    return 'Tag name cannot contain consecutive dots';
+  }
+  if (name.startsWith('-') || name.startsWith('.') || name.startsWith('/')) {
+    return 'Tag name cannot start with -, ., or /';
+  }
+  if (name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')) {
+    return 'Tag name cannot end with ., /, or .lock';
+  }
+  // Control characters
+  for (let i = 0; i < name.length; i++) {
+    const code = name.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) {
+      return 'Tag name cannot contain control characters';
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract a commit hash from a context-menu argument. Accepts strings,
+ * objects with `{ hash }`, or undefined.
+ */
+function _extractCommitHash(arg: unknown): string | undefined {
+  if (!arg) {
+    return undefined;
+  }
+  if (typeof arg === 'string') {
+    return arg;
+  }
+  if (typeof arg === 'object' && arg !== null) {
+    const obj = arg as { hash?: unknown; commit?: unknown };
+    if (typeof obj.hash === 'string') {
+      return obj.hash;
+    }
+    if (typeof obj.commit === 'string') {
+      return obj.commit;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Pick a repository for the New Tag flow. Returns `undefined` if the user
+ * cancels or no repository is available.
+ */
+async function _pickRepositoryForTag(): Promise<IRepository | undefined> {
+  if (!extensionServices) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  // T2-03 — delegate to the unified resolver so `intellig.defaultRepo` and
+  // the active-editor heuristic apply here too.
+  return resolveRepo(extensionServices.gitService, {
+    preferActive: true,
+    pickerTitle: 'Create Tag — Choose Repository',
+    pickerPlaceholder: 'Select a repository',
+  });
+}
+
+/**
+ * Dependencies for the New Tag flow. Kept as a discrete object so tests can
+ * exercise the flow without needing full extension activation.
+ */
+export interface INewTagFlowDeps {
+  /** The repository to tag against. */
+  repo: IRepository;
+  /** Git service used to create the tag. */
+  gitService: IGitService;
+  /**
+   * Prompt helper compatible with `vscode.window.showInputBox`. Returning
+   * `undefined` means the user cancelled.
+   */
+  showInputBox: (options: vscode.InputBoxOptions) => Thenable<string | undefined>;
+  /** Info-toast helper (`vscode.window.showInformationMessage` shape). */
+  showInformationMessage: (message: string) => Thenable<string | undefined>;
+  /** Error-toast helper (`vscode.window.showErrorMessage` shape). */
+  showErrorMessage: (message: string) => Thenable<string | undefined>;
+  /** Optional refresh hook invoked on success. */
+  onTagCreated?: () => void;
+}
+
+/**
+ * Pure (dependency-injected) implementation of the New Tag flow. Prompts
+ * for a tag name, then an optional annotation message, then creates the
+ * tag against `targetRef` (or HEAD when `targetRef` is undefined).
+ *
+ * Exported so unit tests can exercise the flow without activating the
+ * extension.
+ */
+export async function runNewTagFlow(
+  deps: INewTagFlowDeps,
+  targetRef: string | undefined
+): Promise<void> {
+  const name = await deps.showInputBox({
+    title: 'Create Tag',
+    prompt: 'Tag name',
+    placeHolder: 'e.g., v1.0.0',
+    validateInput: (value: string) => validateTagName(value),
+  });
+  if (!name) {
+    return;
+  }
+
+  const message = await deps.showInputBox({
+    title: 'Create Tag',
+    prompt: 'Optional annotation message (leave empty for a lightweight tag)',
+    placeHolder: 'e.g., Release 1.0',
+  });
+  if (message === undefined) {
+    // User pressed Escape on the message prompt.
+    return;
+  }
+
+  try {
+    const normalizedMessage = message.trim().length > 0 ? message : undefined;
+    await deps.gitService.createTag(deps.repo, name, normalizedMessage, targetRef);
+    void deps.showInformationMessage(`Created tag: ${name}`);
+    if (deps.onTagCreated) {
+      deps.onTagCreated();
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    void deps.showErrorMessage(`Failed to create tag: ${msg}`);
+  }
+}
+
+/**
+ * Extension-level wrapper: picks a repository, wires the real VS Code window
+ * helpers, then delegates to `runNewTagFlow`.
+ */
+async function _runNewTagFlow(targetRef: string | undefined): Promise<void> {
+  const repo = await _pickRepositoryForTag();
+  if (!repo || !extensionServices) {
+    return;
+  }
+  await runNewTagFlow(
+    {
+      repo,
+      gitService: extensionServices.gitService,
+      showInputBox: (options) => vscode.window.showInputBox(options),
+      showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
+      showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
+      onTagCreated: () => {
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      },
+    },
+    targetRef
+  );
+}
+
+// ─── T1-07 helpers ───────────────────────────────────────────────────────────
+
+// ─── T2-05 Cherry-Pick variant helpers ───────────────────────────────────────
+
+/**
+ * Pick a subset of files touched by `hash` via a multi-select QuickPick.
+ * Returns `undefined` when the user cancels. Returns an empty array when
+ * the user submits without picking anything; callers should treat that as
+ * cancel (short-circuit to "apply nothing").
+ */
+async function _pickCommitFiles(
+  gitService: IGitService,
+  repo: IRepository,
+  hash: string,
+  title: string
+): Promise<string[] | undefined> {
+  const diffs = await gitService.getCommitDiff(repo, hash);
+  if (diffs.length === 0) {
+    void vscode.window.showInformationMessage('No files changed in this commit.');
+    return undefined;
+  }
+  const items = diffs.map((d) => ({
+    label: d.path,
+    description: d.status,
+    picked: true, // IntelliJ pre-selects all files; users deselect to narrow.
+  }));
+  const picked = await vscode.window.showQuickPick(items, {
+    title: `${title} — ${hash.substring(0, 8)}`,
+    placeHolder: 'Select files to apply (Enter to confirm, Esc to cancel)',
+    canPickMany: true,
+    matchOnDescription: true,
+  });
+  if (!picked) {
+    return undefined;
+  }
+  return picked.map((p) => p.label);
+}
+
+/**
+ * Shared variant runner for Cherry-Pick Without Commit + Apply Selected
+ * Changes. Picks a repo, extracts the hash, invokes
+ * {@link IGitService.cherryPick} with the variant options, and routes
+ * conflicts through the Resolve Conflicts dialog when available.
+ */
+async function _runCherryPickVariant(
+  commitArg: unknown,
+  options: { noCommit?: boolean; files?: string[] }
+): Promise<void> {
+  const hash = _extractCommitHash(commitArg);
+  if (!hash) {
+    void vscode.window.showErrorMessage('No commit selected.');
+    return;
+  }
+  const repo = await _pickRepositoryForCommit();
+  if (!repo || !extensionServices) {
+    return;
+  }
+  const gitService = extensionServices.gitService;
+  const conflictService = extensionServices.conflictResolutionService;
+  const shortHash = hash.substring(0, 8);
+
+  try {
+    const result = await gitService.cherryPick(repo, [hash], options);
+    if (result.success) {
+      const verb = options.files
+        ? 'Applied selected changes from'
+        : options.noCommit
+          ? 'Cherry-picked (without commit)'
+          : 'Cherry-picked';
+      void vscode.window.showInformationMessage(`${verb} ${shortHash}`);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+      return;
+    }
+    if (result.conflicts && result.conflicts.length > 0 && conflictService) {
+      await conflictService.openResolveConflictsDialog(
+        repo,
+        result.conflicts.map((p) => ({ path: p, resolved: false })),
+        {
+          operation: 'cherryPick',
+          target: shortHash,
+          canAbort: true,
+          canContinue: true,
+        }
+      );
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+      return;
+    }
+    // Defensive: no conflicts, no success — surface a generic error.
+    void vscode.window.showWarningMessage(
+      `Cherry-pick of ${shortHash} completed with warnings.`
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    void vscode.window.showErrorMessage(`Cherry-pick failed: ${msg}`);
+  }
+}
+
+/**
+ * Apply Files to Branch flow: prompts for file subset + target branch,
+ * stashes any dirty state on the current branch, checks out the target,
+ * cherry-picks (with file subset, no-commit) onto it, then returns to the
+ * original branch if a stash was taken. The user decides on the target
+ * branch whether to commit the staged changes.
+ *
+ * Data-loss safeguard: if the working tree is dirty and stash fails, we
+ * refuse to switch branches.
+ */
+async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
+  const hash = _extractCommitHash(commitArg);
+  if (!hash) {
+    void vscode.window.showErrorMessage('No commit selected.');
+    return;
+  }
+  const repo = await _pickRepositoryForCommit();
+  if (!repo || !extensionServices) {
+    return;
+  }
+  const gitService = extensionServices.gitService;
+  const shortHash = hash.substring(0, 8);
+
+  // Step 1: pick the target branch.
+  const branches = await gitService.getBranches(repo);
+  const localBranches = branches.filter((b) => b.type === 'local');
+  const currentBranchName = repo.head?.name?.replace(/^refs\/heads\//, '');
+  const otherBranches = localBranches.filter((b) => b.name !== currentBranchName);
+  if (otherBranches.length === 0) {
+    void vscode.window.showErrorMessage(
+      'Apply Files to Branch needs at least one other local branch.'
+    );
+    return;
+  }
+  const branchPick = await vscode.window.showQuickPick(
+    otherBranches.map((b) => ({ label: b.name, description: b.commit?.substring(0, 8) })),
+    {
+      title: `Apply Files to Branch — ${shortHash}`,
+      placeHolder: 'Pick a target branch',
+    }
+  );
+  if (!branchPick) {
+    return;
+  }
+  const targetBranch = branchPick.label;
+
+  // Step 2: pick the file subset.
+  const files = await _pickCommitFiles(gitService, repo, hash, 'Apply Files to Branch');
+  if (!files || files.length === 0) {
+    return;
+  }
+
+  // Step 3: stash dirty state (best-effort), switch, cherry-pick, restore.
+  let stashed = false;
+  try {
+    const status = await gitService.getStatus(repo);
+    if (status.length > 0) {
+      await gitService.stash(repo, `Auto-stash before applying files to ${targetBranch}`);
+      stashed = true;
+    }
+  } catch (stashError) {
+    const msg = stashError instanceof Error ? stashError.message : 'Unknown error';
+    void vscode.window.showErrorMessage(
+      `Refusing to switch branch — failed to stash dirty state: ${msg}`
+    );
+    return;
+  }
+
+  try {
+    await gitService.checkout(repo, targetBranch);
+    const result = await gitService.cherryPick(repo, [hash], {
+      noCommit: true,
+      files,
+    });
+    if (result.success) {
+      void vscode.window.showInformationMessage(
+        `Applied ${files.length} file(s) from ${shortHash} onto '${targetBranch}'. ` +
+          `Review and commit on that branch, or reset to discard.`
+      );
+    } else if (result.conflicts && result.conflicts.length > 0) {
+      const conflictService = extensionServices.conflictResolutionService;
+      if (conflictService) {
+        await conflictService.openResolveConflictsDialog(
+          repo,
+          result.conflicts.map((p) => ({ path: p, resolved: false })),
+          {
+            operation: 'cherryPick',
+            target: `${shortHash} → ${targetBranch}`,
+            canAbort: true,
+            canContinue: true,
+          }
+        );
+      } else {
+        void vscode.window.showWarningMessage(
+          `Conflicts in ${result.conflicts.length} file(s) on '${targetBranch}'. Resolve and commit manually.`
+        );
+      }
+      // Leave the user on the target branch so they can resolve.
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+      return;
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    void vscode.window.showErrorMessage(`Apply Files to Branch failed: ${msg}`);
+  } finally {
+    // Always return to the original branch unless we're on the target with
+    // unresolved conflicts (already returned above). Pop the stash after
+    // the switch-back so the user sees their original state.
+    if (currentBranchName) {
+      try {
+        await gitService.checkout(repo, currentBranchName);
+      } catch (backError) {
+        const msg = backError instanceof Error ? backError.message : 'Unknown error';
+        void vscode.window.showWarningMessage(
+          `Could not return to '${currentBranchName}': ${msg}. ` +
+            `You may be on '${targetBranch}' now.`
+        );
+      }
+    }
+    if (stashed) {
+      try {
+        await gitService.stashPop(repo, 0);
+      } catch (popError) {
+        const msg = popError instanceof Error ? popError.message : 'Unknown error';
+        void vscode.window.showWarningMessage(
+          `Could not pop auto-stash: ${msg}. Run 'git stash pop' manually.`
+        );
+      }
+    }
+    if (gitToolWindowProvider) {
+      gitToolWindowProvider.refresh();
+    }
+  }
+}
+
+/**
+ * Validate a branch name. Matches the validator used in
+ * `BranchContextMenuCommands._handleNewBranchFrom` (same regex) so behaviour
+ * is consistent across all "New Branch…" entry points.
+ *
+ * Exported so unit tests can exercise it directly.
+ *
+ * @param value - Candidate branch name
+ * @returns An error string when invalid, or `undefined` when valid.
+ */
+export function validateBranchName(value: string): string | undefined {
+  if (!value || !value.trim()) {
+    return 'Branch name cannot be empty';
+  }
+  // Security: reject leading `-` (git parses `-foo` as a CLI flag) and
+  // leading `.` (invalid per git-check-ref-format). Mirrors R1 SR-3.
+  if (!/^(?![-.])[\w\-./]+$/.test(value)) {
+    return 'Branch name contains invalid characters';
+  }
+  return undefined;
+}
+
+/**
+ * Internal alias used by the `validateInput` callback shape. Retained for
+ * any legacy callers that still use `showInputBox`; current entry points
+ * route through the New Branch Dialog webview (T3-03).
+ */
+export function _validateBranchName(value: string): string | undefined {
+  return validateBranchName(value);
+}
+
+/**
+ * Resolve a single repository to operate on for a commit-context action.
+ * Single-repo workspaces are auto-selected; multi-repo shows a QuickPick.
+ */
+async function _pickRepositoryForCommit(): Promise<IRepository | undefined> {
+  if (!extensionServices) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  const gitService = extensionServices.gitService;
+  const repos = gitService.getRepositories();
+  if (repos.length === 0) {
+    void vscode.window.showErrorMessage('No Git repository found in workspace');
+    return undefined;
+  }
+  if (repos.length === 1) {
+    return repos[0];
+  }
+  const items = repos.map((r) => ({
+    label: r.rootUri.fsPath.split(/[\\/]/).filter(Boolean).pop() ?? r.rootUri.fsPath,
+    description: r.rootUri.fsPath,
+    repo: r,
+  }));
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Choose Repository',
+    placeHolder: 'Select a repository',
+  });
+  return picked?.repo;
+}
+
+/**
+ * T3-09 — open the given commit on its hosting provider's web UI.
+ *
+ * Resolves the repo's `origin` remote, parses the URL, and builds the
+ * provider-specific commit URL. If the provider isn't recognised or the
+ * repo has no origin, we surface an explanatory error toast instead of
+ * silently doing nothing.
+ */
+async function _openCommitOnHost(hash: string): Promise<void> {
+  const repo = await _pickRepositoryForCommit();
+  if (!repo || !extensionServices) return;
+
+  try {
+    const remotes = await extensionServices.gitService.getRemotes(repo);
+    if (!remotes || remotes.length === 0) {
+      void vscode.window.showInformationMessage(
+        'Open on Host: no remotes configured for this repository.'
+      );
+      return;
+    }
+    // Prefer `origin`; fall back to first remote with a fetch URL.
+    const origin = remotes.find((r) => r.name === 'origin') ?? remotes[0];
+    const url = origin.fetchUrl ?? origin.pushUrl;
+    const parsed = parseRemoteUrl(url);
+    if (!parsed) {
+      void vscode.window.showErrorMessage(
+        `Open on Host: could not parse remote URL "${url ?? '(none)'}".`
+      );
+      return;
+    }
+    const link = commitUrl(parsed, hash);
+    if (!link) {
+      void vscode.window.showErrorMessage(
+        `Open on Host: provider "${parsed.host}" is not supported yet.`
+      );
+      return;
+    }
+    await vscode.env.openExternal(vscode.Uri.parse(link));
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    void vscode.window.showErrorMessage(`Open on Host failed: ${msg}`);
+  }
+}
+
+/**
+ * Open a diff picker for a single commit vs. a reference point. For each
+ * changed file in the commit, the user can open a side-by-side diff using
+ * the `intellig-git:` content-provider scheme.
+ */
+async function _openCommitFileDiff(
+  repo: IRepository,
+  commitHash: string,
+  parentRef: string,
+  gitService: IGitService
+): Promise<void> {
+  const diffs = await gitService.getCommitDiff(repo, commitHash);
+  if (diffs.length === 0) {
+    void vscode.window.showInformationMessage('No changes in this commit.');
+    return;
+  }
+  const picked = await vscode.window.showQuickPick(
+    diffs.map((d) => ({ label: d.path, description: d.status })),
+    {
+      title: `Changed files in ${commitHash.substring(0, 8)}`,
+      placeHolder: 'Select a file to diff',
+    }
+  );
+  if (!picked) return;
+  const filePath = picked.label;
+  const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(parentRef)}`);
+  const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(commitHash)}`);
+  await vscode.commands.executeCommand(
+    'vscode.diff',
+    leftUri,
+    rightUri,
+    `${filePath} (${parentRef.substring(0, 8)} ↔ ${commitHash.substring(0, 8)})`
+  );
+}
+
+/**
+ * Given a commit hash and a comparison target (branch name / commit / 'HEAD'),
+ * list files that differ between the two and open a diff for the chosen file.
+ *
+ * Used by `compareWithHead` and `compareWith`. Simple implementation: we
+ * get the diff of `commitHash` vs its parent and the diff of `target` vs
+ * its parent, then merge file lists. Not a proper 3-way diff — matches
+ * the scope of T1-07 MVP.
+ */
+async function _openRefPairDiffPicker(
+  repo: IRepository,
+  commitHash: string,
+  target: string,
+  gitService: IGitService
+): Promise<void> {
+  try {
+    // Use getCommitDiff for the commit as the file list. For a true
+    // symmetric compare, a future enhancement can run `git diff a..b`.
+    const diffs = await gitService.getCommitDiff(repo, commitHash);
+    if (diffs.length === 0) {
+      void vscode.window.showInformationMessage('No files to compare for this commit.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      diffs.map((d) => ({ label: d.path, description: d.status })),
+      {
+        title: `Compare ${commitHash.substring(0, 8)} ↔ ${target.substring(0, 8)}`,
+        placeHolder: 'Select a file to diff',
+      }
+    );
+    if (!picked) return;
+    const filePath = picked.label;
+    const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(target)}`);
+    const rightUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(commitHash)}`);
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      leftUri,
+      rightUri,
+      `${filePath} (${target} ↔ ${commitHash.substring(0, 8)})`
+    );
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    void vscode.window.showErrorMessage(`Failed to compare: ${msg}`);
+  }
+}
+
+/**
+ * Prompt the user to pick a ref (branch or recent commit) for a pairwise
+ * comparison. Returns the selected ref name, or `undefined` on cancel.
+ */
+async function _pickRefForComparison(
+  repo: IRepository,
+  gitService: IGitService
+): Promise<string | undefined> {
+  const [branches, commits] = await Promise.all([
+    gitService.getBranches(repo),
+    gitService.getLog(repo, { maxCount: 20 }),
+  ]);
+  const branchItems = branches.map((b) => ({
+    label: b.name,
+    description: b.type === 'remote' ? 'remote' : 'local',
+    detail: b.commit.substring(0, 8),
+  }));
+  const commitItems = commits.map((c) => ({
+    label: c.shortHash,
+    description: c.message.split('\n')[0].substring(0, 60),
+    detail: `${c.author.name} — ${c.authorDate.toLocaleDateString()}`,
+  }));
+  const items: vscode.QuickPickItem[] = [
+    { label: 'Branches', kind: vscode.QuickPickItemKind.Separator },
+    ...branchItems,
+    { label: 'Recent Commits', kind: vscode.QuickPickItemKind.Separator },
+    ...commitItems,
+  ];
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Compare with…',
+    placeHolder: 'Choose a branch or commit',
+  });
+  if (!picked || picked.kind === vscode.QuickPickItemKind.Separator) {
+    return undefined;
+  }
+  return picked.label;
+}
+
+// ─── T2-09 helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Prompt the user to pick a stash for a palette-invoked action (Rename…,
+ * Create Branch from Stash…). Returns both the picked stash and the active
+ * StashView instance so the caller can delegate the action handling.
+ *
+ * Lazily creates the module-level `stashView` (like the other stash palette
+ * entries). Returns `undefined` if no repo, no stashes, or user cancels.
+ */
+async function _pickStashForAction(
+  title: string
+): Promise<{ view: StashView; stash: { index: number; message: string } } | undefined> {
+  if (!extensionServices) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  const gitService = extensionServices.gitService;
+  const repos = gitService.getRepositories();
+  if (repos.length === 0) {
+    void vscode.window.showErrorMessage('No Git repository found');
+    return undefined;
+  }
+  const repo = repos[0];
+
+  // Ensure the shared StashView exists so state stays consistent with the
+  // list view the user may already have open.
+  if (!stashView) {
+    stashView = createStashView(gitService, extensionServices.conflictResolutionService);
+  }
+  await stashView.show(repo);
+  const state = stashView.getState();
+  if (!state.stashes || state.stashes.length === 0) {
+    void vscode.window.showInformationMessage('No stashes to choose from.');
+    return undefined;
+  }
+
+  const items = state.stashes.map((item) => ({
+    label: `stash@{${item.stash.index}}`,
+    description: item.stash.message || 'No message',
+    detail: item.stash.branch ? `on ${item.stash.branch}` : undefined,
+    index: item.stash.index,
+    message: item.stash.message ?? '',
+  }));
+  const picked = await vscode.window.showQuickPick(items, {
+    title,
+    placeHolder: 'Select a stash',
+  });
+  if (!picked) {
+    return undefined;
+  }
+  return {
+    view: stashView,
+    stash: { index: picked.index, message: picked.message },
+  };
+}
+
+// ─── T2-11 helpers (exported for unit tests) ─────────────────────────────────
+
+/**
+ * Resolve the target file URI for an explorer-context command invocation.
+ *
+ * Explorer context-menu clicks pass a `fileUri` argument; command-palette
+ * invocations don't. When no explicit URI is given we fall back to the
+ * active editor's document URI, but only if it's a real on-disk file
+ * (`scheme === 'file'`). Returns `undefined` when neither source yields
+ * a usable URI — the caller is expected to surface an error toast.
+ *
+ * Exported so unit tests can exercise the resolution rules without
+ * bootstrapping the extension.
+ */
+export function resolveExplorerFileUri(
+  fileUri: vscode.Uri | undefined,
+  activeEditorUri: vscode.Uri | undefined
+): vscode.Uri | undefined {
+  if (fileUri) return fileUri;
+  if (activeEditorUri && activeEditorUri.scheme === 'file') {
+    return activeEditorUri;
+  }
+  return undefined;
+}
+
+/**
+ * Build the left-hand `intellig-git:` URI used by
+ * `intellig.explorer.compareWithRepoVersion`. The query component is
+ * URL-encoded so refs with `/` (e.g. remote-qualified branches) survive
+ * round-tripping through `Uri.parse`.
+ *
+ * Exported for unit tests.
+ */
+export function buildCompareWithRepoVersionLeftUri(
+  filePath: string,
+  ref: string = 'HEAD'
+): vscode.Uri {
+  return vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(ref)}`);
+}
+
+/**
+ * Build the diff-tab title used by
+ * `intellig.explorer.compareWithRepoVersion`. Mirrors the `<basename> (ref ↔ Working Tree)`
+ * convention used by T2-01's `showDiffWithWorkingTree` for consistency.
+ *
+ * Exported for unit tests.
+ */
+export function buildCompareWithRepoVersionTitle(
+  filePath: string,
+  ref: string = 'HEAD'
+): string {
+  const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
+  return `${basename} (${ref} ↔ Working Tree)`;
 }
