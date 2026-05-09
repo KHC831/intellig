@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, feat/**, fix/**]
+  pull_request:
+    branches: [main, master, feat/**]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Property tests (single run)
+        run: npm run test:property
+
+      # R6 Gap-D: 10× property-test stress guard. R4's 5× budget caught TR-5
+      # but missed TR-6 / TR-7, which were latent through R1-R3. A 10× budget
+      # keeps the same class of flake from slipping again.
+      #
+      # Wall-time: ~17s × 10 ≈ ~3 min. Acceptable per-PR cost; if this becomes
+      # the bottleneck, move to a nightly schedule via workflow_dispatch /
+      # schedule trigger, not by lowering the run count.
+      - name: Property tests (10× stress — R6 Gap-D)
+        run: npm run test:property:stress
