@@ -3697,7 +3697,7 @@ function registerViews(context: vscode.ExtensionContext): void {
         },
         restore: async (id): Promise<void> => {
           await bindShelfRepo();
-          await shelfViewRef.restoreShelfItem(id);
+          shelfViewRef.restoreShelfItem(id);
         },
         importPatches: async (): Promise<void> => {
           await bindShelfRepo();

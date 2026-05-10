@@ -268,11 +268,7 @@ function installWindowStubs(
     let modal = false;
     let items: string[] = [];
     const restStrings = rest.filter((i): i is string => typeof i === 'string');
-    if (
-      optsOrFirst &&
-      typeof optsOrFirst === 'object' &&
-      'modal' in optsOrFirst
-    ) {
+    if (optsOrFirst && typeof optsOrFirst === 'object' && 'modal' in optsOrFirst) {
       modal = Boolean((optsOrFirst as { modal?: boolean }).modal);
       items = restStrings;
     } else if (typeof optsOrFirst === 'string') {
@@ -284,10 +280,7 @@ function installWindowStubs(
     trackers.warn.push({ message: m, items, modal, response });
     return Promise.resolve(response);
   };
-  w.showQuickPick = async (
-    items: unknown,
-    opts?: unknown
-  ): Promise<unknown | undefined> => {
+  w.showQuickPick = async (items: unknown, opts?: unknown): Promise<unknown> => {
     const arr = (await Promise.resolve(items)) as readonly { path: string }[];
     const options = (opts as { title?: string } | undefined) ?? {};
     return quickPickResponder(arr, options.title);
@@ -487,7 +480,12 @@ describe('CommitContextMenuCommands — T2-04 Drop Selected Changes', () => {
     const gitService = makeGitService(repo, { getCommitDiff: async () => diffs });
     const cli = makeMockCli();
     const provider = makeProvider();
-    const commands = new CommitContextMenuCommands(gitService, makeRebase(), provider, cli as unknown as GitCli);
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebase(),
+      provider,
+      cli as unknown as GitCli
+    );
     return { commands, cli, gitService, provider };
   }
 

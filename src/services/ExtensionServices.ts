@@ -11,6 +11,7 @@ import {
   IAutoFetchService,
   IPatchService,
 } from './interfaces';
+import { IGitServiceCli } from './interfaces/IGitService';
 import { ConfigurationService } from './ConfigurationService';
 import { GitService } from './GitService';
 import { RebaseService } from './RebaseService';
@@ -238,8 +239,13 @@ export class ExtensionServices implements IExtensionServices {
       // Initialize ConsoleService (Task 19.4)
       // Connects to GitService to capture command output
       this._consoleService = new ConsoleService();
-      if (this._gitService instanceof GitService) {
-        this._consoleService.connectToGitCli(this._gitService.gitCli);
+      // TL-29: reach through the @internal IGitServiceCli escape hatch
+      // instead of `instanceof GitService`. The composite IGitService
+      // deliberately doesn't expose raw GitCli; any impl that wants to
+      // opt into console-capture wires can implement IGitServiceCli.
+      const cliEscape = this._gitService as unknown as Partial<IGitServiceCli>;
+      if (cliEscape.gitCli) {
+        this._consoleService.connectToGitCli(cliEscape.gitCli);
       }
 
       // Initialize ConflictResolutionService (Task 24.3)

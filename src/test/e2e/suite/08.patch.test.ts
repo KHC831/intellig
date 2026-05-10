@@ -27,9 +27,9 @@ describe('e2e — patch commands', function () {
     if (stubs) {
       stubs.restore();
     }
-    await clearWorkspace();
+    clearWorkspace();
     if (fix) {
-      await fix.cleanup();
+      fix.cleanup();
     }
   });
 
@@ -74,7 +74,7 @@ describe('e2e — patch commands', function () {
     assert.deepStrictEqual(
       entries,
       [],
-      `no .patch file should be written on cancel; got: ${entries}`
+      `no .patch file should be written on cancel; got: ${entries.join(', ')}`
     );
   });
 });

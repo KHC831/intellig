@@ -403,7 +403,7 @@ export const window = {
   ): Promise<string | undefined> => {
     return undefined;
   },
-  showQuickPick: async (_items: unknown[], _options?: unknown): Promise<unknown | undefined> => {
+  showQuickPick: async (_items: unknown[], _options?: unknown): Promise<unknown> => {
     return undefined;
   },
   showInputBox: async (_options?: unknown): Promise<string | undefined> => {

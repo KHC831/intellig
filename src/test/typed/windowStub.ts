@@ -23,21 +23,28 @@ export interface MessageCall {
   items: string[];
 }
 
-/** Mutable slice of `vscode.window` whose functions we override in tests. */
+/**
+ * Mutable slice of `vscode.window` whose functions we override in tests.
+ *
+ * TL-28 tightening: VS Code option bags are modelled as their real types
+ * where that doesn't break the existing call shape, so IntelliSense shows
+ * real fields instead of `unknown`. The variadic `items: unknown[]` shape
+ * on `showWarningMessage` / `showQuickPick` is intentional — call sites
+ * pass an options object or a list of labels interchangeably, matching
+ * the real `vscode.window` overload set.
+ */
 export interface WritableWindow {
-  showInformationMessage: (
-    message: string,
-    ...items: string[]
-  ) => Promise<string | undefined>;
+  showInformationMessage: (message: string, ...items: string[]) => Promise<string | undefined>;
   showErrorMessage: (message: string, ...items: string[]) => Promise<string | undefined>;
-  showWarningMessage: (
-    message: string,
-    ...items: unknown[]
-  ) => Promise<string | undefined>;
-  showQuickPick: (items: unknown[], options?: unknown) => Promise<unknown | undefined>;
-  showInputBox: (options?: unknown) => Promise<string | undefined>;
-  showSaveDialog: (options?: unknown) => Promise<vscode.Uri | undefined>;
-  activeTextEditor?: unknown;
+  showWarningMessage: (message: string, ...items: unknown[]) => Promise<string | undefined>;
+  showQuickPick: (items: unknown[], options?: unknown) => Promise<unknown>;
+  showInputBox: (options?: vscode.InputBoxOptions) => Promise<string | undefined>;
+  showSaveDialog: (options?: vscode.SaveDialogOptions) => Promise<vscode.Uri | undefined>;
+  /**
+   * Typed as `vscode.TextEditor | undefined` so tests that stub the active
+   * editor get the real VS Code shape via IntelliSense rather than `unknown`.
+   */
+  activeTextEditor?: vscode.TextEditor;
 }
 
 /** Mutable slice of `vscode.env` whose fields we override in tests. */

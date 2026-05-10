@@ -146,7 +146,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private _isLoading: boolean = true;
   private _scrollToCommitHash: string | undefined;
   private _pendingChangedFiles: IChangedFile[] | undefined;
-  private _pendingChangedFilesError: unknown | undefined;
+  private _pendingChangedFilesError: unknown;
   private _consoleEntries: IConsoleEntry[] = [];
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
   private _availableRepositories: IRepository[] = [];

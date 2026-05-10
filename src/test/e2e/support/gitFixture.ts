@@ -101,7 +101,17 @@ export interface Fixture {
   rootPath: string;
   remotePath?: string;
   defaultBranch: string;
-  /** Absolute cleanup — removes both the working and remote repos if present. */
+  /**
+   * Absolute cleanup — removes both the working and remote repos if present.
+   *
+   * @remarks
+   * Intentionally synchronous. The underlying `fs.rmSync(..., { recursive })`
+   * is a blocking call; returning a Promise would misleadingly suggest
+   * callers must await before proceeding. Cleanup is also best-effort:
+   * errors are swallowed so a failing `afterEach` doesn't mask the test's
+   * own failure. See also {@link clearWorkspace} which follows the same
+   * policy for VS Code workspace folders.
+   */
   cleanup: () => void;
 }
 

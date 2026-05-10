@@ -209,8 +209,8 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
      * the onto target.
      */
 
-    it('Checkout is called first with the right-clicked branch, then rebaseBranch with the previously current branch', () => {
-      fc.assert(
+    it('Checkout is called first with the right-clicked branch, then rebaseBranch with the previously current branch', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryBranchName(),
@@ -248,7 +248,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
             assert.strictEqual(
               firstOp.args[0],
               rightClickedBranch,
-              `Expected checkout to be called with "${rightClickedBranch}", but was called with "${firstOp.args[0]}"`
+              `Expected checkout to be called with "${rightClickedBranch}", but was called with "${String(firstOp.args[0])}"`
             );
 
             // Assert: Second operation is rebaseBranch
@@ -263,7 +263,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
             assert.strictEqual(
               secondOp.args[0],
               currentBranch,
-              `Expected rebaseBranch to be called with "${currentBranch}", but was called with "${secondOp.args[0]}"`
+              `Expected rebaseBranch to be called with "${currentBranch}", but was called with "${String(secondOp.args[0])}"`
             );
 
             // Assert: checkout happens before rebaseBranch (order check)
@@ -277,8 +277,8 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
       );
     });
 
-    it('Checkout and Rebase uses HEAD as previous branch when in detached HEAD state', () => {
-      fc.assert(
+    it('Checkout and Rebase uses HEAD as previous branch when in detached HEAD state', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryBranchName(), async (rightClickedBranch) => {
           // Setup: Create tracking mock git service with detached HEAD
           const gitService = createTrackingMockGitService('HEAD');
@@ -312,15 +312,15 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
           assert.strictEqual(
             gitService.operationCalls[1].args[0],
             'HEAD',
-            `Expected rebaseBranch to be called with "HEAD" for detached state, but was called with "${gitService.operationCalls[1].args[0]}"`
+            `Expected rebaseBranch to be called with "HEAD" for detached state, but was called with "${String(gitService.operationCalls[1].args[0])}"`
           );
         }),
         { numRuns: 100 }
       );
     });
 
-    it('Checkout and Rebase passes the repository to both operations', () => {
-      fc.assert(
+    it('Checkout and Rebase passes the repository to both operations', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryBranchName(),

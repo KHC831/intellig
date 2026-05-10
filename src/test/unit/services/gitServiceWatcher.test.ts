@@ -71,7 +71,7 @@ function installFakeTimers(): {
   return {
     tick: (ms: number): void => {
       now += ms;
-      while (true) {
+      for (;;) {
         const due = queue.findIndex((q) => q.fireAt <= now);
         if (due < 0) {
           break;

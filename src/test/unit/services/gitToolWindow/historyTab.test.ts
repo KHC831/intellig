@@ -281,10 +281,7 @@ describe('HistoryTab — class behaviour', () => {
     await tab.loadFile('src/a.ts');
 
     const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
-    writableCommands().executeCommand = (
-      command: string,
-      ...args: unknown[]
-    ): Promise<unknown> => {
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
       if (command === 'vscode.diff') {
         diffCalls.push({
           left: args[0] as vscode.Uri,
@@ -310,10 +307,7 @@ describe('HistoryTab — class behaviour', () => {
     await tab.loadFile('src/a.ts');
 
     const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
-    writableCommands().executeCommand = (
-      command: string,
-      ...args: unknown[]
-    ): Promise<unknown> => {
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
       if (command === 'vscode.diff') {
         diffCalls.push({
           left: args[0] as vscode.Uri,
@@ -361,10 +355,7 @@ describe('HistoryTab — class behaviour', () => {
     await tab.loadFile('src/a.ts');
 
     const openCalls: vscode.Uri[] = [];
-    writableCommands().executeCommand = (
-      command: string,
-      ...args: unknown[]
-    ): Promise<unknown> => {
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
       if (command === 'vscode.open') {
         openCalls.push(args[0] as vscode.Uri);
       }

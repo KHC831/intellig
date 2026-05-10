@@ -28,8 +28,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Strict lint gate (Phase 4). Any lint error fails the pipeline;
+      # `--max-warnings 0` additionally fails on new warnings so drift is
+      # caught at PR time rather than accumulating. Keep the local
+      # `npm run lint` alias free of flags so `npm run lint --fix` and
+      # editor integrations keep working unchanged.
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings 0
 
       - name: Compile
         run: npm run compile

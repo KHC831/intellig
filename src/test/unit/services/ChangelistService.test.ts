@@ -66,7 +66,7 @@ function installFakeTimers(): {
     tick: (ms: number): void => {
       now += ms;
       // Fire all timers whose deadline has passed, in insertion order.
-      while (true) {
+      for (;;) {
         const due = queue.findIndex((q) => q.fireAt <= now);
         if (due < 0) {
           break;
@@ -710,16 +710,17 @@ describe('ChangelistService', () => {
 
       // Read — does NOT rewrite the file yet (lazy).
       changelistService.getChangelists(mockRepo);
-      const afterRead = JSON.parse(
-        fs.readFileSync(storagePathOf(testRepoPath), 'utf8')
-      ) as { version: number };
+      const afterRead = JSON.parse(fs.readFileSync(storagePathOf(testRepoPath), 'utf8')) as {
+        version: number;
+      };
       assert.strictEqual(afterRead.version, 1, 'read alone must not rewrite file');
 
       // Write path — creating a changelist triggers the first save.
       changelistService.createChangelist(mockRepo, 'Triggers migration');
-      const afterWrite = JSON.parse(
-        fs.readFileSync(storagePathOf(testRepoPath), 'utf8')
-      ) as { version: number; activeChangelistId?: string };
+      const afterWrite = JSON.parse(fs.readFileSync(storagePathOf(testRepoPath), 'utf8')) as {
+        version: number;
+        activeChangelistId?: string;
+      };
       assert.strictEqual(afterWrite.version, 2, 'write must stamp v2');
       assert.strictEqual(typeof afterWrite.activeChangelistId, 'string');
     });

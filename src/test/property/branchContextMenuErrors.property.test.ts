@@ -334,8 +334,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
      * the handler SHALL display an error notification containing the error message text.
      */
 
-    it('_handleUpdate shows error notification when fetch throws', () => {
-      fc.assert(
+    it('_handleUpdate shows error notification when fetch throws', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryRemoteName(),
@@ -370,8 +370,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    it('_handlePush shows error notification when push throws', () => {
-      fc.assert(
+    it('_handlePush shows error notification when push throws', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryRemoteName(),
@@ -406,8 +406,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    it('_handlePullUsingRebase shows error notification when pull throws', () => {
-      fc.assert(
+    it('_handlePullUsingRebase shows error notification when pull throws', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryRemoteName(),
           arbitraryBranchName(),
@@ -440,8 +440,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    it('_handlePullUsingMerge shows error notification when pull throws', () => {
-      fc.assert(
+    it('_handlePullUsingMerge shows error notification when pull throws', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryRemoteName(),
           arbitraryBranchName(),
@@ -485,8 +485,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
      * of conflicted files.
      */
 
-    it('_handleCheckoutAndRebase shows warning with conflict count when rebaseBranch returns conflicts', () => {
-      fc.assert(
+    it('_handleCheckoutAndRebase shows warning with conflict count when rebaseBranch returns conflicts', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryBranchName(),
@@ -524,8 +524,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    it('_handlePullUsingRebase shows warning with conflict count when pull throws with CONFLICT markers', () => {
-      fc.assert(
+    it('_handlePullUsingRebase shows warning with conflict count when pull throws with CONFLICT markers', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryRemoteName(),
           arbitraryBranchName(),
@@ -567,8 +567,8 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    it('_handlePullUsingMerge shows warning with conflict count when pull throws with CONFLICT markers', () => {
-      fc.assert(
+    it('_handlePullUsingMerge shows warning with conflict count when pull throws with CONFLICT markers', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryRemoteName(),
           arbitraryBranchName(),

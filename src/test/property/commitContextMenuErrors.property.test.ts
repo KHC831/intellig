@@ -29,12 +29,17 @@ import { writableWindow } from '../typed/windowStub';
 /**
  * Actions that call git service methods and can produce errors.
  * Excludes copyHash (clipboard API) and actions not yet implemented.
+ *
+ * `resetToHere` is intentionally excluded: since T1-11 it routes through
+ * the webview-based ResetDialog (which requires a wired extension context)
+ * before any git call, so the error surfaced here is a dialog-availability
+ * message rather than the underlying git error. Its behaviour is covered
+ * by the dedicated ResetDialog unit + property suites.
  */
 const ERROR_TESTABLE_ACTIONS: LogContextAction[] = [
   'cherryPick',
   'revert',
   'checkoutRevision',
-  'resetToHere',
   'createPatch',
   'compareWithLocal',
   'showRepoAtRevision',
@@ -124,7 +129,7 @@ function restoreMessageFunctions(): void {
   w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
   w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
   w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
-  w.showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
+  w.showQuickPick = (): Promise<unknown> => Promise.resolve(undefined);
 }
 
 /**
@@ -269,8 +274,8 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
   beforeEach(() => {
     errorTracker = installErrorMessageTracker();
     // Mock showQuickPick to always return a selection (for resetToHere)
-    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
-      return Promise.resolve((items as unknown[])[0]); // Always pick Soft
+    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> => {
+      return Promise.resolve(items[0]); // Always pick Soft
     };
     // Mock showInputBox to return a value (for editCommitMessage)
     writableWindow().showInputBox = (): Promise<string | undefined> =>
@@ -293,8 +298,8 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
      * the CommitContextMenuCommands handler should call
      * vscode.window.showErrorMessage with a message containing the error description.
      */
-    it('shows error notification containing the error message for any failing action', () => {
-      fc.assert(
+    it('shows error notification containing the error message for any failing action', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryErrorAction(),
           arbitraryCommitHashes(),

@@ -190,7 +190,7 @@ function arbitraryNodeWithCrossLaneLines(maxColumn: number): fc.Arbitrary<ICommi
  * Looks for <rect ... transform="rotate(45, ..." pattern.
  */
 function containsDiamondRect(svg: string): boolean {
-  return /\<rect\s[^>]*transform="rotate\(45,/.test(svg);
+  return /<rect\s[^>]*transform="rotate\(45,/.test(svg);
 }
 
 /**

@@ -53,9 +53,7 @@ interface PackageJsonWithMenus {
  */
 function getMenuContributions(): MenuEntry[] {
   const packageJsonPath = path.resolve(__dirname, '..', '..', '..', 'package.json');
-  const packageJson = JSON.parse(
-    fs.readFileSync(packageJsonPath, 'utf-8')
-  ) as PackageJsonWithMenus;
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as PackageJsonWithMenus;
   const menus = packageJson.contributes?.menus?.['view/item/context'];
   if (!Array.isArray(menus)) {
     throw new Error('No view/item/context menu contributions found in package.json');

@@ -663,10 +663,7 @@ describe('CommitToolWindow — host behavior', () => {
       memento
     );
     const executed: Array<{ command: string; args: unknown[] }> = [];
-    writableCommands().executeCommand = (
-      command: string,
-      ...args: unknown[]
-    ): Promise<unknown> => {
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
       executed.push({ command, args });
       return Promise.resolve(undefined);
     };
@@ -740,10 +737,7 @@ describe('CommitToolWindow — host behavior', () => {
     asTestSurface(tw)._changelists = changelists;
 
     const pickCalls: Array<{ items: Array<{ label: string }>; options: { title?: string } }> = [];
-    writableWindow().showQuickPick = (
-      items: unknown[],
-      options?: unknown
-    ): Promise<unknown | undefined> => {
+    writableWindow().showQuickPick = (items: unknown[], options?: unknown): Promise<unknown> => {
       const labeled = items as Array<{ label: string }>;
       const opts = (options as { title?: string } | undefined) ?? {};
       pickCalls.push({ items: labeled, options: opts });
@@ -753,10 +747,7 @@ describe('CommitToolWindow — host behavior', () => {
     };
 
     const executed: Array<{ command: string; args: unknown[] }> = [];
-    writableCommands().executeCommand = (
-      command: string,
-      ...args: unknown[]
-    ): Promise<unknown> => {
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
       executed.push({ command, args });
       return Promise.resolve(undefined);
     };
@@ -810,7 +801,7 @@ describe('CommitToolWindow — host behavior', () => {
     asTestSurface(tw)._changelists = changelists;
 
     const pickCalls: Array<{ items: Array<{ label: string }> }> = [];
-    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
+    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> => {
       pickCalls.push({ items: items as Array<{ label: string }> });
       // Cancel — returning undefined should leave no side effects.
       return Promise.resolve(undefined);
@@ -881,10 +872,13 @@ describe('CommitToolWindow — host behavior', () => {
     };
 
     // Point the active editor at a file under /repo-b so resolveRepo's
-    // preferActive branch resolves to repoB.
+    // preferActive branch resolves to repoB. Only the `document.uri` field
+    // is exercised by the code under test; cast the partial stub through
+    // `unknown` so the tighter `WritableWindow.activeTextEditor` type
+    // (TL-28) compiles without dragging in the full `vscode.TextEditor` API.
     writableWindow().activeTextEditor = {
       document: { uri: Uri.file('/repo-b/src/a.ts') },
-    };
+    } as unknown as vscode.TextEditor;
 
     const tw = new CommitToolWindow(
       Uri.file('/ext'),

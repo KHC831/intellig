@@ -348,7 +348,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
                 parents: matchingNode.commit.parents || [],
                 branches: matchingNode.branches || [],
                 tags: matchingNode.tags || [],
-                changedFiles: [] as any[],
+                changedFiles: [],
               };
 
               const detailsHtml = testProvider._getDetailsPanelHtml(commitDetails);

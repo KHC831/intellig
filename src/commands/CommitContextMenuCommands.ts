@@ -50,7 +50,8 @@ export class CommitContextMenuCommands {
     this._gitToolWindowProvider = gitToolWindowProvider;
     this._gitCli = gitCli || new GitCli();
     this._conflictResolutionService = conflictResolutionService;
-    this._resolveRepo = repoResolver ?? ((svc, ctx) => resolveRepo(svc, ctx));
+    this._resolveRepo =
+      repoResolver ?? ((svc, ctx): Promise<IRepository | undefined> => resolveRepo(svc, ctx));
   }
 
   /**

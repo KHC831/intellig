@@ -589,7 +589,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
                 assert.ok(
                   halfHeightLine,
                   `Should have a half-height vertical line (y1=0, y2=${config.rowHeight / 2}) at x=${expectedX} for bezier-target pass-through lane ${lane}. ` +
-                    `Active lanes: [${[...activeLanes]}], commit column: ${node.graphColumn}`
+                    `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
                 );
               } else {
                 // Non-bezier-target lanes get a full-height pass-through
@@ -604,7 +604,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
                 assert.ok(
                   fullHeightLine,
                   `Should have a full-height vertical line (y1=0, y2=${config.rowHeight}) at x=${expectedX} for pass-through lane ${lane}. ` +
-                    `Active lanes: [${[...activeLanes]}], commit column: ${node.graphColumn}`
+                    `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
                 );
               }
             }
@@ -712,7 +712,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
               svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
               assert.fail(
-                `renderGraphSvg should not throw for negative lane index ${negativeColumn}: ${e}`
+                `renderGraphSvg should not throw for negative lane index ${negativeColumn}: ${String(e)}`
               );
               return;
             }
@@ -772,7 +772,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
               svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
               assert.fail(
-                `renderGraphSvg should not throw for large lane index ${largeColumn}: ${e}`
+                `renderGraphSvg should not throw for large lane index ${largeColumn}: ${String(e)}`
               );
               return;
             }
@@ -837,7 +837,9 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             try {
               svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
-              assert.fail(`renderGraphSvg should not throw with mixed valid/invalid lanes: ${e}`);
+              assert.fail(
+                `renderGraphSvg should not throw with mixed valid/invalid lanes: ${String(e)}`
+              );
               return;
             }
 
@@ -1042,7 +1044,7 @@ describe('Feature: git-graph-visualization - computeActiveLanes Property Tests',
             assert.ok(
               activeLanes.has(nodes[i].graphColumn),
               `Row ${i}: nodes[${i}].graphColumn (${nodes[i].graphColumn}) should be in active lanes. ` +
-                `Active lanes: [${[...activeLanes]}]`
+                `Active lanes: [${[...activeLanes].join(', ')}]`
             );
           }
         }),
@@ -1100,7 +1102,7 @@ describe('Feature: git-graph-visualization - computeActiveLanes Property Tests',
                   activeLanes.has(line.toColumn),
                   `Row ${i}: line.toColumn (${line.toColumn}) should be in active lanes ` +
                     `because parent appears at later row ${targetRow}. ` +
-                    `Active lanes: [${[...activeLanes]}]`
+                    `Active lanes: [${[...activeLanes].join(', ')}]`
                 );
               }
             }

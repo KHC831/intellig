@@ -1188,14 +1188,14 @@ export function identifyNonConflictingHunks(
   side: NonConflictingSide
 ): number[] {
   const lines = markerText.split('\n');
-  interface Hunk {
+  interface IHunk {
     id: number;
     baseContent: string;
     currentContent: string;
     incomingContent: string;
     resolved: boolean;
   }
-  const hunks: Hunk[] = [];
+  const hunks: IHunk[] = [];
   let inConflict = false;
   let section: 'current' | 'base' | 'incoming' = 'current';
   let currentBuf: string[] = [];

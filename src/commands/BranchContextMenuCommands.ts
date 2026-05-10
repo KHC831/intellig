@@ -943,11 +943,14 @@ export class BranchContextMenuCommands {
 
   /**
    * Parse the number of conflicted files from a git error message.
-   * Git error messages contain "CONFLICT" markers for each conflicted file.
-   * Returns 0 if no conflict markers are found.
+   * Git error messages contain "CONFLICT (<kind>): <description> in <path>"
+   * markers for each conflicted file. We anchor on the literal uppercase
+   * `CONFLICT (` prefix so we don't double-count the lowercase "conflict"
+   * that appears in the human-readable "Merge conflict in <path>" suffix
+   * of the same line. Returns 0 if no conflict markers are found.
    */
   private _parseConflictCount(errorMessage: string): number {
-    const matches = errorMessage.match(/CONFLICT/gi);
+    const matches = errorMessage.match(/CONFLICT \(/g);
     return matches ? matches.length : 0;
   }
 

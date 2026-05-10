@@ -42,8 +42,8 @@ describe('e2e — copy / revision commands', function () {
     } catch {
       // Ignore — tests shouldn't fail on clipboard restore.
     }
-    await clearWorkspace();
-    await fix.cleanup();
+    clearWorkspace();
+    fix.cleanup();
   });
 
   it('intellig.commit.copyHash — copies the full 40-char hash to the clipboard', async () => {

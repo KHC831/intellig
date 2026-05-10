@@ -150,7 +150,7 @@ describe('Feature: intellig-layout - Two Panel Layout Property Tests', () => {
           assert.deepStrictEqual(
             loaded,
             ratios,
-            `Loaded widths [${loaded}] should equal saved widths [${ratios}]`
+            `Loaded widths [${loaded.join(', ')}] should equal saved widths [${ratios.join(', ')}]`
           );
         }),
         { numRuns: 200 }

@@ -86,7 +86,7 @@ function createTrackingMockGitService(): IGitService & {
 } {
   const repoChangeEmitter = new EventEmitter<IRepository>();
   const fetchCalls: Array<{ repo: IRepository; remote?: string }> = [];
-  const pushCalls: Array<{ repo: IRepository; options?: any }> = [];
+  const pushCalls: Array<{ repo: IRepository; options?: IPushOptions }> = [];
 
   const service = {
     fetchCalls,
@@ -224,8 +224,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
      * with the correct remote name derived from the branch's upstream.
      */
 
-    it('Update handler calls fetch with the correct upstream remote name', () => {
-      fc.assert(
+    it('Update handler calls fetch with the correct upstream remote name', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryUpstream(),
@@ -261,8 +261,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
       );
     });
 
-    it('Update handler does not call fetch when branch has no upstream', () => {
-      fc.assert(
+    it('Update handler does not call fetch when branch has no upstream', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryBranchName(), async (branchName) => {
           // Setup: Create tracking mock git service
           const gitService = createTrackingMockGitService();
@@ -287,8 +287,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
       );
     });
 
-    it('Update handler passes the repository to fetch', () => {
-      fc.assert(
+    it('Update handler passes the repository to fetch', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryUpstream(),
@@ -322,8 +322,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
      * and its upstream remote.
      */
 
-    it('Push handler calls push with correct branch name and upstream remote', () => {
-      fc.assert(
+    it('Push handler calls push with correct branch name and upstream remote', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryUpstream(),
@@ -367,8 +367,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
       );
     });
 
-    it('Push handler sets upstream when branch has no upstream configured', () => {
-      fc.assert(
+    it('Push handler sets upstream when branch has no upstream configured', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryBranchName(), async (branchName) => {
           // Setup: Create tracking mock git service
           const gitService = createTrackingMockGitService();
@@ -407,8 +407,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
       );
     });
 
-    it('Push handler does not set upstream when branch already has upstream', () => {
-      fc.assert(
+    it('Push handler does not set upstream when branch already has upstream', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryUpstream(),
@@ -435,8 +435,8 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
       );
     });
 
-    it('Push handler passes the repository to push', () => {
-      fc.assert(
+    it('Push handler passes the repository to push', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryBranchName(),
           arbitraryUpstream(),

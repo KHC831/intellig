@@ -117,9 +117,7 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
   ) => {
     stubs.warningMessageCalls.push({ message, options: optionsOrItems, items });
     return Promise.resolve(
-      options.warningMessage
-        ? options.warningMessage(message, optionsOrItems, ...items)
-        : undefined
+      options.warningMessage ? options.warningMessage(message, optionsOrItems, ...items) : undefined
     );
   }) as unknown as WarningMessageFn;
 

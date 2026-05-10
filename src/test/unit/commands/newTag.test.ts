@@ -59,7 +59,6 @@ function createHarness(
   const createTagCalls: CreateTagCall[] = [];
   const infoMessages: string[] = [];
   const errorMessages: string[] = [];
-  let tagCreatedCalled = 0;
 
   const gitService = {
     createTag: async (
@@ -100,7 +99,6 @@ function createHarness(
       },
       onTagCreated: () => {
         harness.tagCreatedCalled += 1;
-        tagCreatedCalled += 1;
       },
     },
   };

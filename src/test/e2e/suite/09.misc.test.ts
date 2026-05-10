@@ -36,8 +36,8 @@ describe('e2e — miscellaneous palette commands', function () {
 
   afterEach(async () => {
     stubs.restore();
-    await clearWorkspace();
-    await fix.cleanup();
+    clearWorkspace();
+    fix.cleanup();
   });
 
   it('intellig.openGitToolWindow — focuses the tool window without throwing', async () => {

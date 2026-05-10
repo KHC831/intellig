@@ -260,7 +260,7 @@ function createSpiedCommands(commitHash?: string): {
   type HandlerFn = (commitHashes: string[]) => Promise<unknown>;
   const handlerBag = commands as unknown as Record<string, HandlerFn>;
   for (const [, methodName] of Object.entries(ACTION_TO_HANDLER)) {
-    const original = handlerBag[methodName].bind(commands) as HandlerFn;
+    const original = handlerBag[methodName].bind(commands);
     handlerBag[methodName] = async (commitHashes: string[]): Promise<unknown> => {
       calls.push({ method: methodName, commitHashes });
       return original(commitHashes);
@@ -268,8 +268,8 @@ function createSpiedCommands(commitHash?: string): {
   }
 
   // Mock showQuickPick to return a selection for resetToHere
-  writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
-    return Promise.resolve((items as unknown[])[0]); // Always pick the first option (Soft)
+  writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> => {
+    return Promise.resolve(items[0]); // Always pick the first option (Soft)
   };
 
   // Mock showInputBox to return a value for editCommitMessage
@@ -290,7 +290,7 @@ function createSpiedCommands(commitHash?: string): {
 describe('Feature: git-graph-context-menu - Action Dispatch Property Tests', () => {
   afterEach(() => {
     // Restore showQuickPick
-    writableWindow().showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
+    writableWindow().showQuickPick = (): Promise<unknown> => Promise.resolve(undefined);
   });
 
   // Feature: git-graph-context-menu, Property 4: Action dispatch correctness
@@ -303,8 +303,8 @@ describe('Feature: git-graph-context-menu - Action Dispatch Property Tests', () 
      * method corresponding to that action, and that method should receive
      * the correct commit hashes.
      */
-    it('dispatches to exactly one correct handler for any action and commit hashes', () => {
-      fc.assert(
+    it('dispatches to exactly one correct handler for any action and commit hashes', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryAction(),
           arbitraryCommitHashes(),

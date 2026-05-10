@@ -30,12 +30,16 @@ import { writableWindow } from '../typed/windowStub';
  * Actions that modify repository state and should trigger a refresh.
  * Excludes copyHash and showRepoAtRevision per the property definition.
  * Only includes currently implemented actions.
+ *
+ * `resetToHere` is intentionally excluded: since T1-11 it routes through
+ * the webview-based ResetDialog, which fires `onResetComplete` (and thus
+ * the downstream refresh) only after the dialog's own reset flow runs.
+ * That flow is covered by the dedicated ResetDialog suites.
  */
 const STATE_MODIFYING_ACTIONS: LogContextAction[] = [
   'cherryPick',
   'revert',
   'checkoutRevision',
-  'resetToHere',
   'undoCommit',
   'dropCommit',
   'editCommitMessage',
@@ -74,7 +78,7 @@ function restoreMessageFunctions(): void {
   w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
   w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
   w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
-  w.showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
+  w.showQuickPick = (): Promise<unknown> => Promise.resolve(undefined);
 }
 
 /**
@@ -228,7 +232,7 @@ function createSuccessGitCli(): GitCli {
 describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () => {
   beforeEach(() => {
     // Mock showQuickPick to always return a selection (for resetToHere)
-    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
+    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> => {
       return Promise.resolve(items[0]); // Always pick Soft
     };
     // Mock showInputBox to return a value (for editCommitMessage)
@@ -249,8 +253,8 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
      * and showRepoAtRevision), when the operation completes successfully, the
      * handler should call refresh() on the GitToolWindowProvider.
      */
-    it('calls refresh on the provider after any successful state-modifying action', () => {
-      fc.assert(
+    it('calls refresh on the provider after any successful state-modifying action', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryStateModifyingAction(),
           arbitraryCommitHashes(),
@@ -282,8 +286,8 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
       );
     });
 
-    it('does NOT call refresh for copyHash action', () => {
-      fc.assert(
+    it('does NOT call refresh for copyHash action', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryCommitHashes(), async (commitHashes) => {
           const gitService = createSuccessGitService(commitHashes[0]);
           const rebaseService = createMockRebaseService();

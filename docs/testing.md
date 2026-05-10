@@ -89,6 +89,45 @@ No kitchen-sink surfaces.
   `GitServiceGitCliTestSurface` (injects a scripted CLI into a real
   `GitService` instance).
 
+### The variadic-`unknown[]` `throwError` pattern
+
+Error-path stub factories for `IGitService` (and similar composite role
+interfaces) typically want *every* method to throw the same error. Rather
+than hand-typing each method signature, declare one polymorphic
+`throwError` that accepts an unconstrained arg list:
+
+```ts
+// Variadic signature lets this one function stand in for every IGitService
+// method regardless of its specific argument list — the whole object is
+// cast via `as unknown as IGitService` once assembled.
+const throwError = async (..._args: unknown[]): Promise<never> => {
+  throw new Error(errorMsg);
+};
+
+return {
+  commit: throwError,
+  push: throwError,
+  // …every other mutator…
+} as unknown as IGitService;
+```
+
+Why this is preferred over the alternatives:
+
+- **`(..._args: any[]) => …`** — triggers `no-explicit-any` and loses
+  every downstream type check.
+- **Per-method signature copy-paste** — noise, drift when the interface
+  evolves, and offers no additional safety since the body ignores the
+  args anyway.
+- **`as unknown as IGitService` once at the end** — the single cast is
+  localised to the factory and carries a comment explaining why the
+  factory is deliberately not structurally compatible field-by-field.
+
+Exemplars:
+- `createErrorThrowingGitService` in
+  `src/test/property/commitContextMenuErrors.property.test.ts`.
+- `createErrorThrowingMockGitService` in
+  `src/test/property/branchContextMenuErrors.property.test.ts`.
+
 ## §4. Decision rules — where does my new test helper go?
 
 | Scenario                                             | Put it in              |

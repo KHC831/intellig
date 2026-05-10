@@ -222,8 +222,8 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
      * correct remote and branch name parsed from the remote branch reference.
      */
 
-    it('Pull Using Rebase calls pull with rebase: true and correct remote/branch', () => {
-      fc.assert(
+    it('Pull Using Rebase calls pull with rebase: true and correct remote/branch', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryRemoteBranchRef(), async ({ remote, branch, fullRef }) => {
           // Setup: Create tracking mock git service
           const gitService = createTrackingMockGitService();
@@ -271,8 +271,8 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
       );
     });
 
-    it('Pull Using Merge calls pull with rebase: false and correct remote/branch', () => {
-      fc.assert(
+    it('Pull Using Merge calls pull with rebase: false and correct remote/branch', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryRemoteBranchRef(), async ({ remote, branch, fullRef }) => {
           // Setup: Create tracking mock git service
           const gitService = createTrackingMockGitService();
@@ -320,8 +320,8 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
       );
     });
 
-    it('Pull correctly parses remote/branch when branch name contains slashes', () => {
-      fc.assert(
+    it('Pull correctly parses remote/branch when branch name contains slashes', async () => {
+      await fc.assert(
         fc.asyncProperty(
           arbitraryRemoteName(),
           fc.tuple(arbitraryBranchSegment(), arbitraryBranchSegment()).map(([a, b]) => `${a}/${b}`),
@@ -362,8 +362,8 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
       );
     });
 
-    it('Pull passes the repository to the pull operation', () => {
-      fc.assert(
+    it('Pull passes the repository to the pull operation', async () => {
+      await fc.assert(
         fc.asyncProperty(arbitraryRemoteBranchRef(), async ({ fullRef }) => {
           // Setup
           const gitService = createTrackingMockGitService();

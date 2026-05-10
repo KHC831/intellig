@@ -188,9 +188,8 @@ export class TabRouter {
   }
 
   private async _publishContextKey(tab: TabId): Promise<void> {
-    const setter = this._hooks.setContext;
-    if (setter) {
-      await setter(ACTIVE_TAB_CONTEXT_KEY, tab);
+    if (this._hooks.setContext) {
+      await this._hooks.setContext(ACTIVE_TAB_CONTEXT_KEY, tab);
       return;
     }
     try {

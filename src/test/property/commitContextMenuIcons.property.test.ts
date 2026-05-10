@@ -164,9 +164,15 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
 /**
  * Regex that matches common emoji characters.
  * Covers emoji presentation sequences, modifier bases, and supplemental symbols.
+ *
+ * The ZWJ (U+200D) and combining-enclosing-keycap (U+20E3) are matched via
+ * explicit alternation rather than being folded into the main character
+ * class — ESLint's `no-misleading-character-class` flags a class containing
+ * combining characters because `String.prototype.match` iterates by code
+ * point and would yield surprising partial matches for ZWJ sequences.
  */
 const EMOJI_REGEX =
-  /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/u;
+  /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]|[\u{FE00}-\u{FE0F}]|\u{200D}|\u{20E3}/u;
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 

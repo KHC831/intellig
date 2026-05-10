@@ -290,7 +290,7 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
               parents: selectedNode.commit.parents || [],
               branches: selectedNode.branches || [],
               tags: selectedNode.tags || [],
-              changedFiles: [] as any[],
+              changedFiles: [],
             };
 
             const detailsHtml = testProvider._getDetailsPanelHtml(commitDetails);

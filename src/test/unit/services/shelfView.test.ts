@@ -292,7 +292,7 @@ describe('ShelfView — T2-10', () => {
       view.setShowAlreadyUnshelved(true);
       await view.refresh();
 
-      const result = await view.restoreShelfItem('a');
+      const result = view.restoreShelfItem('a');
       assert.strictEqual(result.success, true);
       assert.deepStrictEqual(svc._restored, ['a']);
     });

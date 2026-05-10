@@ -121,7 +121,7 @@ export interface IPullSourceChoice {
 }
 
 /** Sectioned QuickPick item for the step-1 picker. */
-interface SourceQuickPickItem extends vscode.QuickPickItem {
+interface ISourceQuickPickItem extends vscode.QuickPickItem {
   remote?: string;
   branch?: string;
 }
@@ -135,7 +135,7 @@ interface SourceQuickPickItem extends vscode.QuickPickItem {
 export function buildSourceItems(
   branches: ReadonlyArray<IBranch>,
   trackedUpstream?: { remote: string; name: string }
-): SourceQuickPickItem[] {
+): ISourceQuickPickItem[] {
   const grouped = new Map<string, IBranch[]>();
   for (const b of branches) {
     if (b.type !== 'remote') {
@@ -151,7 +151,7 @@ export function buildSourceItems(
     grouped.set(remote, list);
   }
 
-  const items: SourceQuickPickItem[] = [];
+  const items: ISourceQuickPickItem[] = [];
   // Put the upstream's remote first (if present), then the rest in insertion order.
   const orderedRemotes: string[] = [];
   if (trackedUpstream && grouped.has(trackedUpstream.remote)) {

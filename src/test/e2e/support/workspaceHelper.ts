@@ -84,6 +84,12 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
 
 /**
  * Tear down the test's repository registrations. Called in `afterEach`.
+ *
+ * @remarks
+ * Intentionally synchronous — touches only in-memory registrations +
+ * watchers on the service. Matches the policy documented on
+ * {@link Fixture.cleanup}: callers must not `await` this; adding an
+ * awaitable wrapper would imply an ordering guarantee we don't make.
  */
 export function clearWorkspace(): void {
   const services = getServices();
