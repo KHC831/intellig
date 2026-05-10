@@ -187,6 +187,11 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
         );
         assert.match(err.message, /Malformed ref in intellig-git URI/);
         assert.match(err.message, /%GG/);
+        // Task #106 P1: original URIError must be preserved as the cause so
+        // future debugging has the platform root cause, not just our wrapper.
+        assert.ok(err.cause, 'error should carry original cause');
+        assert.ok(err.cause instanceof Error, 'cause should be an Error');
+        assert.strictEqual(err.cause.name, 'URIError', 'cause should be URIError');
         return true;
       }
     );

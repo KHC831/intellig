@@ -4198,13 +4198,6 @@ function registerViews(context: vscode.ExtensionContext): void {
 }
 
 /**
- * Register a TextDocumentContentProvider for the 'intellig-git' URI scheme.
- * This allows opening file content at specific git revisions using URIs like:
- *   intellig-git:path/to/file.ts?ref=<commitHash>
- *
- * Used by the commit diff feature to show file content at parent and current commits.
- */
-/**
  * Resolve the content of an `intellig-git:` URI by running `git show <ref>:<path>`.
  *
  * Exported so it is unit-testable. The production entry point
@@ -4241,8 +4234,8 @@ export async function provideGitShowContent(
   let ref: string;
   try {
     ref = decodeURIComponent(uri.query);
-  } catch {
-    throw new Error(`Malformed ref in intellig-git URI: ${uri.query}`);
+  } catch (err) {
+    throw new Error(`Malformed ref in intellig-git URI: ${uri.query}`, { cause: err });
   }
 
   if (!ref) {
@@ -4284,6 +4277,13 @@ export async function provideGitShowContent(
   }
 }
 
+/**
+ * Register a TextDocumentContentProvider for the 'intellig-git' URI scheme.
+ * This allows opening file content at specific git revisions using URIs like:
+ *   intellig-git:path/to/file.ts?ref=<commitHash>
+ *
+ * Used by the commit diff feature to show file content at parent and current commits.
+ */
 function registerGitContentProvider(context: vscode.ExtensionContext): void {
   const provider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: async (uri: vscode.Uri): Promise<string> => {
