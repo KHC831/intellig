@@ -49,3 +49,17 @@ jobs:
       # schedule trigger, not by lowering the run count.
       - name: Property tests (10× stress — R6 Gap-D)
         run: npm run test:property:stress
+
+      # R6 Gap-A: extension-host smoke suite. Boots a real VS Code host,
+      # activates the extension, and asserts every package.json-declared
+      # command is registered. Catches duplicate-register + webview-CSP
+      # regressions that unit-test mocks silently paper over.
+      - name: Extension-host smoke tests
+        run: xvfb-run -a npm run test:ext-host
+
+      # Tier-2 command E2E suite. Runs each shipped command against a real
+      # temp-dir git repo and verifies the effect by re-reading git state.
+      # Catches command-level regressions that depend on real git subprocess
+      # output (not the in-process mocks the unit suite uses).
+      - name: Tier-2 command E2E tests
+        run: xvfb-run -a npm run test:e2e
