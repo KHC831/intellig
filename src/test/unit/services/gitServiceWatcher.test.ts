@@ -296,6 +296,62 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
     });
   });
 
+  describe('dispose-during-reload guard (task #98 F1)', () => {
+    it('does not reload after dispose, even if a reload is in flight', async () => {
+      const probe = wireWatcher(gitService, stubCli, rootPath);
+      const watchers = getFreshWatchers();
+      const headWatcher = watchers.find(
+        (w) => w._pattern instanceof RelativePattern && w._pattern.pattern === 'HEAD'
+      );
+      assert.ok(headWatcher);
+
+      // First event → debounce elapses → reload starts but is held.
+      probe.holdNextLoad();
+      headWatcher._fireChange(Uri.file(`${rootPath}/.git/HEAD`));
+      timers.tick(250);
+      await flushMicrotasks();
+      assert.strictEqual(probe.loadCount(), 1, 'first reload has started and is held');
+
+      // Queue a trailing-edge event so the `.finally(() => handleChange())`
+      // chain has something to re-debounce once the held reload resolves —
+      // this is the exact shape that used to leak an untracked 250 ms timer
+      // onto a disposed service when a window reload landed mid-fetch.
+      for (let i = 0; i < 5; i++) {
+        headWatcher._fireChange(Uri.file(`${rootPath}/.git/HEAD`));
+      }
+      timers.tick(250);
+      await flushMicrotasks();
+      assert.strictEqual(
+        probe.loadCount(),
+        1,
+        'trailing-edge events are deferred behind the in-flight reload'
+      );
+
+      // Simulate window reload: dispose the service WHILE the original
+      // loadRepository is still held.
+      gitService.dispose();
+
+      // Now release the held reload. Its `.finally(() => handleChange())`
+      // chain must see `_disposed === true` and bail — no fresh 250 ms
+      // timer, no second loadRepository, no git spawn, no emitter.fire()
+      // on the disposed EventEmitter.
+      probe.resolveLoad();
+      await flushMicrotasks();
+
+      // Advance past any timer the pre-fix code would have scheduled.
+      timers.tick(250);
+      await flushMicrotasks();
+      timers.tick(250);
+      await flushMicrotasks();
+
+      assert.strictEqual(
+        probe.loadCount(),
+        1,
+        'no post-dispose reload — the chained handleChange must bail on _disposed'
+      );
+    });
+  });
+
   describe('in-flight guard', () => {
     it('does not start a second reload while one is still running', async () => {
       const probe = wireWatcher(gitService, stubCli, rootPath);

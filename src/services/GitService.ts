@@ -85,6 +85,19 @@ export class GitService implements IGitService {
   private _refreshTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   /** In-flight `loadRepository` promises, keyed by rootPath. */
   private _reloading: Map<string, Promise<IRepository>> = new Map();
+  /**
+   * Latched on `dispose()`. Guards every watcher callback path so that an
+   * in-flight `loadRepository` promise can't schedule a fresh debounce timer
+   * or fire the change emitter against a disposed service (task #98 F1).
+   *
+   * Without this, a window reload that lands mid-reload leaks an untracked
+   * timer via the `.finally(() => handleChange())` chain — `dispose()` clears
+   * `_refreshTimers`/`_reloading`, but the still-pending in-flight promise
+   * later resolves and re-enters `handleChange`, which schedules a new 250 ms
+   * timer and ends up calling `git spawn` + `_onDidChangeRepository.fire()`
+   * on objects whose `dispose()` has already run.
+   */
+  private _disposed = false;
 
   /** Cache TTL in milliseconds (5 seconds) */
   private static readonly CACHE_TTL = 5000;
@@ -112,6 +125,17 @@ export class GitService implements IGitService {
    *    `fetch()` call completes.
    *  - `ORIG_HEAD` — a side-effect file written by reset/merge; the real
    *    branch change is captured by HEAD/refs/** which we already watch.
+   *  - `config` — remote URL / user / alias edits are rare and editor-driven;
+   *    deliberately not watched. Fresh values are picked up via the 5 s cache
+   *    TTL on `_repositories` plus any explicit reload path (task #98 F4).
+   *  - `modules/**` — submodule state changes surface through the parent
+   *    repo's `HEAD` / `index` updates; the inner `.git/modules/<name>/`
+   *    tree is deliberately not watched. Relies on the 5 s cache TTL +
+   *    explicit reload (task #98 F4).
+   *  - `worktrees/**` — linked-worktree metadata (`git worktree add/remove`)
+   *    mutates here but the active worktree's state is already reflected
+   *    through the other allow-listed entries. Deliberately not watched;
+   *    relies on the 5 s cache TTL + explicit reload (task #98 F4).
    */
   private static readonly WATCHED_GIT_PATTERNS: readonly string[] = [
     'HEAD',
@@ -374,20 +398,35 @@ export class GitService implements IGitService {
     const gitDir = vscode.Uri.file(`${rootPath}/.git`);
 
     const handleChange = (): void => {
+      // First-line dispose gate: chained re-entries from `.finally()` below
+      // or late-arriving watcher events must become no-ops once dispose()
+      // has latched (task #98 F1).
+      if (this._disposed) {
+        return;
+      }
       const existing = this._refreshTimers.get(rootPath);
       if (existing) {
         clearTimeout(existing);
       }
       const timer = setTimeout(() => {
+        // Same gate inside the timer callback — dispose() may have landed
+        // between scheduling and firing (task #98 F1).
+        if (this._disposed) {
+          return;
+        }
         this._refreshTimers.delete(rootPath);
         // If a reload is already in flight, chain onto it and re-debounce
         // the trailing-edge event. This is the in-flight guard that breaks
         // the self-triggered refresh loop: we never start a second reload
-        // while the first is still running.
+        // while the first is still running. The `_disposed` check inside
+        // handleChange() ensures the chained re-entry is a no-op if
+        // dispose() runs while the in-flight reload is still pending.
         const inFlight = this._reloading.get(rootPath);
         if (inFlight) {
           void inFlight.finally(() => {
-            handleChange();
+            if (!this._disposed) {
+              handleChange();
+            }
           });
           return;
         }
@@ -396,6 +435,14 @@ export class GitService implements IGitService {
       this._refreshTimers.set(rootPath, timer);
     };
 
+    // Per-root watchers live in `_fileWatchers` which is the sole lifecycle
+    // owner — `removeRepositoryWatcher` disposes and removes from that map,
+    // and `dispose()` walks the same map. Previously each watcher was ALSO
+    // pushed into `_disposables`, leaving a dangling entry behind after a
+    // workspace-folder removal. Disposable.dispose() is idempotent so it
+    // wasn't user-visible, but the entry slowly accumulated across the
+    // session. Only the _onDidChangeRepository emitter and other process-
+    // lifetime disposables belong in `_disposables` (task #98 F2).
     const watchers: vscode.FileSystemWatcher[] = [];
     for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
       const watcher = vscode.workspace.createFileSystemWatcher(
@@ -405,7 +452,6 @@ export class GitService implements IGitService {
       watcher.onDidCreate(handleChange);
       watcher.onDidDelete(handleChange);
       watchers.push(watcher);
-      this._disposables.push(watcher);
     }
 
     this._fileWatchers.set(rootPath, watchers);
@@ -421,16 +467,30 @@ export class GitService implements IGitService {
    * reacting to future file changes.
    */
   private async _performDebouncedRefresh(rootPath: string): Promise<void> {
+    // Re-check the dispose latch at the start of the async tail — the timer
+    // callback that scheduled us may have won the race against dispose()
+    // (task #98 F1).
+    if (this._disposed) {
+      return;
+    }
     this.invalidateCache(rootPath);
     const reload = this.loadRepository(rootPath);
     this._reloading.set(rootPath, reload);
+    // Resolve the reload inside try/finally so the _reloading entry is
+    // always cleared, but fire the emitter *outside* the catch block:
+    // otherwise a subscriber throwing synchronously gets re-wrapped as a
+    // "repository reload failed" error, which is both misleading and hides
+    // the real bug location (task #98 F3).
+    let repo: IRepository | undefined;
     try {
-      const repo = await reload;
-      this._onDidChangeRepository.fire(repo);
+      repo = await reload;
     } catch (err) {
       console.error(`GitService: repository reload for ${rootPath} failed:`, err);
     } finally {
       this._reloading.delete(rootPath);
+    }
+    if (repo && !this._disposed) {
+      this._onDidChangeRepository.fire(repo);
     }
   }
 
@@ -2056,6 +2116,13 @@ export class GitService implements IGitService {
   // ============================================
 
   dispose(): void {
+    // Latch the dispose flag first so any in-flight `loadRepository` promise
+    // that resolves after this point becomes a no-op when its `.finally(() =>
+    // handleChange())` chain re-enters (task #98 F1). This is the primary
+    // defense against calling `git spawn` + `_onDidChangeRepository.fire()`
+    // on a disposed service during a window reload that catches a reload
+    // mid-flight.
+    this._disposed = true;
     this._onDidChangeRepository.dispose();
     this._onDidFetch.dispose();
     this._gitCli.dispose();
