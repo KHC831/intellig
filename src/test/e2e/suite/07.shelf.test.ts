@@ -64,6 +64,16 @@ describe('e2e — shelf commands', function () {
     const before = services.shelfService.getShelfItems(repo);
     assert.strictEqual(before.length, 0, 'sanity: shelf should start empty');
 
+    // Note: we do NOT need to await the ~550ms watcher+reconcile debounce
+    // chain (watcher 250ms + reconcile 300ms) that normally populates the
+    // default changelist via `onDidChangeRepository`. The
+    // `intellig.shelve.silent` handler awaits
+    // `changelistService.reconcileWithGitStatus(repo)` inline before reading
+    // the active changelist (see extension.ts:993), so the store is brought
+    // in sync synchronously against `git status` at the moment of the
+    // command call. This is intentional in the handler: the user pressing
+    // Ctrl+Shift+H expects the just-edited file to be captured regardless
+    // of debounce state.
     await vscode.commands.executeCommand('intellig.shelve.silent');
 
     // Post-conditions:
