@@ -12,6 +12,12 @@
  *    skips the re-commit.
  */
 
+/*
+ * Stub factories synthesise IGitService / IRebaseService implementations
+ * whose member signatures return `Promise<T>`. No-await stub bodies are
+ * intentional here.
+ */
+
 import '../../../test/setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';

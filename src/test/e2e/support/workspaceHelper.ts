@@ -73,7 +73,7 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
 /**
  * Tear down the test's repository registrations. Called in `afterEach`.
  */
-export async function clearWorkspace(): Promise<void> {
+export function clearWorkspace(): void {
   const services = getServices();
   if (!services) {
     return;

@@ -9,6 +9,12 @@
  * protocol).
  */
 
+/*
+ * Stub factories synthesise IGitService / IMergeView / IConflictResolutionService
+ * implementations whose member signatures return `Promise<T>`; no-await stub
+ * bodies are intentional here.
+ */
+
 import * as assert from 'assert';
 import * as fc from 'fast-check';
 import * as vscode from 'vscode';

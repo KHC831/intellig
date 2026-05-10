@@ -85,50 +85,58 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
   // Typed as `any` here because vscode.window.showQuickPick has several
   // overloads we'd otherwise have to enumerate for the mock; the test code
   // stays strongly typed through the `options.quickPick` parameter.
-  (vscode.window as unknown as { showQuickPick: QuickPickFn }).showQuickPick = (async (
+  // Bodies are sync but must return a Thenable to satisfy the vscode API
+  // contract consumers rely on — hence `Promise.resolve(...)` rather than
+  // `async` (no `await` expressions inside).
+  (vscode.window as unknown as { showQuickPick: QuickPickFn }).showQuickPick = ((
     items: unknown,
     opts?: unknown
   ) => {
     stubs.quickPickCalls.push(items);
-    return options.quickPick ? options.quickPick(items, opts) : undefined;
+    return Promise.resolve(options.quickPick ? options.quickPick(items, opts) : undefined);
   }) as unknown as QuickPickFn;
 
-  (vscode.window as unknown as { showInputBox: InputBoxFn }).showInputBox = (async (
+  (vscode.window as unknown as { showInputBox: InputBoxFn }).showInputBox = ((
     opts?: vscode.InputBoxOptions
   ) => {
     stubs.inputBoxCalls.push(opts);
-    return options.inputBox ? options.inputBox(opts) : undefined;
+    return Promise.resolve(options.inputBox ? options.inputBox(opts) : undefined);
   }) as unknown as InputBoxFn;
 
-  (vscode.window as unknown as { showSaveDialog: SaveDialogFn }).showSaveDialog = (async (
+  (vscode.window as unknown as { showSaveDialog: SaveDialogFn }).showSaveDialog = ((
     opts?: vscode.SaveDialogOptions
   ) => {
     stubs.saveDialogCalls.push(opts);
-    return options.saveDialog ? options.saveDialog(opts) : undefined;
+    return Promise.resolve(options.saveDialog ? options.saveDialog(opts) : undefined);
   }) as unknown as SaveDialogFn;
 
-  (vscode.window as unknown as { showWarningMessage: WarningMessageFn }).showWarningMessage =
-    (async (message: string, optionsOrItems: unknown, ...items: unknown[]) => {
-      stubs.warningMessageCalls.push({ message, options: optionsOrItems, items });
-      return options.warningMessage
+  (vscode.window as unknown as { showWarningMessage: WarningMessageFn }).showWarningMessage = ((
+    message: string,
+    optionsOrItems: unknown,
+    ...items: unknown[]
+  ) => {
+    stubs.warningMessageCalls.push({ message, options: optionsOrItems, items });
+    return Promise.resolve(
+      options.warningMessage
         ? options.warningMessage(message, optionsOrItems, ...items)
-        : undefined;
-    }) as unknown as WarningMessageFn;
+        : undefined
+    );
+  }) as unknown as WarningMessageFn;
 
   const silenceInfo = options.silenceInfoMessages !== false;
   if (silenceInfo) {
     (
       vscode.window as unknown as { showInformationMessage: InformationMessageFn }
-    ).showInformationMessage = (async (_message: string, ..._rest: unknown[]) =>
-      undefined) as unknown as InformationMessageFn;
+    ).showInformationMessage = ((_message: string, ..._rest: unknown[]) =>
+      Promise.resolve(undefined)) as unknown as InformationMessageFn;
   }
 
   const silenceError = options.silenceErrorMessages !== false;
   if (silenceError) {
-    (vscode.window as unknown as { showErrorMessage: ErrorMessageFn }).showErrorMessage = (async (
+    (vscode.window as unknown as { showErrorMessage: ErrorMessageFn }).showErrorMessage = ((
       _message: string,
       ..._rest: unknown[]
-    ) => undefined) as unknown as ErrorMessageFn;
+    ) => Promise.resolve(undefined)) as unknown as ErrorMessageFn;
   }
 
   return stubs;

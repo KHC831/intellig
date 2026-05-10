@@ -13,6 +13,12 @@
  *     contract (set / clear / get via `getExtendedLogState`).
  */
 
+/*
+ * Stub factories synthesise gitCli / IGitService implementations whose
+ * member signatures return `Promise<T>`; no-await stub bodies are
+ * intentional here.
+ */
+
 import '../../../../test/setup';
 import * as assert from 'assert';
 import type { CherryMark, ICommit, IRepository } from '../../../../services/interfaces/IGitService';

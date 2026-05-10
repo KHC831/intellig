@@ -20,6 +20,12 @@
  * - ApplyPatchDialog: cancel → dialog disposed, no apply call.
  */
 
+/*
+ * Stub factories synthesise IGitService / IConflictService implementations
+ * whose member signatures return `Promise<T>`; no-await stub bodies are
+ * intentional here.
+ */
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

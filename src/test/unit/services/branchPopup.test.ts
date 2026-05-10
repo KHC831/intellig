@@ -14,6 +14,11 @@
  * the extension test suite and are not in scope for unit tests.
  */
 
+/*
+ * Stub factories synthesise IGitService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { IBranch, IGitService, IRepository, ITag } from '../../../services/interfaces/IGitService';

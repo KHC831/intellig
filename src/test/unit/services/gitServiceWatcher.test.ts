@@ -105,7 +105,6 @@ class StubGitCli {
   public readonly prefixResults: Map<string, { exitCode: number; stdout: string; stderr: string }> =
     new Map();
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async exec(
     args: string[]
   ): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> {

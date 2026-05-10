@@ -15,6 +15,12 @@
  *    and `contextOpen` escalates to a QuickPick that honors the row kind.
  */
 
+/*
+ * Stub factories synthesise IGitService / IChangelistService implementations
+ * whose member signatures return `Promise<T>`; no-await stub bodies are
+ * intentional here.
+ */
+
 import '../../../test/setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';

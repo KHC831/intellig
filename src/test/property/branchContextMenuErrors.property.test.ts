@@ -5,6 +5,11 @@
  * Feature: branch-context-menu, Property 9: Conflict results produce warning notifications
  */
 
+/*
+ * Stub factories synthesise IGitService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';

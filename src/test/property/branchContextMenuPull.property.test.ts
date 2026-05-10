@@ -4,6 +4,11 @@
  * Feature: branch-context-menu, Property 7: Pull strategy selection
  */
 
+/*
+ * Stub factories synthesise IGitService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';

@@ -4,6 +4,13 @@
  * error handling, and conflict scenarios.
  */
 
+/*
+ * Stub factories synthesise IGitService / IRebaseService instances whose
+ * member signatures are `Promise<T>`. Implementations that simply return a
+ * literal (or just push to a call tracker) have no `await`; this is
+ * intentional stub behaviour.
+ */
+
 import '../../../test/setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';

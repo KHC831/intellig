@@ -36,7 +36,6 @@ class MockGitCli {
     stderr: '',
     combined: '',
   });
-  // eslint-disable-next-line @typescript-eslint/require-await
   async exec(
     args: string[],
     options: { cwd?: string; input?: string } = {}
@@ -44,7 +43,6 @@ class MockGitCli {
     this.exec_.push({ args: [...args], input: options.input });
     return this.nextResult(args, options.input);
   }
-  // eslint-disable-next-line @typescript-eslint/require-await
   async getRepositoryRoot(p: string): Promise<string | undefined> {
     return p;
   }

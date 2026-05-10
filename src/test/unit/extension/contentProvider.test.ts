@@ -44,7 +44,6 @@ class CapturingGitCli {
     return this._onCommandExecuted.event;
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async exec(
     args: string[],
     options: { cwd?: string; throwOnError?: boolean } = {}
@@ -53,7 +52,6 @@ class CapturingGitCli {
     return { exitCode: this._exitCode, stdout: this._stdout, stderr: '', combined: this._stdout };
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
   async getRepositoryRoot(path: string): Promise<string | undefined> {
     return path;
   }

@@ -745,7 +745,7 @@ export class ShelfView implements IShelfView {
   /**
    * Reactivate an Already-Unshelved entry by clearing its `unshelvedAt`.
    */
-  async restoreShelfItem(id: string): Promise<IShelfActionResult> {
+  restoreShelfItem(id: string): IShelfActionResult {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }

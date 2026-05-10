@@ -5,7 +5,6 @@
 
 /* eslint-disable @typescript-eslint/naming-convention */
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-/* eslint-disable @typescript-eslint/require-await */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
 // Mock EventEmitter

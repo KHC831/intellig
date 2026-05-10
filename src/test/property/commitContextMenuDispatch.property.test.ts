@@ -7,6 +7,12 @@
  * method should receive the correct commit hashes.
  */
 
+/*
+ * Stub factories synthesise IGitService / IRebaseService implementations
+ * whose member signatures return `Promise<T>`; no-await stub bodies are
+ * intentional here.
+ */
+
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';

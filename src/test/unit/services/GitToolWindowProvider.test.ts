@@ -734,7 +734,7 @@ describe('Initial Data Request and No-Repository State', () => {
         options: {},
         cspSource: 'mock-csp-source',
         onDidReceiveMessage: (_listener: (e: unknown) => void) => ({ dispose: () => {} }),
-        postMessage: async (_message: unknown) => true,
+        postMessage: (_message: unknown) => Promise.resolve(true),
         asWebviewUri: (localResource: unknown) => localResource,
       },
       visible: true,

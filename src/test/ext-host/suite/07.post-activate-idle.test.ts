@@ -362,7 +362,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     assert.fail(msg);
   });
 
-  it('total spawn count across activation + idle is bounded (regression amplifier)', async () => {
+  it('total spawn count across activation + idle is bounded (regression amplifier)', () => {
     // Companion to the idle-window test. Even if the idle window shows
     // zero spawns (the watcher happens to be quiet in this host
     // configuration), the TOTAL spawn count — accumulated across the full

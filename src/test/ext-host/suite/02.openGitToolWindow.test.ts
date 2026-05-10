@@ -49,7 +49,7 @@ describe('ext-host smoke — 2. open Git tool window', function () {
     await vscode.commands.executeCommand('intellig.openGitToolWindow');
   });
 
-  it('uses webview security scaffolding (CSP + nonce) when the view resolves', async () => {
+  it('uses webview security scaffolding (CSP + nonce) when the view resolves', () => {
     // We can't inspect the view's HTML string through vscode's public API
     // once it's mounted inside a view container — but the `GitToolWindowProvider`
     // module exposes its HTML-building code, and every IntelliG webview goes

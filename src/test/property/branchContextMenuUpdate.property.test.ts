@@ -5,6 +5,11 @@
  * Feature: branch-context-menu, Property 4: Push command targets correct branch
  */
 
+/*
+ * Stub factories synthesise IGitService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';

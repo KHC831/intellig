@@ -38,5 +38,13 @@
     "semi": "off",
     "prettier/prettier": "warn"
   },
+  "overrides": [
+    {
+      "files": ["src/test/**/*.ts"],
+      "rules": {
+        "@typescript-eslint/require-await": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["out", "dist", "**/*.d.ts", "node_modules"]
 }

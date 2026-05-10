@@ -103,9 +103,9 @@ function makeFakeView(): FakeView {
     options: {},
     cspSource: 'vscode-webview://mock',
     onDidReceiveMessage: messageEmitter.event,
-    postMessage: async (m: unknown): Promise<boolean> => {
+    postMessage: (m: unknown): Promise<boolean> => {
       posted.push(m);
-      return true;
+      return Promise.resolve(true);
     },
     asWebviewUri: (localResource: vscode.Uri): vscode.Uri => localResource,
     _messageEmitter: messageEmitter,

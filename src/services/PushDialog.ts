@@ -406,29 +406,24 @@ export class PushDialog extends BaseWebviewPanel {
     this._pullDialogAccessor = options.pullDialogAccessor;
     this._onPushComplete = options.onPushComplete;
 
-    // Kick off async row population; render a placeholder in the meantime.
-    void this._populateRows(options.repos, options.preselect).then(() => {
-      if (options.preselectForce === 'force-with-lease') {
-        this._primaryAction = 'forceWithLease';
-      } else if (options.preselectForce === 'force') {
-        this._primaryAction = 'force';
-      } else {
-        this._primaryAction = defaultPrimaryAction(this._rows);
-      }
-      this._render();
-    });
-
-    // Initial render with an empty state so the user sees the panel while
-    // repo metadata is being resolved.
+    // Populate rows synchronously — data comes entirely from in-memory repo state.
+    this._populateRows(options.repos, options.preselect);
+    if (options.preselectForce === 'force-with-lease') {
+      this._primaryAction = 'forceWithLease';
+    } else if (options.preselectForce === 'force') {
+      this._primaryAction = 'force';
+    } else {
+      this._primaryAction = defaultPrimaryAction(this._rows);
+    }
     this._render();
   }
 
   // ─── Row bootstrap ─────────────────────────────────────────────────────────
 
-  private async _populateRows(
+  private _populateRows(
     repos: ReadonlyArray<IRepository>,
     preselect?: { repo: IRepository; branch?: string }
-  ): Promise<void> {
+  ): void {
     const rows: IPushRow[] = [];
     for (const repo of repos) {
       const localBranch = repo.head?.name?.replace(/^refs\/heads\//, '') ?? '';

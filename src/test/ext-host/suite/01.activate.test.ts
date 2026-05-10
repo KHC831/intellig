@@ -66,7 +66,7 @@ describe('ext-host smoke — 1. activate', function () {
     );
   });
 
-  it('registers no command id more than once (catches duplicate registerCommand — C-1)', async () => {
+  it('registers no command id more than once (catches duplicate registerCommand — C-1)', () => {
     // Install the counter BEFORE re-activating the extension. We re-activate
     // by calling `activate()` again — VS Code guarantees the extension's
     // disposables persist, so any duplicate `registerCommand` on re-entry

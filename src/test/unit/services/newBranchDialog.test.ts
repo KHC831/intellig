@@ -17,6 +17,12 @@
  *        dialog remains open for retry.
  */
 
+/*
+ * Stub factories synthesise IGitService / gitCli implementations whose
+ * member signatures return `Promise<T>`; no-await stub bodies are
+ * intentional here.
+ */
+
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';

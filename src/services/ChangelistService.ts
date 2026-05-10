@@ -419,6 +419,7 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    * @param id - ID of the changelist to mark active
    */
+  // eslint-disable-next-line @typescript-eslint/require-await -- interface contract requires Promise<void>
   async setActiveChangelist(repo: IRepository, id: string): Promise<void> {
     const storage = this.loadChangelistStorage(repo);
 
@@ -451,6 +452,7 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    * @returns The active changelist
    */
+  // eslint-disable-next-line @typescript-eslint/require-await -- interface contract requires Promise<IChangelist>
   async getActiveChangelist(repo: IRepository): Promise<IChangelist> {
     const storage = this.loadChangelistStorage(repo);
     const changelists = this.getChangelists(repo);
@@ -471,6 +473,7 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    * @param filePath - The file path to look up (as stored, no normalization)
    */
+  // eslint-disable-next-line @typescript-eslint/require-await -- interface contract requires Promise<string | undefined>
   async getChangelistForFile(repo: IRepository, filePath: string): Promise<string | undefined> {
     const changelists = this.getChangelists(repo);
     for (const cl of changelists) {

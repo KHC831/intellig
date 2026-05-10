@@ -121,7 +121,7 @@ type NoopGitService = Pick<IGitService, 'getStatus' | 'onDidChangeRepository'>;
 
 function makeNoopGitServiceStub(): NoopGitService {
   return {
-    // eslint-disable-next-line @typescript-eslint/require-await -- stub signature must match IGitService.getStatus; structural conformance only. Will be closed by task #88 (Phase 2).
+    // stub signature must match IGitService.getStatus; structural conformance only.
     getStatus: async (_repo) => [],
     onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
       dispose: (): void => {
@@ -799,6 +799,7 @@ describe('ChangelistService', () => {
       const gitService = {
         // Only the subset used by ChangelistService + the test's trigger
         // is implemented; everything else throws if touched by accident.
+        // IGitService.getStatus contract returns Promise<IFileStatus[]>
         getStatus: async (repo: IRepository): Promise<{ path: string }[]> => {
           callCount++;
           if (onStatusCalled) {

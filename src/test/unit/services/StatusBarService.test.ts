@@ -12,6 +12,11 @@
  * and are covered in the extension test suite.
  */
 
+/*
+ * Stub factories synthesise IGitService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import '../../setup';
 import * as assert from 'assert';
 import {

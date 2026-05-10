@@ -15,7 +15,6 @@ import { Uri } from '../../mocks/vscode';
 
 class CountingGitCli {
   public readonly calls: { args: string[] }[] = [];
-  // eslint-disable-next-line @typescript-eslint/require-await
   async exec(
     args: string[]
   ): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> {

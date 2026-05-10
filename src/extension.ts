@@ -1205,7 +1205,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Refresh command - refreshes all Git views
-  const refreshCommand = vscode.commands.registerCommand('intellig.refresh', async () => {
+  const refreshCommand = vscode.commands.registerCommand('intellig.refresh', () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;

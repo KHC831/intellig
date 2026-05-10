@@ -102,7 +102,7 @@ export interface Fixture {
   remotePath?: string;
   defaultBranch: string;
   /** Absolute cleanup — removes both the working and remote repos if present. */
-  cleanup: () => Promise<void>;
+  cleanup: () => void;
 }
 
 /**
@@ -211,7 +211,7 @@ export async function createFixtureRepo(opts: FixtureOpts = {}): Promise<Fixture
     rootPath,
     ...(remotePath ? { remotePath } : {}),
     defaultBranch,
-    cleanup: async () => {
+    cleanup: () => {
       // Best-effort — don't let cleanup errors mask test failures.
       try {
         fs.rmSync(tmpBase, { recursive: true, force: true, maxRetries: 3 });

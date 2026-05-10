@@ -20,6 +20,12 @@
  *   the dialog but still publishes the context key.
  */
 
+/*
+ * Stub factories synthesise IGitService / IMergeView / IConflictResolutionService
+ * implementations whose member signatures return `Promise<T>`; no-await stub
+ * bodies are intentional here.
+ */
+
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

@@ -10,6 +10,11 @@
  *   removeAppliedFiles flag through to ShelfService.unshelve.
  */
 
+/*
+ * Stub factories synthesise IShelfService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { ShelfView } from '../../../services/ShelfView';

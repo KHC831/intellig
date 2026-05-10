@@ -21,6 +21,13 @@
  *   - findRepoContainingPath / basenameOf / normalizePath behaviour
  */
 
+/*
+ * `showQuickPick` stubs synthesise a function whose contract is
+ * `ISelectRepoDeps.showQuickPick: (...) => Thenable<T | undefined>` —
+ * returning a Promise requires the `async` marker; bodies are synchronous
+ * here.
+ */
+
 import '../../../test/setup';
 import * as assert from 'assert';
 import { Uri } from '../../mocks/vscode';

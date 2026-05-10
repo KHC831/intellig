@@ -13,6 +13,11 @@
  *     by the property suite).
  */
 
+/*
+ * Stub factories synthesise IGitService implementations whose member
+ * signatures return `Promise<T>`; no-await stub bodies are intentional here.
+ */
+
 import '../../setup';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../commands/BranchContextMenuCommands';
