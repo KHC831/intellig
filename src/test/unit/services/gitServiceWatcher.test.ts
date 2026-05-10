@@ -305,6 +305,14 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
       );
       assert.ok(headWatcher);
 
+      // Subscribe a counter to onDidChangeRepository so we can assert that
+      // the emitter never fires for any post-dispose reload attempt (F6
+      // defense-in-depth — the fire is post-gate, so the pre-F1 code also
+      // would not have fired here; the assertion makes the invariant
+      // explicit against future regressions).
+      let fireCount = 0;
+      const fireSub = gitService.onDidChangeRepository(() => fireCount++);
+
       // First event → debounce elapses → reload starts but is held.
       probe.holdNextLoad();
       headWatcher._fireChange(Uri.file(`${rootPath}/.git/HEAD`));
@@ -349,6 +357,8 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
         1,
         'no post-dispose reload — the chained handleChange must bail on _disposed'
       );
+      assert.strictEqual(fireCount, 0, 'no post-dispose fire');
+      fireSub.dispose();
     });
   });
 

@@ -13,7 +13,7 @@
  * (decoded), not `origin%2Fmain` (raw).
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-assignment */
 
 import * as assert from 'assert';
 import { provideGitShowContent } from '../../../extension';
@@ -113,14 +113,9 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     // `'origin%2Fmain'`, which is what every producer in the codebase puts
     // in the URI query. If the provider reads `uri.query` raw, the git show
     // arg is `origin%2Fmain:src/foo.ts` — a revision git cannot resolve.
-    const uri = buildIntelligGitUri(
-      '/test/repo/src/foo.ts',
-      encodeURIComponent('origin/main')
-    );
+    const uri = buildIntelligGitUri('/test/repo/src/foo.ts', encodeURIComponent('origin/main'));
 
-    const content = await provideGitShowContent(uri, gitService, [
-      { uri: Uri.file('/test/repo') },
-    ]);
+    const content = await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
 
     assert.strictEqual(content, 'file contents at ref\n');
     assert.strictEqual(mockGitCli.executed.length, 1);
@@ -140,18 +135,12 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     // Commit hashes have no reserved characters, so encoded and decoded
     // forms are identical. This test confirms the decode step is idempotent
     // for that common case — i.e. the fix does not regress the hash path.
-    const uri = buildIntelligGitUri(
-      '/test/repo/src/foo.ts',
-      encodeURIComponent('abc1234')
-    );
+    const uri = buildIntelligGitUri('/test/repo/src/foo.ts', encodeURIComponent('abc1234'));
 
     await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
 
     assert.strictEqual(mockGitCli.executed.length, 1);
-    assert.deepStrictEqual(mockGitCli.executed[0].args, [
-      'show',
-      'abc1234:/test/repo/src/foo.ts',
-    ]);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'abc1234:/test/repo/src/foo.ts']);
   });
 
   it('decodes a feature-branch ref with multiple `/` segments', async () => {
@@ -176,6 +165,30 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     await assert.rejects(
       () => provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]),
       /No git ref specified/
+    );
+  });
+
+  it('wraps malformed percent-encoded refs in a friendly error (task #103 A2)', async () => {
+    // `%GG` is not a valid percent-escape, so `decodeURIComponent` throws
+    // `URIError: URI malformed`. Pre-fix, that raw URIError bubbled up and
+    // obscured the contract violation; post-fix, the provider wraps it in
+    // a friendly `Error` that names both the scheme and the offending query
+    // so logs and error handlers point at the producer bug, not the decode.
+    const uri = buildIntelligGitUri('/test/repo/src/foo.ts', '%GG');
+
+    await assert.rejects(
+      () => provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]),
+      (err: unknown) => {
+        assert.ok(err instanceof Error, 'must be a plain Error, not a URIError');
+        assert.strictEqual(
+          err.constructor.name,
+          'Error',
+          'must not be the raw URIError from the platform decodeURIComponent'
+        );
+        assert.match(err.message, /Malformed ref in intellig-git URI/);
+        assert.match(err.message, /%GG/);
+        return true;
+      }
     );
   });
 });

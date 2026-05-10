@@ -121,7 +121,8 @@ type NoopGitService = Pick<IGitService, 'getStatus' | 'onDidChangeRepository'>;
 
 function makeNoopGitServiceStub(): NoopGitService {
   return {
-    getStatus: async (_repo: IRepository) => [],
+    // eslint-disable-next-line @typescript-eslint/require-await -- stub signature must match IGitService.getStatus; structural conformance only. Will be closed by task #88 (Phase 2).
+    getStatus: async (_repo) => [],
     onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
       dispose: (): void => {
         // no-op
@@ -131,6 +132,12 @@ function makeNoopGitServiceStub(): NoopGitService {
 }
 
 /**
+ * NOT suitable for `createChangelistService(...)` because the constructor
+ * eagerly calls `onDidChangeRepository`, which would trip the throwing trap.
+ * Use `makeNoopGitServiceStub()` for constructor-path tests; use this helper
+ * only for tests that exercise methods WITHOUT going through the constructor
+ * (e.g., static-helper tests or other services that take IGitService).
+ *
  * Defense-in-depth stub: every property access throws.
  *
  * Use in specs where the method under test should NOT reach into
@@ -192,9 +199,7 @@ describe('ChangelistService', () => {
     // Create the changelist service with the no-op stub — specs under
     // this `describe` don't assert on reconcile behavior, so the stub's
     // empty-status / no-fire semantics keep storage deterministic.
-    changelistService = createChangelistService(
-      makeNoopGitServiceStub() as IGitService
-    );
+    changelistService = createChangelistService(makeNoopGitServiceStub() as IGitService);
   });
 
   /**
@@ -505,9 +510,7 @@ describe('ChangelistService', () => {
       changelistService.createChangelist(mockRepo, 'Persistent');
 
       // Create a new service instance
-      const newService = createChangelistService(
-        makeNoopGitServiceStub() as IGitService
-      );
+      const newService = createChangelistService(makeNoopGitServiceStub() as IGitService);
 
       try {
         // Get changelists from new instance
@@ -525,9 +528,7 @@ describe('ChangelistService', () => {
       changelistService.moveToChangelist(mockRepo, ['file1.txt', 'file2.txt'], changelist.id);
 
       // Create a new service instance
-      const newService = createChangelistService(
-        makeNoopGitServiceStub() as IGitService
-      );
+      const newService = createChangelistService(makeNoopGitServiceStub() as IGitService);
 
       try {
         const changelists = newService.getChangelists(mockRepo);
@@ -736,9 +737,7 @@ describe('ChangelistService', () => {
       assert.strictEqual(active.id, cl.id);
 
       // Also visible across a fresh service instance (persistence check).
-      const fresh = createChangelistService(
-        makeNoopGitServiceStub() as IGitService
-      );
+      const fresh = createChangelistService(makeNoopGitServiceStub() as IGitService);
       try {
         const active2 = await fresh.getActiveChangelist(mockRepo);
         assert.strictEqual(active2.id, cl.id);

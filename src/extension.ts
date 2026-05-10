@@ -990,6 +990,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
       // Ensure the changelist store is in sync with git status before picking
       // the active changelist — otherwise a just-edited file may still live
       // under "default" when the user expects to capture it.
+      // E2E spec src/test/e2e/suite/07.shelf.test.ts relies on this inline reconcile
+      // to avoid awaiting the watcher+reconcile debounce chain. Do not remove without
+      // updating the spec.
       await changelistService.reconcileWithGitStatus(repo);
       const active = await changelistService.getActiveChangelist(repo);
 
@@ -4213,6 +4216,9 @@ function registerViews(context: vscode.ExtensionContext): void {
  * emit `intellig-git:${path}?${encodeURIComponent(ref)}`. This function
  * `decodeURIComponent`s the query exactly once so refs containing `/`
  * (`origin/main` → `origin%2Fmain` on the wire) round-trip back to `git show`.
+ *
+ * @internal — exported only for `src/test/unit/extension/contentProvider.test.ts`.
+ * Do not call from production code or new tests outside that file without review.
  */
 export async function provideGitShowContent(
   uri: vscode.Uri,
@@ -4226,7 +4232,18 @@ export async function provideGitShowContent(
   // here ensures refs containing `/` (e.g. `origin/main` → `origin%2Fmain`)
   // round-trip correctly to `git show`. Without this, `git show
   // origin%2Fmain:path` fails to resolve the revision. (Task #92, A1)
-  const ref = decodeURIComponent(uri.query);
+  //
+  // A malformed percent-encoding (e.g. `%GG`) throws a raw `URIError` from
+  // the platform `decodeURIComponent`. Wrap it in a friendly error that
+  // identifies the contract violation so upstream error handlers and logs
+  // point at the URI rather than at an opaque "URI malformed" message.
+  // (Task #103, A2)
+  let ref: string;
+  try {
+    ref = decodeURIComponent(uri.query);
+  } catch {
+    throw new Error(`Malformed ref in intellig-git URI: ${uri.query}`);
+  }
 
   if (!ref) {
     throw new Error('No git ref specified in URI query');
