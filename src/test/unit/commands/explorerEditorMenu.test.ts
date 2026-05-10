@@ -71,10 +71,7 @@ describe('T2-11 — buildCompareWithRepoVersionLeftUri', () => {
   it('constructs an `intellig-git:` URI with the file path and encoded ref', () => {
     const uri = buildCompareWithRepoVersionLeftUri('src/foo.ts');
     const str = uri.toString();
-    assert.ok(
-      str.includes('intellig-git:'),
-      `expected intellig-git scheme, got: "${str}"`
-    );
+    assert.ok(str.includes('intellig-git:'), `expected intellig-git scheme, got: "${str}"`);
     assert.ok(str.includes('src/foo.ts'), `expected path, got: "${str}"`);
     assert.ok(str.includes('HEAD'), `expected HEAD ref, got: "${str}"`);
   });
@@ -165,14 +162,14 @@ describe('T2-11 — package.json menu contract', () => {
     const createPatch = hasCommand('intellig.explorer.createPatchFromFile');
     assert.ok(createPatch);
     assert.ok(
-      createPatch!.title.endsWith('…'),
-      `Create Patch from File… should use Unicode ellipsis, got: "${createPatch!.title}"`
+      createPatch.title.endsWith('…'),
+      `Create Patch from File… should use Unicode ellipsis, got: "${createPatch.title}"`
     );
     const compareWithBranch = hasCommand('intellig.explorer.compareWithBranch');
     assert.ok(compareWithBranch);
     assert.ok(
-      compareWithBranch!.title.endsWith('…'),
-      `Compare with Revision… should use Unicode ellipsis, got: "${compareWithBranch!.title}"`
+      compareWithBranch.title.endsWith('…'),
+      `Compare with Revision… should use Unicode ellipsis, got: "${compareWithBranch.title}"`
     );
   });
 
@@ -205,14 +202,11 @@ describe('T2-11 — package.json menu contract', () => {
     ];
     for (const { command, group } of cases) {
       const entry = inSubmenu('intellig.explorerSubmenu', command);
-      assert.ok(
-        entry,
-        `expected ${command} in intellig.explorerSubmenu`
-      );
+      assert.ok(entry, `expected ${command} in intellig.explorerSubmenu`);
       assert.strictEqual(
-        entry!.group,
+        entry.group,
         group,
-        `${command} should live in group ${group}, got ${entry!.group ?? '<none>'}`
+        `${command} should live in group ${group}, got ${entry.group ?? '<none>'}`
       );
     }
   });
@@ -231,9 +225,9 @@ describe('T2-11 — package.json menu contract', () => {
       const entry = inSubmenu('intellig.editorSubmenu', command);
       assert.ok(entry, `expected ${command} in intellig.editorSubmenu`);
       assert.strictEqual(
-        entry!.group,
+        entry.group,
         group,
-        `${command} should live in group ${group}, got ${entry!.group ?? '<none>'}`
+        `${command} should live in group ${group}, got ${entry.group ?? '<none>'}`
       );
     }
   });

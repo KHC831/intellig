@@ -27,7 +27,7 @@ describe('ext-host smoke — 5. deactivate', function () {
   before(async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext);
-    await ext!.activate();
+    await ext.activate();
   });
 
   it('calls deactivate() without throwing', () => {
@@ -56,7 +56,7 @@ describe('ext-host smoke — 5. deactivate', function () {
     // The real invariant: `ext.isActive` is still true (host keeps the
     // extension active even after our internal deactivate), and one of the
     // core commands is still queryable.
-    assert.strictEqual(ext!.isActive, true, 'extension lost isActive flag');
+    assert.strictEqual(ext.isActive, true, 'extension lost isActive flag');
     const commands = await vscode.commands.getCommands(true);
     assert.ok(
       commands.includes('intellig.openGitToolWindow'),

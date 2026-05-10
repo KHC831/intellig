@@ -24,20 +24,20 @@ import { Uri } from '../mocks/vscode';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
  * Generate a short commit hash (7 hex characters).
  */
 function arbitraryShortHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 7, maxLength: 7 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 7,
+    maxLength: 7,
+  });
 }
 
 /**
@@ -45,23 +45,33 @@ function arbitraryShortHash(): fc.Arbitrary<string> {
  * Avoids HTML-special characters to prevent escaping issues in assertions.
  */
 function arbitraryAuthorName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '.split('')
-    ),
-    { minLength: 1, maxLength: 30 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 '.split('')
+      ),
+      { minLength: 1, maxLength: 30 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
  * Generate a valid email address.
  */
 function arbitraryEmail(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), { minLength: 1, maxLength: 10 }),
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 8 }),
-    fc.constantFrom('com', 'org', 'net', 'io')
-  ).map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
+  return fc
+    .tuple(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), {
+        minLength: 1,
+        maxLength: 8,
+      }),
+      fc.constantFrom('com', 'org', 'net', 'io')
+    )
+    .map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
 }
 
 /**
@@ -79,12 +89,14 @@ function arbitraryAuthor(): fc.Arbitrary<IAuthor> {
  * Avoids HTML-special characters to prevent escaping issues in assertions.
  */
 function arbitraryCommitMessage(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()'.split('')
-    ),
-    { minLength: 1, maxLength: 80 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()'.split('')
+      ),
+      { minLength: 1, maxLength: 80 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
@@ -131,11 +143,17 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), { minLength: 1, maxLength: 15 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), {
+        minLength: 1,
+        maxLength: 15,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), { minLength: 1, maxLength: 10 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
   });
@@ -188,46 +206,43 @@ describe('Feature: git-graph-details-improvements - Commit Row Content Property 
      */
     it('Feature: git-graph-details-improvements, Property 3: Commit row displays title, author, and absolute date — HTML contains message summary, author name, and absolute date', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitNode(),
-          (node) => {
-            const html = provider._getGraphPanelHtml([node]);
-            const commit = node.commit;
+        fc.property(arbitraryCommitNode(), (node) => {
+          const html = provider._getGraphPanelHtml([node]);
+          const commit = node.commit;
 
-            // 1. The output should contain the message summary (first line, possibly truncated)
-            const messageSummary = expectedMessageSummary(commit.message);
+          // 1. The output should contain the message summary (first line, possibly truncated)
+          const messageSummary = expectedMessageSummary(commit.message);
+          assert.ok(
+            html.includes(messageSummary),
+            `HTML output should contain the message summary "${messageSummary}" but got:\n${html.substring(0, 500)}`
+          );
+
+          // 2. The output should contain the author name
+          assert.ok(
+            html.includes(commit.author.name),
+            `HTML output should contain the author name "${commit.author.name}"`
+          );
+
+          // 3. The output should contain the absolute date formatted by _formatAbsoluteDate()
+          const expectedDate = provider._formatAbsoluteDate(commit.authorDate);
+          assert.ok(
+            html.includes(expectedDate),
+            `HTML output should contain the absolute date "${expectedDate}"`
+          );
+
+          // 4. The output should NOT contain "ago" (relative date indicator)
+          //    We check specifically within commit-date spans to avoid false positives
+          //    from other content (e.g., a commit message containing "ago")
+          const dateSpanRegex = /<span class="commit-date"[^>]*>([^<]*)<\/span>/g;
+          let match;
+          while ((match = dateSpanRegex.exec(html)) !== null) {
+            const dateContent = match[1];
             assert.ok(
-              html.includes(messageSummary),
-              `HTML output should contain the message summary "${messageSummary}" but got:\n${html.substring(0, 500)}`
+              !dateContent.includes('ago'),
+              `Commit date span should NOT contain relative date "ago" but found: "${dateContent}"`
             );
-
-            // 2. The output should contain the author name
-            assert.ok(
-              html.includes(commit.author.name),
-              `HTML output should contain the author name "${commit.author.name}"`
-            );
-
-            // 3. The output should contain the absolute date formatted by _formatAbsoluteDate()
-            const expectedDate = provider._formatAbsoluteDate(commit.authorDate);
-            assert.ok(
-              html.includes(expectedDate),
-              `HTML output should contain the absolute date "${expectedDate}"`
-            );
-
-            // 4. The output should NOT contain "ago" (relative date indicator)
-            //    We check specifically within commit-date spans to avoid false positives
-            //    from other content (e.g., a commit message containing "ago")
-            const dateSpanRegex = /<span class="commit-date"[^>]*>([^<]*)<\/span>/g;
-            let match;
-            while ((match = dateSpanRegex.exec(html)) !== null) {
-              const dateContent = match[1];
-              assert.ok(
-                !dateContent.includes('ago'),
-                `Commit date span should NOT contain relative date "ago" but found: "${dateContent}"`
-              );
-            }
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });

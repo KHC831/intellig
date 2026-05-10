@@ -50,9 +50,13 @@ export type RemoteUrlProvider = 'github' | 'gitlab' | 'bitbucket' | 'unknown';
  * recognisable as a git remote.
  */
 export function parseRemoteUrl(rawUrl: string | undefined | null): IRemoteUrl | undefined {
-  if (!rawUrl) return undefined;
+  if (!rawUrl) {
+    return undefined;
+  }
   const url = rawUrl.trim();
-  if (url.length === 0) return undefined;
+  if (url.length === 0) {
+    return undefined;
+  }
 
   // Strip trailing whitespace/newlines and optional .git suffix at the end.
   // We handle that once we have the normalized path; keep input otherwise.
@@ -63,7 +67,9 @@ export function parseRemoteUrl(rawUrl: string | undefined | null): IRemoteUrl | 
     const host = sshMatch[2].toLowerCase();
     const pathPart = sshMatch[3];
     const parsed = _splitOwnerRepo(pathPart);
-    if (!parsed) return undefined;
+    if (!parsed) {
+      return undefined;
+    }
     return _build(host, parsed.pathPrefix, parsed.repo);
   }
 
@@ -80,7 +86,9 @@ export function parseRemoteUrl(rawUrl: string | undefined | null): IRemoteUrl | 
     const trimmedPath = asUrl.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
     const pathWithoutGit = trimmedPath.replace(/\.git$/i, '');
     const parsed = _splitOwnerRepo(pathWithoutGit);
-    if (!parsed) return undefined;
+    if (!parsed) {
+      return undefined;
+    }
     return _build(host, parsed.pathPrefix, parsed.repo);
   }
 
@@ -90,7 +98,9 @@ export function parseRemoteUrl(rawUrl: string | undefined | null): IRemoteUrl | 
     const host = bareMatch[1].toLowerCase();
     const pathPart = bareMatch[2];
     const parsed = _splitOwnerRepo(pathPart);
-    if (!parsed) return undefined;
+    if (!parsed) {
+      return undefined;
+    }
     return _build(host, parsed.pathPrefix, parsed.repo);
   }
 
@@ -103,10 +113,15 @@ export function parseRemoteUrl(rawUrl: string | undefined | null): IRemoteUrl | 
  */
 export function detectProvider(host: string): RemoteUrlProvider {
   const h = host.toLowerCase();
-  if (h === 'github.com' || h.endsWith('.github.com')) return 'github';
-  if (h === 'gitlab.com' || h.startsWith('gitlab.') || h.includes('.gitlab.')) return 'gitlab';
-  if (h === 'bitbucket.org' || h.endsWith('.bitbucket.org') || h.startsWith('bitbucket.'))
+  if (h === 'github.com' || h.endsWith('.github.com')) {
+    return 'github';
+  }
+  if (h === 'gitlab.com' || h.startsWith('gitlab.') || h.includes('.gitlab.')) {
+    return 'gitlab';
+  }
+  if (h === 'bitbucket.org' || h.endsWith('.bitbucket.org') || h.startsWith('bitbucket.')) {
     return 'bitbucket';
+  }
   return 'unknown';
 }
 
@@ -117,12 +132,18 @@ export function detectProvider(host: string): RemoteUrlProvider {
  */
 function _splitOwnerRepo(path: string): { pathPrefix: string; repo: string } | undefined {
   const trimmed = path.replace(/\.git$/i, '').replace(/\/+$/, '');
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
   const parts = trimmed.split('/').filter((p) => p.length > 0);
-  if (parts.length < 2) return undefined;
+  if (parts.length < 2) {
+    return undefined;
+  }
   const repo = parts[parts.length - 1];
   const pathPrefix = parts.slice(0, -1).join('/');
-  if (!pathPrefix || !repo) return undefined;
+  if (!pathPrefix || !repo) {
+    return undefined;
+  }
   return { pathPrefix, repo };
 }
 

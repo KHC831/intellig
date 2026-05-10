@@ -11,10 +11,7 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import {
-  renderGraphSvg,
-  DEFAULT_GRAPH_CONFIG,
-} from '../../utils/graphRenderer';
+import { renderGraphSvg, DEFAULT_GRAPH_CONFIG } from '../../utils/graphRenderer';
 import { ICommitNode, getColumnColor } from '../../utils/commitGraph';
 import { ICommit } from '../../services/interfaces/IGitService';
 
@@ -47,9 +44,9 @@ function arbitraryCommit(parentCount: number): fc.Arbitrary<ICommit> {
       name: fc.string({ minLength: 1, maxLength: 20 }),
       email: fc.string({ minLength: 1, maxLength: 30 }),
     }),
-    parents: fc.tuple(...Array.from({ length: parentCount }, () => arbitraryHexString(40))).map(
-      (arr) => arr
-    ),
+    parents: fc
+      .tuple(...Array.from({ length: parentCount }, () => arbitraryHexString(40)))
+      .map((arr) => arr),
     authorDate: fc.date({ min: new Date('2000-01-01'), max: new Date('2030-01-01') }),
     commitDate: fc.date({ min: new Date('2000-01-01'), max: new Date('2030-01-01') }),
   });
@@ -63,9 +60,7 @@ function arbitraryCommit(parentCount: number): fc.Arbitrary<ICommit> {
 function arbitraryCommitNode(maxColumn: number, parentCount?: number): fc.Arbitrary<ICommitNode> {
   return fc.integer({ min: 0, max: maxColumn }).chain((graphColumn) => {
     const parentCountArb =
-      parentCount !== undefined
-        ? fc.constant(parentCount)
-        : fc.integer({ min: 0, max: 2 });
+      parentCount !== undefined ? fc.constant(parentCount) : fc.integer({ min: 0, max: 2 });
 
     return parentCountArb.chain((pCount) => {
       const graphLinesArb =
@@ -77,9 +72,7 @@ function arbitraryCommitNode(maxColumn: number, parentCount?: number): fc.Arbitr
                   fc.record({
                     fromColumn: fc.constant(graphColumn),
                     toColumn:
-                      i === 0
-                        ? fc.constant(graphColumn)
-                        : fc.integer({ min: 0, max: maxColumn }),
+                      i === 0 ? fc.constant(graphColumn) : fc.integer({ min: 0, max: maxColumn }),
                     color: fc.constant(getColumnColor(graphColumn)),
                     type: fc.constant(i === 0 ? ('commit' as const) : ('merge' as const)),
                   })
@@ -112,10 +105,7 @@ function arbitraryMergeCommitNode(maxColumn: number): fc.Arbitrary<ICommitNode> 
           ...Array.from({ length: parentCount }, (_, i) =>
             fc.record({
               fromColumn: fc.constant(graphColumn),
-              toColumn:
-                i === 0
-                  ? fc.constant(graphColumn)
-                  : fc.integer({ min: 0, max: maxColumn }),
+              toColumn: i === 0 ? fc.constant(graphColumn) : fc.integer({ min: 0, max: maxColumn }),
               color: fc.constant(getColumnColor(i === 0 ? graphColumn : i)),
               type: fc.constant(i === 0 ? ('commit' as const) : ('merge' as const)),
             })
@@ -170,12 +160,22 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+            const svg = renderGraphSvg(
+              node,
+              rowIndex,
+              activeLanes,
+              DEFAULT_GRAPH_CONFIG,
+              false,
+              false
+            );
 
             const radii = extractCircleRadii(svg);
 
             // There should be at least one circle (the commit node)
-            assert.ok(radii.length >= 1, `SVG should contain at least one circle element, got ${radii.length}`);
+            assert.ok(
+              radii.length >= 1,
+              `SVG should contain at least one circle element, got ${radii.length}`
+            );
 
             // All circles should have r="4"
             for (const r of radii) {
@@ -187,10 +187,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
             }
 
             // No circle should have r="6" (the old radius)
-            assert.ok(
-              !radii.includes('6'),
-              'No circle should have the old radius r="6"'
-            );
+            assert.ok(!radii.includes('6'), 'No circle should have the old radius r="6"');
           }
         ),
         { numRuns: 100 }
@@ -204,12 +201,20 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+            const svg = renderGraphSvg(
+              node,
+              rowIndex,
+              activeLanes,
+              DEFAULT_GRAPH_CONFIG,
+              false,
+              false
+            );
 
             // Merge commits now render a diamond (rotated <rect>) instead of a circle.
             // Verify the diamond is present with the correct dimensions based on nodeRadius.
             // Match the width attribute specifically (not stroke-width)
-            const rectRegex = /<rect\s+x="[^"]*"\s+y="[^"]*"\s+width="([^"]+)"\s+height="([^"]+)"[^>]*\/>/g;
+            const rectRegex =
+              /<rect\s+x="[^"]*"\s+y="[^"]*"\s+width="([^"]+)"\s+height="([^"]+)"[^>]*\/>/g;
             const rects: Array<{ width: string; height: string }> = [];
             let match;
             while ((match = rectRegex.exec(svg)) !== null) {
@@ -217,17 +222,21 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
             }
 
             // There should be at least one rect (the merge commit diamond)
-            assert.ok(rects.length >= 1, `SVG should contain at least one rect element for merge commit diamond, got ${rects.length}`);
+            assert.ok(
+              rects.length >= 1,
+              `SVG should contain at least one rect element for merge commit diamond, got ${rects.length}`
+            );
 
-            // The diamond side length should be nodeRadius * 1.8 = 4 * 1.8 = 7.199999... 
+            // The diamond side length should be nodeRadius * 1.8 = 4 * 1.8 = 7.199999...
             const expectedSide = DEFAULT_GRAPH_CONFIG.nodeRadius * 1.8;
             const hasDiamond = rects.some(
-              (r) => Math.abs(parseFloat(r.width) - expectedSide) < 0.01 &&
-                     Math.abs(parseFloat(r.height) - expectedSide) < 0.01
+              (r) =>
+                Math.abs(parseFloat(r.width) - expectedSide) < 0.01 &&
+                Math.abs(parseFloat(r.height) - expectedSide) < 0.01
             );
             assert.ok(
               hasDiamond,
-              `Merge commit diamond should have width/height≈${expectedSide}, found: ${rects.map(r => `${r.width}x${r.height}`).join(', ')}`
+              `Merge commit diamond should have width/height≈${expectedSide}, found: ${rects.map((r) => `${r.width}x${r.height}`).join(', ')}`
             );
 
             // No circle should have r="6" (the old radius)
@@ -249,12 +258,22 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+            const svg = renderGraphSvg(
+              node,
+              rowIndex,
+              activeLanes,
+              DEFAULT_GRAPH_CONFIG,
+              false,
+              false
+            );
 
             const radii = extractCircleRadii(svg);
 
             // There should be at least one circle (the root commit node)
-            assert.ok(radii.length >= 1, `SVG should contain at least one circle element for root commit, got ${radii.length}`);
+            assert.ok(
+              radii.length >= 1,
+              `SVG should contain at least one circle element for root commit, got ${radii.length}`
+            );
 
             // All circles should have r="4"
             for (const r of radii) {

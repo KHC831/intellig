@@ -107,23 +107,20 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
     return options.saveDialog ? options.saveDialog(opts) : undefined;
   }) as unknown as SaveDialogFn;
 
-  (vscode.window as unknown as { showWarningMessage: WarningMessageFn }).showWarningMessage = (async (
-    message: string,
-    optionsOrItems: unknown,
-    ...items: unknown[]
-  ) => {
-    stubs.warningMessageCalls.push({ message, options: optionsOrItems, items });
-    return options.warningMessage
-      ? options.warningMessage(message, optionsOrItems, ...items)
-      : undefined;
-  }) as unknown as WarningMessageFn;
+  (vscode.window as unknown as { showWarningMessage: WarningMessageFn }).showWarningMessage =
+    (async (message: string, optionsOrItems: unknown, ...items: unknown[]) => {
+      stubs.warningMessageCalls.push({ message, options: optionsOrItems, items });
+      return options.warningMessage
+        ? options.warningMessage(message, optionsOrItems, ...items)
+        : undefined;
+    }) as unknown as WarningMessageFn;
 
   const silenceInfo = options.silenceInfoMessages !== false;
   if (silenceInfo) {
-    (vscode.window as unknown as { showInformationMessage: InformationMessageFn }).showInformationMessage = (async (
-      _message: string,
-      ..._rest: unknown[]
-    ) => undefined) as unknown as InformationMessageFn;
+    (
+      vscode.window as unknown as { showInformationMessage: InformationMessageFn }
+    ).showInformationMessage = (async (_message: string, ..._rest: unknown[]) =>
+      undefined) as unknown as InformationMessageFn;
   }
 
   const silenceError = options.silenceErrorMessages !== false;

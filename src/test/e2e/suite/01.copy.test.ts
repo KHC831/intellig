@@ -59,11 +59,9 @@ describe('e2e — copy / revision commands', function () {
   it('intellig.commit.copyHash — copies the exact selected ancestor hash, not HEAD', async () => {
     // Pick the middle commit (not HEAD) and assert that the clipboard
     // matches it exactly — catches regressions that silently substitute HEAD.
-    const log = (await execGit(fix.rootPath, [
-      'log',
-      '--pretty=format:%H',
-      '--reverse',
-    ])).stdout.split('\n').filter((s) => s.length > 0);
+    const log = (await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--reverse'])).stdout
+      .split('\n')
+      .filter((s) => s.length > 0);
     assert.strictEqual(log.length, 3, 'sanity: fixture should have 3 commits');
     const middle = log[1];
 

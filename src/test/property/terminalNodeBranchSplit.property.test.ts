@@ -50,77 +50,65 @@ function arbitraryCommitNodeArray(
   maxNodes: number,
   maxColumns: number
 ): fc.Arbitrary<ICommitNode[]> {
-  return fc
-    .integer({ min: 1, max: maxNodes })
-    .chain((count) => {
-      return fc
-        .uniqueArray(arbitraryHexString(40), { minLength: count, maxLength: count })
-        .chain((hashes) => {
-          const nodeArbs = hashes.map((hash, index) => {
-            // Parents can only be nodes that appear later in the array (higher index = older)
-            const possibleParents = hashes.slice(index + 1);
-            const maxParents = Math.min(possibleParents.length, 3);
+  return fc.integer({ min: 1, max: maxNodes }).chain((count) => {
+    return fc
+      .uniqueArray(arbitraryHexString(40), { minLength: count, maxLength: count })
+      .chain((hashes) => {
+        const nodeArbs = hashes.map((hash, index) => {
+          // Parents can only be nodes that appear later in the array (higher index = older)
+          const possibleParents = hashes.slice(index + 1);
+          const maxParents = Math.min(possibleParents.length, 3);
 
-            return fc
-              .integer({ min: 0, max: maxParents })
-              .chain((parentCount) => {
-                const parentsArb =
-                  parentCount === 0
-                    ? fc.constant([] as string[])
-                    : fc.shuffledSubarray(possibleParents, {
-                        minLength: parentCount,
-                        maxLength: parentCount,
-                      });
+          return fc.integer({ min: 0, max: maxParents }).chain((parentCount) => {
+            const parentsArb =
+              parentCount === 0
+                ? fc.constant([] as string[])
+                : fc.shuffledSubarray(possibleParents, {
+                    minLength: parentCount,
+                    maxLength: parentCount,
+                  });
 
-                return fc.tuple(
-                  fc.constant(hash),
-                  parentsArb,
-                  fc.integer({ min: 0, max: maxColumns })
-                );
-              });
-          });
-
-          return fc.tuple(...nodeArbs).map((nodeDataArray) => {
-            const hashToColumn = new Map<string, number>();
-            for (const [hash, , graphColumn] of nodeDataArray as Array<
-              [string, string[], number]
-            >) {
-              hashToColumn.set(hash, graphColumn);
-            }
-
-            return (nodeDataArray as Array<[string, string[], number]>).map(
-              ([hash, parents, graphColumn]) => {
-                const graphLines: IGraphLine[] = parents.map((parentHash, i) => {
-                  const parentColumn = hashToColumn.get(parentHash) ?? graphColumn;
-                  return {
-                    fromColumn: graphColumn,
-                    toColumn: parentColumn,
-                    color: getColumnColor(i === 0 ? graphColumn : parentColumn),
-                    type: (i === 0 ? 'commit' : 'merge') as 'commit' | 'merge' | 'branch',
-                  };
-                });
-
-                return {
-                  commit: {
-                    hash,
-                    shortHash: hash.substring(0, 7),
-                    message: `Commit ${hash.substring(0, 7)}`,
-                    author: { name: 'Test', email: 'test@test.com' },
-                    committer: { name: 'Test', email: 'test@test.com' },
-                    parents,
-                    authorDate: new Date(),
-                    commitDate: new Date(),
-                  },
-                  graphColumn,
-                  graphLines,
-                  branches: [],
-                  tags: [],
-                } as ICommitNode;
-              }
-            );
+            return fc.tuple(fc.constant(hash), parentsArb, fc.integer({ min: 0, max: maxColumns }));
           });
         });
-    });
+
+        return fc.tuple(...nodeArbs).map((nodeDataArray) => {
+          const hashToColumn = new Map<string, number>();
+          for (const [hash, , graphColumn] of nodeDataArray) {
+            hashToColumn.set(hash, graphColumn);
+          }
+
+          return nodeDataArray.map(([hash, parents, graphColumn]) => {
+            const graphLines: IGraphLine[] = parents.map((parentHash, i) => {
+              const parentColumn = hashToColumn.get(parentHash) ?? graphColumn;
+              return {
+                fromColumn: graphColumn,
+                toColumn: parentColumn,
+                color: getColumnColor(i === 0 ? graphColumn : parentColumn),
+                type: (i === 0 ? 'commit' : 'merge') as 'commit' | 'merge' | 'branch',
+              };
+            });
+
+            return {
+              commit: {
+                hash,
+                shortHash: hash.substring(0, 7),
+                message: `Commit ${hash.substring(0, 7)}`,
+                author: { name: 'Test', email: 'test@test.com' },
+                committer: { name: 'Test', email: 'test@test.com' },
+                parents,
+                authorDate: new Date(),
+                commitDate: new Date(),
+              },
+              graphColumn,
+              graphLines,
+              branches: [],
+              tags: [],
+            } as ICommitNode;
+          });
+        });
+      });
+  });
 }
 
 /**
@@ -131,61 +119,57 @@ function arbitraryCommitNodeArray(
  * at least 2 other nodes.
  */
 function arbitraryGraphWithBranchSplit(maxColumns: number): fc.Arbitrary<ICommitNode[]> {
-  return fc
-    .integer({ min: 3, max: 10 })
-    .chain((count) => {
-      return fc
-        .uniqueArray(arbitraryHexString(40), { minLength: count, maxLength: count })
-        .chain((hashes) => {
-          return fc
-            .tuple(
-              ...hashes.map(() => fc.integer({ min: 0, max: maxColumns }))
-            )
-            .map((columns) => {
-              // Make the last hash a parent of at least the first two nodes
-              const sharedParentHash = hashes[count - 1];
+  return fc.integer({ min: 3, max: 10 }).chain((count) => {
+    return fc
+      .uniqueArray(arbitraryHexString(40), { minLength: count, maxLength: count })
+      .chain((hashes) => {
+        return fc
+          .tuple(...hashes.map(() => fc.integer({ min: 0, max: maxColumns })))
+          .map((columns) => {
+            // Make the last hash a parent of at least the first two nodes
+            const sharedParentHash = hashes[count - 1];
 
-              return hashes.map((hash, index) => {
-                let parents: string[];
-                if (index < 2) {
-                  // First two nodes both have the last node as parent (creating a branch split)
-                  parents = [sharedParentHash];
-                } else if (index === count - 1) {
-                  // Last node is the root
-                  parents = [];
-                } else {
-                  // Other nodes have the next node as parent
-                  parents = [hashes[index + 1]];
-                }
+            return hashes.map((hash, index) => {
+              let parents: string[];
+              if (index < 2) {
+                // First two nodes both have the last node as parent (creating a branch split)
+                parents = [sharedParentHash];
+              } else if (index === count - 1) {
+                // Last node is the root
+                parents = [];
+              } else {
+                // Other nodes have the next node as parent
+                parents = [hashes[index + 1]];
+              }
 
-                const graphColumn = columns[index];
-                const graphLines: IGraphLine[] = parents.map((parentHash) => ({
-                  fromColumn: graphColumn,
-                  toColumn: columns[hashes.indexOf(parentHash)] ?? graphColumn,
-                  color: getColumnColor(graphColumn),
-                  type: 'commit' as const,
-                }));
+              const graphColumn = columns[index];
+              const graphLines: IGraphLine[] = parents.map((parentHash) => ({
+                fromColumn: graphColumn,
+                toColumn: columns[hashes.indexOf(parentHash)] ?? graphColumn,
+                color: getColumnColor(graphColumn),
+                type: 'commit' as const,
+              }));
 
-                return {
-                  commit: {
-                    hash,
-                    shortHash: hash.substring(0, 7),
-                    message: `Commit ${hash.substring(0, 7)}`,
-                    author: { name: 'Test', email: 'test@test.com' },
-                    committer: { name: 'Test', email: 'test@test.com' },
-                    parents,
-                    authorDate: new Date(),
-                    commitDate: new Date(),
-                  },
-                  graphColumn,
-                  graphLines,
-                  branches: [],
-                  tags: [],
-                } as ICommitNode;
-              });
+              return {
+                commit: {
+                  hash,
+                  shortHash: hash.substring(0, 7),
+                  message: `Commit ${hash.substring(0, 7)}`,
+                  author: { name: 'Test', email: 'test@test.com' },
+                  committer: { name: 'Test', email: 'test@test.com' },
+                  parents,
+                  authorDate: new Date(),
+                  commitDate: new Date(),
+                },
+                graphColumn,
+                graphLines,
+                branches: [],
+                tags: [],
+              } as ICommitNode;
             });
-        });
-    });
+          });
+      });
+  });
 }
 
 // ─── Property Tests ───────────────────────────────────────────────────────────

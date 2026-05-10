@@ -230,7 +230,9 @@ export class ShelfService implements IShelfService {
     // precedence over removeFromShelf because it is strictly more granular.
     const removeAppliedFiles = options?.removeAppliedFiles === true;
     if (removeAppliedFiles && appliedCleanly.length > 0) {
-      const remaining = shelfItem.files.map((f) => f.path).filter((p) => !appliedCleanly.includes(p));
+      const remaining = shelfItem.files
+        .map((f) => f.path)
+        .filter((p) => !appliedCleanly.includes(p));
       this.filterShelfFiles(repo, shelfId, remaining);
     } else {
       // Standard removeFromShelf semantics (default is true).

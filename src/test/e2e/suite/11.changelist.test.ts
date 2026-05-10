@@ -43,17 +43,17 @@ describe('e2e — changelist commands', function () {
 
     const services = getServices();
     assert.ok(services, 'extension services not initialised');
-    const repos = services!.gitService.getRepositories();
+    const repos = services.gitService.getRepositories();
     assert.ok(repos.length > 0, 'fixture repo should be discovered');
     const repo = repos[0];
 
     // Default changelist is always present; snapshot how many existed before
     // creation so we can verify our new one was added.
-    const before = services!.changelistService.getChangelists(repo);
+    const before = services.changelistService.getChangelists(repo);
 
     await vscode.commands.executeCommand('intellig.changelist.new');
 
-    const after = services!.changelistService.getChangelists(repo);
+    const after = services.changelistService.getChangelists(repo);
     assert.strictEqual(
       after.length,
       before.length + 1,
@@ -75,12 +75,12 @@ describe('e2e — changelist commands', function () {
 
     const services = getServices();
     assert.ok(services, 'extension services not initialised');
-    const repos = services!.gitService.getRepositories();
+    const repos = services.gitService.getRepositories();
     const repo = repos[0];
 
-    const before = services!.changelistService.getChangelists(repo).length;
+    const before = services.changelistService.getChangelists(repo).length;
     await vscode.commands.executeCommand('intellig.changelist.new');
-    const after = services!.changelistService.getChangelists(repo).length;
+    const after = services.changelistService.getChangelists(repo).length;
 
     assert.strictEqual(after, before, 'cancel must not create a changelist');
   });
@@ -93,7 +93,7 @@ describe('e2e — changelist commands', function () {
     assert.ok(services);
 
     // Seed a non-default changelist to rename.
-    const created = services!.changelistService.createChangelist(repo, 'Original Name');
+    const created = services.changelistService.createChangelist(repo, 'Original Name');
 
     stubs = stubPrompts({
       inputBox: () => 'Renamed',
@@ -101,10 +101,10 @@ describe('e2e — changelist commands', function () {
 
     await vscode.commands.executeCommand('intellig.changelist.rename', created.id);
 
-    const after = services!.changelistService.getChangelists(repo);
+    const after = services.changelistService.getChangelists(repo);
     const renamed = after.find((cl) => cl.id === created.id);
     assert.ok(renamed, 'changelist should still exist after rename');
-    assert.strictEqual(renamed!.name, 'Renamed', 'name should reflect the new input');
+    assert.strictEqual(renamed.name, 'Renamed', 'name should reflect the new input');
   });
 
   it('intellig.changelist.setActive — activates the specified changelist id', async () => {
@@ -113,12 +113,12 @@ describe('e2e — changelist commands', function () {
 
     const services = getServices();
     assert.ok(services);
-    const created = services!.changelistService.createChangelist(repo, 'Make Me Active');
+    const created = services.changelistService.createChangelist(repo, 'Make Me Active');
 
     stubs = stubPrompts({});
     await vscode.commands.executeCommand('intellig.changelist.setActive', created.id);
 
-    const active = await services!.changelistService.getActiveChangelist(repo);
+    const active = await services.changelistService.getActiveChangelist(repo);
     assert.strictEqual(
       active.id,
       created.id,
@@ -132,12 +132,12 @@ describe('e2e — changelist commands', function () {
 
     const services = getServices();
     assert.ok(services);
-    const created = services!.changelistService.createChangelist(repo, 'Deletable');
+    const created = services.changelistService.createChangelist(repo, 'Deletable');
 
     stubs = stubPrompts({});
     await vscode.commands.executeCommand('intellig.changelist.delete', created.id);
 
-    const remaining = services!.changelistService.getChangelists(repo);
+    const remaining = services.changelistService.getChangelists(repo);
     assert.strictEqual(
       remaining.find((cl) => cl.id === created.id),
       undefined,

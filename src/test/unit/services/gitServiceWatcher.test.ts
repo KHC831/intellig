@@ -20,11 +20,7 @@
 
 import * as assert from 'assert';
 import { GitService } from '../../../services/GitService';
-import {
-  Uri,
-  getCreatedFileSystemWatchers,
-  RelativePattern,
-} from '../../mocks/vscode';
+import { Uri, getCreatedFileSystemWatchers, RelativePattern } from '../../mocks/vscode';
 
 /**
  * Deterministic fake-timer shim. Replaces the global `setTimeout` and
@@ -63,9 +59,13 @@ function installFakeTimers(): {
     h: unknown
   ): void => {
     const id = typeof h === 'number' ? h : (h as IFakeTimerHandle | undefined)?.id;
-    if (id === undefined) return;
+    if (id === undefined) {
+      return;
+    }
     const idx = queue.findIndex((q) => q.id === id);
-    if (idx >= 0) queue.splice(idx, 1);
+    if (idx >= 0) {
+      queue.splice(idx, 1);
+    }
   };
 
   return {
@@ -73,7 +73,9 @@ function installFakeTimers(): {
       now += ms;
       while (true) {
         const due = queue.findIndex((q) => q.fireAt <= now);
-        if (due < 0) break;
+        if (due < 0) {
+          break;
+        }
         const [handle] = queue.splice(due, 1);
         handle.callback();
       }
@@ -215,8 +217,9 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
       const watchers = getFreshWatchers();
 
       // Each watcher's `_pattern` is the RelativePattern we passed in.
-      const patterns = watchers
-        .map((w) => (w._pattern instanceof RelativePattern ? w._pattern.pattern : String(w._pattern)));
+      const patterns = watchers.map((w) =>
+        w._pattern instanceof RelativePattern ? w._pattern.pattern : String(w._pattern)
+      );
 
       // Positive invariants — we must be able to react to branch/ref/index changes.
       assert.ok(patterns.includes('HEAD'), 'should watch HEAD for branch switches');
@@ -272,11 +275,7 @@ describe('GitService — .git file watcher (task #78 regression)', () => {
       await flushMicrotasks();
 
       // Exactly one reload — the trailing-edge of the debounced burst.
-      assert.strictEqual(
-        probe.loadCount(),
-        1,
-        '100 events must coalesce into exactly one reload'
-      );
+      assert.strictEqual(probe.loadCount(), 1, '100 events must coalesce into exactly one reload');
     });
 
     it('fires exactly one reload after a single refs/heads/main change', async () => {

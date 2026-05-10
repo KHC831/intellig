@@ -38,19 +38,18 @@ interface Call<Args extends unknown[] = unknown[]> {
   args: Args;
 }
 
-interface MockGitService
-  extends Pick<
-    IGitService,
-    | 'onDidChangeRepository'
-    | 'getRepositories'
-    | 'getRepository'
-    | 'getBranches'
-    | 'checkout'
-    | 'rebaseBranch'
-    | 'pull'
-    | 'fetch'
-    | 'onDidFetch'
-  > {
+interface MockGitService extends Pick<
+  IGitService,
+  | 'onDidChangeRepository'
+  | 'getRepositories'
+  | 'getRepository'
+  | 'getBranches'
+  | 'checkout'
+  | 'rebaseBranch'
+  | 'pull'
+  | 'fetch'
+  | 'onDidFetch'
+> {
   _calls: {
     checkout: Call<[IRepository, string, unknown?]>[];
     rebaseBranch: Call<[IRepository, string]>[];
@@ -100,9 +99,7 @@ function createMockGitService(
 
 interface MockConflictResolutionService extends Partial<IConflictResolutionService> {
   _calls: {
-    openResolveConflictsDialog: Call<
-      [IRepository, IConflictedFile[], IConflictOpContext]
-    >[];
+    openResolveConflictsDialog: Call<[IRepository, IConflictedFile[], IConflictOpContext]>[];
     getConflictedFiles: Call<[IRepository]>[];
   };
   _conflictedFiles: IConflictedFile[];
@@ -205,15 +202,14 @@ describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
     const gitService = createMockGitService({ success: true });
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider
-    );
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
 
     const item = createLocalBranchTreeItem('feature/x');
-    await (commands as unknown as {
-      _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-    })._handleCheckoutAndRebase(item);
+    await (
+      commands as unknown as {
+        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckoutAndRebase(item);
 
     assert.strictEqual(gitService._calls.checkout.length, 1);
     assert.strictEqual(gitService._calls.checkout[0].args[1], 'feature/x');
@@ -241,9 +237,11 @@ describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
     );
 
     const item = createLocalBranchTreeItem('feature/x');
-    await (commands as unknown as {
-      _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-    })._handleCheckoutAndRebase(item);
+    await (
+      commands as unknown as {
+        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckoutAndRebase(item);
 
     assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 1);
     const [repoArg, filesArg, ctxArg] = crs._calls.openResolveConflictsDialog[0].args;
@@ -261,14 +259,13 @@ describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
   it('returns early when repository is missing', async () => {
     const gitService = createMockGitService();
     const provider = createMockBranchTreeProvider(undefined);
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider
-    );
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
     const item = createLocalBranchTreeItem('feature/x');
-    await (commands as unknown as {
-      _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
-    })._handleCheckoutAndRebase(item);
+    await (
+      commands as unknown as {
+        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckoutAndRebase(item);
 
     assert.strictEqual(gitService._calls.checkout.length, 0);
     assert.strictEqual(gitService._calls.rebaseBranch.length, 0);
@@ -291,9 +288,11 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     );
 
     const item = createRemoteBranchTreeItem('origin/feature/x');
-    await (commands as unknown as {
-      _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-    })._handlePullUsingRebase(item);
+    await (
+      commands as unknown as {
+        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingRebase(item);
 
     assert.strictEqual(pullDialog._calls.length, 1);
     const [repoArg, preset, source] = pullDialog._calls[0].args;
@@ -317,9 +316,11 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     );
 
     const item = createRemoteBranchTreeItem('origin/develop');
-    await (commands as unknown as {
-      _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-    })._handlePullUsingMerge(item);
+    await (
+      commands as unknown as {
+        _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingMerge(item);
 
     assert.strictEqual(pullDialog._calls.length, 1);
     const [, preset, source] = pullDialog._calls[0].args;
@@ -340,9 +341,11 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     );
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (commands as unknown as {
-      _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-    })._handlePullUsingRebase(item);
+    await (
+      commands as unknown as {
+        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingRebase(item);
 
     assert.strictEqual(gitService._calls.pull.length, 1);
     const pullOptions = gitService._calls.pull[0].args[1] as {
@@ -366,9 +369,11 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     );
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (commands as unknown as {
-      _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-    })._handlePullUsingMerge(item);
+    await (
+      commands as unknown as {
+        _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingMerge(item);
 
     assert.strictEqual(gitService._calls.pull.length, 1);
     const pullOptions = gitService._calls.pull[0].args[1] as { rebase: boolean };
@@ -387,9 +392,11 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     );
 
     const item = createRemoteBranchTreeItem('origin/main');
-    await (commands as unknown as {
-      _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-    })._handlePullUsingRebase(item);
+    await (
+      commands as unknown as {
+        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingRebase(item);
 
     assert.strictEqual(pullDialog._calls.length, 0);
     assert.strictEqual(gitService._calls.pull.length, 0);
@@ -411,9 +418,11 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     );
 
     const item = createRemoteBranchTreeItem('origin-only');
-    await (commands as unknown as {
-      _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-    })._handlePullUsingRebase(item);
+    await (
+      commands as unknown as {
+        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingRebase(item);
 
     assert.strictEqual(pullDialog._calls.length, 1);
     const [, , source] = pullDialog._calls[0].args;

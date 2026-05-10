@@ -174,7 +174,7 @@ function createHarness(options: HarnessOptionsWithConflict = {}): HarnessState {
         return undefined;
       }
       const targetLabel = options.sourcePick ?? '$(cloud) main';
-      return items.find((i) => i.label === targetLabel) as T | undefined;
+      return items.find((i) => i.label === targetLabel);
     },
     showQuickPickMulti: async <T extends vscode.QuickPickItem>(
       items: ReadonlyArray<T>,
@@ -236,30 +236,21 @@ describe('T1-02 PullDialog — pure helpers', () => {
     });
 
     it('clears ffOnly and noFf when rebase is the freshly-toggled flag', () => {
-      const out = resolveFlagMutex(
-        { ...zero, rebase: true, ffOnly: true, noFf: true },
-        'rebase'
-      );
+      const out = resolveFlagMutex({ ...zero, rebase: true, ffOnly: true, noFf: true }, 'rebase');
       assert.strictEqual(out.rebase, true);
       assert.strictEqual(out.ffOnly, false);
       assert.strictEqual(out.noFf, false);
     });
 
     it('clears rebase and noFf when ffOnly is the freshly-toggled flag', () => {
-      const out = resolveFlagMutex(
-        { ...zero, rebase: true, ffOnly: true, noFf: true },
-        'ffOnly'
-      );
+      const out = resolveFlagMutex({ ...zero, rebase: true, ffOnly: true, noFf: true }, 'ffOnly');
       assert.strictEqual(out.rebase, false);
       assert.strictEqual(out.ffOnly, true);
       assert.strictEqual(out.noFf, false);
     });
 
     it('clears rebase and ffOnly when noFf is the freshly-toggled flag', () => {
-      const out = resolveFlagMutex(
-        { ...zero, rebase: true, ffOnly: true, noFf: true },
-        'noFf'
-      );
+      const out = resolveFlagMutex({ ...zero, rebase: true, ffOnly: true, noFf: true }, 'noFf');
       assert.strictEqual(out.rebase, false);
       assert.strictEqual(out.ffOnly, false);
       assert.strictEqual(out.noFf, true);
@@ -312,7 +303,11 @@ describe('T1-02 PullDialog — pure helpers', () => {
     it('groups remote branches by remote with a separator per remote', () => {
       const items = buildSourceItems(createRemoteBranches());
       const separators = items.filter((i) => i.kind === vscode.QuickPickItemKind.Separator);
-      assert.strictEqual(separators.length, 2, 'expected one separator per remote (origin + upstream)');
+      assert.strictEqual(
+        separators.length,
+        2,
+        'expected one separator per remote (origin + upstream)'
+      );
     });
 
     it('puts the tracked upstream remote first', () => {
@@ -321,9 +316,7 @@ describe('T1-02 PullDialog — pure helpers', () => {
         { name: 'origin/main', type: 'remote', commit: 'b'.repeat(40), isHead: false },
       ];
       const items = buildSourceItems(branches, { remote: 'origin', name: 'main' });
-      const firstSeparator = items.find(
-        (i) => i.kind === vscode.QuickPickItemKind.Separator
-      );
+      const firstSeparator = items.find((i) => i.kind === vscode.QuickPickItemKind.Separator);
       assert.ok(firstSeparator);
       assert.strictEqual(firstSeparator.label, 'Remote: origin');
     });
@@ -356,7 +349,7 @@ describe('T1-02 PullDialog — pure helpers', () => {
       const items = buildFlagItems(defaultPullFlags(false));
       assert.strictEqual(items.length, ALL_PULL_FLAGS.length + 1);
       assert.strictEqual(items[items.length - 1].label, '$(play) Pull');
-      assert.strictEqual((items[items.length - 1] as IPullFlagItem).confirm, true);
+      assert.strictEqual(items[items.length - 1].confirm, true);
     });
 
     it('reflects current flag state via `picked`', () => {
@@ -395,18 +388,12 @@ describe('T1-02 PullDialog — pure helpers', () => {
 
   describe('isConflictError', () => {
     it('matches messages containing CONFLICT marker', () => {
-      assert.strictEqual(
-        isConflictError('Automatic merge failed; CONFLICT (content)'),
-        true
-      );
+      assert.strictEqual(isConflictError('Automatic merge failed; CONFLICT (content)'), true);
       assert.strictEqual(isConflictError('conflict in foo.ts'), true);
     });
 
     it('does not match other git failures', () => {
-      assert.strictEqual(
-        isConflictError('fatal: refusing to merge unrelated histories'),
-        false
-      );
+      assert.strictEqual(isConflictError('fatal: refusing to merge unrelated histories'), false);
     });
   });
 });

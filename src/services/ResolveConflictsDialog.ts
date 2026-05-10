@@ -562,9 +562,7 @@ ${body}
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       // Scrub credentials from any embedded remote URL before surfacing (TL-11).
-      void vscode.window.showErrorMessage(
-        `Failed to open merge view: ${sanitizeGitError(msg)}`
-      );
+      void vscode.window.showErrorMessage(`Failed to open merge view: ${sanitizeGitError(msg)}`);
     }
   }
 
@@ -704,7 +702,7 @@ ${body}
     }
 
     const choice = await vscode.window.showWarningMessage(
-      "Skip this commit? The changes will NOT be applied.",
+      'Skip this commit? The changes will NOT be applied.',
       { modal: true },
       'Skip'
     );
@@ -727,9 +725,7 @@ ${body}
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       // Scrub credentials from git stderr before surfacing (TL-11).
-      void vscode.window.showErrorMessage(
-        `Failed to skip commit: ${sanitizeGitError(errMsg)}`
-      );
+      void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
     }
   }
 
@@ -739,7 +735,16 @@ ${body}
    * ConflictResolutionService for `commit` / `rebase --continue`.
    */
   private async _execGit(args: string[]): Promise<void> {
-    const gitCli = (this._gitService as unknown as { gitCli: { exec: (a: string[], o: object) => Promise<{ exitCode: number; stderr: string; stdout: string }> } }).gitCli;
+    const gitCli = (
+      this._gitService as unknown as {
+        gitCli: {
+          exec: (
+            a: string[],
+            o: object
+          ) => Promise<{ exitCode: number; stderr: string; stdout: string }>;
+        };
+      }
+    ).gitCli;
     const result = await gitCli.exec(args, { cwd: this._repo.rootUri.fsPath });
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || result.stdout || `git ${args.join(' ')} failed`);

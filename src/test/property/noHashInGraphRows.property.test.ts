@@ -23,43 +23,53 @@ import { Uri } from '../mocks/vscode';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
  * Generate a short commit hash (7 hex characters).
  */
 function arbitraryShortHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 7, maxLength: 7 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 7,
+    maxLength: 7,
+  });
 }
 
 /**
  * Generate a non-empty author name using safe characters.
  */
 function arbitraryAuthorName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-    ),
-    { minLength: 1, maxLength: 30 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+      ),
+      { minLength: 1, maxLength: 30 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
  * Generate a valid email address.
  */
 function arbitraryEmail(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), { minLength: 1, maxLength: 10 }),
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 8 }),
-    fc.constantFrom('com', 'org', 'net', 'io')
-  ).map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
+  return fc
+    .tuple(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), {
+        minLength: 1,
+        maxLength: 8,
+      }),
+      fc.constantFrom('com', 'org', 'net', 'io')
+    )
+    .map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
 }
 
 /**
@@ -76,12 +86,14 @@ function arbitraryAuthor(): fc.Arbitrary<IAuthor> {
  * Generate a commit message using safe characters.
  */
 function arbitraryCommitMessage(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()'.split('')
-    ),
-    { minLength: 1, maxLength: 80 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()'.split('')
+      ),
+      { minLength: 1, maxLength: 80 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
@@ -128,11 +140,17 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), { minLength: 1, maxLength: 15 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), {
+        minLength: 1,
+        maxLength: 15,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), { minLength: 1, maxLength: 10 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
   });
@@ -170,26 +188,23 @@ describe('Feature: git-graph-details-improvements - No Hash in Graph Rows Proper
      */
     it('Feature: git-graph-details-improvements, Property 2: No commit hash displayed in graph rows — HTML does not contain commit-hash class but retains data-hash attribute', () => {
       fc.assert(
-        fc.property(
-          fc.array(arbitraryCommitNode(), { minLength: 1, maxLength: 10 }),
-          (nodes) => {
-            const html = provider._getGraphPanelHtml(nodes);
+        fc.property(fc.array(arbitraryCommitNode(), { minLength: 1, maxLength: 10 }), (nodes) => {
+          const html = provider._getGraphPanelHtml(nodes);
 
-            // The commit-hash CSS class should NOT appear in the output
+          // The commit-hash CSS class should NOT appear in the output
+          assert.ok(
+            !html.includes('commit-hash'),
+            'HTML output should NOT contain the "commit-hash" class — hash should be hidden from graph rows'
+          );
+
+          // The data-hash attribute SHOULD still be present for each commit node
+          for (const node of nodes) {
             assert.ok(
-              !html.includes('commit-hash'),
-              'HTML output should NOT contain the "commit-hash" class — hash should be hidden from graph rows'
+              html.includes(`data-hash="${node.commit.hash}"`),
+              `HTML output should contain data-hash="${node.commit.hash}" for functionality`
             );
-
-            // The data-hash attribute SHOULD still be present for each commit node
-            for (const node of nodes) {
-              assert.ok(
-                html.includes(`data-hash="${node.commit.hash}"`),
-                `HTML output should contain data-hash="${node.commit.hash}" for functionality`
-              );
-            }
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });

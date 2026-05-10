@@ -69,7 +69,10 @@ describe('T3-12 GitService.fetch — intellig.fetchTags config', () => {
       assert.ok(executed.length > 0);
       const args = executed[0];
       assert.ok(!args.includes('--tags'), `args should NOT include --tags: ${args.join(' ')}`);
-      assert.ok(!args.includes('--no-tags'), `args should NOT include --no-tags: ${args.join(' ')}`);
+      assert.ok(
+        !args.includes('--no-tags'),
+        `args should NOT include --no-tags: ${args.join(' ')}`
+      );
     });
 
     it('"all" → args include --tags', async () => {

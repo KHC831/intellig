@@ -227,8 +227,7 @@ export class ResetDialog extends BaseWebviewPanel {
   private _getBodyParts(): { body: string; script: string } {
     const shortHash = this._target.hash.substring(0, 8);
     const subject = escapeHtml(this._target.subject);
-    const protectedTooltip =
-      'Protected branch — remove from intellig.protectedBranches to enable';
+    const protectedTooltip = 'Protected branch — remove from intellig.protectedBranches to enable';
 
     // MEDIUM-6: compute the effective default explicitly instead of leaning
     // on the brittle `checked && !disabled` trick. If someone later flips
@@ -237,12 +236,7 @@ export class ResetDialog extends BaseWebviewPanel {
     const disabledSet = new Set<ResetMode>(this.isProtected ? ['hard', 'keep'] : []);
     const effectiveDefault = resolveDefaultMode('mixed', disabledSet);
 
-    const radio = (
-      mode: ResetMode,
-      label: string,
-      desc: string,
-      warn: boolean
-    ): string => {
+    const radio = (mode: ResetMode, label: string, desc: string, warn: boolean): string => {
       const disabled = disabledSet.has(mode);
       const disabledAttr = disabled ? 'disabled' : '';
       const titleAttr = disabled ? ` title="${escapeHtml(protectedTooltip)}"` : '';

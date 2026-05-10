@@ -65,23 +65,23 @@ describe('T3-13 IntelliJ keymap parity', () => {
     it('Ctrl+Shift+U → intellig.showShelfList with preset gate', () => {
       const kb = findKb('intellig.showShelfList', 'ctrl+shift+u');
       assert.ok(kb, 'expected ctrl+shift+u → intellig.showShelfList keybinding');
-      assert.strictEqual(kb!.mac, 'cmd+shift+u');
+      assert.strictEqual(kb.mac, 'cmd+shift+u');
       assert.ok(
-        kb!.when?.includes("config.intellig.keymapPreset == 'intellij'"),
-        `when clause must gate on keymapPreset, got: ${kb!.when}`
+        kb.when?.includes("config.intellig.keymapPreset == 'intellij'"),
+        `when clause must gate on keymapPreset, got: ${kb.when}`
       );
     });
 
     it('F4 → intellig.localChanges.openFile with preset gate', () => {
       const kb = findKb('intellig.localChanges.openFile', 'f4');
       assert.ok(kb, 'expected f4 → intellig.localChanges.openFile keybinding');
-      assert.ok(kb!.when?.includes("config.intellig.keymapPreset == 'intellij'"));
+      assert.ok(kb.when?.includes("config.intellig.keymapPreset == 'intellij'"));
     });
 
     it('F6 → intellig.changelist.moveFilesTo with preset gate', () => {
       const kb = findKb('intellig.changelist.moveFilesTo', 'f6');
       assert.ok(kb, 'expected f6 → intellig.changelist.moveFilesTo keybinding');
-      assert.ok(kb!.when?.includes("config.intellig.keymapPreset == 'intellij'"));
+      assert.ok(kb.when?.includes("config.intellig.keymapPreset == 'intellij'"));
     });
 
     it('Ctrl+F (graph-focused) → intellig.toolWindow.jumpToHash', () => {
@@ -93,26 +93,33 @@ describe('T3-13 IntelliJ keymap parity', () => {
       const kbs = (pkg.contributes?.keybindings ?? []).filter(
         (k) => k.command === 'intellig.toolWindow.jumpToHash' && k.key === 'ctrl+f'
       );
-      assert.ok(kbs.length >= 1, 'expected at least one ctrl+f → intellig.toolWindow.jumpToHash keybinding');
+      assert.ok(
+        kbs.length >= 1,
+        'expected at least one ctrl+f → intellig.toolWindow.jumpToHash keybinding'
+      );
       const scoped = kbs.find((k) => k.when?.includes('focusedView'));
       assert.ok(
         scoped,
         'ctrl+f must be scoped by a focusedView clause so it does not hijack the global Ctrl+F'
       );
-      assert.strictEqual(scoped!.mac, 'cmd+f');
+      assert.strictEqual(scoped.mac, 'cmd+f');
     });
   });
 
   describe('existing silent shelve/unshelve shortcuts are still bound', () => {
     it('Ctrl+Shift+H → intellig.shelve.silent (from T2-10)', () => {
       const kbs = pkg.contributes?.keybindings ?? [];
-      const kb = kbs.find((k) => k.command === 'intellig.shelve.silent' && k.key === 'ctrl+shift+h');
+      const kb = kbs.find(
+        (k) => k.command === 'intellig.shelve.silent' && k.key === 'ctrl+shift+h'
+      );
       assert.ok(kb, 'T2-10 shortcut ctrl+shift+h must still be present');
     });
 
     it('Ctrl+Alt+U → intellig.unshelve.silent (from T2-10)', () => {
       const kbs = pkg.contributes?.keybindings ?? [];
-      const kb = kbs.find((k) => k.command === 'intellig.unshelve.silent' && k.key === 'ctrl+alt+u');
+      const kb = kbs.find(
+        (k) => k.command === 'intellig.unshelve.silent' && k.key === 'ctrl+alt+u'
+      );
       assert.ok(kb, 'T2-10 shortcut ctrl+alt+u must still be present');
     });
   });

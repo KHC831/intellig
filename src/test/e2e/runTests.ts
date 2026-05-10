@@ -32,11 +32,7 @@ async function main(): Promise<void> {
     const exitCode = await runTests({
       extensionDevelopmentPath,
       extensionTestsPath,
-      launchArgs: [
-        tempWorkspace,
-        '--disable-extensions',
-        '--disable-workspace-trust',
-      ],
+      launchArgs: [tempWorkspace, '--disable-extensions', '--disable-workspace-trust'],
     });
 
     if (typeof exitCode === 'number' && exitCode !== 0) {

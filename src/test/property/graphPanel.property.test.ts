@@ -26,20 +26,20 @@ import { Uri } from '../mocks/vscode';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
  * Generate a short commit hash (7 hex characters).
  */
 function arbitraryShortHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 7, maxLength: 7 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 7,
+    maxLength: 7,
+  });
 }
 
 /**
@@ -48,23 +48,33 @@ function arbitraryShortHash(): fc.Arbitrary<string> {
  * The name must be non-empty after trimming.
  */
 function arbitraryAuthorName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-    ),
-    { minLength: 1, maxLength: 30 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+      ),
+      { minLength: 1, maxLength: 30 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
  * Generate a valid email address.
  */
 function arbitraryEmail(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), { minLength: 1, maxLength: 10 }),
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 8 }),
-    fc.constantFrom('com', 'org', 'net', 'io')
-  ).map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
+  return fc
+    .tuple(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), {
+        minLength: 1,
+        maxLength: 8,
+      }),
+      fc.constantFrom('com', 'org', 'net', 'io')
+    )
+    .map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
 }
 
 /**
@@ -83,18 +93,21 @@ function arbitraryAuthor(): fc.Arbitrary<IAuthor> {
  * the text or its truncation in the HTML output.
  */
 function arbitraryCommitMessage(): fc.Arbitrary<string> {
-  const line = fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()[]{}#@$%^*+=~`/'.split('')
-    ),
-    { minLength: 1, maxLength: 100 }
-  ).filter(s => s.trim().length > 0);
+  const line = fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()[]{}#@$%^*+=~`/'.split(
+          ''
+        )
+      ),
+      { minLength: 1, maxLength: 100 }
+    )
+    .filter((s) => s.trim().length > 0);
 
-  return fc.tuple(
-    line,
-    fc.array(line, { minLength: 0, maxLength: 2 })
-  ).map(([first, rest]) => {
-    if (rest.length === 0) { return first; }
+  return fc.tuple(line, fc.array(line, { minLength: 0, maxLength: 2 })).map(([first, rest]) => {
+    if (rest.length === 0) {
+      return first;
+    }
     return first + '\n' + rest.join('\n');
   });
 }
@@ -105,7 +118,7 @@ function arbitraryCommitMessage(): fc.Arbitrary<string> {
 function arbitraryRecentDate(): fc.Arbitrary<Date> {
   const now = Date.now();
   const oneYearMs = 365 * 24 * 3600 * 1000;
-  return fc.integer({ min: 1000, max: oneYearMs }).map(ms => new Date(now - ms));
+  return fc.integer({ min: 1000, max: oneYearMs }).map((ms) => new Date(now - ms));
 }
 
 /**
@@ -145,11 +158,17 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), { minLength: 1, maxLength: 15 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), {
+        minLength: 1,
+        maxLength: 15,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), { minLength: 1, maxLength: 10 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
   });
@@ -159,8 +178,9 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
  * Generate a set of unique commit hashes (0-10 hashes).
  */
 function arbitraryHashSet(): fc.Arbitrary<Set<string>> {
-  return fc.array(arbitraryFullHash(), { minLength: 0, maxLength: 10 })
-    .map(hashes => new Set(hashes));
+  return fc
+    .array(arbitraryFullHash(), { minLength: 0, maxLength: 10 })
+    .map((hashes) => new Set(hashes));
 }
 
 /**
@@ -214,54 +234,48 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
      */
     it('Feature: intellig-layout, Property 7: Commit row contains required fields — HTML contains short hash, message summary, author name, and date string', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitNode(),
-          (node) => {
-            const html = provider._getGraphPanelHtml([node]);
+        fc.property(arbitraryCommitNode(), (node) => {
+          const html = provider._getGraphPanelHtml([node]);
 
-            const commit = node.commit;
+          const commit = node.commit;
 
-            // 1. Full hash must be present (used in data-hash attribute)
-            assert.ok(
-              html.includes(commit.hash),
-              `HTML should contain the full hash "${commit.hash}" in data-hash attribute`
-            );
+          // 1. Full hash must be present (used in data-hash attribute)
+          assert.ok(
+            html.includes(commit.hash),
+            `HTML should contain the full hash "${commit.hash}" in data-hash attribute`
+          );
 
-            // 2. Message summary (first line, possibly truncated) must be present
-            const summary = expectedMessageSummary(commit.message);
-            // The summary is HTML-escaped in the output, but since we use safe
-            // characters in our generator, escaping is a no-op.
-            assert.ok(
-              html.includes(summary),
-              `HTML should contain the message summary "${summary}"`
-            );
+          // 2. Message summary (first line, possibly truncated) must be present
+          const summary = expectedMessageSummary(commit.message);
+          // The summary is HTML-escaped in the output, but since we use safe
+          // characters in our generator, escaping is a no-op.
+          assert.ok(html.includes(summary), `HTML should contain the message summary "${summary}"`);
 
-            // 3. Author name must be present
-            assert.ok(
-              html.includes(commit.author.name),
-              `HTML should contain the author name "${commit.author.name}"`
-            );
+          // 3. Author name must be present
+          assert.ok(
+            html.includes(commit.author.name),
+            `HTML should contain the author name "${commit.author.name}"`
+          );
 
-            // 4. A date string must be present (the commit-date span should contain text)
-            // The _formatRelativeDate method produces strings like "just now", "X minutes ago", etc.
-            // We verify the commit-date span exists and contains non-empty text.
-            const datePattern = /class="commit-date"[^>]*>([^<]+)</;
-            const dateMatch = html.match(datePattern);
-            assert.ok(
-              dateMatch && dateMatch[1].trim().length > 0,
-              'HTML should contain a non-empty date string in the commit-date span'
-            );
+          // 4. A date string must be present (the commit-date span should contain text)
+          // The _formatRelativeDate method produces strings like "just now", "X minutes ago", etc.
+          // We verify the commit-date span exists and contains non-empty text.
+          const datePattern = /class="commit-date"[^>]*>([^<]+)</;
+          const dateMatch = html.match(datePattern);
+          assert.ok(
+            dateMatch && dateMatch[1].trim().length > 0,
+            'HTML should contain a non-empty date string in the commit-date span'
+          );
 
-            // Additionally verify the date string matches the expected absolute date format
-            // The _formatAbsoluteDate method produces strings like "2024-01-15 3:30 PM"
-            const dateText = dateMatch![1].trim();
-            const absoluteDatePattern = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\s+(AM|PM)$/;
-            assert.ok(
-              absoluteDatePattern.test(dateText),
-              `Date string "${dateText}" should match absolute date format YYYY-MM-DD H:MM AM/PM`
-            );
-          }
-        ),
+          // Additionally verify the date string matches the expected absolute date format
+          // The _formatAbsoluteDate method produces strings like "2024-01-15 3:30 PM"
+          const dateText = dateMatch[1].trim();
+          const absoluteDatePattern = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\s+(AM|PM)$/;
+          assert.ok(
+            absoluteDatePattern.test(dateText),
+            `Date string "${dateText}" should match absolute date format YYYY-MM-DD H:MM AM/PM`
+          );
+        }),
         { numRuns: 150 }
       );
     });
@@ -277,71 +291,67 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
      */
     it('Feature: intellig-layout, Property 8: Multi-select toggle correctness — toggling a hash changes set size by exactly 1', () => {
       fc.assert(
-        fc.property(
-          arbitraryHashSet(),
-          arbitraryToggleHash(),
-          (initialSet, toggleHash) => {
-            // Create a fresh provider for each test to avoid state leakage
-            const testProvider = createProvider();
+        fc.property(arbitraryHashSet(), arbitraryToggleHash(), (initialSet, toggleHash) => {
+          // Create a fresh provider for each test to avoid state leakage
+          const testProvider = createProvider();
 
-            try {
-              // Set up the initial selection state by toggling each hash in
-              for (const hash of initialSet) {
-                testProvider.toggleCommitSelection(hash);
-              }
-
-              // Verify initial state matches
-              const beforeToggle = new Set(testProvider.getSelectedCommits());
-              assert.strictEqual(
-                beforeToggle.size,
-                initialSet.size,
-                `Initial selection size should be ${initialSet.size}`
-              );
-
-              const wasPresent = beforeToggle.has(toggleHash);
-              const originalSize = beforeToggle.size;
-
-              // Toggle the target hash
-              testProvider.toggleCommitSelection(toggleHash);
-
-              const afterToggle = new Set(testProvider.getSelectedCommits());
-              const newSize = afterToggle.size;
-
-              // Size should differ by exactly 1
-              assert.strictEqual(
-                Math.abs(newSize - originalSize),
-                1,
-                `Set size should change by exactly 1 (was ${originalSize}, now ${newSize})`
-              );
-
-              if (wasPresent) {
-                // Was present → should be removed
-                assert.ok(
-                  !afterToggle.has(toggleHash),
-                  `Hash "${toggleHash}" was present and should be removed after toggle`
-                );
-                assert.strictEqual(
-                  newSize,
-                  originalSize - 1,
-                  'Set size should decrease by 1 when removing'
-                );
-              } else {
-                // Was not present → should be added
-                assert.ok(
-                  afterToggle.has(toggleHash),
-                  `Hash "${toggleHash}" was not present and should be added after toggle`
-                );
-                assert.strictEqual(
-                  newSize,
-                  originalSize + 1,
-                  'Set size should increase by 1 when adding'
-                );
-              }
-            } finally {
-              testProvider.dispose();
+          try {
+            // Set up the initial selection state by toggling each hash in
+            for (const hash of initialSet) {
+              testProvider.toggleCommitSelection(hash);
             }
+
+            // Verify initial state matches
+            const beforeToggle = new Set(testProvider.getSelectedCommits());
+            assert.strictEqual(
+              beforeToggle.size,
+              initialSet.size,
+              `Initial selection size should be ${initialSet.size}`
+            );
+
+            const wasPresent = beforeToggle.has(toggleHash);
+            const originalSize = beforeToggle.size;
+
+            // Toggle the target hash
+            testProvider.toggleCommitSelection(toggleHash);
+
+            const afterToggle = new Set(testProvider.getSelectedCommits());
+            const newSize = afterToggle.size;
+
+            // Size should differ by exactly 1
+            assert.strictEqual(
+              Math.abs(newSize - originalSize),
+              1,
+              `Set size should change by exactly 1 (was ${originalSize}, now ${newSize})`
+            );
+
+            if (wasPresent) {
+              // Was present → should be removed
+              assert.ok(
+                !afterToggle.has(toggleHash),
+                `Hash "${toggleHash}" was present and should be removed after toggle`
+              );
+              assert.strictEqual(
+                newSize,
+                originalSize - 1,
+                'Set size should decrease by 1 when removing'
+              );
+            } else {
+              // Was not present → should be added
+              assert.ok(
+                afterToggle.has(toggleHash),
+                `Hash "${toggleHash}" was not present and should be added after toggle`
+              );
+              assert.strictEqual(
+                newSize,
+                originalSize + 1,
+                'Set size should increase by 1 when adding'
+              );
+            }
+          } finally {
+            testProvider.dispose();
           }
-        ),
+        }),
         { numRuns: 150 }
       );
     });

@@ -102,10 +102,7 @@ export function clampPanelWidths(
  * taking proportionally from each panel's excess above the minimum.
  * Iterates until all panels are at or above minimum and the deficit is consumed.
  */
-function redistributeDeficit(
-  result: [number, number],
-  deficit: number
-): void {
+function redistributeDeficit(result: [number, number], deficit: number): void {
   let remaining = deficit;
   const maxIterations = 10; // Safety guard against infinite loops
 
@@ -177,10 +174,7 @@ function isValidPanelWidths(value: unknown): value is [number, number] {
  * @param state - The VS Code Memento (workspace state) to persist to.
  * @param widths - The panel width ratios as percentages, e.g. [60, 40].
  */
-export function savePanelWidths(
-  state: vscode.Memento,
-  widths: [number, number]
-): void {
+export function savePanelWidths(state: vscode.Memento, widths: [number, number]): void {
   void state.update(PANEL_WIDTHS_KEY, widths);
 }
 
@@ -196,9 +190,7 @@ export function savePanelWidths(
  * @param state - The VS Code Memento (workspace state) to load from.
  * @returns A valid panel width ratio tuple.
  */
-export function loadPanelWidths(
-  state: vscode.Memento
-): [number, number] {
+export function loadPanelWidths(state: vscode.Memento): [number, number] {
   const stored = state.get<unknown>(PANEL_WIDTHS_KEY);
 
   if (isValidPanelWidths(stored)) {

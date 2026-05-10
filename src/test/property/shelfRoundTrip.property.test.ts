@@ -609,10 +609,16 @@ describe('Shelf Round-Trip Property Tests', () => {
       const shelfService = new MockShelfService();
       const duplicateName = 'dup';
       const filesA: IShelfFile[] = [
-        { path: 'a.txt', diff: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n+A\n' },
+        {
+          path: 'a.txt',
+          diff: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n+A\n',
+        },
       ];
       const filesB: IShelfFile[] = [
-        { path: 'b.txt', diff: 'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,1 +1,1 @@\n+B\n' },
+        {
+          path: 'b.txt',
+          diff: 'diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1,1 +1,1 @@\n+B\n',
+        },
       ];
 
       shelfService.setWorkingDirectoryChanges(filesA);

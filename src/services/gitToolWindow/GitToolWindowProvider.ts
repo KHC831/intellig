@@ -14,7 +14,15 @@ import {
   IChangedFile,
 } from '../interfaces';
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
-import { ICommitNode, generateCommitGraph, classifyBranchName, computeTerminalNodes, computeChildCountMap, isBranchSplit, computeChildLanesMap } from '../../utils/commitGraph';
+import {
+  ICommitNode,
+  generateCommitGraph,
+  classifyBranchName,
+  computeTerminalNodes,
+  computeChildCountMap,
+  isBranchSplit,
+  computeChildLanesMap,
+} from '../../utils/commitGraph';
 import {
   computeActiveLanes,
   DEFAULT_GRAPH_CONFIG,
@@ -254,10 +262,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    */
   public readonly onDidSelectRepository = this._onDidSelectRepository.event;
 
-  constructor(
-    extensionUri: vscode.Uri,
-    workspaceState?: vscode.Memento
-  ) {
+  constructor(extensionUri: vscode.Uri, workspaceState?: vscode.Memento) {
     super(extensionUri);
     // Initialize extended log state
     this._extendedLogState = this._createInitialExtendedLogState();
@@ -336,7 +341,9 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * is on. Falls back silently when no GitService has been attached yet.
    */
   public async loadFileHistory(filePath: string, branch?: string): Promise<void> {
-    if (!this._historyTab) return;
+    if (!this._historyTab) {
+      return;
+    }
     await this._tabRouter.setActiveTab('history');
     await this._historyTab.loadFile(filePath, branch);
   }
@@ -569,10 +576,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    *          `false` when it wasn't (caller decides what to surface).
    */
   public scrollToCommit(hash: string): boolean {
-    if (!hash) return false;
+    if (!hash) {
+      return false;
+    }
     const loadedCommits = this._extendedLogState.commitNodes;
     const matched = loadedCommits.some((n) => n.commit.hash === hash);
-    if (!matched) return false;
+    if (!matched) {
+      return false;
+    }
 
     this._scrollToCommitHash = hash;
     this.selectCommit(hash);
@@ -611,7 +622,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         commitHash: hash,
       });
 
-      const node = this._extendedLogState.commitNodes.find(n => n.commit.hash === hash);
+      const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
           hash: node.commit.hash,
@@ -661,7 +672,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // Send a partial update to the webview instead of a full re-render
     // to preserve the graph panel's scroll position
     if (this._view) {
-      const node = this._extendedLogState.commitNodes.find(n => n.commit.hash === hash);
+      const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
       if (node) {
         const commitDetails: ICommitDetails = {
           hash: node.commit.hash,
@@ -1103,7 +1114,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // Build commit details if a commit is expanded
     let commitDetails: ICommitDetails | undefined;
     if (expandedCommit) {
-      const node = commitNodes.find(n => n.commit.hash === expandedCommit);
+      const node = commitNodes.find((n) => n.commit.hash === expandedCommit);
       if (node) {
         commitDetails = {
           hash: node.commit.hash,
@@ -1114,12 +1125,15 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
           parents: node.commit.parents || [],
           branches: node.branches || [],
           tags: node.tags || [],
-          changedFiles: this._pendingChangedFiles && this._extendedLogState.expandedCommit === node.commit.hash
-            ? this._pendingChangedFiles
-            : [],
-          changedFilesError: this._pendingChangedFilesError && this._extendedLogState.expandedCommit === node.commit.hash
-            ? String(this._pendingChangedFilesError)
-            : undefined,
+          changedFiles:
+            this._pendingChangedFiles && this._extendedLogState.expandedCommit === node.commit.hash
+              ? this._pendingChangedFiles
+              : [],
+          changedFilesError:
+            this._pendingChangedFilesError &&
+            this._extendedLogState.expandedCommit === node.commit.hash
+              ? String(this._pendingChangedFilesError)
+              : undefined,
         };
       }
     }
@@ -1219,7 +1233,9 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
           updateInfoBodyHtml: renderUpdateInfoTabBody(),
           historyBodyHtml:
             renderHistoryTabBody(historyState) +
-            (historyActive ? `<script nonce="${nonce}">${historyTabBehaviorScript()}</script>` : ''),
+            (historyActive
+              ? `<script nonce="${nonce}">${historyTabBehaviorScript()}</script>`
+              : ''),
           nonce,
         })
       : logBody;
@@ -1706,7 +1722,15 @@ ${bodyMarkup}
         const isTerminal = terminalNodes.has(commit.hash);
         const isSplitPoint = isBranchSplit(commit.hash, childCountMap);
         const childLanes = childLanesMap.get(commit.hash) || new Set<number>();
-        const graphSvg = renderGraphSvg(node, index, activeLanes, DEFAULT_GRAPH_CONFIG, isTerminal, isSplitPoint, childLanes);
+        const graphSvg = renderGraphSvg(
+          node,
+          index,
+          activeLanes,
+          DEFAULT_GRAPH_CONFIG,
+          isTerminal,
+          isSplitPoint,
+          childLanes
+        );
 
         // Format fields
         const messageSummary = this._escapeHtml(this._truncateMessage(commit.message, 60));
@@ -1853,9 +1877,10 @@ ${bodyMarkup}
    * @returns HTML string for the commit context menu overlay
    */
   public _getCommitContextMenuHtml(): string {
-    const headHash = this._extendedLogState.commitNodes.length > 0
-      ? this._extendedLogState.commitNodes[0].commit.hash
-      : '';
+    const headHash =
+      this._extendedLogState.commitNodes.length > 0
+        ? this._extendedLogState.commitNodes[0].commit.hash
+        : '';
 
     return `
       <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${headHash}">
@@ -1923,14 +1948,15 @@ ${bodyMarkup}
     const dateStr = commitDetails.date.toLocaleString();
 
     // Parent hashes
-    const parentsHtml = commitDetails.parents.length > 0
-      ? commitDetails.parents
-          .map(
-            (p) =>
-              `<span class="parent-hash" data-parent-hash="${this._escapeHtml(p)}" title="${this._escapeHtml(p)}">${this._escapeHtml(p.substring(0, 7))}</span>`
-          )
-          .join(', ')
-      : '<span class="no-parents">None (root commit)</span>';
+    const parentsHtml =
+      commitDetails.parents.length > 0
+        ? commitDetails.parents
+            .map(
+              (p) =>
+                `<span class="parent-hash" data-parent-hash="${this._escapeHtml(p)}" title="${this._escapeHtml(p)}">${this._escapeHtml(p.substring(0, 7))}</span>`
+            )
+            .join(', ')
+        : '<span class="no-parents">None (root commit)</span>';
 
     // --- Changed files section ---
     let changedFilesHtml: string;
@@ -3824,7 +3850,9 @@ ${bodyMarkup}
    */
   private _getSelectedRepoRemote(): IRemoteUrl | undefined {
     const repo = this.getSelectedRepository();
-    if (!repo) return undefined;
+    if (!repo) {
+      return undefined;
+    }
     const key = repo.rootUri.fsPath;
     if (this._parsedRemoteCache.has(key)) {
       return this._parsedRemoteCache.get(key);

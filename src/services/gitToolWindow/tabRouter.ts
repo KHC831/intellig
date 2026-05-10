@@ -77,21 +77,28 @@ export interface ITabRouterHooks {
  *
  * Anything else falls back to the currently active tab.
  */
-export function inferTabForMessage(
-  message: IWebviewTabMessage,
-  activeTab: TabId
-): TabId {
+export function inferTabForMessage(message: IWebviewTabMessage, activeTab: TabId): TabId {
   if (message.tab && isTabId(message.tab)) {
     return message.tab;
   }
   const type = typeof message.type === 'string' ? message.type : '';
-  if (type.startsWith('console.')) return 'console';
-  if (type.startsWith('incoming.')) return 'incoming';
-  if (type.startsWith('updateInfo.')) return 'updateInfo';
-  if (type.startsWith('history.')) return 'history';
+  if (type.startsWith('console.')) {
+    return 'console';
+  }
+  if (type.startsWith('incoming.')) {
+    return 'incoming';
+  }
+  if (type.startsWith('updateInfo.')) {
+    return 'updateInfo';
+  }
+  if (type.startsWith('history.')) {
+    return 'history';
+  }
   // `log.*`, `selectCommit`, `toggleCommitSelection`, `loadMoreCommits`,
   // filters, divider resize, etc. — all implicit `tab: 'log'`.
-  if (type.startsWith('log.')) return 'log';
+  if (type.startsWith('log.')) {
+    return 'log';
+  }
   // Fall back to the active tab so stray malformed-but-type-less messages
   // land somewhere sensible.
   return activeTab;

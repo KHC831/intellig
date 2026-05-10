@@ -34,8 +34,9 @@ function arbitraryBranchSegment(): fc.Arbitrary<string> {
  * Examples: "main", "feature/my-branch", "release/v1.0.0", "user/feature/fix-bug"
  */
 function arbitraryBranchName(): fc.Arbitrary<string> {
-  return fc.array(arbitraryBranchSegment(), { minLength: 1, maxLength: 3 })
-    .map(segments => segments.join('/'));
+  return fc
+    .array(arbitraryBranchSegment(), { minLength: 1, maxLength: 3 })
+    .map((segments) => segments.join('/'));
 }
 
 /**
@@ -155,8 +156,10 @@ describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tes
 
             // Build the expected result by manually replacing placeholders
             const expected = tmpl.template
-              .split('{branch}').join(branchName)
-              .split('{current}').join(currentBranchName);
+              .split('{branch}')
+              .join(branchName)
+              .split('{current}')
+              .join(currentBranchName);
 
             assert.strictEqual(
               result,
@@ -178,7 +181,7 @@ describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tes
       fc.assert(
         fc.property(
           arbitraryBranchName(),
-          fc.constantFrom(...TEMPLATES.filter(t => t.hasCurrent)),
+          fc.constantFrom(...TEMPLATES.filter((t) => t.hasCurrent)),
           (branchName, tmpl) => {
             // In detached HEAD state, the current branch name is "HEAD"
             const currentBranchName = 'HEAD';
@@ -192,8 +195,10 @@ describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tes
 
             // Build the expected result
             const expected = tmpl.template
-              .split('{branch}').join(branchName)
-              .split('{current}').join('HEAD');
+              .split('{branch}')
+              .join(branchName)
+              .split('{current}')
+              .join('HEAD');
 
             assert.strictEqual(
               result,
@@ -210,29 +215,29 @@ describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tes
       // Use a generator that specifically produces branch names with special characters
       const specialBranchName = fc.oneof(
         // Names with slashes (feature branches)
-        fc.tuple(
-          fc.constantFrom('feature', 'bugfix', 'release', 'hotfix', 'user'),
-          arbitraryBranchSegment()
-        ).map(([prefix, suffix]) => `${prefix}/${suffix}`),
+        fc
+          .tuple(
+            fc.constantFrom('feature', 'bugfix', 'release', 'hotfix', 'user'),
+            arbitraryBranchSegment()
+          )
+          .map(([prefix, suffix]) => `${prefix}/${suffix}`),
         // Names with dots (version branches)
-        fc.tuple(
-          fc.constantFrom('v', 'release-'),
-          fc.nat({ max: 99 }),
-          fc.nat({ max: 99 }),
-          fc.nat({ max: 99 })
-        ).map(([prefix, major, minor, patch]) => `${prefix}${major}.${minor}.${patch}`),
+        fc
+          .tuple(
+            fc.constantFrom('v', 'release-'),
+            fc.nat({ max: 99 }),
+            fc.nat({ max: 99 }),
+            fc.nat({ max: 99 })
+          )
+          .map(([prefix, major, minor, patch]) => `${prefix}${major}.${minor}.${patch}`),
         // Names with multiple slashes
-        fc.tuple(
-          arbitraryBranchSegment(),
-          arbitraryBranchSegment(),
-          arbitraryBranchSegment()
-        ).map(([a, b, c]) => `${a}/${b}/${c}`),
+        fc
+          .tuple(arbitraryBranchSegment(), arbitraryBranchSegment(), arbitraryBranchSegment())
+          .map(([a, b, c]) => `${a}/${b}/${c}`),
         // Names with hyphens and underscores
-        fc.tuple(
-          arbitraryBranchSegment(),
-          fc.constantFrom('-', '_'),
-          arbitraryBranchSegment()
-        ).map(([a, sep, b]) => `${a}${sep}${b}`)
+        fc
+          .tuple(arbitraryBranchSegment(), fc.constantFrom('-', '_'), arbitraryBranchSegment())
+          .map(([a, sep, b]) => `${a}${sep}${b}`)
       );
 
       fc.assert(
@@ -245,8 +250,10 @@ describe('Feature: branch-context-menu - Dynamic Label Substitution Property Tes
 
             // Build the expected result
             const expected = tmpl.template
-              .split('{branch}').join(branchName)
-              .split('{current}').join(currentBranchName);
+              .split('{branch}')
+              .join(branchName)
+              .split('{current}')
+              .join(currentBranchName);
 
             assert.strictEqual(
               result,

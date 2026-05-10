@@ -22,9 +22,10 @@ import type { IConflictResolutionService } from '../../services/interfaces/IConf
  * Make a context, repo, and dependencies for the property runner. Each fuzz
  * iteration rebuilds the dialog so assertions start from a clean slate.
  */
-function makeDialog(
-  messages: { count: (key: string) => number; record: (key: string) => void }
-): ResolveConflictsDialog {
+function makeDialog(messages: {
+  count: (key: string) => number;
+  record: (key: string) => void;
+}): ResolveConflictsDialog {
   const ctx = {
     subscriptions: [],
     extensionUri: vscode.Uri.file('/tmp/ext'),
@@ -112,7 +113,9 @@ function makeTracker(): {
     },
     total: () => {
       let s = 0;
-      for (const v of counts.values()) s += v;
+      for (const v of counts.values()) {
+        s += v;
+      }
       return s;
     },
     reset: () => counts.clear(),
@@ -138,7 +141,9 @@ describe('property: ResolveConflictsDialog router — exactly one dispatch per v
         const dialog = makeDialog(tracker);
         try {
           tracker.reset();
-          await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage(message);
+          await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage(
+            message
+          );
 
           // Exactly one handler runs per valid message.
           const n = tracker.total();

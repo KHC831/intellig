@@ -137,16 +137,14 @@ export class BranchContextMenuCommands {
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
-        'intellig.branch.mergeIntoCurrent',
-        (item: BranchTreeItem) => this._handleMergeIntoCurrent(item)
+      vscode.commands.registerCommand('intellig.branch.mergeIntoCurrent', (item: BranchTreeItem) =>
+        this._handleMergeIntoCurrent(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
-        'intellig.branch.rebaseCurrentOnto',
-        (item: BranchTreeItem) => this._handleRebaseCurrentOnto(item)
+      vscode.commands.registerCommand('intellig.branch.rebaseCurrentOnto', (item: BranchTreeItem) =>
+        this._handleRebaseCurrentOnto(item)
       )
     );
 
@@ -219,9 +217,8 @@ export class BranchContextMenuCommands {
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
-        'intellig.branch.checkoutAndRebase',
-        (item: BranchTreeItem) => this._handleCheckoutAndRebase(item)
+      vscode.commands.registerCommand('intellig.branch.checkoutAndRebase', (item: BranchTreeItem) =>
+        this._handleCheckoutAndRebase(item)
       )
     );
 
@@ -307,7 +304,10 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes('would be overwritten') || errorMessage.includes('Please commit your changes or stash them')) {
+      if (
+        errorMessage.includes('would be overwritten') ||
+        errorMessage.includes('Please commit your changes or stash them')
+      ) {
         const choice = await vscode.window.showWarningMessage(
           `Cannot switch to '${item.branch.name}': local changes would be overwritten.`,
           'Stash & Switch',
@@ -318,7 +318,9 @@ export class BranchContextMenuCommands {
           try {
             await this._gitService.stash(repo, `Auto-stash before checkout ${item.branch.name}`);
             await this._gitService.checkout(repo, item.branch.name);
-            void vscode.window.showInformationMessage(`Stashed changes and switched to '${item.branch.name}'`);
+            void vscode.window.showInformationMessage(
+              `Stashed changes and switched to '${item.branch.name}'`
+            );
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
@@ -692,9 +694,7 @@ export class BranchContextMenuCommands {
     }
 
     if (files.length === 0) {
-      void vscode.window.showInformationMessage(
-        `No changes between ${branchRef} and working tree`
-      );
+      void vscode.window.showInformationMessage(`No changes between ${branchRef} and working tree`);
       return;
     }
 
@@ -723,9 +723,7 @@ export class BranchContextMenuCommands {
 
     for (const pick of selected) {
       const filePath = pick.file.path;
-      const leftUri = vscode.Uri.parse(
-        `intellig-git:${filePath}?${encodeURIComponent(branchRef)}`
-      );
+      const leftUri = vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(branchRef)}`);
       const rightUri = vscode.Uri.file(`${rootFsPath}${separator}${filePath}`);
       const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
       const title = `${basename} (${branchRef} ↔ Working Tree)`;
@@ -780,7 +778,10 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes('would be overwritten') || errorMessage.includes('Please commit your changes or stash them')) {
+      if (
+        errorMessage.includes('would be overwritten') ||
+        errorMessage.includes('Please commit your changes or stash them')
+      ) {
         const choice = await vscode.window.showWarningMessage(
           `Cannot switch to '${item.branch.name}': local changes would be overwritten.`,
           'Stash & Switch',
@@ -988,7 +989,10 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (errorMessage.includes('would be overwritten') || errorMessage.includes('Please commit your changes or stash them')) {
+      if (
+        errorMessage.includes('would be overwritten') ||
+        errorMessage.includes('Please commit your changes or stash them')
+      ) {
         const choice = await vscode.window.showWarningMessage(
           `Cannot switch to '${branchName}': local changes would be overwritten.`,
           'Stash & Switch',
@@ -1008,7 +1012,9 @@ export class BranchContextMenuCommands {
                 track: `${remoteName}/${branchName}`,
               });
             }
-            void vscode.window.showInformationMessage(`Stashed changes and switched to '${branchName}'`);
+            void vscode.window.showInformationMessage(
+              `Stashed changes and switched to '${branchName}'`
+            );
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';

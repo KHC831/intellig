@@ -33,10 +33,7 @@ function arbitraryContainerWidth(): fc.Arbitrary<number> {
  * Values can be anything including below minimum, to test clamping behavior.
  */
 function arbitraryPanelWidths(): fc.Arbitrary<[number, number]> {
-  return fc.tuple(
-    fc.integer({ min: -100, max: 5000 }),
-    fc.integer({ min: -100, max: 5000 })
-  );
+  return fc.tuple(fc.integer({ min: -100, max: 5000 }), fc.integer({ min: -100, max: 5000 }));
 }
 
 /**
@@ -115,14 +112,8 @@ describe('Feature: intellig-layout - Two Panel Layout Property Tests', () => {
             const result = clampPanelWidths(containerWidth, adjustedWidths);
 
             // Each panel must be at least 100px
-            assert.ok(
-              result[0] >= 100,
-              `Panel 0 width ${result[0]} should be >= 100px`
-            );
-            assert.ok(
-              result[1] >= 100,
-              `Panel 1 width ${result[1]} should be >= 100px`
-            );
+            assert.ok(result[0] >= 100, `Panel 0 width ${result[0]} should be >= 100px`);
+            assert.ok(result[1] >= 100, `Panel 1 width ${result[1]} should be >= 100px`);
 
             // Sum must equal container width
             const sum = result[0] + result[1];
@@ -146,25 +137,22 @@ describe('Feature: intellig-layout - Two Panel Layout Property Tests', () => {
      */
     it('Feature: intellig-layout, Property 3: Panel width persistence round-trip — save then load produces equivalent tuple', () => {
       fc.assert(
-        fc.property(
-          arbitraryValidPanelRatios(),
-          (ratios) => {
-            const memento = createMockMemento();
+        fc.property(arbitraryValidPanelRatios(), (ratios) => {
+          const memento = createMockMemento();
 
-            // Save the ratios
-            savePanelWidths(memento, ratios);
+          // Save the ratios
+          savePanelWidths(memento, ratios);
 
-            // Load them back
-            const loaded = loadPanelWidths(memento);
+          // Load them back
+          const loaded = loadPanelWidths(memento);
 
-            // The loaded tuple should be equivalent to the saved one
-            assert.deepStrictEqual(
-              loaded,
-              ratios,
-              `Loaded widths [${loaded}] should equal saved widths [${ratios}]`
-            );
-          }
-        ),
+          // The loaded tuple should be equivalent to the saved one
+          assert.deepStrictEqual(
+            loaded,
+            ratios,
+            `Loaded widths [${loaded}] should equal saved widths [${ratios}]`
+          );
+        }),
         { numRuns: 200 }
       );
     });
@@ -198,20 +186,20 @@ function arbitraryBranchName(): fc.Arbitrary<string> {
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
  * Generate a short commit hash (7-12 hex characters).
  */
 function arbitraryShortHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 7, maxLength: 12 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 7,
+    maxLength: 12,
+  });
 }
 
 /**
@@ -358,10 +346,7 @@ describe('Feature: intellig-layout - Two Panel HTML Structure Property Tests', (
 
             // 1. HTML must NOT contain branch-panel (removed)
             const branchPanelMatches = html.match(/id="branch-panel"/g);
-            assert.ok(
-              !branchPanelMatches,
-              'HTML should NOT contain a branch-panel element'
-            );
+            assert.ok(!branchPanelMatches, 'HTML should NOT contain a branch-panel element');
 
             // 2. HTML must contain exactly one graph-panel and one details-panel
             const graphPanelMatches = html.match(/id="graph-panel"/g);

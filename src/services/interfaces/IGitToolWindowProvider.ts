@@ -123,7 +123,11 @@ export interface IGitToolWindowProvider extends vscode.WebviewViewProvider {
   /**
    * Update commits displayed in the Graph Panel
    */
-  updateCommits?(commits: ICommit[], branchMap?: Map<string, string[]>, tagMap?: Map<string, string[]>): void;
+  updateCommits?(
+    commits: ICommit[],
+    branchMap?: Map<string, string[]>,
+    tagMap?: Map<string, string[]>
+  ): void;
 
   /**
    * Update commit details displayed in the Details Panel

@@ -50,7 +50,10 @@ describe('e2e — tag lifecycle commands', function () {
 
     await vscode.commands.executeCommand('intellig.tag.new');
 
-    const tags = (await execGit(fix.rootPath, ['tag', '-l'])).stdout.trim().split('\n').filter(Boolean);
+    const tags = (await execGit(fix.rootPath, ['tag', '-l'])).stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean);
     assert.ok(tags.includes('v-e2e-1'), `expected 'v-e2e-1' in tag list, got: ${tags.join(', ')}`);
 
     // Lightweight tag: `git cat-file -t` returns 'commit', not 'tag'.
@@ -93,7 +96,9 @@ describe('e2e — tag lifecycle commands', function () {
     await useFixtureWorkspace(fix.rootPath);
 
     // Target the oldest commit (index 0).
-    const log = (await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--reverse'])).stdout.split('\n');
+    const log = (
+      await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--reverse'])
+    ).stdout.split('\n');
     const root = log[0];
     const head = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
     assert.notStrictEqual(root, head, 'sanity: root commit should not be HEAD');
@@ -106,7 +111,9 @@ describe('e2e — tag lifecycle commands', function () {
 
     await vscode.commands.executeCommand('intellig.commit.newTag', { hash: root });
 
-    const tagged = (await execGit(fix.rootPath, ['rev-list', '-n', '1', 'root-pinned'])).stdout.trim();
+    const tagged = (
+      await execGit(fix.rootPath, ['rev-list', '-n', '1', 'root-pinned'])
+    ).stdout.trim();
     assert.strictEqual(tagged, root, 'tag should point at the supplied commit, not HEAD');
   });
 
@@ -114,15 +121,14 @@ describe('e2e — tag lifecycle commands', function () {
     fix = await createFixtureRepo({
       commits: 2,
       withRemote: true,
-      tags: [
-        { name: 'rel-1' },
-        { name: 'rel-2', message: 'annotated release 2' },
-      ],
+      tags: [{ name: 'rel-1' }, { name: 'rel-2', message: 'annotated release 2' }],
     });
     await useFixtureWorkspace(fix.rootPath);
 
     // Sanity: tags exist locally but NOT on the remote yet.
-    const remoteBefore = (await execGit(fix.rootPath, ['ls-remote', '--tags', 'origin'])).stdout.trim();
+    const remoteBefore = (
+      await execGit(fix.rootPath, ['ls-remote', '--tags', 'origin'])
+    ).stdout.trim();
     assert.strictEqual(remoteBefore, '', 'sanity: remote should have no tags before pushAllTags');
 
     stubs = stubPrompts({});
@@ -130,7 +136,13 @@ describe('e2e — tag lifecycle commands', function () {
     await vscode.commands.executeCommand('intellig.pushAllTags');
 
     const remoteAfter = (await execGit(fix.rootPath, ['ls-remote', '--tags', 'origin'])).stdout;
-    assert.ok(remoteAfter.includes('refs/tags/rel-1'), `rel-1 should be on origin; got:\n${remoteAfter}`);
-    assert.ok(remoteAfter.includes('refs/tags/rel-2'), `rel-2 should be on origin; got:\n${remoteAfter}`);
+    assert.ok(
+      remoteAfter.includes('refs/tags/rel-1'),
+      `rel-1 should be on origin; got:\n${remoteAfter}`
+    );
+    assert.ok(
+      remoteAfter.includes('refs/tags/rel-2'),
+      `rel-2 should be on origin; got:\n${remoteAfter}`
+    );
   });
 });

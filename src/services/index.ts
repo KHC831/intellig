@@ -100,10 +100,7 @@ export {
   createConflictResolutionService,
 } from './ConflictResolutionService';
 
-export {
-  ResolveConflictsDialog,
-  createResolveConflictsDialog,
-} from './ResolveConflictsDialog';
+export { ResolveConflictsDialog, createResolveConflictsDialog } from './ResolveConflictsDialog';
 export type { ConflictFileStatus } from './ResolveConflictsDialog';
 
 export { RebaseEditor, createRebaseEditor } from './RebaseEditor';
@@ -155,11 +152,7 @@ export type {
 } from './PushDialog';
 
 export { MergeDialog, showMergeDialog, resolveMergeMutex } from './MergeDialog';
-export type {
-  IMergeDialogOptions,
-  IMergeFlagState,
-  MergeStrategyFlag,
-} from './MergeDialog';
+export type { IMergeDialogOptions, IMergeFlagState, MergeStrategyFlag } from './MergeDialog';
 
 export {
   NewBranchDialog,

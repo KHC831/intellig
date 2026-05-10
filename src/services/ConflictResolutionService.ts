@@ -9,10 +9,7 @@ import {
 } from './interfaces/IConflictResolutionService';
 import { IGitService, IRepository, RepositoryState } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../utils/gitCli';
-import {
-  ResolveConflictsDialog,
-  IConflictOpContext,
-} from './ResolveConflictsDialog';
+import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { IMergeView } from './interfaces/IMergeView';
 
 /**
@@ -121,10 +118,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Wire late-bound dependencies needed to open the Resolve Conflicts dialog.
    * Called once during extension activation after MergeView is constructed.
    */
-  setResolveConflictsDependencies(
-    context: vscode.ExtensionContext,
-    mergeView: IMergeView
-  ): void {
+  setResolveConflictsDependencies(context: vscode.ExtensionContext, mergeView: IMergeView): void {
     this._context = context;
     this._mergeView = mergeView;
   }
@@ -222,12 +216,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   private async _runStateFileCheck(repo: IRepository): Promise<boolean> {
-    const stateFiles = [
-      'MERGE_HEAD',
-      'REBASE_HEAD',
-      'CHERRY_PICK_HEAD',
-      'REVERT_HEAD',
-    ];
+    const stateFiles = ['MERGE_HEAD', 'REBASE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD'];
     const gitDir = path.join(repo.rootUri.fsPath, '.git');
     let anyStateFilePresent = false;
 
@@ -271,10 +260,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Only invokes `setContext` when the aggregate actually changes, so the
    * original memoization guarantee is preserved.
    */
-  private async _setConflictsActive(
-    repo: IRepository,
-    active: boolean
-  ): Promise<void> {
+  private async _setConflictsActive(repo: IRepository, active: boolean): Promise<void> {
     const key = repo.rootUri.fsPath;
     const previous = this._conflictsActiveByRepo.get(key) ?? false;
     if (previous === active) {

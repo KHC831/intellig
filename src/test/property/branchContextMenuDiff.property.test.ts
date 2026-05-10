@@ -269,9 +269,7 @@ interface DiffCall {
  * to (simulating user interaction).
  */
 function installStubs(
-  quickPickResponder: (
-    items: readonly (vscode.QuickPickItem & { file: IRefDiffFile })[]
-  ) => unknown
+  quickPickResponder: (items: readonly (vscode.QuickPickItem & { file: IRefDiffFile })[]) => unknown
 ): { diffCalls: DiffCall[]; restore: () => void } {
   const diffCalls: DiffCall[] = [];
   const originalExecuteCommand = vscode.commands.executeCommand;
@@ -305,8 +303,9 @@ function installStubs(
   // Swallow info / error toasts so property-test output stays clean.
   (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
     async (): Promise<string | undefined> => undefined;
-  (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage =
-    async (): Promise<string | undefined> => undefined;
+  (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = async (): Promise<
+    string | undefined
+  > => undefined;
 
   const restore = (): void => {
     (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =

@@ -151,7 +151,9 @@ export function updateFavoritesList(
  * that want to know the current state.
  */
 export function getFavorites(workspaceState: vscode.Memento | undefined): string[] {
-  if (!workspaceState) return [];
+  if (!workspaceState) {
+    return [];
+  }
   const raw = workspaceState.get<string[]>(FAVORITE_BRANCHES_STATE_KEY, []);
   return Array.isArray(raw) ? [...raw] : [];
 }
@@ -319,9 +321,7 @@ export function buildSectionedItems(input: {
       items.push({
         label,
         description: formatBranchDescription(branch, isCurrent),
-        detail: branch.upstream
-          ? `→ ${branch.upstream.remote}/${branch.upstream.name}`
-          : undefined,
+        detail: branch.upstream ? `→ ${branch.upstream.remote}/${branch.upstream.name}` : undefined,
         buttons: [
           {
             iconPath: new vscode.ThemeIcon(isFav ? 'star-full' : 'star-empty'),
@@ -754,9 +754,7 @@ export class BranchPopup {
     if (!this._workspaceState) {
       return {};
     }
-    return (
-      this._workspaceState.get<Record<string, string[]>>(RECENT_BRANCHES_STATE_KEY, {}) ?? {}
-    );
+    return this._workspaceState.get<Record<string, string[]>>(RECENT_BRANCHES_STATE_KEY, {}) ?? {};
   }
 
   /** Write the per-repo Recent LRU map to workspaceState. */
@@ -821,11 +819,7 @@ export class BranchPopup {
         }
 
         if (selected.branch) {
-          const result = await this._showBranchActionMenu(
-            repo,
-            selected.branch,
-            currentBranchName
-          );
+          const result = await this._showBranchActionMenu(repo, selected.branch, currentBranchName);
           finish(result);
         } else if (selected.tag) {
           const result = await this._showTagActionMenu(repo, selected.tag);
@@ -840,7 +834,9 @@ export class BranchPopup {
       // dismissing the picker.
       quickPick.onDidTriggerItemButton(async ({ item }) => {
         const branch = item.branch;
-        if (!branch) return;
+        if (!branch) {
+          return;
+        }
         const currentFavs = getFavorites(this._workspaceState);
         const isFav = currentFavs.includes(branch.name);
         await this.updateFavorites(branch.name, !isFav);
@@ -863,7 +859,9 @@ export class BranchPopup {
    * going through the QuickPick UI.
    */
   public async updateFavorites(branchName: string, favorite: boolean): Promise<void> {
-    if (!this._workspaceState) return;
+    if (!this._workspaceState) {
+      return;
+    }
     const existing = getFavorites(this._workspaceState);
     const updated = updateFavoritesList(existing, branchName, favorite);
     await this._workspaceState.update(FAVORITE_BRANCHES_STATE_KEY, updated);
@@ -912,10 +910,7 @@ export class BranchPopup {
   }
 
   /** Show the secondary action menu for the picked tag. */
-  private async _showTagActionMenu(
-    repo: IRepository,
-    tag: ITag
-  ): Promise<IBranchPopupResult> {
+  private async _showTagActionMenu(repo: IRepository, tag: ITag): Promise<IBranchPopupResult> {
     const actionItems = buildTagActionMenu(tag);
 
     const selected = await vscode.window.showQuickPick(actionItems, {
@@ -949,7 +944,12 @@ export class BranchPopup {
       void vscode.window.showInformationMessage(
         `Coming soon: ${typeof selected.label === 'string' ? selected.label : 'this action'}`
       );
-      return { branch: selected.branch, tag: selected.tag, action: selected.action, cancelled: false };
+      return {
+        branch: selected.branch,
+        tag: selected.tag,
+        action: selected.action,
+        cancelled: false,
+      };
     }
 
     // Minimal `BranchTreeItem`-compatible shim: the existing handlers only access

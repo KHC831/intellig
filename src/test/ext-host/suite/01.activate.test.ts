@@ -40,25 +40,25 @@ describe('ext-host smoke — 1. activate', function () {
     // `activate()` is idempotent — repeat calls return the same exports.
     // If the extension was activated on `onStartupFinished` before the test
     // runner reached this line, this is a no-op. Either way it must resolve.
-    await ext!.activate();
-    assert.strictEqual(ext!.isActive, true, 'extension failed to activate');
+    await ext.activate();
+    assert.strictEqual(ext.isActive, true, 'extension failed to activate');
   });
 
   it('registers every contributed command (no missing bindings)', async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext);
-    await ext!.activate();
+    await ext.activate();
 
     const manifestPath = path.resolve(__dirname, '../../../../package.json');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
       contributes?: { commands?: Array<{ command: string }> };
     };
-    const declared = (manifest.contributes?.commands ?? []).map(c => c.command);
+    const declared = (manifest.contributes?.commands ?? []).map((c) => c.command);
     assert.ok(declared.length > 0, 'package.json declared no commands');
 
     // `true` → include internal / not-visible commands.
     const live = new Set(await vscode.commands.getCommands(true));
-    const missing = declared.filter(c => !live.has(c));
+    const missing = declared.filter((c) => !live.has(c));
     assert.deepStrictEqual(
       missing,
       [],
@@ -101,7 +101,7 @@ describe('ext-host smoke — 1. activate', function () {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as {
       contributes?: { commands?: Array<{ command: string }> };
     };
-    const declared = (manifest.contributes?.commands ?? []).map(c => c.command);
+    const declared = (manifest.contributes?.commands ?? []).map((c) => c.command);
 
     // Dedup check on the manifest itself (cheap).
     const seenManifest = new Map<string, number>();

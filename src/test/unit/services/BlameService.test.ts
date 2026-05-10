@@ -698,10 +698,7 @@ filename new/location.ts
 
       const info = await blameService.getBlame(mockRepo, 'new/location.ts');
       assert.strictEqual(info.lines.length, 1);
-      assert.strictEqual(
-        info.lines[0].previousCommit,
-        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
-      );
+      assert.strictEqual(info.lines[0].previousCommit, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
       assert.strictEqual(info.lines[0].previousFilename, 'old/location.ts');
     });
   });

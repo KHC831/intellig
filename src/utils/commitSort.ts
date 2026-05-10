@@ -65,9 +65,7 @@ export function sortCommitsStable<T extends ISortableCommit>(commits: readonly T
   // Primary sort by commit date (oldest first). V8's sort is stable, but we
   // rely on the group pass below rather than stability to get determinism
   // across input orderings.
-  const byDate = commits.slice().sort(
-    (a, b) => a.commitDate.getTime() - b.commitDate.getTime()
-  );
+  const byDate = commits.slice().sort((a, b) => a.commitDate.getTime() - b.commitDate.getTime());
 
   // Walk runs of identical timestamps and resolve each run with the
   // topological tie-break.

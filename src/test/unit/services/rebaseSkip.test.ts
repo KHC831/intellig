@@ -47,18 +47,23 @@ function makeContext(): vscode.ExtensionContext {
  * argv passed to `git` and the shape of the returned result.
  */
 function makeGitServiceScripted(
-  responses: Array<{ match: (args: string[]) => boolean; result: {
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-  } }>
+  responses: Array<{
+    match: (args: string[]) => boolean;
+    result: {
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+    };
+  }>
 ): {
   gitService: IGitService;
   calls: string[][];
 } {
   const calls: string[][] = [];
   const mockCli = {
-    async exec(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> {
+    async exec(
+      args: string[]
+    ): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> {
       calls.push([...args]);
       for (const r of responses) {
         if (r.match(args)) {
@@ -108,7 +113,10 @@ describe('GitService.rebaseSkip (T3-05)', () => {
 
   it('invokes `git rebase --skip` with the repo cwd and returns success on exit 0', async () => {
     const { gitService, calls } = makeGitServiceScripted([
-      { match: (a): boolean => a[0] === 'rebase' && a[1] === '--skip', result: { exitCode: 0, stdout: '', stderr: '' } },
+      {
+        match: (a): boolean => a[0] === 'rebase' && a[1] === '--skip',
+        result: { exitCode: 0, stdout: '', stderr: '' },
+      },
     ]);
 
     const result: IBasicRebaseResult = await gitService.rebaseSkip(repo);
@@ -211,7 +219,8 @@ describe('ResolveConflictsDialog Skip button (T3-05)', () => {
   it('renders the Skip button only when operation === rebase', () => {
     const rebaseEnv = buildEnv({ operation: 'rebase', canAbort: true, canContinue: true });
     try {
-      const html = (rebaseEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const html = (rebaseEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview
+        .html;
       assert.ok(html.includes('data-action="skip"'), 'rebase dialog should render the Skip button');
     } finally {
       rebaseEnv.dialog.dispose();
@@ -219,7 +228,8 @@ describe('ResolveConflictsDialog Skip button (T3-05)', () => {
 
     const mergeEnv = buildEnv({ operation: 'merge', canAbort: true, canContinue: true });
     try {
-      const html = (mergeEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const html = (mergeEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview
+        .html;
       assert.ok(!html.includes('data-action="skip"'), 'merge dialog should NOT render Skip');
     } finally {
       mergeEnv.dialog.dispose();
@@ -227,7 +237,8 @@ describe('ResolveConflictsDialog Skip button (T3-05)', () => {
 
     const cherryEnv = buildEnv({ operation: 'cherryPick', canAbort: true, canContinue: true });
     try {
-      const html = (cherryEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const html = (cherryEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview
+        .html;
       assert.ok(!html.includes('data-action="skip"'), 'cherry-pick dialog should NOT render Skip');
     } finally {
       cherryEnv.dialog.dispose();
@@ -243,14 +254,20 @@ describe('ResolveConflictsDialog Skip button (T3-05)', () => {
     try {
       // Stub showWarningMessage to return 'Skip' (user confirmed).
       const originalWarn = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: (...a: unknown[]) => Promise<string | undefined> }).showWarningMessage =
-        async () => 'Skip';
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (...a: unknown[]) => Promise<string | undefined>;
+        }
+      ).showWarningMessage = async () => 'Skip';
 
       try {
-        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({ type: 'skip' });
+        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+          type: 'skip',
+        });
       } finally {
-        (vscode.window as unknown as { showWarningMessage: typeof originalWarn }).showWarningMessage =
-          originalWarn;
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
       }
 
       assert.strictEqual(gitService._rebaseSkipCalls, 1, 'rebaseSkip should be called once');
@@ -267,14 +284,18 @@ describe('ResolveConflictsDialog Skip button (T3-05)', () => {
     });
     try {
       const originalWarn = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: () => Promise<string | undefined> }).showWarningMessage =
-        async () => undefined;
+      (
+        vscode.window as unknown as { showWarningMessage: () => Promise<string | undefined> }
+      ).showWarningMessage = async () => undefined;
 
       try {
-        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({ type: 'skip' });
+        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+          type: 'skip',
+        });
       } finally {
-        (vscode.window as unknown as { showWarningMessage: typeof originalWarn }).showWarningMessage =
-          originalWarn;
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
       }
 
       assert.strictEqual(gitService._rebaseSkipCalls, 0, 'rebaseSkip must not be called on cancel');
@@ -291,14 +312,18 @@ describe('ResolveConflictsDialog Skip button (T3-05)', () => {
     });
     try {
       const originalWarn = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: () => Promise<string | undefined> }).showWarningMessage =
-        async () => 'Skip';
+      (
+        vscode.window as unknown as { showWarningMessage: () => Promise<string | undefined> }
+      ).showWarningMessage = async () => 'Skip';
 
       try {
-        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({ type: 'skip' });
+        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+          type: 'skip',
+        });
       } finally {
-        (vscode.window as unknown as { showWarningMessage: typeof originalWarn }).showWarningMessage =
-          originalWarn;
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
       }
 
       assert.strictEqual(gitService._rebaseSkipCalls, 0, 'non-rebase skip must be a no-op');

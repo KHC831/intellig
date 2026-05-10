@@ -162,7 +162,9 @@ export class MergeView implements IMergeView {
    * True both-sided conflicts stay unresolved.
    */
   applyAllNonConflictingFromLeft(): number {
-    if (!this._mergeState) return 0;
+    if (!this._mergeState) {
+      return 0;
+    }
     const ids = identifyNonConflictingConflicts(this._mergeState.conflicts, 'left');
     let resolved = 0;
     for (const id of ids) {
@@ -179,7 +181,9 @@ export class MergeView implements IMergeView {
    * T3-04 — symmetric to {@link applyAllNonConflictingFromLeft}.
    */
   applyAllNonConflictingFromRight(): number {
-    if (!this._mergeState) return 0;
+    if (!this._mergeState) {
+      return 0;
+    }
     const ids = identifyNonConflictingConflicts(this._mergeState.conflicts, 'right');
     let resolved = 0;
     for (const id of ids) {
@@ -1135,7 +1139,9 @@ export function identifyNonConflictingConflicts(
 ): number[] {
   const out: number[] = [];
   for (const c of conflicts) {
-    if (c.resolved) continue;
+    if (c.resolved) {
+      continue;
+    }
     if (side === 'left') {
       // Prefer diff3 check when base is known (non-empty).
       if (c.baseContent.length > 0 && c.incomingContent === c.baseContent) {
@@ -1217,9 +1223,13 @@ export function identifyNonConflictingHunks(
       });
       inConflict = false;
     } else if (inConflict) {
-      if (section === 'current') currentBuf.push(line);
-      else if (section === 'base') baseBuf.push(line);
-      else incomingBuf.push(line);
+      if (section === 'current') {
+        currentBuf.push(line);
+      } else if (section === 'base') {
+        baseBuf.push(line);
+      } else {
+        incomingBuf.push(line);
+      }
     }
   }
   return identifyNonConflictingConflicts(hunks, side);

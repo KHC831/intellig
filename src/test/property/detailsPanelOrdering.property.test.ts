@@ -30,12 +30,14 @@ describe('Details Panel Section Ordering Property Tests', () => {
    * Arbitrary generator for safe strings (alphanumeric + basic punctuation).
    */
   const safeStringArb = (minLen: number, maxLen: number): fc.Arbitrary<string> =>
-    fc.stringOf(
-      fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-      ),
-      { minLength: minLen, maxLength: maxLen }
-    ).filter((s) => s.trim().length > 0);
+    fc
+      .stringOf(
+        fc.constantFrom(
+          ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+        ),
+        { minLength: minLen, maxLength: maxLen }
+      )
+      .filter((s) => s.trim().length > 0);
 
   /**
    * Arbitrary generator for 40-character hex commit hashes.
@@ -58,13 +60,13 @@ describe('Details Panel Section Ordering Property Tests', () => {
    * Arbitrary generator for file paths.
    */
   const filePathArb: fc.Arbitrary<string> = fc
-    .stringOf(
-      fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyz0123456789-_/'.split('')
-      ),
-      { minLength: 3, maxLength: 30 }
+    .stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-_/'.split('')), {
+      minLength: 3,
+      maxLength: 30,
+    })
+    .filter(
+      (s) => !s.startsWith('/') && !s.endsWith('/') && !s.includes('//') && s.trim().length > 0
     )
-    .filter((s) => !s.startsWith('/') && !s.endsWith('/') && !s.includes('//') && s.trim().length > 0)
     .map((s) => (s.includes('/') ? s : 'src/' + s) + '.ts');
 
   /**
@@ -119,10 +121,7 @@ describe('Details Panel Section Ordering Property Tests', () => {
             changedFilesIndex !== -1,
             'details-changed-files section should be present in the HTML'
           );
-          assert.ok(
-            metadataIndex !== -1,
-            'details-metadata section should be present in the HTML'
-          );
+          assert.ok(metadataIndex !== -1, 'details-metadata section should be present in the HTML');
 
           // Changed files section must appear before metadata section
           assert.ok(

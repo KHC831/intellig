@@ -186,9 +186,7 @@ function restoreMessageFunctions(): void {
 /**
  * Create a mock IGitService where specific methods throw errors.
  */
-function createErrorThrowingMockGitService(
-  overrides: Partial<IGitService> = {}
-): IGitService {
+function createErrorThrowingMockGitService(overrides: Partial<IGitService> = {}): IGitService {
   const repoChangeEmitter = new EventEmitter<IRepository>();
 
   const service = {
@@ -369,10 +367,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             await (commands as any)._handleUpdate(item);
 
-            assert.ok(
-              errorTracker.calls.length > 0,
-              'showErrorMessage should have been called'
-            );
+            assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
             assert.ok(
               calledMessage.includes(errorMsg),
@@ -408,10 +403,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             await (commands as any)._handlePush(item);
 
-            assert.ok(
-              errorTracker.calls.length > 0,
-              'showErrorMessage should have been called'
-            );
+            assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
             assert.ok(
               calledMessage.includes(errorMsg),
@@ -445,10 +437,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             await (commands as any)._handlePullUsingRebase(item);
 
-            assert.ok(
-              errorTracker.calls.length > 0,
-              'showErrorMessage should have been called'
-            );
+            assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
             assert.ok(
               calledMessage.includes(errorMsg),
@@ -482,10 +471,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             await (commands as any)._handlePullUsingMerge(item);
 
-            assert.ok(
-              errorTracker.calls.length > 0,
-              'showErrorMessage should have been called'
-            );
+            assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
             assert.ok(
               calledMessage.includes(errorMsg),
@@ -525,10 +511,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
                 conflicts: conflictFiles,
               }),
             });
-            const branchTreeProvider = createMockBranchTreeProvider(
-              gitService,
-              currentBranch
-            );
+            const branchTreeProvider = createMockBranchTreeProvider(gitService, currentBranch);
             const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
             const item = createLocalBranchTreeItem(targetBranch);

@@ -17,11 +17,7 @@ import * as assert from 'assert';
 import { sortCommitsStable, ISortableCommit } from '../../../utils/commitSort';
 
 describe('sortCommitsStable', () => {
-  function c(
-    hash: string,
-    isoDate: string,
-    parents: string[] = []
-  ): ISortableCommit {
+  function c(hash: string, isoDate: string, parents: string[] = []): ISortableCommit {
     return { hash, commitDate: new Date(isoDate), parents };
   }
 
@@ -43,7 +39,10 @@ describe('sortCommitsStable', () => {
       c('c', '2024-01-03T00:00:00Z'),
     ];
     const sorted = sortCommitsStable(cs);
-    assert.deepStrictEqual(sorted.map((x) => x.hash), ['a', 'b', 'c']);
+    assert.deepStrictEqual(
+      sorted.map((x) => x.hash),
+      ['a', 'b', 'c']
+    );
   });
 
   it('places a parent before its child when both share a commit date (TR-5 core)', () => {
@@ -54,7 +53,10 @@ describe('sortCommitsStable', () => {
     const child = c('0000', '2024-01-01T00:00:00Z', ['b000']);
 
     const sortedForward = sortCommitsStable([parent, child]);
-    assert.deepStrictEqual(sortedForward.map((x) => x.hash), ['b000', '0000']);
+    assert.deepStrictEqual(
+      sortedForward.map((x) => x.hash),
+      ['b000', '0000']
+    );
 
     const sortedReverse = sortCommitsStable([child, parent]);
     assert.deepStrictEqual(
@@ -71,8 +73,14 @@ describe('sortCommitsStable', () => {
 
     const out1 = sortCommitsStable([b, cc, a]);
     const out2 = sortCommitsStable([cc, a, b]);
-    assert.deepStrictEqual(out1.map((x) => x.hash), ['aaa', 'bbb', 'ccc']);
-    assert.deepStrictEqual(out2.map((x) => x.hash), ['aaa', 'bbb', 'ccc']);
+    assert.deepStrictEqual(
+      out1.map((x) => x.hash),
+      ['aaa', 'bbb', 'ccc']
+    );
+    assert.deepStrictEqual(
+      out2.map((x) => x.hash),
+      ['aaa', 'bbb', 'ccc']
+    );
   });
 
   it('respects a parent chain across multiple date-tied commits', () => {
@@ -84,7 +92,10 @@ describe('sortCommitsStable', () => {
     const cc = c('aaa', '2024-06-01T00:00:00Z', ['mmm']);
 
     const sorted = sortCommitsStable([cc, a, b]);
-    assert.deepStrictEqual(sorted.map((x) => x.hash), ['zzz', 'mmm', 'aaa']);
+    assert.deepStrictEqual(
+      sorted.map((x) => x.hash),
+      ['zzz', 'mmm', 'aaa']
+    );
   });
 
   it('ignores parent edges pointing outside the selection', () => {
@@ -94,7 +105,10 @@ describe('sortCommitsStable', () => {
     const a = c('aaa', '2024-01-01T00:00:00Z', []);
     const cc = c('ccc', '2024-01-01T00:00:00Z', ['outside']);
     const sorted = sortCommitsStable([cc, a]);
-    assert.deepStrictEqual(sorted.map((x) => x.hash), ['aaa', 'ccc']);
+    assert.deepStrictEqual(
+      sorted.map((x) => x.hash),
+      ['aaa', 'ccc']
+    );
   });
 
   it('degenerates to hash-alphabetical when `parents` is undefined on every commit', () => {
@@ -106,7 +120,10 @@ describe('sortCommitsStable', () => {
       { hash: 'b', commitDate: new Date('2024-01-01T00:00:00Z') },
     ];
     const sorted = sortCommitsStable(withoutParents);
-    assert.deepStrictEqual(sorted.map((x) => x.hash), ['a', 'b', 'c']);
+    assert.deepStrictEqual(
+      sorted.map((x) => x.hash),
+      ['a', 'b', 'c']
+    );
   });
 
   it('is stable across arbitrary input permutations', () => {

@@ -29,7 +29,10 @@ function makeCommit(overrides: Partial<ICommit> = {}): ICommit {
 /**
  * Helper to create a minimal ICommitNode for testing.
  */
-function makeCommitNode(overrides: Partial<ICommitNode> = {}, commitOverrides: Partial<ICommit> = {}): ICommitNode {
+function makeCommitNode(
+  overrides: Partial<ICommitNode> = {},
+  commitOverrides: Partial<ICommit> = {}
+): ICommitNode {
   return {
     commit: makeCommit(commitOverrides),
     graphColumn: 0,
@@ -65,7 +68,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('data-hash='), 'Should have data-hash attribute');
-      assert.ok(!html.includes('commit-hash'), 'Should NOT have commit-hash class (hash hidden in graph view)');
+      assert.ok(
+        !html.includes('commit-hash'),
+        'Should NOT have commit-hash class (hash hidden in graph view)'
+      );
     });
 
     it('should render a commit row with message summary', () => {
@@ -77,13 +83,17 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
 
     it('should truncate long messages to ~60 characters', () => {
-      const longMessage = 'This is a very long commit message that exceeds sixty characters and should be truncated with ellipsis';
+      const longMessage =
+        'This is a very long commit message that exceeds sixty characters and should be truncated with ellipsis';
       const node = makeCommitNode({}, { message: longMessage });
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('...'), 'Should contain ellipsis for truncated message');
       // The full message should still be in the title attribute
-      assert.ok(html.includes('This is a very long commit message'), 'Should contain start of message');
+      assert.ok(
+        html.includes('This is a very long commit message'),
+        'Should contain start of message'
+      );
     });
 
     it('should only use the first line of a multi-line message', () => {
@@ -95,13 +105,19 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // The body should not appear in the commit-title div content (only in title attribute)
       const messageMatch = html.match(/class="commit-title"[^>]*>([^<]*)</);
       assert.ok(messageMatch, 'Should find commit-title element');
-      assert.ok(!messageMatch![1].includes('Detailed body'), 'Should not contain body text in title div');
+      assert.ok(
+        !messageMatch[1].includes('Detailed body'),
+        'Should not contain body text in title div'
+      );
     });
 
     it('should render author name', () => {
-      const node = makeCommitNode({}, {
-        author: { name: 'Bob Smith', email: 'bob@example.com' },
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          author: { name: 'Bob Smith', email: 'bob@example.com' },
+        }
+      );
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('Bob Smith'), 'Should contain author name');
@@ -109,9 +125,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
 
     it('should render absolute date instead of relative date', () => {
-      const node = makeCommitNode({}, {
-        authorDate: new Date(2024, 0, 15, 14, 30, 0), // Jan 15, 2024 2:30 PM
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          authorDate: new Date(2024, 0, 15, 14, 30, 0), // Jan 15, 2024 2:30 PM
+        }
+      );
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('commit-date'), 'Should have commit-date class');
@@ -123,7 +142,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const node = makeCommitNode({}, { hash: fullHash });
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(html.includes(`data-hash="${fullHash}"`), 'Should have full hash in data attribute');
+      assert.ok(
+        html.includes(`data-hash="${fullHash}"`),
+        'Should have full hash in data attribute'
+      );
     });
 
     it('should render the full hash in the data-hash attribute (not as visible text)', () => {
@@ -131,8 +153,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const node = makeCommitNode({}, { hash: fullHash, shortHash: 'abc1234' });
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(html.includes(`data-hash="${fullHash}"`), 'Should have full hash in data-hash attribute');
-      assert.ok(!html.includes('commit-hash'), 'Should NOT have commit-hash span (hash hidden in graph view)');
+      assert.ok(
+        html.includes(`data-hash="${fullHash}"`),
+        'Should have full hash in data-hash attribute'
+      );
+      assert.ok(
+        !html.includes('commit-hash'),
+        'Should NOT have commit-hash span (hash hidden in graph view)'
+      );
     });
   });
 
@@ -146,16 +174,22 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
 
     it('should render SVG for multiple commit rows', () => {
-      const node1 = makeCommitNode({}, {
-        hash: 'aaa1111111111111111111111111111111111111111',
-        shortHash: 'aaa1111',
-        parents: ['bbb2222222222222222222222222222222222222222'],
-      });
-      const node2 = makeCommitNode({}, {
-        hash: 'bbb2222222222222222222222222222222222222222',
-        shortHash: 'bbb2222',
-        parents: [],
-      });
+      const node1 = makeCommitNode(
+        {},
+        {
+          hash: 'aaa1111111111111111111111111111111111111111',
+          shortHash: 'aaa1111',
+          parents: ['bbb2222222222222222222222222222222222222222'],
+        }
+      );
+      const node2 = makeCommitNode(
+        {},
+        {
+          hash: 'bbb2222222222222222222222222222222222222222',
+          shortHash: 'bbb2222',
+          parents: [],
+        }
+      );
       node2.graphLines = [];
 
       const html = provider._getGraphPanelHtml([node1, node2]);
@@ -175,9 +209,30 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   describe('Multiple commits rendering', () => {
     it('should render all commits in order', () => {
       const nodes = [
-        makeCommitNode({}, { shortHash: 'first11', hash: 'first1100000000000000000000000000000000000000', message: 'First commit' }),
-        makeCommitNode({}, { shortHash: 'second2', hash: 'second2200000000000000000000000000000000000000', message: 'Second commit' }),
-        makeCommitNode({}, { shortHash: 'third33', hash: 'third3300000000000000000000000000000000000000', message: 'Third commit' }),
+        makeCommitNode(
+          {},
+          {
+            shortHash: 'first11',
+            hash: 'first1100000000000000000000000000000000000000',
+            message: 'First commit',
+          }
+        ),
+        makeCommitNode(
+          {},
+          {
+            shortHash: 'second2',
+            hash: 'second2200000000000000000000000000000000000000',
+            message: 'Second commit',
+          }
+        ),
+        makeCommitNode(
+          {},
+          {
+            shortHash: 'third33',
+            hash: 'third3300000000000000000000000000000000000000',
+            message: 'Third commit',
+          }
+        ),
       ];
 
       const html = provider._getGraphPanelHtml(nodes);
@@ -230,12 +285,15 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
 
     it('should escape special characters in author names', () => {
-      const node = makeCommitNode({}, {
-        author: { name: 'O\'Brien & Co <test>', email: 'test@example.com' },
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          author: { name: "O'Brien & Co <test>", email: 'test@example.com' },
+        }
+      );
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(!html.includes("<test>"), 'Should escape angle brackets in author name');
+      assert.ok(!html.includes('<test>'), 'Should escape angle brackets in author name');
     });
   });
 
@@ -266,27 +324,36 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   describe('Absolute date formatting in graph view', () => {
     it('should show absolute date for very recent commits', () => {
       const recentDate = new Date(2024, 5, 15, 10, 5, 0); // June 15, 2024 10:05 AM
-      const node = makeCommitNode({}, {
-        authorDate: recentDate,
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          authorDate: recentDate,
+        }
+      );
       const html = provider._getGraphPanelHtml([node]);
       assert.ok(html.includes('2024-06-15 10:05 AM'), 'Should show absolute date');
     });
 
     it('should show absolute date with PM for afternoon commits', () => {
       const afternoonDate = new Date(2024, 0, 1, 14, 30, 0); // Jan 1, 2024 2:30 PM
-      const node = makeCommitNode({}, {
-        authorDate: afternoonDate,
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          authorDate: afternoonDate,
+        }
+      );
       const html = provider._getGraphPanelHtml([node]);
       assert.ok(html.includes('2024-01-01 2:30 PM'), 'Should show absolute date with PM');
     });
 
     it('should show absolute date for old commits', () => {
       const oldDate = new Date(2020, 11, 25, 0, 0, 0); // Dec 25, 2020 12:00 AM
-      const node = makeCommitNode({}, {
-        authorDate: oldDate,
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          authorDate: oldDate,
+        }
+      );
       const html = provider._getGraphPanelHtml([node]);
       assert.ok(html.includes('2020-12-25 12:00 AM'), 'Should show absolute date for old commits');
     });
@@ -306,9 +373,18 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should include data-hash attribute for every commit row', () => {
       const nodes = [
-        makeCommitNode({}, { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }),
-        makeCommitNode({}, { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }),
-        makeCommitNode({}, { hash: 'ccc3333333333333333333333333333333333333333', shortHash: 'ccc3333' }),
+        makeCommitNode(
+          {},
+          { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }
+        ),
+        makeCommitNode(
+          {},
+          { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }
+        ),
+        makeCommitNode(
+          {},
+          { hash: 'ccc3333333333333333333333333333333333333333', shortHash: 'ccc3333' }
+        ),
       ];
       const html = provider._getGraphPanelHtml(nodes);
 
@@ -374,7 +450,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.strictEqual(selectedCount, 2, 'Both commit rows should have selected class');
 
       const ariaSelectedTrueCount = (html.match(/aria-selected="true"/g) || []).length;
-      assert.strictEqual(ariaSelectedTrueCount, 2, 'Both commit rows should have aria-selected true');
+      assert.strictEqual(
+        ariaSelectedTrueCount,
+        2,
+        'Both commit rows should have aria-selected true'
+      );
     });
 
     it('should only mark the selected commit when one of many is selected', () => {
@@ -393,7 +473,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
       // Verify the correct one is selected
       const ariaSelectedTrueCount = (html.match(/aria-selected="true"/g) || []).length;
-      assert.strictEqual(ariaSelectedTrueCount, 1, 'Only one commit should have aria-selected true');
+      assert.strictEqual(
+        ariaSelectedTrueCount,
+        1,
+        'Only one commit should have aria-selected true'
+      );
 
       const ariaSelectedFalseCount = (html.match(/aria-selected="false"/g) || []).length;
       assert.strictEqual(ariaSelectedFalseCount, 2, 'Two commits should have aria-selected false');
@@ -403,7 +487,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   describe('Commit context menu with all required options', () => {
     it('should contain Copy Revision Number option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Copy Revision Number'), 'Should contain Copy Revision Number option');
+      assert.ok(
+        html.includes('Copy Revision Number'),
+        'Should contain Copy Revision Number option'
+      );
     });
 
     it('should contain Create Patch option', () => {
@@ -423,7 +510,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should contain Show Repository at Revision option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Show Repository at Revision'), 'Should contain Show Repository at Revision option');
+      assert.ok(
+        html.includes('Show Repository at Revision'),
+        'Should contain Show Repository at Revision option'
+      );
     });
 
     it('should contain Compare with Local option', () => {
@@ -433,7 +523,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should contain Reset Current Branch to Here option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Reset Current Branch to Here'), 'Should contain Reset Current Branch to Here option');
+      assert.ok(
+        html.includes('Reset Current Branch to Here'),
+        'Should contain Reset Current Branch to Here option'
+      );
     });
 
     it('should contain Revert Commit option', () => {
@@ -458,21 +551,36 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should contain Merge into Current Branch option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Merge into Current Branch'), 'Should contain Merge into Current Branch option');
+      assert.ok(
+        html.includes('Merge into Current Branch'),
+        'Should contain Merge into Current Branch option'
+      );
     });
 
     it('should contain Interactively Rebase from Here option', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(html.includes('Interactively Rebase from Here'), 'Should contain Interactively Rebase from Here option');
+      assert.ok(
+        html.includes('Interactively Rebase from Here'),
+        'Should contain Interactively Rebase from Here option'
+      );
     });
 
     it('should contain all 13 required context menu options', () => {
       const html = provider._getCommitContextMenuHtml();
       const requiredOptions = [
-        'Copy Revision Number', 'Create Patch', 'Cherry-Pick',
-        'Checkout Revision', 'Show Repository at Revision', 'Compare with Local',
-        'Reset Current Branch to Here', 'Revert Commit', 'Undo Commit', 'Drop Commit', 'Edit Commit Message',
-        'Merge into Current Branch', 'Interactively Rebase from Here',
+        'Copy Revision Number',
+        'Create Patch',
+        'Cherry-Pick',
+        'Checkout Revision',
+        'Show Repository at Revision',
+        'Compare with Local',
+        'Reset Current Branch to Here',
+        'Revert Commit',
+        'Undo Commit',
+        'Drop Commit',
+        'Edit Commit Message',
+        'Merge into Current Branch',
+        'Interactively Rebase from Here',
       ];
       for (const option of requiredOptions) {
         assert.ok(html.includes(option), `Should contain "${option}" option`);
@@ -482,10 +590,19 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have correct data-action attributes for all menu items', () => {
       const html = provider._getCommitContextMenuHtml();
       const requiredActions = [
-        'copyHash', 'createPatch', 'cherryPick',
-        'checkoutRevision', 'showRepoAtRevision', 'compareWithLocal',
-        'resetToHere', 'revert', 'undoCommit', 'dropCommit', 'editCommitMessage',
-        'mergeIntoCurrent', 'interactiveRebase',
+        'copyHash',
+        'createPatch',
+        'cherryPick',
+        'checkoutRevision',
+        'showRepoAtRevision',
+        'compareWithLocal',
+        'resetToHere',
+        'revert',
+        'undoCommit',
+        'dropCommit',
+        'editCommitMessage',
+        'mergeIntoCurrent',
+        'interactiveRebase',
       ];
       for (const action of requiredActions) {
         assert.ok(html.includes(`data-action="${action}"`), `Should have data-action="${action}"`);
@@ -521,7 +638,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const resetIdx = html.indexOf('data-action="resetToHere"');
       assert.ok(resetIdx !== -1, 'Should have resetToHere action');
       const resetSection = html.substring(Math.max(0, resetIdx - 100), resetIdx);
-      assert.ok(resetSection.includes('context-menu-danger'), 'Reset Current Branch to Here should have danger class');
+      assert.ok(
+        resetSection.includes('context-menu-danger'),
+        'Reset Current Branch to Here should have danger class'
+      );
     });
 
     it('should mark Drop Commit as a danger action', () => {
@@ -529,7 +649,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const dropIdx = html.indexOf('data-action="dropCommit"');
       assert.ok(dropIdx !== -1, 'Should have dropCommit action');
       const dropSection = html.substring(Math.max(0, dropIdx - 100), dropIdx);
-      assert.ok(dropSection.includes('context-menu-danger'), 'Drop Commit should have danger class');
+      assert.ok(
+        dropSection.includes('context-menu-danger'),
+        'Drop Commit should have danger class'
+      );
     });
 
     it('should have data-head-hash attribute on the menu root element', () => {
@@ -539,7 +662,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should not contain any context-menu-icon elements', () => {
       const html = provider._getCommitContextMenuHtml();
-      assert.ok(!html.includes('context-menu-icon'), 'Should not contain any context-menu-icon elements');
+      assert.ok(
+        !html.includes('context-menu-icon'),
+        'Should not contain any context-menu-icon elements'
+      );
     });
 
     it('should have three context-menu-separator dividers between four sections', () => {
@@ -563,8 +689,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should include data-hash attribute for every commit row for context menu handling', () => {
       const nodes = [
-        makeCommitNode({}, { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }),
-        makeCommitNode({}, { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }),
+        makeCommitNode(
+          {},
+          { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }
+        ),
+        makeCommitNode(
+          {},
+          { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }
+        ),
       ];
       const html = provider._getGraphPanelHtml(nodes);
 
@@ -582,13 +714,19 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(!html.includes('id="commit-context-menu"'), 'Graph panel should NOT include the commit context menu overlay (it is at the top-level layout)');
+      assert.ok(
+        !html.includes('id="commit-context-menu"'),
+        'Graph panel should NOT include the commit context menu overlay (it is at the top-level layout)'
+      );
     });
 
     it('should not include the commit context menu HTML in graph panel even when no commits are provided (moved to top-level layout)', () => {
       const html = provider._getGraphPanelHtml([]);
 
-      assert.ok(!html.includes('id="commit-context-menu"'), 'Graph panel should NOT include the commit context menu overlay even with no commits (it is at the top-level layout)');
+      assert.ok(
+        !html.includes('id="commit-context-menu"'),
+        'Graph panel should NOT include the commit context menu overlay even with no commits (it is at the top-level layout)'
+      );
     });
   });
 
@@ -603,7 +741,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
       const selected = provider.getSelectedCommits();
       assert.strictEqual(selected.length, 1, 'Should have exactly one selected commit');
-      assert.strictEqual(selected[0], 'ccc3333333333333333333333333333333333333333', 'Should be the newly selected commit');
+      assert.strictEqual(
+        selected[0],
+        'ccc3333333333333333333333333333333333333333',
+        'Should be the newly selected commit'
+      );
     });
 
     it('selectCommit should replace existing single selection', () => {
@@ -612,7 +754,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
       const selected = provider.getSelectedCommits();
       assert.strictEqual(selected.length, 1, 'Should have exactly one selected commit');
-      assert.strictEqual(selected[0], 'bbb2222222222222222222222222222222222222222', 'Should be the last selected commit');
+      assert.strictEqual(
+        selected[0],
+        'bbb2222222222222222222222222222222222222222',
+        'Should be the last selected commit'
+      );
     });
   });
 
@@ -622,7 +768,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
       const selected = provider.getSelectedCommits();
       assert.strictEqual(selected.length, 1, 'Should have one selected commit');
-      assert.ok(selected.includes('aaa1111111111111111111111111111111111111111'), 'Should contain the toggled commit');
+      assert.ok(
+        selected.includes('aaa1111111111111111111111111111111111111111'),
+        'Should contain the toggled commit'
+      );
     });
 
     it('toggleCommitSelection should remove a commit if already selected', () => {
@@ -630,7 +779,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       provider.toggleCommitSelection('aaa1111111111111111111111111111111111111111');
 
       const selected = provider.getSelectedCommits();
-      assert.strictEqual(selected.length, 0, 'Should have no selected commits after toggling twice');
+      assert.strictEqual(
+        selected.length,
+        0,
+        'Should have no selected commits after toggling twice'
+      );
     });
 
     it('toggleCommitSelection should build up a multi-select set', () => {
@@ -652,9 +805,18 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
       const selected = provider.getSelectedCommits();
       assert.strictEqual(selected.length, 2, 'Should have two selected commits');
-      assert.ok(!selected.includes('bbb2222222222222222222222222222222222222222'), 'Should not contain the removed commit');
-      assert.ok(selected.includes('aaa1111111111111111111111111111111111111111'), 'Should still contain first commit');
-      assert.ok(selected.includes('ccc3333333333333333333333333333333333333333'), 'Should still contain third commit');
+      assert.ok(
+        !selected.includes('bbb2222222222222222222222222222222222222222'),
+        'Should not contain the removed commit'
+      );
+      assert.ok(
+        selected.includes('aaa1111111111111111111111111111111111111111'),
+        'Should still contain first commit'
+      );
+      assert.ok(
+        selected.includes('ccc3333333333333333333333333333333333333333'),
+        'Should still contain third commit'
+      );
     });
   });
 
@@ -663,8 +825,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node], undefined, 200, 500);
 
-      assert.ok(html.includes('data-loaded-count="200"'), 'Should have data-loaded-count attribute');
-      assert.ok(html.includes('data-total-available="500"'), 'Should have data-total-available attribute');
+      assert.ok(
+        html.includes('data-loaded-count="200"'),
+        'Should have data-loaded-count attribute'
+      );
+      assert.ok(
+        html.includes('data-total-available="500"'),
+        'Should have data-total-available attribute'
+      );
     });
 
     it('should show loading indicator when more commits are available', () => {
@@ -680,35 +848,59 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node], undefined, 500, 500);
 
-      assert.ok(!html.includes('graph-loading-indicator'), 'Should not have loading indicator when all loaded');
-      assert.ok(!html.includes('Loading more commits...'), 'Should not have loading text when all loaded');
+      assert.ok(
+        !html.includes('graph-loading-indicator'),
+        'Should not have loading indicator when all loaded'
+      );
+      assert.ok(
+        !html.includes('Loading more commits...'),
+        'Should not have loading text when all loaded'
+      );
     });
 
     it('should not show loading indicator when loadedCount and totalAvailable are not provided', () => {
       const node = makeCommitNode();
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(!html.includes('graph-loading-indicator'), 'Should not have loading indicator by default');
+      assert.ok(
+        !html.includes('graph-loading-indicator'),
+        'Should not have loading indicator by default'
+      );
     });
 
     it('should default data attributes to commitNodes length when not provided', () => {
       const nodes = [
-        makeCommitNode({}, { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }),
-        makeCommitNode({}, { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }),
+        makeCommitNode(
+          {},
+          { hash: 'aaa1111111111111111111111111111111111111111', shortHash: 'aaa1111' }
+        ),
+        makeCommitNode(
+          {},
+          { hash: 'bbb2222222222222222222222222222222222222222', shortHash: 'bbb2222' }
+        ),
       ];
       const html = provider._getGraphPanelHtml(nodes);
 
-      assert.ok(html.includes('data-loaded-count="2"'), 'Should default loaded count to nodes length');
-      assert.ok(html.includes('data-total-available="2"'), 'Should default total available to nodes length');
+      assert.ok(
+        html.includes('data-loaded-count="2"'),
+        'Should default loaded count to nodes length'
+      );
+      assert.ok(
+        html.includes('data-total-available="2"'),
+        'Should default total available to nodes length'
+      );
     });
 
     it('should show loading indicator with correct counts for incremental batches', () => {
       const nodes = Array.from({ length: 3 }, (_, i) =>
-        makeCommitNode({}, {
-          hash: `hash${i}${'0'.repeat(36)}`,
-          shortHash: `hash${i}`,
-          message: `Commit ${i}`,
-        })
+        makeCommitNode(
+          {},
+          {
+            hash: `hash${i}${'0'.repeat(36)}`,
+            shortHash: `hash${i}`,
+            message: `Commit ${i}`,
+          }
+        )
       );
       const html = provider._getGraphPanelHtml(nodes, undefined, 300, 1000);
 
@@ -718,11 +910,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
 
     it('should still render commit rows correctly with incremental loading params', () => {
-      const node = makeCommitNode({}, {
-        hash: 'abc1234567890abcdef1234567890abcdef123456',
-        shortHash: 'abc1234',
-        message: 'Test commit',
-      });
+      const node = makeCommitNode(
+        {},
+        {
+          hash: 'abc1234567890abcdef1234567890abcdef123456',
+          shortHash: 'abc1234',
+          message: 'Test commit',
+        }
+      );
       const html = provider._getGraphPanelHtml([node], undefined, 200, 500);
 
       assert.ok(html.includes('abc1234'), 'Should still render commit short hash');
@@ -772,7 +967,11 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
     it('should export INCREMENTAL_COMMIT_LOAD_COUNT as 100', () => {
       const { INCREMENTAL_COMMIT_LOAD_COUNT } = require('../../../services/GitToolWindowProvider');
-      assert.strictEqual(INCREMENTAL_COMMIT_LOAD_COUNT, 100, 'Incremental load count should be 100');
+      assert.strictEqual(
+        INCREMENTAL_COMMIT_LOAD_COUNT,
+        100,
+        'Incremental load count should be 100'
+      );
     });
   });
 });

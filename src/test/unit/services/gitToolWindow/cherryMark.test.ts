@@ -15,11 +15,7 @@
 
 import '../../../../test/setup';
 import * as assert from 'assert';
-import type {
-  CherryMark,
-  ICommit,
-  IRepository,
-} from '../../../../services/interfaces/IGitService';
+import type { CherryMark, ICommit, IRepository } from '../../../../services/interfaces/IGitService';
 import { GitService } from '../../../../services/GitService';
 import { Uri } from '../../../mocks/vscode';
 
@@ -37,7 +33,10 @@ describe('GitService.getCherryMarks (T3-07)', () => {
   }
 
   interface GitCliLike {
-    exec: (args: string[], options?: unknown) => Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }>;
+    exec: (
+      args: string[],
+      options?: unknown
+    ) => Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }>;
   }
 
   /**
@@ -55,16 +54,13 @@ describe('GitService.getCherryMarks (T3-07)', () => {
     const cli: GitCliLike = {
       exec: async (args) => {
         // Verify we built the expected argv.
-        assert.deepStrictEqual(
-          args,
-          [
-            'log',
-            '--cherry-mark',
-            '--left-right',
-            '--pretty=format:%H %m',
-            'HEAD...origin/main',
-          ]
-        );
+        assert.deepStrictEqual(args, [
+          'log',
+          '--cherry-mark',
+          '--left-right',
+          '--pretty=format:%H %m',
+          'HEAD...origin/main',
+        ]);
         return {
           exitCode: 0,
           stderr: '',
@@ -177,9 +173,8 @@ describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
   // workspaceState. Our mock `Uri.file` returns a usable object. No
   // `resolveWebviewView` is called — setCherryPickedHashes is pure state.
   it('stores the hashes + baseRef and surfaces them via getExtendedLogState', async () => {
-    const { GitToolWindowProvider } = await import(
-      '../../../../services/gitToolWindow/GitToolWindowProvider'
-    );
+    const { GitToolWindowProvider } =
+      await import('../../../../services/gitToolWindow/GitToolWindowProvider');
     const provider = new GitToolWindowProvider(Uri.file('/ext'));
     const set = new Set(['aaa', 'bbb', 'ccc']);
     provider.setCherryPickedHashes(set, 'origin/main');
@@ -191,9 +186,8 @@ describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
   });
 
   it('clears the state when called with an empty Set', async () => {
-    const { GitToolWindowProvider } = await import(
-      '../../../../services/gitToolWindow/GitToolWindowProvider'
-    );
+    const { GitToolWindowProvider } =
+      await import('../../../../services/gitToolWindow/GitToolWindowProvider');
     const provider = new GitToolWindowProvider(Uri.file('/ext'));
     provider.setCherryPickedHashes(new Set(['aaa']), 'origin/main');
     provider.setCherryPickedHashes(new Set(), undefined);
@@ -203,9 +197,8 @@ describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
   });
 
   it('clears the state when called with undefined', async () => {
-    const { GitToolWindowProvider } = await import(
-      '../../../../services/gitToolWindow/GitToolWindowProvider'
-    );
+    const { GitToolWindowProvider } =
+      await import('../../../../services/gitToolWindow/GitToolWindowProvider');
     const provider = new GitToolWindowProvider(Uri.file('/ext'));
     provider.setCherryPickedHashes(new Set(['aaa']), 'origin/main');
     provider.setCherryPickedHashes(undefined);

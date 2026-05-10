@@ -34,12 +34,7 @@
 
 import * as vscode from 'vscode';
 import type { IWebviewTabMessage, TabMessageHandler } from '../tabRouter';
-import type {
-  IBranch,
-  ICommit,
-  IGitService,
-  IRepository,
-} from '../../interfaces/IGitService';
+import type { IBranch, ICommit, IGitService, IRepository } from '../../interfaces/IGitService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -136,7 +131,9 @@ export function reduceHistoryState(
   switch (type) {
     case 'history.selectRevision': {
       const rev = typeof message.rev === 'string' ? message.rev : undefined;
-      if (!rev) return state;
+      if (!rev) {
+        return state;
+      }
       // `additive` = ctrl/cmd-click — retain the prior selection as the
       // "compare" anchor and mark `rev` as the new selection.
       if (message.additive && state.selectedCommit && state.selectedCommit !== rev) {
@@ -224,7 +221,9 @@ export class HistoryTab {
     switch (message.type) {
       case 'history.loadFile': {
         const path = typeof message.path === 'string' ? message.path : undefined;
-        if (!path) return;
+        if (!path) {
+          return;
+        }
         const branch =
           typeof message.branch === 'string' && message.branch.length > 0
             ? message.branch
@@ -345,7 +344,9 @@ export class HistoryTab {
    * Open the file at the given revision in a read-only editor tab.
    */
   public async openAtRevision(rev: string): Promise<void> {
-    if (!this._state.filePath) return;
+    if (!this._state.filePath) {
+      return;
+    }
     const uri = buildFileAtRevisionUri(this._state.filePath, rev);
     try {
       await vscode.commands.executeCommand('vscode.open', uri);
@@ -358,7 +359,9 @@ export class HistoryTab {
    * Diff the file at revision `from` against the file at revision `to`.
    */
   public async compareWith(from: string, to: string): Promise<void> {
-    if (!this._state.filePath) return;
+    if (!this._state.filePath) {
+      return;
+    }
     const filePath = this._state.filePath;
     const leftUri = buildFileAtRevisionUri(filePath, from);
     const rightUri = buildFileAtRevisionUri(filePath, to);
@@ -374,9 +377,13 @@ export class HistoryTab {
    * Diff the file at revision `rev` against the working-copy version.
    */
   public async compareWithLocal(rev: string): Promise<void> {
-    if (!this._state.filePath) return;
+    if (!this._state.filePath) {
+      return;
+    }
     const repo = this._getRepo();
-    if (!repo) return;
+    if (!repo) {
+      return;
+    }
     const filePath = this._state.filePath;
     const leftUri = buildFileAtRevisionUri(filePath, rev);
     const rootFsPath = repo.rootUri.fsPath;

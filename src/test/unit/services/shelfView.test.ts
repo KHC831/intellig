@@ -233,8 +233,11 @@ describe('ShelfView — T2-10', () => {
 
       // Stub showInputBox.
       const originalInput = vscode.window.showInputBox;
-      (vscode.window as unknown as { showInputBox: (opts?: unknown) => Promise<string | undefined> }).showInputBox =
-        async () => 'new-name';
+      (
+        vscode.window as unknown as {
+          showInputBox: (opts?: unknown) => Promise<string | undefined>;
+        }
+      ).showInputBox = async () => 'new-name';
 
       try {
         const result = await view.renameShelfItem('a');
@@ -256,8 +259,9 @@ describe('ShelfView — T2-10', () => {
       await view.refresh();
 
       const originalInput = vscode.window.showInputBox;
-      (vscode.window as unknown as { showInputBox: () => Promise<string | undefined> }).showInputBox =
-        async () => undefined;
+      (
+        vscode.window as unknown as { showInputBox: () => Promise<string | undefined> }
+      ).showInputBox = async () => undefined;
 
       try {
         const result = await view.renameShelfItem('a');
@@ -330,9 +334,11 @@ describe('ShelfView — T2-10', () => {
   describe('importPatches', () => {
     it('opens file dialog and imports each selected patch', async () => {
       const originalOpen = vscode.window.showOpenDialog;
-      (vscode.window as unknown as {
-        showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
-      }).showOpenDialog = async () => [
+      (
+        vscode.window as unknown as {
+          showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
+        }
+      ).showOpenDialog = async () => [
         vscode.Uri.file('/tmp/a.patch'),
         vscode.Uri.file('/tmp/b.patch'),
       ];
@@ -340,7 +346,10 @@ describe('ShelfView — T2-10', () => {
       try {
         const results = await view.importPatches();
         assert.strictEqual(results.length, 2);
-        assert.strictEqual(results.every((r) => r.success), true);
+        assert.strictEqual(
+          results.every((r) => r.success),
+          true
+        );
         assert.deepStrictEqual(
           svc._importedPatches.map((p) => p.patchPath),
           ['/tmp/a.patch', '/tmp/b.patch']
@@ -353,9 +362,11 @@ describe('ShelfView — T2-10', () => {
 
     it('returns empty array when the user cancels the file picker', async () => {
       const originalOpen = vscode.window.showOpenDialog;
-      (vscode.window as unknown as {
-        showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
-      }).showOpenDialog = async () => undefined;
+      (
+        vscode.window as unknown as {
+          showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
+        }
+      ).showOpenDialog = async () => undefined;
 
       try {
         const results = await view.importPatches();

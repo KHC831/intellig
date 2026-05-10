@@ -46,11 +46,7 @@ describe('e2e — patch commands', function () {
 
     await vscode.commands.executeCommand('intellig.commit.createPatch', { hash: head });
 
-    assert.strictEqual(
-      fs.existsSync(targetPatch),
-      true,
-      `expected patch file at ${targetPatch}`
-    );
+    assert.strictEqual(fs.existsSync(targetPatch), true, `expected patch file at ${targetPatch}`);
     const content = fs.readFileSync(targetPatch, 'utf8');
     // Format-patch output starts with `From <hash>` and contains Subject:.
     assert.ok(
@@ -75,6 +71,10 @@ describe('e2e — patch commands', function () {
     await vscode.commands.executeCommand('intellig.commit.createPatch', { hash: head });
 
     const entries = fs.readdirSync(fix.rootPath).filter((e) => e.endsWith('.patch'));
-    assert.deepStrictEqual(entries, [], `no .patch file should be written on cancel; got: ${entries}`);
+    assert.deepStrictEqual(
+      entries,
+      [],
+      `no .patch file should be written on cancel; got: ${entries}`
+    );
   });
 });

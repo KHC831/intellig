@@ -27,11 +27,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IRepository } from './interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
-import {
-  IPatchService,
-  IApplyPatchOptions,
-  IApplyPatchResult,
-} from './interfaces/IPatchService';
+import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
 import { validateStripLevel } from './PatchService';
 
 /**
@@ -448,9 +444,7 @@ ${body}
   /**
    * Load the patch contents for preview. Capped at PREVIEW_LINE_CAP lines.
    */
-  private async _handlePreview(
-    msg: Extract<IncomingMessage, { type: 'preview' }>
-  ): Promise<void> {
+  private async _handlePreview(msg: Extract<IncomingMessage, { type: 'preview' }>): Promise<void> {
     try {
       const text = await this._readPatchContent(msg.patchPath, msg.useClipboard);
       const lines = text.split('\n');
@@ -475,9 +469,7 @@ ${body}
    * and invoke the PatchService. Handles success, conflict, and hard-error
    * paths.
    */
-  private async _handleApply(
-    msg: Extract<IncomingMessage, { type: 'apply' }>
-  ): Promise<void> {
+  private async _handleApply(msg: Extract<IncomingMessage, { type: 'apply' }>): Promise<void> {
     let applyOptions: IApplyPatchOptions;
     try {
       applyOptions = await this._buildApplyOptions(msg);

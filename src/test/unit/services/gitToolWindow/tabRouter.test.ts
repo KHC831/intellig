@@ -208,9 +208,7 @@ describe('gitToolWindow/tabRouter — tabChange meta-message', () => {
     });
     await router.setActiveTab('history');
     assert.strictEqual(router.getActiveTab(), 'history');
-    assert.deepStrictEqual(setContextCalls, [
-      { key: ACTIVE_TAB_CONTEXT_KEY, value: 'history' },
-    ]);
+    assert.deepStrictEqual(setContextCalls, [{ key: ACTIVE_TAB_CONTEXT_KEY, value: 'history' }]);
   });
 
   it('dispatches a message that explicitly carries `tab: log` back to the Log handler', async () => {

@@ -222,7 +222,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     // the extension fires during initialization (they count toward the
     // settle baseline, not the idle window).
     counter = installSpawnCounter();
-    await ext!.activate();
+    await ext.activate();
   });
 
   after(() => {
@@ -244,7 +244,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     // A single exec to prove the hook is load-bearing. `git --version` is
     // cheap and side-effect-free. We allow the call to complete naturally
     // and then verify the counter incremented.
-    const before = counter!.spawns.length;
+    const before = counter.spawns.length;
     const result = cp.spawnSync('git', ['--version'], { encoding: 'utf-8' });
     assert.ok(result.status === 0 || result.status === null, 'git --version failed');
     // `spawnSync` does not route through `spawn`, so the counter won't
@@ -254,8 +254,8 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     child.on('close', () => void 0);
     // Counter must have observed our test-local spawn.
     assert.ok(
-      counter!.spawns.length > before,
-      `spawn hook did not intercept test-local git call (before=${before}, after=${counter!.spawns.length})`
+      counter.spawns.length > before,
+      `spawn hook did not intercept test-local git call (before=${before}, after=${counter.spawns.length})`
     );
   });
 
@@ -266,7 +266,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     // `status`, `branch`, etc., belong to the ACTIVATION budget — not to
     // the idle budget.
     await sleep(ACTIVATION_SETTLE_MS);
-    const baselineCount = counter!.spawns.length;
+    const baselineCount = counter.spawns.length;
 
     // Trigger a single benign `.git/**` write to wake the file-system
     // watcher. In the buggy pre-fix implementation (commit 6d1961a^):
@@ -292,10 +292,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     // change, it fires its handler and the loop begins.
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (workspaceFolder) {
-      const probePath = path.join(
-        workspaceFolder.uri.fsPath,
-        '.vscode-idle-invariant-probe'
-      );
+      const probePath = path.join(workspaceFolder.uri.fsPath, '.vscode-idle-invariant-probe');
       try {
         // A harmless touch inside the workspace. The original bug could
         // also be triggered purely by activation-time git calls in the
@@ -321,7 +318,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     await sleep(IDLE_WINDOW_MS);
     const idleWindowEnd = Date.now();
 
-    const idleSpawns = counter!.spawns.filter(
+    const idleSpawns = counter.spawns.filter(
       (s) => s.at >= idleWindowStart && s.at <= idleWindowEnd
     );
 
@@ -331,7 +328,7 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     console.log(
       `[idle invariant] baseline (post-settle) git spawns: ${baselineCount}; ` +
         `idle window (${IDLE_WINDOW_MS / 1000}s) git spawns: ${idleSpawns.length}; ` +
-        `total ever: ${counter!.spawns.length}`
+        `total ever: ${counter.spawns.length}`
     );
 
     if (idleSpawns.length <= IDLE_SPAWN_THRESHOLD) {
@@ -378,14 +375,16 @@ describe('ext-host smoke — 7. post-activate idle invariant', function () {
     // 50 is a wide safety margin — healthy runs come in under 10, a loop
     // spins to 200+ before the test harness catches up.
     assert.ok(counter, 'spawn counter not installed');
-    const totalSoFar = counter!.spawns.length;
+    const totalSoFar = counter.spawns.length;
     const TOTAL_BUDGET = 50;
     // eslint-disable-next-line no-console
     console.log(
       `[idle invariant] total git spawns observed across suite: ${totalSoFar}/${TOTAL_BUDGET}`
     );
-    if (totalSoFar <= TOTAL_BUDGET) return;
-    const tail = counter!.spawns.slice(-20).map((s) => ({
+    if (totalSoFar <= TOTAL_BUDGET) {
+      return;
+    }
+    const tail = counter.spawns.slice(-20).map((s) => ({
       at: new Date(s.at).toISOString(),
       cmd: s.command,
       args: s.args.join(' '),

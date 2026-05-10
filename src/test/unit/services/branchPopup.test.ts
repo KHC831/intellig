@@ -274,7 +274,7 @@ describe('BranchPopup — buildSectionedItems', () => {
     });
     const mainItem = items.find((i) => i.branch?.name === 'main');
     assert.ok(mainItem, 'main should be in the list');
-    assert.ok(label(mainItem!).startsWith('● '), 'main should be marked with ●');
+    assert.ok(label(mainItem).startsWith('● '), 'main should be marked with ●');
   });
 
   it('preserves origin/ prefix in remote branch labels', () => {
@@ -288,7 +288,7 @@ describe('BranchPopup — buildSectionedItems', () => {
     const remoteItem = items.find((i) => i.branch?.name === 'origin/main');
     assert.ok(remoteItem);
     assert.ok(
-      label(remoteItem!).includes('origin/main'),
+      label(remoteItem).includes('origin/main'),
       'remote label should include the remote-qualified name'
     );
   });
@@ -312,14 +312,14 @@ describe('BranchPopup — buildSectionedItems', () => {
     const featureAuthItem = items.find((i) => i.branch?.name === 'feature/auth');
     assert.ok(featureAuthItem);
     assert.ok(
-      label(featureAuthItem!).startsWith('  '),
+      label(featureAuthItem).startsWith('  '),
       'feature/auth should be indented (3 feature/ siblings)'
     );
 
     const bugfixItem = items.find((i) => i.branch?.name === 'bugfix/login');
     assert.ok(bugfixItem);
     assert.ok(
-      !label(bugfixItem!).startsWith('  '),
+      !label(bugfixItem).startsWith('  '),
       'bugfix/login should NOT be indented (only 1 sibling)'
     );
   });
@@ -367,7 +367,10 @@ describe('BranchPopup — buildRemoteBranchActionMenu', () => {
 
   it('includes Checkout, Checkout and Rebase onto Current, Pull using Merge/Rebase, Compare, Cherry-Pick, Delete', () => {
     const labels = items.map((i) => label(i));
-    assert.ok(labels.some((l) => l.includes('Checkout')), 'expected Checkout');
+    assert.ok(
+      labels.some((l) => l.includes('Checkout')),
+      'expected Checkout'
+    );
     assert.ok(
       labels.some((l) => l.includes('Checkout and Rebase onto Current')),
       'expected Checkout and Rebase onto Current'
@@ -380,9 +383,18 @@ describe('BranchPopup — buildRemoteBranchActionMenu', () => {
       labels.some((l) => l.includes('Pull into Current Using Rebase')),
       'expected Pull into Current Using Rebase'
     );
-    assert.ok(labels.some((l) => l.includes('Compare with Current')), 'expected Compare with Current');
-    assert.ok(labels.some((l) => l.includes('Cherry-Pick Commits')), 'expected Cherry-Pick Commits');
-    assert.ok(labels.some((l) => l.includes('Delete')), 'expected Delete');
+    assert.ok(
+      labels.some((l) => l.includes('Compare with Current')),
+      'expected Compare with Current'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Cherry-Pick Commits')),
+      'expected Cherry-Pick Commits'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Delete')),
+      'expected Delete'
+    );
   });
 
   it('routes each entry to an existing `intellig.*` command ID', () => {
@@ -398,7 +410,7 @@ describe('BranchPopup — buildRemoteBranchActionMenu', () => {
     for (const item of items) {
       assert.ok(item.commandId, `${label(item)} missing commandId`);
       assert.ok(
-        expected.has(item.commandId!),
+        expected.has(item.commandId),
         `unknown commandId ${item.commandId ?? ''} on ${label(item)}`
       );
     }
@@ -414,14 +426,38 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
 
   it('includes IntelliJ-parity entries: Checkout, New Branch from…, Rename…, Delete, Compare, Merge into Current, Rebase Current onto…, Push…', () => {
     const labels = items.map((i) => label(i));
-    assert.ok(labels.some((l) => l.startsWith('$(arrow-right) Checkout')), 'Checkout');
-    assert.ok(labels.some((l) => l.includes('New Branch from')), 'New Branch from…');
-    assert.ok(labels.some((l) => l.includes('Rename…')), 'Rename…');
-    assert.ok(labels.some((l) => l === '$(trash) Delete'), 'Delete');
-    assert.ok(labels.some((l) => l.includes('Compare with Current')), 'Compare with Current');
-    assert.ok(labels.some((l) => l.includes('Merge into Current')), 'Merge into Current');
-    assert.ok(labels.some((l) => l.includes('Rebase Current onto')), 'Rebase Current onto…');
-    assert.ok(labels.some((l) => l.includes('Push…')), 'Push…');
+    assert.ok(
+      labels.some((l) => l.startsWith('$(arrow-right) Checkout')),
+      'Checkout'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('New Branch from')),
+      'New Branch from…'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Rename…')),
+      'Rename…'
+    );
+    assert.ok(
+      labels.some((l) => l === '$(trash) Delete'),
+      'Delete'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Compare with Current')),
+      'Compare with Current'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Merge into Current')),
+      'Merge into Current'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Rebase Current onto')),
+      'Rebase Current onto…'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('Push…')),
+      'Push…'
+    );
   });
 
   it('routes each entry to an existing `intellig.branch.*` command ID', () => {
@@ -437,7 +473,7 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
     ]);
     for (const item of items) {
       assert.ok(item.commandId, `${label(item)} missing commandId`);
-      assert.ok(expected.has(item.commandId!), `unknown commandId ${item.commandId ?? ''}`);
+      assert.ok(expected.has(item.commandId), `unknown commandId ${item.commandId ?? ''}`);
     }
   });
 
@@ -463,11 +499,26 @@ describe('BranchPopup — buildTagActionMenu', () => {
 
   it('includes IntelliJ-parity entries: Checkout (Detached), New Branch from Tag…, Cherry-Pick, Delete, Push', () => {
     const labels = items.map((i) => label(i));
-    assert.ok(labels.some((l) => l.includes('Checkout (Detached)')), 'Checkout (Detached)');
-    assert.ok(labels.some((l) => l.includes('New Branch from Tag…')), 'New Branch from Tag…');
-    assert.ok(labels.some((l) => l.endsWith('Cherry-Pick')), 'Cherry-Pick');
-    assert.ok(labels.some((l) => l === '$(trash) Delete'), 'Delete');
-    assert.ok(labels.some((l) => l.endsWith('Push')), 'Push');
+    assert.ok(
+      labels.some((l) => l.includes('Checkout (Detached)')),
+      'Checkout (Detached)'
+    );
+    assert.ok(
+      labels.some((l) => l.includes('New Branch from Tag…')),
+      'New Branch from Tag…'
+    );
+    assert.ok(
+      labels.some((l) => l.endsWith('Cherry-Pick')),
+      'Cherry-Pick'
+    );
+    assert.ok(
+      labels.some((l) => l === '$(trash) Delete'),
+      'Delete'
+    );
+    assert.ok(
+      labels.some((l) => l.endsWith('Push')),
+      'Push'
+    );
   });
 
   it('routes each entry to an existing `intellig.tag.*` command ID', () => {
@@ -480,7 +531,7 @@ describe('BranchPopup — buildTagActionMenu', () => {
     ]);
     for (const item of items) {
       assert.ok(item.commandId, `${label(item)} missing commandId`);
-      assert.ok(expected.has(item.commandId!), `unknown commandId ${item.commandId ?? ''}`);
+      assert.ok(expected.has(item.commandId), `unknown commandId ${item.commandId ?? ''}`);
     }
   });
 });
@@ -536,7 +587,7 @@ describe('BranchPopup - Branch Data Structures', () => {
 
   it('supports upstream information', () => {
     assert.ok(localMain.upstream);
-    assert.strictEqual(localMain.upstream!.remote, 'origin');
+    assert.strictEqual(localMain.upstream.remote, 'origin');
   });
 
   it('supports tag shape', () => {
@@ -566,7 +617,7 @@ describe('BranchPopup — T3-01 updateFavoritesList', () => {
     assert.deepStrictEqual(next, ['main', 'feature/x', 'develop']);
   });
 
-  it('is a no-op when removing a branch that isn\'t starred', () => {
+  it("is a no-op when removing a branch that isn't starred", () => {
     const next = updateFavoritesList(['main'], 'ghost', false);
     assert.deepStrictEqual(next, ['main']);
   });
@@ -582,14 +633,19 @@ describe('BranchPopup — T3-01 updateFavoritesList', () => {
 describe('BranchPopup — T3-01 getFavorites', () => {
   function mkMemento(initial?: unknown): vscode.Memento {
     const store = new Map<string, unknown>();
-    if (initial !== undefined) store.set(FAVORITE_BRANCHES_STATE_KEY, initial);
+    if (initial !== undefined) {
+      store.set(FAVORITE_BRANCHES_STATE_KEY, initial);
+    }
     return {
       get<T>(key: string, defaultValue?: T): T | undefined {
         return store.has(key) ? (store.get(key) as T) : defaultValue;
       },
       update: async (k: string, v: unknown): Promise<void> => {
-        if (v === undefined) store.delete(k);
-        else store.set(k, v);
+        if (v === undefined) {
+          store.delete(k);
+        } else {
+          store.set(k, v);
+        }
       },
       keys: () => Array.from(store.keys()),
     } as unknown as vscode.Memento;
@@ -630,7 +686,11 @@ describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
     const sepLabels = items
       .filter((i) => i.kind === vscode.QuickPickItemKind.Separator)
       .map((i) => (typeof i.label === 'string' ? i.label : ''));
-    assert.strictEqual(sepLabels[0], '★ Favorites', `expected Favorites first, got: ${sepLabels.join(', ')}`);
+    assert.strictEqual(
+      sepLabels[0],
+      '★ Favorites',
+      `expected Favorites first, got: ${sepLabels.join(', ')}`
+    );
   });
 
   it('suppresses the Favorites section when the list is empty', () => {
@@ -643,7 +703,10 @@ describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
       currentBranchName: 'main',
     });
     const hasFav = items.some(
-      (i) => i.kind === vscode.QuickPickItemKind.Separator && typeof i.label === 'string' && i.label.includes('Favorites')
+      (i) =>
+        i.kind === vscode.QuickPickItemKind.Separator &&
+        typeof i.label === 'string' &&
+        i.label.includes('Favorites')
     );
     assert.strictEqual(hasFav, false);
   });
@@ -659,17 +722,26 @@ describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
     });
     // Favorites header present, only `main` underneath (ghost-branch skipped).
     const favStartIdx = items.findIndex(
-      (i) => i.kind === vscode.QuickPickItemKind.Separator && typeof i.label === 'string' && i.label.includes('Favorites')
+      (i) =>
+        i.kind === vscode.QuickPickItemKind.Separator &&
+        typeof i.label === 'string' &&
+        i.label.includes('Favorites')
     );
     assert.ok(favStartIdx >= 0, 'Favorites separator should be present');
     // Walk items after the Favorites header until the next separator; those
     // are the favorites rows.
     const favRows: typeof items = [];
     for (let i = favStartIdx + 1; i < items.length; i++) {
-      if (items[i].kind === vscode.QuickPickItemKind.Separator) break;
+      if (items[i].kind === vscode.QuickPickItemKind.Separator) {
+        break;
+      }
       favRows.push(items[i]);
     }
-    assert.strictEqual(favRows.length, 1, `expected only main under Favorites, got ${favRows.length}`);
+    assert.strictEqual(
+      favRows.length,
+      1,
+      `expected only main under Favorites, got ${favRows.length}`
+    );
     assert.strictEqual(favRows[0].branch?.name, 'main');
   });
 
@@ -683,9 +755,16 @@ describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
       currentBranchName: undefined,
     });
     const hasFav = items.some(
-      (i) => i.kind === vscode.QuickPickItemKind.Separator && typeof i.label === 'string' && i.label.includes('Favorites')
+      (i) =>
+        i.kind === vscode.QuickPickItemKind.Separator &&
+        typeof i.label === 'string' &&
+        i.label.includes('Favorites')
     );
-    assert.strictEqual(hasFav, false, 'Favorites header must not appear when resolved list is empty');
+    assert.strictEqual(
+      hasFav,
+      false,
+      'Favorites header must not appear when resolved list is empty'
+    );
   });
 
   it('renders per-branch star buttons on Local / Remote items (empty star when not favorite)', () => {
@@ -699,11 +778,14 @@ describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
     });
     const devRow = items.find((i) => i.branch?.name === 'develop' && i.section === 'local');
     const mainRow = items.find((i) => i.branch?.name === 'main' && i.section === 'local');
-    assert.ok(devRow?.buttons && devRow.buttons.length === 1, 'develop row should have star button');
+    assert.ok(
+      devRow?.buttons && devRow.buttons.length === 1,
+      'develop row should have star button'
+    );
     assert.ok(mainRow?.buttons && mainRow.buttons.length === 1, 'main row should have star button');
     // develop is starred → full star tooltip
-    assert.strictEqual((devRow!.buttons![0] as any).tooltip, 'Unstar');
-    assert.strictEqual((mainRow!.buttons![0] as any).tooltip, 'Add to Favorites');
+    assert.strictEqual((devRow.buttons[0] as any).tooltip, 'Unstar');
+    assert.strictEqual((mainRow.buttons[0] as any).tooltip, 'Add to Favorites');
   });
 });
 
@@ -724,7 +806,7 @@ describe('BranchPopup - R6-Gap-C multi-root status-bar init', () => {
     };
   }
 
-  it('selects the active-editor\'s repo (repoB), not repositories[0] (repoA)', async () => {
+  it("selects the active-editor's repo (repoB), not repositories[0] (repoA)", async () => {
     const repoA = makeRepo('main-A', '/repo-a');
     const repoB = makeRepo('main-B', '/repo-b');
 
@@ -737,7 +819,16 @@ describe('BranchPopup - R6-Gap-C multi-root status-bar init', () => {
 
     // Capture the status bar item so we can read its text.
     const originalCreate = vscode.window.createStatusBarItem;
-    let capturedItem: { text: string; tooltip: unknown; command: unknown; show: () => void; hide: () => void; dispose: () => void } | undefined;
+    let capturedItem:
+      | {
+          text: string;
+          tooltip: unknown;
+          command: unknown;
+          show: () => void;
+          hide: () => void;
+          dispose: () => void;
+        }
+      | undefined;
     (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = () => {
       capturedItem = {
         text: '',
@@ -766,18 +857,17 @@ describe('BranchPopup - R6-Gap-C multi-root status-bar init', () => {
 
       assert.ok(capturedItem, 'Status bar item should have been created');
       assert.ok(
-        capturedItem!.text.includes('main-B'),
-        `expected active-editor repo's branch "main-B" in status text, got "${capturedItem!.text}"`
+        capturedItem.text.includes('main-B'),
+        `expected active-editor repo's branch "main-B" in status text, got "${capturedItem.text}"`
       );
       assert.ok(
-        !capturedItem!.text.includes('main-A'),
-        `did NOT expect repositories[0]'s branch "main-A" in status text, got "${capturedItem!.text}"`
+        !capturedItem.text.includes('main-A'),
+        `did NOT expect repositories[0]'s branch "main-A" in status text, got "${capturedItem.text}"`
       );
 
       popup.dispose();
     } finally {
-      (vscode.window as unknown as { activeTextEditor: unknown }).activeTextEditor =
-        originalActive;
+      (vscode.window as unknown as { activeTextEditor: unknown }).activeTextEditor = originalActive;
       (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
         originalCreate;
     }

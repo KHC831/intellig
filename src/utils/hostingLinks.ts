@@ -51,7 +51,9 @@ export function repoUrl(remote: IRemoteUrl): string {
  * providers (we don't guess URL shapes for self-hosted non-GitLab).
  */
 export function commitUrl(remote: IRemoteUrl, hash: string): string | undefined {
-  if (!hash || !/^[A-Fa-f0-9]{4,64}$/.test(hash)) return undefined;
+  if (!hash || !/^[A-Fa-f0-9]{4,64}$/.test(hash)) {
+    return undefined;
+  }
   const base = repoUrl(remote);
   switch (remote.provider) {
     case 'github':
@@ -71,7 +73,9 @@ export function commitUrl(remote: IRemoteUrl, hash: string): string | undefined 
  */
 export function issueUrl(remote: IRemoteUrl, id: string | number): string | undefined {
   const n = typeof id === 'number' ? id : Number.parseInt(String(id), 10);
-  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (!Number.isFinite(n) || n <= 0) {
+    return undefined;
+  }
   const base = repoUrl(remote);
   switch (remote.provider) {
     case 'github':
@@ -131,16 +135,22 @@ export interface IIssueReference {
  */
 export function findIssueReferences(message: string): IIssueReference[] {
   const out: IIssueReference[] = [];
-  if (!message) return out;
+  if (!message) {
+    return out;
+  }
   const re = new RegExp(ISSUE_REFERENCE_REGEX.source, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(message)) !== null) {
     const prefix = m[1];
     const id = m[2];
     let kind: IIssueReference['kind'] = 'hash';
-    if (prefix === '#') kind = 'hash';
-    else if (prefix === 'GH-') kind = 'gh-number';
-    else kind = 'jira';
+    if (prefix === '#') {
+      kind = 'hash';
+    } else if (prefix === 'GH-') {
+      kind = 'gh-number';
+    } else {
+      kind = 'jira';
+    }
     out.push({
       raw: m[0],
       id,

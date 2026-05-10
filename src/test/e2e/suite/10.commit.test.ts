@@ -55,10 +55,18 @@ describe('e2e — commit-context commands', function () {
     //   1. HEAD moved forward by exactly one commit.
     //   2. The revert-me.txt file is gone from the working tree.
     const headAfter = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
-    assert.notStrictEqual(headAfter, headBefore, 'revert should create a new commit on top of HEAD');
+    assert.notStrictEqual(
+      headAfter,
+      headBefore,
+      'revert should create a new commit on top of HEAD'
+    );
 
     const parent = (await execGit(fix.rootPath, ['rev-parse', 'HEAD^'])).stdout.trim();
-    assert.strictEqual(parent, headBefore, 'the new HEAD must be a direct child of the pre-revert HEAD');
+    assert.strictEqual(
+      parent,
+      headBefore,
+      'the new HEAD must be a direct child of the pre-revert HEAD'
+    );
 
     assert.strictEqual(
       fs.existsSync(toRevert),
@@ -70,7 +78,9 @@ describe('e2e — commit-context commands', function () {
   it('intellig.commit.checkoutRevision — moves HEAD to the supplied hash (detached)', async () => {
     fix = await createFixtureRepo({ commits: 3 });
 
-    const log = (await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--reverse'])).stdout.split('\n').filter(Boolean);
+    const log = (await execGit(fix.rootPath, ['log', '--pretty=format:%H', '--reverse'])).stdout
+      .split('\n')
+      .filter(Boolean);
     const target = log[0]; // the oldest commit
     const headBefore = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
     assert.notStrictEqual(target, headBefore, 'sanity: target must differ from HEAD');

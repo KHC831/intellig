@@ -26,7 +26,7 @@ describe('ext-host smoke — 2. open Git tool window', function () {
   before(async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, 'extension not installed');
-    await ext!.activate();
+    await ext.activate();
   });
 
   it('focuses the Git tool window view without throwing', async () => {

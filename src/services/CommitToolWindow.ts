@@ -26,11 +26,7 @@
  */
 
 import * as vscode from 'vscode';
-import {
-  IChangelist,
-  IFileChange,
-  IChangelistService,
-} from './interfaces/IChangelistService';
+import { IChangelist, IFileChange, IChangelistService } from './interfaces/IChangelistService';
 import { IShelfItem, IShelfService } from './interfaces/IShelfService';
 import { IGitService, IRepository, IStash } from './interfaces/IGitService';
 import { performCommit } from './CommitDialog';
@@ -159,10 +155,7 @@ export type FileAction =
  * Push a commit message onto the front of the LRU, deduplicate existing
  * entries, and cap at {@link RECENT_MESSAGES_MAX}. Pure — returns a new array.
  */
-export function updateRecentMessagesLru(
-  existing: readonly string[],
-  message: string
-): string[] {
+export function updateRecentMessagesLru(existing: readonly string[], message: string): string[] {
   const trimmed = message.trim();
   if (!trimmed) {
     return [...existing];
@@ -177,8 +170,12 @@ export function updateRecentMessagesLru(
  */
 export function sortChangelistsForDisplay(changelists: readonly IChangelist[]): IChangelist[] {
   return [...changelists].sort((a, b) => {
-    if (a.isDefault && !b.isDefault) return -1;
-    if (!a.isDefault && b.isDefault) return 1;
+    if (a.isDefault && !b.isDefault) {
+      return -1;
+    }
+    if (!a.isDefault && b.isDefault) {
+      return 1;
+    }
     return a.name.localeCompare(b.name);
   });
 }
@@ -229,7 +226,9 @@ export function buildShelfTabEntries(
   // stable across runs.
   entries.sort((a, b) => {
     const delta = b.timestamp.getTime() - a.timestamp.getTime();
-    if (delta !== 0) return delta;
+    if (delta !== 0) {
+      return delta;
+    }
     return a.id.localeCompare(b.id);
   });
   return entries;
@@ -343,11 +342,7 @@ export interface ICommitToolWebviewMessage {
   signOff?: boolean;
   files?: string[];
   collapsed?: boolean;
-  action?:
-    | ChangelistAction
-    | FileAction
-    | ShelfTabShelfAction
-    | ShelfTabStashAction;
+  action?: ChangelistAction | FileAction | ShelfTabShelfAction | ShelfTabStashAction;
   targetFiles?: string[];
   /** T3-10: newly-selected Shelf-tab filter from the segmented control. */
   filter?: ShelfTabFilter;
@@ -532,11 +527,7 @@ export class CommitToolWindow extends BaseWebviewView {
     _token: vscode.CancellationToken
   ): void {
     // Publish the active-tab context key so `when` clauses can react.
-    void vscode.commands.executeCommand(
-      'setContext',
-      ACTIVE_TAB_CONTEXT_KEY,
-      this._activeTab
-    );
+    void vscode.commands.executeCommand('setContext', ACTIVE_TAB_CONTEXT_KEY, this._activeTab);
 
     // Kick an async load. The initial HTML render already happened via
     // BaseWebviewView._render(); a data refresh follows once the services
@@ -684,7 +675,9 @@ export class CommitToolWindow extends BaseWebviewView {
       return;
     }
     const repo = await this._resolveRepo();
-    if (!repo) return;
+    if (!repo) {
+      return;
+    }
     try {
       const diff = await this._gitService.getDiff(repo, path, /* staged */ false);
       this._postMessage({ type: 'updateDiffPreview', path, diff });
@@ -710,10 +703,7 @@ export class CommitToolWindow extends BaseWebviewView {
     });
   }
 
-  private async _handleCommit(
-    message: ICommitToolWebviewMessage,
-    push: boolean
-  ): Promise<void> {
+  private async _handleCommit(message: ICommitToolWebviewMessage, push: boolean): Promise<void> {
     const repo = await this._resolveRepo();
     if (!repo) {
       void vscode.window.showErrorMessage('No Git repository found');
@@ -783,14 +773,8 @@ export class CommitToolWindow extends BaseWebviewView {
     await this._reloadState();
   }
 
-  private async _handleChangelistAction(
-    message: ICommitToolWebviewMessage
-  ): Promise<void> {
-    const action = message.action as
-      | ChangelistAction
-      | FileAction
-      | 'contextOpen'
-      | undefined;
+  private async _handleChangelistAction(message: ICommitToolWebviewMessage): Promise<void> {
+    const action = message.action as ChangelistAction | FileAction | 'contextOpen' | undefined;
     if (!action) {
       return;
     }
@@ -821,7 +805,9 @@ export class CommitToolWindow extends BaseWebviewView {
           })),
           { title: message.path, placeHolder: 'Select an action' }
         );
-        if (!picked) return;
+        if (!picked) {
+          return;
+        }
         await this._handleChangelistAction({
           ...message,
           action: picked._action,
@@ -829,9 +815,7 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       }
       if (message.changelistId) {
-        const changelist = this._changelists.find(
-          (c) => c.id === message.changelistId
-        );
+        const changelist = this._changelists.find((c) => c.id === message.changelistId);
         // isActive is resolved against the authoritative service call when
         // available; if the lookup fails we still render the menu with
         // default flags so the right-click isn't a no-op.
@@ -851,15 +835,15 @@ export class CommitToolWindow extends BaseWebviewView {
           isDefault: changelist?.isDefault ?? false,
         });
         const picked = await vscode.window.showQuickPick(
-          labels
-            .filter((l) => !l.disabled)
-            .map((l) => ({ label: l.label, _action: l.action })),
+          labels.filter((l) => !l.disabled).map((l) => ({ label: l.label, _action: l.action })),
           {
             title: changelist?.name ?? 'Changelist',
             placeHolder: 'Select an action',
           }
         );
-        if (!picked) return;
+        if (!picked) {
+          return;
+        }
         await this._handleChangelistAction({
           ...message,
           action: picked._action,
@@ -885,10 +869,7 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'rename':
         if (message.changelistId) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.rename',
-            message.changelistId
-          );
+          await vscode.commands.executeCommand('intellig.changelist.rename', message.changelistId);
         }
         return;
       case 'editDescription':
@@ -901,10 +882,7 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'delete':
         if (message.changelistId) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.delete',
-            message.changelistId
-          );
+          await vscode.commands.executeCommand('intellig.changelist.delete', message.changelistId);
         }
         return;
       case 'commitOnly':
@@ -917,10 +895,7 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'shelve':
         if (message.changelistId) {
-          await vscode.commands.executeCommand(
-            'intellig.changelist.shelve',
-            message.changelistId
-          );
+          await vscode.commands.executeCommand('intellig.changelist.shelve', message.changelistId);
         }
         return;
       case 'moveToChangelist':
@@ -933,18 +908,12 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'showDiff':
         if (message.path) {
-          await vscode.commands.executeCommand(
-            'intellig.localChanges.showDiff',
-            message.path
-          );
+          await vscode.commands.executeCommand('intellig.localChanges.showDiff', message.path);
         }
         return;
       case 'jumpToSource':
         if (message.path) {
-          await vscode.commands.executeCommand(
-            'intellig.localChanges.openFile',
-            message.path
-          );
+          await vscode.commands.executeCommand('intellig.localChanges.openFile', message.path);
         }
         return;
       case 'rollback':
@@ -1025,7 +994,9 @@ export class CommitToolWindow extends BaseWebviewView {
   private _findFileChange(path: string): IFileChange | undefined {
     for (const cl of this._changelists) {
       const hit = cl.files.find((f) => f.path === path);
-      if (hit) return hit;
+      if (hit) {
+        return hit;
+      }
     }
     return undefined;
   }
@@ -1050,7 +1021,9 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   private _postMessage(payload: unknown): void {
-    if (!this._view) return;
+    if (!this._view) {
+      return;
+    }
     void this._view.webview.postMessage(payload);
   }
 
@@ -1080,7 +1053,6 @@ export class CommitToolWindow extends BaseWebviewView {
     });
   }
 
-
   // ── T3-10 Shelf-tab message handlers ───────────────────────────────────
 
   /**
@@ -1098,7 +1070,9 @@ export class CommitToolWindow extends BaseWebviewView {
       | ShelfTabStashAction
       | 'contextOpen'
       | undefined;
-    if (!action) return;
+    if (!action) {
+      return;
+    }
 
     // contextOpen branch — prompt the user, then recurse with the chosen
     // action. Keeping the recursion tight means the action-dispatch switch
@@ -1107,7 +1081,9 @@ export class CommitToolWindow extends BaseWebviewView {
     if (action === 'contextOpen') {
       if (message.rowKind === 'shelf' && message.shelfId) {
         const entry = this._shelfItems.find((i) => i.id === message.shelfId);
-        if (!entry) return;
+        if (!entry) {
+          return;
+        }
         const labels = shelfRowContextMenuLabels({
           isAlreadyUnshelved: entry.unshelvedAt !== undefined,
         });
@@ -1115,7 +1091,9 @@ export class CommitToolWindow extends BaseWebviewView {
           labels.map((l) => ({ label: l.label, _action: l.action })),
           { title: `Shelf: ${entry.name}`, placeHolder: 'Select an action' }
         );
-        if (!picked) return;
+        if (!picked) {
+          return;
+        }
         await this._handleShelfTabAction({
           ...message,
           action: picked._action,
@@ -1131,7 +1109,9 @@ export class CommitToolWindow extends BaseWebviewView {
             placeHolder: 'Select an action',
           }
         );
-        if (!picked) return;
+        if (!picked) {
+          return;
+        }
         await this._handleShelfTabAction({
           ...message,
           action: picked._action,
@@ -1142,7 +1122,9 @@ export class CommitToolWindow extends BaseWebviewView {
     }
 
     if (message.rowKind === 'shelf') {
-      if (!message.shelfId) return;
+      if (!message.shelfId) {
+        return;
+      }
       const id = message.shelfId;
       switch (action) {
         case 'shelfApply':
@@ -1172,7 +1154,9 @@ export class CommitToolWindow extends BaseWebviewView {
     }
 
     if (message.rowKind === 'stash') {
-      if (typeof message.stashIndex !== 'number') return;
+      if (typeof message.stashIndex !== 'number') {
+        return;
+      }
       const idx = message.stashIndex;
       switch (action) {
         case 'stashApply':
@@ -1255,13 +1239,7 @@ export function buildCommitToolWindowBodyParts(input: Omit<IRenderInput, 'cspSou
   body: string;
   script: string;
 } {
-  const {
-    activeTab,
-    changelists,
-    shelfItems,
-    composer,
-    activeChangelistId,
-  } = input;
+  const { activeTab, changelists, shelfItems, composer, activeChangelistId } = input;
   // T3-10: derive combined entries when not already computed. Callers that
   // skip the field get a shelf-only view (legacy behavior).
   const shelfTabFilter: ShelfTabFilter = input.shelfTabFilter ?? 'shelves';
@@ -1454,7 +1432,11 @@ function renderShelfTabRow(entry: IShelfTabEntry): string {
   `;
 }
 
-function renderComposerPanel(composer: { message: string; amend: boolean; signOff: boolean }): string {
+function renderComposerPanel(composer: {
+  message: string;
+  amend: boolean;
+  signOff: boolean;
+}): string {
   return `
     <div class="ctw-composer">
       <div class="ctw-composer-row">

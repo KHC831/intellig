@@ -102,7 +102,11 @@ describe('e2e — rebase commands', function () {
     // `shared.txt` should contain the main-branch version since we skipped
     // the feature commit.
     const final = fs.readFileSync(path.join(fix.rootPath, 'shared.txt'), 'utf8');
-    assert.strictEqual(final, 'main change\n', 'rebase.skip should discard the feature commit content');
+    assert.strictEqual(
+      final,
+      'main change\n',
+      'rebase.skip should discard the feature commit content'
+    );
   });
 
   it('intellig.rebase.skip — no-op when not mid-rebase (and does not throw)', async () => {

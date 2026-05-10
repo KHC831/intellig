@@ -54,7 +54,9 @@ export function renderCommitMessageHtml(
   remote: IRemoteUrl | undefined,
   escapeHtml: (text: string) => string
 ): string {
-  if (!message) return '';
+  if (!message) {
+    return '';
+  }
 
   const refs = findIssueReferences(message);
   if (refs.length === 0 || !remote) {

@@ -318,7 +318,11 @@ export function renderGraphSvg(
   // main branch line remains continuous from the row above while the bezier covers the bottom.
   const bezierTargetLanes = new Set<number>();
   for (const line of node.graphLines) {
-    if (isValidLane(line.fromColumn) && isValidLane(line.toColumn) && line.fromColumn !== line.toColumn) {
+    if (
+      isValidLane(line.fromColumn) &&
+      isValidLane(line.toColumn) &&
+      line.fromColumn !== line.toColumn
+    ) {
       bezierTargetLanes.add(line.toColumn);
     }
   }
@@ -436,7 +440,7 @@ export function renderGraphSvg(
       // Left tick: -30° from vertical downward (i.e., 210° from positive x-axis)
       // Angle from bottom going down-left: 180° + 30° = 210° in standard math coords
       // In SVG coords (y increases downward), angle of 30° to the left of straight down
-      const angleLeft = (Math.PI / 6); // 30 degrees
+      const angleLeft = Math.PI / 6; // 30 degrees
       const leftEndX = bottomX - tickLength * Math.sin(angleLeft);
       const leftEndY = bottomCY + tickLength * Math.cos(angleLeft);
 

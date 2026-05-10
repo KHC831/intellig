@@ -329,7 +329,9 @@ describe('HistoryTab — class behaviour', () => {
     const tab = new HistoryTab(service);
     const diffCalls: unknown[] = [];
     (vscode.commands as any).executeCommand = async (command: string): Promise<undefined> => {
-      if (command === 'vscode.diff') diffCalls.push(command);
+      if (command === 'vscode.diff') {
+        diffCalls.push(command);
+      }
       return undefined;
     };
     await tab.compareWith('a', 'b');
@@ -350,7 +352,9 @@ describe('HistoryTab — class behaviour', () => {
       command: string,
       ...args: unknown[]
     ): Promise<undefined> => {
-      if (command === 'vscode.open') openCalls.push(args[0] as vscode.Uri);
+      if (command === 'vscode.open') {
+        openCalls.push(args[0] as vscode.Uri);
+      }
       return undefined;
     };
 

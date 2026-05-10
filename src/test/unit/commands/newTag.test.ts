@@ -200,11 +200,7 @@ describe('T1-09 runNewTagFlow', () => {
     assert.strictEqual(h.createTagCalls.length, 1);
     const call = h.createTagCalls[0];
     assert.strictEqual(call.name, 'v1.0.0');
-    assert.strictEqual(
-      call.message,
-      undefined,
-      'empty message should produce a lightweight tag'
-    );
+    assert.strictEqual(call.message, undefined, 'empty message should produce a lightweight tag');
     assert.strictEqual(call.ref, undefined, 'palette flow targets HEAD (ref=undefined)');
     assert.deepStrictEqual(h.infoMessages, ['Created tag: v1.0.0']);
     assert.deepStrictEqual(h.errorMessages, []);
@@ -268,10 +264,6 @@ describe('T1-09 runNewTagFlow', () => {
       h.errorMessages[0].includes('tag already exists'),
       `Expected error toast to include stderr; got: ${h.errorMessages[0]}`
     );
-    assert.strictEqual(
-      h.tagCreatedCalled,
-      0,
-      'onTagCreated should not fire when createTag throws'
-    );
+    assert.strictEqual(h.tagCreatedCalled, 0, 'onTagCreated should not fire when createTag throws');
   });
 });

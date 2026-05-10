@@ -301,11 +301,11 @@ describe('resolveRepo — multi-repo picker', () => {
     assert.strictEqual(h.pickRequested.length, 1);
     const items = h.pickRequested[0];
     assert.strictEqual(items.length, 3);
-    assert.deepStrictEqual(items.map((i) => i.repo), [a, b, c]);
     assert.deepStrictEqual(
-      items.map((i) => i.label).sort(),
-      ['a', 'b', 'c']
+      items.map((i) => i.repo),
+      [a, b, c]
     );
+    assert.deepStrictEqual(items.map((i) => i.label).sort(), ['a', 'b', 'c']);
   });
 
   it('returns undefined without an error toast when the user cancels', async () => {

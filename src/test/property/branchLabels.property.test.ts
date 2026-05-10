@@ -180,11 +180,7 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
     it('Feature: git-graph-visual-improvements, Property 5: Empty branches produce empty HTML', () => {
       const node = makeCommitNode([]);
       const html = provider._getBranchLabelsHtml(node);
-      assert.strictEqual(
-        html,
-        '',
-        'HTML should be empty for node with no branches'
-      );
+      assert.strictEqual(html, '', 'HTML should be empty for node with no branches');
     });
   });
 
@@ -282,13 +278,13 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
               localCount,
               localBranches.length,
               `Should have ${localBranches.length} local labels, got ${localCount}. ` +
-              `Local branches: ${JSON.stringify(localBranches)}`
+                `Local branches: ${JSON.stringify(localBranches)}`
             );
             assert.strictEqual(
               remoteCount,
               remoteBranches.length,
               `Should have ${remoteBranches.length} remote labels, got ${remoteCount}. ` +
-              `Remote branches: ${JSON.stringify(remoteBranches)}`
+                `Remote branches: ${JSON.stringify(remoteBranches)}`
             );
           }
         ),

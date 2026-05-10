@@ -39,10 +39,7 @@ async function main(): Promise<void> {
       // Disable other extensions so they don't interfere with activation or
       // command registration counts. `--disable-workspace-trust` bypasses the
       // "Do you trust the authors" gate that otherwise stalls the host.
-      launchArgs: [
-        '--disable-extensions',
-        '--disable-workspace-trust',
-      ],
+      launchArgs: ['--disable-extensions', '--disable-workspace-trust'],
     });
   } catch (err) {
     console.error('Extension host smoke suite failed:', err);

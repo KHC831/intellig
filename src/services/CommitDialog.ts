@@ -6,10 +6,7 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IDiff, IHunk, ICommitOptions } from './interfaces/IGitService';
-import {
-  RECENT_MESSAGES_STATE_KEY,
-  updateRecentMessagesLru,
-} from './CommitToolWindow';
+import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
 import { generateNonce } from '../utils/webviewNonce';
 
 /**
@@ -190,9 +187,13 @@ export const AUTHOR_FORMAT_REGEX = /^[^<>]+ <[^<>@\s]+@[^<>\s]+>$/;
  * so callers can skip the override silently.
  */
 export function isValidAuthorFormat(value: string | undefined): boolean {
-  if (!value) return true;
+  if (!value) {
+    return true;
+  }
   const trimmed = value.trim();
-  if (trimmed.length === 0) return true;
+  if (trimmed.length === 0) {
+    return true;
+  }
   return AUTHOR_FORMAT_REGEX.test(trimmed);
 }
 
@@ -582,7 +583,9 @@ export class CommitDialog {
         matchOnDetail: true,
       }
     );
-    if (!picked) return;
+    if (!picked) {
+      return;
+    }
     this._commitMessage = picked.message;
     this._updateWebview();
   }
@@ -599,7 +602,9 @@ export class CommitDialog {
       title: 'Commit options',
       placeHolder: 'Pick an option',
     });
-    if (!picked) return;
+    if (!picked) {
+      return;
+    }
     if (picked.id === 'noVerify') {
       await this._handleToggleNoVerify(!this._noVerify);
       this._updateWebview();
@@ -615,7 +620,9 @@ export class CommitDialog {
    * array; empty when no state is wired or the key is absent.
    */
   private _readRecentMessages(): string[] {
-    if (!this._workspaceState) return [];
+    if (!this._workspaceState) {
+      return [];
+    }
     const value = this._workspaceState.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
     return Array.isArray(value) ? value : [];
   }
@@ -625,7 +632,9 @@ export class CommitDialog {
    * workspaceState isn't wired (keeps tests and legacy callers happy).
    */
   private async _pushRecentMessage(message: string): Promise<void> {
-    if (!this._workspaceState) return;
+    if (!this._workspaceState) {
+      return;
+    }
     const updated = updateRecentMessagesLru(this._readRecentMessages(), message);
     await this._workspaceState.update(RECENT_MESSAGES_STATE_KEY, updated);
   }
@@ -1043,7 +1052,9 @@ export class CommitDialog {
    * never surprised by a skipped-hook commit.
    */
   private _getNoVerifyBadge(): string {
-    if (!this._noVerify) return '';
+    if (!this._noVerify) {
+      return '';
+    }
     return `
       <div class="no-verify-badge" role="note">
         ⚠ Git hooks will be skipped (<code>--no-verify</code>). Open the gear menu to turn this off.

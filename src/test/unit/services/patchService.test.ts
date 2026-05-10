@@ -25,14 +25,18 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import {
-  PatchService,
-  validateBaseDir,
-  validateStripLevel,
-} from '../../../services/PatchService';
+import { PatchService, validateBaseDir, validateStripLevel } from '../../../services/PatchService';
 import { ApplyPatchDialog } from '../../../services/ApplyPatchDialog';
-import type { IGitService, IFileStatus, IRepository } from '../../../services/interfaces/IGitService';
-import type { IConflictResolutionService, IConflictOpContext, IConflictedFile } from '../../../services/interfaces/IConflictResolutionService';
+import type {
+  IGitService,
+  IFileStatus,
+  IRepository,
+} from '../../../services/interfaces/IGitService';
+import type {
+  IConflictResolutionService,
+  IConflictOpContext,
+  IConflictedFile,
+} from '../../../services/interfaces/IConflictResolutionService';
 
 interface RecordedExec {
   args: string[];
@@ -174,8 +178,8 @@ describe('PatchService.applyPatch', () => {
     const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
     assert.strictEqual(res.success, false);
     assert.ok(res.conflicts);
-    assert.strictEqual(res.conflicts!.length, 1);
-    assert.strictEqual(res.conflicts![0].path, 'a.ts');
+    assert.strictEqual(res.conflicts.length, 1);
+    assert.strictEqual(res.conflicts[0].path, 'a.ts');
   });
 
   it('hard failure (no conflict phrase) returns stderr and no conflicts', async () => {
@@ -499,7 +503,12 @@ describe('ApplyPatchDialog', () => {
     });
 
     assert.strictEqual(recorded.length, 1);
-    const opts = recorded[0] as { patchPath?: string; useAm?: boolean; stripLevel?: number; baseDir?: string };
+    const opts = recorded[0] as {
+      patchPath?: string;
+      useAm?: boolean;
+      stripLevel?: number;
+      baseDir?: string;
+    };
     assert.strictEqual(opts.patchPath, '/tmp/x.patch');
     assert.strictEqual(opts.useAm, true);
     assert.strictEqual(opts.stripLevel, 2);
@@ -566,7 +575,9 @@ describe('ApplyPatchDialog', () => {
     });
 
     assert.strictEqual(applyCalled, false);
-    const underlying = (dialog as unknown as { _panel: vscode.WebviewPanel & { _disposeCallCount: number } })._panel;
+    const underlying = (
+      dialog as unknown as { _panel: vscode.WebviewPanel & { _disposeCallCount: number } }
+    )._panel;
     assert.strictEqual(underlying._disposeCallCount, 1);
     dialog = undefined; // already disposed
   });

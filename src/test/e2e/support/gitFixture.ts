@@ -140,11 +140,7 @@ export async function createFixtureRepo(opts: FixtureOpts = {}): Promise<Fixture
   }
 
   // Collect the commit hashes (oldest → newest) for later refs.
-  const logResult = await execGit(rootPath, [
-    'log',
-    '--pretty=format:%H',
-    '--reverse',
-  ]);
+  const logResult = await execGit(rootPath, ['log', '--pretty=format:%H', '--reverse']);
   const hashes = logResult.stdout.split('\n').filter((s) => s.length > 0);
 
   // Branches off specific commits.
@@ -153,7 +149,9 @@ export async function createFixtureRepo(opts: FixtureOpts = {}): Promise<Fixture
       const baseIdx = b.fromCommit ?? hashes.length - 1;
       const base = hashes[baseIdx];
       if (!base) {
-        throw new Error(`fixture: branch ${b.name} requested from commit ${baseIdx} but only ${hashes.length} exist`);
+        throw new Error(
+          `fixture: branch ${b.name} requested from commit ${baseIdx} but only ${hashes.length} exist`
+        );
       }
       await execGit(rootPath, ['branch', b.name, base]);
     }
@@ -165,7 +163,9 @@ export async function createFixtureRepo(opts: FixtureOpts = {}): Promise<Fixture
       const atIdx = t.atCommit ?? hashes.length - 1;
       const at = hashes[atIdx];
       if (!at) {
-        throw new Error(`fixture: tag ${t.name} requested at commit ${atIdx} but only ${hashes.length} exist`);
+        throw new Error(
+          `fixture: tag ${t.name} requested at commit ${atIdx} but only ${hashes.length} exist`
+        );
       }
       if (t.message) {
         await execGit(rootPath, ['tag', '-a', t.name, at, '-m', t.message]);

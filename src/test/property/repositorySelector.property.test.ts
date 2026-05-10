@@ -38,10 +38,9 @@ function arbitraryFolderName(): fc.Arbitrary<string> {
  * Generate a valid Unix-style path with 1-4 segments ending in a folder name.
  */
 function arbitraryPath(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.array(arbitraryFolderName(), { minLength: 1, maxLength: 3 }),
-    arbitraryFolderName()
-  ).map(([segments, folderName]) => '/' + [...segments, folderName].join('/'));
+  return fc
+    .tuple(fc.array(arbitraryFolderName(), { minLength: 1, maxLength: 3 }), arbitraryFolderName())
+    .map(([segments, folderName]) => '/' + [...segments, folderName].join('/'));
 }
 
 /**
@@ -61,12 +60,11 @@ function createMockRepository(fsPath: string): IRepository {
  * Length is between min and max (inclusive).
  */
 function arbitraryRepositoryList(min: number, max: number): fc.Arbitrary<IRepository[]> {
-  return fc.array(arbitraryPath(), { minLength: min, maxLength: max })
-    .map(paths => {
-      // Ensure unique paths
-      const uniquePaths = [...new Set(paths)];
-      return uniquePaths.map(p => createMockRepository(p));
-    });
+  return fc.array(arbitraryPath(), { minLength: min, maxLength: max }).map((paths) => {
+    // Ensure unique paths
+    const uniquePaths = [...new Set(paths)];
+    return uniquePaths.map((p) => createMockRepository(p));
+  });
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -108,32 +106,29 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
      */
     it('Feature: git-graph-visual-improvements, Property 1: Repository selector visibility matches repository count', () => {
       fc.assert(
-        fc.property(
-          arbitraryRepositoryList(0, 10),
-          (repos) => {
-            provider.setAvailableRepositories(repos);
-            const html = provider._getRepositorySelectorHtml();
+        fc.property(arbitraryRepositoryList(0, 10), (repos) => {
+          provider.setAvailableRepositories(repos);
+          const html = provider._getRepositorySelectorHtml();
 
-            if (repos.length > 1) {
-              // Selector should be present (contains a <select> element)
-              assert.ok(
-                html.includes('<select'),
-                `Repository selector should be present when ${repos.length} repositories exist. Got: "${html}"`
-              );
-              assert.ok(
-                html.includes('</select>'),
-                `Repository selector should have a closing </select> tag when ${repos.length} repositories exist.`
-              );
-            } else {
-              // Selector should be absent (empty string)
-              assert.strictEqual(
-                html,
-                '',
-                `Repository selector should be absent when ${repos.length} repository exists. Got: "${html}"`
-              );
-            }
+          if (repos.length > 1) {
+            // Selector should be present (contains a <select> element)
+            assert.ok(
+              html.includes('<select'),
+              `Repository selector should be present when ${repos.length} repositories exist. Got: "${html}"`
+            );
+            assert.ok(
+              html.includes('</select>'),
+              `Repository selector should have a closing </select> tag when ${repos.length} repositories exist.`
+            );
+          } else {
+            // Selector should be absent (empty string)
+            assert.strictEqual(
+              html,
+              '',
+              `Repository selector should be absent when ${repos.length} repository exists. Got: "${html}"`
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });
@@ -149,18 +144,16 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
     it('Feature: git-graph-visual-improvements, Property 2: Repository selection updates provider state', () => {
       fc.assert(
         fc.property(
-          arbitraryRepositoryList(2, 10).chain(repos =>
-            fc.tuple(
-              fc.constant(repos),
-              fc.integer({ min: 0, max: repos.length - 1 })
-            )
+          arbitraryRepositoryList(2, 10).chain((repos) =>
+            fc.tuple(fc.constant(repos), fc.integer({ min: 0, max: repos.length - 1 }))
           ),
           ([repos, selectedIndex]) => {
             provider.setAvailableRepositories(repos);
 
             // Call the private _handleRepositorySelection method via cast
-            (provider as unknown as { _handleRepositorySelection: (index: number) => void })
-              ._handleRepositorySelection(selectedIndex);
+            (
+              provider as unknown as { _handleRepositorySelection: (index: number) => void }
+            )._handleRepositorySelection(selectedIndex);
 
             // Verify the selected repository matches the requested index
             const selectedRepo = provider.getSelectedRepository();
@@ -169,10 +162,10 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
               `Selected repository should not be undefined after selecting index ${selectedIndex}`
             );
             assert.strictEqual(
-              selectedRepo!.rootUri.fsPath,
+              selectedRepo.rootUri.fsPath,
               repos[selectedIndex].rootUri.fsPath,
               `Selected repository fsPath should match repos[${selectedIndex}].rootUri.fsPath. ` +
-              `Expected: "${repos[selectedIndex].rootUri.fsPath}", Got: "${selectedRepo!.rootUri.fsPath}"`
+                `Expected: "${repos[selectedIndex].rootUri.fsPath}", Got: "${selectedRepo.rootUri.fsPath}"`
             );
           }
         ),
@@ -190,29 +183,26 @@ describe('Feature: git-graph-visual-improvements - Repository Selector Property 
      */
     it('Feature: git-graph-visual-improvements, Property 3: Repository selector displays folder names', () => {
       fc.assert(
-        fc.property(
-          arbitraryRepositoryList(2, 10),
-          (repos) => {
-            provider.setAvailableRepositories(repos);
-            const html = provider._getRepositorySelectorHtml();
+        fc.property(arbitraryRepositoryList(2, 10), (repos) => {
+          provider.setAvailableRepositories(repos);
+          const html = provider._getRepositorySelectorHtml();
 
-            // Selector should be present since repos.length > 1
+          // Selector should be present since repos.length > 1
+          assert.ok(
+            html.includes('<select'),
+            `Repository selector should be present when ${repos.length} repositories exist.`
+          );
+
+          // Each repository's folder name should appear in the HTML
+          for (const repo of repos) {
+            const folderName = getFolderName(repo.rootUri.fsPath);
             assert.ok(
-              html.includes('<select'),
-              `Repository selector should be present when ${repos.length} repositories exist.`
-            );
-
-            // Each repository's folder name should appear in the HTML
-            for (const repo of repos) {
-              const folderName = getFolderName(repo.rootUri.fsPath);
-              assert.ok(
-                html.includes(folderName),
-                `Repository selector HTML should contain folder name "${folderName}" ` +
+              html.includes(folderName),
+              `Repository selector HTML should contain folder name "${folderName}" ` +
                 `from path "${repo.rootUri.fsPath}". HTML: "${html}"`
-              );
-            }
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });

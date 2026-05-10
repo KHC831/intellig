@@ -10,11 +10,7 @@
 
 import '../../../../test/setup';
 import * as assert from 'assert';
-import type {
-  IBranch,
-  ICommit,
-  ITag,
-} from '../../../../services/interfaces/IGitService';
+import type { IBranch, ICommit, ITag } from '../../../../services/interfaces/IGitService';
 import {
   MIN_SHA_PREFIX_LENGTH,
   classifyQuery,
@@ -108,11 +104,7 @@ describe('jumpToHash — findCommitByQuery SHA prefix', () => {
     // matches only A; 'abcd' matches only C. Construct a true multi-match:
     const shared = mkCommit('abcdef1111111111abcdef1111111111abcdef11');
     const result = findCommitByQuery('abcdef', [commitC, shared], [], []);
-    assert.strictEqual(
-      result,
-      commitC.hash,
-      'first commit in list wins on multi-match'
-    );
+    assert.strictEqual(result, commitC.hash, 'first commit in list wins on multi-match');
   });
 });
 
@@ -196,17 +188,11 @@ describe('jumpToHash — classifyQuery', () => {
   });
 
   it('returns "branch" for an exact branch name', () => {
-    assert.strictEqual(
-      classifyQuery('main', [], [mkBranch('main', commitA.hash)], []),
-      'branch'
-    );
+    assert.strictEqual(classifyQuery('main', [], [mkBranch('main', commitA.hash)], []), 'branch');
   });
 
   it('returns "tag" for an exact tag name', () => {
-    assert.strictEqual(
-      classifyQuery('v1', [], [], [mkTag('v1', commitA.hash)]),
-      'tag'
-    );
+    assert.strictEqual(classifyQuery('v1', [], [], [mkTag('v1', commitA.hash)]), 'tag');
   });
 
   it('returns undefined for an unmatched query', () => {

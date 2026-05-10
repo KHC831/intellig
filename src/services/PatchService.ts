@@ -62,10 +62,7 @@ export class PatchService implements IPatchService {
    *  6. On failure, classify as conflict-vs-hard-error and either populate
    *     `conflicts` or return `stderr` for the caller.
    */
-  async applyPatch(
-    repo: IRepository,
-    options: IApplyPatchOptions
-  ): Promise<IApplyPatchResult> {
+  async applyPatch(repo: IRepository, options: IApplyPatchOptions): Promise<IApplyPatchResult> {
     const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
 
     // Step 1: validate input.
@@ -279,9 +276,7 @@ export class PatchService implements IPatchService {
    * Write raw patch content to a unique temp file. Returns the absolute path.
    */
   private async _writeTempPatch(content: string): Promise<string> {
-    const dir = await fs.promises.mkdtemp(
-      path.join(require('os').tmpdir(), 'intellig-patch-')
-    );
+    const dir = await fs.promises.mkdtemp(path.join(require('os').tmpdir(), 'intellig-patch-'));
     const file = path.join(dir, 'patch.diff');
     await fs.promises.writeFile(file, content, 'utf-8');
     return file;
@@ -365,10 +360,7 @@ export function createPatchService(gitService: IGitService): PatchService {
  *
  * Returns `undefined` when valid, an error message string when invalid.
  */
-export function validateBaseDir(
-  baseDir: string | undefined,
-  repoRoot: string
-): string | undefined {
+export function validateBaseDir(baseDir: string | undefined, repoRoot: string): string | undefined {
   if (baseDir === undefined || baseDir === '') {
     return undefined;
   }

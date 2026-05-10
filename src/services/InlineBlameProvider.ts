@@ -458,7 +458,9 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     repo: IRepository | undefined,
     hash: string
   ): string | undefined {
-    if (!repo) return undefined;
+    if (!repo) {
+      return undefined;
+    }
     const key = repo.rootUri.fsPath;
     let parsed: IRemoteUrl | undefined;
     if (this._remoteCache.has(key)) {
@@ -474,7 +476,9 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       parsed = parseRemoteUrl(url);
       this._remoteCache.set(key, parsed);
     }
-    if (!parsed) return undefined;
+    if (!parsed) {
+      return undefined;
+    }
     return commitUrl(parsed, hash);
   }
 

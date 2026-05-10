@@ -65,7 +65,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
         []
       );
 
-      assert.ok(!html.includes('id="branch-panel"'), 'Should NOT contain branch-panel (removed in 2-panel layout)');
+      assert.ok(
+        !html.includes('id="branch-panel"'),
+        'Should NOT contain branch-panel (removed in 2-panel layout)'
+      );
       assert.ok(html.includes('id="graph-panel"'), 'Should contain graph-panel');
       assert.ok(html.includes('id="details-panel"'), 'Should contain details-panel');
     });
@@ -88,7 +91,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
         []
       );
 
-      assert.ok(html.includes('class="three-panel-layout"'), 'Should have three-panel-layout class');
+      assert.ok(
+        html.includes('class="three-panel-layout"'),
+        'Should have three-panel-layout class'
+      );
       assert.ok(html.includes('flex-direction: row'), 'Should use flex-direction: row');
     });
 
@@ -102,7 +108,7 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
 
       const dividerMatches = html.match(/class="panel-divider"/g);
       assert.ok(dividerMatches, 'Should have panel-divider elements');
-      assert.strictEqual(dividerMatches!.length, 1, 'Should have exactly 1 divider');
+      assert.strictEqual(dividerMatches.length, 1, 'Should have exactly 1 divider');
     });
 
     it('should place divider between the correct panels', () => {
@@ -170,7 +176,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
       );
 
       assert.ok(html.includes('vertical-layout'), 'Should include vertical-layout CSS class');
-      assert.ok(html.includes('flex-direction: column'), 'Should include column flex-direction for vertical stacking');
+      assert.ok(
+        html.includes('flex-direction: column'),
+        'Should include column flex-direction for vertical stacking'
+      );
     });
 
     it('should include JS-based width check for vertical stacking', () => {
@@ -179,7 +188,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
         []
       );
 
-      assert.ok(html.includes('checkVerticalLayout'), 'Should include JS function for vertical layout check');
+      assert.ok(
+        html.includes('checkVerticalLayout'),
+        'Should include JS function for vertical layout check'
+      );
       assert.ok(html.includes('500'), 'Should reference 500px threshold');
     });
   });
@@ -192,7 +204,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
       );
 
       assert.ok(html.includes('class="graph-panel"'), 'Should render graph panel');
-      assert.ok(!html.includes('HEAD (Current Branch)'), 'Should NOT render branch panel HEAD category');
+      assert.ok(
+        !html.includes('HEAD (Current Branch)'),
+        'Should NOT render branch panel HEAD category'
+      );
     });
 
     it('should render details placeholder when no commit details provided', () => {
@@ -201,7 +216,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
         []
       );
 
-      assert.ok(html.includes('Select a commit to view details'), 'Should show placeholder when no commit selected');
+      assert.ok(
+        html.includes('Select a commit to view details'),
+        'Should show placeholder when no commit selected'
+      );
     });
 
     it('should render commit details when provided', () => {
@@ -214,7 +232,10 @@ describe('GitToolWindowProvider - _getThreePanelHtmlContent()', () => {
 
       assert.ok(html.includes('Initial commit'), 'Should render commit message');
       assert.ok(html.includes('Test Author'), 'Should render author name');
-      assert.ok(html.includes('abc1234567890abcdef1234567890abcdef123456'), 'Should render full hash');
+      assert.ok(
+        html.includes('abc1234567890abcdef1234567890abcdef123456'),
+        'Should render full hash'
+      );
     });
   });
 

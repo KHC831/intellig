@@ -87,7 +87,7 @@ describe('T1-07 Log commit menu parity', () => {
       it(`declares ${id} with title "${title}"`, () => {
         const cmd = commandsById.get(id);
         assert.ok(cmd, `${id} must appear in contributes.commands`);
-        assert.strictEqual(cmd!.title, title, `${id} title must match IntelliJ label`);
+        assert.strictEqual(cmd.title, title, `${id} title must match IntelliJ label`);
       });
     }
 
@@ -134,7 +134,9 @@ describe('T1-07 Log commit menu parity', () => {
         'intellig.commit.createPatch',
       ]);
       for (const cmd of pkg.contributes.commands) {
-        if (!t107Ids.has(cmd.command)) continue;
+        if (!t107Ids.has(cmd.command)) {
+          continue;
+        }
         assert.ok(
           !cmd.title?.includes('...'),
           `${cmd.command}: title "${cmd.title}" must use U+2026, not ASCII ...`
@@ -148,7 +150,7 @@ describe('T1-07 Log commit menu parity', () => {
       for (const entry of logCommitMenu) {
         assert.ok(entry.command, 'entry must have a command');
         assert.ok(
-          commandsById.has(entry.command!),
+          commandsById.has(entry.command),
           `${entry.command} must be registered in contributes.commands`
         );
       }
@@ -192,7 +194,7 @@ describe('T1-07 Log commit menu parity', () => {
       it(`${command} is placed in group ${group}`, () => {
         const entry = logCommitMenu.find((m) => m.command === command);
         assert.ok(entry, `${command} must be in the log-commit menu`);
-        assert.strictEqual(entry!.group, group);
+        assert.strictEqual(entry.group, group);
       });
     }
 

@@ -471,10 +471,7 @@ export class ChangelistService implements IChangelistService {
    * @param repo - The repository
    * @param filePath - The file path to look up (as stored, no normalization)
    */
-  async getChangelistForFile(
-    repo: IRepository,
-    filePath: string
-  ): Promise<string | undefined> {
+  async getChangelistForFile(repo: IRepository, filePath: string): Promise<string | undefined> {
     const changelists = this.getChangelists(repo);
     for (const cl of changelists) {
       if (cl.files.some((f) => f.path === filePath)) {
@@ -823,4 +820,3 @@ export class ChangelistService implements IChangelistService {
 export function createChangelistService(gitService: IGitService): ChangelistService {
   return new ChangelistService(gitService);
 }
-

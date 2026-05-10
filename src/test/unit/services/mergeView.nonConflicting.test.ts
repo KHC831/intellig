@@ -43,14 +43,8 @@ describe('T3-04 — identifyNonConflictingConflicts', () => {
   });
 
   it('diff3: both-sided change → NOT resolvable from either side', () => {
-    assert.deepStrictEqual(
-      identifyNonConflictingConflicts([C(0, 'x', 'a', 'b')], 'left'),
-      []
-    );
-    assert.deepStrictEqual(
-      identifyNonConflictingConflicts([C(0, 'x', 'a', 'b')], 'right'),
-      []
-    );
+    assert.deepStrictEqual(identifyNonConflictingConflicts([C(0, 'x', 'a', 'b')], 'left'), []);
+    assert.deepStrictEqual(identifyNonConflictingConflicts([C(0, 'x', 'a', 'b')], 'right'), []);
   });
 
   it('diff2 (no base): left-only addition → resolvable from LEFT', () => {
@@ -65,21 +59,12 @@ describe('T3-04 — identifyNonConflictingConflicts', () => {
 
   it('diff2 (no base): both sides non-empty → NOT resolvable', () => {
     // Without base we can't tell if the change is benign; leave alone.
-    assert.deepStrictEqual(
-      identifyNonConflictingConflicts([C(0, '', 'a', 'b')], 'left'),
-      []
-    );
-    assert.deepStrictEqual(
-      identifyNonConflictingConflicts([C(0, '', 'a', 'b')], 'right'),
-      []
-    );
+    assert.deepStrictEqual(identifyNonConflictingConflicts([C(0, '', 'a', 'b')], 'left'), []);
+    assert.deepStrictEqual(identifyNonConflictingConflicts([C(0, '', 'a', 'b')], 'right'), []);
   });
 
   it('skips already-resolved conflicts', () => {
-    const ids = identifyNonConflictingConflicts(
-      [C(0, 'x', 'y', 'x', /*resolved*/ true)],
-      'left'
-    );
+    const ids = identifyNonConflictingConflicts([C(0, 'x', 'y', 'x', /*resolved*/ true)], 'left');
     assert.deepStrictEqual(ids, []);
   });
 
@@ -149,24 +134,13 @@ describe('T3-04 — identifyNonConflictingHunks (marker-text parser)', () => {
   });
 
   it('diff2 marker (no base) — both-sided treated as conflicting', () => {
-    const text = [
-      '<<<<<<< HEAD',
-      'left',
-      '=======',
-      'right',
-      '>>>>>>> f',
-    ].join('\n');
+    const text = ['<<<<<<< HEAD', 'left', '=======', 'right', '>>>>>>> f'].join('\n');
     assert.deepStrictEqual(identifyNonConflictingHunks(text, 'left'), []);
     assert.deepStrictEqual(identifyNonConflictingHunks(text, 'right'), []);
   });
 
   it('diff2 marker — left-only addition (empty right)', () => {
-    const text = [
-      '<<<<<<< HEAD',
-      'added locally',
-      '=======',
-      '>>>>>>> f',
-    ].join('\n');
+    const text = ['<<<<<<< HEAD', 'added locally', '=======', '>>>>>>> f'].join('\n');
     assert.deepStrictEqual(identifyNonConflictingHunks(text, 'left'), [0]);
   });
 

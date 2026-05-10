@@ -2534,12 +2534,7 @@ diff --git a/src/file2.ts b/src/file2.ts
 
       const last = mockGitCli.getLastCommand();
       assert.ok(last);
-      assert.deepStrictEqual(last!.args, [
-        'stash',
-        'branch',
-        'feature/stashed-work',
-        'stash@{2}',
-      ]);
+      assert.deepStrictEqual(last.args, ['stash', 'branch', 'feature/stashed-work', 'stash@{2}']);
     });
 
     it('uses the correct working directory', async () => {
@@ -2560,14 +2555,8 @@ diff --git a/src/file2.ts b/src/file2.ts
     });
 
     it('throws when the index is negative or non-integer', async () => {
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, -1, 'x'),
-        /Invalid stash index/
-      );
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 1.5, 'x'),
-        /Invalid stash index/
-      );
+      await assert.rejects(() => gitService.stashBranch(mockRepo, -1, 'x'), /Invalid stash index/);
+      await assert.rejects(() => gitService.stashBranch(mockRepo, 1.5, 'x'), /Invalid stash index/);
     });
 
     it('trims whitespace around the branch name', async () => {
@@ -2594,10 +2583,7 @@ diff --git a/src/file2.ts b/src/file2.ts
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in file.txt',
       });
-      await assert.rejects(
-        () => gitService.stashBranch(mockRepo, 0, 'wip'),
-        /conflict|CONFLICT/
-      );
+      await assert.rejects(() => gitService.stashBranch(mockRepo, 0, 'wip'), /conflict|CONFLICT/);
     });
 
     it('surfaces "bad stash" errors for invalid indexes at the git level', async () => {
@@ -2654,11 +2640,11 @@ diff --git a/src/file2.ts b/src/file2.ts
 
     it('stores with the provided message and resolved commit hash', async () => {
       await gitService.stashRename(mockRepo, 0, 'renamed subject');
-      const storeCall = mockGitCli.executedCommands.find((c) =>
-        c.args[0] === 'stash' && c.args[1] === 'store'
+      const storeCall = mockGitCli.executedCommands.find(
+        (c) => c.args[0] === 'stash' && c.args[1] === 'store'
       );
       assert.ok(storeCall);
-      assert.deepStrictEqual(storeCall!.args, [
+      assert.deepStrictEqual(storeCall.args, [
         'stash',
         'store',
         '-m',
@@ -2673,7 +2659,7 @@ diff --git a/src/file2.ts b/src/file2.ts
         (c) => c.args[0] === 'stash' && c.args[1] === 'drop'
       );
       assert.ok(dropCall);
-      assert.deepStrictEqual(dropCall!.args, ['stash', 'drop', 'stash@{3}']);
+      assert.deepStrictEqual(dropCall.args, ['stash', 'drop', 'stash@{3}']);
     });
 
     it('throws on negative or non-integer index before any git call', async () => {
@@ -2687,10 +2673,7 @@ diff --git a/src/file2.ts b/src/file2.ts
         stdout: '',
         stderr: "fatal: bad revision 'stash@{99}'",
       });
-      await assert.rejects(
-        () => gitService.stashRename(mockRepo, 99, 'x'),
-        /bad revision/
-      );
+      await assert.rejects(() => gitService.stashRename(mockRepo, 99, 'x'), /bad revision/);
     });
 
     it('rolls back the duplicate entry if drop fails', async () => {
@@ -2702,15 +2685,15 @@ diff --git a/src/file2.ts b/src/file2.ts
         stderr: 'could not drop',
       });
 
-      await assert.rejects(
-        () => gitService.stashRename(mockRepo, 0, 'x'),
-        /could not drop/
-      );
+      await assert.rejects(() => gitService.stashRename(mockRepo, 0, 'x'), /could not drop/);
 
       // Verify rollback drop ran.
       const commands = mockGitCli.executedCommands.map((c) => c.args.join(' '));
       const rollback = commands.lastIndexOf('stash drop stash@{0}');
-      assert.ok(rollback >= 0, `rollback drop stash@{0} must have been attempted, got: ${commands.join(' | ')}`);
+      assert.ok(
+        rollback >= 0,
+        `rollback drop stash@{0} must have been attempted, got: ${commands.join(' | ')}`
+      );
     });
   });
 });
@@ -5559,7 +5542,8 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
         // Verify commit dates were fetched
         const dateCommands = mockGitCli.executedCommands.filter(
-          (cmd) => cmd.args[0] === 'show' && cmd.args[1] === '-s' && cmd.args[2] === '--format=%cI%x09%P'
+          (cmd) =>
+            cmd.args[0] === 'show' && cmd.args[1] === '-s' && cmd.args[2] === '--format=%cI%x09%P'
         );
         assert.strictEqual(dateCommands.length, 2, 'Should fetch dates for both commits');
       });
@@ -5885,7 +5869,7 @@ diff --git a/file2.ts b/file2.ts
           .find((cmd) => cmd.args[0] === 'diff');
         assert.ok(forwardDiff, 'forward pass should issue a diff command');
         assert.deepStrictEqual(
-          forwardDiff!.args.slice(0, 3),
+          forwardDiff.args.slice(0, 3),
           ['diff', 'grandparent', 'child'],
           'forward pass should diff from parent^ to the child (newest)'
         );
@@ -5899,7 +5883,7 @@ diff --git a/file2.ts b/file2.ts
           .find((cmd) => cmd.args[0] === 'diff');
         assert.ok(reverseDiff, 'reverse pass should issue a diff command');
         assert.deepStrictEqual(
-          reverseDiff!.args.slice(0, 3),
+          reverseDiff.args.slice(0, 3),
           ['diff', 'grandparent', 'child'],
           'reverse pass must produce the same diff range — input order is irrelevant'
         );

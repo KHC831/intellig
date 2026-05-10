@@ -218,9 +218,9 @@ describe('BaseWebviewView', () => {
         const scriptMatches = html.match(/<script nonce="[^"]+">/g);
         assert.ok(scriptMatches, 'HTML should contain a nonced <script> tag');
         assert.strictEqual(
-          scriptMatches!.length,
+          scriptMatches.length,
           1,
-          `expected exactly one nonced <script>, got ${scriptMatches!.length}`
+          `expected exactly one nonced <script>, got ${scriptMatches.length}`
         );
         assert.ok(html.includes('<p>body</p>'), 'HTML should include the body fragment');
         assert.ok(html.includes('console.log("s")'), 'HTML should include the script body');
@@ -235,7 +235,7 @@ describe('BaseWebviewView', () => {
         const html = view.callWrapHtml('<p>b</p>', 's');
         const cspMatch = html.match(/'nonce-([A-Za-z0-9_-]{22})'/);
         assert.ok(cspMatch, 'CSP meta should contain a 22-char base64url nonce');
-        const nonce = cspMatch![1];
+        const nonce = cspMatch[1];
         assert.ok(
           html.includes(`<script nonce="${nonce}">`),
           'script tag should carry the same nonce as the CSP meta'
@@ -258,7 +258,10 @@ describe('BaseWebviewView', () => {
       try {
         const rendered = fake.webview.html;
         assert.ok(rendered.startsWith('<!DOCTYPE html>'), 'html should start with doctype');
-        assert.ok(rendered.includes('<main>stuff</main>'), 'body should be composed into the document');
+        assert.ok(
+          rendered.includes('<main>stuff</main>'),
+          'body should be composed into the document'
+        );
         assert.ok(rendered.includes('var x=1;'), 'script should be composed into the document');
       } finally {
         view.dispose();
@@ -280,7 +283,9 @@ describe('BaseWebviewView', () => {
         const html2 = fake.webview.html;
 
         const stripNonce = (h: string): string =>
-          h.replace(/nonce="[A-Za-z0-9_-]{22}"/g, 'nonce="X"').replace(/'nonce-[A-Za-z0-9_-]{22}'/g, "'nonce-X'");
+          h
+            .replace(/nonce="[A-Za-z0-9_-]{22}"/g, 'nonce="X"')
+            .replace(/'nonce-[A-Za-z0-9_-]{22}'/g, "'nonce-X'");
         assert.strictEqual(stripNonce(html1), stripNonce(html2));
       } finally {
         view.dispose();
@@ -394,7 +399,10 @@ describe('BaseWebviewView', () => {
         {} as vscode.CancellationToken
       );
       try {
-        assert.ok(fake.webview.html.startsWith('<!DOCTYPE html>'), 'resolve should render initial HTML');
+        assert.ok(
+          fake.webview.html.startsWith('<!DOCTYPE html>'),
+          'resolve should render initial HTML'
+        );
         assert.ok(fake.webview.html.includes('<div>hello</div>'));
       } finally {
         view.dispose();

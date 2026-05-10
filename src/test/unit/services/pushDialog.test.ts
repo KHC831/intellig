@@ -90,8 +90,7 @@ function makeRow(overrides: Partial<IPushRow> = {}): IPushRow {
   // Use explicit `'upstreamRemote' in overrides` so callers can clear the
   // field by passing `{ upstreamRemote: undefined }` without `??` falling
   // back to the default.
-  const upstreamRemote =
-    'upstreamRemote' in overrides ? overrides.upstreamRemote : 'origin';
+  const upstreamRemote = 'upstreamRemote' in overrides ? overrides.upstreamRemote : 'origin';
   return {
     id: overrides.id ?? '/test-repo',
     selected: overrides.selected ?? true,
@@ -295,7 +294,9 @@ function makeDialog(
   gitService: IGitService & { pushCalls: PushCallLog[] };
   pullDialogCalls: Array<{ repo: IRepository; preset?: string; prefilledSource?: unknown }>;
 } {
-  const gitService = (overrides.gitService as (IGitService & { pushCalls: PushCallLog[] }) | undefined) ?? makeGitService();
+  const gitService =
+    (overrides.gitService as (IGitService & { pushCalls: PushCallLog[] }) | undefined) ??
+    makeGitService();
   const pullDialogCalls: Array<{ repo: IRepository; preset?: string; prefilledSource?: unknown }> =
     [];
   const pullDialog = {
@@ -660,7 +661,12 @@ describe('T1-01 PushDialog — lifecycle', () => {
   it('Force Push (Anyway) disabled per-row when target is protected (runPushRow blocks)', async () => {
     installMessageTrackers();
     const { dialog, gitService } = makeDialog({
-      repos: [makeRepo('/repo-a', { name: 'refs/heads/main', upstream: { remote: 'origin', name: 'main' } })],
+      repos: [
+        makeRepo('/repo-a', {
+          name: 'refs/heads/main',
+          upstream: { remote: 'origin', name: 'main' },
+        }),
+      ],
       protectedBranches: ['main'],
     });
     await dialog.waitUntilPopulated();
@@ -774,7 +780,11 @@ describe('T1-01 PushDialog — SR-5 incremental patch (no full re-render)', () =
     );
     const patches = dialog.sentMessages.filter((m) => m.type === 'patchRow');
     assert.strictEqual(patches.length, 1, 'expected exactly one patchRow message');
-    const patch = patches[0] as unknown as { rowId: string; protected: boolean; primary: { label: string } };
+    const patch = patches[0] as unknown as {
+      rowId: string;
+      protected: boolean;
+      primary: { label: string };
+    };
     assert.strictEqual(patch.rowId, '/repo-a');
     assert.strictEqual(patch.protected, false);
     assert.strictEqual(patch.primary.label, 'Push');

@@ -157,11 +157,15 @@ function installMessageTrackers(): {
 } {
   const log: MessageLog = { info: [], error: [], warn: [] };
   let nextWarnResponse: string | undefined = undefined;
-  (vscode.window as any).showInformationMessage = async (message: string): Promise<string | undefined> => {
+  (vscode.window as any).showInformationMessage = async (
+    message: string
+  ): Promise<string | undefined> => {
     log.info.push({ message });
     return undefined;
   };
-  (vscode.window as any).showErrorMessage = async (message: string): Promise<string | undefined> => {
+  (vscode.window as any).showErrorMessage = async (
+    message: string
+  ): Promise<string | undefined> => {
     log.error.push({ message });
     return undefined;
   };
@@ -284,10 +288,7 @@ describe('ResetDialog', () => {
       try {
         // Escaped form should appear, raw tag should NOT.
         assert.ok(html.includes('&lt;script&gt;'), 'subject is html-escaped');
-        assert.ok(
-          !html.includes('<script>alert(1)</script>'),
-          'raw script tag is absent'
-        );
+        assert.ok(!html.includes('<script>alert(1)</script>'), 'raw script tag is absent');
       } finally {
         dialog.dispose();
       }
@@ -308,10 +309,7 @@ describe('ResetDialog', () => {
         assert.ok(keepMatch, 'keep is disabled on protected branch');
         assert.ok(!softMatch, 'soft stays enabled on protected branch');
         assert.ok(!mixedMatch, 'mixed stays enabled on protected branch');
-        assert.ok(
-          html.includes('intellig.protectedBranches'),
-          'tooltip references the config key'
-        );
+        assert.ok(html.includes('intellig.protectedBranches'), 'tooltip references the config key');
       } finally {
         dialog.dispose();
       }
@@ -348,7 +346,7 @@ describe('ResetDialog', () => {
 
           const call = gitService.calls.find((c) => c.method === 'resetToCommit');
           assert.ok(call, 'resetToCommit invoked');
-          assert.strictEqual(call!.args[2], mode);
+          assert.strictEqual(call.args[2], mode);
         } finally {
           dialog.dispose();
         }
@@ -434,11 +432,7 @@ describe('ResetDialog', () => {
           0,
           'no reset after cancelling confirm'
         );
-        assert.strictEqual(
-          trackers.log.warn.length,
-          1,
-          'only the confirm modal was shown'
-        );
+        assert.strictEqual(trackers.log.warn.length, 1, 'only the confirm modal was shown');
       } finally {
         dialog.dispose();
       }
@@ -450,10 +444,7 @@ describe('ResetDialog', () => {
       const { dialog, gitService } = makeDialog();
       try {
         await dialog.simulateMessage({ type: 'reset', mode: 'keep' });
-        assert.strictEqual(
-          gitService.calls.filter((c) => c.method === 'resetToCommit').length,
-          0
-        );
+        assert.strictEqual(gitService.calls.filter((c) => c.method === 'resetToCommit').length, 0);
       } finally {
         dialog.dispose();
       }
@@ -470,11 +461,7 @@ describe('ResetDialog', () => {
       try {
         await dialog.simulateMessage({ type: 'reset', mode: 'hard' });
         assert.strictEqual(gitService.calls.length, 0, 'no reset on protected branch');
-        assert.strictEqual(
-          trackers.log.warn.length,
-          1,
-          'one non-modal warning shown'
-        );
+        assert.strictEqual(trackers.log.warn.length, 1, 'one non-modal warning shown');
         assert.strictEqual(
           trackers.log.warn[0].modal,
           false,
@@ -638,15 +625,8 @@ describe('ResetDialog', () => {
         await dialog.simulateMessage({ type: 'reset', mode: 'soft' });
         // Reset should have still executed, and the dialog should not
         // have surfaced the callback error to the user.
-        assert.strictEqual(
-          gitService.calls.filter((c) => c.method === 'resetToCommit').length,
-          1
-        );
-        assert.strictEqual(
-          trackers.log.error.length,
-          0,
-          'callback failure is logged, not toasted'
-        );
+        assert.strictEqual(gitService.calls.filter((c) => c.method === 'resetToCommit').length, 1);
+        assert.strictEqual(trackers.log.error.length, 0, 'callback failure is logged, not toasted');
       } finally {
         dialog.dispose();
       }
@@ -740,10 +720,7 @@ describe('ResetDialog', () => {
       // Default Mixed is disabled → fall back to first non-disabled preference:
       // 'mixed' > 'soft' > 'keep' > 'hard'. With mixed disabled and everything
       // else enabled, we get 'soft'.
-      assert.strictEqual(
-        resolveDefaultMode('mixed', new Set<ResetMode>(['mixed'])),
-        'soft'
-      );
+      assert.strictEqual(resolveDefaultMode('mixed', new Set<ResetMode>(['mixed'])), 'soft');
     });
 
     it('protected-branch case: preferred=hard falls back to mixed', () => {

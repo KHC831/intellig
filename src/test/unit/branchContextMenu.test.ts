@@ -80,25 +80,25 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
     it('should include New Branch from in section 1_branchOps@1', () => {
       const entry = entries.find((e) => e.command === 'intellig.branch.newBranchFrom');
       assert.ok(entry, 'intellig.branch.newBranchFrom should be present');
-      assert.strictEqual(entry!.group, '1_branchOps@1');
+      assert.strictEqual(entry.group, '1_branchOps@1');
     });
 
     it('should include Update in section 2_sync@1', () => {
       const entry = entries.find((e) => e.command === 'intellig.branch.update');
       assert.ok(entry, 'intellig.branch.update should be present');
-      assert.strictEqual(entry!.group, '2_sync@1');
+      assert.strictEqual(entry.group, '2_sync@1');
     });
 
     it('should include Push in section 2_sync@2', () => {
       const entry = entries.find((e) => e.command === 'intellig.branch.push');
       assert.ok(entry, 'intellig.branch.push should be present');
-      assert.strictEqual(entry!.group, '2_sync@2');
+      assert.strictEqual(entry.group, '2_sync@2');
     });
 
     it('should include Rename in section 3_manage@1', () => {
       const entry = entries.find((e) => e.command === 'intellig.branch.rename');
       assert.ok(entry, 'intellig.branch.rename should be present');
-      assert.strictEqual(entry!.group, '3_manage@1');
+      assert.strictEqual(entry.group, '3_manage@1');
     });
 
     it('should NOT include Checkout command', () => {
@@ -161,8 +161,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
 
     it('should include Show Diff with Working Tree in section 2_compare@2', () => {
       const entry = entries.find(
-        (e) =>
-          e.command === 'intellig.branch.showDiffWithWorkingTree' && e.group === '2_compare@2'
+        (e) => e.command === 'intellig.branch.showDiffWithWorkingTree' && e.group === '2_compare@2'
       );
       assert.ok(entry, 'intellig.branch.showDiffWithWorkingTree should be at 2_compare@2');
     });
@@ -264,8 +263,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
 
     it('should include Show Diff with Working Tree in section 2_compare@2', () => {
       const entry = entries.find(
-        (e) =>
-          e.command === 'intellig.branch.showDiffWithWorkingTree' && e.group === '2_compare@2'
+        (e) => e.command === 'intellig.branch.showDiffWithWorkingTree' && e.group === '2_compare@2'
       );
       assert.ok(entry, 'intellig.branch.showDiffWithWorkingTree should be at 2_compare@2');
     });
@@ -286,16 +284,14 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
 
     it('should include Pull Using Rebase in section 4_pull@1', () => {
       const entry = entries.find(
-        (e) =>
-          e.command === 'intellig.remoteBranch.pullUsingRebase' && e.group === '4_pull@1'
+        (e) => e.command === 'intellig.remoteBranch.pullUsingRebase' && e.group === '4_pull@1'
       );
       assert.ok(entry, 'intellig.remoteBranch.pullUsingRebase should be at 4_pull@1');
     });
 
     it('should include Pull Using Merge in section 4_pull@2', () => {
       const entry = entries.find(
-        (e) =>
-          e.command === 'intellig.remoteBranch.pullUsingMerge' && e.group === '4_pull@2'
+        (e) => e.command === 'intellig.remoteBranch.pullUsingMerge' && e.group === '4_pull@2'
       );
       assert.ok(entry, 'intellig.remoteBranch.pullUsingMerge should be at 4_pull@2');
     });
@@ -328,11 +324,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
 
       for (const cmd of excludedCommands) {
         const found = currentEntries.find((e) => e.command === cmd);
-        assert.strictEqual(
-          found,
-          undefined,
-          `Command ${cmd} should not appear for current branch`
-        );
+        assert.strictEqual(found, undefined, `Command ${cmd} should not appear for current branch`);
       }
     });
 

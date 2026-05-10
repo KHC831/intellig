@@ -101,8 +101,8 @@ export class CommitContextMenuCommands {
    */
   register(context: vscode.ExtensionContext): void {
     this._context = context;
-    const disposable = this._gitToolWindowProvider.onDidRequestLogContextAction(
-      (event) => this._handleAction(event.action, event.commitHashes)
+    const disposable = this._gitToolWindowProvider.onDidRequestLogContextAction((event) =>
+      this._handleAction(event.action, event.commitHashes)
     );
     this._disposables.push(disposable);
     context.subscriptions.push(...this._disposables);
@@ -196,10 +196,7 @@ export class CommitContextMenuCommands {
    * Implementation for Drop Selected Changes. See
    * {@link dropSelectedChangesFromCommit}.
    */
-  private async _handleDropSelectedChanges(
-    repo: IRepository,
-    hash: string
-  ): Promise<void> {
+  private async _handleDropSelectedChanges(repo: IRepository, hash: string): Promise<void> {
     const cwd = repo.rootUri.fsPath;
     const shortHash = hash.substring(0, 8);
 
@@ -243,9 +240,7 @@ export class CommitContextMenuCommands {
       return;
     }
     if (!diffs || diffs.length === 0) {
-      void vscode.window.showInformationMessage(
-        `Commit ${shortHash} has no files to drop.`
-      );
+      void vscode.window.showInformationMessage(`Commit ${shortHash} has no files to drop.`);
       return;
     }
 
@@ -276,9 +271,7 @@ export class CommitContextMenuCommands {
     }
 
     const droppedPaths = dropPicks.map((p) => p.path);
-    const keptPaths = diffs
-      .map((d) => d.path)
-      .filter((p) => !droppedPaths.includes(p));
+    const keptPaths = diffs.map((d) => d.path).filter((p) => !droppedPaths.includes(p));
 
     // 5. Rewrite HEAD.
     //    Strategy (safer than interactive rebase for HEAD-only):
@@ -330,10 +323,7 @@ export class CommitContextMenuCommands {
    */
   private async _isCommitPushed(cwd: string, hash: string): Promise<boolean> {
     try {
-      const res = await this._gitCli.exec(
-        ['branch', '--remotes', '--contains', hash],
-        { cwd }
-      );
+      const res = await this._gitCli.exec(['branch', '--remotes', '--contains', hash], { cwd });
       if (res.exitCode !== 0) {
         // Be conservative — if the query failed, assume pushed so we don't
         // rewrite anything the user might regret.
@@ -427,9 +417,12 @@ export class CommitContextMenuCommands {
       return { stashed: false, blocked: false };
     }
     const statusLines = statusResult.stdout.trim().split('\n');
-    const hasUnmerged = statusLines.some(l =>
-      l.startsWith('U') || l.startsWith('AA') || l.startsWith('DD') ||
-      (l.length > 1 && l.charAt(1) === 'U')
+    const hasUnmerged = statusLines.some(
+      (l) =>
+        l.startsWith('U') ||
+        l.startsWith('AA') ||
+        l.startsWith('DD') ||
+        (l.length > 1 && l.charAt(1) === 'U')
     );
     if (hasUnmerged) {
       return { stashed: false, blocked: true };
@@ -580,9 +573,7 @@ export class CommitContextMenuCommands {
     }
 
     const pickedPaths = new Set(picked.map((p) => p.path));
-    const excludedPaths = diffs
-      .map((d) => d.path)
-      .filter((p) => !pickedPaths.has(p));
+    const excludedPaths = diffs.map((d) => d.path).filter((p) => !pickedPaths.has(p));
 
     if (excludedPaths.length === 0) {
       // User kept everything — fall through to the standard flow.
@@ -660,7 +651,9 @@ export class CommitContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, hash);
-      void vscode.window.showInformationMessage(`Checked out revision ${hash.substring(0, 8)} (detached HEAD)`);
+      void vscode.window.showInformationMessage(
+        `Checked out revision ${hash.substring(0, 8)} (detached HEAD)`
+      );
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -676,7 +669,10 @@ export class CommitContextMenuCommands {
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${hash.substring(0, 8)}`);
+            await this._gitService.stash(
+              repo,
+              `Auto-stash before checkout ${hash.substring(0, 8)}`
+            );
             await this._gitService.checkout(repo, hash);
             void vscode.window.showInformationMessage(
               `Stashed changes and checked out revision ${hash.substring(0, 8)} (detached HEAD)`
@@ -754,7 +750,9 @@ export class CommitContextMenuCommands {
    * Returns undefined for detached HEAD / falsy input.
    */
   private _extractBranchName(ref: string | undefined): string | undefined {
-    if (!ref) return undefined;
+    if (!ref) {
+      return undefined;
+    }
     return ref.replace(/^refs\/heads\//, '');
   }
 
@@ -779,10 +777,10 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
 
     try {
-      const result = await this._gitCli.exec(
-        ['format-patch', '-1', hash, '--stdout'],
-        { cwd: repo.rootUri.fsPath, throwOnError: true }
-      );
+      const result = await this._gitCli.exec(['format-patch', '-1', hash, '--stdout'], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      });
 
       const saveUri = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(`${hash.substring(0, 8)}.patch`),
@@ -857,19 +855,22 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
 
     try {
-      const result = await this._gitCli.exec(
-        ['ls-tree', '--name-only', '-r', hash],
-        { cwd: repo.rootUri.fsPath, throwOnError: true }
-      );
+      const result = await this._gitCli.exec(['ls-tree', '--name-only', '-r', hash], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      });
 
-      const files = result.stdout.trim().split('\n').filter(f => f.length > 0);
+      const files = result.stdout
+        .trim()
+        .split('\n')
+        .filter((f) => f.length > 0);
       if (files.length === 0) {
         void vscode.window.showInformationMessage('No files found at this revision.');
         return;
       }
 
       const selected = await vscode.window.showQuickPick(
-        files.map(f => ({ label: f, description: hash.substring(0, 8) })),
+        files.map((f) => ({ label: f, description: hash.substring(0, 8) })),
         {
           title: `Repository at ${hash.substring(0, 8)}`,
           placeHolder: 'Select a file to view',
@@ -910,10 +911,10 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      await this._gitCli.exec(
-        ['reset', '--soft', 'HEAD~1'],
-        { cwd: repo.rootUri.fsPath, throwOnError: true }
-      );
+      await this._gitCli.exec(['reset', '--soft', 'HEAD~1'], {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      });
 
       void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
       this._gitToolWindowProvider.refresh();
@@ -948,9 +949,13 @@ export class CommitContextMenuCommands {
       try {
         const session = await this._rebaseService.startInteractiveRebase(repo, `${hash}~1`);
 
-        const targetCommit = session.commits.find(c => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash));
+        const targetCommit = session.commits.find(
+          (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
+        );
         if (!targetCommit) {
-          void vscode.window.showErrorMessage(`Commit ${hash.substring(0, 8)} not found in rebase session.`);
+          void vscode.window.showErrorMessage(
+            `Commit ${hash.substring(0, 8)} not found in rebase session.`
+          );
           await this._rebaseService.abortRebase(repo);
           if (stashed) {
             await this._unstash(cwd);
@@ -958,11 +963,14 @@ export class CommitContextMenuCommands {
           return;
         }
 
-        this._rebaseService.updateRebasePlan(repo, session.commits.map(c =>
-          c.hash === targetCommit.hash
-            ? { hash: c.hash, action: 'drop' as const }
-            : { hash: c.hash, action: c.action }
-        ));
+        this._rebaseService.updateRebasePlan(
+          repo,
+          session.commits.map((c) =>
+            c.hash === targetCommit.hash
+              ? { hash: c.hash, action: 'drop' as const }
+              : { hash: c.hash, action: c.action }
+          )
+        );
 
         const result = await this._rebaseService.executeRebase(repo);
 
@@ -1015,10 +1023,7 @@ export class CommitContextMenuCommands {
       // Fetch the full commit message
       let fullMessage = '';
       try {
-        const msgResult = await this._gitCli.exec(
-          ['log', '-1', '--format=%B', hash],
-          { cwd }
-        );
+        const msgResult = await this._gitCli.exec(['log', '-1', '--format=%B', hash], { cwd });
         if (msgResult.exitCode === 0 && msgResult.stdout.trim()) {
           fullMessage = msgResult.stdout.trim();
         }
@@ -1037,7 +1042,8 @@ export class CommitContextMenuCommands {
       }
 
       const headHash = repo.head?.commit;
-      const isHead = headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
+      const isHead =
+        headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
 
       if (isHead) {
         // HEAD amend: git commit --amend -m only rewrites the commit message.
@@ -1060,11 +1066,13 @@ export class CommitContextMenuCommands {
         try {
           const session = await this._rebaseService.startInteractiveRebase(repo, `${hash}~1`);
 
-          const targetCommit = session.commits.find(c =>
-            c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
+          const targetCommit = session.commits.find(
+            (c) => c.hash === hash || c.hash.startsWith(hash) || hash.startsWith(c.hash)
           );
           if (!targetCommit) {
-            void vscode.window.showErrorMessage(`Commit ${hash.substring(0, 8)} not found in rebase session.`);
+            void vscode.window.showErrorMessage(
+              `Commit ${hash.substring(0, 8)} not found in rebase session.`
+            );
             await this._rebaseService.abortRebase(repo);
             if (stashed) {
               await this._unstash(cwd);
@@ -1072,11 +1080,14 @@ export class CommitContextMenuCommands {
             return;
           }
 
-          this._rebaseService.updateRebasePlan(repo, session.commits.map(c =>
-            c.hash === targetCommit.hash
-              ? { hash: c.hash, action: 'reword' as const, newMessage }
-              : { hash: c.hash, action: c.action }
-          ));
+          this._rebaseService.updateRebasePlan(
+            repo,
+            session.commits.map((c) =>
+              c.hash === targetCommit.hash
+                ? { hash: c.hash, action: 'reword' as const, newMessage }
+                : { hash: c.hash, action: c.action }
+            )
+          );
 
           const result = await this._rebaseService.executeRebase(repo);
 
@@ -1103,7 +1114,9 @@ export class CommitContextMenuCommands {
         }
       }
 
-      void vscode.window.showInformationMessage(`Updated commit message for ${hash.substring(0, 8)}`);
+      void vscode.window.showInformationMessage(
+        `Updated commit message for ${hash.substring(0, 8)}`
+      );
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1150,7 +1163,10 @@ export class CommitContextMenuCommands {
             }
           } else if (choice === 'Abort Merge') {
             try {
-              await this._gitCli.exec(['merge', '--abort'], { cwd: repo.rootUri.fsPath, throwOnError: true });
+              await this._gitCli.exec(['merge', '--abort'], {
+                cwd: repo.rootUri.fsPath,
+                throwOnError: true,
+              });
               void vscode.window.showInformationMessage('Merge aborted.');
             } catch (abortError) {
               const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';

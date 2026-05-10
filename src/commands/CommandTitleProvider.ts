@@ -86,13 +86,9 @@ export class CommandTitleProvider {
    * @param context - The VS Code extension context
    * @param treeView - The branch tree view to listen for selection changes
    */
-  register(
-    context: vscode.ExtensionContext,
-    treeView: vscode.TreeView<BranchTreeItem>
-  ): void {
+  register(context: vscode.ExtensionContext, treeView: vscode.TreeView<BranchTreeItem>): void {
     this._selectionDisposable = treeView.onDidChangeSelection((event) => {
-      const selectedItem =
-        event.selection.length > 0 ? event.selection[0] : undefined;
+      const selectedItem = event.selection.length > 0 ? event.selection[0] : undefined;
       this._updateTitles(selectedItem);
     });
 
@@ -124,10 +120,7 @@ export class CommandTitleProvider {
 
       // Set a context variable so that the title can be resolved by VS Code
       const contextKey = `${commandId}.title`;
-      const disposable = vscode.commands.registerCommand(
-        `${commandId}.title`,
-        () => title
-      );
+      const disposable = vscode.commands.registerCommand(`${commandId}.title`, () => title);
 
       // Use setContext to make the dynamic title available to VS Code menus
       void vscode.commands.executeCommand('setContext', contextKey, title);

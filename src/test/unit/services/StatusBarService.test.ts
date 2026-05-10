@@ -615,14 +615,16 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
     registeredCommands: Map<string, (...args: unknown[]) => unknown>;
   }
 
-  function makeRepo(overrides: {
-    branch?: string;
-    ahead?: number;
-    behind?: number;
-    upstream?: { remote: string; name: string } | undefined;
-    state?: IRepository['state'];
-    rootPath?: string;
-  } = {}): IRepository {
+  function makeRepo(
+    overrides: {
+      branch?: string;
+      ahead?: number;
+      behind?: number;
+      upstream?: { remote: string; name: string } | undefined;
+      state?: IRepository['state'];
+      rootPath?: string;
+    } = {}
+  ): IRepository {
     const upstream =
       'upstream' in overrides
         ? overrides.upstream
@@ -663,9 +665,11 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
 
     // Capture the status-bar item by patching the mock for this test only.
     let capturedItem: StubStatusBarItem | undefined;
-    const originalCreate = (vscode.window as unknown as {
-      createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
-    }).createStatusBarItem;
+    const originalCreate = (
+      vscode.window as unknown as {
+        createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
+      }
+    ).createStatusBarItem;
     (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = (
       a?: unknown,
       p?: number
@@ -907,7 +911,7 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
           return undefined;
         };
 
-        await dispatch!();
+        await dispatch();
         // First call should be focusTab.
         assert.strictEqual(calls.length >= 1, true, `got ${calls.length} calls`);
         assert.strictEqual(calls[0].command, 'intellig.toolWindow.focusTab');
@@ -940,7 +944,7 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
           return undefined;
         };
 
-        await dispatch!();
+        await dispatch();
 
         // Should have tried focusTab, then fallen back to openGitToolWindow.
         assert.strictEqual(calls.length, 2);
@@ -973,9 +977,11 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
 
       // Capture the status-bar item the same way makeHarness does.
       let capturedItem: StubStatusBarItem | undefined;
-      const originalCreate = (vscode.window as unknown as {
-        createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
-      }).createStatusBarItem;
+      const originalCreate = (
+        vscode.window as unknown as {
+          createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
+        }
+      ).createStatusBarItem;
       (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = (
         a?: unknown,
         p?: number
@@ -1013,16 +1019,16 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
           // The status bar should reflect repoB's branch (main-B with ↓3),
           // NOT repoA's (which is what `repositories[0]` would have surfaced).
           assert.ok(
-            capturedItem!.text.includes('main-B'),
-            `expected repoB's branch "main-B" in "${capturedItem!.text}"`
+            capturedItem.text.includes('main-B'),
+            `expected repoB's branch "main-B" in "${capturedItem.text}"`
           );
           assert.ok(
-            capturedItem!.text.includes('↓3'),
-            `expected repoB's behind count in "${capturedItem!.text}"`
+            capturedItem.text.includes('↓3'),
+            `expected repoB's behind count in "${capturedItem.text}"`
           );
           assert.ok(
-            !capturedItem!.text.includes('main-A'),
-            `did NOT expect repoA's branch in "${capturedItem!.text}"`
+            !capturedItem.text.includes('main-A'),
+            `did NOT expect repoA's branch in "${capturedItem.text}"`
           );
         } finally {
           service.dispose();

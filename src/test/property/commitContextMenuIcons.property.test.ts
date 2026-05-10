@@ -24,43 +24,53 @@ import { Uri } from '../mocks/vscode';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
  * Generate a short commit hash (7 hex characters).
  */
 function arbitraryShortHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 7, maxLength: 7 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 7,
+    maxLength: 7,
+  });
 }
 
 /**
  * Generate a non-empty author name.
  */
 function arbitraryAuthorName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-    ),
-    { minLength: 1, maxLength: 30 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+      ),
+      { minLength: 1, maxLength: 30 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
  * Generate a valid email address.
  */
 function arbitraryEmail(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), { minLength: 1, maxLength: 10 }),
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 8 }),
-    fc.constantFrom('com', 'org', 'net', 'io')
-  ).map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
+  return fc
+    .tuple(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), {
+        minLength: 1,
+        maxLength: 8,
+      }),
+      fc.constantFrom('com', 'org', 'net', 'io')
+    )
+    .map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
 }
 
 /**
@@ -77,12 +87,14 @@ function arbitraryAuthor(): fc.Arbitrary<IAuthor> {
  * Generate a commit message.
  */
 function arbitraryCommitMessage(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?'.split('')
-    ),
-    { minLength: 1, maxLength: 80 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?'.split('')
+      ),
+      { minLength: 1, maxLength: 80 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
@@ -91,7 +103,7 @@ function arbitraryCommitMessage(): fc.Arbitrary<string> {
 function arbitraryRecentDate(): fc.Arbitrary<Date> {
   const now = Date.now();
   const oneYearMs = 365 * 24 * 3600 * 1000;
-  return fc.integer({ min: 1000, max: oneYearMs }).map(ms => new Date(now - ms));
+  return fc.integer({ min: 1000, max: oneYearMs }).map((ms) => new Date(now - ms));
 }
 
 /**
@@ -131,11 +143,17 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), { minLength: 1, maxLength: 15 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz-_/'.split('')), {
+        minLength: 1,
+        maxLength: 15,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), { minLength: 1, maxLength: 10 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
   });
@@ -147,7 +165,8 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
  * Regex that matches common emoji characters.
  * Covers emoji presentation sequences, modifier bases, and supplemental symbols.
  */
-const EMOJI_REGEX = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/u;
+const EMOJI_REGEX =
+  /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/u;
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -188,7 +207,7 @@ describe('Feature: git-graph-context-menu - Commit Context Menu Property Tests',
           (commitNodes) => {
             // Set up the provider with the generated commit nodes
             if (commitNodes.length > 0) {
-              const commits = commitNodes.map(n => n.commit);
+              const commits = commitNodes.map((n) => n.commit);
               provider.updateLogState(commits);
             }
 

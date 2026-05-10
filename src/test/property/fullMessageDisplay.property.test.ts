@@ -30,12 +30,14 @@ describe('Full Message Display Property Tests', () => {
    * Avoids angle brackets and ampersands since _getDetailsPanelHtml HTML-escapes them.
    */
   const safeStringArb = (minLen: number, maxLen: number): fc.Arbitrary<string> =>
-    fc.stringOf(
-      fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()'.split('')
-      ),
-      { minLength: minLen, maxLength: maxLen }
-    ).filter((s) => s.trim().length > 0);
+    fc
+      .stringOf(
+        fc.constantFrom(
+          ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()'.split('')
+        ),
+        { minLength: minLen, maxLength: maxLen }
+      )
+      .filter((s) => s.trim().length > 0);
 
   /**
    * Arbitrary generator for 40-character hex commit hashes.
@@ -93,13 +95,15 @@ describe('Full Message Display Property Tests', () => {
           );
 
           // Both should appear within the commit-full-message pre element
-          const preMatch = html.match(/<pre[^>]*class="[^"]*commit-full-message[^"]*"[^>]*>([\s\S]*?)<\/pre>/);
+          const preMatch = html.match(
+            /<pre[^>]*class="[^"]*commit-full-message[^"]*"[^>]*>([\s\S]*?)<\/pre>/
+          );
           assert.ok(
             preMatch !== null,
             'HTML should contain a pre element with class commit-full-message'
           );
 
-          const preContent = preMatch![1];
+          const preContent = preMatch[1];
 
           assert.ok(
             preContent.includes(commitDetails.message),
@@ -115,7 +119,10 @@ describe('Full Message Display Property Tests', () => {
           const messageIndex = preContent.indexOf(commitDetails.message);
           // Search for the body starting after the message to handle cases where
           // the body is a substring of the message (e.g., body="u", message="ua")
-          const bodyIndex = preContent.indexOf(commitDetails.body!, messageIndex + commitDetails.message.length);
+          const bodyIndex = preContent.indexOf(
+            commitDetails.body!,
+            messageIndex + commitDetails.message.length
+          );
           assert.ok(
             bodyIndex > messageIndex,
             `Body (index ${bodyIndex}) should appear after message (index ${messageIndex}) in the pre element`

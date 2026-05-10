@@ -154,7 +154,9 @@ function makeMockGitService(): IGitService & {
       return { success: true };
     },
     gitCli: {
-      exec: async (args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+      exec: async (
+        args: string[]
+      ): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
         execCalls.push(args);
         return { exitCode: 0, stdout: '', stderr: '' };
       },
@@ -268,8 +270,8 @@ describe('ResolveConflictsDialog', () => {
       const continueMatch = htmlBefore.match(/<button[^>]*data-action="continue"[^>]*>/);
       assert.ok(continueMatch, 'continue button should render');
       assert.ok(
-        /disabled/.test(continueMatch![0]),
-        `continue should be disabled: ${continueMatch![0]}`
+        /disabled/.test(continueMatch[0]),
+        `continue should be disabled: ${continueMatch[0]}`
       );
 
       // Resolve all rows → re-render via updateFileStatus (which posts a message).
@@ -393,14 +395,19 @@ describe('ResolveConflictsDialog', () => {
     function spyShowErrorMessage(): { calls: string[]; restore: () => void } {
       const calls: string[] = [];
       const original = vscode.window.showErrorMessage;
-      (vscode.window as unknown as { showErrorMessage: (msg: string) => Thenable<string | undefined> }).showErrorMessage = (msg: string): Thenable<string | undefined> => {
+      (
+        vscode.window as unknown as {
+          showErrorMessage: (msg: string) => Thenable<string | undefined>;
+        }
+      ).showErrorMessage = (msg: string): Thenable<string | undefined> => {
         calls.push(msg);
         return Promise.resolve(undefined);
       };
       return {
         calls,
         restore: (): void => {
-          (vscode.window as unknown as { showErrorMessage: typeof original }).showErrorMessage = original;
+          (vscode.window as unknown as { showErrorMessage: typeof original }).showErrorMessage =
+            original;
         },
       };
     }
@@ -432,7 +439,10 @@ describe('ResolveConflictsDialog', () => {
         spy.restore();
       }
       assert.strictEqual(spy.calls.length, 1, 'one error toast should render');
-      assert.ok(!spy.calls[0].includes('ghp_ABC123xyz'), `token must be redacted — got ${spy.calls[0]}`);
+      assert.ok(
+        !spy.calls[0].includes('ghp_ABC123xyz'),
+        `token must be redacted — got ${spy.calls[0]}`
+      );
       assert.ok(!spy.calls[0].includes('x-access-token'), 'user must be redacted');
       assert.ok(spy.calls[0].includes('<redacted>@github.com'), 'host preserved after redaction');
     });
@@ -464,7 +474,10 @@ describe('ResolveConflictsDialog', () => {
         spy.restore();
       }
       assert.strictEqual(spy.calls.length, 1);
-      assert.ok(!spy.calls[0].includes('ghp_ABC123xyz'), `token must be redacted — got ${spy.calls[0]}`);
+      assert.ok(
+        !spy.calls[0].includes('ghp_ABC123xyz'),
+        `token must be redacted — got ${spy.calls[0]}`
+      );
       assert.ok(spy.calls[0].includes('<redacted>@github.com'), 'host preserved');
     });
 
@@ -496,7 +509,10 @@ describe('ResolveConflictsDialog', () => {
         spy.restore();
       }
       assert.strictEqual(spy.calls.length, 1);
-      assert.ok(!spy.calls[0].includes('ghp_ABC123xyz'), `token must be redacted — got ${spy.calls[0]}`);
+      assert.ok(
+        !spy.calls[0].includes('ghp_ABC123xyz'),
+        `token must be redacted — got ${spy.calls[0]}`
+      );
       assert.ok(spy.calls[0].includes('<redacted>@github.com'), 'host preserved');
       assert.ok(spy.calls[0].startsWith('Failed to open merge view:'), 'prefix preserved');
     });
@@ -504,8 +520,11 @@ describe('ResolveConflictsDialog', () => {
     it('_handleSkipCommit scrubs credentials when rebaseSkip rejects', async () => {
       // Simulate user confirming the Skip modal.
       const origWarn = vscode.window.showWarningMessage;
-      (vscode.window as unknown as { showWarningMessage: (...args: unknown[]) => Thenable<string | undefined> }).showWarningMessage = (): Thenable<string | undefined> =>
-        Promise.resolve('Skip');
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (...args: unknown[]) => Thenable<string | undefined>;
+        }
+      ).showWarningMessage = (): Thenable<string | undefined> => Promise.resolve('Skip');
 
       // Install a rebaseSkip that throws a credential-bearing stderr.
       const throwingGit = {
@@ -532,10 +551,14 @@ describe('ResolveConflictsDialog', () => {
         });
       } finally {
         spy.restore();
-        (vscode.window as unknown as { showWarningMessage: typeof origWarn }).showWarningMessage = origWarn;
+        (vscode.window as unknown as { showWarningMessage: typeof origWarn }).showWarningMessage =
+          origWarn;
       }
       assert.strictEqual(spy.calls.length, 1, 'expected exactly one error toast');
-      assert.ok(!spy.calls[0].includes('ghp_ABC123xyz'), `token must be redacted — got ${spy.calls[0]}`);
+      assert.ok(
+        !spy.calls[0].includes('ghp_ABC123xyz'),
+        `token must be redacted — got ${spy.calls[0]}`
+      );
       assert.ok(spy.calls[0].includes('<redacted>@github.com'), 'host preserved');
       assert.ok(spy.calls[0].startsWith('Failed to skip commit:'), 'prefix preserved');
     });
@@ -552,12 +575,14 @@ describe('ResolveConflictsDialog', () => {
         // MEDIUM-2: continue now uses `git merge --continue` (was `git commit
         // --no-edit`), which is the idiomatic git ≥ 2.12 flow and honors
         // merge-specific hooks / MERGE_MSG correctly.
-        expectedContinue: (g) => g._execCalls.some((a) => a[0] === 'merge' && a[1] === '--continue'),
+        expectedContinue: (g) =>
+          g._execCalls.some((a) => a[0] === 'merge' && a[1] === '--continue'),
         expectedAbort: (g) => g._execCalls.some((a) => a[0] === 'merge' && a[1] === '--abort'),
       },
       {
         op: 'rebase',
-        expectedContinue: (g) => g._execCalls.some((a) => a[0] === 'rebase' && a[1] === '--continue'),
+        expectedContinue: (g) =>
+          g._execCalls.some((a) => a[0] === 'rebase' && a[1] === '--continue'),
         expectedAbort: (g) => g._execCalls.some((a) => a[0] === 'rebase' && a[1] === '--abort'),
       },
       {
@@ -677,11 +702,11 @@ describe('ConflictResolutionService — T1-08(a) additions', () => {
   it('feature flag = false suppresses the dialog but still surfaces context key', async () => {
     setMockConfigValue('intellig', 'autoOpenResolveConflictsDialog', false);
 
-    await conflictService.openResolveConflictsDialog(
-      repo,
-      [{ path: 'a.ts', resolved: false }],
-      { operation: 'merge', canAbort: true, canContinue: true }
-    );
+    await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+      operation: 'merge',
+      canAbort: true,
+      canContinue: true,
+    });
 
     assert.strictEqual(conflictService.hasOpenDialog(repo), false, 'no dialog should be opened');
     assert.strictEqual(
@@ -692,11 +717,11 @@ describe('ConflictResolutionService — T1-08(a) additions', () => {
   });
 
   it('feature flag = true opens dialog and tracks it per repo (single-instance reveal)', async () => {
-    await conflictService.openResolveConflictsDialog(
-      repo,
-      [{ path: 'a.ts', resolved: false }],
-      { operation: 'merge', canAbort: true, canContinue: true }
-    );
+    await conflictService.openResolveConflictsDialog(repo, [{ path: 'a.ts', resolved: false }], {
+      operation: 'merge',
+      canAbort: true,
+      canContinue: true,
+    });
     assert.strictEqual(conflictService.hasOpenDialog(repo), true);
 
     const first = conflictService.getOpenDialog(repo);
@@ -705,11 +730,18 @@ describe('ConflictResolutionService — T1-08(a) additions', () => {
     // Second call should reuse the dialog (same reference), not open another.
     await conflictService.openResolveConflictsDialog(
       repo,
-      [{ path: 'a.ts', resolved: false }, { path: 'b.ts', resolved: false }],
+      [
+        { path: 'a.ts', resolved: false },
+        { path: 'b.ts', resolved: false },
+      ],
       { operation: 'merge', canAbort: true, canContinue: true }
     );
     const second = conflictService.getOpenDialog(repo);
     assert.strictEqual(first, second, 'dialog must be reused');
-    assert.strictEqual(second!.getFileStatuses().size, 2, 'dialog should be updated with new conflicts');
+    assert.strictEqual(
+      second!.getFileStatuses().size,
+      2,
+      'dialog should be updated with new conflicts'
+    );
   });
 });

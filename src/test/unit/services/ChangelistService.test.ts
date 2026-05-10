@@ -53,9 +53,13 @@ function installFakeTimers(): {
     h: unknown
   ): void => {
     const id = typeof h === 'number' ? h : (h as IFakeTimerHandle | undefined)?.id;
-    if (id === undefined) return;
+    if (id === undefined) {
+      return;
+    }
     const idx = queue.findIndex((q) => q.id === id);
-    if (idx >= 0) queue.splice(idx, 1);
+    if (idx >= 0) {
+      queue.splice(idx, 1);
+    }
   };
 
   return {
@@ -64,7 +68,9 @@ function installFakeTimers(): {
       // Fire all timers whose deadline has passed, in insertion order.
       while (true) {
         const due = queue.findIndex((q) => q.fireAt <= now);
-        if (due < 0) break;
+        if (due < 0) {
+          break;
+        }
         const [handle] = queue.splice(due, 1);
         handle.callback();
       }
@@ -156,7 +162,7 @@ describe('ChangelistService', () => {
     // this `describe` don't assert on reconcile behavior, so the stub's
     // empty-status / no-fire semantics keep storage deterministic.
     changelistService = createChangelistService(
-      makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+      makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
     );
   });
 
@@ -469,7 +475,7 @@ describe('ChangelistService', () => {
 
       // Create a new service instance
       const newService = createChangelistService(
-        makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+        makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
       );
 
       try {
@@ -489,7 +495,7 @@ describe('ChangelistService', () => {
 
       // Create a new service instance
       const newService = createChangelistService(
-        makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+        makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
       );
 
       try {
@@ -660,15 +666,13 @@ describe('ChangelistService', () => {
       const changelists = changelistService.getChangelists(mockRepo);
       const feature = changelists.find((cl) => cl.id === 'feature');
       assert.ok(feature, 'Feature changelist should be present');
-      assert.strictEqual(feature!.description, 'adds blame perf');
+      assert.strictEqual(feature.description, 'adds blame perf');
     });
 
     it('lazily rewrites v1 file as v2 on next save', () => {
       const v1 = {
         version: 1,
-        changelists: [
-          { id: 'default', name: 'Default Changelist', isDefault: true, files: [] },
-        ],
+        changelists: [{ id: 'default', name: 'Default Changelist', isDefault: true, files: [] }],
       };
       fs.writeFileSync(storagePathOf(testRepoPath), JSON.stringify(v1, null, 2), 'utf8');
 
@@ -702,7 +706,7 @@ describe('ChangelistService', () => {
 
       // Also visible across a fresh service instance (persistence check).
       const fresh = createChangelistService(
-        makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+        makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
       );
       try {
         const active2 = await fresh.getActiveChangelist(mockRepo);
@@ -767,7 +771,9 @@ describe('ChangelistService', () => {
         // is implemented; everything else throws if touched by accident.
         getStatus: async (repo: IRepository): Promise<{ path: string }[]> => {
           callCount++;
-          if (onStatusCalled) onStatusCalled(repo.rootUri.fsPath);
+          if (onStatusCalled) {
+            onStatusCalled(repo.rootUri.fsPath);
+          }
           return statusesByRepo.get(repo.rootUri.fsPath) ?? [];
         },
         onDidChangeRepository: (listener: (repo: IRepository) => void) => {
@@ -775,7 +781,9 @@ describe('ChangelistService', () => {
           return {
             dispose: () => {
               const idx = repoChangeListeners.indexOf(listener);
-              if (idx >= 0) repoChangeListeners.splice(idx, 1);
+              if (idx >= 0) {
+                repoChangeListeners.splice(idx, 1);
+              }
             },
           };
         },
@@ -784,7 +792,9 @@ describe('ChangelistService', () => {
       return {
         gitService,
         fireRepoChange: (repo: IRepository) => {
-          for (const l of repoChangeListeners) l(repo);
+          for (const l of repoChangeListeners) {
+            l(repo);
+          }
         },
         statusCallCount: () => callCount,
       };
@@ -794,7 +804,7 @@ describe('ChangelistService', () => {
       const stub = makeGitServiceStub(
         new Map([[testRepoPath, [{ path: 'a.txt' }, { path: 'b.txt' }, { path: 'c.txt' }]]])
       );
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         await svc.reconcileWithGitStatus(mockRepo);
         const def = svc.getDefaultChangelist(mockRepo);
@@ -807,7 +817,7 @@ describe('ChangelistService', () => {
 
     it('stale entries (path no longer dirty) are pruned', async () => {
       const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'fresh.txt' }]]]));
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         // Seed storage with a file that will no longer be dirty after reconcile.
         // Touch storage first so the default changelist exists in the JSON.
@@ -830,7 +840,7 @@ describe('ChangelistService', () => {
 
       // Simulate: file is still dirty per git status (staging is orthogonal).
       const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'src/foo.ts' }]]]));
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         await svc.reconcileWithGitStatus(mockRepo);
 
@@ -846,7 +856,7 @@ describe('ChangelistService', () => {
       changelistService.moveToChangelist(mockRepo, ['will-be-gone.txt'], cl.id);
 
       const stub = makeGitServiceStub(new Map([[testRepoPath, []]]));
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         await svc.reconcileWithGitStatus(mockRepo);
 
@@ -863,7 +873,7 @@ describe('ChangelistService', () => {
 
       // Git status reports the renamed target path.
       const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'new-name.txt' }]]]));
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         await svc.reconcileWithGitStatus(mockRepo);
 
@@ -884,7 +894,7 @@ describe('ChangelistService', () => {
       const stub = makeGitServiceStub(
         new Map([[testRepoPath, [{ path: 'Src/File.TS' }, { path: 'src/file.ts' }]]])
       );
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         await svc.reconcileWithGitStatus(mockRepo);
         const def = svc.getDefaultChangelist(mockRepo);
@@ -912,7 +922,7 @@ describe('ChangelistService', () => {
           [repoBPath, [{ path: 'only-in-b.txt' }]],
         ]);
         const stub = makeGitServiceStub(statuses);
-        const svc = createChangelistService(stub.gitService as any);
+        const svc = createChangelistService(stub.gitService);
         try {
           // Touch both repos so each has its own default changelist persisted.
           svc.getChangelists(mockRepo);
@@ -951,7 +961,7 @@ describe('ChangelistService', () => {
       fs.writeFileSync(storagePath, '{ not valid json', 'utf8');
 
       const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'rescued.txt' }]]]));
-      const svc = createChangelistService(stub.gitService as any);
+      const svc = createChangelistService(stub.gitService);
       try {
         // getChangelists should not throw — it absorbs the parse error.
         const before = svc.getChangelists(mockRepo);
@@ -973,13 +983,10 @@ describe('ChangelistService', () => {
 
     it('concurrent reconcile calls coalesce into a single in-flight run', async () => {
       let calls = 0;
-      const stub = makeGitServiceStub(
-        new Map([[testRepoPath, [{ path: 'x.txt' }]]]),
-        () => {
-          calls++;
-        }
-      );
-      const svc = createChangelistService(stub.gitService as any);
+      const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'x.txt' }]]]), () => {
+        calls++;
+      });
+      const svc = createChangelistService(stub.gitService);
       try {
         const [a, b, c] = [
           svc.reconcileWithGitStatus(mockRepo),
@@ -1000,7 +1007,7 @@ describe('ChangelistService', () => {
       const fake = installFakeTimers();
       try {
         const stub = makeGitServiceStub(new Map([[testRepoPath, [{ path: 'debounced.txt' }]]]));
-        const svc = createChangelistService(stub.gitService as any);
+        const svc = createChangelistService(stub.gitService);
         try {
           // Fire several times in quick succession; debounce should collapse.
           stub.fireRepoChange(mockRepo);

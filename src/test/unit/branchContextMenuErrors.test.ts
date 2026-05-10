@@ -184,7 +184,12 @@ function createRemoteBranchTreeItem(fullRef: string): BranchTreeItem {
  * Install a tracking stub on vscode.window.showErrorMessage.
  */
 function installErrorMessageTracker(): MessageTracker {
-  const tracker: MessageTracker = { calls: [], reset() { this.calls = []; } };
+  const tracker: MessageTracker = {
+    calls: [],
+    reset() {
+      this.calls = [];
+    },
+  };
   (vscode.window as any).showErrorMessage = async (
     message: string,
     ...items: string[]
@@ -200,13 +205,18 @@ function installErrorMessageTracker(): MessageTracker {
  * Optionally returns a specific choice.
  */
 function installWarningMessageTracker(returnChoice?: string): MessageTracker {
-  const tracker: MessageTracker = { calls: [], reset() { this.calls = []; } };
+  const tracker: MessageTracker = {
+    calls: [],
+    reset() {
+      this.calls = [];
+    },
+  };
   (vscode.window as any).showWarningMessage = async (
     message: string,
     ...items: any[]
   ): Promise<string | undefined> => {
     // Filter out option objects (like { modal: true })
-    const stringItems = items.filter((i) => typeof i === 'string') as string[];
+    const stringItems = items.filter((i) => typeof i === 'string');
     tracker.calls.push({ message, items: stringItems });
     return returnChoice;
   };
@@ -217,7 +227,12 @@ function installWarningMessageTracker(returnChoice?: string): MessageTracker {
  * Install a tracking stub on vscode.window.showInformationMessage.
  */
 function installInfoMessageTracker(): MessageTracker {
-  const tracker: MessageTracker = { calls: [], reset() { this.calls = []; } };
+  const tracker: MessageTracker = {
+    calls: [],
+    reset() {
+      this.calls = [];
+    },
+  };
   (vscode.window as any).showInformationMessage = async (
     message: string,
     ...items: string[]
@@ -253,7 +268,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     restoreMessageFunctions();
   });
 
- // ─── Missing Repository Early Return ───────────────────
+  // ─── Missing Repository Early Return ───────────────────
 
   describe('Missing repository early return', () => {
     it('_handleUpdate should return early when repository is undefined', async () => {
@@ -267,7 +282,10 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-      const item = createLocalBranchTreeItem('feature/test', { remote: 'origin', name: 'feature/test' });
+      const item = createLocalBranchTreeItem('feature/test', {
+        remote: 'origin',
+        name: 'feature/test',
+      });
       await (commands as any)._handleUpdate(item);
 
       assert.strictEqual(fetchCalled, false, 'fetch should not be called when repo is undefined');
@@ -276,12 +294,17 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handlePush should return early when repository is undefined', async () => {
       let pushCalled = false;
       const gitService = createMockGitService({
-        push: async () => { pushCalled = true; },
+        push: async () => {
+          pushCalled = true;
+        },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-      const item = createLocalBranchTreeItem('feature/test', { remote: 'origin', name: 'feature/test' });
+      const item = createLocalBranchTreeItem('feature/test', {
+        remote: 'origin',
+        name: 'feature/test',
+      });
       await (commands as any)._handlePush(item);
 
       assert.strictEqual(pushCalled, false, 'push should not be called when repo is undefined');
@@ -290,7 +313,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handleCheckoutAndRebase should return early when repository is undefined', async () => {
       let checkoutCalled = false;
       const gitService = createMockGitService({
-        checkout: async () => { checkoutCalled = true; },
+        checkout: async () => {
+          checkoutCalled = true;
+        },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -298,13 +323,19 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const item = createLocalBranchTreeItem('feature/test');
       await (commands as any)._handleCheckoutAndRebase(item);
 
-      assert.strictEqual(checkoutCalled, false, 'checkout should not be called when repo is undefined');
+      assert.strictEqual(
+        checkoutCalled,
+        false,
+        'checkout should not be called when repo is undefined'
+      );
     });
 
     it('_handlePullUsingRebase should return early when repository is undefined', async () => {
       let pullCalled = false;
       const gitService = createMockGitService({
-        pull: async () => { pullCalled = true; },
+        pull: async () => {
+          pullCalled = true;
+        },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -318,7 +349,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     it('_handlePullUsingMerge should return early when repository is undefined', async () => {
       let pullCalled = false;
       const gitService = createMockGitService({
-        pull: async () => { pullCalled = true; },
+        pull: async () => {
+          pullCalled = true;
+        },
       });
       const branchTreeProvider = createMockBranchTreeProviderNoRepo(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
@@ -330,7 +363,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
- // ─── Uncommitted Changes Dialog ────────────────────────
+  // ─── Uncommitted Changes Dialog ────────────────────────
 
   describe('Uncommitted changes dialog for Checkout and Rebase', () => {
     it('should show warning dialog with Stash/Force/Cancel options when checkout fails due to uncommitted changes', async () => {
@@ -338,7 +371,9 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       const gitService = createMockGitService({
         checkout: async () => {
-          throw new Error('error: Your local changes to the following files would be overwritten by checkout');
+          throw new Error(
+            'error: Your local changes to the following files would be overwritten by checkout'
+          );
         },
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -347,27 +382,15 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const item = createLocalBranchTreeItem('feature/test');
       await (commands as any)._handleCheckoutAndRebase(item);
 
-      assert.ok(
-        warningTracker.calls.length > 0,
-        'showWarningMessage should have been called'
-      );
+      assert.ok(warningTracker.calls.length > 0, 'showWarningMessage should have been called');
       const call = warningTracker.calls[0];
       assert.ok(
         call.message.includes('would be overwritten'),
         `Warning message should mention overwritten changes, got: "${call.message}"`
       );
-      assert.ok(
-        call.items.includes('Stash & Switch'),
-        'Should offer Stash & Switch option'
-      );
-      assert.ok(
-        call.items.includes('Force Checkout'),
-        'Should offer Force Checkout option'
-      );
-      assert.ok(
-        call.items.includes('Cancel'),
-        'Should offer Cancel option'
-      );
+      assert.ok(call.items.includes('Stash & Switch'), 'Should offer Stash & Switch option');
+      assert.ok(call.items.includes('Force Checkout'), 'Should offer Force Checkout option');
+      assert.ok(call.items.includes('Cancel'), 'Should offer Cancel option');
     });
 
     it('should show warning dialog when checkout fails with "Please commit your changes" message', async () => {
@@ -456,7 +479,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
- // ─── Conflict Warning ──────────────────────────────────
+  // ─── Conflict Warning ──────────────────────────────────
 
   describe('Conflict warning for merge/rebase results', () => {
     it('_handleCheckoutAndRebase should show warning with conflict count when rebase has conflicts', async () => {
@@ -481,10 +504,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         'showWarningMessage should have been called for conflicts'
       );
       const msg = warningTracker.calls[0].message;
-      assert.ok(
-        msg.includes('3'),
-        `Warning should contain conflict count 3, got: "${msg}"`
-      );
+      assert.ok(msg.includes('3'), `Warning should contain conflict count 3, got: "${msg}"`);
       assert.ok(
         msg.toLowerCase().includes('conflict'),
         `Warning should mention conflicts, got: "${msg}"`
@@ -511,10 +531,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         'showWarningMessage should have been called for merge conflicts'
       );
       const msg = warningTracker.calls[0].message;
-      assert.ok(
-        msg.includes('2'),
-        `Warning should contain conflict count 2, got: "${msg}"`
-      );
+      assert.ok(msg.includes('2'), `Warning should contain conflict count 2, got: "${msg}"`);
     });
 
     it('_handleRebaseCurrentOnto should show warning with conflict count', async () => {
@@ -537,10 +554,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         'showWarningMessage should have been called for rebase conflicts'
       );
       const msg = warningTracker.calls[0].message;
-      assert.ok(
-        msg.includes('1'),
-        `Warning should contain conflict count 1, got: "${msg}"`
-      );
+      assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
     it('_handlePullUsingRebase should show warning when pull throws with CONFLICT markers', async () => {
@@ -564,10 +578,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         'showWarningMessage should have been called for pull rebase conflicts'
       );
       const msg = warningTracker.calls[0].message;
-      assert.ok(
-        msg.includes('2'),
-        `Warning should contain conflict count 2, got: "${msg}"`
-      );
+      assert.ok(msg.includes('2'), `Warning should contain conflict count 2, got: "${msg}"`);
     });
 
     it('_handlePullUsingMerge should show warning when pull throws with CONFLICT markers', async () => {
@@ -589,14 +600,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         'showWarningMessage should have been called for pull merge conflicts'
       );
       const msg = warningTracker.calls[0].message;
-      assert.ok(
-        msg.includes('1'),
-        `Warning should contain conflict count 1, got: "${msg}"`
-      );
+      assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
   });
 
- // ─── General Error Handling ─────────────────────────────
+  // ─── General Error Handling ─────────────────────────────
 
   describe('General error handling', () => {
     it('_handleUpdate should show error message when fetch fails', async () => {

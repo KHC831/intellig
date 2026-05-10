@@ -4,7 +4,10 @@
 
 import '../../../test/setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider, INTELLIJ_FILE_STATUS_COLORS } from '../../../services/GitToolWindowProvider';
+import {
+  GitToolWindowProvider,
+  INTELLIJ_FILE_STATUS_COLORS,
+} from '../../../services/GitToolWindowProvider';
 import { ICommitDetails } from '../../../services/interfaces';
 import { IRepository } from '../../../services/interfaces/IGitService';
 import { Uri, setMockConfigValue } from '../../mocks/vscode';
@@ -93,7 +96,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
 
     it('should display parent commit hashes', () => {
-      const parents = ['aaa1111111111111111111111111111111111111111', 'bbb2222222222222222222222222222222222222222'];
+      const parents = [
+        'aaa1111111111111111111111111111111111111111',
+        'bbb2222222222222222222222222222222222222222',
+      ];
       const details = makeCommitDetails({ parents });
       const html = provider._getDetailsPanelHtml(details);
 
@@ -205,7 +211,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.modified), 'Should use IntelliJ blue for modified');
+      assert.ok(
+        html.includes(INTELLIJ_FILE_STATUS_COLORS.modified),
+        'Should use IntelliJ blue for modified'
+      );
     });
 
     it('should use IntelliJ green color (#629755) for added files', () => {
@@ -214,7 +223,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.added), 'Should use IntelliJ green for added');
+      assert.ok(
+        html.includes(INTELLIJ_FILE_STATUS_COLORS.added),
+        'Should use IntelliJ green for added'
+      );
     });
 
     it('should use IntelliJ gray color (#6C6C6C) for deleted files', () => {
@@ -223,7 +235,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.deleted), 'Should use IntelliJ gray for deleted');
+      assert.ok(
+        html.includes(INTELLIJ_FILE_STATUS_COLORS.deleted),
+        'Should use IntelliJ gray for deleted'
+      );
     });
 
     it('should use IntelliJ blue color (#6897BB) for renamed files', () => {
@@ -232,7 +247,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.renamed), 'Should use IntelliJ blue for renamed');
+      assert.ok(
+        html.includes(INTELLIJ_FILE_STATUS_COLORS.renamed),
+        'Should use IntelliJ blue for renamed'
+      );
     });
 
     it('should display file name and directory separately', () => {
@@ -320,7 +338,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
     it('should escape HTML special characters in author name', () => {
       const details = makeCommitDetails({
-        author: { name: 'O\'Brien & Co <test>', email: 'test@example.com' },
+        author: { name: "O'Brien & Co <test>", email: 'test@example.com' },
       });
       const html = provider._getDetailsPanelHtml(details);
 
@@ -386,7 +404,11 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const html = provider._getDetailsPanelHtml(details);
 
       const matches = html.match(/data-commit-hash="/g);
-      assert.strictEqual(matches?.length, 2, 'Should have data-commit-hash attribute on each changed file');
+      assert.strictEqual(
+        matches?.length,
+        2,
+        'Should have data-commit-hash attribute on each changed file'
+      );
     });
 
     it('should escape special characters in file paths within data attributes', () => {
@@ -444,15 +466,15 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
   describe('Multi-commit details display', () => {
     function makeMultipleCommitDetails(count: number): ICommitDetails[] {
-      return Array.from({ length: count }, (_, i) => makeCommitDetails({
-        hash: `hash${i}${'0'.repeat(33)}`,
-        message: `Commit message ${i + 1}`,
-        author: { name: `Author ${i + 1}`, email: `author${i + 1}@example.com` },
-        date: new Date(`2024-01-${15 + i}T10:30:00Z`),
-        changedFiles: [
-          { path: `src/file${i}.ts`, status: 'modified' as const },
-        ],
-      }));
+      return Array.from({ length: count }, (_, i) =>
+        makeCommitDetails({
+          hash: `hash${i}${'0'.repeat(33)}`,
+          message: `Commit message ${i + 1}`,
+          author: { name: `Author ${i + 1}`, email: `author${i + 1}@example.com` },
+          date: new Date(`2024-01-${15 + i}T10:30:00Z`),
+          changedFiles: [{ path: `src/file${i}.ts`, status: 'modified' as const }],
+        })
+      );
     }
 
     describe('Header display', () => {
@@ -623,9 +645,18 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         ];
         const html = provider._getMultiCommitDetailsPanelHtml(commits);
 
-        assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.modified), 'Should use IntelliJ blue for modified');
-        assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.added), 'Should use IntelliJ green for added');
-        assert.ok(html.includes(INTELLIJ_FILE_STATUS_COLORS.deleted), 'Should use IntelliJ gray for deleted');
+        assert.ok(
+          html.includes(INTELLIJ_FILE_STATUS_COLORS.modified),
+          'Should use IntelliJ blue for modified'
+        );
+        assert.ok(
+          html.includes(INTELLIJ_FILE_STATUS_COLORS.added),
+          'Should use IntelliJ green for added'
+        );
+        assert.ok(
+          html.includes(INTELLIJ_FILE_STATUS_COLORS.deleted),
+          'Should use IntelliJ gray for deleted'
+        );
       });
 
       it('should accept pre-computed combined changed files', () => {
@@ -689,7 +720,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         const commits = makeMultipleCommitDetails(2);
         const html = provider._getMultiCommitDetailsPanelHtml(commits);
 
-        assert.ok(html.includes('aria-label="Selected Commits"'), 'Should have aria-label on commits list');
+        assert.ok(
+          html.includes('aria-label="Selected Commits"'),
+          'Should have aria-label on commits list'
+        );
       });
 
       it('should have aria-label="Changed Files" on the files list', () => {
@@ -702,7 +736,10 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         ];
         const html = provider._getMultiCommitDetailsPanelHtml(commits);
 
-        assert.ok(html.includes('aria-label="Changed Files"'), 'Should have aria-label on files list');
+        assert.ok(
+          html.includes('aria-label="Changed Files"'),
+          'Should have aria-label on files list'
+        );
       });
     });
   });
@@ -742,10 +779,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({ message: 'GH-99 and PROJECT-123: cleanup' });
       const html = provider._getDetailsPanelHtml(details);
       assert.ok(html.includes('>GH-99</a>'), `expected GH-99 anchor; got: ${html}`);
-      assert.ok(
-        html.includes('>PROJECT-123</a>'),
-        `expected PROJECT-123 anchor; got: ${html}`
-      );
+      assert.ok(html.includes('>PROJECT-123</a>'), `expected PROJECT-123 anchor; got: ${html}`);
     });
 
     it('does NOT wrap `abc#42` (not a real reference)', () => {

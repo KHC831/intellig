@@ -98,7 +98,9 @@ export class BlameOptionsSource {
    * effective config target based on where the key is already set (defaults
    * to Workspace).
    */
-  async toggleFlag(key: 'ignoreWhitespace' | 'detectMovementsWithinFile' | 'detectMovementsAcrossFiles'): Promise<boolean> {
+  async toggleFlag(
+    key: 'ignoreWhitespace' | 'detectMovementsWithinFile' | 'detectMovementsAcrossFiles'
+  ): Promise<boolean> {
     const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
     const current = cfg.get<boolean>(key, false);
     const next = !current;

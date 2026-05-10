@@ -9,7 +9,12 @@ import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../commands/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
-import { IGitService, IRepository, IBranch, IPullOptions } from '../../services/interfaces/IGitService';
+import {
+  IGitService,
+  IRepository,
+  IBranch,
+  IPullOptions,
+} from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -56,14 +61,16 @@ function arbitraryBranchName(): fc.Arbitrary<string> {
  * Generate a valid remote branch reference in the format "remote/branch".
  * The remote is a single segment, and the branch can have path separators.
  */
-function arbitraryRemoteBranchRef(): fc.Arbitrary<{ remote: string; branch: string; fullRef: string }> {
-  return fc
-    .tuple(arbitraryRemoteName(), arbitraryBranchName())
-    .map(([remote, branch]) => ({
-      remote,
-      branch,
-      fullRef: `${remote}/${branch}`,
-    }));
+function arbitraryRemoteBranchRef(): fc.Arbitrary<{
+  remote: string;
+  branch: string;
+  fullRef: string;
+}> {
+  return fc.tuple(arbitraryRemoteName(), arbitraryBranchName()).map(([remote, branch]) => ({
+    remote,
+    branch,
+    fullRef: `${remote}/${branch}`,
+  }));
 }
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
@@ -311,9 +318,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
       fc.assert(
         fc.asyncProperty(
           arbitraryRemoteName(),
-          fc.tuple(arbitraryBranchSegment(), arbitraryBranchSegment()).map(
-            ([a, b]) => `${a}/${b}`
-          ),
+          fc.tuple(arbitraryBranchSegment(), arbitraryBranchSegment()).map(([a, b]) => `${a}/${b}`),
           async (remote, branchWithSlash) => {
             const fullRef = `${remote}/${branchWithSlash}`;
 

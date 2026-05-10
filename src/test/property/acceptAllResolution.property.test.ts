@@ -119,12 +119,7 @@ describe('Accept All Resolution Property Tests', () => {
     readonly endLine: number;
     readonly endCharacter: number;
 
-    constructor(
-      startLine: number,
-      startCharacter: number,
-      endLine: number,
-      endCharacter: number
-    ) {
+    constructor(startLine: number, startCharacter: number, endLine: number, endCharacter: number) {
       this.startLine = startLine;
       this.startCharacter = startCharacter;
       this.endLine = endLine;

@@ -76,7 +76,13 @@ describe('GitService - Command Argument Correctness', () => {
         ahead: 0,
         behind: 0,
       },
-      remotes: [{ name: 'origin', fetchUrl: 'https://example.com/repo.git', pushUrl: 'https://example.com/repo.git' }],
+      remotes: [
+        {
+          name: 'origin',
+          fetchUrl: 'https://example.com/repo.git',
+          pushUrl: 'https://example.com/repo.git',
+        },
+      ],
       submodules: [],
     };
   });
@@ -118,7 +124,11 @@ describe('GitService - Command Argument Correctness', () => {
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
       assert.deepStrictEqual(cmd.args, [
-        'checkout', '-b', 'local-branch', '--track', 'origin/remote-branch',
+        'checkout',
+        '-b',
+        'local-branch',
+        '--track',
+        'origin/remote-branch',
       ]);
     });
 
@@ -132,13 +142,18 @@ describe('GitService - Command Argument Correctness', () => {
       // The branch name must come right after -b
       const bIndex = cmd.args.indexOf('-b');
       assert.strictEqual(bIndex, 1, '-b should be at index 1');
-      assert.strictEqual(cmd.args[bIndex + 1], 'new-branch',
-        'Branch name must immediately follow -b, got: ' + cmd.args[bIndex + 1]);
+      assert.strictEqual(
+        cmd.args[bIndex + 1],
+        'new-branch',
+        'Branch name must immediately follow -b, got: ' + cmd.args[bIndex + 1]
+      );
       assert.ok(cmd.args.includes('-f'), 'Must include -f flag');
       // -f must NOT be between -b and the branch name
       const fIndex = cmd.args.indexOf('-f');
-      assert.ok(fIndex > bIndex + 1,
-        `-f at index ${fIndex} must come after branch name at index ${bIndex + 1}`);
+      assert.ok(
+        fIndex > bIndex + 1,
+        `-f at index ${fIndex} must come after branch name at index ${bIndex + 1}`
+      );
     });
 
     it('create branch + force + track: reproduces the exact bug scenario', async () => {
@@ -155,14 +170,19 @@ describe('GitService - Command Argument Correctness', () => {
 
       // Verify branch name immediately follows -b
       const bIndex = cmd.args.indexOf('-b');
-      assert.strictEqual(cmd.args[bIndex + 1], 'onebox',
-        'Branch name "onebox" must immediately follow -b. Got: ' + JSON.stringify(cmd.args));
+      assert.strictEqual(
+        cmd.args[bIndex + 1],
+        'onebox',
+        'Branch name "onebox" must immediately follow -b. Got: ' + JSON.stringify(cmd.args)
+      );
 
       // Verify -f is present but NOT between -b and branch name
       const fIndex = cmd.args.indexOf('-f');
       assert.ok(fIndex >= 0, '-f must be present');
-      assert.ok(fIndex !== bIndex + 1,
-        '-f must NOT be immediately after -b (that position is for branch name)');
+      assert.ok(
+        fIndex !== bIndex + 1,
+        '-f must NOT be immediately after -b (that position is for branch name)'
+      );
 
       // Verify --track and tracking ref are present
       assert.ok(cmd.args.includes('--track'));

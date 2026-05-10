@@ -1094,13 +1094,10 @@ export class GitService implements IGitService {
     if (!Number.isInteger(index) || index < 0) {
       throw new Error(`Invalid stash index: ${index}`);
     }
-    await this._gitCli.exec(
-      ['stash', 'branch', branchName.trim(), `stash@{${index}}`],
-      {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      }
-    );
+    await this._gitCli.exec(['stash', 'branch', branchName.trim(), `stash@{${index}}`], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
     this.invalidateCache(repo.rootUri.fsPath);
   }
 
@@ -1128,10 +1125,10 @@ export class GitService implements IGitService {
 
     // Step 1: resolve the stash ref to a commit hash. Fails if the index
     // doesn't exist.
-    const revParse = await this._gitCli.exec(
-      ['rev-parse', `stash@{${index}}`],
-      { cwd, throwOnError: true }
-    );
+    const revParse = await this._gitCli.exec(['rev-parse', `stash@{${index}}`], {
+      cwd,
+      throwOnError: true,
+    });
     const commitHash = revParse.stdout.trim();
     if (!commitHash || !/^[a-f0-9]{7,40}$/i.test(commitHash)) {
       throw new Error(`Could not resolve stash@{${index}} to a commit`);
@@ -1140,18 +1137,18 @@ export class GitService implements IGitService {
     // Step 2: store the commit back onto the stash stack with the new
     // message. This creates a duplicate entry at stash@{0}; the original
     // shifts to stash@{index+1}.
-    await this._gitCli.exec(
-      ['stash', 'store', '-m', newMessage, commitHash],
-      { cwd, throwOnError: true }
-    );
+    await this._gitCli.exec(['stash', 'store', '-m', newMessage, commitHash], {
+      cwd,
+      throwOnError: true,
+    });
 
     // Step 3: drop the original (now at index+1). If this fails we try to
     // undo step 2 so the user doesn't end up with a duplicate.
     try {
-      await this._gitCli.exec(
-        ['stash', 'drop', `stash@{${index + 1}}`],
-        { cwd, throwOnError: true }
-      );
+      await this._gitCli.exec(['stash', 'drop', `stash@{${index + 1}}`], {
+        cwd,
+        throwOnError: true,
+      });
     } catch (error) {
       // Best-effort rollback of the duplicate.
       try {
@@ -1334,18 +1331,14 @@ export class GitService implements IGitService {
     baseRef: string
   ): Promise<Map<string, import('./interfaces/IGitService').CherryMark>> {
     const out = new Map<string, import('./interfaces/IGitService').CherryMark>();
-    if (!baseRef) return out;
+    if (!baseRef) {
+      return out;
+    }
 
     try {
       // %m emits one of `<`, `>`, `=`, `+`, `-` per commit per --cherry-mark docs.
       const result = await this._gitCli.exec(
-        [
-          'log',
-          '--cherry-mark',
-          '--left-right',
-          '--pretty=format:%H %m',
-          `HEAD...${baseRef}`,
-        ],
+        ['log', '--cherry-mark', '--left-right', '--pretty=format:%H %m', `HEAD...${baseRef}`],
         {
           cwd: repo.rootUri.fsPath,
           throwOnError: false,
@@ -1357,10 +1350,14 @@ export class GitService implements IGitService {
       const lines = result.stdout.split(/\r?\n/);
       for (const raw of lines) {
         const line = raw.trim();
-        if (!line) continue;
+        if (!line) {
+          continue;
+        }
         // Format: "<hash> <mark>" — hash is 40 hex, mark is one char.
         const space = line.indexOf(' ');
-        if (space !== 40) continue;
+        if (space !== 40) {
+          continue;
+        }
         const hash = line.substring(0, 40);
         const mark = line.substring(space + 1).trim();
         if (isCherryMark(mark)) {
@@ -1637,16 +1634,12 @@ export class GitService implements IGitService {
    * `git show --name-only --format=`). Used by the `files` subset path to
    * determine which files to revert after a `cherry-pick -n`.
    */
-  private async _collectTouchedFiles(
-    repo: IRepository,
-    commits: string[]
-  ): Promise<string[]> {
+  private async _collectTouchedFiles(repo: IRepository, commits: string[]): Promise<string[]> {
     const touched = new Set<string>();
     for (const commit of commits) {
-      const res = await this._gitCli.exec(
-        ['show', '--name-only', '--format=', commit],
-        { cwd: repo.rootUri.fsPath }
-      );
+      const res = await this._gitCli.exec(['show', '--name-only', '--format=', commit], {
+        cwd: repo.rootUri.fsPath,
+      });
       if (res.exitCode !== 0) {
         continue;
       }
@@ -2100,8 +2093,6 @@ export function createGitService(gitPath?: string): GitService {
 }
 
 /** T3-07 — Type guard for a single-char `git log --cherry-mark` output. */
-function isCherryMark(
-  value: string
-): value is import('./interfaces/IGitService').CherryMark {
+function isCherryMark(value: string): value is import('./interfaces/IGitService').CherryMark {
   return value === '=' || value === '+' || value === '-' || value === '<' || value === '>';
 }

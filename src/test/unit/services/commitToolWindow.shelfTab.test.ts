@@ -132,7 +132,10 @@ describe('T3-10 — isShelfTabFilter', () => {
 describe('T3-10 — shelfRowContextMenuLabels', () => {
   it('includes Restore only when isAlreadyUnshelved is true', () => {
     const plain = shelfRowContextMenuLabels({ isAlreadyUnshelved: false });
-    assert.strictEqual(plain.find((e) => e.action === 'shelfRestore'), undefined);
+    assert.strictEqual(
+      plain.find((e) => e.action === 'shelfRestore'),
+      undefined
+    );
 
     const restored = shelfRowContextMenuLabels({ isAlreadyUnshelved: true });
     assert.ok(restored.find((e) => e.action === 'shelfRestore'));
@@ -152,7 +155,10 @@ describe('T3-10 — shelfRowContextMenuLabels', () => {
 
   it('uses Unicode … on prompt-opening entries', () => {
     const labels = shelfRowContextMenuLabels({ isAlreadyUnshelved: true }).map((e) => e.label);
-    assert.ok(labels.some((l) => l.endsWith('…')), 'at least one label must use Unicode …');
+    assert.ok(
+      labels.some((l) => l.endsWith('…')),
+      'at least one label must use Unicode …'
+    );
     // Apply + Delete must not have the ellipsis.
     assert.ok(labels.some((l) => l === 'Apply (Unshelve)'));
     assert.ok(labels.some((l) => l === 'Delete'));
@@ -230,11 +236,14 @@ function makeMemento(): vscode.Memento & { _store: Map<string, unknown> } {
   const store = new Map<string, unknown>();
   return {
     get<T>(key: string, defaultValue?: T): T | undefined {
-      return (store.has(key) ? (store.get(key) as T) : defaultValue);
+      return store.has(key) ? (store.get(key) as T) : defaultValue;
     },
     async update(key: string, value: unknown): Promise<void> {
-      if (value === undefined) store.delete(key);
-      else store.set(key, value);
+      if (value === undefined) {
+        store.delete(key);
+      } else {
+        store.set(key, value);
+      }
     },
     keys(): readonly string[] {
       return Array.from(store.keys());
@@ -272,7 +281,12 @@ function makeChangelistService(): IChangelistService {
     deleteChangelist: (): void => {},
     renameChangelist: (): void => {},
     moveToChangelist: (): void => {},
-    getDefaultChangelist: (): unknown => ({ id: 'default', name: 'Default', isDefault: true, files: [] }),
+    getDefaultChangelist: (): unknown => ({
+      id: 'default',
+      name: 'Default',
+      isDefault: true,
+      files: [],
+    }),
     async setActiveChangelist(): Promise<void> {},
     async getActiveChangelist() {
       return { id: 'default', name: 'Default', isDefault: true, files: [] };
@@ -460,9 +474,11 @@ describe('T3-10 — CommitToolWindow shelfTabContextAction routing', () => {
   }
 
   async function dispatch(ctw: CommitToolWindow, message: Record<string, unknown>): Promise<void> {
-    await (ctw as unknown as {
-      _handleWebviewMessage: (m: Record<string, unknown>) => Promise<void>;
-    })._handleWebviewMessage({ type: 'shelfTabContextAction', ...message });
+    await (
+      ctw as unknown as {
+        _handleWebviewMessage: (m: Record<string, unknown>) => Promise<void>;
+      }
+    )._handleWebviewMessage({ type: 'shelfTabContextAction', ...message });
   }
 
   it('dispatches shelf actions via shelfId', async () => {
@@ -472,12 +488,7 @@ describe('T3-10 — CommitToolWindow shelfTabContextAction routing', () => {
       await dispatch(ctw, { action: 'shelfRename', rowKind: 'shelf', shelfId: 's1' });
       await dispatch(ctw, { action: 'shelfDelete', rowKind: 'shelf', shelfId: 's1' });
       await dispatch(ctw, { action: 'shelfImportPatches', rowKind: 'shelf', shelfId: 's1' });
-      assert.deepStrictEqual(shelfCalls, [
-        'apply:s1',
-        'rename:s1',
-        'delete:s1',
-        'importPatches',
-      ]);
+      assert.deepStrictEqual(shelfCalls, ['apply:s1', 'rename:s1', 'delete:s1', 'importPatches']);
     } finally {
       ctw.dispose();
     }
@@ -511,9 +522,11 @@ describe('T3-10 — CommitToolWindow shelfTabContextAction routing', () => {
   it('shelfTabFilterChange message updates state + persists', async () => {
     const { ctw } = makeRig();
     try {
-      await (ctw as unknown as {
-        _handleWebviewMessage: (m: Record<string, unknown>) => Promise<void>;
-      })._handleWebviewMessage({ type: 'shelfTabFilterChange', filter: 'stashes' });
+      await (
+        ctw as unknown as {
+          _handleWebviewMessage: (m: Record<string, unknown>) => Promise<void>;
+        }
+      )._handleWebviewMessage({ type: 'shelfTabFilterChange', filter: 'stashes' });
       assert.strictEqual(ctw.getShelfTabFilter(), 'stashes');
     } finally {
       ctw.dispose();

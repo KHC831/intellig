@@ -62,9 +62,9 @@ function arbitraryCommit(parentCount: number): fc.Arbitrary<ICommit> {
       name: fc.string({ minLength: 1, maxLength: 20 }),
       email: fc.string({ minLength: 1, maxLength: 30 }),
     }),
-    parents: fc.tuple(...Array.from({ length: parentCount }, () => arbitraryHexString(40))).map(
-      (arr) => arr
-    ),
+    parents: fc
+      .tuple(...Array.from({ length: parentCount }, () => arbitraryHexString(40)))
+      .map((arr) => arr),
     authorDate: fc.date({ min: new Date('2000-01-01'), max: new Date('2030-01-01') }),
     commitDate: fc.date({ min: new Date('2000-01-01'), max: new Date('2030-01-01') }),
   });
@@ -124,10 +124,7 @@ function arbitraryMergeCommitNode(maxColumn: number): fc.Arbitrary<ICommitNode> 
           ...Array.from({ length: parentCount }, (_, i) =>
             fc.record({
               fromColumn: fc.constant(graphColumn),
-              toColumn:
-                i === 0
-                  ? fc.constant(graphColumn)
-                  : fc.integer({ min: 0, max: maxColumn }),
+              toColumn: i === 0 ? fc.constant(graphColumn) : fc.integer({ min: 0, max: maxColumn }),
               color: fc.constant(getColumnColor(i === 0 ? graphColumn : i)),
               type: fc.constant(i === 0 ? ('commit' as const) : ('merge' as const)),
             })
@@ -236,7 +233,8 @@ function extractLines(
  * Returns an array of objects with d (path data) and stroke attributes.
  */
 function extractPaths(svg: string): Array<{ d: string; stroke: string }> {
-  const pathRegex = /<path\s+d="([^"]+)"\s+stroke="([^"]+)"\s+fill="[^"]+"\s+stroke-width="[^"]+"\s+stroke-linecap="[^"]+"\s*\/>/g;
+  const pathRegex =
+    /<path\s+d="([^"]+)"\s+stroke="([^"]+)"\s+fill="[^"]+"\s+stroke-width="[^"]+"\s+stroke-linecap="[^"]+"\s*\/>/g;
   const paths: Array<{ d: string; stroke: string }> = [];
   let match;
   while ((match = pathRegex.exec(svg)) !== null) {
@@ -322,16 +320,24 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+            const svg = renderGraphSvg(
+              node,
+              rowIndex,
+              activeLanes,
+              DEFAULT_GRAPH_CONFIG,
+              false,
+              false
+            );
 
             // Merge commits now render a diamond (rotated <rect>) with white stroke
             // instead of a circle with contrasting stroke
-            const rectRegex = /<rect\s+[^>]*fill="([^"]+)"\s+stroke="([^"]+)"[^>]*transform="rotate\(45/;
+            const rectRegex =
+              /<rect\s+[^>]*fill="([^"]+)"\s+stroke="([^"]+)"[^>]*transform="rotate\(45/;
             const rectMatch = svg.match(rectRegex);
             assert.ok(rectMatch, 'SVG should contain a rotated rect (diamond) for merge commit');
 
-            const fill = rectMatch![1];
-            const stroke = rectMatch![2];
+            const fill = rectMatch[1];
+            const stroke = rectMatch[2];
             assert.notStrictEqual(
               fill,
               stroke,
@@ -355,7 +361,14 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           fc.integer({ min: 0, max: 100 }),
           (node, rowIndex) => {
             const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+            const svg = renderGraphSvg(
+              node,
+              rowIndex,
+              activeLanes,
+              DEFAULT_GRAPH_CONFIG,
+              false,
+              false
+            );
 
             const circles = extractCircles(svg);
             assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
@@ -406,40 +419,43 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
     it('Feature: git-graph-visualization, Property 3: Color determinism — commit node uses lane color', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitNode(10),
-          fc.integer({ min: 0, max: 100 }),
-          (node, rowIndex) => {
-            const activeLanes = new Set([node.graphColumn]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+        fc.property(arbitraryCommitNode(10), fc.integer({ min: 0, max: 100 }), (node, rowIndex) => {
+          const activeLanes = new Set([node.graphColumn]);
+          const svg = renderGraphSvg(
+            node,
+            rowIndex,
+            activeLanes,
+            DEFAULT_GRAPH_CONFIG,
+            false,
+            false
+          );
 
-            const expectedColor = getColumnColor(node.graphColumn);
-            const isMerge = node.commit.parents.length > 1;
+          const expectedColor = getColumnColor(node.graphColumn);
+          const isMerge = node.commit.parents.length > 1;
 
-            if (isMerge) {
-              // Merge commits render a diamond (rotated <rect>) — check fill color
-              const rectRegex = /<rect\s+[^>]*fill="([^"]+)"/;
-              const rectMatch = svg.match(rectRegex);
-              assert.ok(rectMatch, 'SVG should contain a rect for merge commit');
-              assert.strictEqual(
-                rectMatch![1],
-                expectedColor,
-                `Merge commit diamond fill (${rectMatch![1]}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
-              );
-            } else {
-              const circles = extractCircles(svg);
-              assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
+          if (isMerge) {
+            // Merge commits render a diamond (rotated <rect>) — check fill color
+            const rectRegex = /<rect\s+[^>]*fill="([^"]+)"/;
+            const rectMatch = svg.match(rectRegex);
+            assert.ok(rectMatch, 'SVG should contain a rect for merge commit');
+            assert.strictEqual(
+              rectMatch[1],
+              expectedColor,
+              `Merge commit diamond fill (${rectMatch[1]}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
+            );
+          } else {
+            const circles = extractCircles(svg);
+            assert.ok(circles.length >= 1, 'SVG should contain at least one circle');
 
-              // The commit node circle's fill should match the lane color
-              const commitCircle = circles[circles.length - 1];
-              assert.strictEqual(
-                commitCircle.fill,
-                expectedColor,
-                `Commit node fill (${commitCircle.fill}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
-              );
-            }
+            // The commit node circle's fill should match the lane color
+            const commitCircle = circles[circles.length - 1];
+            assert.strictEqual(
+              commitCircle.fill,
+              expectedColor,
+              `Commit node fill (${commitCircle.fill}) should match lane color (${expectedColor}) for column ${node.graphColumn}`
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });
@@ -453,12 +469,17 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
           (node, rowIndex, extraLane) => {
             // Ensure the extra lane is different from the commit's column
             const passThroughLane =
-              extraLane === node.graphColumn
-                ? (node.graphColumn + 1) % 11
-                : extraLane;
+              extraLane === node.graphColumn ? (node.graphColumn + 1) % 11 : extraLane;
 
             const activeLanes = new Set([node.graphColumn, passThroughLane]);
-            const svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
+            const svg = renderGraphSvg(
+              node,
+              rowIndex,
+              activeLanes,
+              DEFAULT_GRAPH_CONFIG,
+              false,
+              false
+            );
 
             const expectedColor = getColumnColor(passThroughLane);
             const expectedX = getColumnX(passThroughLane, DEFAULT_GRAPH_CONFIG);
@@ -485,9 +506,9 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
                 `Should have a half-height pass-through line at x=${expectedX} for bezier-target lane ${passThroughLane}`
               );
               assert.strictEqual(
-                halfHeightLine!.stroke,
+                halfHeightLine.stroke,
                 expectedColor,
-                `Half-height pass-through line stroke (${halfHeightLine!.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
+                `Half-height pass-through line stroke (${halfHeightLine.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
               );
             } else {
               // Non-bezier-target lanes get full-height pass-through
@@ -504,9 +525,9 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
                 `Should have a pass-through line at x=${expectedX} for lane ${passThroughLane}`
               );
               assert.strictEqual(
-                passThroughLine!.stroke,
+                passThroughLine.stroke,
                 expectedColor,
-                `Pass-through line stroke (${passThroughLine!.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
+                `Pass-through line stroke (${passThroughLine.stroke}) should match lane color (${expectedColor}) for lane ${passThroughLane}`
               );
             }
           }
@@ -612,9 +633,7 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             const svg = renderGraphSvg(node, rowIndex, activeLanes, config, false, false);
 
             // Get all graphLines where fromColumn !== toColumn
-            const crossLaneLines = node.graphLines.filter(
-              (l) => l.fromColumn !== l.toColumn
-            );
+            const crossLaneLines = node.graphLines.filter((l) => l.fromColumn !== l.toColumn);
 
             if (crossLaneLines.length === 0) {
               return; // No cross-lane lines to check
@@ -692,13 +711,21 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             try {
               svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
-              assert.fail(`renderGraphSvg should not throw for negative lane index ${negativeColumn}: ${e}`);
+              assert.fail(
+                `renderGraphSvg should not throw for negative lane index ${negativeColumn}: ${e}`
+              );
               return;
             }
 
             // Should produce valid SVG wrapper
-            assert.ok(svg.startsWith('<svg'), `SVG should start with <svg, got: ${svg.substring(0, 50)}`);
-            assert.ok(svg.endsWith('</svg>'), `SVG should end with </svg>, got: ${svg.substring(svg.length - 20)}`);
+            assert.ok(
+              svg.startsWith('<svg'),
+              `SVG should start with <svg, got: ${svg.substring(0, 50)}`
+            );
+            assert.ok(
+              svg.endsWith('</svg>'),
+              `SVG should end with </svg>, got: ${svg.substring(svg.length - 20)}`
+            );
           }
         ),
         { numRuns: 100 }
@@ -744,13 +771,21 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
             try {
               svg = renderGraphSvg(node, rowIndex, activeLanes, DEFAULT_GRAPH_CONFIG, false, false);
             } catch (e) {
-              assert.fail(`renderGraphSvg should not throw for large lane index ${largeColumn}: ${e}`);
+              assert.fail(
+                `renderGraphSvg should not throw for large lane index ${largeColumn}: ${e}`
+              );
               return;
             }
 
             // Should produce valid SVG wrapper
-            assert.ok(svg.startsWith('<svg'), `SVG should start with <svg, got: ${svg.substring(0, 50)}`);
-            assert.ok(svg.endsWith('</svg>'), `SVG should end with </svg>, got: ${svg.substring(svg.length - 20)}`);
+            assert.ok(
+              svg.startsWith('<svg'),
+              `SVG should start with <svg, got: ${svg.substring(0, 50)}`
+            );
+            assert.ok(
+              svg.endsWith('</svg>'),
+              `SVG should end with </svg>, got: ${svg.substring(svg.length - 20)}`
+            );
           }
         ),
         { numRuns: 100 }
@@ -838,65 +873,70 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
  * @param maxNodes - Maximum number of nodes to generate (min 1)
  * @param maxColumns - Maximum column index (0-based)
  */
-function arbitraryCommitNodeArray(maxNodes: number, maxColumns: number): fc.Arbitrary<ICommitNode[]> {
+function arbitraryCommitNodeArray(
+  maxNodes: number,
+  maxColumns: number
+): fc.Arbitrary<ICommitNode[]> {
   return fc.integer({ min: 1, max: maxNodes }).chain((count) => {
-    return fc.uniqueArray(arbitraryHexString(40), { minLength: count, maxLength: count }).chain((hashes) => {
-      // For each node, generate its column and parent selection
-      const nodeArbs = hashes.map((hash, index) => {
-        // Parents can only be nodes that appear later in the array (higher index = older)
-        const possibleParents = hashes.slice(index + 1);
-        const maxParents = Math.min(possibleParents.length, 2);
+    return fc
+      .uniqueArray(arbitraryHexString(40), { minLength: count, maxLength: count })
+      .chain((hashes) => {
+        // For each node, generate its column and parent selection
+        const nodeArbs = hashes.map((hash, index) => {
+          // Parents can only be nodes that appear later in the array (higher index = older)
+          const possibleParents = hashes.slice(index + 1);
+          const maxParents = Math.min(possibleParents.length, 2);
 
-        return fc.integer({ min: 0, max: maxParents }).chain((parentCount) => {
-          const parentsArb = parentCount === 0
-            ? fc.constant([] as string[])
-            : fc.shuffledSubarray(possibleParents, { minLength: parentCount, maxLength: parentCount });
+          return fc.integer({ min: 0, max: maxParents }).chain((parentCount) => {
+            const parentsArb =
+              parentCount === 0
+                ? fc.constant([] as string[])
+                : fc.shuffledSubarray(possibleParents, {
+                    minLength: parentCount,
+                    maxLength: parentCount,
+                  });
 
-          return fc.tuple(
-            fc.constant(hash),
-            parentsArb,
-            fc.integer({ min: 0, max: maxColumns })
-          );
-        });
-      });
-
-      return fc.tuple(...nodeArbs).map((nodeDataArray) => {
-        // Build a hash-to-column map so we can look up parent columns for graphLines
-        const hashToColumn = new Map<string, number>();
-        for (const [hash, , graphColumn] of nodeDataArray as Array<[string, string[], number]>) {
-          hashToColumn.set(hash, graphColumn);
-        }
-
-        return (nodeDataArray as Array<[string, string[], number]>).map(([hash, parents, graphColumn]) => {
-          const graphLines = parents.map((parentHash, i) => {
-            const parentColumn = hashToColumn.get(parentHash) ?? graphColumn;
-            return {
-              fromColumn: graphColumn,
-              toColumn: parentColumn,
-              color: getColumnColor(i === 0 ? graphColumn : parentColumn),
-              type: (i === 0 ? 'commit' : 'merge') as 'commit' | 'merge' | 'branch',
-            };
+            return fc.tuple(fc.constant(hash), parentsArb, fc.integer({ min: 0, max: maxColumns }));
           });
+        });
 
-          return {
-            commit: {
-              hash,
-              shortHash: hash.substring(0, 7),
-              message: `Commit ${hash.substring(0, 7)}`,
-              author: { name: 'Test', email: 'test@test.com' },
-              committer: { name: 'Test', email: 'test@test.com' },
-              parents,
-              authorDate: new Date(),
-              commitDate: new Date(),
-            },
-            graphColumn,
-            graphLines,
-            branches: [],
-            tags: [],
-          } as ICommitNode;
+        return fc.tuple(...nodeArbs).map((nodeDataArray) => {
+          // Build a hash-to-column map so we can look up parent columns for graphLines
+          const hashToColumn = new Map<string, number>();
+          for (const [hash, , graphColumn] of nodeDataArray) {
+            hashToColumn.set(hash, graphColumn);
+          }
+
+          return nodeDataArray.map(([hash, parents, graphColumn]) => {
+            const graphLines = parents.map((parentHash, i) => {
+              const parentColumn = hashToColumn.get(parentHash) ?? graphColumn;
+              return {
+                fromColumn: graphColumn,
+                toColumn: parentColumn,
+                color: getColumnColor(i === 0 ? graphColumn : parentColumn),
+                type: (i === 0 ? 'commit' : 'merge') as 'commit' | 'merge' | 'branch',
+              };
+            });
+
+            return {
+              commit: {
+                hash,
+                shortHash: hash.substring(0, 7),
+                message: `Commit ${hash.substring(0, 7)}`,
+                author: { name: 'Test', email: 'test@test.com' },
+                committer: { name: 'Test', email: 'test@test.com' },
+                parents,
+                authorDate: new Date(),
+                commitDate: new Date(),
+              },
+              graphColumn,
+              graphLines,
+              branches: [],
+              tags: [],
+            } as ICommitNode;
+          });
         });
       });
-    });
   });
 }
 
@@ -939,13 +979,10 @@ describe('Feature: git-graph-visualization - computeGraphWidth Property Tests', 
 
     it('Feature: git-graph-visualization, Property 6: Dynamic graph width computation — empty array returns 0', () => {
       fc.assert(
-        fc.property(
-          arbitraryGraphRenderConfig(),
-          (config) => {
-            const width = computeGraphWidth([], config);
-            assert.strictEqual(width, 0, 'computeGraphWidth should return 0 for empty arrays');
-          }
-        ),
+        fc.property(arbitraryGraphRenderConfig(), (config) => {
+          const width = computeGraphWidth([], config);
+          assert.strictEqual(width, 0, 'computeGraphWidth should return 0 for empty arrays');
+        }),
         { numRuns: 100 }
       );
     });
@@ -995,96 +1032,91 @@ describe('Feature: git-graph-visualization - computeActiveLanes Property Tests',
      */
     it('Feature: git-graph-visualization, Property 7: Active lane computation invariants — own column is active', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitNodeArray(10, 8),
-          (nodes) => {
-            const activeLaneMap = computeActiveLanes(nodes);
+        fc.property(arbitraryCommitNodeArray(10, 8), (nodes) => {
+          const activeLaneMap = computeActiveLanes(nodes);
 
-            // For each row index i, nodes[i].graphColumn must be in activeLanes.get(i)
-            for (let i = 0; i < nodes.length; i++) {
-              const activeLanes = activeLaneMap.get(i);
-              assert.ok(
-                activeLanes !== undefined,
-                `activeLaneMap should have an entry for row ${i}`
-              );
-              assert.ok(
-                activeLanes!.has(nodes[i].graphColumn),
-                `Row ${i}: nodes[${i}].graphColumn (${nodes[i].graphColumn}) should be in active lanes. ` +
-                  `Active lanes: [${[...activeLanes!]}]`
-              );
-            }
+          // For each row index i, nodes[i].graphColumn must be in activeLanes.get(i)
+          for (let i = 0; i < nodes.length; i++) {
+            const activeLanes = activeLaneMap.get(i);
+            assert.ok(activeLanes !== undefined, `activeLaneMap should have an entry for row ${i}`);
+            assert.ok(
+              activeLanes.has(nodes[i].graphColumn),
+              `Row ${i}: nodes[${i}].graphColumn (${nodes[i].graphColumn}) should be in active lanes. ` +
+                `Active lanes: [${[...activeLanes]}]`
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });
 
     it('Feature: git-graph-visualization, Property 7: Active lane computation invariants — parent toColumn is active', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitNodeArray(10, 8),
-          (nodes) => {
-            const activeLaneMap = computeActiveLanes(nodes);
+        fc.property(arbitraryCommitNodeArray(10, 8), (nodes) => {
+          const activeLaneMap = computeActiveLanes(nodes);
 
-            // Build hash-to-row-index map
-            const hashToRow = new Map<string, number>();
-            for (let i = 0; i < nodes.length; i++) {
-              hashToRow.set(nodes[i].commit.hash, i);
-            }
+          // Build hash-to-row-index map
+          const hashToRow = new Map<string, number>();
+          for (let i = 0; i < nodes.length; i++) {
+            hashToRow.set(nodes[i].commit.hash, i);
+          }
 
-            // For each row index i, for each graphLine in nodes[i].graphLines
-            // where the parent commit appears at a later row index,
-            // line.toColumn should be in activeLanes.get(i)
-            for (let i = 0; i < nodes.length; i++) {
-              const activeLanes = activeLaneMap.get(i)!;
+          // For each row index i, for each graphLine in nodes[i].graphLines
+          // where the parent commit appears at a later row index,
+          // line.toColumn should be in activeLanes.get(i)
+          for (let i = 0; i < nodes.length; i++) {
+            const activeLanes = activeLaneMap.get(i)!;
 
-              for (const line of nodes[i].graphLines) {
-                // Find the parent commit that this line targets
-                // by checking if any parent hash maps to a later row
-                // and that parent's graphColumn matches line.toColumn
-                let targetRow = -1;
+            for (const line of nodes[i].graphLines) {
+              // Find the parent commit that this line targets
+              // by checking if any parent hash maps to a later row
+              // and that parent's graphColumn matches line.toColumn
+              let targetRow = -1;
 
+              for (const parentHash of nodes[i].commit.parents) {
+                const parentRow = hashToRow.get(parentHash);
+                if (parentRow !== undefined && parentRow > i) {
+                  // Check if this parent's column matches the line's toColumn
+                  if (nodes[parentRow].graphColumn === line.toColumn) {
+                    targetRow = parentRow;
+                    break;
+                  }
+                }
+              }
+
+              // Fallback: if no parent matched by column, find any parent at a later row
+              if (targetRow === -1) {
                 for (const parentHash of nodes[i].commit.parents) {
                   const parentRow = hashToRow.get(parentHash);
                   if (parentRow !== undefined && parentRow > i) {
-                    // Check if this parent's column matches the line's toColumn
-                    if (nodes[parentRow].graphColumn === line.toColumn) {
-                      targetRow = parentRow;
-                      break;
-                    }
+                    targetRow = parentRow;
+                    break;
                   }
                 }
+              }
 
-                // Fallback: if no parent matched by column, find any parent at a later row
-                if (targetRow === -1) {
-                  for (const parentHash of nodes[i].commit.parents) {
-                    const parentRow = hashToRow.get(parentHash);
-                    if (parentRow !== undefined && parentRow > i) {
-                      targetRow = parentRow;
-                      break;
-                    }
-                  }
-                }
-
-                if (targetRow > i) {
-                  assert.ok(
-                    activeLanes.has(line.toColumn),
-                    `Row ${i}: line.toColumn (${line.toColumn}) should be in active lanes ` +
-                      `because parent appears at later row ${targetRow}. ` +
-                      `Active lanes: [${[...activeLanes]}]`
-                  );
-                }
+              if (targetRow > i) {
+                assert.ok(
+                  activeLanes.has(line.toColumn),
+                  `Row ${i}: line.toColumn (${line.toColumn}) should be in active lanes ` +
+                    `because parent appears at later row ${targetRow}. ` +
+                    `Active lanes: [${[...activeLanes]}]`
+                );
               }
             }
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });
 
     it('Feature: git-graph-visualization, Property 7: Active lane computation invariants — empty array returns empty map', () => {
       const activeLaneMap = computeActiveLanes([]);
-      assert.strictEqual(activeLaneMap.size, 0, 'computeActiveLanes([]) should return an empty map');
+      assert.strictEqual(
+        activeLaneMap.size,
+        0,
+        'computeActiveLanes([]) should return an empty map'
+      );
     });
   });
 });

@@ -111,15 +111,20 @@ function createMockGitService(): IGitService {
 /**
  * Create a minimal mock BranchTreeProvider with a configurable repository.
  */
-function createMockBranchTreeProvider(
-  headName?: string
-): BranchTreeProvider {
+function createMockBranchTreeProvider(headName?: string): BranchTreeProvider {
   const mockGitService = createMockGitService();
   const provider = new BranchTreeProvider(mockGitService);
 
   // Override getRepository to return a mock repo with the specified head
   const mockRepo: IRepository = {
-    rootUri: { scheme: 'file', authority: '', path: '/test', query: '', fragment: '', fsPath: '/test' } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    rootUri: {
+      scheme: 'file',
+      authority: '',
+      path: '/test',
+      query: '',
+      fragment: '',
+      fsPath: '/test',
+    } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
     state: 'idle',
     head: headName ? { name: headName, ahead: 0, behind: 0 } : undefined,
     remotes: [],
@@ -165,38 +170,22 @@ describe('resolveLabel', () => {
   });
 
   it('should substitute both {branch} and {current} placeholders', () => {
-    const result = resolveLabel(
-      "Rebase '{current}' onto '{branch}'",
-      'develop',
-      'main'
-    );
+    const result = resolveLabel("Rebase '{current}' onto '{branch}'", 'develop', 'main');
     assert.strictEqual(result, "Rebase 'main' onto 'develop'");
   });
 
   it('should substitute {branch} in merge template', () => {
-    const result = resolveLabel(
-      "Merge '{branch}' into '{current}'",
-      'feature/auth',
-      'develop'
-    );
+    const result = resolveLabel("Merge '{branch}' into '{current}'", 'feature/auth', 'develop');
     assert.strictEqual(result, "Merge 'feature/auth' into 'develop'");
   });
 
   it('should handle branch names with slashes', () => {
-    const result = resolveLabel(
-      "New Branch from '{branch}'",
-      'feature/deep/nested/branch',
-      'main'
-    );
+    const result = resolveLabel("New Branch from '{branch}'", 'feature/deep/nested/branch', 'main');
     assert.strictEqual(result, "New Branch from 'feature/deep/nested/branch'");
   });
 
   it('should handle branch names with dots', () => {
-    const result = resolveLabel(
-      "Compare with '{current}'",
-      'release/1.0',
-      'release/2.0.1'
-    );
+    const result = resolveLabel("Compare with '{current}'", 'release/1.0', 'release/2.0.1');
     assert.strictEqual(result, "Compare with 'release/2.0.1'");
   });
 
@@ -215,11 +204,7 @@ describe('resolveLabel', () => {
   });
 
   it('should handle templates with only {current} placeholder', () => {
-    const result = resolveLabel(
-      "Checkout and Rebase onto '{current}'",
-      'feature/test',
-      'main'
-    );
+    const result = resolveLabel("Checkout and Rebase onto '{current}'", 'feature/test', 'main');
     assert.strictEqual(result, "Checkout and Rebase onto 'main'");
   });
 

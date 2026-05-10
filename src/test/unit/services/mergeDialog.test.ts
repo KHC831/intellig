@@ -159,15 +159,15 @@ class TestMergeDialog extends MergeDialog {
   }
 }
 
-function makeDialog(
-  overrides: Partial<IMergeDialogOptions> = {}
-): {
+function makeDialog(overrides: Partial<IMergeDialogOptions> = {}): {
   dialog: TestMergeDialog;
   gitService: IGitService & { _mergeCalls: MergeCall[] };
   conflictService: IConflictResolutionService & { _calls: ResolveCall[] };
   onMergeCompleteCalls: number;
 } {
-  const gitService = (overrides.gitService as IGitService & { _mergeCalls: MergeCall[] } | undefined) ?? makeGitService();
+  const gitService =
+    (overrides.gitService as (IGitService & { _mergeCalls: MergeCall[] }) | undefined) ??
+    makeGitService();
   const conflictService = overrides.conflictResolutionService ?? makeConflictService();
   let onMergeCompleteCalls = 0;
   const dialog = new TestMergeDialog(makeContext(), {
@@ -202,30 +202,21 @@ describe('T3-02 resolveMergeMutex', () => {
   });
 
   it('ffOnly toggled: clears noFf and squash', () => {
-    const out = resolveMergeMutex(
-      { ...zero, ffOnly: true, noFf: true, squash: true },
-      'ffOnly'
-    );
+    const out = resolveMergeMutex({ ...zero, ffOnly: true, noFf: true, squash: true }, 'ffOnly');
     assert.strictEqual(out.ffOnly, true);
     assert.strictEqual(out.noFf, false);
     assert.strictEqual(out.squash, false);
   });
 
   it('noFf toggled: clears ffOnly and squash', () => {
-    const out = resolveMergeMutex(
-      { ...zero, ffOnly: true, noFf: true, squash: true },
-      'noFf'
-    );
+    const out = resolveMergeMutex({ ...zero, ffOnly: true, noFf: true, squash: true }, 'noFf');
     assert.strictEqual(out.ffOnly, false);
     assert.strictEqual(out.noFf, true);
     assert.strictEqual(out.squash, false);
   });
 
   it('squash toggled: clears ffOnly and noFf', () => {
-    const out = resolveMergeMutex(
-      { ...zero, ffOnly: true, noFf: true, squash: true },
-      'squash'
-    );
+    const out = resolveMergeMutex({ ...zero, ffOnly: true, noFf: true, squash: true }, 'squash');
     assert.strictEqual(out.ffOnly, false);
     assert.strictEqual(out.noFf, false);
     assert.strictEqual(out.squash, true);
@@ -400,13 +391,10 @@ describe('T3-02 MergeDialog — lifecycle', () => {
     assert.strictEqual(call.opContext.target, 'feature/x');
     assert.strictEqual(call.opContext.canAbort, true);
     assert.strictEqual(call.opContext.canContinue, true);
-    assert.deepStrictEqual(
-      call.conflicts,
-      [
-        { path: 'a.ts', resolved: false },
-        { path: 'b.ts', resolved: false },
-      ]
-    );
+    assert.deepStrictEqual(call.conflicts, [
+      { path: 'a.ts', resolved: false },
+      { path: 'b.ts', resolved: false },
+    ]);
     assert.strictEqual(h.dialog.disposed(), true);
   });
 

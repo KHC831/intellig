@@ -63,7 +63,7 @@ describe('ext-host smoke — 3. open dialog', function () {
   before(async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, 'extension not installed');
-    const api = await ext!.activate();
+    const api = await ext.activate();
     // The extension's `activate()` returns `Promise<void>`, not the context,
     // so to get an ExtensionContext we either (a) add a test-only export or
     // (b) borrow any existing extension's context. For a pure smoke test we
@@ -74,14 +74,14 @@ describe('ext-host smoke — 3. open dialog', function () {
     // We therefore build a minimal `ExtensionContext`-shaped object using
     // the real extensionUri. BaseWebviewPanel only reads `.extensionUri` and
     // does not dispatch on `.subscriptions`.
-    ctx = buildMinimalContext(ext!);
+    ctx = buildMinimalContext(ext);
     // `api` is unused — just ensures activation resolved.
     void api;
   });
 
   it('creates a webview panel without throwing', () => {
     assert.ok(ctx, 'context not set up');
-    const dialog = new NewBranchDialog(ctx!, {
+    const dialog = new NewBranchDialog(ctx, {
       repo: stubRepo(),
       gitService: stubGitService(),
       defaultName: 'smoke-test-branch',
@@ -96,7 +96,7 @@ describe('ext-host smoke — 3. open dialog', function () {
 
   it('emits a CSP meta tag in the webview HTML', () => {
     assert.ok(ctx);
-    const dialog = new NewBranchDialog(ctx!, {
+    const dialog = new NewBranchDialog(ctx, {
       repo: stubRepo(),
       gitService: stubGitService(),
     });
@@ -114,7 +114,7 @@ describe('ext-host smoke — 3. open dialog', function () {
 
   it('includes a nonce on the inline script tag', () => {
     assert.ok(ctx);
-    const dialog = new NewBranchDialog(ctx!, {
+    const dialog = new NewBranchDialog(ctx, {
       repo: stubRepo(),
       gitService: stubGitService(),
     });
@@ -135,7 +135,7 @@ describe('ext-host smoke — 3. open dialog', function () {
 
   it('disposes cleanly (idempotent, no throw on second dispose)', () => {
     assert.ok(ctx);
-    const dialog = new NewBranchDialog(ctx!, {
+    const dialog = new NewBranchDialog(ctx, {
       repo: stubRepo(),
       gitService: stubGitService(),
     });
@@ -151,9 +151,7 @@ describe('ext-host smoke — 3. open dialog', function () {
  * (through the .onDidDispose → disposables internal array). We stub just
  * enough to exercise the panel surface.
  */
-function buildMinimalContext(
-  ext: vscode.Extension<unknown>
-): vscode.ExtensionContext {
+function buildMinimalContext(ext: vscode.Extension<unknown>): vscode.ExtensionContext {
   const subscriptions: vscode.Disposable[] = [];
   // We cast through `unknown` — the production code only touches
   // `extensionUri`, and the panel's own lifecycle is independent of the
@@ -173,13 +171,13 @@ function buildMinimalContext(
     storagePath: undefined,
     globalStoragePath: '/tmp/intellig-smoke-global',
     logPath: '/tmp/intellig-smoke-log',
-    environmentVariableCollection: undefined as unknown as vscode.GlobalEnvironmentVariableCollection,
+    environmentVariableCollection:
+      undefined as unknown as vscode.GlobalEnvironmentVariableCollection,
     workspaceState: undefined as unknown as vscode.Memento,
     globalState: undefined as unknown as vscode.Memento & {
       setKeysForSync(keys: readonly string[]): void;
     },
     secrets: undefined as unknown as vscode.SecretStorage,
-    languageModelAccessInformation:
-      undefined as unknown as vscode.LanguageModelAccessInformation,
+    languageModelAccessInformation: undefined as unknown as vscode.LanguageModelAccessInformation,
   } as unknown as vscode.ExtensionContext;
 }

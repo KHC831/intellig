@@ -12,12 +12,7 @@
  */
 
 import * as vscode from 'vscode';
-import {
-  IBranch,
-  IGitService,
-  IPullOptions,
-  IRepository,
-} from './interfaces/IGitService';
+import { IBranch, IGitService, IPullOptions, IRepository } from './interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
 
 // ─── Flag-key helpers ────────────────────────────────────────────────────────
@@ -45,10 +40,7 @@ const STRATEGY_FLAGS: ReadonlyArray<PullFlagKey> = ['rebase', 'ffOnly', 'noFf'];
 const MODIFIER_FLAGS: ReadonlyArray<PullFlagKey> = ['squash', 'noCommit', 'noVerify'];
 
 /** All flag keys in picker order. */
-export const ALL_PULL_FLAGS: ReadonlyArray<PullFlagKey> = [
-  ...STRATEGY_FLAGS,
-  ...MODIFIER_FLAGS,
-];
+export const ALL_PULL_FLAGS: ReadonlyArray<PullFlagKey> = [...STRATEGY_FLAGS, ...MODIFIER_FLAGS];
 
 // ─── Pure mutex resolver ─────────────────────────────────────────────────────
 
@@ -180,8 +172,7 @@ export function buildSourceItems(
     for (const b of remoteBranches) {
       const slash = b.name.indexOf('/');
       const branch = slash >= 0 ? b.name.substring(slash + 1) : b.name;
-      const isUpstream =
-        trackedUpstream?.remote === remote && trackedUpstream?.name === branch;
+      const isUpstream = trackedUpstream?.remote === remote && trackedUpstream?.name === branch;
       items.push({
         label: `$(cloud) ${branch}`,
         description: isUpstream ? 'upstream' : undefined,
@@ -208,9 +199,7 @@ export interface IPullFlagItem extends vscode.QuickPickItem {
  * The terminal `▶ Pull` confirmer item is placed last and is never
  * `picked: true` so it doesn't auto-submit.
  */
-export function buildFlagItems(
-  flags: Record<PullFlagKey, boolean>
-): IPullFlagItem[] {
+export function buildFlagItems(flags: Record<PullFlagKey, boolean>): IPullFlagItem[] {
   const items: IPullFlagItem[] = [];
   for (const key of STRATEGY_FLAGS) {
     items.push({
@@ -336,7 +325,7 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
     if (!picked || !('remote' in picked) || !picked.remote || !picked.branch) {
       return { status: 'cancelled', step: 'source' };
     }
-    source = { remote: picked.remote as string, branch: picked.branch as string };
+    source = { remote: picked.remote, branch: picked.branch };
   }
 
   // Step 2: flags. canPickMany loop-free: we let VS Code show all toggles at
@@ -366,12 +355,12 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
   // to accept naturally. That API is more involved (manual show/hide, event
   // plumbing) so we keep the cheaper pattern here until Tier-2 touches this
   // file.
-  const confirmed = selected.some((it) => (it as IPullFlagItem).confirm === true);
+  const confirmed = selected.some((it) => it.confirm === true);
   if (!confirmed) {
     return { status: 'cancelled', step: 'options' };
   }
 
-  const resolvedFlags = applyFlagSelection(flags, selected as ReadonlyArray<IPullFlagItem>);
+  const resolvedFlags = applyFlagSelection(flags, selected);
 
   const options: IPullOptions = {
     remote: source.remote,
@@ -410,11 +399,8 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
       } catch (handoffError) {
         // If the dialog itself fails to open, fall back to the original
         // warning toast so the user at least knows about the conflicts.
-        const reason =
-          handoffError instanceof Error ? handoffError.message : 'Unknown error';
-        void deps.showWarningMessage(
-          `Pull produced conflicts — resolve manually (${reason}).`
-        );
+        const reason = handoffError instanceof Error ? handoffError.message : 'Unknown error';
+        void deps.showWarningMessage(`Pull produced conflicts — resolve manually (${reason}).`);
       }
       return { status: 'conflict', options, message };
     }
@@ -434,10 +420,7 @@ export class PullDialog {
   private readonly _gitService: IGitService;
   private readonly _conflictResolutionService: IConflictResolutionService;
 
-  constructor(
-    gitService: IGitService,
-    conflictResolutionService: IConflictResolutionService
-  ) {
+  constructor(gitService: IGitService, conflictResolutionService: IConflictResolutionService) {
     this._gitService = gitService;
     this._conflictResolutionService = conflictResolutionService;
   }

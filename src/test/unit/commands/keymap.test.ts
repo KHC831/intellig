@@ -53,7 +53,9 @@ function readAllProductionSources(): string {
   const sources: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'test' || entry.name === '__mocks__') continue;
+      if (entry.name === 'test' || entry.name === '__mocks__') {
+        continue;
+      }
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
@@ -75,8 +77,7 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
     // `(vscode.|)commands.registerCommand`. Matches both single and
     // double-quoted literals. Intentionally does NOT match
     // template-literal ids; the convention in the codebase is literal ids.
-    const registerCallRegex =
-      /commands\.registerCommand\(\s*['"]([^'"]+)['"]/g;
+    const registerCallRegex = /commands\.registerCommand\(\s*['"]([^'"]+)['"]/g;
 
     const counts = new Map<string, number>();
     let match: RegExpExecArray | null;
@@ -119,7 +120,7 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
   });
 });
 
-describe("R5 H-1 — keybinding focusedView gates must reference real view ids", () => {
+describe('R5 H-1 — keybinding focusedView gates must reference real view ids', () => {
   it("every focusedView == 'intellig.<id>' resolves to a registered view id", () => {
     const pj = readPackageJson();
 
@@ -134,7 +135,9 @@ describe("R5 H-1 — keybinding focusedView gates must reference real view ids",
     const badReferences: Array<{ command: string; viewId: string; when: string }> = [];
 
     for (const kb of pj.contributes.keybindings ?? []) {
-      if (!kb.when) continue;
+      if (!kb.when) {
+        continue;
+      }
       focusedViewRegex.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = focusedViewRegex.exec(kb.when)) !== null) {
@@ -166,15 +169,17 @@ describe("R5 H-1 — keybinding focusedView gates must reference real view ids",
  * had no palette entry. Latent since T3-13 until R6 package.json-coherence
  * audit surfaced it.
  */
-describe("R5 — every intellig.* keybinding command has a contributes.commands entry", () => {
-  it("no keybinding references an intellig.* command that is missing from contributes.commands", () => {
+describe('R5 — every intellig.* keybinding command has a contributes.commands entry', () => {
+  it('no keybinding references an intellig.* command that is missing from contributes.commands', () => {
     const pj = readPackageJson();
 
     const declared = new Set(pj.contributes.commands.map((c) => c.command));
     const missing: Array<{ command: string; key: string }> = [];
 
     for (const kb of pj.contributes.keybindings ?? []) {
-      if (!kb.command.startsWith('intellig.')) continue;
+      if (!kb.command.startsWith('intellig.')) {
+        continue;
+      }
       if (!declared.has(kb.command)) {
         missing.push({ command: kb.command, key: (kb as { key?: string }).key ?? '?' });
       }

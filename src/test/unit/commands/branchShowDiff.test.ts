@@ -225,9 +225,7 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (T2-01 / BUG-
 
   describe('single-file selection', () => {
     it('opens exactly one vscode.diff tab with the correct URIs and title', async () => {
-      const changed: IRefDiffFile[] = [
-        { path: 'src/foo.ts', status: 'M' },
-      ];
+      const changed: IRefDiffFile[] = [{ path: 'src/foo.ts', status: 'M' }];
       const harness = makeHarness({
         changedFiles: changed,
         // Simulate user picking the single item (canPickMany: true → array return).
@@ -361,11 +359,7 @@ describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (T2-01 / BUG-
           }
         )._handleShowDiffWithWorkingTree(harness.item);
 
-        assert.strictEqual(
-          harness.quickPickInvocations,
-          1,
-          'QuickPick must still have been shown'
-        );
+        assert.strictEqual(harness.quickPickInvocations, 1, 'QuickPick must still have been shown');
         assert.strictEqual(harness.diffCalls.length, 0, 'no diff tabs on cancel');
         assert.strictEqual(harness.infoMessages.length, 0, 'no info toast on cancel');
         assert.strictEqual(harness.errorMessages.length, 0, 'no error toast on cancel');

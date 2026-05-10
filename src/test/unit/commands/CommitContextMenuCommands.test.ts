@@ -30,7 +30,10 @@ function createMockRepo(headCommit?: string): IRepository {
   };
 }
 
-function createMockGitService(repo: IRepository, overrides?: Partial<IGitService>): IGitService & { calls: CallTracker[] } {
+function createMockGitService(
+  repo: IRepository,
+  overrides?: Partial<IGitService>
+): IGitService & { calls: CallTracker[] } {
   const repoChangeEmitter = new EventEmitter<IRepository>();
   const calls: CallTracker[] = [];
 
@@ -44,7 +47,9 @@ function createMockGitService(repo: IRepository, overrides?: Partial<IGitService
     commit: async () => {},
     amend: async () => {},
     createBranch: async () => {},
-    checkout: async (...args: unknown[]) => { calls.push({ method: 'checkout', args }); },
+    checkout: async (...args: unknown[]) => {
+      calls.push({ method: 'checkout', args });
+    },
     deleteBranch: async () => {},
     renameBranch: async () => {},
     mergeBranch: async (...args: unknown[]) => {
@@ -53,7 +58,11 @@ function createMockGitService(repo: IRepository, overrides?: Partial<IGitService
     },
     rebaseBranch: async () => ({ success: true }),
     compareBranches: async () => ({
-      commitsAhead: [], commitsBehind: [], aheadCount: 0, behindCount: 0, changedFiles: [],
+      commitsAhead: [],
+      commitsBehind: [],
+      aheadCount: 0,
+      behindCount: 0,
+      changedFiles: [],
     }),
     fetch: async () => {},
     pull: async () => {},
@@ -61,7 +70,9 @@ function createMockGitService(repo: IRepository, overrides?: Partial<IGitService
     getRemotes: async () => [],
     addRemote: async () => {},
     removeRemote: async () => {},
-    stash: async (...args: unknown[]) => { calls.push({ method: 'stash', args }); },
+    stash: async (...args: unknown[]) => {
+      calls.push({ method: 'stash', args });
+    },
     stashList: async () => [],
     stashApply: async () => {},
     stashPop: async () => {},
@@ -72,8 +83,14 @@ function createMockGitService(repo: IRepository, overrides?: Partial<IGitService
     pushTag: async () => {},
     getLog: async () => [],
     getCommit: async () => ({
-      hash: '', shortHash: '', message: '', author: { name: '', email: '' },
-      committer: { name: '', email: '' }, parents: [], authorDate: new Date(), commitDate: new Date(),
+      hash: '',
+      shortHash: '',
+      message: '',
+      author: { name: '', email: '' },
+      committer: { name: '', email: '' },
+      parents: [],
+      authorDate: new Date(),
+      commitDate: new Date(),
     }),
     getFileHistory: async () => [],
     getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
@@ -106,14 +123,18 @@ function createMockGitService(repo: IRepository, overrides?: Partial<IGitService
   return service;
 }
 
-function createMockRebaseService(overrides?: Partial<IRebaseService>): IRebaseService & { calls: CallTracker[] } {
+function createMockRebaseService(
+  overrides?: Partial<IRebaseService>
+): IRebaseService & { calls: CallTracker[] } {
   const sessionChangeEmitter = new EventEmitter<undefined>();
   const calls: CallTracker[] = [];
 
   const defaultSession: IRebaseSession = {
     onto: 'abc123',
     originalBranch: 'main',
-    commits: [{ hash: 'abc12345678901234567890123456789abcdef01', message: 'test commit', action: 'pick' }],
+    commits: [
+      { hash: 'abc12345678901234567890123456789abcdef01', message: 'test commit', action: 'pick' },
+    ],
     currentStep: 0,
     status: 'planning',
   };
@@ -125,13 +146,17 @@ function createMockRebaseService(overrides?: Partial<IRebaseService>): IRebaseSe
       return defaultSession;
     },
     getRebaseSession: () => undefined,
-    updateRebasePlan: (...args: unknown[]) => { calls.push({ method: 'updateRebasePlan', args }); },
+    updateRebasePlan: (...args: unknown[]) => {
+      calls.push({ method: 'updateRebasePlan', args });
+    },
     executeRebase: async (...args: unknown[]) => {
       calls.push({ method: 'executeRebase', args });
       return { success: true, status: 'completed' as const };
     },
     continueRebase: async () => ({ success: true, status: 'completed' as const }),
-    abortRebase: async (...args: unknown[]) => { calls.push({ method: 'abortRebase', args }); },
+    abortRebase: async (...args: unknown[]) => {
+      calls.push({ method: 'abortRebase', args });
+    },
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
@@ -145,7 +170,9 @@ function createMockProvider(): GitToolWindowProvider & { refreshCallCount: numbe
   return {
     onDidRequestLogContextAction: () => ({ dispose: () => {} }),
     refreshCallCount: 0,
-    refresh: function () { (this as any).refreshCallCount++; },
+    refresh: function () {
+      (this as any).refreshCallCount++;
+    },
   } as unknown as GitToolWindowProvider & { refreshCallCount: number };
 }
 
@@ -163,7 +190,9 @@ function createMockGitCli(overrides?: Record<string, unknown>): any {
     isRepository: async () => true,
     getRepositoryRoot: async () => '/test-repo',
     dispose: () => {},
-    get gitPath() { return 'git'; },
+    get gitPath() {
+      return 'git';
+    },
     set gitPath(_v: string) {},
     onCommandExecuted: (() => ({ dispose: () => {} })) as any,
     ...overrides,
@@ -186,7 +215,10 @@ function createCleanGitCli(overrides?: Record<string, unknown>): any {
 
 // ─── Message Trackers ─────────────────────────────────────────────────────────
 
-interface MessageRecord { message: string; items: string[] }
+interface MessageRecord {
+  message: string;
+  items: string[];
+}
 
 function createMessageTrackers() {
   const info: MessageRecord[] = [];
@@ -233,7 +265,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     it('copies the commit hash to clipboard', async () => {
       let copiedText = '';
       (vscode.env as any).clipboard = {
-        writeText: async (text: string) => { copiedText = text; },
+        writeText: async (text: string) => {
+          copiedText = text;
+        },
         readText: async () => '',
       };
       const messages = createMessageTrackers();
@@ -277,9 +311,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('cherryPick', [testHash]);
 
-      const call = gitService.calls.find(c => c.method === 'cherryPick');
+      const call = gitService.calls.find((c) => c.method === 'cherryPick');
       assert.ok(call, 'cherryPick should have been called');
-      assert.deepStrictEqual(call!.args[1], [testHash]);
+      assert.deepStrictEqual(call.args[1], [testHash]);
     });
 
     it('shows warning on conflicts', async () => {
@@ -302,7 +336,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        cherryPick: async () => { throw new Error('cherry-pick failed'); },
+        cherryPick: async () => {
+          throw new Error('cherry-pick failed');
+        },
       } as any);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -328,9 +364,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('revert', [testHash]);
 
-      const call = gitService.calls.find(c => c.method === 'revert');
+      const call = gitService.calls.find((c) => c.method === 'revert');
       assert.ok(call, 'revert should have been called');
-      assert.deepStrictEqual(call!.args[1], [testHash]);
+      assert.deepStrictEqual(call.args[1], [testHash]);
     });
 
     it('shows warning on conflicts', async () => {
@@ -353,7 +389,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        revert: async () => { throw new Error('revert failed'); },
+        revert: async () => {
+          throw new Error('revert failed');
+        },
       } as any);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -379,16 +417,18 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('checkoutRevision', [testHash]);
 
-      const call = gitService.calls.find(c => c.method === 'checkout');
+      const call = gitService.calls.find((c) => c.method === 'checkout');
       assert.ok(call, 'checkout should have been called');
-      assert.strictEqual(call!.args[1], testHash);
+      assert.strictEqual(call.args[1], testHash);
     });
 
     it('shows error on failure', async () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        checkout: async () => { throw new Error('checkout failed'); },
+        checkout: async () => {
+          throw new Error('checkout failed');
+        },
       } as any);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -454,7 +494,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       (vscode.window as any).showSaveDialog = async () => Uri.file('/tmp/test.patch');
       (vscode.workspace as any).fs = {
         ...vscode.workspace.fs,
-        writeFile: async (_uri: any, content: Buffer) => { savedContent = content; },
+        writeFile: async (_uri: any, content: Buffer) => {
+          savedContent = content;
+        },
       };
       const messages = createMessageTrackers();
       const repo = createMockRepo();
@@ -497,7 +539,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const gitCli = createMockGitCli({
-        exec: async () => { throw new Error('format-patch failed'); },
+        exec: async () => {
+          throw new Error('format-patch failed');
+        },
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
@@ -555,7 +599,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        getCommitDiff: async () => { throw new Error('diff failed'); },
+        getCommitDiff: async () => {
+          throw new Error('diff failed');
+        },
       } as any);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -648,7 +694,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         exec: async (...args: unknown[]) => {
           const cmdArgs = args[0] as string[];
           if (cmdArgs[0] === 'ls-tree') {
-            return { exitCode: 0, stdout: 'src/file1.ts\nsrc/file2.ts\n', stderr: '', combined: '' };
+            return {
+              exitCode: 0,
+              stdout: 'src/file1.ts\nsrc/file2.ts\n',
+              stderr: '',
+              combined: '',
+            };
           }
           return { exitCode: 0, stdout: '', stderr: '', combined: '' };
         },
@@ -684,7 +735,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const gitCli = createMockGitCli({
-        exec: async () => { throw new Error('ls-tree failed'); },
+        exec: async () => {
+          throw new Error('ls-tree failed');
+        },
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
@@ -808,7 +861,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const gitCli = createMockGitCli({
-        exec: async () => { throw new Error('reset failed'); },
+        exec: async () => {
+          throw new Error('reset failed');
+        },
       });
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
 
@@ -833,20 +888,20 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('dropCommit', [testHash]);
 
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(startCall, 'startInteractiveRebase should have been called');
-      assert.strictEqual(startCall!.args[1], `${testHash}~1`);
+      assert.strictEqual(startCall.args[1], `${testHash}~1`);
 
-      const updateCall = rebaseService.calls.find(c => c.method === 'updateRebasePlan');
+      const updateCall = rebaseService.calls.find((c) => c.method === 'updateRebasePlan');
       assert.ok(updateCall, 'updateRebasePlan should have been called');
-      const plan = updateCall!.args[1] as any[];
+      const plan = updateCall.args[1] as any[];
       // The plan should contain all commits from the session, with the target set to 'drop'
       assert.strictEqual(plan.length, 1); // mock session has 1 commit
       const targetEntry = plan.find((p: any) => p.hash === testHash);
       assert.ok(targetEntry, 'Plan should contain the target commit');
       assert.strictEqual(targetEntry.action, 'drop');
 
-      const execCall = rebaseService.calls.find(c => c.method === 'executeRebase');
+      const execCall = rebaseService.calls.find((c) => c.method === 'executeRebase');
       assert.ok(execCall, 'executeRebase should have been called');
       assert.strictEqual(provider.refreshCallCount, 1);
     });
@@ -877,7 +932,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
-        startInteractiveRebase: async () => { throw new Error('rebase failed'); },
+        startInteractiveRebase: async () => {
+          throw new Error('rebase failed');
+        },
       } as any);
       const provider = createMockProvider();
       const gitCli = createCleanGitCli();
@@ -910,9 +967,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('dropCommit', [testHash]);
 
-      const stashPush = execCalls.find(c => c[0] === 'stash' && c[1] === 'push');
+      const stashPush = execCalls.find((c) => c[0] === 'stash' && c[1] === 'push');
       assert.ok(stashPush, 'should stash before drop');
-      const stashPop = execCalls.find(c => c[0] === 'stash' && c[1] === 'pop');
+      const stashPop = execCalls.find((c) => c[0] === 'stash' && c[1] === 'pop');
       assert.ok(stashPop, 'should pop stash after drop');
     });
 
@@ -937,7 +994,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('unmerged'));
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(!startCall, 'rebase should NOT have been started with unmerged files');
     });
   });
@@ -977,7 +1034,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(amendArgs.includes('--only'));
       assert.ok(amendArgs.includes('updated message'));
 
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(!startCall, 'startInteractiveRebase should NOT have been called for HEAD commit');
       assert.strictEqual(provider.refreshCallCount, 1);
     });
@@ -998,7 +1055,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           const cmdArgs = args[0] as string[];
           gitCli.calls.push({ method: 'exec', args });
           if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
-            return { exitCode: 0, stdout: 'test commit\n\nFull body of the commit message.\n', stderr: '', combined: '' };
+            return {
+              exitCode: 0,
+              stdout: 'test commit\n\nFull body of the commit message.\n',
+              stderr: '',
+              combined: '',
+            };
           }
           if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
             return { exitCode: 0, stdout: ' M src/file.ts\n', stderr: '', combined: '' };
@@ -1011,7 +1073,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       await commands._handleAction('editCommitMessage', [testHash]);
 
       // Verify the input box was pre-filled with the full commit message
-      assert.ok(inputBoxValue.includes('Full body of the commit message'), 'Input box should show the full commit message');
+      assert.ok(
+        inputBoxValue.includes('Full body of the commit message'),
+        'Input box should show the full commit message'
+      );
 
       // Should have stashed changes
       const stashCall = gitCli.calls.find((c: CallTracker) => {
@@ -1020,13 +1085,13 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       });
       assert.ok(stashCall, 'git stash push should have been called');
 
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(startCall, 'startInteractiveRebase should have been called');
-      assert.strictEqual(startCall!.args[1], `${testHash}~1`);
+      assert.strictEqual(startCall.args[1], `${testHash}~1`);
 
-      const updateCall = rebaseService.calls.find(c => c.method === 'updateRebasePlan');
+      const updateCall = rebaseService.calls.find((c) => c.method === 'updateRebasePlan');
       assert.ok(updateCall, 'updateRebasePlan should have been called');
-      const plan = updateCall!.args[1] as any[];
+      const plan = updateCall.args[1] as any[];
       const targetEntry = plan.find((p: any) => p.hash === testHash);
       assert.ok(targetEntry, 'Plan should contain the target commit');
       assert.strictEqual(targetEntry.action, 'reword');
@@ -1053,7 +1118,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('editCommitMessage', [testHash]);
 
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(!startCall, 'startInteractiveRebase should NOT have been called when user cancels');
       assert.strictEqual(provider.refreshCallCount, 0);
     });
@@ -1064,7 +1129,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
-        startInteractiveRebase: async () => { throw new Error('rebase failed'); },
+        startInteractiveRebase: async () => {
+          throw new Error('rebase failed');
+        },
       } as any);
       const provider = createMockProvider();
       const gitCli = createMockGitCli({
@@ -1107,15 +1174,15 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       await commands._handleAction('editCommitMessage', [testHash]);
 
       // Should NOT call status or stash — HEAD amend skips all that
-      const statusCall = execCalls.find(c => c[0] === 'status');
+      const statusCall = execCalls.find((c) => c[0] === 'status');
       assert.ok(!statusCall, 'should not check status for HEAD amend');
-      const stashCall = execCalls.find(c => c[0] === 'stash');
+      const stashCall = execCalls.find((c) => c[0] === 'stash');
       assert.ok(!stashCall, 'should not stash for HEAD amend');
 
       // Should amend
-      const amendCall = execCalls.find(c => c[0] === 'commit' && c.includes('--amend'));
+      const amendCall = execCalls.find((c) => c[0] === 'commit' && c.includes('--amend'));
       assert.ok(amendCall, 'should call git commit --amend');
-      assert.ok(amendCall!.includes('amended msg'));
+      assert.ok(amendCall.includes('amended msg'));
       assert.strictEqual(messages.info.length, 1);
       assert.strictEqual(provider.refreshCallCount, 1);
     });
@@ -1142,7 +1209,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('editCommitMessage', [testHash]);
 
-      const amendCall = execCalls.find(c => c[0] === 'commit' && c.includes('--amend'));
+      const amendCall = execCalls.find((c) => c[0] === 'commit' && c.includes('--amend'));
       assert.ok(amendCall, 'should amend even with unmerged files');
       assert.strictEqual(messages.info.length, 1);
     });
@@ -1172,7 +1239,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('unmerged'));
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(!startCall, 'rebase should NOT start with unmerged files');
     });
 
@@ -1201,9 +1268,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('editCommitMessage', [testHash]);
 
-      const stashCall = execCalls.find(c => c[0] === 'stash');
+      const stashCall = execCalls.find((c) => c[0] === 'stash');
       assert.ok(!stashCall, 'should not stash when working tree is clean');
-      const startCall = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(startCall, 'rebase should proceed');
     });
   });
@@ -1219,9 +1286,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('mergeIntoCurrent', [testHash]);
 
-      const call = gitService.calls.find(c => c.method === 'mergeBranch');
+      const call = gitService.calls.find((c) => c.method === 'mergeBranch');
       assert.ok(call, 'mergeBranch should have been called');
-      assert.strictEqual(call!.args[1], testHash);
+      assert.strictEqual(call.args[1], testHash);
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
@@ -1229,7 +1296,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        mergeBranch: async () => ({ success: false, conflicts: ['file1.ts', 'file2.ts', 'file3.ts'] }),
+        mergeBranch: async () => ({
+          success: false,
+          conflicts: ['file1.ts', 'file2.ts', 'file3.ts'],
+        }),
       } as any);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -1245,7 +1315,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
-        mergeBranch: async () => { throw new Error('merge failed'); },
+        mergeBranch: async () => {
+          throw new Error('merge failed');
+        },
       } as any);
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
@@ -1271,9 +1343,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('interactiveRebase', [testHash]);
 
-      const call = rebaseService.calls.find(c => c.method === 'startInteractiveRebase');
+      const call = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
       assert.ok(call, 'startInteractiveRebase should have been called');
-      assert.strictEqual(call!.args[1], testHash);
+      assert.strictEqual(call.args[1], testHash);
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
@@ -1282,7 +1354,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
-        startInteractiveRebase: async () => { throw new Error('rebase failed'); },
+        startInteractiveRebase: async () => {
+          throw new Error('rebase failed');
+        },
       } as any);
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);

@@ -35,12 +35,9 @@ interface ExecutedCommand {
 
 class MockGitCli {
   public executedCommands: ExecutedCommand[] = [];
-  public mockResults: Map<string, { exitCode: number; stdout: string; stderr: string }> =
+  public mockResults: Map<string, { exitCode: number; stdout: string; stderr: string }> = new Map();
+  public mockResultsByPrefix: Map<string, { exitCode: number; stdout: string; stderr: string }> =
     new Map();
-  public mockResultsByPrefix: Map<
-    string,
-    { exitCode: number; stdout: string; stderr: string }
-  > = new Map();
 
   get onCommandExecuted(): () => { dispose: () => void } {
     return (): { dispose: () => void } => ({ dispose: (): void => {} });
@@ -92,17 +89,13 @@ class MockGitCli {
 
   findCommand(argsPrefix: string[]): ExecutedCommand | undefined {
     return this.executedCommands.find(
-      (c) =>
-        c.args.length >= argsPrefix.length &&
-        argsPrefix.every((a, i) => c.args[i] === a)
+      (c) => c.args.length >= argsPrefix.length && argsPrefix.every((a, i) => c.args[i] === a)
     );
   }
 
   findCommands(argsPrefix: string[]): ExecutedCommand[] {
     return this.executedCommands.filter(
-      (c) =>
-        c.args.length >= argsPrefix.length &&
-        argsPrefix.every((a, i) => c.args[i] === a)
+      (c) => c.args.length >= argsPrefix.length && argsPrefix.every((a, i) => c.args[i] === a)
     );
   }
 }
@@ -134,7 +127,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       assert.strictEqual(result.success, true);
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp!.args, ['cherry-pick', 'abc1234']);
+      assert.deepStrictEqual(cp.args, ['cherry-pick', 'abc1234']);
     });
 
     it('empty hash list returns success without invoking git', async () => {
@@ -151,7 +144,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       await gitService.cherryPick(makeRepo(), ['abc1234'], { noCommit: true });
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp!.args, ['cherry-pick', '--no-commit', 'abc1234']);
+      assert.deepStrictEqual(cp.args, ['cherry-pick', '--no-commit', 'abc1234']);
     });
 
     it('does not invoke `git show --name-only` or reset/checkout for other files', async () => {
@@ -194,21 +187,21 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       // The cherry-pick itself.
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp!.args, ['cherry-pick', '--no-commit', 'abc1234']);
+      assert.deepStrictEqual(cp.args, ['cherry-pick', '--no-commit', 'abc1234']);
 
       // The diff discovery.
       const show = mockGitCli.findCommand(['show', '--name-only']);
       assert.ok(show);
-      assert.deepStrictEqual(show!.args, ['show', '--name-only', '--format=', 'abc1234']);
+      assert.deepStrictEqual(show.args, ['show', '--name-only', '--format=', 'abc1234']);
 
       // The reset + checkout for the NON-selected files.
       const reset = mockGitCli.findCommand(['reset', 'HEAD']);
       assert.ok(reset);
-      assert.deepStrictEqual(reset!.args, ['reset', 'HEAD', '--', 'b.ts', 'c.ts']);
+      assert.deepStrictEqual(reset.args, ['reset', 'HEAD', '--', 'b.ts', 'c.ts']);
 
       const checkout = mockGitCli.findCommand(['checkout', '--']);
       assert.ok(checkout);
-      assert.deepStrictEqual(checkout!.args, ['checkout', '--', 'b.ts', 'c.ts']);
+      assert.deepStrictEqual(checkout.args, ['checkout', '--', 'b.ts', 'c.ts']);
     });
 
     it('forces --no-commit even when caller did not request it', async () => {
@@ -224,7 +217,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       });
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp!.args, ['cherry-pick', '--no-commit', 'abc1234']);
+      assert.deepStrictEqual(cp.args, ['cherry-pick', '--no-commit', 'abc1234']);
     });
 
     it('empty files array short-circuits without invoking git', async () => {
@@ -265,7 +258,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       const reset = mockGitCli.findCommand(['reset', 'HEAD']);
       assert.ok(reset);
       // Order of b.ts / c.ts depends on Set iteration; assert set equality.
-      const dropped = reset!.args.slice(3); // skip 'reset', 'HEAD', '--'
+      const dropped = reset.args.slice(3); // skip 'reset', 'HEAD', '--'
       assert.deepStrictEqual([...dropped].sort(), ['b.ts', 'c.ts']);
     });
   });
@@ -290,9 +283,9 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       const result = await gitService.cherryPick(makeRepo(), ['abc1234']);
       assert.strictEqual(result.success, false);
       assert.ok(result.conflicts);
-      assert.strictEqual(result.conflicts!.length, 2);
-      assert.ok(result.conflicts!.includes('src/foo.ts'));
-      assert.ok(result.conflicts!.includes('src/bar.ts'));
+      assert.strictEqual(result.conflicts.length, 2);
+      assert.ok(result.conflicts.includes('src/foo.ts'));
+      assert.ok(result.conflicts.includes('src/bar.ts'));
     });
 
     it('conflict during --no-commit cherry-pick: same behaviour', async () => {
@@ -312,7 +305,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       });
       assert.strictEqual(result.success, false);
       assert.ok(result.conflicts);
-      assert.strictEqual(result.conflicts!.length, 1);
+      assert.strictEqual(result.conflicts.length, 1);
     });
 
     it('conflict in file-subset mode: does NOT run the post-cherry-pick reset/checkout', async () => {

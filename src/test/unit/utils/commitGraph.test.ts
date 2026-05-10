@@ -552,201 +552,201 @@ describe('Commit Graph Generation', () => {
 });
 
 describe('computeChildCountMap()', () => {
-    it('should return empty map for empty input', () => {
-      const result = computeChildCountMap([]);
-      assert.strictEqual(result.size, 0);
-    });
-
-    it('should return empty map for a single root commit (no parents)', () => {
-      const nodes: ICommitNode[] = [
-        {
-          commit: createMockCommit('abc123', []),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-      ];
-
-      const result = computeChildCountMap(nodes);
-      assert.strictEqual(result.size, 0);
-    });
-
-    it('should count 1 child for a parent in a linear history', () => {
-      const nodes: ICommitNode[] = [
-        {
-          commit: createMockCommit('commit2', ['commit1']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('commit1', []),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-      ];
-
-      const result = computeChildCountMap(nodes);
-      assert.strictEqual(result.get('commit1'), 1);
-    });
-
-    it('should count 2 children for a branch split point', () => {
-      // Two branches diverging from 'base'
-      const nodes: ICommitNode[] = [
-        {
-          commit: createMockCommit('branch-a', ['base']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('branch-b', ['base']),
-          graphColumn: 1,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('base', []),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-      ];
-
-      const result = computeChildCountMap(nodes);
-      assert.strictEqual(result.get('base'), 2);
-    });
-
-    it('should count children from merge commits correctly', () => {
-      // merge -> left, right -> base
-      const nodes: ICommitNode[] = [
-        {
-          commit: createMockCommit('merge', ['left', 'right']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('left', ['base']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('right', ['base']),
-          graphColumn: 1,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('base', []),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-      ];
-
-      const result = computeChildCountMap(nodes);
-      // 'left' and 'right' each have 1 child (the merge commit)
-      assert.strictEqual(result.get('left'), 1);
-      assert.strictEqual(result.get('right'), 1);
-      // 'base' has 2 children (left and right)
-      assert.strictEqual(result.get('base'), 2);
-    });
-
-    it('should count parents not in the graph', () => {
-      const nodes: ICommitNode[] = [
-        {
-          commit: createMockCommit('commit1', ['external-parent']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-      ];
-
-      const result = computeChildCountMap(nodes);
-      assert.strictEqual(result.get('external-parent'), 1);
-    });
+  it('should return empty map for empty input', () => {
+    const result = computeChildCountMap([]);
+    assert.strictEqual(result.size, 0);
   });
 
-  describe('isBranchSplit()', () => {
-    it('should return false for a commit not in the child count map', () => {
-      const childCountMap = new Map<string, number>();
-      assert.strictEqual(isBranchSplit('unknown', childCountMap), false);
-    });
+  it('should return empty map for a single root commit (no parents)', () => {
+    const nodes: ICommitNode[] = [
+      {
+        commit: createMockCommit('abc123', []),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ];
 
-    it('should return false for a commit with 1 child', () => {
-      const childCountMap = new Map<string, number>([['commit1', 1]]);
-      assert.strictEqual(isBranchSplit('commit1', childCountMap), false);
-    });
-
-    it('should return true for a commit with 2 children', () => {
-      const childCountMap = new Map<string, number>([['base', 2]]);
-      assert.strictEqual(isBranchSplit('base', childCountMap), true);
-    });
-
-    it('should return true for a commit with 3 children', () => {
-      const childCountMap = new Map<string, number>([['base', 3]]);
-      assert.strictEqual(isBranchSplit('base', childCountMap), true);
-    });
-
-    it('should return false for a commit with 0 children', () => {
-      const childCountMap = new Map<string, number>([['tip', 0]]);
-      assert.strictEqual(isBranchSplit('tip', childCountMap), false);
-    });
-
-    it('should work correctly with a real graph topology', () => {
-      // Build a graph with a branch split at 'base'
-      const nodes: ICommitNode[] = [
-        {
-          commit: createMockCommit('branch-a', ['base']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('branch-b', ['base']),
-          graphColumn: 1,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('base', ['root']),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-        {
-          commit: createMockCommit('root', []),
-          graphColumn: 0,
-          graphLines: [],
-          branches: [],
-          tags: [],
-        },
-      ];
-
-      const childCountMap = computeChildCountMap(nodes);
-      assert.strictEqual(isBranchSplit('base', childCountMap), true);
-      assert.strictEqual(isBranchSplit('root', childCountMap), false);
-      assert.strictEqual(isBranchSplit('branch-a', childCountMap), false);
-      assert.strictEqual(isBranchSplit('branch-b', childCountMap), false);
-    });
+    const result = computeChildCountMap(nodes);
+    assert.strictEqual(result.size, 0);
   });
+
+  it('should count 1 child for a parent in a linear history', () => {
+    const nodes: ICommitNode[] = [
+      {
+        commit: createMockCommit('commit2', ['commit1']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('commit1', []),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ];
+
+    const result = computeChildCountMap(nodes);
+    assert.strictEqual(result.get('commit1'), 1);
+  });
+
+  it('should count 2 children for a branch split point', () => {
+    // Two branches diverging from 'base'
+    const nodes: ICommitNode[] = [
+      {
+        commit: createMockCommit('branch-a', ['base']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('branch-b', ['base']),
+        graphColumn: 1,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('base', []),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ];
+
+    const result = computeChildCountMap(nodes);
+    assert.strictEqual(result.get('base'), 2);
+  });
+
+  it('should count children from merge commits correctly', () => {
+    // merge -> left, right -> base
+    const nodes: ICommitNode[] = [
+      {
+        commit: createMockCommit('merge', ['left', 'right']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('left', ['base']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('right', ['base']),
+        graphColumn: 1,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('base', []),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ];
+
+    const result = computeChildCountMap(nodes);
+    // 'left' and 'right' each have 1 child (the merge commit)
+    assert.strictEqual(result.get('left'), 1);
+    assert.strictEqual(result.get('right'), 1);
+    // 'base' has 2 children (left and right)
+    assert.strictEqual(result.get('base'), 2);
+  });
+
+  it('should count parents not in the graph', () => {
+    const nodes: ICommitNode[] = [
+      {
+        commit: createMockCommit('commit1', ['external-parent']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ];
+
+    const result = computeChildCountMap(nodes);
+    assert.strictEqual(result.get('external-parent'), 1);
+  });
+});
+
+describe('isBranchSplit()', () => {
+  it('should return false for a commit not in the child count map', () => {
+    const childCountMap = new Map<string, number>();
+    assert.strictEqual(isBranchSplit('unknown', childCountMap), false);
+  });
+
+  it('should return false for a commit with 1 child', () => {
+    const childCountMap = new Map<string, number>([['commit1', 1]]);
+    assert.strictEqual(isBranchSplit('commit1', childCountMap), false);
+  });
+
+  it('should return true for a commit with 2 children', () => {
+    const childCountMap = new Map<string, number>([['base', 2]]);
+    assert.strictEqual(isBranchSplit('base', childCountMap), true);
+  });
+
+  it('should return true for a commit with 3 children', () => {
+    const childCountMap = new Map<string, number>([['base', 3]]);
+    assert.strictEqual(isBranchSplit('base', childCountMap), true);
+  });
+
+  it('should return false for a commit with 0 children', () => {
+    const childCountMap = new Map<string, number>([['tip', 0]]);
+    assert.strictEqual(isBranchSplit('tip', childCountMap), false);
+  });
+
+  it('should work correctly with a real graph topology', () => {
+    // Build a graph with a branch split at 'base'
+    const nodes: ICommitNode[] = [
+      {
+        commit: createMockCommit('branch-a', ['base']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('branch-b', ['base']),
+        graphColumn: 1,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('base', ['root']),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+      {
+        commit: createMockCommit('root', []),
+        graphColumn: 0,
+        graphLines: [],
+        branches: [],
+        tags: [],
+      },
+    ];
+
+    const childCountMap = computeChildCountMap(nodes);
+    assert.strictEqual(isBranchSplit('base', childCountMap), true);
+    assert.strictEqual(isBranchSplit('root', childCountMap), false);
+    assert.strictEqual(isBranchSplit('branch-a', childCountMap), false);
+    assert.strictEqual(isBranchSplit('branch-b', childCountMap), false);
+  });
+});
 
 describe('Commit Graph - Complex Scenarios', () => {
   describe('Multiple parallel branches', () => {

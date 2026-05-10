@@ -30,8 +30,14 @@ interface CliExec {
 
 interface MockCli {
   executed: CliExec[];
-  setResponse(match: RegExp | string, response: { exitCode: number; stdout: string; stderr: string }): void;
-  exec: (args: string[], options: { cwd?: string; throwOnError?: boolean }) => Promise<{
+  setResponse(
+    match: RegExp | string,
+    response: { exitCode: number; stdout: string; stderr: string }
+  ): void;
+  exec: (
+    args: string[],
+    options: { cwd?: string; throwOnError?: boolean }
+  ) => Promise<{
     exitCode: number;
     stdout: string;
     stderr: string;
@@ -42,7 +48,10 @@ interface MockCli {
 }
 
 function makeMockCli(): MockCli {
-  const responses: Array<{ match: RegExp | string; response: { exitCode: number; stdout: string; stderr: string } }> = [];
+  const responses: Array<{
+    match: RegExp | string;
+    response: { exitCode: number; stdout: string; stderr: string };
+  }> = [];
   const executed: CliExec[] = [];
   return {
     executed,
@@ -132,7 +141,9 @@ function makeGitService(
     getLog: async () => [],
     getCommit: async (r: IRepository, h: string) => {
       calls.push(`getCommit:${h}`);
-      if (overrides.getCommit) return overrides.getCommit(r, h) as unknown as ReturnType<IGitService['getCommit']>;
+      if (overrides.getCommit) {
+        return overrides.getCommit(r, h) as unknown as ReturnType<IGitService['getCommit']>;
+      }
       return {
         hash: h,
         shortHash: h.substring(0, 8),
@@ -148,7 +159,9 @@ function makeGitService(
     getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
     getCommitDiff: async (r: IRepository, h: string) => {
       calls.push(`getCommitDiff:${h}`);
-      if (overrides.getCommitDiff) return overrides.getCommitDiff(r, h);
+      if (overrides.getCommitDiff) {
+        return overrides.getCommitDiff(r, h);
+      }
       return [];
     },
     getMultiCommitDiff: async () => [],
@@ -158,7 +171,9 @@ function makeGitService(
     cherryPickContinue: async () => ({ success: true }),
     revert: async (_r: IRepository, hashes: string[]) => {
       calls.push(`revert:${hashes.join(',')}`);
-      if (overrides.revertThrows) throw overrides.revertThrows;
+      if (overrides.revertThrows) {
+        throw overrides.revertThrows;
+      }
       return overrides.revertResult ?? { success: true };
     },
     revertAbort: async () => {
@@ -280,7 +295,9 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
     const repo = makeRepo();
     const gitService = makeGitService(repo, {
       // Only one changed file → no picker, straight to revert.
-      getCommitDiff: async () => [{ path: 'single.ts', status: 'modified', hunks: [], binary: false }],
+      getCommitDiff: async () => [
+        { path: 'single.ts', status: 'modified', hunks: [], binary: false },
+      ],
     });
     const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
 
@@ -347,7 +364,12 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
       ],
     });
     const cli = makeMockCli();
-    const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider(), cli as any);
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebase(),
+      makeProvider(),
+      cli as any
+    );
 
     // User picks only a.ts; b.ts and c.ts are deselected.
     const { trackers, restore } = installWindowStubs((items) => [items[0]]);
@@ -383,7 +405,12 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
       ],
     });
     const cli = makeMockCli();
-    const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider(), cli as any);
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebase(),
+      makeProvider(),
+      cli as any
+    );
 
     const { trackers, restore } = installWindowStubs(() => []);
     try {
@@ -410,7 +437,12 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
       stdout: '',
       stderr: 'revert -n failed',
     });
-    const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider(), cli as any);
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebase(),
+      makeProvider(),
+      cli as any
+    );
 
     const { trackers, restore } = installWindowStubs((items) => [items[0]]);
     try {
@@ -448,11 +480,16 @@ describe('CommitContextMenuCommands — T2-04 Drop Selected Changes', () => {
     try {
       await commands.dropSelectedChangesFromCommit(testHash);
       assert.strictEqual(trackers.error.length, 1);
-      assert.ok(trackers.error[0].includes('not HEAD') || trackers.error[0].includes('most recent commit'));
-      // No destructive CLI ops — only the safety queries.
-      const destructive = cli.executed.map((e) => e.args.join(' ')).filter((c) =>
-        c.startsWith('reset --soft') || c.startsWith('commit ') || c === `revert ${testHash}`
+      assert.ok(
+        trackers.error[0].includes('not HEAD') || trackers.error[0].includes('most recent commit')
       );
+      // No destructive CLI ops — only the safety queries.
+      const destructive = cli.executed
+        .map((e) => e.args.join(' '))
+        .filter(
+          (c) =>
+            c.startsWith('reset --soft') || c.startsWith('commit ') || c === `revert ${testHash}`
+        );
       assert.strictEqual(destructive.length, 0);
     } finally {
       restore();
@@ -558,12 +595,20 @@ describe('CommitContextMenuCommands — T2-04 Drop Selected Changes', () => {
     try {
       await commands.dropSelectedChangesFromCommit(testHash);
       const joined = cli.executed.map((e) => e.args.join(' '));
-      assert.ok(joined.some((c) => c === 'reset --soft HEAD^'), `missing reset --soft, got: ${joined.join(' | ')}`);
       assert.ok(
-        joined.some((c) => c.startsWith('checkout HEAD -- ') && c.includes('a.ts') && c.includes('b.ts')),
+        joined.some((c) => c === 'reset --soft HEAD^'),
+        `missing reset --soft, got: ${joined.join(' | ')}`
+      );
+      assert.ok(
+        joined.some(
+          (c) => c.startsWith('checkout HEAD -- ') && c.includes('a.ts') && c.includes('b.ts')
+        ),
         `missing checkout HEAD -- a.ts b.ts, got: ${joined.join(' | ')}`
       );
-      assert.ok(joined.some((c) => c === `commit -C ${testHash}`), `missing commit -C <hash>, got: ${joined.join(' | ')}`);
+      assert.ok(
+        joined.some((c) => c === `commit -C ${testHash}`),
+        `missing commit -C <hash>, got: ${joined.join(' | ')}`
+      );
       assert.ok(trackers.info.some((m) => m.includes('Dropped 2 file(s)')));
     } finally {
       restore();
@@ -750,8 +795,14 @@ describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () =
       // Every destructive CLI op must have been invoked with repoB's cwd,
       // not repoA's. Before the H-3 fix this would have been repoA.
       const cwds = new Set(cli.executed.map((e) => e.options.cwd));
-      assert.ok(cwds.has(repoB.rootUri.fsPath), `no CLI call in repoB's cwd; saw ${[...cwds].join(', ')}`);
-      assert.ok(!cwds.has(repoA.rootUri.fsPath), `regression: CLI ran in repoA's cwd; saw ${[...cwds].join(', ')}`);
+      assert.ok(
+        cwds.has(repoB.rootUri.fsPath),
+        `no CLI call in repoB's cwd; saw ${[...cwds].join(', ')}`
+      );
+      assert.ok(
+        !cwds.has(repoA.rootUri.fsPath),
+        `regression: CLI ran in repoA's cwd; saw ${[...cwds].join(', ')}`
+      );
 
       // Also assert that getCommitDiff was called on repoB (so the webview
       // picker showed the right diff).

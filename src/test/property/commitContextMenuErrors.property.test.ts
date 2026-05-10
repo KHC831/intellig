@@ -259,7 +259,9 @@ function createErrorThrowingGitCli(errorMsg: string): any {
     isRepository: async () => true,
     getRepositoryRoot: async () => '/test-repo',
     dispose: () => {},
-    get gitPath() { return 'git'; },
+    get gitPath() {
+      return 'git';
+    },
     set gitPath(_v: string) {},
     onCommandExecuted: (() => ({ dispose: () => {} })) as any,
   };

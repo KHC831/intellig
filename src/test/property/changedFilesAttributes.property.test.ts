@@ -32,12 +32,14 @@ describe('Changed Files Count and Attributes Property Tests', () => {
    * Arbitrary generator for safe strings (alphanumeric + basic punctuation).
    */
   const safeStringArb = (minLen: number, maxLen: number): fc.Arbitrary<string> =>
-    fc.stringOf(
-      fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-      ),
-      { minLength: minLen, maxLength: maxLen }
-    ).filter((s) => s.trim().length > 0);
+    fc
+      .stringOf(
+        fc.constantFrom(
+          ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+        ),
+        { minLength: minLen, maxLength: maxLen }
+      )
+      .filter((s) => s.trim().length > 0);
 
   /**
    * Arbitrary generator for 40-character hex commit hashes.
@@ -60,12 +62,10 @@ describe('Changed Files Count and Attributes Property Tests', () => {
    * Arbitrary generator for safe file path segments (alphanumeric + - + _ + .).
    */
   const filePathSegmentArb: fc.Arbitrary<string> = fc
-    .stringOf(
-      fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyz0123456789-_'.split('')
-      ),
-      { minLength: 1, maxLength: 15 }
-    )
+    .stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-_'.split('')), {
+      minLength: 1,
+      maxLength: 15,
+    })
     .filter((s) => s.trim().length > 0);
 
   /**
@@ -92,7 +92,8 @@ describe('Changed Files Count and Attributes Property Tests', () => {
    * Arbitrary generator for arrays of changed files with unique paths.
    */
   const uniqueChangedFilesArb = (minLen: number, maxLen: number): fc.Arbitrary<IChangedFile[]> =>
-    fc.array(changedFileArb, { minLength: maxLen + 5, maxLength: maxLen + 10 })
+    fc
+      .array(changedFileArb, { minLength: maxLen + 5, maxLength: maxLen + 10 })
       .map((files) => {
         const seen = new Set<string>();
         const unique: IChangedFile[] = [];
@@ -101,7 +102,9 @@ describe('Changed Files Count and Attributes Property Tests', () => {
             seen.add(f.path);
             unique.push(f);
           }
-          if (unique.length >= maxLen) break;
+          if (unique.length >= maxLen) {
+            break;
+          }
         }
         return unique;
       })

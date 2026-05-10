@@ -64,13 +64,17 @@ describe('T3-11 property — detectIndentablePrefixes', () => {
         const counts = new Map<string, number>();
         for (const name of names) {
           const slash = name.indexOf('/');
-          if (slash <= 0) continue;
+          if (slash <= 0) {
+            continue;
+          }
           const prefix = name.substring(0, slash + 1);
           counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
         }
         const expected = new Set<string>();
         for (const [prefix, count] of counts) {
-          if (count >= AUTO_INDENT_MIN_GROUP_SIZE) expected.add(prefix);
+          if (count >= AUTO_INDENT_MIN_GROUP_SIZE) {
+            expected.add(prefix);
+          }
         }
         // Equality: both sets must contain the same prefixes.
         assert.strictEqual(

@@ -9,14 +9,7 @@ import { IRepository } from './IGitService';
  */
 export interface IConflictOpContext {
   /** Which git operation produced these conflicts. */
-  operation:
-    | 'merge'
-    | 'rebase'
-    | 'cherryPick'
-    | 'revert'
-    | 'unshelve'
-    | 'unstash'
-    | 'applyPatch';
+  operation: 'merge' | 'rebase' | 'cherryPick' | 'revert' | 'unshelve' | 'unstash' | 'applyPatch';
   /** Optional human-readable target (branch, tag, shelf name…) shown in the title. */
   target?: string;
   /** Whether the `Abort {Op}` button should be available. */

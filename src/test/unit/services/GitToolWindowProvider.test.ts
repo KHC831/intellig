@@ -754,7 +754,10 @@ describe('Initial Data Request and No-Repository State', () => {
       provider.resolveWebviewView(
         mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
         {} as Parameters<typeof provider.resolveWebviewView>[1],
-        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => {} }),
+        } as Parameters<typeof provider.resolveWebviewView>[2]
       );
     });
 
@@ -768,7 +771,10 @@ describe('Initial Data Request and No-Repository State', () => {
       provider.resolveWebviewView(
         mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
         {} as Parameters<typeof provider.resolveWebviewView>[1],
-        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => {} }),
+        } as Parameters<typeof provider.resolveWebviewView>[2]
       );
 
       assert.strictEqual(fireCount, 1);
@@ -786,7 +792,10 @@ describe('Initial Data Request and No-Repository State', () => {
       provider.resolveWebviewView(
         mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
         {} as Parameters<typeof provider.resolveWebviewView>[1],
-        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => {} }),
+        } as Parameters<typeof provider.resolveWebviewView>[2]
       );
 
       assert.strictEqual(htmlWasSetWhenEventFired, true);
@@ -870,7 +879,10 @@ describe('Initial Data Request and No-Repository State', () => {
       provider.resolveWebviewView(
         mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
         {} as Parameters<typeof provider.resolveWebviewView>[1],
-        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => {} }),
+        } as Parameters<typeof provider.resolveWebviewView>[2]
       );
 
       assert.strictEqual(mockView.webview.options.enableScripts, true);
@@ -881,7 +893,10 @@ describe('Initial Data Request and No-Repository State', () => {
       provider.resolveWebviewView(
         mockView as unknown as Parameters<typeof provider.resolveWebviewView>[0],
         {} as Parameters<typeof provider.resolveWebviewView>[1],
-        { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as Parameters<typeof provider.resolveWebviewView>[2]
+        {
+          isCancellationRequested: false,
+          onCancellationRequested: () => ({ dispose: () => {} }),
+        } as Parameters<typeof provider.resolveWebviewView>[2]
       );
 
       assert.ok(mockView.webview.html.length > 0, 'Webview HTML should be set');
@@ -926,11 +941,13 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo-b'),
       ];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const selected = provider.getSelectedRepository();
       assert.ok(selected, 'Should have a selected repository');
-      assert.strictEqual(selected!.rootUri.fsPath, '/workspace/repo-a');
+      assert.strictEqual(selected.rootUri.fsPath, '/workspace/repo-a');
     });
 
     it('should default to the first repository (index 0)', () => {
@@ -940,7 +957,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/gamma'),
       ];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const selected = provider.getSelectedRepository();
       assert.strictEqual(selected!.rootUri.fsPath, '/workspace/alpha');
@@ -954,7 +973,9 @@ describe('Multi-Repository Selection State', () => {
         done();
       });
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
     });
 
     it('should fall back to first repository when selected index becomes out of bounds', () => {
@@ -964,18 +985,21 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/c'),
       ];
 
-      provider.setAvailableRepositories(repos3 as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos3 as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Simulate selecting the third repo (index 2)
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(2);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(2);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
 
       // Now update with only 2 repos — index 2 is out of bounds
-      const repos2 = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
-      provider.setAvailableRepositories(repos2 as Parameters<typeof provider.setAvailableRepositories>[0]);
+      const repos2 = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
+      provider.setAvailableRepositories(
+        repos2 as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Should fall back to first repository
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/a');
@@ -995,10 +1019,14 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/c'),
       ];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Select the second repo (index 1)
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
 
       // Update with 3 repos — index 1 is still valid
@@ -1007,7 +1035,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/y'),
         createMockRepository('/workspace/z'),
       ];
-      provider.setAvailableRepositories(updatedRepos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        updatedRepos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Index 1 should still be selected
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/y');
@@ -1026,22 +1056,25 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/second'),
       ];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const selected = provider.getSelectedRepository();
       assert.strictEqual(selected!.rootUri.fsPath, '/workspace/first');
     });
 
     it('should return the selected repository after selection change', () => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Select the second repo
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
 
       const selected = provider.getSelectedRepository();
       assert.strictEqual(selected!.rootUri.fsPath, '/workspace/b');
@@ -1056,36 +1089,40 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/c'),
       ];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(2);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(2);
 
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
     });
 
     it('should fire onDidChangeState event', (done) => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const disposable = provider.onDidChangeState(() => {
         disposable.dispose();
         done();
       });
 
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
     });
 
     it('should fire onDidSelectRepository event with the selected repository', (done) => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const disposable = provider.onDidSelectRepository((repo) => {
         assert.strictEqual(repo.rootUri.fsPath, '/workspace/b');
@@ -1093,31 +1130,35 @@ describe('Multi-Repository Selection State', () => {
         done();
       });
 
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
     });
 
     it('should clamp negative index to 0', () => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(-1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(-1);
 
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/a');
     });
 
     it('should clamp index exceeding array length to last valid index', () => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(99);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(99);
 
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
     });
@@ -1128,7 +1169,9 @@ describe('Multi-Repository Selection State', () => {
         eventFired = true;
       });
 
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(0);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(0);
 
       assert.strictEqual(eventFired, false);
       assert.strictEqual(provider.getSelectedRepository(), undefined);
@@ -1139,15 +1182,18 @@ describe('Multi-Repository Selection State', () => {
 
   describe('selectRepository webview message handling', () => {
     it('should handle selectRepository message via _handleWebviewMessage', () => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Simulate the webview message
-      (provider as unknown as { _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void })._handleWebviewMessage({
+      (
+        provider as unknown as {
+          _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void;
+        }
+      )._handleWebviewMessage({
         type: 'selectRepository',
         repositoryIndex: 1,
       });
@@ -1156,12 +1202,11 @@ describe('Multi-Repository Selection State', () => {
     });
 
     it('should fire onDidSelectRepository when selectRepository message is received', (done) => {
-      const repos = [
-        createMockRepository('/workspace/a'),
-        createMockRepository('/workspace/b'),
-      ];
+      const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const disposable = provider.onDidSelectRepository((repo) => {
         assert.strictEqual(repo.rootUri.fsPath, '/workspace/b');
@@ -1169,7 +1214,11 @@ describe('Multi-Repository Selection State', () => {
         done();
       });
 
-      (provider as unknown as { _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void })._handleWebviewMessage({
+      (
+        provider as unknown as {
+          _handleWebviewMessage: (msg: { type: string; repositoryIndex: number }) => void;
+        }
+      )._handleWebviewMessage({
         type: 'selectRepository',
         repositoryIndex: 1,
       });
@@ -1184,14 +1233,20 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/c'),
       ];
 
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Select index 1
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
 
       // Re-set same repos (simulating webview reload within same session)
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Index should still be 1
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
@@ -1207,7 +1262,9 @@ describe('Multi-Repository Selection State', () => {
 
     it('should return empty string when only one repository is available', () => {
       const repos = [createMockRepository('/workspace/my-repo')];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const html = provider._getRepositorySelectorHtml();
       assert.strictEqual(html, '');
@@ -1218,7 +1275,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const html = provider._getRepositorySelectorHtml();
       assert.ok(html.includes('<select'), 'Should contain a <select> element');
@@ -1232,7 +1291,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/backend'),
         createMockRepository('/home/user/projects/shared-lib'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const html = provider._getRepositorySelectorHtml();
       assert.ok(html.includes('frontend'), 'Should display folder name "frontend"');
@@ -1245,7 +1306,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const html = provider._getRepositorySelectorHtml();
       assert.ok(html.includes('value="0"'), 'Should have option with value 0');
@@ -1258,16 +1321,23 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo-b'),
         createMockRepository('/workspace/repo-c'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Select the second repo
-      (provider as unknown as { _handleRepositorySelection: (index: number) => void })._handleRepositorySelection(1);
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
 
       const html = provider._getRepositorySelectorHtml();
       // The option with value="1" should have the selected attribute
       assert.ok(html.includes('value="1" selected'), 'Second option should be marked as selected');
       // The option with value="0" should NOT have selected
-      assert.ok(!html.includes('value="0" selected'), 'First option should not be marked as selected');
+      assert.ok(
+        !html.includes('value="0" selected'),
+        'First option should not be marked as selected'
+      );
     });
 
     it('should include selectRepository message type in onchange handler', () => {
@@ -1275,11 +1345,19 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const html = provider._getRepositorySelectorHtml();
-      assert.ok(html.includes('selectRepository'), 'Should reference selectRepository message type');
-      assert.ok(html.includes('repositoryIndex'), 'Should reference repositoryIndex in the message');
+      assert.ok(
+        html.includes('selectRepository'),
+        'Should reference selectRepository message type'
+      );
+      assert.ok(
+        html.includes('repositoryIndex'),
+        'Should reference repositoryIndex in the message'
+      );
     });
 
     it('should escape HTML special characters in folder names', () => {
@@ -1287,7 +1365,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo<em>test'),
         createMockRepository('/workspace/normal-repo'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const html = provider._getRepositorySelectorHtml();
       assert.ok(!html.includes('<em>'), 'Should escape HTML tags in folder names');
@@ -1301,7 +1381,9 @@ describe('Multi-Repository Selection State', () => {
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
       ];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       // Need commits to render the graph panel (not the empty state)
       const commits = [
@@ -1318,17 +1400,20 @@ describe('Multi-Repository Selection State', () => {
       ];
       provider.updateLogState(commits);
 
-      const graphHtml = provider._getGraphPanelHtml(
-        provider.getExtendedLogState().commitNodes
+      const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
+      assert.ok(
+        graphHtml.includes('repository-selector'),
+        'Graph panel should include repository selector'
       );
-      assert.ok(graphHtml.includes('repository-selector'), 'Graph panel should include repository selector');
       assert.ok(graphHtml.includes('repo-a'), 'Should show repo-a folder name');
       assert.ok(graphHtml.includes('repo-b'), 'Should show repo-b folder name');
     });
 
     it('should not include repository selector in graph panel when only one repo exists', () => {
       const repos = [createMockRepository('/workspace/only-repo')];
-      provider.setAvailableRepositories(repos as Parameters<typeof provider.setAvailableRepositories>[0]);
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
 
       const commits = [
         {
@@ -1344,21 +1429,24 @@ describe('Multi-Repository Selection State', () => {
       ];
       provider.updateLogState(commits);
 
-      const graphHtml = provider._getGraphPanelHtml(
-        provider.getExtendedLogState().commitNodes
+      const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
+      assert.ok(
+        !graphHtml.includes('repository-selector'),
+        'Graph panel should not include repository selector'
       );
-      assert.ok(!graphHtml.includes('repository-selector'), 'Graph panel should not include repository selector');
     });
 
     it('should not include repository selector in graph panel when no repos exist', () => {
       provider.setAvailableRepositories([]);
 
       const graphHtml = provider._getGraphPanelHtml([]);
-      assert.ok(!graphHtml.includes('repository-selector'), 'Graph panel should not include repository selector');
+      assert.ok(
+        !graphHtml.includes('repository-selector'),
+        'Graph panel should not include repository selector'
+      );
     });
   });
 });
-
 
 describe('_getBranchLabelsHtml', () => {
   let provider: GitToolWindowProvider;
@@ -1534,9 +1622,7 @@ describe('_getBranchLabelsHtml', () => {
 
       provider.updateLogState(commits, branchMap);
 
-      const graphHtml = provider._getGraphPanelHtml(
-        provider.getExtendedLogState().commitNodes
-      );
+      const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
       assert.ok(graphHtml.includes('branch-label-local'), 'Should include local branch label');
       assert.ok(graphHtml.includes('branch-label-remote'), 'Should include remote branch label');
     });
@@ -1557,11 +1643,12 @@ describe('_getBranchLabelsHtml', () => {
 
       provider.updateLogState(commits);
 
-      const graphHtml = provider._getGraphPanelHtml(
-        provider.getExtendedLogState().commitNodes
-      );
+      const graphHtml = provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes);
       assert.ok(!graphHtml.includes('branch-label-local'), 'Should not include local branch label');
-      assert.ok(!graphHtml.includes('branch-label-remote'), 'Should not include remote branch label');
+      assert.ok(
+        !graphHtml.includes('branch-label-remote'),
+        'Should not include remote branch label'
+      );
     });
   });
 
@@ -1581,7 +1668,10 @@ describe('_getBranchLabelsHtml', () => {
         []
       );
 
-      assert.ok(html.includes('.branch-label-local'), 'Should include .branch-label-local CSS class');
+      assert.ok(
+        html.includes('.branch-label-local'),
+        'Should include .branch-label-local CSS class'
+      );
       assert.ok(html.includes('background: #2d5a1e'), 'Local label should have green background');
       assert.ok(html.includes('color: #a5d6a7'), 'Local label should have light green text');
     });
@@ -1601,7 +1691,10 @@ describe('_getBranchLabelsHtml', () => {
         []
       );
 
-      assert.ok(html.includes('.branch-label-remote'), 'Should include .branch-label-remote CSS class');
+      assert.ok(
+        html.includes('.branch-label-remote'),
+        'Should include .branch-label-remote CSS class'
+      );
       assert.ok(html.includes('background: #1a3a5c'), 'Remote label should have blue background');
       assert.ok(html.includes('color: #90caf9'), 'Remote label should have light blue text');
     });

@@ -495,7 +495,9 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
           rebaseCommitsArb.filter((c) => {
             // Ensure first 2 commits have distinct messages that are not substrings of each other
             // so fixup assertions are meaningful
-            if (c.length < 2) { return false; }
+            if (c.length < 2) {
+              return false;
+            }
             const m0 = c[0].message;
             const m1 = c[1].message;
             return m0 !== m1 && !m0.includes(m1) && !m1.includes(m0);
@@ -752,13 +754,19 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
       fc.assert(
         fc.property(
           rebaseCommitsArb.filter((c) => {
-            if (c.length < 3) { return false; }
+            if (c.length < 3) {
+              return false;
+            }
             // Ensure first 3 commits have distinct messages that are not substrings of each other
-            const msgs = c.slice(0, 3).map(x => x.message);
-            if (new Set(msgs).size !== msgs.length) { return false; }
+            const msgs = c.slice(0, 3).map((x) => x.message);
+            if (new Set(msgs).size !== msgs.length) {
+              return false;
+            }
             for (let i = 0; i < msgs.length; i++) {
               for (let j = 0; j < msgs.length; j++) {
-                if (i !== j && msgs[i].includes(msgs[j])) { return false; }
+                if (i !== j && msgs[i].includes(msgs[j])) {
+                  return false;
+                }
               }
             }
             return true;
@@ -891,8 +899,9 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
             // since messageContains would find a match if the messages overlap.
             const fixupMsg = commits[2].message;
             const keptMessages = [commits[0].message, commits[1].message];
-            const fixupMsgIsDistinct =
-              !keptMessages.some((m) => m.includes(fixupMsg) || fixupMsg.includes(m));
+            const fixupMsgIsDistinct = !keptMessages.some(
+              (m) => m.includes(fixupMsg) || fixupMsg.includes(m)
+            );
             if (fixupMsgIsDistinct) {
               assert.ok(
                 !messageContains(combinedCommit.message, fixupMsg),
@@ -1101,13 +1110,25 @@ describe('Rebase Squash/Fixup Combination Property Tests', () => {
     it('TR-8 regression (synthetic): substring-collision in messages does not flake squash-order', () => {
       const rebaseService = new MockRebaseService();
       const commits = [
-        { hash: '0000000000000000000000000000000000000000', message: '% ', action: 'pick' as const },
+        {
+          hash: '0000000000000000000000000000000000000000',
+          message: '% ',
+          action: 'pick' as const,
+        },
         { hash: '0000000000000000000000000000000000000001', message: '%', action: 'pick' as const },
       ];
       const filePath = 'a.txt';
-      rebaseService.addCommit(commits[0].hash, commits[0].message, [{ path: filePath, content: ' ' }]);
-      rebaseService.addCommit(commits[1].hash, commits[1].message, [{ path: filePath, content: ' ' }]);
-      rebaseService.startInteractiveRebase('0000000000000000000000000000000000000000', 'a', commits);
+      rebaseService.addCommit(commits[0].hash, commits[0].message, [
+        { path: filePath, content: ' ' },
+      ]);
+      rebaseService.addCommit(commits[1].hash, commits[1].message, [
+        { path: filePath, content: ' ' },
+      ]);
+      rebaseService.startInteractiveRebase(
+        '0000000000000000000000000000000000000000',
+        'a',
+        commits
+      );
       rebaseService.updateRebasePlan([{ hash: commits[1].hash, action: 'squash' }]);
       rebaseService.executeRebase();
 

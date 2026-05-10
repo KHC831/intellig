@@ -29,7 +29,7 @@ describe('ext-host smoke — 4. toggle feature flag', function () {
   before(async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext);
-    await ext!.activate();
+    await ext.activate();
   });
 
   // Restore each flag's original (user-scope) value after every test so we

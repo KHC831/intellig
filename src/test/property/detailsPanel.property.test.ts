@@ -24,10 +24,10 @@ import { Uri } from '../mocks/vscode';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
@@ -35,35 +35,49 @@ function arbitraryFullHash(): fc.Arbitrary<string> {
  * The name must be non-empty after trimming.
  */
 function arbitraryAuthorName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-    ),
-    { minLength: 1, maxLength: 30 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+      ),
+      { minLength: 1, maxLength: 30 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
  * Generate a valid email address using safe characters.
  */
 function arbitraryEmail(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), { minLength: 1, maxLength: 10 }),
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 8 }),
-    fc.constantFrom('com', 'org', 'net', 'io')
-  ).map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
+  return fc
+    .tuple(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), {
+        minLength: 1,
+        maxLength: 8,
+      }),
+      fc.constantFrom('com', 'org', 'net', 'io')
+    )
+    .map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
 }
 
 /**
  * Generate a commit message using safe characters (no HTML special chars).
  */
 function arbitraryCommitMessage(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()[]{}#@$%^*+=~`/'.split('')
-    ),
-    { minLength: 1, maxLength: 100 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()[]{}#@$%^*+=~`/'.split(
+          ''
+        )
+      ),
+      { minLength: 1, maxLength: 100 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
@@ -72,7 +86,7 @@ function arbitraryCommitMessage(): fc.Arbitrary<string> {
 function arbitraryRecentDate(): fc.Arbitrary<Date> {
   const now = Date.now();
   const oneYearMs = 365 * 24 * 3600 * 1000;
-  return fc.integer({ min: 1000, max: oneYearMs }).map(ms => new Date(now - ms));
+  return fc.integer({ min: 1000, max: oneYearMs }).map((ms) => new Date(now - ms));
 }
 
 /**
@@ -80,7 +94,14 @@ function arbitraryRecentDate(): fc.Arbitrary<Date> {
  */
 function arbitraryFileStatus(): fc.Arbitrary<FileStatus> {
   return fc.constantFrom<FileStatus>(
-    'modified', 'added', 'deleted', 'renamed', 'copied', 'untracked', 'ignored', 'conflicted'
+    'modified',
+    'added',
+    'deleted',
+    'renamed',
+    'copied',
+    'untracked',
+    'ignored',
+    'conflicted'
   );
 }
 
@@ -95,11 +116,9 @@ function arbitraryFilePath(): fc.Arbitrary<string> {
   );
   const extension = fc.constantFrom('.ts', '.js', '.json', '.md', '.css', '.html');
 
-  return fc.tuple(
-    fc.array(segment, { minLength: 1, maxLength: 3 }),
-    segment,
-    extension
-  ).map(([dirs, name, ext]) => dirs.join('/') + '/' + name + ext);
+  return fc
+    .tuple(fc.array(segment, { minLength: 1, maxLength: 3 }), segment, extension)
+    .map(([dirs, name, ext]) => dirs.join('/') + '/' + name + ext);
 }
 
 /**
@@ -116,17 +135,20 @@ function arbitraryChangedFile(): fc.Arbitrary<IChangedFile> {
  * Generate a non-empty list of changed files with unique paths.
  */
 function arbitraryChangedFiles(): fc.Arbitrary<IChangedFile[]> {
-  return fc.array(arbitraryChangedFile(), { minLength: 1, maxLength: 15 })
-    .map(files => {
+  return fc
+    .array(arbitraryChangedFile(), { minLength: 1, maxLength: 15 })
+    .map((files) => {
       // Deduplicate by path
       const seen = new Set<string>();
-      return files.filter(f => {
-        if (seen.has(f.path)) { return false; }
+      return files.filter((f) => {
+        if (seen.has(f.path)) {
+          return false;
+        }
         seen.add(f.path);
         return true;
       });
     })
-    .filter(files => files.length > 0);
+    .filter((files) => files.length > 0);
 }
 
 /**
@@ -194,63 +216,57 @@ describe('Feature: intellig-layout - Details Panel Property Tests', () => {
      */
     it('Feature: intellig-layout, Property 9: Details panel contains commit metadata and changed files — HTML contains full hash, author name, email, date, message, and all file paths with status indicators', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitDetails(),
-          (commitDetails) => {
-            const html = provider._getDetailsPanelHtml(commitDetails);
+        fc.property(arbitraryCommitDetails(), (commitDetails) => {
+          const html = provider._getDetailsPanelHtml(commitDetails);
 
-            // 1. Full commit hash must be present
+          // 1. Full commit hash must be present
+          assert.ok(
+            html.includes(commitDetails.hash),
+            `HTML should contain the full commit hash "${commitDetails.hash}"`
+          );
+
+          // 2. Author name must be present
+          assert.ok(
+            html.includes(commitDetails.author.name),
+            `HTML should contain the author name "${commitDetails.author.name}"`
+          );
+
+          // 3. Author email must be present
+          assert.ok(
+            html.includes(commitDetails.author.email),
+            `HTML should contain the author email "${commitDetails.author.email}"`
+          );
+
+          // 4. Commit date must be present (formatted via toLocaleString)
+          const dateStr = commitDetails.date.toLocaleString();
+          assert.ok(html.includes(dateStr), `HTML should contain the commit date "${dateStr}"`);
+
+          // 5. Commit message must be present
+          assert.ok(
+            html.includes(commitDetails.message),
+            `HTML should contain the commit message "${commitDetails.message}"`
+          );
+
+          // 6. Every changed file path must be present with its status indicator
+          for (const file of commitDetails.changedFiles) {
+            // The file path should appear in the HTML (in data-path attribute or display)
             assert.ok(
-              html.includes(commitDetails.hash),
-              `HTML should contain the full commit hash "${commitDetails.hash}"`
+              html.includes(file.path),
+              `HTML should contain the changed file path "${file.path}"`
             );
 
-            // 2. Author name must be present
-            assert.ok(
-              html.includes(commitDetails.author.name),
-              `HTML should contain the author name "${commitDetails.author.name}"`
+            // The status indicator character should be present
+            const expectedStatusChar = STATUS_CHAR_MAP[file.status];
+            // Look for the status indicator pattern: class="file-status-indicator" ... >statusChar<
+            const statusPattern = new RegExp(
+              `class="file-status-indicator"[^>]*>[\\s]*${expectedStatusChar.replace(/[!]/g, '\\$&')}[\\s]*</`
             );
-
-            // 3. Author email must be present
             assert.ok(
-              html.includes(commitDetails.author.email),
-              `HTML should contain the author email "${commitDetails.author.email}"`
+              statusPattern.test(html),
+              `HTML should contain status indicator "${expectedStatusChar}" for file "${file.path}" with status "${file.status}"`
             );
-
-            // 4. Commit date must be present (formatted via toLocaleString)
-            const dateStr = commitDetails.date.toLocaleString();
-            assert.ok(
-              html.includes(dateStr),
-              `HTML should contain the commit date "${dateStr}"`
-            );
-
-            // 5. Commit message must be present
-            assert.ok(
-              html.includes(commitDetails.message),
-              `HTML should contain the commit message "${commitDetails.message}"`
-            );
-
-            // 6. Every changed file path must be present with its status indicator
-            for (const file of commitDetails.changedFiles) {
-              // The file path should appear in the HTML (in data-path attribute or display)
-              assert.ok(
-                html.includes(file.path),
-                `HTML should contain the changed file path "${file.path}"`
-              );
-
-              // The status indicator character should be present
-              const expectedStatusChar = STATUS_CHAR_MAP[file.status];
-              // Look for the status indicator pattern: class="file-status-indicator" ... >statusChar<
-              const statusPattern = new RegExp(
-                `class="file-status-indicator"[^>]*>[\\s]*${expectedStatusChar.replace(/[!]/g, '\\$&')}[\\s]*</`
-              );
-              assert.ok(
-                statusPattern.test(html),
-                `HTML should contain status indicator "${expectedStatusChar}" for file "${file.path}" with status "${file.status}"`
-              );
-            }
           }
-        ),
+        }),
         { numRuns: 150 }
       );
     });

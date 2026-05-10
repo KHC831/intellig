@@ -61,7 +61,7 @@ describe('e2e — shelf commands', function () {
     assert.ok(services, 'extension services not initialised');
 
     // Pre-condition: shelf is empty.
-    const before = services!.shelfService.getShelfItems(repo);
+    const before = services.shelfService.getShelfItems(repo);
     assert.strictEqual(before.length, 0, 'sanity: shelf should start empty');
 
     await vscode.commands.executeCommand('intellig.shelve.silent');
@@ -71,7 +71,7 @@ describe('e2e — shelf commands', function () {
     //   2. The entry references `dirty.txt` in its file list.
     //   3. The working-tree copy of `dirty.txt` has been reset to HEAD
     //      content (shelve is capture + reset).
-    const after = services!.shelfService.getShelfItems(repo);
+    const after = services.shelfService.getShelfItems(repo);
     assert.strictEqual(after.length, 1, `expected exactly one shelf item, got ${after.length}`);
     assert.ok(
       after[0].files.some((f) => f.path === 'dirty.txt'),
@@ -100,7 +100,7 @@ describe('e2e — shelf commands', function () {
     const services = getServices();
     assert.ok(services, 'extension services not initialised');
 
-    const seeded = await services!.shelfService.shelve(repo, 'e2e-seed', {
+    const seeded = await services.shelfService.shelve(repo, 'e2e-seed', {
       files: ['round-trip.txt'],
     });
     assert.strictEqual(
@@ -122,7 +122,7 @@ describe('e2e — shelf commands', function () {
 
     // Post-condition: `unshelveSilent` uses `removeFromShelf: true`, so the
     // seeded entry is removed from the shelf after a successful apply.
-    const items = services!.shelfService.getShelfItems(repo);
+    const items = services.shelfService.getShelfItems(repo);
     const entry = items.find((i) => i.id === seeded.id);
     assert.strictEqual(
       entry,

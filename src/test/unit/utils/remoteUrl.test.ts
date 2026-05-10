@@ -4,11 +4,7 @@
 
 import '../../../test/setup';
 import * as assert from 'assert';
-import {
-  parseRemoteUrl,
-  detectProvider,
-  IRemoteUrl,
-} from '../../../utils/remoteUrl';
+import { parseRemoteUrl, detectProvider, IRemoteUrl } from '../../../utils/remoteUrl';
 import {
   commitUrl,
   issueUrl,
@@ -142,11 +138,11 @@ describe('T3-09 — parseRemoteUrl', () => {
       assert.ok(parsed, `expected parseRemoteUrl to return a value for "${tc.url}"`);
       assert.deepStrictEqual(
         {
-          host: parsed!.host,
-          owner: parsed!.owner,
-          repo: parsed!.repo,
-          provider: parsed!.provider,
-          pathPrefix: parsed!.pathPrefix,
+          host: parsed.host,
+          owner: parsed.owner,
+          repo: parsed.repo,
+          provider: parsed.provider,
+          pathPrefix: parsed.pathPrefix,
         },
         tc.expect
       );
@@ -172,14 +168,14 @@ describe('T3-09 — parseRemoteUrl', () => {
   it('trims surrounding whitespace', () => {
     const parsed = parseRemoteUrl('  https://github.com/acme/widgets.git  ');
     assert.ok(parsed);
-    assert.strictEqual(parsed!.owner, 'acme');
-    assert.strictEqual(parsed!.repo, 'widgets');
+    assert.strictEqual(parsed.owner, 'acme');
+    assert.strictEqual(parsed.repo, 'widgets');
   });
 
   it('lowercases the host', () => {
     const parsed = parseRemoteUrl('git@GITHUB.COM:acme/widgets.git');
     assert.ok(parsed);
-    assert.strictEqual(parsed!.host, 'github.com');
+    assert.strictEqual(parsed.host, 'github.com');
   });
 });
 
@@ -237,12 +233,9 @@ describe('T3-09 — URL builders', () => {
     assert.strictEqual(repoUrl(bitbucket), 'https://bitbucket.org/acme/widgets');
   });
 
-  it('commitUrl honours each provider\'s URL shape', () => {
+  it("commitUrl honours each provider's URL shape", () => {
     const hash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80123';
-    assert.strictEqual(
-      commitUrl(github, hash),
-      `https://github.com/acme/widgets/commit/${hash}`
-    );
+    assert.strictEqual(commitUrl(github, hash), `https://github.com/acme/widgets/commit/${hash}`);
     assert.strictEqual(
       commitUrl(gitlab, hash),
       `https://gitlab.com/team/frontend/ui-kit/-/commit/${hash}`
@@ -262,10 +255,7 @@ describe('T3-09 — URL builders', () => {
 
   it('issueUrl dispatches on provider', () => {
     assert.strictEqual(issueUrl(github, 42), 'https://github.com/acme/widgets/issues/42');
-    assert.strictEqual(
-      issueUrl(gitlab, 42),
-      'https://gitlab.com/team/frontend/ui-kit/-/issues/42'
-    );
+    assert.strictEqual(issueUrl(gitlab, 42), 'https://gitlab.com/team/frontend/ui-kit/-/issues/42');
     assert.strictEqual(issueUrl(bitbucket, 42), 'https://bitbucket.org/acme/widgets/issues/42');
     assert.strictEqual(issueUrl(unknown, 42), undefined);
   });

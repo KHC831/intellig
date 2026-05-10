@@ -9,7 +9,12 @@
  */
 
 import * as assert from 'assert';
-import { clampPanelWidths, savePanelWidths, loadPanelWidths, DEFAULT_PANEL_WIDTHS } from '../../../utils/panelLayout';
+import {
+  clampPanelWidths,
+  savePanelWidths,
+  loadPanelWidths,
+  DEFAULT_PANEL_WIDTHS,
+} from '../../../utils/panelLayout';
 
 /**
  * Creates a mock VS Code Memento (workspace state) for testing.
@@ -146,7 +151,6 @@ describe('clampPanelWidths', () => {
     });
   });
 });
-
 
 describe('DEFAULT_PANEL_WIDTHS', () => {
   it('should be [60, 40]', () => {

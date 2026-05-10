@@ -290,7 +290,9 @@ export const workspace = {
     copy: async (_source: Uri, _target: Uri): Promise<void> => {},
     createDirectory: async (_uri: Uri): Promise<void> => {},
     readDirectory: async (_uri: Uri): Promise<[string, number][]> => [],
-    stat: async (_uri: Uri): Promise<{ type: number; ctime: number; mtime: number; size: number }> => ({
+    stat: async (
+      _uri: Uri
+    ): Promise<{ type: number; ctime: number; mtime: number; size: number }> => ({
       type: 1,
       ctime: 0,
       mtime: 0,
@@ -402,20 +404,13 @@ export const window = {
   ): Promise<string | undefined> => {
     return undefined;
   },
-  showQuickPick: async (
-    _items: unknown[],
-    _options?: unknown
-  ): Promise<unknown | undefined> => {
+  showQuickPick: async (_items: unknown[], _options?: unknown): Promise<unknown | undefined> => {
     return undefined;
   },
-  showInputBox: async (
-    _options?: unknown
-  ): Promise<string | undefined> => {
+  showInputBox: async (_options?: unknown): Promise<string | undefined> => {
     return undefined;
   },
-  showSaveDialog: async (
-    _options?: unknown
-  ): Promise<Uri | undefined> => {
+  showSaveDialog: async (_options?: unknown): Promise<Uri | undefined> => {
     return undefined;
   },
   createStatusBarItem(
@@ -855,10 +850,7 @@ export class TreeItem {
   contextValue?: string;
   resourceUri?: Uri;
 
-  constructor(
-    labelOrUri: string | Uri,
-    collapsibleState?: TreeItemCollapsibleState
-  ) {
+  constructor(labelOrUri: string | Uri, collapsibleState?: TreeItemCollapsibleState) {
     if (typeof labelOrUri === 'string') {
       this.label = labelOrUri;
     } else {

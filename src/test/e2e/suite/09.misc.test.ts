@@ -66,25 +66,25 @@ describe('e2e — miscellaneous palette commands', function () {
   it('intellig.blame.toggleIgnoreWhitespace — flips the persisted flag', async () => {
     const services = getServices();
     assert.ok(services);
-    const before = services!.blameOptionsSource.snapshot().ignoreWhitespace;
+    const before = services.blameOptionsSource.snapshot().ignoreWhitespace;
 
     await vscode.commands.executeCommand('intellig.blame.toggleIgnoreWhitespace');
-    const after = services!.blameOptionsSource.snapshot().ignoreWhitespace;
+    const after = services.blameOptionsSource.snapshot().ignoreWhitespace;
 
     assert.strictEqual(after, !before, 'ignoreWhitespace flag should flip after toggle');
 
     // Flip back so we don't leak state into later tests.
     await vscode.commands.executeCommand('intellig.blame.toggleIgnoreWhitespace');
-    const restored = services!.blameOptionsSource.snapshot().ignoreWhitespace;
+    const restored = services.blameOptionsSource.snapshot().ignoreWhitespace;
     assert.strictEqual(restored, before, 'restore toggle should return to original');
   });
 
   it('intellig.blame.toggleDetectMovementsWithinFile — flips the persisted flag', async () => {
     const services = getServices();
     assert.ok(services);
-    const before = services!.blameOptionsSource.snapshot().detectMovementsWithinFile;
+    const before = services.blameOptionsSource.snapshot().detectMovementsWithinFile;
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsWithinFile');
-    const after = services!.blameOptionsSource.snapshot().detectMovementsWithinFile;
+    const after = services.blameOptionsSource.snapshot().detectMovementsWithinFile;
     assert.strictEqual(after, !before, 'detectMovementsWithinFile flag should flip');
     // Restore.
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsWithinFile');
@@ -93,9 +93,9 @@ describe('e2e — miscellaneous palette commands', function () {
   it('intellig.blame.toggleDetectMovementsAcrossFiles — flips the persisted flag', async () => {
     const services = getServices();
     assert.ok(services);
-    const before = services!.blameOptionsSource.snapshot().detectMovementsAcrossFiles;
+    const before = services.blameOptionsSource.snapshot().detectMovementsAcrossFiles;
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsAcrossFiles');
-    const after = services!.blameOptionsSource.snapshot().detectMovementsAcrossFiles;
+    const after = services.blameOptionsSource.snapshot().detectMovementsAcrossFiles;
     assert.strictEqual(after, !before, 'detectMovementsAcrossFiles flag should flip');
     await vscode.commands.executeCommand('intellig.blame.toggleDetectMovementsAcrossFiles');
   });

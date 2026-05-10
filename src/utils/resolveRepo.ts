@@ -69,7 +69,11 @@ export interface ISelectRepoDeps {
   /** fsPath of the active editor's file, if any. Used with `preferActive`. */
   activeEditorFsPath: string | undefined;
   /** Show the disambiguation QuickPick. Return `undefined` on user cancel. */
-  showQuickPick: (items: IRepoPickItem[], title: string, placeholder: string) => Promise<IRepoPickItem | undefined>;
+  showQuickPick: (
+    items: IRepoPickItem[],
+    title: string,
+    placeholder: string
+  ) => Promise<IRepoPickItem | undefined>;
   /** Surface an error toast. */
   showErrorMessage: (message: string) => void;
 }
@@ -116,9 +120,7 @@ export async function selectRepo(
   // Step 3 — defaultRepo config (basename OR absolute path match).
   if (deps.defaultRepo && deps.defaultRepo.trim().length > 0) {
     const cfg = deps.defaultRepo.trim();
-    const byPath = repositories.find(
-      (r) => normalizePath(r.rootUri.fsPath) === normalizePath(cfg)
-    );
+    const byPath = repositories.find((r) => normalizePath(r.rootUri.fsPath) === normalizePath(cfg));
     if (byPath) {
       return byPath;
     }
@@ -198,7 +200,9 @@ export async function resolveRepo(
 
 /** Normalize an fsPath for comparison: strip trailing separator, unify slashes. */
 export function normalizePath(p: string): string {
-  if (!p) return '';
+  if (!p) {
+    return '';
+  }
   // Unify path separators first (Windows).
   let out = p.replace(/\\/g, '/');
   // Strip trailing slash except for a bare root "/".
@@ -211,7 +215,9 @@ export function normalizePath(p: string): string {
 /** Extract the last non-empty path segment from an fsPath. */
 export function basenameOf(p: string): string {
   const normalized = normalizePath(p);
-  if (!normalized) return '';
+  if (!normalized) {
+    return '';
+  }
   const parts = normalized.split('/').filter((s) => s.length > 0);
   return parts.length > 0 ? parts[parts.length - 1] : normalized;
 }
@@ -225,12 +231,16 @@ export function findRepoContainingPath(
   path: string
 ): IRepository | undefined {
   const target = normalizePath(path);
-  if (!target) return undefined;
+  if (!target) {
+    return undefined;
+  }
   let best: IRepository | undefined;
   let bestLen = -1;
   for (const repo of repositories) {
     const root = normalizePath(repo.rootUri.fsPath);
-    if (!root) continue;
+    if (!root) {
+      continue;
+    }
     // Exact match, or ancestor match (root + '/').
     if (target === root || target.startsWith(root + '/')) {
       if (root.length > bestLen) {

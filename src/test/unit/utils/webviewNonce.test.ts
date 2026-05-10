@@ -34,10 +34,7 @@ describe('generateNonce (shared webview helper)', () => {
   it('only emits characters from the base64url alphabet (A-Z a-z 0-9 - _)', () => {
     for (let i = 0; i < 100; i++) {
       const nonce = generateNonce();
-      assert.ok(
-        BASE64URL_PATTERN.test(nonce),
-        `nonce "${nonce}" should match /^[A-Za-z0-9_-]+$/`
-      );
+      assert.ok(BASE64URL_PATTERN.test(nonce), `nonce "${nonce}" should match /^[A-Za-z0-9_-]+$/`);
     }
   });
 

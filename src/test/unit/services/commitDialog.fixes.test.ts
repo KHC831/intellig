@@ -31,7 +31,11 @@ import {
   RECENT_MESSAGES_MAX,
   updateRecentMessagesLru,
 } from '../../../services/CommitToolWindow';
-import type { IGitService, IRepository, ICommitOptions } from '../../../services/interfaces/IGitService';
+import type {
+  IGitService,
+  IRepository,
+  ICommitOptions,
+} from '../../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -67,7 +71,9 @@ function makeGitService(overrides?: {
     getTags: async () => [],
     commit: async (repo: IRepository, message: string, options: ICommitOptions): Promise<void> => {
       calls.push({ method: 'commit', args: [repo, message, options] });
-      if (overrides?.commitImpl) await overrides.commitImpl(repo, message, options);
+      if (overrides?.commitImpl) {
+        await overrides.commitImpl(repo, message, options);
+      }
     },
     amend: async () => {},
     createBranch: async () => {},
@@ -127,11 +133,15 @@ function makeGitService(overrides?: {
     getStatus: async () => [],
     stage: async (repo: IRepository, paths: string[]): Promise<void> => {
       calls.push({ method: 'stage', args: [repo, paths] });
-      if (overrides?.stageImpl) await overrides.stageImpl(repo, paths);
+      if (overrides?.stageImpl) {
+        await overrides.stageImpl(repo, paths);
+      }
     },
     unstage: async (repo: IRepository, paths: string[]): Promise<void> => {
       calls.push({ method: 'unstage', args: [repo, paths] });
-      if (overrides?.unstageImpl) await overrides.unstageImpl(repo, paths);
+      if (overrides?.unstageImpl) {
+        await overrides.unstageImpl(repo, paths);
+      }
     },
     stageHunk: async () => {},
     stageLines: async () => {},
@@ -153,12 +163,17 @@ class InMemoryMemento implements vscode.Memento {
   get<T>(key: string): T | undefined;
   get<T>(key: string, defaultValue: T): T;
   get<T>(key: string, defaultValue?: T): T | undefined {
-    if (this._store.has(key)) return this._store.get(key) as T;
+    if (this._store.has(key)) {
+      return this._store.get(key) as T;
+    }
     return defaultValue;
   }
   async update(key: string, value: unknown): Promise<void> {
-    if (value === undefined) this._store.delete(key);
-    else this._store.set(key, value);
+    if (value === undefined) {
+      this._store.delete(key);
+    } else {
+      this._store.set(key, value);
+    }
     return Promise.resolve();
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -221,7 +236,7 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
       assert.strictEqual(result.success, true);
       const commitCall = gitService.calls.find((c) => c.method === 'commit');
       assert.ok(commitCall);
-      const opts = commitCall!.args[2] as ICommitOptions;
+      const opts = commitCall.args[2] as ICommitOptions;
       assert.strictEqual(opts.author, 'Kit <k@e.com>');
     });
 
@@ -311,9 +326,11 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
         ];
         (dialog as unknown as { _commitMessage: string })._commitMessage = 'feat: hello';
 
-        await (dialog as unknown as {
-          _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
-        })._handleCommit({ type: 'commit', message: 'feat: hello' });
+        await (
+          dialog as unknown as {
+            _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
+          }
+        )._handleCommit({ type: 'commit', message: 'feat: hello' });
 
         const lru = mem.get<string[]>(RECENT_MESSAGES_STATE_KEY, []);
         assert.deepStrictEqual(lru, ['feat: hello']);
@@ -353,9 +370,11 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
 
       try {
         (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
-        await (dialog as unknown as {
-          _handleOpenRecentMessages: () => Promise<void>;
-        })._handleOpenRecentMessages();
+        await (
+          dialog as unknown as {
+            _handleOpenRecentMessages: () => Promise<void>;
+          }
+        )._handleOpenRecentMessages();
 
         const msg = (dialog as unknown as { _commitMessage: string })._commitMessage;
         assert.strictEqual(msg, 'older one');
@@ -403,11 +422,15 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
         };
         try {
           // Starts false → toggling turns it on.
-          await (dialog as unknown as { _handleOpenGearMenu: () => Promise<void> })._handleOpenGearMenu();
+          await (
+            dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
+          )._handleOpenGearMenu();
           assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), true);
 
           // Toggle again → off.
-          await (dialog as unknown as { _handleOpenGearMenu: () => Promise<void> })._handleOpenGearMenu();
+          await (
+            dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
+          )._handleOpenGearMenu();
           assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), false);
         } finally {
           (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = originalPick;
@@ -438,7 +461,9 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
           return arr.find((i) => i.id === 'beforeCommit');
         };
         try {
-          await (dialog as unknown as { _handleOpenGearMenu: () => Promise<void> })._handleOpenGearMenu();
+          await (
+            dialog as unknown as { _handleOpenGearMenu: () => Promise<void> }
+          )._handleOpenGearMenu();
 
           assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), false, 'noVerify unchanged');
           assert.strictEqual(infoMessages.length, 1);
@@ -472,13 +497,15 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
         (dialog as unknown as { _author: string })._author = 'Kit <k@e.com>';
         (dialog as unknown as { _noVerify: boolean })._noVerify = true;
 
-        await (dialog as unknown as {
-          _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
-        })._handleCommit({ type: 'commit', message: 'feat: wire' });
+        await (
+          dialog as unknown as {
+            _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
+          }
+        )._handleCommit({ type: 'commit', message: 'feat: wire' });
 
         const commitCall = gitService.calls.find((c) => c.method === 'commit');
         assert.ok(commitCall);
-        const opts = commitCall!.args[2] as ICommitOptions;
+        const opts = commitCall.args[2] as ICommitOptions;
         assert.strictEqual(opts.author, 'Kit <k@e.com>');
         assert.strictEqual(opts.noVerify, true);
 
@@ -511,9 +538,11 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
         (dialog as unknown as { _commitMessage: string })._commitMessage = 'feat: bad';
         (dialog as unknown as { _author: string })._author = 'not-valid';
 
-        await (dialog as unknown as {
-          _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
-        })._handleCommit({ type: 'commit', message: 'feat: bad' });
+        await (
+          dialog as unknown as {
+            _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
+          }
+        )._handleCommit({ type: 'commit', message: 'feat: bad' });
 
         assert.strictEqual(
           gitService.calls.filter((c) => c.method === 'commit').length,
@@ -523,7 +552,8 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
         assert.strictEqual(errs.length, 1);
         assert.ok(errs[0].toLowerCase().includes('invalid author'));
       } finally {
-        (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = originalError;
+        (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage =
+          originalError;
         dialog.dispose();
       }
     });
@@ -535,10 +565,7 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
       void mem.update(LAST_NO_VERIFY_STATE_KEY, true);
       const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService(), mem);
       try {
-        assert.strictEqual(
-          (dialog as unknown as { _noVerify: boolean })._noVerify,
-          true
-        );
+        assert.strictEqual((dialog as unknown as { _noVerify: boolean })._noVerify, true);
       } finally {
         dialog.dispose();
       }
@@ -547,10 +574,7 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
     it('defaults --no-verify to false when no state is wired', () => {
       const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
       try {
-        assert.strictEqual(
-          (dialog as unknown as { _noVerify: boolean })._noVerify,
-          false
-        );
+        assert.strictEqual((dialog as unknown as { _noVerify: boolean })._noVerify, false);
       } finally {
         dialog.dispose();
       }

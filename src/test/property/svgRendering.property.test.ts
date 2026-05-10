@@ -16,11 +16,7 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import {
-  renderGraphSvg,
-  getColumnX,
-  IGraphRenderConfig,
-} from '../../utils/graphRenderer';
+import { renderGraphSvg, getColumnX, IGraphRenderConfig } from '../../utils/graphRenderer';
 import { ICommitNode, getColumnColor } from '../../utils/commitGraph';
 import { ICommit } from '../../services/interfaces/IGitService';
 
@@ -85,10 +81,7 @@ function arbitraryMergeCommitNode(maxColumn: number): fc.Arbitrary<ICommitNode> 
           ...Array.from({ length: parentCount }, (_, i) =>
             fc.record({
               fromColumn: fc.constant(graphColumn),
-              toColumn:
-                i === 0
-                  ? fc.constant(graphColumn)
-                  : fc.integer({ min: 0, max: maxColumn }),
+              toColumn: i === 0 ? fc.constant(graphColumn) : fc.integer({ min: 0, max: maxColumn }),
               color: fc.constant(getColumnColor(i === 0 ? graphColumn : i)),
               type: fc.constant(i === 0 ? ('commit' as const) : ('merge' as const)),
             })
@@ -150,13 +143,12 @@ function arbitraryNonMergeCommitNode(maxColumn: number): fc.Arbitrary<ICommitNod
  * Ensures at least one graph line crosses lanes for curve testing.
  */
 function arbitraryNodeWithCrossLaneLines(maxColumn: number): fc.Arbitrary<ICommitNode> {
-  return fc
-    .integer({ min: 0, max: maxColumn })
-    .chain((graphColumn) => {
-      // Generate 1-3 cross-lane lines
-      return fc
-        .integer({ min: 1, max: 3 })
-        .chain((lineCount) => {
+  return (
+    fc
+      .integer({ min: 0, max: maxColumn })
+      .chain((graphColumn) => {
+        // Generate 1-3 cross-lane lines
+        return fc.integer({ min: 1, max: 3 }).chain((lineCount) => {
           const linesArb = fc.tuple(
             ...Array.from({ length: lineCount }, (_, i) => {
               // Ensure toColumn differs from fromColumn (graphColumn)
@@ -184,12 +176,11 @@ function arbitraryNodeWithCrossLaneLines(maxColumn: number): fc.Arbitrary<ICommi
               }) as ICommitNode
           );
         });
-    })
-    // Filter to ensure we actually have cross-lane lines (the filter above should guarantee this,
-    // but be safe)
-    .filter(
-      (node) => node.graphLines.some((l) => l.fromColumn !== l.toColumn)
-    );
+      })
+      // Filter to ensure we actually have cross-lane lines (the filter above should guarantee this,
+      // but be safe)
+      .filter((node) => node.graphLines.some((l) => l.fromColumn !== l.toColumn))
+  );
 }
 
 // ─── SVG Parsing Helpers ──────────────────────────────────────────────────────
@@ -481,9 +472,7 @@ describe('Feature: git-graph-visual-improvements - SVG Rendering Property Tests'
             const paths = extractPaths(svg);
 
             // For each cross-lane graph line, verify the bezier curve coordinates
-            const crossLaneLines = node.graphLines.filter(
-              (l) => l.fromColumn !== l.toColumn
-            );
+            const crossLaneLines = node.graphLines.filter((l) => l.fromColumn !== l.toColumn);
 
             for (const line of crossLaneLines) {
               const fromX = getColumnX(line.fromColumn, config);

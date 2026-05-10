@@ -179,9 +179,7 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
     startInteractiveRebase: async () => ({
       onto: '',
       originalBranch: '',
-      commits: commitHash
-        ? [{ hash: commitHash, message: 'test commit', action: 'pick' }]
-        : [],
+      commits: commitHash ? [{ hash: commitHash, message: 'test commit', action: 'pick' }] : [],
       currentStep: 0,
       status: 'planning' as const,
     }),
@@ -226,7 +224,9 @@ function createSuccessGitCli(): any {
     isRepository: async () => true,
     getRepositoryRoot: async () => '/test-repo',
     dispose: () => {},
-    get gitPath() { return 'git'; },
+    get gitPath() {
+      return 'git';
+    },
     set gitPath(_v: string) {},
     onCommandExecuted: (() => ({ dispose: () => {} })) as any,
   };
@@ -294,32 +294,29 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
 
     it('does NOT call refresh for copyHash action', () => {
       fc.assert(
-        fc.asyncProperty(
-          arbitraryCommitHashes(),
-          async (commitHashes) => {
-            const gitService = createSuccessGitService(commitHashes[0]);
-            const rebaseService = createMockRebaseService();
-            const provider = createTrackingGitToolWindowProvider();
-            const gitCli = createSuccessGitCli();
+        fc.asyncProperty(arbitraryCommitHashes(), async (commitHashes) => {
+          const gitService = createSuccessGitService(commitHashes[0]);
+          const rebaseService = createMockRebaseService();
+          const provider = createTrackingGitToolWindowProvider();
+          const gitCli = createSuccessGitCli();
 
-            const commands = new CommitContextMenuCommands(
-              gitService,
-              rebaseService,
-              provider,
-              gitCli
-            );
+          const commands = new CommitContextMenuCommands(
+            gitService,
+            rebaseService,
+            provider,
+            gitCli
+          );
 
-            provider.refreshCallCount = 0;
+          provider.refreshCallCount = 0;
 
-            await commands._handleAction('copyHash', commitHashes);
+          await commands._handleAction('copyHash', commitHashes);
 
-            assert.strictEqual(
-              provider.refreshCallCount,
-              0,
-              `refresh() should NOT have been called for copyHash action, but was called ${provider.refreshCallCount} times`
-            );
-          }
-        ),
+          assert.strictEqual(
+            provider.refreshCallCount,
+            0,
+            `refresh() should NOT have been called for copyHash action, but was called ${provider.refreshCallCount} times`
+          );
+        }),
         { numRuns: 100 }
       );
     });

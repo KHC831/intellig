@@ -340,9 +340,7 @@ export class AutoFetchService implements IAutoFetchService {
   private _getIntervalMs(): number {
     const raw = this._readIntervalSec();
     const seconds =
-      Number.isFinite(raw) && raw > 0
-        ? Math.max(raw, MIN_INTERVAL_SECONDS)
-        : MIN_INTERVAL_SECONDS;
+      Number.isFinite(raw) && raw > 0 ? Math.max(raw, MIN_INTERVAL_SECONDS) : MIN_INTERVAL_SECONDS;
     return Math.floor(seconds * 1000);
   }
 }

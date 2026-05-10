@@ -32,10 +32,7 @@ describe('FU-1 — renderCommitMessageHtml', () => {
 
   it('wraps a #42 hash reference in an anchor tag', () => {
     const html = renderCommitMessageHtml('fix: close #42', githubRemote, escapeHtml);
-    assert.ok(
-      html.includes('<a class="commit-issue-link"'),
-      `expected anchor tag; got: ${html}`
-    );
+    assert.ok(html.includes('<a class="commit-issue-link"'), `expected anchor tag; got: ${html}`);
     assert.ok(
       html.includes('https://github.com/acme/widgets/issues/42'),
       `expected provider URL in anchor; got: ${html}`
@@ -62,20 +59,13 @@ describe('FU-1 — renderCommitMessageHtml', () => {
 
   it('does NOT wrap `abc#42` (not a real reference)', () => {
     const html = renderCommitMessageHtml('see commit abc#42', githubRemote, escapeHtml);
-    assert.ok(
-      !html.includes('<a'),
-      `expected no anchor tags for non-ref text; got: ${html}`
-    );
+    assert.ok(!html.includes('<a'), `expected no anchor tags for non-ref text; got: ${html}`);
     // Text content is preserved (escaped).
     assert.strictEqual(html, 'see commit abc#42');
   });
 
   it('escapes surrounding text as HTML', () => {
-    const html = renderCommitMessageHtml(
-      'fix <img> bug #42 & more',
-      githubRemote,
-      escapeHtml
-    );
+    const html = renderCommitMessageHtml('fix <img> bug #42 & more', githubRemote, escapeHtml);
     assert.ok(html.includes('&lt;img&gt;'), `expected <img> escaped; got: ${html}`);
     assert.ok(html.includes('&amp;'), `expected & escaped; got: ${html}`);
     assert.ok(
@@ -95,11 +85,7 @@ describe('FU-1 — renderCommitMessageHtml', () => {
   });
 
   it('handles multiple refs in one message', () => {
-    const html = renderCommitMessageHtml(
-      'merge #1 and #2 per PROJ-7',
-      githubRemote,
-      escapeHtml
-    );
+    const html = renderCommitMessageHtml('merge #1 and #2 per PROJ-7', githubRemote, escapeHtml);
     const anchorCount = (html.match(/<a class="commit-issue-link"/g) ?? []).length;
     assert.strictEqual(anchorCount, 3, `expected 3 anchors; got ${anchorCount} in: ${html}`);
   });

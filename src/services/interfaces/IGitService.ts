@@ -562,11 +562,7 @@ export interface IGitService {
    * Merge a branch into the current one. Legacy callers pass just
    * `(repo, branch)`; new callers may pass {@link IMergeOptions}.
    */
-  mergeBranch(
-    repo: IRepository,
-    branch: string,
-    options?: IMergeOptions
-  ): Promise<IMergeResult>;
+  mergeBranch(repo: IRepository, branch: string, options?: IMergeOptions): Promise<IMergeResult>;
   rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult>;
 
   /**
@@ -672,10 +668,7 @@ export interface IGitService {
    * @param baseRef - The ref against which to compare (typically the upstream
    *                  branch). `HEAD...baseRef` is what gets passed to git log.
    */
-  getCherryMarks?(
-    repo: IRepository,
-    baseRef: string
-  ): Promise<Map<string, CherryMark>>;
+  getCherryMarks?(repo: IRepository, baseRef: string): Promise<Map<string, CherryMark>>;
 
   // Diff operations
   getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff>;

@@ -49,11 +49,7 @@ describe('e2e — remote commands (against file:// origin)', function () {
     // Strategy: clone the bare remote into a throwaway dir, add a commit,
     // push, delete the throwaway.
     const helperPath = `${fix.remotePath}-helper`;
-    await execGit(fix.rootPath, [
-      'clone',
-      `file://${fix.remotePath}`,
-      helperPath,
-    ]);
+    await execGit(fix.rootPath, ['clone', `file://${fix.remotePath}`, helperPath]);
     await execGit(helperPath, ['config', 'user.name', 'IntelliG E2E']);
     await execGit(helperPath, ['config', 'user.email', 'e2e@intellig.test']);
     // Add a file + push.
@@ -98,15 +94,9 @@ describe('e2e — remote commands (against file:// origin)', function () {
     await useFixtureWorkspace(fix.rootPath);
     stubs = stubPrompts({});
 
-    const before = await revParse(
-      fix.rootPath,
-      `refs/remotes/origin/${fix.defaultBranch}`
-    );
+    const before = await revParse(fix.rootPath, `refs/remotes/origin/${fix.defaultBranch}`);
     await vscode.commands.executeCommand('intellig.fetch');
-    const after = await revParse(
-      fix.rootPath,
-      `refs/remotes/origin/${fix.defaultBranch}`
-    );
+    const after = await revParse(fix.rootPath, `refs/remotes/origin/${fix.defaultBranch}`);
 
     assert.strictEqual(
       after,

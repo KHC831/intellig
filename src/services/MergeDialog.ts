@@ -119,8 +119,7 @@ export class MergeDialog extends BaseWebviewPanel {
     super(context, VIEW_TYPE, TITLE, vscode.ViewColumn.One);
     this._repo = options.repo;
     this._sourceBranch = options.sourceBranch;
-    this._targetBranch =
-      options.repo.head?.name?.replace(/^refs\/heads\//, '') ?? 'HEAD';
+    this._targetBranch = options.repo.head?.name?.replace(/^refs\/heads\//, '') ?? 'HEAD';
     this._gitService = options.gitService;
     this._conflictResolutionService = options.conflictResolutionService;
     this._onMergeComplete = options.onMergeComplete;
@@ -366,7 +365,11 @@ ${body}
     try {
       const result = await this._gitService.mergeBranch(this._repo, this._sourceBranch, options);
       if (result.success) {
-        const verb = options.squash ? 'Squash-merged' : options.noCommit ? 'Merged (no commit)' : 'Merged';
+        const verb = options.squash
+          ? 'Squash-merged'
+          : options.noCommit
+            ? 'Merged (no commit)'
+            : 'Merged';
         void vscode.window.showInformationMessage(
           `${verb} '${this._sourceBranch}' into '${this._targetBranch}'`
         );

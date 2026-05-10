@@ -56,9 +56,7 @@ function getMenuContributions(): MenuEntry[] {
  * Get all menu entries that target the current branch context value.
  */
 function getCurrentBranchMenuEntries(allEntries: MenuEntry[]): MenuEntry[] {
-  return allEntries.filter(
-    (entry) => entry.when && entry.when.includes(CURRENT_BRANCH_CONTEXT)
-  );
+  return allEntries.filter((entry) => entry.when && entry.when.includes(CURRENT_BRANCH_CONTEXT));
 }
 
 /**
@@ -104,43 +102,35 @@ describe('Feature: branch-context-menu - Excluded Commands Property Tests', () =
       const currentBranchCommandIds = currentBranchEntries.map((entry) => entry.command);
 
       fc.assert(
-        fc.property(
-          fc.constantFrom(...EXCLUDED_COMMANDS),
-          (excludedCommand) => {
-            assert.ok(
-              !currentBranchCommandIds.includes(excludedCommand),
-              `Excluded command "${excludedCommand}" should NOT appear in the current branch ` +
+        fc.property(fc.constantFrom(...EXCLUDED_COMMANDS), (excludedCommand) => {
+          assert.ok(
+            !currentBranchCommandIds.includes(excludedCommand),
+            `Excluded command "${excludedCommand}" should NOT appear in the current branch ` +
               `(${CURRENT_BRANCH_CONTEXT}) context menu, but it was found. ` +
               `Current branch commands: [${currentBranchCommandIds.join(', ')}]`
-            );
-          }
-        ),
+          );
+        }),
         { numRuns: 100 }
       );
     });
 
     it('for any random subset of commands, excluded commands are never in current branch menu', () => {
       fc.assert(
-        fc.property(
-          arbitraryExcludedSubset(allCommandIds),
-          (commandSubset) => {
-            // For each command in the random subset, check if it's an excluded command
-            // and if so, verify it does NOT appear in the current branch menu
-            for (const cmd of commandSubset) {
-              if (EXCLUDED_COMMANDS.includes(cmd)) {
-                const matchingEntries = currentBranchEntries.filter(
-                  (entry) => entry.command === cmd
-                );
-                assert.strictEqual(
-                  matchingEntries.length,
-                  0,
-                  `Excluded command "${cmd}" should NOT have any menu entries for ` +
+        fc.property(arbitraryExcludedSubset(allCommandIds), (commandSubset) => {
+          // For each command in the random subset, check if it's an excluded command
+          // and if so, verify it does NOT appear in the current branch menu
+          for (const cmd of commandSubset) {
+            if (EXCLUDED_COMMANDS.includes(cmd)) {
+              const matchingEntries = currentBranchEntries.filter((entry) => entry.command === cmd);
+              assert.strictEqual(
+                matchingEntries.length,
+                0,
+                `Excluded command "${cmd}" should NOT have any menu entries for ` +
                   `${CURRENT_BRANCH_CONTEXT}, but found ${matchingEntries.length} entries`
-                );
-              }
+              );
             }
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });
@@ -159,47 +149,41 @@ describe('Feature: branch-context-menu - Excluded Commands Property Tests', () =
       ];
 
       fc.assert(
-        fc.property(
-          fc.constantFrom(...currentBranchEntries),
-          (entry) => {
-            assert.ok(
-              ALLOWED_CURRENT_BRANCH_COMMANDS.includes(entry.command),
-              `Command "${entry.command}" found in current branch menu but is not in the ` +
+        fc.property(fc.constantFrom(...currentBranchEntries), (entry) => {
+          assert.ok(
+            ALLOWED_CURRENT_BRANCH_COMMANDS.includes(entry.command),
+            `Command "${entry.command}" found in current branch menu but is not in the ` +
               `allowed list. Allowed: [${ALLOWED_CURRENT_BRANCH_COMMANDS.join(', ')}]`
-            );
+          );
 
-            // Also verify it's not an excluded command (double-check)
-            assert.ok(
-              !EXCLUDED_COMMANDS.includes(entry.command),
-              `Excluded command "${entry.command}" should NOT appear in the current branch menu`
-            );
-          }
-        ),
+          // Also verify it's not an excluded command (double-check)
+          assert.ok(
+            !EXCLUDED_COMMANDS.includes(entry.command),
+            `Excluded command "${entry.command}" should NOT appear in the current branch menu`
+          );
+        }),
         { numRuns: 100 }
       );
     });
 
     it('excluded commands only appear for non-current branch context values', () => {
       fc.assert(
-        fc.property(
-          fc.constantFrom(...EXCLUDED_COMMANDS),
-          (excludedCommand) => {
-            // Find all menu entries for this excluded command
-            const entriesForCommand = allMenuEntries.filter(
-              (entry) => entry.command === excludedCommand
-            );
+        fc.property(fc.constantFrom(...EXCLUDED_COMMANDS), (excludedCommand) => {
+          // Find all menu entries for this excluded command
+          const entriesForCommand = allMenuEntries.filter(
+            (entry) => entry.command === excludedCommand
+          );
 
-            // Each entry's when clause must NOT reference the current branch context
-            for (const entry of entriesForCommand) {
-              assert.ok(
-                !entry.when.includes(CURRENT_BRANCH_CONTEXT),
-                `Excluded command "${excludedCommand}" has a menu entry with ` +
+          // Each entry's when clause must NOT reference the current branch context
+          for (const entry of entriesForCommand) {
+            assert.ok(
+              !entry.when.includes(CURRENT_BRANCH_CONTEXT),
+              `Excluded command "${excludedCommand}" has a menu entry with ` +
                 `when="${entry.when}" that matches the current branch context ` +
                 `(${CURRENT_BRANCH_CONTEXT}). `
-              );
-            }
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });

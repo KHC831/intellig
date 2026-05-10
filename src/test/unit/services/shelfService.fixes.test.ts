@@ -89,7 +89,10 @@ describe('ShelfService — T2-10 additions', () => {
    * Seed a single shelf entry directly via the diff scripting path. `git diff`
    * is intercepted so the service writes what we hand it.
    */
-  async function seedEntry(files: Array<{ path: string; diff: string }>, name = 'seed'): Promise<string> {
+  async function seedEntry(
+    files: Array<{ path: string; diff: string }>,
+    name = 'seed'
+  ): Promise<string> {
     mockCli.nextResult = (args): IGitCommandResult => {
       if (args[0] === 'diff' && args[1] === '--') {
         const filePath = args[2];
@@ -186,7 +189,11 @@ describe('ShelfService — T2-10 additions', () => {
       const first = svc.getShelfItems(repo)[0].unshelvedAt;
       svc.markAsUnshelved(repo, id);
       const second = svc.getShelfItems(repo)[0].unshelvedAt;
-      assert.strictEqual(first?.getTime(), second?.getTime(), 'unshelvedAt must not change on re-call');
+      assert.strictEqual(
+        first?.getTime(),
+        second?.getTime(),
+        'unshelvedAt must not change on re-call'
+      );
     });
   });
 
@@ -199,8 +206,8 @@ describe('ShelfService — T2-10 additions', () => {
       ]);
       const updated = svc.filterShelfFiles(repo, id, ['b.ts']);
       assert.ok(updated);
-      assert.strictEqual(updated!.files.length, 1);
-      assert.strictEqual(updated!.files[0].path, 'b.ts');
+      assert.strictEqual(updated.files.length, 1);
+      assert.strictEqual(updated.files[0].path, 'b.ts');
     });
 
     it('deletes the entry when every path is filtered out', async () => {

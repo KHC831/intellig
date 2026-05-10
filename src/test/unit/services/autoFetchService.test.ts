@@ -7,11 +7,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import {
-  IGitService,
-  IRepository,
-  IFetchResult,
-} from '../../../services/interfaces/IGitService';
+import { IGitService, IRepository, IFetchResult } from '../../../services/interfaces/IGitService';
 import { AutoFetchService } from '../../../services/AutoFetchService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
@@ -86,7 +82,8 @@ function createMockGitService(
         commitDate: new Date(),
       }),
     getFileHistory: () => Promise.resolve([]),
-    getDiff: () => Promise.resolve({ path: '', status: 'modified' as const, hunks: [], binary: false }),
+    getDiff: () =>
+      Promise.resolve({ path: '', status: 'modified' as const, hunks: [], binary: false }),
     getCommitDiff: () => Promise.resolve([]),
     getMultiCommitDiff: () => Promise.resolve([]),
     getBlame: () => Promise.resolve([]),
@@ -200,10 +197,10 @@ describe('AutoFetchService', () => {
 
   describe('tick behavior', () => {
     it('invokes fetch on every open repository', async () => {
-      const gs = createMockGitService(() => Promise.resolve(EMPTY_RESULT), [
-        makeRepo('/r1'),
-        makeRepo('/r2'),
-      ]);
+      const gs = createMockGitService(
+        () => Promise.resolve(EMPTY_RESULT),
+        [makeRepo('/r1'), makeRepo('/r2')]
+      );
       const svc = new AutoFetchService(gs, {
         readEnabled: () => true,
         readIntervalSec: () => 60,
@@ -216,13 +213,16 @@ describe('AutoFetchService', () => {
 
     it('doubles backoff on transient failure and resets on success', async () => {
       let failNext = true;
-      const gs = createMockGitService((_r) => {
-        if (failNext) {
-          failNext = false;
-          return Promise.reject(new Error('temporary network blip'));
-        }
-        return Promise.resolve(EMPTY_RESULT);
-      }, [makeRepo()]);
+      const gs = createMockGitService(
+        (_r) => {
+          if (failNext) {
+            failNext = false;
+            return Promise.reject(new Error('temporary network blip'));
+          }
+          return Promise.resolve(EMPTY_RESULT);
+        },
+        [makeRepo()]
+      );
       const svc = new AutoFetchService(gs, {
         readEnabled: () => true,
         readIntervalSec: () => 60,
@@ -237,10 +237,7 @@ describe('AutoFetchService', () => {
     });
 
     it('caps backoff at the maximum multiplier', async () => {
-      const gs = createMockGitService(
-        () => Promise.reject(new Error('still down')),
-        [makeRepo()]
-      );
+      const gs = createMockGitService(() => Promise.reject(new Error('still down')), [makeRepo()]);
       const svc = new AutoFetchService(gs, {
         readEnabled: () => true,
         readIntervalSec: () => 60,

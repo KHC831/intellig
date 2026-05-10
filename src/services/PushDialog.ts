@@ -78,12 +78,7 @@ export interface IPushRow {
 }
 
 /** Classification of a push failure. */
-export type PushErrorKind =
-  | 'rejected-non-ff'
-  | 'rejected-protected'
-  | 'auth'
-  | 'hook'
-  | 'other';
+export type PushErrorKind = 'rejected-non-ff' | 'rejected-protected' | 'auth' | 'hook' | 'other';
 
 /** Row-level push error for rendering retry affordances. */
 export interface IPushRowError {
@@ -192,14 +187,10 @@ export function buildPushOptions(
   // a CLI flag. `git push <remote> -foo` treats `-foo` as `-f oo`; same for
   // refspec halves. Matches validateTagName / isValidRef policy.
   if (!isValidPushRef(row.localBranch)) {
-    throw new Error(
-      `Invalid local branch '${row.localBranch}': cannot start with '-' or '.'`
-    );
+    throw new Error(`Invalid local branch '${row.localBranch}': cannot start with '-' or '.'`);
   }
   if (row.targetBranch && !isValidPushRef(row.targetBranch)) {
-    throw new Error(
-      `Invalid target branch '${row.targetBranch}': cannot start with '-' or '.'`
-    );
+    throw new Error(`Invalid target branch '${row.targetBranch}': cannot start with '-' or '.'`);
   }
 
   const remote = row.upstreamRemote ?? fallbackRemote;
@@ -858,8 +849,7 @@ ${body}
       }
 
       case 'submit': {
-        const action =
-          msg.action && isPushAction(msg.action) ? msg.action : this._primaryAction;
+        const action = msg.action && isPushAction(msg.action) ? msg.action : this._primaryAction;
         const selected = this._rows.filter((r) => r.selected);
         if (selected.length === 0) {
           return;
@@ -870,7 +860,10 @@ ${body}
     }
   }
 
-  private _updateRow(rowId: string, patch: Partial<Pick<IPushRow, 'selected' | 'targetBranch'>> | undefined): void {
+  private _updateRow(
+    rowId: string,
+    patch: Partial<Pick<IPushRow, 'selected' | 'targetBranch'>> | undefined
+  ): void {
     const i = this._rows.findIndex((r) => r.id === rowId);
     if (i < 0) {
       return;
@@ -911,7 +904,9 @@ ${body}
    */
   private _patchRow(rowId: string): void {
     const row = this._rows.find((r) => r.id === rowId);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
     const payload: IPushDialogPatchRow = {
       type: 'patchRow',
       rowId,

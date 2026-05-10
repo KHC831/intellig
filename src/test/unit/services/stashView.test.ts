@@ -145,11 +145,12 @@ function installWindowStubs(
   const oInfo = vscode.window.showInformationMessage;
   const oErr = vscode.window.showErrorMessage;
   const oInput = vscode.window.showInputBox;
-  (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
-    async (m: string): Promise<string | undefined> => {
-      toasts.info.push(m);
-      return undefined;
-    };
+  (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage = async (
+    m: string
+  ): Promise<string | undefined> => {
+    toasts.info.push(m);
+    return undefined;
+  };
   (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = async (
     m: string
   ): Promise<string | undefined> => {
@@ -207,8 +208,8 @@ describe('StashView T2-09 — branch from stash + rename', () => {
 
         const call = gitService.calls.find((c) => c.method === 'stashBranch');
         assert.ok(call);
-        assert.strictEqual(call!.args[1], 1);
-        assert.strictEqual(call!.args[2], 'feature/wip');
+        assert.strictEqual(call.args[1], 1);
+        assert.strictEqual(call.args[2], 'feature/wip');
 
         assert.strictEqual(toasts.info.length, 1);
         assert.ok(toasts.info[0].includes('feature/wip'));
@@ -256,21 +257,21 @@ describe('StashView T2-09 — branch from stash + rename', () => {
         };
         try {
           // Skip full `show()` — that would launch the real QuickPick UI which
-        // isn't in the vscode mock. Prime the internal state via refresh()
-        // after injecting the repository directly.
-        (view as unknown as { _repository: IRepository })._repository = makeRepo();
-        await view.refresh();
+          // isn't in the vscode mock. Prime the internal state via refresh()
+          // after injecting the repository directly.
+          (view as unknown as { _repository: IRepository })._repository = makeRepo();
+          await view.refresh();
           await view.branchFromStash(0);
           assert.ok(validator, 'validateInput callback should have been captured');
           for (const bad of invalidSamples) {
-            const msg = validator!(bad);
+            const msg = validator(bad);
             assert.ok(
               msg && msg.length > 0,
               `validator should reject "${bad}", got: ${String(msg)}`
             );
           }
-          assert.strictEqual(validator!('feature/new'), undefined);
-          assert.strictEqual(validator!('release.v1.2'), undefined);
+          assert.strictEqual(validator('feature/new'), undefined);
+          assert.strictEqual(validator('release.v1.2'), undefined);
         } finally {
           (vscode.window as unknown as { showInputBox: unknown }).showInputBox = oInput;
         }
@@ -352,8 +353,8 @@ describe('StashView T2-09 — branch from stash + rename', () => {
 
         const call = gitService.calls.find((c) => c.method === 'stashRename');
         assert.ok(call);
-        assert.strictEqual(call!.args[1], 1);
-        assert.strictEqual(call!.args[2], 'renamed subject');
+        assert.strictEqual(call.args[1], 1);
+        assert.strictEqual(call.args[2], 'renamed subject');
 
         assert.strictEqual(toasts.info.length, 1);
         assert.ok(toasts.info[0].includes('stash@{1}'));
@@ -430,9 +431,9 @@ describe('StashView T2-09 — branch from stash + rename', () => {
         await view.refresh();
         await view.renameStash(0);
         assert.ok(validator);
-        assert.ok(validator!(''));
-        assert.ok(validator!('   '));
-        assert.strictEqual(validator!('valid message'), undefined);
+        assert.ok(validator(''));
+        assert.ok(validator('   '));
+        assert.strictEqual(validator('valid message'), undefined);
       } finally {
         (vscode.window as unknown as { showInputBox: unknown }).showInputBox = oInput;
         view.dispose();

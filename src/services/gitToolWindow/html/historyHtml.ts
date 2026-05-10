@@ -119,8 +119,12 @@ function renderCommitList(state: IHistoryTabState): string {
 
 function renderCommitRow(commit: ICommit, state: IHistoryTabState): string {
   const classes = ['history-commit-row'];
-  if (commit.hash === state.selectedCommit) classes.push('history-selected');
-  if (commit.hash === state.compareCommit) classes.push('history-compare');
+  if (commit.hash === state.selectedCommit) {
+    classes.push('history-selected');
+  }
+  if (commit.hash === state.compareCommit) {
+    classes.push('history-compare');
+  }
   const subject = escapeHtml((commit.message ?? '').split('\n')[0]);
   const author = escapeHtml(commit.author?.name ?? '');
   const date = commit.authorDate ? new Date(commit.authorDate).toLocaleDateString() : '';

@@ -49,11 +49,10 @@ function arbitraryAction(): fc.Arbitrary<LogContextAction> {
  * Generate a valid hex commit hash (40 hex chars).
  */
 function arbitraryCommitHash(): fc.Arbitrary<string> {
-  return fc
-    .stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
-      minLength: 40,
-      maxLength: 40,
-    });
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
@@ -156,7 +155,9 @@ function createMockGitService(): IGitService {
       hunks: [],
       binary: false,
     }),
-    getCommitDiff: async () => [{ path: 'src/file.ts', status: 'modified', hunks: [], binary: false }],
+    getCommitDiff: async () => [
+      { path: 'src/file.ts', status: 'modified', hunks: [], binary: false },
+    ],
     getMultiCommitDiff: async () => [],
     getBlame: async () => [],
     cherryPick: async () => ({ success: true }),
@@ -185,9 +186,7 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
     startInteractiveRebase: async () => ({
       onto: '',
       originalBranch: '',
-      commits: commitHash
-        ? [{ hash: commitHash, message: 'test commit', action: 'pick' }]
-        : [],
+      commits: commitHash ? [{ hash: commitHash, message: 'test commit', action: 'pick' }] : [],
       currentStep: 0,
       status: 'planning' as const,
     }),
@@ -238,17 +237,14 @@ function createSpiedCommands(commitHash?: string): {
     isRepository: async () => true,
     getRepositoryRoot: async () => '/test-repo',
     dispose: () => {},
-    get gitPath() { return 'git'; },
+    get gitPath() {
+      return 'git';
+    },
     set gitPath(_v: string) {},
     onCommandExecuted: (() => ({ dispose: () => {} })) as any,
   } as any;
 
-  const commands = new CommitContextMenuCommands(
-    gitService,
-    rebaseService,
-    provider,
-    mockGitCli
-  );
+  const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, mockGitCli);
 
   const calls: HandlerCallRecord[] = [];
 

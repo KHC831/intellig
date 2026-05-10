@@ -51,7 +51,14 @@ export function renderTabPanels(input: {
   updateInfoBodyHtml: string;
   historyBodyHtml: string;
 }): string {
-  const { activeTab, logBodyHtml, consoleBodyHtml, incomingBodyHtml, updateInfoBodyHtml, historyBodyHtml } = input;
+  const {
+    activeTab,
+    logBodyHtml,
+    consoleBodyHtml,
+    incomingBodyHtml,
+    updateInfoBodyHtml,
+    historyBodyHtml,
+  } = input;
 
   const tabToBody: Record<TabId, string> = {
     log: logBodyHtml,

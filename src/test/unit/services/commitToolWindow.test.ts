@@ -596,7 +596,7 @@ describe('CommitToolWindow — host behavior', () => {
     const services = createMockServices(repo, changelists);
     // Service stub so the `isActive` lookup inside the contextOpen handler
     // has something to return.
-    (services.changelistService as any).getActiveChangelist = async () => changelists[1];
+    services.changelistService.getActiveChangelist = async () => changelists[1];
 
     const tw = new CommitToolWindow(
       Uri.file('/ext'),
@@ -636,14 +636,19 @@ describe('CommitToolWindow — host behavior', () => {
     assert.strictEqual(pickCalls.length, 1);
     const menuLabels = pickCalls[0].items.map((i) => i.label);
     assert.ok(menuLabels.includes('Rename Changelist…'));
-    assert.ok(menuLabels.includes('Set Active Changelist') === false,
-      'Set Active Changelist should be filtered out when the row is already active');
+    assert.ok(
+      menuLabels.includes('Set Active Changelist') === false,
+      'Set Active Changelist should be filtered out when the row is already active'
+    );
     assert.ok(menuLabels.includes('Commit Only This Changelist…'));
 
     // The pick should have been re-dispatched → intellig.changelist.rename
     // with the changelist id.
     const renameCall = executed.find((e) => e.command === 'intellig.changelist.rename');
-    assert.ok(renameCall, `expected intellig.changelist.rename to fire; executed: ${executed.map((e) => e.command).join(', ')}`);
+    assert.ok(
+      renameCall,
+      `expected intellig.changelist.rename to fire; executed: ${executed.map((e) => e.command).join(', ')}`
+    );
     assert.deepStrictEqual(renameCall?.args, ['feat']);
 
     tw.dispose();
@@ -710,7 +715,7 @@ describe('CommitToolWindow — host behavior', () => {
 
   // ─── SR-8: multi-root resolveRepo ──────────────────────────────────────────
 
-  it('commit in a multi-root workspace uses the active editor\'s repo, not repositories[0]', async () => {
+  it("commit in a multi-root workspace uses the active editor's repo, not repositories[0]", async () => {
     const memento = createMockMemento();
     const repoA: IRepository = {
       rootUri: Uri.file('/repo-a'),

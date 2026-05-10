@@ -110,10 +110,18 @@ interface Hit {
 // doc-comment blocks that describe the migration itself.
 function isCommentLine(line: string): boolean {
   const trimmed = line.trim();
-  if (trimmed.startsWith('//')) return true;
-  if (trimmed.startsWith('/*')) return true;
-  if (trimmed.startsWith('*/')) return true;
-  if (trimmed.startsWith('*')) return true;
+  if (trimmed.startsWith('//')) {
+    return true;
+  }
+  if (trimmed.startsWith('/*')) {
+    return true;
+  }
+  if (trimmed.startsWith('*/')) {
+    return true;
+  }
+  if (trimmed.startsWith('*')) {
+    return true;
+  }
   return false;
 }
 
@@ -127,7 +135,9 @@ function scanFile(repoRoot: string, absPath: string): Hit[] {
     const line = lines[i];
     // Skip pure comment lines — they document the migration; they don't
     // execute `repositories[0]` at runtime.
-    if (isCommentLine(line)) continue;
+    if (isCommentLine(line)) {
+      continue;
+    }
     for (const pattern of DRIFT_PATTERNS) {
       if (pattern.test(line)) {
         // Check the allowlist marker on the same line OR on any of the
@@ -144,7 +154,9 @@ function scanFile(repoRoot: string, absPath: string): Hit[] {
         if (!allowed) {
           for (let k = i - 1; k >= 0; k--) {
             const prev = lines[k];
-            if (!isCommentLine(prev)) break;
+            if (!isCommentLine(prev)) {
+              break;
+            }
             if (prev.includes(ALLOWLIST_MARKER)) {
               allowed = true;
               break;
@@ -218,11 +230,7 @@ describe('R6 Gap-C: `repositories[0]` audit', () => {
     ];
     for (const line of synthetic) {
       const matched = DRIFT_PATTERNS.some((p) => p.test(line));
-      assert.strictEqual(
-        matched,
-        true,
-        `Audit regex failed to match expected drift form: ${line}`
-      );
+      assert.strictEqual(matched, true, `Audit regex failed to match expected drift form: ${line}`);
     }
   });
 
@@ -234,7 +242,7 @@ describe('R6 Gap-C: `repositories[0]` audit', () => {
     try {
       fs.writeFileSync(
         tmpFile,
-        "const repo = repositories[0]; // ALLOWED: test fixture\n",
+        'const repo = repositories[0]; // ALLOWED: test fixture\n',
         'utf-8'
       );
       const hits = scanFile(tmpDir, tmpFile);
@@ -250,7 +258,7 @@ describe('R6 Gap-C: `repositories[0]` audit', () => {
     try {
       fs.writeFileSync(
         tmpFile,
-        "// ALLOWED: cold-start fallback when git service is empty\nconst repo = repositories[0];\n",
+        '// ALLOWED: cold-start fallback when git service is empty\nconst repo = repositories[0];\n',
         'utf-8'
       );
       const hits = scanFile(tmpDir, tmpFile);
@@ -270,11 +278,7 @@ describe('R6 Gap-C: `repositories[0]` audit', () => {
     try {
       fs.writeFileSync(tmpFile, 'const repo = repositories[0];\n', 'utf-8');
       const hits = scanFile(tmpDir, tmpFile);
-      assert.strictEqual(
-        hits.length,
-        1,
-        `Expected 1 unmarked hit; got ${hits.length}`
-      );
+      assert.strictEqual(hits.length, 1, `Expected 1 unmarked hit; got ${hits.length}`);
       assert.strictEqual(hits[0].line, 1);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

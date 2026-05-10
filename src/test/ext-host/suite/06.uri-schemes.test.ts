@@ -64,14 +64,18 @@ function repoRoot(): string {
 }
 
 function walk(root: string, out: string[]): void {
-  if (!fs.existsSync(root)) return;
+  if (!fs.existsSync(root)) {
+    return;
+  }
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === 'dist') {
         continue;
       }
-      if (entry.name === 'test' || entry.name === '__mocks__') continue;
+      if (entry.name === 'test' || entry.name === '__mocks__') {
+        continue;
+      }
       walk(full, out);
     } else if (entry.isFile() && /\.tsx?$/.test(entry.name)) {
       out.push(full);
@@ -117,7 +121,9 @@ function discoverRegisteredSchemes(): string[] {
  * positive.
  */
 function isUnresolvedSchemeError(err: unknown): boolean {
-  if (!err) return false;
+  if (!err) {
+    return false;
+  }
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
   // Require both the VS Code wrapper ("cannot open") AND evidence that the
@@ -137,7 +143,7 @@ describe('ext-host smoke — 6. URI-scheme coherence runtime probe', function ()
   before(async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, `Extension ${EXT_ID} not installed in host`);
-    await ext!.activate();
+    await ext.activate();
   });
 
   it('discovers at least one registered content-provider scheme from source', () => {

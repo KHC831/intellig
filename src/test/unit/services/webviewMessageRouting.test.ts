@@ -50,11 +50,7 @@ function createMockMemento(): Memento {
 /**
  * Helper to create a mock commit for testing.
  */
-function createMockCommit(
-  hash: string,
-  message: string,
-  parents: string[] = []
-): ICommit {
+function createMockCommit(hash: string, message: string, parents: string[] = []): ICommit {
   return {
     hash,
     shortHash: hash.substring(0, 7),
@@ -100,7 +96,10 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
 
       // Verify the commit was selected
       const selected = provider.getSelectedCommits();
-      assert.ok(selected.includes('abc1234567890'), 'Should select the commit for the clicked branch');
+      assert.ok(
+        selected.includes('abc1234567890'),
+        'Should select the commit for the clicked branch'
+      );
     });
 
     it('should fire onDidSelectCommit event when branch is clicked', (done) => {

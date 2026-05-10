@@ -70,9 +70,7 @@ interface CreateBranchCall {
   options?: string | ICreateBranchOptions;
 }
 
-function makeGitService(
-  shouldThrow?: Error
-): IGitService & { _createCalls: CreateBranchCall[] } {
+function makeGitService(shouldThrow?: Error): IGitService & { _createCalls: CreateBranchCall[] } {
   const calls: CreateBranchCall[] = [];
   return {
     _createCalls: calls,
@@ -120,14 +118,14 @@ class TestNewBranchDialog extends NewBranchDialog {
   }
 }
 
-function makeDialog(
-  overrides: Partial<INewBranchDialogOptions> = {}
-): {
+function makeDialog(overrides: Partial<INewBranchDialogOptions> = {}): {
   dialog: TestNewBranchDialog;
   gitService: IGitService & { _createCalls: CreateBranchCall[] };
   onCreatedCalls: number;
 } {
-  const gitService = (overrides.gitService as IGitService & { _createCalls: CreateBranchCall[] } | undefined) ?? makeGitService();
+  const gitService =
+    (overrides.gitService as (IGitService & { _createCalls: CreateBranchCall[] }) | undefined) ??
+    makeGitService();
   let onCreatedCalls = 0;
   const dialog = new TestNewBranchDialog(makeContext(), {
     repo: overrides.repo ?? makeRepo(),
@@ -315,13 +313,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       checkout: true,
       track: true,
     });
-    assert.deepStrictEqual(executed[0], [
-      'checkout',
-      '-b',
-      'feature/x',
-      '--track',
-      'origin/main',
-    ]);
+    assert.deepStrictEqual(executed[0], ['checkout', '-b', 'feature/x', '--track', 'origin/main']);
   });
 
   // R5 C-2: service-boundary defense. Even if an upstream caller
@@ -347,10 +339,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
 
   it('rejects empty name at the service boundary (R5 C-2)', async () => {
     const { gitService, executed } = installGitService();
-    await assert.rejects(
-      () => gitService.createBranch(makeRepo(), ''),
-      /Invalid branch name/
-    );
+    await assert.rejects(() => gitService.createBranch(makeRepo(), ''), /Invalid branch name/);
     assert.strictEqual(executed.length, 0);
   });
 });

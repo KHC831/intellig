@@ -58,10 +58,7 @@ export class StashView implements IStashView {
   public readonly onDidSelectStash = this._onDidSelectStash.event;
   public readonly onDidRequestAction = this._onDidRequestAction.event;
 
-  constructor(
-    gitService: IGitService,
-    conflictResolutionService?: IConflictResolutionService
-  ) {
+  constructor(gitService: IGitService, conflictResolutionService?: IConflictResolutionService) {
     this._gitService = gitService;
     this._conflictResolutionService = conflictResolutionService;
     this._state = this._createInitialState();
@@ -281,7 +278,9 @@ export class StashView implements IStashView {
       // T1-08(a): on conflict, route to the Resolve Conflicts dialog instead
       // of surfacing a raw error toast.
       if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
-        const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(
+          this._repository
+        );
         if (conflicts.length > 0) {
           await this._conflictResolutionService.openResolveConflictsDialog(
             this._repository,
@@ -348,7 +347,9 @@ export class StashView implements IStashView {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // T1-08(a): on conflict, route to the Resolve Conflicts dialog.
       if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
-        const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(
+          this._repository
+        );
         if (conflicts.length > 0) {
           await this._conflictResolutionService.openResolveConflictsDialog(
             this._repository,
@@ -392,8 +393,12 @@ export class StashView implements IStashView {
       prompt: 'Enter new branch name',
       placeHolder: 'feature/my-stashed-work',
       validateInput: (v) => {
-        if (!v || !v.trim()) return 'Branch name cannot be empty';
-        if (!/^[\w\-./]+$/.test(v)) return 'Branch name contains invalid characters';
+        if (!v || !v.trim()) {
+          return 'Branch name cannot be empty';
+        }
+        if (!/^[\w\-./]+$/.test(v)) {
+          return 'Branch name contains invalid characters';
+        }
         return undefined;
       },
     });
@@ -415,7 +420,9 @@ export class StashView implements IStashView {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // Conflicts during apply → Resolve Conflicts dialog (T1-08a pattern).
       if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
-        const conflicts = await this._conflictResolutionService.getConflictedFiles(this._repository);
+        const conflicts = await this._conflictResolutionService.getConflictedFiles(
+          this._repository
+        );
         if (conflicts.length > 0) {
           await this._conflictResolutionService.openResolveConflictsDialog(
             this._repository,
@@ -461,7 +468,9 @@ export class StashView implements IStashView {
       value: stash.message ?? '',
       placeHolder: 'WIP: updated description',
       validateInput: (v) => {
-        if (typeof v !== 'string' || v.trim().length === 0) return 'Message cannot be empty';
+        if (typeof v !== 'string' || v.trim().length === 0) {
+          return 'Message cannot be empty';
+        }
         return undefined;
       },
     });

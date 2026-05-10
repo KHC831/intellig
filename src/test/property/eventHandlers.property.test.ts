@@ -23,33 +23,43 @@ import { Uri } from '../mocks/vscode';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 /**
  * Generate a non-empty author name using safe characters.
  */
 function arbitraryAuthorName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
-    ),
-    { minLength: 1, maxLength: 30 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.'.split('')
+      ),
+      { minLength: 1, maxLength: 30 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
  * Generate a valid email address.
  */
 function arbitraryEmail(): fc.Arbitrary<string> {
-  return fc.tuple(
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), { minLength: 1, maxLength: 10 }),
-    fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), { minLength: 1, maxLength: 8 }),
-    fc.constantFrom('com', 'org', 'net', 'io')
-  ).map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
+  return fc
+    .tuple(
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz'.split('')), {
+        minLength: 1,
+        maxLength: 8,
+      }),
+      fc.constantFrom('com', 'org', 'net', 'io')
+    )
+    .map(([user, domain, tld]) => `${user}@${domain}.${tld}`);
 }
 
 /**
@@ -66,12 +76,16 @@ function arbitraryAuthor(): fc.Arbitrary<IAuthor> {
  * Generate a commit message using safe characters.
  */
 function arbitraryCommitMessage(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()[]{}#@$%^*+=~`/'.split('')
-    ),
-    { minLength: 1, maxLength: 80 }
-  ).filter(s => s.trim().length > 0);
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.,:;!?()[]{}#@$%^*+=~`/'.split(
+          ''
+        )
+      ),
+      { minLength: 1, maxLength: 80 }
+    )
+    .filter((s) => s.trim().length > 0);
 }
 
 /**
@@ -80,7 +94,7 @@ function arbitraryCommitMessage(): fc.Arbitrary<string> {
 function arbitraryRecentDate(): fc.Arbitrary<Date> {
   const now = Date.now();
   const oneYearMs = 365 * 24 * 3600 * 1000;
-  return fc.integer({ min: 1000, max: oneYearMs }).map(ms => new Date(now - ms));
+  return fc.integer({ min: 1000, max: oneYearMs }).map((ms) => new Date(now - ms));
 }
 
 /**
@@ -120,11 +134,17 @@ function arbitraryCommitNode(hash: string): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), { minLength: 1, maxLength: 10 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), { minLength: 1, maxLength: 10 }),
+      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), {
+        minLength: 1,
+        maxLength: 10,
+      }),
       { minLength: 0, maxLength: 2 }
     ),
   });
@@ -134,12 +154,14 @@ function arbitraryCommitNode(hash: string): fc.Arbitrary<ICommitNode> {
  * Generate a list of 1-5 commit nodes with unique hashes.
  */
 function arbitraryCommitNodes(): fc.Arbitrary<ICommitNode[]> {
-  return fc.array(arbitraryFullHash(), { minLength: 1, maxLength: 5 })
-    .filter(hashes => new Set(hashes).size === hashes.length)
-    .chain(hashes => {
-      const nodeArbs = hashes.map(hash => arbitraryCommitNode(hash));
-      return fc.tuple(...nodeArbs as [fc.Arbitrary<ICommitNode>, ...fc.Arbitrary<ICommitNode>[]])
-        .map(nodes => nodes as unknown as ICommitNode[]);
+  return fc
+    .array(arbitraryFullHash(), { minLength: 1, maxLength: 5 })
+    .filter((hashes) => new Set(hashes).size === hashes.length)
+    .chain((hashes) => {
+      const nodeArbs = hashes.map((hash) => arbitraryCommitNode(hash));
+      return fc
+        .tuple(...(nodeArbs as [fc.Arbitrary<ICommitNode>, ...fc.Arbitrary<ICommitNode>[]]))
+        .map((nodes) => nodes as unknown as ICommitNode[]);
     });
 }
 
@@ -175,23 +197,20 @@ describe('Feature: intellig-ui-fixes - Event Handlers Property Tests', () => {
      */
     it('Feature: intellig-ui-fixes, Property 6: Commit rows have click and context menu handlers — each commit row has correct data-hash attribute', () => {
       fc.assert(
-        fc.property(
-          arbitraryCommitNodes(),
-          (commitNodes) => {
-            const html = provider._getGraphPanelHtml(commitNodes);
+        fc.property(arbitraryCommitNodes(), (commitNodes) => {
+          const html = provider._getGraphPanelHtml(commitNodes);
 
-            // Verify each commit row has data-hash attribute
-            for (const node of commitNodes) {
-              const hash = node.commit.hash;
+          // Verify each commit row has data-hash attribute
+          for (const node of commitNodes) {
+            const hash = node.commit.hash;
 
-              const expectedDataHash = `data-hash="${hash}"`;
-              assert.ok(
-                html.includes(expectedDataHash),
-                `Commit row with hash "${hash}" should have data-hash="${hash}" attribute`
-              );
-            }
+            const expectedDataHash = `data-hash="${hash}"`;
+            assert.ok(
+              html.includes(expectedDataHash),
+              `Commit row with hash "${hash}" should have data-hash="${hash}" attribute`
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });

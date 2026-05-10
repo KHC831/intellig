@@ -41,7 +41,10 @@ interface PackageJson {
     commands?: Array<{ command: string; title?: string; category?: string }>;
     keybindings?: Array<{ command: string; key: string; mac?: string; when?: string }>;
     views?: Record<string, Array<{ id: string; name?: string }>>;
-    menus?: Record<string, Array<{ command?: string; submenu?: string; when?: string; group?: string }>>;
+    menus?: Record<
+      string,
+      Array<{ command?: string; submenu?: string; when?: string; group?: string }>
+    >;
     submenus?: Array<{ id: string; label?: string }>;
   };
 }
@@ -78,10 +81,9 @@ function extractFocusedViewRefs(whenClause: string): string[] {
  * output without truncation.
  */
 function describeViolations(label: string, violations: string[]): string {
-  return [
-    `${violations.length} ${label} violation(s):`,
-    ...violations.map((v) => `  - ${v}`),
-  ].join('\n');
+  return [`${violations.length} ${label} violation(s):`, ...violations.map((v) => `  - ${v}`)].join(
+    '\n'
+  );
 }
 
 // ---------------------------------------------------------------------------

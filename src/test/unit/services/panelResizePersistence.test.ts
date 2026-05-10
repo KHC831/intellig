@@ -112,7 +112,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);
 
-      (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+      (
+        provider as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage({
         type: 'panelResize',
         widths: [55, 45],
       });
@@ -126,7 +128,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);
 
-      (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+      (
+        provider as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage({
         type: 'panelResize',
         widths: [65, 35],
       });
@@ -140,7 +144,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const provider = new GitToolWindowProvider(extensionUri);
 
       assert.doesNotThrow(() => {
-        (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+        (
+          provider as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+        )._handleWebviewMessage({
           type: 'panelResize',
           widths: [55, 45],
         });
@@ -155,7 +161,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);
 
-      (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+      (
+        provider as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage({
         type: 'panelResize',
       });
 
@@ -167,7 +175,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
     it('should handle multiple consecutive panelResize messages', () => {
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);
-      const handler = (provider as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage.bind(provider);
+      const handler = (
+        provider as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage.bind(provider);
 
       handler({ type: 'panelResize', widths: [55, 45] });
       handler({ type: 'panelResize', widths: [70, 30] });
@@ -207,13 +217,13 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
         []
       );
 
-      const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/)
+      const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/);
       assert.ok(graphPanelMatch, 'Graph panel should have width style');
-      assert.strictEqual(graphPanelMatch![1], '70', 'Graph panel should be 70%');
+      assert.strictEqual(graphPanelMatch[1], '70', 'Graph panel should be 70%');
 
-      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/)
+      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/);
       assert.ok(detailsPanelMatch, 'Details panel should have width style');
-      assert.strictEqual(detailsPanelMatch![1], '30', 'Details panel should be 30%');
+      assert.strictEqual(detailsPanelMatch[1], '30', 'Details panel should be 30%');
 
       provider.dispose();
     });
@@ -232,13 +242,13 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
         [55, 45] // explicit widths
       );
 
-      const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/)
+      const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/);
       assert.ok(graphPanelMatch, 'Graph panel should have width style');
-      assert.strictEqual(graphPanelMatch![1], '55', 'Graph panel should be 55%');
+      assert.strictEqual(graphPanelMatch[1], '55', 'Graph panel should be 55%');
 
-      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/)
+      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/);
       assert.ok(detailsPanelMatch, 'Details panel should have width style');
-      assert.strictEqual(detailsPanelMatch![1], '45', 'Details panel should be 45%');
+      assert.strictEqual(detailsPanelMatch[1], '45', 'Details panel should be 45%');
 
       provider.dispose();
     });
@@ -249,7 +259,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const memento = createMockMemento();
 
       const provider1 = new GitToolWindowProvider(extensionUri, memento);
-      (provider1 as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+      (
+        provider1 as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage({
         type: 'panelResize',
         widths: [75, 25],
       });
@@ -265,7 +277,9 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       const memento = createMockMemento();
 
       const provider1 = new GitToolWindowProvider(extensionUri, memento);
-      (provider1 as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+      (
+        provider1 as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage({
         type: 'panelResize',
         widths: [55, 45],
       });
@@ -279,13 +293,13 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
         []
       );
 
-      const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/)
+      const graphPanelMatch = html.match(/id="graph-panel"[^>]*style="width: (\d+)%;"/);
       assert.ok(graphPanelMatch, 'Graph panel should have width style');
-      assert.strictEqual(graphPanelMatch![1], '55', 'Graph panel should be 55%');
+      assert.strictEqual(graphPanelMatch[1], '55', 'Graph panel should be 55%');
 
-      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/)
+      const detailsPanelMatch = html.match(/id="details-panel"[^>]*style="width: (\d+)%;"/);
       assert.ok(detailsPanelMatch, 'Details panel should have width style');
-      assert.strictEqual(detailsPanelMatch![1], '45', 'Details panel should be 45%');
+      assert.strictEqual(detailsPanelMatch[1], '45', 'Details panel should be 45%');
 
       provider2.dispose();
     });

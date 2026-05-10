@@ -49,9 +49,13 @@ export function findCommitByQuery(
   branches: readonly IBranch[],
   tags: readonly ITag[]
 ): string | undefined {
-  if (!query) return undefined;
+  if (!query) {
+    return undefined;
+  }
   const trimmed = query.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
 
   // 1. SHA prefix
   if (trimmed.length >= MIN_SHA_PREFIX_LENGTH && isHexString(trimmed)) {
@@ -91,7 +95,9 @@ export function classifyQuery(
   tags: readonly ITag[]
 ): JumpToHashMatchKind | undefined {
   const trimmed = query.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return undefined;
+  }
 
   if (trimmed.length >= MIN_SHA_PREFIX_LENGTH && isHexString(trimmed)) {
     const lowered = trimmed.toLowerCase();
@@ -99,20 +105,28 @@ export function classifyQuery(
       return 'sha';
     }
   }
-  if (branches.some((b) => b.name === trimmed)) return 'branch';
-  if (tags.some((t) => t.name === trimmed)) return 'tag';
+  if (branches.some((b) => b.name === trimmed)) {
+    return 'branch';
+  }
+  if (tags.some((t) => t.name === trimmed)) {
+    return 'tag';
+  }
   return undefined;
 }
 
 /** `true` when every character is a lowercase/uppercase hex digit. */
 export function isHexString(s: string): boolean {
-  if (!s) return false;
+  if (!s) {
+    return false;
+  }
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
     const isDigit = c >= 48 && c <= 57;
     const isLower = c >= 97 && c <= 102;
     const isUpper = c >= 65 && c <= 70;
-    if (!isDigit && !isLower && !isUpper) return false;
+    if (!isDigit && !isLower && !isUpper) {
+      return false;
+    }
   }
   return true;
 }

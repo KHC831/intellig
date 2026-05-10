@@ -11,7 +11,7 @@ import { sanitizeGitError } from '../../../utils/gitError';
 
 describe('sanitizeGitError', () => {
   it('passes clean messages through unchanged', () => {
-    const clean = "fatal: not a git repository (or any parent up to mount point /)";
+    const clean = 'fatal: not a git repository (or any parent up to mount point /)';
     assert.strictEqual(sanitizeGitError(clean), clean);
   });
 
@@ -20,7 +20,8 @@ describe('sanitizeGitError', () => {
   });
 
   it('redacts PAT-in-URL (https://x-access-token:ghp_…@github.com/…)', () => {
-    const raw = "fatal: unable to access 'https://x-access-token:ghp_ABC123xyz@github.com/owner/repo.git/': ";
+    const raw =
+      "fatal: unable to access 'https://x-access-token:ghp_ABC123xyz@github.com/owner/repo.git/': ";
     const scrubbed = sanitizeGitError(raw);
     assert.ok(!scrubbed.includes('ghp_ABC123xyz'), 'token must be redacted');
     assert.ok(!scrubbed.includes('x-access-token'), 'user must be redacted');
@@ -30,8 +31,8 @@ describe('sanitizeGitError', () => {
 
   it('redacts multiple URLs in a single message', () => {
     const raw =
-      "remote failed at https://alice:secret1@host-a.example/repo.git and " +
-      "fallback https://bob:secret2@host-b.example/repo.git";
+      'remote failed at https://alice:secret1@host-a.example/repo.git and ' +
+      'fallback https://bob:secret2@host-b.example/repo.git';
     const scrubbed = sanitizeGitError(raw);
     assert.ok(!scrubbed.includes('secret1'));
     assert.ok(!scrubbed.includes('secret2'));
@@ -43,7 +44,7 @@ describe('sanitizeGitError', () => {
   });
 
   it('handles http (not only https) URLs', () => {
-    const raw = "fatal: access error http://user:pw@example.com/repo.git";
+    const raw = 'fatal: access error http://user:pw@example.com/repo.git';
     const scrubbed = sanitizeGitError(raw);
     assert.ok(scrubbed.includes('http://<redacted>@example.com'));
     assert.ok(!scrubbed.includes('pw'));
@@ -53,14 +54,14 @@ describe('sanitizeGitError', () => {
     // Git percent-encodes `:` in real URLs, but stderr can echo raw PATs
     // from user `.gitconfig`. The regex stops at `@` so colons inside the
     // password must still be stripped.
-    const raw = "fatal: access https://user:abc:def:ghi@host.example/repo.git failed";
+    const raw = 'fatal: access https://user:abc:def:ghi@host.example/repo.git failed';
     const scrubbed = sanitizeGitError(raw);
     assert.ok(!scrubbed.includes('abc:def:ghi'));
     assert.ok(scrubbed.includes('<redacted>@host.example'));
   });
 
   it('handles URLs with query strings', () => {
-    const raw = "fatal: access https://u:p@host.example/path?refs=main&deep=true";
+    const raw = 'fatal: access https://u:p@host.example/path?refs=main&deep=true';
     const scrubbed = sanitizeGitError(raw);
     assert.ok(scrubbed.includes('<redacted>@host.example/path?refs=main&deep=true'));
     assert.ok(!scrubbed.includes(':p@'));
@@ -75,7 +76,7 @@ describe('sanitizeGitError', () => {
     // `ssh://git@github.com/owner/repo.git` has a user but no `:password`.
     // We intentionally don't scrub plain `user@host` — that's a public
     // identifier, not a secret, and usernames are often meaningful.
-    const raw = "ssh://git@github.com/owner/repo.git";
+    const raw = 'ssh://git@github.com/owner/repo.git';
     assert.strictEqual(sanitizeGitError(raw), raw);
   });
 });

@@ -40,9 +40,7 @@ import * as path from 'path';
  * documentation purposes. (The standalone `isCommentLine` filter below
  * backstops this with a second pass.)
  */
-const FORBIDDEN_SCHEME_PATTERNS: RegExp[] = [
-  /['"`]git-show:/,
-];
+const FORBIDDEN_SCHEME_PATTERNS: RegExp[] = [/['"`]git-show:/];
 
 /** Source roots under the repo root that participate in the audit. */
 const SCAN_ROOTS: string[] = ['src'];
@@ -100,10 +98,18 @@ interface Hit {
  */
 function isCommentLine(line: string): boolean {
   const trimmed = line.trim();
-  if (trimmed.startsWith('//')) return true;
-  if (trimmed.startsWith('/*')) return true;
-  if (trimmed.startsWith('*/')) return true;
-  if (trimmed.startsWith('*')) return true;
+  if (trimmed.startsWith('//')) {
+    return true;
+  }
+  if (trimmed.startsWith('/*')) {
+    return true;
+  }
+  if (trimmed.startsWith('*/')) {
+    return true;
+  }
+  if (trimmed.startsWith('*')) {
+    return true;
+  }
   return false;
 }
 
@@ -115,7 +121,9 @@ function scanFile(repoRoot: string, absPath: string): Hit[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (isCommentLine(line)) continue;
+    if (isCommentLine(line)) {
+      continue;
+    }
     for (const pattern of FORBIDDEN_SCHEME_PATTERNS) {
       if (pattern.test(line)) {
         hits.push({
@@ -201,9 +209,9 @@ describe('URI-scheme coherence audit: forbid `git-show:` in production code', ()
       fs.writeFileSync(
         tmpFile,
         [
-          "// The legacy `git-show:` scheme was renamed to `intellig-git:`.",
+          '// The legacy `git-show:` scheme was renamed to `intellig-git:`.',
           "/* Previously: 'git-show:' — now replaced. */",
-          " * Historical: `git-show:foo.ts` was never registered.",
+          ' * Historical: `git-show:foo.ts` was never registered.',
           'const uri = "intellig-git:foo.ts?ref=abc";',
           '',
         ].join('\n'),

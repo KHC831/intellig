@@ -10,7 +10,12 @@ import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../commands/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
-import { IGitService, IRepository, IBranch, IUpstream } from '../../services/interfaces/IGitService';
+import {
+  IGitService,
+  IRepository,
+  IBranch,
+  IUpstream,
+} from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -19,19 +24,22 @@ import { EventEmitter, Uri } from '../mocks/vscode';
  * Generate a valid branch name segment (alphanumeric, hyphens, underscores, dots).
  */
 function arbitraryBranchSegment(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'.split('')
-    ),
-    { minLength: 1, maxLength: 15 }
-  ).filter((s) => !s.startsWith('-') && !s.startsWith('_'));
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'.split('')
+      ),
+      { minLength: 1, maxLength: 15 }
+    )
+    .filter((s) => !s.startsWith('-') && !s.startsWith('_'));
 }
 
 /**
  * Generate a valid branch name with optional path segments (e.g., "feature/my-branch").
  */
 function arbitraryBranchName(): fc.Arbitrary<string> {
-  return fc.array(arbitraryBranchSegment(), { minLength: 1, maxLength: 3 })
+  return fc
+    .array(arbitraryBranchSegment(), { minLength: 1, maxLength: 3 })
     .map((segments) => segments.join('/'))
     .filter((s) => s.length > 0 && !s.endsWith('/') && !s.includes('//'));
 }
@@ -40,12 +48,14 @@ function arbitraryBranchName(): fc.Arbitrary<string> {
  * Generate a valid remote name (e.g., "origin", "upstream", "my-remote").
  */
 function arbitraryRemoteName(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'.split('')
-    ),
-    { minLength: 1, maxLength: 15 }
-  ).filter((s) => s.length > 0 && !s.startsWith('-') && !s.startsWith('_'));
+  return fc
+    .stringOf(
+      fc.constantFrom(
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'.split('')
+      ),
+      { minLength: 1, maxLength: 15 }
+    )
+    .filter((s) => s.length > 0 && !s.startsWith('-') && !s.startsWith('_'));
 }
 
 /**
@@ -236,7 +246,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
               gitService.fetchCalls[0].remote,
               upstream.remote,
               `Expected fetch to be called with remote "${upstream.remote}", ` +
-              `but was called with "${gitService.fetchCalls[0].remote}"`
+                `but was called with "${gitService.fetchCalls[0].remote}"`
             );
           }
         ),
@@ -246,29 +256,26 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
 
     it('Update handler does not call fetch when branch has no upstream', () => {
       fc.assert(
-        fc.asyncProperty(
-          arbitraryBranchName(),
-          async (branchName) => {
-            // Setup: Create tracking mock git service
-            const gitService = createTrackingMockGitService();
-            const branchTreeProvider = createMockBranchTreeProvider(gitService);
-            const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+        fc.asyncProperty(arbitraryBranchName(), async (branchName) => {
+          // Setup: Create tracking mock git service
+          const gitService = createTrackingMockGitService();
+          const branchTreeProvider = createMockBranchTreeProvider(gitService);
+          const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-            // Create a branch tree item WITHOUT upstream
-            const item = createBranchTreeItem(branchName, undefined);
+          // Create a branch tree item WITHOUT upstream
+          const item = createBranchTreeItem(branchName, undefined);
 
-            // Act: Call the _handleUpdate handler
-            await (commands as any)._handleUpdate(item);
+          // Act: Call the _handleUpdate handler
+          await (commands as any)._handleUpdate(item);
 
-            // Assert: fetch was NOT called (no upstream configured)
-            assert.strictEqual(
-              gitService.fetchCalls.length,
-              0,
-              `Expected fetch NOT to be called when no upstream is configured, ` +
+          // Assert: fetch was NOT called (no upstream configured)
+          assert.strictEqual(
+            gitService.fetchCalls.length,
+            0,
+            `Expected fetch NOT to be called when no upstream is configured, ` +
               `but it was called ${gitService.fetchCalls.length} times`
-            );
-          }
-        ),
+          );
+        }),
         { numRuns: 100 }
       );
     });
@@ -337,7 +344,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
               gitService.pushCalls[0].options.remote,
               upstream.remote,
               `Expected push remote to be "${upstream.remote}", ` +
-              `but was "${gitService.pushCalls[0].options.remote}"`
+                `but was "${gitService.pushCalls[0].options.remote}"`
             );
 
             // Assert: push was called with the correct branch name
@@ -345,7 +352,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
               gitService.pushCalls[0].options.branch,
               branchName,
               `Expected push branch to be "${branchName}", ` +
-              `but was "${gitService.pushCalls[0].options.branch}"`
+                `but was "${gitService.pushCalls[0].options.branch}"`
             );
           }
         ),
@@ -355,43 +362,40 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
 
     it('Push handler sets upstream when branch has no upstream configured', () => {
       fc.assert(
-        fc.asyncProperty(
-          arbitraryBranchName(),
-          async (branchName) => {
-            // Setup: Create tracking mock git service
-            const gitService = createTrackingMockGitService();
-            const branchTreeProvider = createMockBranchTreeProvider(gitService);
-            const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+        fc.asyncProperty(arbitraryBranchName(), async (branchName) => {
+          // Setup: Create tracking mock git service
+          const gitService = createTrackingMockGitService();
+          const branchTreeProvider = createMockBranchTreeProvider(gitService);
+          const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-            // Create a branch tree item WITHOUT upstream
-            const item = createBranchTreeItem(branchName, undefined);
+          // Create a branch tree item WITHOUT upstream
+          const item = createBranchTreeItem(branchName, undefined);
 
-            // Act: Call the _handlePush handler
-            await (commands as any)._handlePush(item);
+          // Act: Call the _handlePush handler
+          await (commands as any)._handlePush(item);
 
-            // Assert: push was called exactly once
-            assert.strictEqual(
-              gitService.pushCalls.length,
-              1,
-              `Expected push to be called once, but was called ${gitService.pushCalls.length} times`
-            );
+          // Assert: push was called exactly once
+          assert.strictEqual(
+            gitService.pushCalls.length,
+            1,
+            `Expected push to be called once, but was called ${gitService.pushCalls.length} times`
+          );
 
-            // Assert: push was called with setUpstream: true
-            assert.strictEqual(
-              gitService.pushCalls[0].options.setUpstream,
-              true,
-              `Expected push to be called with setUpstream: true when no upstream is configured`
-            );
+          // Assert: push was called with setUpstream: true
+          assert.strictEqual(
+            gitService.pushCalls[0].options.setUpstream,
+            true,
+            `Expected push to be called with setUpstream: true when no upstream is configured`
+          );
 
-            // Assert: push was called with the correct branch name
-            assert.strictEqual(
-              gitService.pushCalls[0].options.branch,
-              branchName,
-              `Expected push branch to be "${branchName}", ` +
+          // Assert: push was called with the correct branch name
+          assert.strictEqual(
+            gitService.pushCalls[0].options.branch,
+            branchName,
+            `Expected push branch to be "${branchName}", ` +
               `but was "${gitService.pushCalls[0].options.branch}"`
-            );
-          }
-        ),
+          );
+        }),
         { numRuns: 100 }
       );
     });

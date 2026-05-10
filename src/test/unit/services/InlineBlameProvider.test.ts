@@ -521,16 +521,18 @@ describe('InlineBlameProvider', () => {
         rootUri: Uri.file('/test/repo'),
         state: 'idle',
         head: { name: 'main', commit: 'abc123', ahead: 0, behind: 0 },
-        remotes: [
-          { name: 'origin', fetchUrl: 'https://github.com/acme/widgets.git' },
-        ],
+        remotes: [{ name: 'origin', fetchUrl: 'https://github.com/acme/widgets.git' }],
         submodules: [],
       };
-      const md = (inlineBlameProvider as unknown as {
-        createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
-      }).createHoverMessage(sampleBlame, repo);
+      const md = (
+        inlineBlameProvider as unknown as {
+          createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+        }
+      ).createHoverMessage(sampleBlame, repo);
       assert.ok(
-        md.value.includes('https://github.com/acme/widgets/commit/abc123def456789012345678901234567890abcd'),
+        md.value.includes(
+          'https://github.com/acme/widgets/commit/abc123def456789012345678901234567890abcd'
+        ),
         `hover value should contain commit URL; got: ${md.value}`
       );
       // The short-hash should be rendered inside a markdown link.
@@ -548,9 +550,11 @@ describe('InlineBlameProvider', () => {
         remotes: [],
         submodules: [],
       };
-      const md = (inlineBlameProvider as unknown as {
-        createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
-      }).createHoverMessage(sampleBlame, repo);
+      const md = (
+        inlineBlameProvider as unknown as {
+          createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+        }
+      ).createHoverMessage(sampleBlame, repo);
       // No "/commit/" provider URL, no short-hash markdown link.
       assert.ok(!md.value.includes('/commit/'), `no provider URL; got: ${md.value}`);
       assert.ok(
@@ -569,9 +573,11 @@ describe('InlineBlameProvider', () => {
         submodules: [],
       };
       assert.doesNotThrow(() => {
-        const md = (inlineBlameProvider as unknown as {
-          createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
-        }).createHoverMessage(sampleBlame, repo);
+        const md = (
+          inlineBlameProvider as unknown as {
+            createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+          }
+        ).createHoverMessage(sampleBlame, repo);
         assert.ok(!md.value.includes('/commit/'), 'no provider URL on parse failure');
         assert.ok(
           md.value.includes('**Commit:** `abc123d`'),
@@ -581,9 +587,11 @@ describe('InlineBlameProvider', () => {
     });
 
     it('falls back to plain hash when repo is undefined', () => {
-      const md = (inlineBlameProvider as unknown as {
-        createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
-      }).createHoverMessage(sampleBlame, undefined);
+      const md = (
+        inlineBlameProvider as unknown as {
+          createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+        }
+      ).createHoverMessage(sampleBlame, undefined);
       assert.ok(!md.value.includes('/commit/'), 'no provider URL when repo missing');
       assert.ok(md.value.includes('`abc123d`'), 'plain short hash rendered');
     });

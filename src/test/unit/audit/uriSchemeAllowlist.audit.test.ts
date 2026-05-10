@@ -71,10 +71,7 @@ const BUILTIN_SCHEMES: ReadonlySet<string> = new Set([
 
 const SCAN_ROOT = 'src';
 
-const EXCLUDE_PATH_SEGMENTS: readonly string[] = [
-  'src/test/',
-  'src/__mocks__/',
-];
+const EXCLUDE_PATH_SEGMENTS: readonly string[] = ['src/test/', 'src/__mocks__/'];
 
 /** The allowlist marker comment that exempts a use site. */
 const ALLOWLIST_MARKER = '// ALLOWED-SCHEME:';
@@ -102,7 +99,10 @@ const URI_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   // new vscode.Uri('scheme', ...)
   { name: 'new Uri', re: /\bnew\s+(?:vscode\.)?Uri\s*\(\s*['"]([a-zA-Z][a-zA-Z0-9+.-]*)['"]/gs },
   // .with({ scheme: 'scheme' })
-  { name: '.with scheme', re: /\.with\s*\(\s*\{[^}]*\bscheme\s*:\s*['"]([a-zA-Z][a-zA-Z0-9+.-]*)['"]/gs },
+  {
+    name: '.with scheme',
+    re: /\.with\s*\(\s*\{[^}]*\bscheme\s*:\s*['"]([a-zA-Z][a-zA-Z0-9+.-]*)['"]/gs,
+  },
 ];
 
 /**
@@ -122,7 +122,9 @@ function toPosix(p: string): string {
 }
 
 function walk(root: string, out: string[]): void {
-  if (!fs.existsSync(root)) return;
+  if (!fs.existsSync(root)) {
+    return;
+  }
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) {
@@ -188,10 +190,18 @@ interface Hit {
 
 function isCommentLine(line: string): boolean {
   const trimmed = line.trim();
-  if (trimmed.startsWith('//')) return true;
-  if (trimmed.startsWith('/*')) return true;
-  if (trimmed.startsWith('*/')) return true;
-  if (trimmed.startsWith('*')) return true;
+  if (trimmed.startsWith('//')) {
+    return true;
+  }
+  if (trimmed.startsWith('/*')) {
+    return true;
+  }
+  if (trimmed.startsWith('*/')) {
+    return true;
+  }
+  if (trimmed.startsWith('*')) {
+    return true;
+  }
   return false;
 }
 
@@ -203,7 +213,9 @@ function isCommentLine(line: string): boolean {
 function lineStartOffsets(raw: string): number[] {
   const offsets: number[] = [0];
   for (let i = 0; i < raw.length; i++) {
-    if (raw.charCodeAt(i) === 10 /* \n */) offsets.push(i + 1);
+    if (raw.charCodeAt(i) === 10 /* \n */) {
+      offsets.push(i + 1);
+    }
   }
   return offsets;
 }
@@ -213,8 +225,11 @@ function offsetToLine(offsets: number[], pos: number): number {
   let hi = offsets.length - 1;
   while (lo < hi) {
     const mid = (lo + hi + 1) >>> 1;
-    if (offsets[mid] <= pos) lo = mid;
-    else hi = mid - 1;
+    if (offsets[mid] <= pos) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
   }
   return lo + 1;
 }
@@ -235,7 +250,9 @@ function scanFile(repoRootAbs: string, absPath: string): Hit[] {
       const lineText = lines[lineNo - 1] ?? '';
       // Skip matches inside pure comment lines — comment-documented
       // examples of the drift should not trigger this audit.
-      if (isCommentLine(lineText)) continue;
+      if (isCommentLine(lineText)) {
+        continue;
+      }
       hits.push({
         file: rel,
         line: lineNo,
@@ -251,8 +268,12 @@ function scanFile(repoRootAbs: string, absPath: string): Hit[] {
 
 function filterUnknownSchemes(hits: Hit[], allowlist: ReadonlySet<string>): Hit[] {
   return hits.filter((h) => {
-    if (allowlist.has(h.scheme)) return false;
-    if (h.snippet.includes(ALLOWLIST_MARKER)) return false;
+    if (allowlist.has(h.scheme)) {
+      return false;
+    }
+    if (h.snippet.includes(ALLOWLIST_MARKER)) {
+      return false;
+    }
     return true;
   });
 }
@@ -262,7 +283,7 @@ function filterUnknownSchemes(hits: Hit[], allowlist: ReadonlySet<string>): Hit[
 // ---------------------------------------------------------------------------
 
 describe('URI-scheme allowlist audit (broader invariant A-static)', () => {
-  it('every `vscode.Uri.parse(\'<scheme>:...\')` site uses a built-in or registered scheme', () => {
+  it("every `vscode.Uri.parse('<scheme>:...')` site uses a built-in or registered scheme", () => {
     const root = repoRoot();
     const files = collectSourceFiles();
     const registered = buildRegisteredSchemeSet();
@@ -273,7 +294,9 @@ describe('URI-scheme allowlist audit (broader invariant A-static)', () => {
       hits.push(...scanFile(root, abs));
     }
     const unknown = filterUnknownSchemes(hits, allowlist);
-    if (unknown.length === 0) return;
+    if (unknown.length === 0) {
+      return;
+    }
 
     const byScheme = new Map<string, Hit[]>();
     for (const h of unknown) {
@@ -291,9 +314,7 @@ describe('URI-scheme allowlist audit (broader invariant A-static)', () => {
         [...registered].sort().join(', ') || '(none)'
       })`
     );
-    lines.push(
-      `  (c) explicitly exempt via \`// ALLOWED-SCHEME: <reason>\` on the same line.`
-    );
+    lines.push(`  (c) explicitly exempt via \`// ALLOWED-SCHEME: <reason>\` on the same line.`);
     lines.push('');
     for (const [scheme, group] of byScheme) {
       lines.push(`  Unknown scheme \`${scheme}:\` — ${group.length} site(s):`);
@@ -308,14 +329,8 @@ describe('URI-scheme allowlist audit (broader invariant A-static)', () => {
 
   it('builtin allowlist sanity: `file`, `http`, `intellig-git` are accepted', () => {
     const registered = buildRegisteredSchemeSet();
-    assert.ok(
-      BUILTIN_SCHEMES.has('file'),
-      '`file` must be in the built-in allowlist'
-    );
-    assert.ok(
-      BUILTIN_SCHEMES.has('http'),
-      '`http` must be in the built-in allowlist'
-    );
+    assert.ok(BUILTIN_SCHEMES.has('file'), '`file` must be in the built-in allowlist');
+    assert.ok(BUILTIN_SCHEMES.has('http'), '`http` must be in the built-in allowlist');
     assert.ok(
       registered.has('intellig-git'),
       '`intellig-git` must be discovered from registerTextDocumentContentProvider'
@@ -338,12 +353,7 @@ describe('URI-scheme allowlist audit (broader invariant A-static)', () => {
       );
       const hits = scanFile(tmpDir, tmpFile);
       const schemes = new Set(hits.map((h) => h.scheme));
-      for (const expected of [
-        'zzz-unknown-a',
-        'zzz-unknown-b',
-        'zzz-unknown-c',
-        'zzz-unknown-d',
-      ]) {
+      for (const expected of ['zzz-unknown-a', 'zzz-unknown-b', 'zzz-unknown-c', 'zzz-unknown-d']) {
         assert.ok(
           schemes.has(expected),
           `Detector must match scheme \`${expected}\` in synthetic fixture; got: [${[...schemes].join(', ')}]`
@@ -363,11 +373,9 @@ describe('URI-scheme allowlist audit (broader invariant A-static)', () => {
     try {
       fs.writeFileSync(
         tmpFile,
-        [
-          'const uri = vscode.Uri.parse(',
-          '  `zzz-multiline-scheme:path?query=value`',
-          ');',
-        ].join('\n'),
+        ['const uri = vscode.Uri.parse(', '  `zzz-multiline-scheme:path?query=value`', ');'].join(
+          '\n'
+        ),
         'utf-8'
       );
       const hits = scanFile(tmpDir, tmpFile);

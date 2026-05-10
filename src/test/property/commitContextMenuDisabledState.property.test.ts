@@ -20,10 +20,10 @@ import * as assert from 'assert';
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
-  return fc.stringOf(
-    fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 40, maxLength: 40 }
-  );
+  return fc.stringOf(fc.constantFrom(...'0123456789abcdef'.split('')), {
+    minLength: 40,
+    maxLength: 40,
+  });
 }
 
 // ─── Pure logic extracted from webview JS ─────────────────────────────────────
@@ -58,27 +58,23 @@ describe('Feature: git-graph-context-menu - Undo Commit Disabled State Property 
      */
     it('should disable Undo Commit if and only if the commit hash does not equal the HEAD hash', () => {
       fc.assert(
-        fc.property(
-          arbitraryFullHash(),
-          arbitraryFullHash(),
-          (commitHash, headHash) => {
-            const isDisabled = shouldUndoCommitBeDisabled([commitHash], headHash);
+        fc.property(arbitraryFullHash(), arbitraryFullHash(), (commitHash, headHash) => {
+          const isDisabled = shouldUndoCommitBeDisabled([commitHash], headHash);
 
-            if (commitHash === headHash) {
-              assert.strictEqual(
-                isDisabled,
-                false,
-                `Undo Commit should NOT be disabled when commit hash equals HEAD hash (${commitHash})`
-              );
-            } else {
-              assert.strictEqual(
-                isDisabled,
-                true,
-                `Undo Commit should be disabled when commit hash (${commitHash}) differs from HEAD hash (${headHash})`
-              );
-            }
+          if (commitHash === headHash) {
+            assert.strictEqual(
+              isDisabled,
+              false,
+              `Undo Commit should NOT be disabled when commit hash equals HEAD hash (${commitHash})`
+            );
+          } else {
+            assert.strictEqual(
+              isDisabled,
+              true,
+              `Undo Commit should be disabled when commit hash (${commitHash}) differs from HEAD hash (${headHash})`
+            );
           }
-        ),
+        }),
         { numRuns: 100 }
       );
     });
@@ -103,17 +99,14 @@ describe('Feature: git-graph-context-menu - Undo Commit Disabled State Property 
 
     it('should always disable Undo Commit when no commits are selected', () => {
       fc.assert(
-        fc.property(
-          arbitraryFullHash(),
-          (headHash) => {
-            const isDisabled = shouldUndoCommitBeDisabled([], headHash);
-            assert.strictEqual(
-              isDisabled,
-              true,
-              'Undo Commit should be disabled when no commits are selected'
-            );
-          }
-        ),
+        fc.property(arbitraryFullHash(), (headHash) => {
+          const isDisabled = shouldUndoCommitBeDisabled([], headHash);
+          assert.strictEqual(
+            isDisabled,
+            true,
+            'Undo Commit should be disabled when no commits are selected'
+          );
+        }),
         { numRuns: 100 }
       );
     });
