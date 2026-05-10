@@ -128,6 +128,23 @@ class StubGitCli {
 }
 
 /**
+ * Test-only surface on `GitService` for the watcher-regression suite.
+ *
+ * Reaches through the `private` boundary to:
+ *   - swap `_gitCli` for a scripted stub so reloads don't spawn git,
+ *   - replace `loadRepository` with a counter + hold/release latch,
+ *   - call `setupRepositoryWatcher` directly (the production entry point
+ *     runs it as part of `loadRepository`, which we've already replaced).
+ *
+ * See `docs/testing.md` §3 for the TestSurface convention.
+ */
+interface GitServiceWatcherTestSurface {
+  _gitCli: StubGitCli;
+  loadRepository: (root: string) => Promise<unknown>;
+  setupRepositoryWatcher: (root: string) => void;
+}
+
+/**
  * Install `stubCli` and a stubbed `loadRepository` on `service`, then
  * call the private `setupRepositoryWatcher` directly. Returns a counter
  * that increments every time `loadRepository` fires.
@@ -137,15 +154,14 @@ function wireWatcher(
   stubCli: StubGitCli,
   rootPath: string
 ): { loadCount: () => number; resolveLoad: () => void; holdNextLoad: () => void } {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-  (service as any)._gitCli = stubCli;
+  const surface = service as unknown as GitServiceWatcherTestSurface;
+  surface._gitCli = stubCli;
 
   let count = 0;
   let hold = false;
   let release: (() => void) | null = null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-  (service as any).loadRepository = async (_root: string): Promise<unknown> => {
+  surface.loadRepository = async (_root: string): Promise<unknown> => {
     count += 1;
     if (hold) {
       await new Promise<void>((resolve) => {
@@ -165,8 +181,7 @@ function wireWatcher(
     };
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-  (service as any).setupRepositoryWatcher(rootPath);
+  surface.setupRepositoryWatcher(rootPath);
 
   return {
     loadCount: (): number => count,

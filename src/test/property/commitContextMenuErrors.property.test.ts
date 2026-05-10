@@ -20,6 +20,7 @@ import { CommitContextMenuCommands } from '../../commands/CommitContextMenuComma
 import { IGitService, IRepository } from '../../services/interfaces/IGitService';
 import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
+import type { GitCli } from '../../utils/gitCli';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
 
@@ -139,7 +140,10 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
     submodules: [],
   };
 
-  const throwError = async () => {
+  // Variadic signature lets this one function stand in for every IGitService
+  // method regardless of its specific argument list — the whole object is
+  // cast via `as unknown as IGitService` once assembled.
+  const throwError = async (..._args: unknown[]): Promise<never> => {
     throw new Error(errorMsg);
   };
 
@@ -155,9 +159,9 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
     checkout: throwError,
     deleteBranch: throwError,
     renameBranch: throwError,
-    mergeBranch: throwError as any,
-    rebaseBranch: throwError as any,
-    compareBranches: throwError as any,
+    mergeBranch: throwError,
+    rebaseBranch: throwError,
+    compareBranches: throwError,
     fetch: throwError,
     pull: throwError,
     push: throwError,
@@ -174,18 +178,18 @@ function createErrorThrowingGitService(errorMsg: string, headCommitHash?: string
     deleteTag: throwError,
     pushTag: throwError,
     getLog: async () => [],
-    getCommit: throwError as any,
+    getCommit: throwError,
     getFileHistory: async () => [],
-    getDiff: throwError as any,
-    getCommitDiff: throwError as any,
+    getDiff: throwError,
+    getCommitDiff: throwError,
     getMultiCommitDiff: async () => [],
     getBlame: async () => [],
-    cherryPick: throwError as any,
+    cherryPick: throwError,
     cherryPickAbort: throwError,
-    cherryPickContinue: throwError as any,
-    revert: throwError as any,
+    cherryPickContinue: throwError,
+    revert: throwError,
     revertAbort: throwError,
-    revertContinue: throwError as any,
+    revertContinue: throwError,
     getStatus: async () => [],
     stage: throwError,
     unstage: throwError,
@@ -236,7 +240,7 @@ function createMockGitToolWindowProvider(): GitToolWindowProvider {
 /**
  * Create a mock GitCli that throws the given error.
  */
-function createErrorThrowingGitCli(errorMsg: string): any {
+function createErrorThrowingGitCli(errorMsg: string): GitCli {
   return {
     exec: async () => {
       throw new Error(errorMsg);
@@ -253,8 +257,8 @@ function createErrorThrowingGitCli(errorMsg: string): any {
       return 'git';
     },
     set gitPath(_v: string) {},
-    onCommandExecuted: (() => ({ dispose: () => {} })) as any,
-  };
+    onCommandExecuted: (() => ({ dispose: () => {} })) as unknown as GitCli['onCommandExecuted'],
+  } as unknown as GitCli;
 }
 
 // ─── Property Tests ───────────────────────────────────────────────────────────

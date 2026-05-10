@@ -63,7 +63,7 @@ describe('ext-host smoke — 3. open dialog', function () {
   before(async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, 'extension not installed');
-    const api = await ext.activate();
+    const api: unknown = await ext.activate();
     // The extension's `activate()` returns `Promise<void>`, not the context,
     // so to get an ExtensionContext we either (a) add a test-only export or
     // (b) borrow any existing extension's context. For a pure smoke test we

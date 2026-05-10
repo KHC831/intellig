@@ -34,6 +34,7 @@ import {
   reduceHistoryState,
   type IHistoryTabState,
 } from '../../../../services/gitToolWindow/tabs/HistoryTab';
+import type { IWebviewTabMessage } from '../../../../services/gitToolWindow/tabRouter';
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 
@@ -382,9 +383,14 @@ describe('HistoryTab — class behaviour', () => {
     const repo = mkRepo();
     const { service, calls } = mkGitService({ repo, commits: [] });
     const tab = new HistoryTab(service);
-    await tab.handleMessage(undefined as any);
-    await tab.handleMessage(null as any);
-    await tab.handleMessage({} as any);
+    // Deliberately feed shapes the production type forbids — this is the
+    // whole point of the "drops malformed messages silently" assertion.
+    // Cast through `unknown` so the test documents that these are the
+    // hostile inputs the router can legitimately hand us (e.g. a renderer
+    // that drops fields, or a rogue postMessage).
+    await tab.handleMessage(undefined as unknown as IWebviewTabMessage);
+    await tab.handleMessage(null as unknown as IWebviewTabMessage);
+    await tab.handleMessage({} as unknown as IWebviewTabMessage);
     await tab.handleMessage({ type: 'history.loadFile' }); // no path
     assert.strictEqual(calls.getFileHistory.length, 0);
   });

@@ -288,7 +288,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
           const mockRepo: IRepository = {
             rootUri: Uri.file('/test-repo'),
             state: 'idle',
-            head: { name: undefined as any, ahead: 0, behind: 0 },
+            head: { name: undefined, ahead: 0, behind: 0 },
             remotes: [],
             submodules: [],
           };

@@ -25,6 +25,7 @@ import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCo
 import { IGitService, IRepository, IDiff } from '../../../services/interfaces/IGitService';
 import { IRebaseService } from '../../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
+import type { GitCli } from '../../../utils/gitCli';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow } from '../../typed/windowStub';
 
@@ -386,7 +387,7 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
       gitService,
       makeRebase(),
       makeProvider(),
-      cli as any
+      cli as unknown as GitCli
     );
 
     // User picks only a.ts; b.ts and c.ts are deselected.
@@ -427,7 +428,7 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
       gitService,
       makeRebase(),
       makeProvider(),
-      cli as any
+      cli as unknown as GitCli
     );
 
     const { trackers, restore } = installWindowStubs(() => []);
@@ -459,7 +460,7 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
       gitService,
       makeRebase(),
       makeProvider(),
-      cli as any
+      cli as unknown as GitCli
     );
 
     const { trackers, restore } = installWindowStubs((items) => [items[0]]);
@@ -486,7 +487,7 @@ describe('CommitContextMenuCommands — T2-04 Drop Selected Changes', () => {
     const gitService = makeGitService(repo, { getCommitDiff: async () => diffs });
     const cli = makeMockCli();
     const provider = makeProvider();
-    const commands = new CommitContextMenuCommands(gitService, makeRebase(), provider, cli as any);
+    const commands = new CommitContextMenuCommands(gitService, makeRebase(), provider, cli as unknown as GitCli);
     return { commands, cli, gitService, provider };
   }
 
@@ -798,7 +799,7 @@ describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () =
       gitService,
       makeRebase(),
       makeProvider(),
-      cli as any,
+      cli as unknown as GitCli,
       undefined,
       resolver
     );
@@ -866,7 +867,7 @@ describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () =
       gitService,
       makeRebase(),
       makeProvider(),
-      makeMockCli() as any,
+      makeMockCli() as unknown as GitCli,
       undefined,
       resolver
     );

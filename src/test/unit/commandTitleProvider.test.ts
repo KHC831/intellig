@@ -129,7 +129,7 @@ function createMockBranchTreeProvider(headName?: string): BranchTreeProvider {
       query: '',
       fragment: '',
       fsPath: '/test',
-    } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    } as unknown as IRepository['rootUri'],
     state: 'idle',
     head: headName ? { name: headName, ahead: 0, behind: 0 } : undefined,
     remotes: [],

@@ -20,6 +20,7 @@ import { CommitContextMenuCommands } from '../../commands/CommitContextMenuComma
 import { IGitService, IRepository } from '../../services/interfaces/IGitService';
 import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
+import type { GitCli } from '../../utils/gitCli';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
 
@@ -205,7 +206,7 @@ function createTrackingGitToolWindowProvider(): GitToolWindowProvider & {
 /**
  * Create a mock GitCli that always succeeds.
  */
-function createSuccessGitCli(): any {
+function createSuccessGitCli(): GitCli {
   return {
     exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
     execString: async () => '',
@@ -218,8 +219,8 @@ function createSuccessGitCli(): any {
       return 'git';
     },
     set gitPath(_v: string) {},
-    onCommandExecuted: (() => ({ dispose: () => {} })) as any,
-  };
+    onCommandExecuted: (() => ({ dispose: () => {} })) as unknown as GitCli['onCommandExecuted'],
+  } as unknown as GitCli;
 }
 
 // ─── Property Tests ───────────────────────────────────────────────────────────

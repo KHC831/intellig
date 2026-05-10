@@ -17,7 +17,7 @@ import type * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
 import { IRebaseAction, IRebaseService, IRebaseSession } from '../../../services/interfaces/IRebaseService';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
+import { GitToolWindowProvider, LogContextAction } from '../../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import {
   writableWindow,
@@ -344,7 +344,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
         cherryPick: async () => ({ success: false, conflicts: ['file1.ts', 'file2.ts'] }),
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -362,7 +362,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         cherryPick: async () => {
           throw new Error('cherry-pick failed');
         },
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -397,7 +397,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
         revert: async () => ({ success: false, conflicts: ['file1.ts'] }),
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -415,7 +415,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         revert: async () => {
           throw new Error('revert failed');
         },
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -452,7 +452,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         checkout: async () => {
           throw new Error('checkout failed');
         },
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -595,7 +595,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         getCommitDiff: async () => [
           { path: 'src/file.ts', status: 'modified', hunks: [], binary: false },
         ],
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -611,7 +611,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const repo = createMockRepo();
       const gitService = createMockGitService(repo, {
         getCommitDiff: async () => [],
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -629,7 +629,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         getCommitDiff: async () => {
           throw new Error('diff failed');
         },
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -671,7 +671,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         getCommitDiff: async () => [
           { path: 'docs/features/alert-system.md', status: 'modified', hunks: [], binary: false },
         ],
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -948,7 +948,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           status: 'conflict' as const,
           conflictedFiles: ['file1.ts', 'file2.ts'],
         }),
-      } as any);
+      });
       const provider = createMockProvider();
       const gitCli = createCleanGitCli();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
@@ -967,7 +967,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         startInteractiveRebase: async () => {
           throw new Error('rebase failed');
         },
-      } as any);
+      });
       const provider = createMockProvider();
       const gitCli = createCleanGitCli();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
@@ -1166,7 +1166,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         startInteractiveRebase: async () => {
           throw new Error('rebase failed');
         },
-      } as any);
+      });
       const provider = createMockProvider();
       const gitCli = createMockGitCli({
         exec: async (...args: unknown[]) => {
@@ -1334,7 +1334,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           success: false,
           conflicts: ['file1.ts', 'file2.ts', 'file3.ts'],
         }),
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -1352,7 +1352,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         mergeBranch: async () => {
           throw new Error('merge failed');
         },
-      } as any);
+      });
       const rebaseService = createMockRebaseService();
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
@@ -1391,7 +1391,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         startInteractiveRebase: async () => {
           throw new Error('rebase failed');
         },
-      } as any);
+      });
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
 
@@ -1413,7 +1413,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       const provider = createMockProvider();
       const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
 
-      await commands._handleAction('unknownAction' as any, [testHash]);
+      // Deliberately passing an invalid action string to exercise the default
+      // branch of the dispatch switch — we cast through `unknown` so the test
+      // can assert runtime behaviour without inventing a new union member.
+      await commands._handleAction('unknownAction' as unknown as LogContextAction, [testHash]);
 
       assert.strictEqual(messages.info.length, 0);
       assert.strictEqual(messages.error.length, 0);

@@ -52,14 +52,14 @@ describe('T2-11 — resolveExplorerFileUri', () => {
   it('returns undefined when the active editor is not a file (e.g. untitled, output)', () => {
     // Our mock Uri always uses `file` scheme, so we hand-build one with a
     // different scheme to simulate a non-file editor.
-    const nonFileUri = Object.assign(Object.create(Uri.prototype), {
+    const nonFileUri = Object.assign(Object.create(Uri.prototype) as object, {
       scheme: 'untitled',
       authority: '',
       path: '/scratch',
       query: '',
       fragment: '',
       fsPath: '/scratch',
-    });
+    }) as Uri;
     const result = resolveExplorerFileUri(undefined, nonFileUri);
     assert.strictEqual(result, undefined);
   });

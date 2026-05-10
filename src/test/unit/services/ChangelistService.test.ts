@@ -793,23 +793,40 @@ describe('ChangelistService', () => {
       statusesByRepo: Map<string, { path: string }[]>,
       onStatusCalled?: (repoPath: string) => void
     ): {
-      gitService: any;
+      /**
+       * Returned typed as the full `IGitService` (via a narrow
+       * `NoopGitService`-style Pick cast at the boundary) so call sites can
+       * hand it straight to `createChangelistService(...)` without each
+       * test site repeating the `as unknown as IGitService` dance. Only
+       * `getStatus` + `onDidChangeRepository` are actually implemented —
+       * any other method access will throw `undefined is not a function`,
+       * surfacing accidental production-code dependencies on new
+       * `IGitService` members.
+       */
+      gitService: IGitService;
       fireRepoChange: (repo: IRepository) => void;
       statusCallCount: () => number;
     } {
       let callCount = 0;
       const repoChangeListeners: Array<(repo: IRepository) => void> = [];
 
-      const gitService = {
+      const gitService: Pick<IGitService, 'getStatus' | 'onDidChangeRepository'> = {
         // Only the subset used by ChangelistService + the test's trigger
         // is implemented; everything else throws if touched by accident.
-        // IGitService.getStatus contract returns Promise<IFileStatus[]>
-        getStatus: async (repo: IRepository): Promise<{ path: string }[]> => {
+        // IGitService.getStatus contract returns Promise<IFileStatus[]>;
+        // ChangelistService only reads `.path`, so we widen the stubbed
+        // literal shape back to the production type at the return boundary.
+        getStatus: async (repo: IRepository) => {
           callCount++;
           if (onStatusCalled) {
             onStatusCalled(repo.rootUri.fsPath);
           }
-          return statusesByRepo.get(repo.rootUri.fsPath) ?? [];
+          const rows = statusesByRepo.get(repo.rootUri.fsPath) ?? [];
+          return rows.map((r) => ({
+            path: r.path,
+            indexStatus: ' ' as const,
+            workTreeStatus: 'M' as const,
+          }));
         },
         onDidChangeRepository: (listener: (repo: IRepository) => void) => {
           repoChangeListeners.push(listener);
@@ -825,7 +842,7 @@ describe('ChangelistService', () => {
       };
 
       return {
-        gitService,
+        gitService: gitService as IGitService,
         fireRepoChange: (repo: IRepository) => {
           for (const l of repoChangeListeners) {
             l(repo);

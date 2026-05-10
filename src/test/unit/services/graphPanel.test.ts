@@ -5,6 +5,7 @@
 import '../../../test/setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
+import * as gitToolWindowProvider from '../../../services/GitToolWindowProvider';
 import { ICommitNode } from '../../../utils/commitGraph';
 import { ICommit } from '../../../services/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
@@ -960,13 +961,14 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
 
   describe('Constants: INITIAL_COMMIT_LOAD_COUNT and INCREMENTAL_COMMIT_LOAD_COUNT', () => {
     it('should export INITIAL_COMMIT_LOAD_COUNT as 200', () => {
-      // Import the constants
-      const { INITIAL_COMMIT_LOAD_COUNT } = require('../../../services/GitToolWindowProvider');
+      // Import the constants via a typed static import so the re-exported
+      // literals remain checkable instead of landing as `any`.
+      const { INITIAL_COMMIT_LOAD_COUNT } = gitToolWindowProvider;
       assert.strictEqual(INITIAL_COMMIT_LOAD_COUNT, 200, 'Initial load count should be 200');
     });
 
     it('should export INCREMENTAL_COMMIT_LOAD_COUNT as 100', () => {
-      const { INCREMENTAL_COMMIT_LOAD_COUNT } = require('../../../services/GitToolWindowProvider');
+      const { INCREMENTAL_COMMIT_LOAD_COUNT } = gitToolWindowProvider;
       assert.strictEqual(
         INCREMENTAL_COMMIT_LOAD_COUNT,
         100,

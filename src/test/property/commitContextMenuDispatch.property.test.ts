@@ -20,6 +20,7 @@ import { CommitContextMenuCommands } from '../../commands/CommitContextMenuComma
 import { IGitService, IRepository } from '../../services/interfaces/IGitService';
 import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
+import type { GitCli } from '../../utils/gitCli';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
 
@@ -235,7 +236,7 @@ function createSpiedCommands(commitHash?: string): {
   const provider = createMockGitToolWindowProvider();
 
   // Create a mock GitCli that always succeeds
-  const mockGitCli = {
+  const mockGitCli: GitCli = {
     exec: async () => ({ exitCode: 0, stdout: 'src/file.ts\n', stderr: '', combined: '' }),
     execString: async () => '',
     isAvailable: async () => true,
@@ -247,8 +248,8 @@ function createSpiedCommands(commitHash?: string): {
       return 'git';
     },
     set gitPath(_v: string) {},
-    onCommandExecuted: (() => ({ dispose: () => {} })) as any,
-  } as any;
+    onCommandExecuted: (() => ({ dispose: () => {} })) as unknown as GitCli['onCommandExecuted'],
+  } as unknown as GitCli;
 
   const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, mockGitCli);
 
