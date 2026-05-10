@@ -4201,54 +4201,79 @@ function registerViews(context: vscode.ExtensionContext): void {
  *
  * Used by the commit diff feature to show file content at parent and current commits.
  */
+/**
+ * Resolve the content of an `intellig-git:` URI by running `git show <ref>:<path>`.
+ *
+ * Exported so it is unit-testable. The production entry point
+ * `registerGitContentProvider` wires this to the module-level `extensionServices`
+ * and to the real `vscode.workspace.workspaceFolders` fallback; tests call this
+ * directly with a `GitService` whose `_gitCli` has been swapped for a mock.
+ *
+ * Query-shape contract (see task #93 for the ADR placeholder): producers MUST
+ * emit `intellig-git:${path}?${encodeURIComponent(ref)}`. This function
+ * `decodeURIComponent`s the query exactly once so refs containing `/`
+ * (`origin/main` → `origin%2Fmain` on the wire) round-trip back to `git show`.
+ */
+export async function provideGitShowContent(
+  uri: vscode.Uri,
+  gitService: IGitService,
+  workspaceFolders?: readonly { uri: vscode.Uri }[]
+): Promise<string> {
+  const filePath = uri.path;
+  // The query string is the URL-encoded git ref (commit hash, hash~1, or
+  // branch ref such as `origin/main`). Producers across the codebase call
+  // `encodeURIComponent(ref)` when building `intellig-git:` URIs; decoding
+  // here ensures refs containing `/` (e.g. `origin/main` → `origin%2Fmain`)
+  // round-trip correctly to `git show`. Without this, `git show
+  // origin%2Fmain:path` fails to resolve the revision. (Task #92, A1)
+  const ref = decodeURIComponent(uri.query);
+
+  if (!ref) {
+    throw new Error('No git ref specified in URI query');
+  }
+
+  // R6-Gap-C: honor the URI's filePath as a repo hint so diff provider
+  // reaches for the correct repo in multi-root workspaces. Falls back
+  // to the active-editor's repo, then to workspace-folder discovery.
+  let repo = await resolveRepo(gitService, {
+    hintRepoPath: filePath,
+    preferActive: true,
+    silent: true,
+  });
+  if (!repo) {
+    const folders = workspaceFolders ?? vscode.workspace.workspaceFolders;
+    if (folders && folders.length > 0) {
+      repo = await gitService.getRepository(folders[0].uri);
+    }
+  }
+  if (!repo) {
+    throw new Error('No Git repository found');
+  }
+  if (!(gitService instanceof GitService)) {
+    throw new Error('GitService instance required for git show');
+  }
+  try {
+    const result = await gitService.gitCli.exec(['show', `${ref}:${filePath}`], {
+      cwd: repo.rootUri.fsPath,
+    });
+    if (result.exitCode !== 0) {
+      // File might not exist at this revision (e.g., newly added file)
+      return '';
+    }
+    return result.stdout;
+  } catch {
+    // File doesn't exist at this revision
+    return '';
+  }
+}
+
 function registerGitContentProvider(context: vscode.ExtensionContext): void {
   const provider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: async (uri: vscode.Uri): Promise<string> => {
       if (!extensionServices) {
         throw new Error('Extension services not initialized');
       }
-
-      const gitService = extensionServices.gitService;
-      const filePath = uri.path;
-      const ref = uri.query; // The query string is the git ref (commit hash or hash~1)
-
-      if (!ref) {
-        throw new Error('No git ref specified in URI query');
-      }
-
-      // R6-Gap-C: honor the URI's filePath as a repo hint so diff provider
-      // reaches for the correct repo in multi-root workspaces. Falls back
-      // to the active-editor's repo, then to workspace-folder discovery.
-      let repo = await resolveRepo(gitService, {
-        hintRepoPath: filePath,
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-          repo = await gitService.getRepository(workspaceFolders[0].uri);
-        }
-      }
-      if (!repo) {
-        throw new Error('No Git repository found');
-      }
-      if (!(gitService instanceof GitService)) {
-        throw new Error('GitService instance required for git show');
-      }
-      try {
-        const result = await gitService.gitCli.exec(['show', `${ref}:${filePath}`], {
-          cwd: repo.rootUri.fsPath,
-        });
-        if (result.exitCode !== 0) {
-          // File might not exist at this revision (e.g., newly added file)
-          return '';
-        }
-        return result.stdout;
-      } catch {
-        // File doesn't exist at this revision
-        return '';
-      }
+      return provideGitShowContent(uri, extensionServices.gitService);
     },
   };
 
