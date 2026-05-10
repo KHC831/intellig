@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { ChangelistService, createChangelistService } from '../../../services/ChangelistService';
-import { IRepository } from '../../../services/interfaces/IGitService';
+import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
 import { IChangelist } from '../../../services/interfaces/IChangelistService';
 import { GitCli } from '../../../utils/gitCli';
 import { Uri } from '../../mocks/vscode';
@@ -109,16 +109,47 @@ async function flushMicrotasks(): Promise<void> {
  *   - `onDidChangeRepository` accepts listeners but never fires, so the
  *     debounced `scheduleReconcile` path stays dormant unless a spec
  *     explicitly drives it.
+ *
+ * Returns a narrow `Pick<IGitService, ...>` rather than `unknown`: the
+ * cast-through-unknown that previously hid typing holes was flagged as
+ * a maintenance trap (B1, senior-retro). The call site now casts the
+ * narrow type directly to `IGitService`, which documents the two members
+ * we actually stub and surfaces a type error if `ChangelistService` ever
+ * starts touching a new `IGitService` method without us updating the stub.
  */
-function makeNoopGitServiceStub(): unknown {
+type NoopGitService = Pick<IGitService, 'getStatus' | 'onDidChangeRepository'>;
+
+function makeNoopGitServiceStub(): NoopGitService {
   return {
-    getStatus: async (_repo: IRepository): Promise<{ path: string }[]> => [],
+    getStatus: async (_repo: IRepository) => [],
     onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
-      dispose: () => {
+      dispose: (): void => {
         // no-op
       },
     }),
   };
+}
+
+/**
+ * Defense-in-depth stub: every property access throws.
+ *
+ * Use in specs where the method under test should NOT reach into
+ * `gitService` at all. Any accidental invocation surfaces immediately
+ * with the member name, rather than silently returning an empty result
+ * and corrupting the test's observed state (the specific bug class B1
+ * was coined to prevent). Prefer this over `makeNoopGitServiceStub`
+ * whenever a test wants to prove `gitService` is untouched.
+ *
+ * Not a forced migration — existing no-op sites stay on the no-op stub.
+ */
+function makeThrowingGitServiceStub(): IGitService {
+  return new Proxy({} as IGitService, {
+    get(_target, prop): never {
+      throw new Error(
+        `ChangelistService.test stub: unexpected call to IGitService.${String(prop)}`
+      );
+    },
+  });
 }
 
 /**
@@ -162,7 +193,7 @@ describe('ChangelistService', () => {
     // this `describe` don't assert on reconcile behavior, so the stub's
     // empty-status / no-fire semantics keep storage deterministic.
     changelistService = createChangelistService(
-      makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
+      makeNoopGitServiceStub() as IGitService
     );
   });
 
@@ -475,7 +506,7 @@ describe('ChangelistService', () => {
 
       // Create a new service instance
       const newService = createChangelistService(
-        makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
+        makeNoopGitServiceStub() as IGitService
       );
 
       try {
@@ -495,7 +526,7 @@ describe('ChangelistService', () => {
 
       // Create a new service instance
       const newService = createChangelistService(
-        makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
+        makeNoopGitServiceStub() as IGitService
       );
 
       try {
@@ -706,7 +737,7 @@ describe('ChangelistService', () => {
 
       // Also visible across a fresh service instance (persistence check).
       const fresh = createChangelistService(
-        makeNoopGitServiceStub() as Parameters<typeof createChangelistService>[0]
+        makeNoopGitServiceStub() as IGitService
       );
       try {
         const active2 = await fresh.getActiveChangelist(mockRepo);
@@ -1068,5 +1099,34 @@ describe('ChangelistService', () => {
 
       assert.strictEqual(count, 1, 'File should be in exactly one changelist');
     });
+  });
+});
+
+/**
+ * Meta-test for the `makeThrowingGitServiceStub` helper.
+ *
+ * The stub exists as defense-in-depth against the B1-class bug (silent
+ * no-op stubs hiding accidental gitService calls). These tests verify
+ * the stub actually throws on property access — if it silently returned
+ * `undefined` like a plain `{}`, it would reintroduce the exact trap it
+ * was built to prevent. This block also keeps the helper referenced so
+ * `noUnusedLocals` doesn't flag it while no existing spec needs it.
+ */
+describe('makeThrowingGitServiceStub (defense-in-depth helper)', () => {
+  it('throws with member name when any method is accessed', () => {
+    const stub = makeThrowingGitServiceStub();
+    assert.throws(
+      () => stub.getStatus,
+      /unexpected call to IGitService\.getStatus/,
+      'property read must throw and identify the member'
+    );
+  });
+
+  it('throws for onDidChangeRepository access (constructor path)', () => {
+    const stub = makeThrowingGitServiceStub();
+    assert.throws(
+      () => stub.onDidChangeRepository,
+      /unexpected call to IGitService\.onDidChangeRepository/
+    );
   });
 });
