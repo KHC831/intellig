@@ -16,6 +16,7 @@ import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
 import { ICommitNode, IGraphLine } from '../../utils/commitGraph';
 import { ICommit, IAuthor } from '../../services/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
+import { invokePrivateHandler } from '../helpers/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -308,7 +309,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
 
             // Call _handleBranchClick with the selected branch name.
             // This is a private method, so we access it via bracket notation.
-            (testProvider as any)._handleBranchClick(selectedBranch);
+            void invokePrivateHandler(testProvider, '_handleBranchClick', selectedBranch);
 
             // Verify that the correct commit was selected
             const stateAfterClick = testProvider.getExtendedLogState();

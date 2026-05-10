@@ -16,12 +16,12 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../commands/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../services/interfaces/IGitService';
 import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { writableWindow } from '../helpers/windowStub';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -107,39 +107,23 @@ function installErrorMessageTracker(): MessageTracker {
     },
   };
 
-  (vscode.window as any).showErrorMessage = async (
+  writableWindow().showErrorMessage = (
     message: string,
     ...items: string[]
   ): Promise<string | undefined> => {
     tracker.calls.push({ message, items });
-    return undefined;
+    return Promise.resolve(undefined);
   };
 
   return tracker;
 }
 
 function restoreMessageFunctions(): void {
-  (vscode.window as any).showErrorMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-  (vscode.window as any).showWarningMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-  (vscode.window as any).showInformationMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-  (vscode.window as any).showQuickPick = async (): Promise<unknown> => {
-    return undefined;
-  };
+  const w = writableWindow();
+  w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
 }
 
 /**
@@ -281,17 +265,15 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
   beforeEach(() => {
     errorTracker = installErrorMessageTracker();
     // Mock showQuickPick to always return a selection (for resetToHere)
-    (vscode.window as any).showQuickPick = async (items: any[]) => {
-      return items[0]; // Always pick Soft
+    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
+      return Promise.resolve((items as unknown[])[0]); // Always pick Soft
     };
     // Mock showInputBox to return a value (for editCommitMessage)
-    (vscode.window as any).showInputBox = async () => {
-      return 'new message';
-    };
+    writableWindow().showInputBox = (): Promise<string | undefined> =>
+      Promise.resolve('new message');
     // Mock showSaveDialog to return a URI (for createPatch)
-    (vscode.window as any).showSaveDialog = async () => {
-      return Uri.file('/tmp/test.patch');
-    };
+    writableWindow().showSaveDialog = (): Promise<import('vscode').Uri | undefined> =>
+      Promise.resolve(Uri.file('/tmp/test.patch'));
   });
 
   afterEach(() => {

@@ -13,12 +13,18 @@
 
 import '../../../test/setup';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import { IRebaseService, IRebaseSession } from '../../../services/interfaces/IRebaseService';
+import { IRebaseAction, IRebaseService, IRebaseSession } from '../../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../../mocks/vscode';
+import {
+  writableWindow,
+  writableEnv,
+  writableCommands,
+  writableWorkspace,
+} from '../../helpers/windowStub';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
@@ -177,13 +183,16 @@ function createMockProvider(): GitToolWindowProvider & { refreshCallCount: numbe
   return {
     onDidRequestLogContextAction: () => ({ dispose: () => {} }),
     refreshCallCount: 0,
-    refresh: function () {
-      (this as any).refreshCallCount++;
+    refresh: function (this: { refreshCallCount: number }) {
+      this.refreshCallCount++;
     },
   } as unknown as GitToolWindowProvider & { refreshCallCount: number };
 }
 
-function createMockGitCli(overrides?: Record<string, unknown>): any {
+/** Mock GitCli surface used by the test suite. */
+type MockGitCli = import('../../../utils/gitCli').GitCli & { calls: CallTracker[] };
+
+function createMockGitCli(overrides?: Record<string, unknown>): MockGitCli {
   const calls: CallTracker[] = [];
   return {
     calls,
@@ -201,13 +210,13 @@ function createMockGitCli(overrides?: Record<string, unknown>): any {
       return 'git';
     },
     set gitPath(_v: string) {},
-    onCommandExecuted: (() => ({ dispose: () => {} })) as any,
+    onCommandExecuted: (() => ({ dispose: () => {} })) as unknown as MockGitCli['onCommandExecuted'],
     ...overrides,
-  };
+  } as unknown as MockGitCli;
 }
 
 /** GitCli mock that returns clean status (empty porcelain output). */
-function createCleanGitCli(overrides?: Record<string, unknown>): any {
+function createCleanGitCli(overrides?: Record<string, unknown>): MockGitCli {
   return createMockGitCli({
     exec: async (...args: unknown[]) => {
       const cmdArgs = args[0] as string[];
@@ -227,34 +236,40 @@ interface MessageRecord {
   items: string[];
 }
 
-function createMessageTrackers() {
+function createMessageTrackers(): { info: MessageRecord[]; error: MessageRecord[]; warning: MessageRecord[] } {
   const info: MessageRecord[] = [];
   const error: MessageRecord[] = [];
   const warning: MessageRecord[] = [];
 
-  (vscode.window as any).showInformationMessage = async (message: string, ...items: string[]) => {
+  const w = writableWindow();
+  w.showInformationMessage = (message: string, ...items: string[]): Promise<string | undefined> => {
     info.push({ message, items });
-    return undefined;
+    return Promise.resolve(undefined);
   };
-  (vscode.window as any).showErrorMessage = async (message: string, ...items: string[]) => {
+  w.showErrorMessage = (message: string, ...items: string[]): Promise<string | undefined> => {
     error.push({ message, items });
-    return undefined;
+    return Promise.resolve(undefined);
   };
-  (vscode.window as any).showWarningMessage = async (message: string, ...items: string[]) => {
-    warning.push({ message, items });
-    return undefined;
+  w.showWarningMessage = (
+    message: string,
+    ...items: unknown[]
+  ): Promise<string | undefined> => {
+    const stringItems = items.filter((i): i is string => typeof i === 'string');
+    warning.push({ message, items: stringItems });
+    return Promise.resolve(undefined);
   };
 
   return { info, error, warning };
 }
 
 function restoreMocks(): void {
-  (vscode.window as any).showInformationMessage = async () => undefined;
-  (vscode.window as any).showErrorMessage = async () => undefined;
-  (vscode.window as any).showWarningMessage = async () => undefined;
-  (vscode.window as any).showQuickPick = async () => undefined;
-  (vscode.window as any).showInputBox = async () => undefined;
-  (vscode.window as any).showSaveDialog = async () => undefined;
+  const w = writableWindow();
+  w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
+  w.showInputBox = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showSaveDialog = (): Promise<import('vscode').Uri | undefined> => Promise.resolve(undefined);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -271,11 +286,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   describe('_handleCopyHash', () => {
     it('copies the commit hash to clipboard', async () => {
       let copiedText = '';
-      (vscode.env as any).clipboard = {
-        writeText: async (text: string) => {
+      writableEnv().clipboard = {
+        writeText: (text: string): Promise<void> => {
           copiedText = text;
+          return Promise.resolve();
         },
-        readText: async () => '',
+        readText: (): Promise<string> => Promise.resolve(''),
       };
       const messages = createMessageTrackers();
       const repo = createMockRepo();
@@ -498,11 +514,13 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   describe('_handleCreatePatch', () => {
     it('runs git format-patch and prompts save dialog', async () => {
       let savedContent: Buffer | undefined;
-      (vscode.window as any).showSaveDialog = async () => Uri.file('/tmp/test.patch');
-      (vscode.workspace as any).fs = {
-        ...vscode.workspace.fs,
-        writeFile: async (_uri: any, content: Buffer) => {
-          savedContent = content;
+      writableWindow().showSaveDialog = (): Promise<vscode.Uri | undefined> =>
+        Promise.resolve(Uri.file('/tmp/test.patch'));
+      writableWorkspace().fs = {
+        ...writableWorkspace().fs,
+        writeFile: (_uri: vscode.Uri, content: Uint8Array): Promise<void> => {
+          savedContent = Buffer.from(content);
+          return Promise.resolve();
         },
       };
       const messages = createMessageTrackers();
@@ -525,7 +543,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('does nothing when user cancels save dialog', async () => {
-      (vscode.window as any).showSaveDialog = async () => undefined;
+      writableWindow().showSaveDialog = (): Promise<vscode.Uri | undefined> =>
+        Promise.resolve(undefined);
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -565,9 +584,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     it('calls getCommitDiff and opens vscode.diff for the first changed file', async () => {
       let executedCommand = '';
       let executedArgs: unknown[] = [];
-      (vscode.commands as any).executeCommand = async (cmd: string, ...args: unknown[]) => {
+      writableCommands().executeCommand = (cmd: string, ...args: unknown[]): Promise<unknown> => {
         executedCommand = cmd;
         executedArgs = args;
+        return Promise.resolve(undefined);
       };
       createMessageTrackers();
       const repo = createMockRepo();
@@ -635,7 +655,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     // `toString()` content to get the meaningful invariant.
     it('builds the left-hand URI with the registered `intellig-git:` scheme and a URL-encoded ref', async () => {
       const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
-      (vscode.commands as any).executeCommand = async (cmd: string, ...args: unknown[]) => {
+      writableCommands().executeCommand = (cmd: string, ...args: unknown[]): Promise<unknown> => {
         if (cmd === 'vscode.diff') {
           diffCalls.push({
             left: args[0] as vscode.Uri,
@@ -643,6 +663,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
             title: args[2] as string,
           });
         }
+        return Promise.resolve(undefined);
       };
       createMessageTrackers();
       const repo = createMockRepo();
@@ -688,10 +709,12 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   describe('_handleShowRepoAtRevision', () => {
     it('calls git ls-tree and shows QuickPick with file list', async () => {
       let executedCommand = '';
-      (vscode.commands as any).executeCommand = async (cmd: string) => {
+      writableCommands().executeCommand = (cmd: string): Promise<unknown> => {
         executedCommand = cmd;
+        return Promise.resolve(undefined);
       };
-      (vscode.window as any).showQuickPick = async (items: any[]) => items[0];
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> =>
+        Promise.resolve((items as unknown[])[0]);
       createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -759,12 +782,14 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     // picking a file would throw "Unable to resolve resource git-show:...".
     it('opens the selected file with an `intellig-git:` URI and URL-encoded ref', async () => {
       const openedUris: vscode.Uri[] = [];
-      (vscode.commands as any).executeCommand = async (cmd: string, ...args: unknown[]) => {
+      writableCommands().executeCommand = (cmd: string, ...args: unknown[]): Promise<unknown> => {
         if (cmd === 'vscode.open') {
           openedUris.push(args[0] as vscode.Uri);
         }
+        return Promise.resolve(undefined);
       };
-      (vscode.window as any).showQuickPick = async (items: any[]) => items[0];
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> =>
+        Promise.resolve((items as unknown[])[0]);
       createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -901,10 +926,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       const updateCall = rebaseService.calls.find((c) => c.method === 'updateRebasePlan');
       assert.ok(updateCall, 'updateRebasePlan should have been called');
-      const plan = updateCall.args[1] as any[];
+      const plan = updateCall.args[1] as IRebaseAction[];
       // The plan should contain all commits from the session, with the target set to 'drop'
       assert.strictEqual(plan.length, 1); // mock session has 1 commit
-      const targetEntry = plan.find((p: any) => p.hash === testHash);
+      const targetEntry = plan.find((p) => p.hash === testHash);
       assert.ok(targetEntry, 'Plan should contain the target commit');
       assert.strictEqual(targetEntry.action, 'drop');
 
@@ -1010,7 +1035,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
   describe('_handleEditCommitMessage', () => {
     it('uses git commit --amend for HEAD commit', async () => {
-      (vscode.window as any).showInputBox = async () => 'updated message';
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('updated message');
       createMessageTrackers();
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
@@ -1048,9 +1074,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('uses rebase reword for non-HEAD commit, stashing changes first', async () => {
       let inputBoxValue = '';
-      (vscode.window as any).showInputBox = async (opts: any) => {
-        inputBoxValue = opts?.value || '';
-        return 'new commit message';
+      writableWindow().showInputBox = (opts?: unknown): Promise<string | undefined> => {
+        const v = (opts as { value?: unknown } | undefined)?.value;
+        inputBoxValue = typeof v === 'string' ? v : '';
+        return Promise.resolve('new commit message');
       };
       createMessageTrackers();
       const repo = createMockRepo('different_head_hash');
@@ -1098,8 +1125,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       const updateCall = rebaseService.calls.find((c) => c.method === 'updateRebasePlan');
       assert.ok(updateCall, 'updateRebasePlan should have been called');
-      const plan = updateCall.args[1] as any[];
-      const targetEntry = plan.find((p: any) => p.hash === testHash);
+      const plan = updateCall.args[1] as IRebaseAction[];
+      const targetEntry = plan.find((p) => p.hash === testHash);
       assert.ok(targetEntry, 'Plan should contain the target commit');
       assert.strictEqual(targetEntry.action, 'reword');
       assert.strictEqual(targetEntry.newMessage, 'new commit message');
@@ -1114,7 +1141,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('does nothing when user cancels input', async () => {
-      (vscode.window as any).showInputBox = async () => undefined;
+      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve(undefined);
       createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -1132,7 +1159,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('shows error on failure', async () => {
       const messages = createMessageTrackers();
-      (vscode.window as any).showInputBox = async () => 'new message';
+      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve('new message');
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
@@ -1160,7 +1187,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('HEAD: amends successfully even with dirty working tree (no stash needed)', async () => {
       const execCalls: string[][] = [];
-      (vscode.window as any).showInputBox = async () => 'amended msg';
+      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve('amended msg');
       const messages = createMessageTrackers();
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
@@ -1196,7 +1223,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('HEAD: amends successfully even with unmerged files', async () => {
       const execCalls: string[][] = [];
-      (vscode.window as any).showInputBox = async () => 'amended with conflicts';
+      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve('amended with conflicts');
       const messages = createMessageTrackers();
       const repo = createMockRepo(testHash);
       const gitService = createMockGitService(repo);
@@ -1222,7 +1249,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('non-HEAD: blocks when there are unmerged files', async () => {
-      (vscode.window as any).showInputBox = async () => 'new msg';
+      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve('new msg');
       const messages = createMessageTrackers();
       const repo = createMockRepo('different_head');
       const gitService = createMockGitService(repo);
@@ -1252,7 +1279,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('non-HEAD: skips stash when working tree is clean', async () => {
       const execCalls: string[][] = [];
-      (vscode.window as any).showInputBox = async () => 'clean edit';
+      writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve('clean edit');
       createMessageTrackers();
       const repo = createMockRepo('different_head');
       const gitService = createMockGitService(repo);

@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -276,7 +277,7 @@ export class PatchService implements IPatchService {
    * Write raw patch content to a unique temp file. Returns the absolute path.
    */
   private async _writeTempPatch(content: string): Promise<string> {
-    const dir = await fs.promises.mkdtemp(path.join(require('os').tmpdir(), 'intellig-patch-'));
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'intellig-patch-'));
     const file = path.join(dir, 'patch.diff');
     await fs.promises.writeFile(file, content, 'utf-8');
     return file;

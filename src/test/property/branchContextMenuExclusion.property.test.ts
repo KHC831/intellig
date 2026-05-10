@@ -39,17 +39,28 @@ interface MenuEntry {
   group: string;
 }
 
+/** Minimal shape of the relevant package.json fields read by this test. */
+interface PackageJsonWithMenus {
+  contributes?: {
+    menus?: {
+      'view/item/context'?: MenuEntry[];
+    };
+  };
+}
+
 /**
  * Read and parse the view/item/context menu contributions from package.json.
  */
 function getMenuContributions(): MenuEntry[] {
   const packageJsonPath = path.resolve(__dirname, '..', '..', '..', 'package.json');
-  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-  const menus = packageJson?.contributes?.menus?.['view/item/context'];
+  const packageJson = JSON.parse(
+    fs.readFileSync(packageJsonPath, 'utf-8')
+  ) as PackageJsonWithMenus;
+  const menus = packageJson.contributes?.menus?.['view/item/context'];
   if (!Array.isArray(menus)) {
     throw new Error('No view/item/context menu contributions found in package.json');
   }
-  return menus as MenuEntry[];
+  return menus;
 }
 
 /**

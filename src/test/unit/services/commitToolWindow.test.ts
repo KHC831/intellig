@@ -35,10 +35,29 @@ import {
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY,
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_MAX as RECENT_MESSAGES_MAX,
 } from '../../../services';
-import type { IChangelist, IFileChange } from '../../../services/interfaces/IChangelistService';
-import type { IShelfItem } from '../../../services/interfaces/IShelfService';
-import type { IRepository } from '../../../services/interfaces/IGitService';
+import type {
+  IChangelist,
+  IChangelistService,
+  IFileChange,
+} from '../../../services/interfaces/IChangelistService';
+import type { IShelfItem, IShelfService } from '../../../services/interfaces/IShelfService';
+import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
+import { writableCommands, writableWindow } from '../../helpers/windowStub';
+
+/**
+ * Type-safe accessor for CommitToolWindow's private test surface.
+ * The webview-message entry point and the preloaded `_changelists` field
+ * are deliberately private in production; tests need reflective access,
+ * and this shim keeps that access statically typed.
+ */
+interface CommitToolWindowTestSurface {
+  _changelists: IChangelist[];
+  _handleWebviewMessage: (message: unknown) => Promise<void>;
+}
+function asTestSurface(tw: CommitToolWindow): CommitToolWindowTestSurface {
+  return tw as unknown as CommitToolWindowTestSurface;
+}
 
 // ─── updateRecentMessagesLru ──────────────────────────────────────────────────
 
@@ -280,10 +299,29 @@ describe('CommitToolWindow — host behavior', () => {
   }
 
   interface MockServices {
-    gitService: any;
-    changelistService: any;
-    shelfService: any;
+    gitService: IGitService;
+    changelistService: IChangelistService;
+    shelfService: IShelfService;
     calls: Array<{ method: string; args: unknown[] }>;
+  }
+
+  /**
+   * Throw-on-call stub factory for test-service methods the suite does not
+   * exercise. We prefer loud failures over silent `as unknown as` double-casts
+   * (senior-p3a F-2 review): future tests that accidentally invoke an
+   * unstubbed surface get a clear "not implemented" error instead of a
+   * hard-to-debug undefined-is-not-a-function.
+   *
+   * The return type matches any function signature because the function
+   * never actually returns (it throws). This keeps every typed-literal
+   * assignment below validated by the real interface shape — if an
+   * interface gains a method, this file stops compiling until someone
+   * adds an entry here, which is the whole point.
+   */
+  function notImplemented(method: string): (...args: never[]) => never {
+    return () => {
+      throw new Error(`not implemented in commitToolWindow test stub: ${method}`);
+    };
   }
 
   function createMockServices(
@@ -292,14 +330,24 @@ describe('CommitToolWindow — host behavior', () => {
     shelf: IShelfItem[] = []
   ): MockServices {
     const repoChange = new EventEmitter<IRepository>();
+    const fetchEmitter = new EventEmitter<{
+      repo: IRepository;
+      result: import('../../../services/interfaces/IGitService').IFetchResult;
+    }>();
     const clChange = new EventEmitter<IChangelist[]>();
     const shelfChange = new EventEmitter<IShelfItem[]>();
     const calls: Array<{ method: string; args: unknown[] }> = [];
 
-    const gitService: any = {
+    // Direct IGitService typing — no `as unknown as` double-cast. If the
+    // interface gains a method, TypeScript flags this literal as
+    // incomplete until the new method is stubbed above.
+    const gitService: IGitService = {
+      // Repository operations exercised by CommitToolWindow
       onDidChangeRepository: repoChange.event,
       getRepositories: () => [repo],
       getRepository: async () => repo,
+
+      // Status + staging + commit + diff — exercised by performCommit path
       getStatus: async () => [],
       stage: async (...args: unknown[]) => {
         calls.push({ method: 'stage', args });
@@ -311,9 +359,65 @@ describe('CommitToolWindow — host behavior', () => {
         calls.push({ method: 'commit', args });
       },
       getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
+
+      // Stash operations — stashList is the only one invoked via
+      // _reloadState. The rest are throw-on-call.
+      stashList: async () => [],
+
+      // Event-shaped fields must be assigned real emitters.
+      onDidFetch: fetchEmitter.event,
+
+      // Every remaining IGitService method CommitToolWindow does NOT
+      // exercise — throws on call so a future test that accidentally
+      // invokes one fails loudly rather than returning undefined.
+      amend: notImplemented('amend'),
+      getBranches: notImplemented('getBranches'),
+      createBranch: notImplemented('createBranch'),
+      checkout: notImplemented('checkout'),
+      deleteBranch: notImplemented('deleteBranch'),
+      renameBranch: notImplemented('renameBranch'),
+      mergeBranch: notImplemented('mergeBranch'),
+      rebaseBranch: notImplemented('rebaseBranch'),
+      rebaseSkip: notImplemented('rebaseSkip'),
+      compareBranches: notImplemented('compareBranches'),
+      fetch: notImplemented('fetch'),
+      pull: notImplemented('pull'),
+      push: notImplemented('push'),
+      getRemotes: notImplemented('getRemotes'),
+      addRemote: notImplemented('addRemote'),
+      removeRemote: notImplemented('removeRemote'),
+      stash: notImplemented('stash'),
+      stashApply: notImplemented('stashApply'),
+      stashPop: notImplemented('stashPop'),
+      stashDrop: notImplemented('stashDrop'),
+      stashShow: notImplemented('stashShow'),
+      stashBranch: notImplemented('stashBranch'),
+      stashRename: notImplemented('stashRename'),
+      getTags: notImplemented('getTags'),
+      createTag: notImplemented('createTag'),
+      deleteTag: notImplemented('deleteTag'),
+      pushTag: notImplemented('pushTag'),
+      getLog: notImplemented('getLog'),
+      getCommit: notImplemented('getCommit'),
+      getFileHistory: notImplemented('getFileHistory'),
+      getCommitDiff: notImplemented('getCommitDiff'),
+      getMultiCommitDiff: notImplemented('getMultiCommitDiff'),
+      getBlame: notImplemented('getBlame'),
+      cherryPick: notImplemented('cherryPick'),
+      cherryPickAbort: notImplemented('cherryPickAbort'),
+      cherryPickContinue: notImplemented('cherryPickContinue'),
+      revert: notImplemented('revert'),
+      revertAbort: notImplemented('revertAbort'),
+      revertContinue: notImplemented('revertContinue'),
+      stageHunk: notImplemented('stageHunk'),
+      stageLines: notImplemented('stageLines'),
+      unstageHunk: notImplemented('unstageHunk'),
+      revertFile: notImplemented('revertFile'),
+      resetToCommit: notImplemented('resetToCommit'),
+      dispose: () => {},
     };
 
-    const changelistService: any = {
+    const changelistService: IChangelistService = {
       onDidChangeChangelists: clChange.event,
       getChangelists: () => changelists,
       reconcileWithGitStatus: async () => {},
@@ -334,18 +438,37 @@ describe('CommitToolWindow — host behavior', () => {
         calls.push({ method: 'moveToChangelist', args });
       },
       getChangelistForFile: async () => undefined,
+      dispose: () => {},
     };
 
-    const shelfService: any = {
+    // IShelfService — previously 6 of 11 methods were silently absent
+    // behind the `as unknown as` double-cast (senior-p3a F-2 finding).
+    // Direct typing now forces an explicit entry for every method.
+    const shelfService: IShelfService = {
       onDidChangeShelf: shelfChange.event,
       getShelfItems: () => shelf,
       shelve: async () => ({ id: 'new', name: '', timestamp: new Date(), files: [] }),
       unshelve: async () => ({ success: true }),
       deleteShelfItem: () => {},
       getShelfDiff: async () => [],
+
+      // Newly-required by the dropped cast (T2-10 additions that the
+      // previous stub silently omitted). CommitToolWindow does not
+      // call these, so throw-on-call keeps test intent honest.
+      renameShelf: notImplemented('renameShelf'),
+      importPatch: notImplemented('importPatch'),
+      markAsUnshelved: notImplemented('markAsUnshelved'),
+      restoreShelf: notImplemented('restoreShelf'),
+      filterShelfFiles: notImplemented('filterShelfFiles'),
+      dispose: () => {},
     };
 
-    return { gitService, changelistService, shelfService, calls };
+    return {
+      gitService,
+      changelistService,
+      shelfService,
+      calls,
+    };
   }
 
   // Preserve / restore the command executeCommand stub across tests.
@@ -354,7 +477,10 @@ describe('CommitToolWindow — host behavior', () => {
     savedExecuteCommand = vscode.commands.executeCommand;
   });
   afterEach(() => {
-    (vscode.commands as any).executeCommand = savedExecuteCommand;
+    writableCommands().executeCommand = savedExecuteCommand as unknown as (
+      command: string,
+      ...rest: unknown[]
+    ) => Promise<unknown>;
   });
 
   it('persists the active tab to workspaceState on tabChange', async () => {
@@ -369,7 +495,7 @@ describe('CommitToolWindow — host behavior', () => {
       memento
     );
 
-    await (tw as any)._handleWebviewMessage({ type: 'tabChange', tab: 'shelf' });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'tabChange', tab: 'shelf' });
     assert.strictEqual(
       memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY),
       'shelf',
@@ -378,7 +504,7 @@ describe('CommitToolWindow — host behavior', () => {
     assert.strictEqual(tw.getActiveTab(), 'shelf');
 
     // Switch back
-    await (tw as any)._handleWebviewMessage({ type: 'tabChange', tab: 'localChanges' });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'tabChange', tab: 'localChanges' });
     assert.strictEqual(memento.store.get(COMMIT_TOOL_WINDOW_ACTIVE_TAB_STATE_KEY), 'localChanges');
     tw.dispose();
   });
@@ -423,9 +549,9 @@ describe('CommitToolWindow — host behavior', () => {
       memento
     );
     // Preload state that the tool window normally fetches via _reloadState.
-    (tw as any)._changelists = changelists;
+    asTestSurface(tw)._changelists = changelists;
 
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'commit',
       message: 'feat: add thing',
       files: ['src/a.ts', 'src/b.ts'],
@@ -468,15 +594,15 @@ describe('CommitToolWindow — host behavior', () => {
       services.shelfService,
       memento
     );
-    (tw as any)._changelists = changelists;
+    asTestSurface(tw)._changelists = changelists;
 
     const executed: string[] = [];
-    (vscode.commands as any).executeCommand = async (command: string): Promise<undefined> => {
+    writableCommands().executeCommand = (command: string): Promise<unknown> => {
       executed.push(command);
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'commitAndPush',
       message: 'feat: add thing',
       files: ['src/a.ts'],
@@ -508,10 +634,10 @@ describe('CommitToolWindow — host behavior', () => {
       services.shelfService,
       memento
     );
-    (tw as any)._changelists = changelists;
+    asTestSurface(tw)._changelists = changelists;
 
     for (let i = 0; i < 25; i++) {
-      await (tw as any)._handleWebviewMessage({
+      await asTestSurface(tw)._handleWebviewMessage({
         type: 'commit',
         message: `msg ${i}`,
         files: ['src/a.ts'],
@@ -537,39 +663,39 @@ describe('CommitToolWindow — host behavior', () => {
       memento
     );
     const executed: Array<{ command: string; args: unknown[] }> = [];
-    (vscode.commands as any).executeCommand = async (
+    writableCommands().executeCommand = (
       command: string,
       ...args: unknown[]
-    ): Promise<undefined> => {
+    ): Promise<unknown> => {
       executed.push({ command, args });
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'new',
     });
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'setActive',
       changelistId: 'abc',
     });
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'rename',
       changelistId: 'abc',
     });
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'editDescription',
       changelistId: 'abc',
     });
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'delete',
       changelistId: 'abc',
     });
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'shelve',
       changelistId: 'abc',
@@ -611,29 +737,31 @@ describe('CommitToolWindow — host behavior', () => {
       services.shelfService,
       memento
     );
-    (tw as any)._changelists = changelists;
+    asTestSurface(tw)._changelists = changelists;
 
     const pickCalls: Array<{ items: Array<{ label: string }>; options: { title?: string } }> = [];
-    (vscode.window as any).showQuickPick = async (
-      items: Array<{ label: string }>,
-      options: { title?: string } = {}
-    ) => {
-      pickCalls.push({ items, options });
+    writableWindow().showQuickPick = (
+      items: unknown[],
+      options?: unknown
+    ): Promise<unknown | undefined> => {
+      const labeled = items as Array<{ label: string }>;
+      const opts = (options as { title?: string } | undefined) ?? {};
+      pickCalls.push({ items: labeled, options: opts });
       // Pick the "Rename Changelist…" entry so we can also confirm the
       // recursive re-dispatch fires the rename command.
-      return items.find((i) => i.label === 'Rename Changelist…');
+      return Promise.resolve(labeled.find((i) => i.label === 'Rename Changelist…'));
     };
 
     const executed: Array<{ command: string; args: unknown[] }> = [];
-    (vscode.commands as any).executeCommand = async (
+    writableCommands().executeCommand = (
       command: string,
       ...args: unknown[]
-    ): Promise<undefined> => {
+    ): Promise<unknown> => {
       executed.push({ command, args });
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'contextOpen',
       changelistId: 'feat',
@@ -679,21 +807,21 @@ describe('CommitToolWindow — host behavior', () => {
       services.shelfService,
       memento
     );
-    (tw as any)._changelists = changelists;
+    asTestSurface(tw)._changelists = changelists;
 
     const pickCalls: Array<{ items: Array<{ label: string }> }> = [];
-    (vscode.window as any).showQuickPick = async (items: Array<{ label: string }>) => {
-      pickCalls.push({ items });
+    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
+      pickCalls.push({ items: items as Array<{ label: string }> });
       // Cancel — returning undefined should leave no side effects.
-      return undefined;
+      return Promise.resolve(undefined);
     };
     const executed: string[] = [];
-    (vscode.commands as any).executeCommand = async (command: string): Promise<undefined> => {
+    writableCommands().executeCommand = (command: string): Promise<unknown> => {
       executed.push(command);
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'changelistContextAction',
       action: 'contextOpen',
       changelistId: 'def',
@@ -754,7 +882,7 @@ describe('CommitToolWindow — host behavior', () => {
 
     // Point the active editor at a file under /repo-b so resolveRepo's
     // preferActive branch resolves to repoB.
-    (vscode.window as any).activeTextEditor = {
+    writableWindow().activeTextEditor = {
       document: { uri: Uri.file('/repo-b/src/a.ts') },
     };
 
@@ -765,9 +893,9 @@ describe('CommitToolWindow — host behavior', () => {
       services.shelfService,
       memento
     );
-    (tw as any)._changelists = changelists;
+    asTestSurface(tw)._changelists = changelists;
 
-    await (tw as any)._handleWebviewMessage({
+    await asTestSurface(tw)._handleWebviewMessage({
       type: 'commit',
       message: 'feat',
       files: ['src/a.ts'],
@@ -783,7 +911,7 @@ describe('CommitToolWindow — host behavior', () => {
       `expected commit to route to the active editor's repo, got ${committedRepo.rootUri.fsPath}`
     );
 
-    (vscode.window as any).activeTextEditor = undefined;
+    writableWindow().activeTextEditor = undefined;
     tw.dispose();
   });
 
@@ -799,11 +927,11 @@ describe('CommitToolWindow — host behavior', () => {
       memento
     );
 
-    await (tw as any)._handleWebviewMessage(undefined);
-    await (tw as any)._handleWebviewMessage(null);
-    await (tw as any)._handleWebviewMessage({});
-    await (tw as any)._handleWebviewMessage({ type: 42 });
-    await (tw as any)._handleWebviewMessage({ type: 'unknown.thing' });
+    await asTestSurface(tw)._handleWebviewMessage(undefined);
+    await asTestSurface(tw)._handleWebviewMessage(null);
+    await asTestSurface(tw)._handleWebviewMessage({});
+    await asTestSurface(tw)._handleWebviewMessage({ type: 42 });
+    await asTestSurface(tw)._handleWebviewMessage({ type: 'unknown.thing' });
 
     // No commit, stage, or unstage should have been called.
     assert.strictEqual(services.calls.length, 0);

@@ -16,12 +16,12 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../commands/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../services/interfaces/IGitService';
 import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { writableWindow } from '../helpers/windowStub';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -215,8 +215,8 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
 function createMockGitToolWindowProvider(): GitToolWindowProvider & { refreshCalled: boolean } {
   const provider = {
     onDidRequestLogContextAction: (_handler: unknown) => ({ dispose: () => {} }),
-    refresh: function () {
-      (this as any).refreshCalled = true;
+    refresh: function (this: { refreshCalled: boolean }) {
+      this.refreshCalled = true;
     },
     refreshCalled: false,
   } as unknown as GitToolWindowProvider & { refreshCalled: boolean };
@@ -254,28 +254,31 @@ function createSpiedCommands(commitHash?: string): {
 
   const calls: HandlerCallRecord[] = [];
 
-  // Install spies on each handler method
+  // Install spies on each handler method. Handlers are private on
+  // `commands`; the spy replaces each by indexing through a keyed record.
+  type HandlerFn = (commitHashes: string[]) => Promise<unknown>;
+  const handlerBag = commands as unknown as Record<string, HandlerFn>;
   for (const [, methodName] of Object.entries(ACTION_TO_HANDLER)) {
-    const original = (commands as any)[methodName].bind(commands);
-    (commands as any)[methodName] = async (commitHashes: string[]) => {
+    const original = handlerBag[methodName].bind(commands) as HandlerFn;
+    handlerBag[methodName] = async (commitHashes: string[]): Promise<unknown> => {
       calls.push({ method: methodName, commitHashes });
       return original(commitHashes);
     };
   }
 
   // Mock showQuickPick to return a selection for resetToHere
-  (vscode.window as any).showQuickPick = async (items: any[]) => {
-    return items[0]; // Always pick the first option (Soft)
+  writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
+    return Promise.resolve((items as unknown[])[0]); // Always pick the first option (Soft)
   };
 
   // Mock showInputBox to return a value for editCommitMessage
-  (vscode.window as any).showInputBox = async () => {
-    return 'new commit message';
+  writableWindow().showInputBox = (): Promise<string | undefined> => {
+    return Promise.resolve('new commit message');
   };
 
   // Mock showSaveDialog to return a URI for createPatch
-  (vscode.window as any).showSaveDialog = async () => {
-    return Uri.file('/tmp/test.patch');
+  writableWindow().showSaveDialog = (): Promise<import('vscode').Uri | undefined> => {
+    return Promise.resolve(Uri.file('/tmp/test.patch'));
   };
 
   return { commands, calls };
@@ -286,7 +289,7 @@ function createSpiedCommands(commitHash?: string): {
 describe('Feature: git-graph-context-menu - Action Dispatch Property Tests', () => {
   afterEach(() => {
     // Restore showQuickPick
-    (vscode.window as any).showQuickPick = async () => undefined;
+    writableWindow().showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
   });
 
   // Feature: git-graph-context-menu, Property 4: Action dispatch correctness

@@ -47,6 +47,7 @@ import {
   ChangelistService,
 } from './services';
 import type { IBranch, IGitService, IRepository, ITag } from './services';
+import type { GitCli } from './utils/gitCli';
 import { findCommitByQuery } from './services/gitToolWindow/jumpToHash';
 import { createCommandTitleProvider } from './commands/CommandTitleProvider';
 import {
@@ -4122,7 +4123,7 @@ function registerViews(context: vscode.ExtensionContext): void {
         gitService,
         extensionServices.rebaseService,
         gitToolWindowProvider,
-        (gitService as any).gitCli,
+        (gitService as unknown as { gitCli: GitCli }).gitCli,
         extensionServices.conflictResolutionService
       );
       commitContextMenuCommands.register(context);

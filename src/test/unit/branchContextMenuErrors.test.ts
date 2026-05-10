@@ -13,7 +13,6 @@
 
 import '../setup';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import { BranchContextMenuCommands } from '../../commands/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
 import {
@@ -21,9 +20,13 @@ import {
   IRepository,
   IBranch,
   IBasicRebaseResult,
+  ICheckoutOptions,
   IFetchResult,
+  IPushOptions,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { writableWindow } from '../helpers/windowStub';
+import { invokePrivateHandler } from '../helpers/privateHandler';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
@@ -195,12 +198,12 @@ function installErrorMessageTracker(): MessageTracker {
       this.calls = [];
     },
   };
-  (vscode.window as any).showErrorMessage = async (
+  writableWindow().showErrorMessage = (
     message: string,
     ...items: string[]
   ): Promise<string | undefined> => {
     tracker.calls.push({ message, items });
-    return undefined;
+    return Promise.resolve(undefined);
   };
   return tracker;
 }
@@ -216,14 +219,14 @@ function installWarningMessageTracker(returnChoice?: string): MessageTracker {
       this.calls = [];
     },
   };
-  (vscode.window as any).showWarningMessage = async (
+  writableWindow().showWarningMessage = (
     message: string,
-    ...items: any[]
+    ...items: unknown[]
   ): Promise<string | undefined> => {
     // Filter out option objects (like { modal: true })
-    const stringItems = items.filter((i) => typeof i === 'string');
+    const stringItems = items.filter((i): i is string => typeof i === 'string');
     tracker.calls.push({ message, items: stringItems });
-    return returnChoice;
+    return Promise.resolve(returnChoice);
   };
   return tracker;
 }
@@ -238,12 +241,12 @@ function installInfoMessageTracker(): MessageTracker {
       this.calls = [];
     },
   };
-  (vscode.window as any).showInformationMessage = async (
+  writableWindow().showInformationMessage = (
     message: string,
     ...items: string[]
   ): Promise<string | undefined> => {
     tracker.calls.push({ message, items });
-    return undefined;
+    return Promise.resolve(undefined);
   };
   return tracker;
 }
@@ -252,18 +255,10 @@ function installInfoMessageTracker(): MessageTracker {
  * Restore original vscode.window message functions.
  */
 function restoreMessageFunctions(): void {
-  (vscode.window as any).showErrorMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => undefined;
-  (vscode.window as any).showWarningMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => undefined;
-  (vscode.window as any).showInformationMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => undefined;
+  const w = writableWindow();
+  w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -291,7 +286,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         remote: 'origin',
         name: 'feature/test',
       });
-      await (commands as any)._handleUpdate(item);
+      await invokePrivateHandler(commands, '_handleUpdate', item);
 
       assert.strictEqual(fetchCalled, false, 'fetch should not be called when repo is undefined');
     });
@@ -310,7 +305,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         remote: 'origin',
         name: 'feature/test',
       });
-      await (commands as any)._handlePush(item);
+      await invokePrivateHandler(commands, '_handlePush', item);
 
       assert.strictEqual(pushCalled, false, 'push should not be called when repo is undefined');
     });
@@ -326,7 +321,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.strictEqual(
         checkoutCalled,
@@ -346,7 +341,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (commands as any)._handlePullUsingRebase(item);
+      await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
       assert.strictEqual(pullCalled, false, 'pull should not be called when repo is undefined');
     });
@@ -362,7 +357,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (commands as any)._handlePullUsingMerge(item);
+      await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
 
       assert.strictEqual(pullCalled, false, 'pull should not be called when repo is undefined');
     });
@@ -385,7 +380,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.ok(warningTracker.calls.length > 0, 'showWarningMessage should have been called');
       const call = warningTracker.calls[0];
@@ -410,7 +405,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -427,7 +422,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async (_repo: any, branchName: string) => {
+        checkout: async (_repo: IRepository, branchName: string) => {
           checkoutCallCount++;
           checkoutCalls.push(branchName);
           if (checkoutCallCount === 1) {
@@ -435,8 +430,8 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
           }
           // Second call succeeds
         },
-        stash: async (_repo: any, message: string) => {
-          stashCalls.push(message);
+        stash: async (_repo: IRepository, message?: string) => {
+          stashCalls.push(message ?? '');
         },
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
       });
@@ -444,7 +439,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.ok(stashCalls.length > 0, 'stash should have been called');
       assert.ok(
@@ -463,7 +458,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        checkout: async (_repo: any, _branchName: string, options?: any) => {
+        checkout: async (_repo: IRepository, _branchName: string, options?: ICheckoutOptions) => {
           checkoutCallCount++;
           if (checkoutCallCount === 1) {
             throw new Error('Your local changes would be overwritten by checkout');
@@ -478,7 +473,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.ok(forceUsed, 'Force checkout should have been used');
     });
@@ -502,7 +497,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/test');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -529,7 +524,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/merge-test');
-      await (commands as any)._handleMergeIntoCurrent(item);
+      await invokePrivateHandler(commands, '_handleMergeIntoCurrent', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -552,7 +547,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('feature/rebase-test');
-      await (commands as any)._handleRebaseCurrentOnto(item);
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -576,7 +571,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/feature');
-      await (commands as any)._handlePullUsingRebase(item);
+      await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -598,7 +593,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createRemoteBranchTreeItem('origin/main');
-      await (commands as any)._handlePullUsingMerge(item);
+      await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
 
       assert.ok(
         warningTracker.calls.length > 0,
@@ -624,7 +619,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' });
-      await (commands as any)._handleUpdate(item);
+      await invokePrivateHandler(commands, '_handleUpdate', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
       assert.ok(
@@ -645,7 +640,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' });
-      await (commands as any)._handlePush(item);
+      await invokePrivateHandler(commands, '_handlePush', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
       assert.ok(
@@ -666,7 +661,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
       const item = createLocalBranchTreeItem('nonexistent-branch');
-      await (commands as any)._handleCheckoutAndRebase(item);
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
       assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
       assert.ok(
@@ -688,7 +683,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       // Create branch without upstream
       const item = createLocalBranchTreeItem('feature/no-upstream');
-      await (commands as any)._handleUpdate(item);
+      await invokePrivateHandler(commands, '_handleUpdate', item);
 
       assert.ok(
         infoTracker.calls.length > 0,
@@ -701,11 +696,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
 
     it('_handlePush should push with setUpstream when branch has no upstream', async () => {
-      let pushOptions: any = null;
+      let pushOptions: IPushOptions | undefined;
       installInfoMessageTracker();
 
       const gitService = createMockGitService({
-        push: async (_repo: any, options: any) => {
+        push: async (_repo: IRepository, options?: IPushOptions) => {
           pushOptions = options;
         },
       });
@@ -714,11 +709,11 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
 
       // Create branch without upstream
       const item = createLocalBranchTreeItem('feature/no-upstream');
-      await (commands as any)._handlePush(item);
+      await invokePrivateHandler(commands, '_handlePush', item);
 
-      assert.ok(pushOptions !== null, 'push should have been called');
+      assert.ok(pushOptions !== undefined, 'push should have been called');
       assert.strictEqual(
-        pushOptions.setUpstream,
+        pushOptions?.setUpstream,
         true,
         'push should be called with setUpstream: true when no upstream'
       );

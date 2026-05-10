@@ -19,7 +19,8 @@
 
 import '../../../test/setup';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
+import { Uri as MockUri } from '../../mocks/vscode';
 import {
   ResetDialog,
   IResetDialogOptions,
@@ -28,6 +29,7 @@ import {
   showResetDialog,
 } from '../../../services/ResetDialog';
 import { IGitService, IRepository, ResetMode } from '../../../services/interfaces/IGitService';
+import { writableWindow } from '../../helpers/windowStub';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -41,10 +43,10 @@ function makeContext(): vscode.ExtensionContext {
     storagePath: undefined,
     globalStoragePath: '/tmp/global',
     logPath: '/tmp/log',
-    extensionUri: vscode.Uri.file('/tmp/ext'),
+    extensionUri: MockUri.file('/tmp/ext'),
     storageUri: undefined,
-    globalStorageUri: vscode.Uri.file('/tmp/global'),
-    logUri: vscode.Uri.file('/tmp/log'),
+    globalStorageUri: MockUri.file('/tmp/global'),
+    logUri: MockUri.file('/tmp/log'),
     extensionMode: 3, // Test
     asAbsolutePath: (rel: string): string => `/tmp/ext/${rel}`,
   } as unknown as vscode.ExtensionContext;
@@ -162,41 +164,39 @@ function installMessageTrackers(): {
 } {
   const log: MessageLog = { info: [], error: [], warn: [] };
   let nextWarnResponse: string | undefined = undefined;
-  (vscode.window as any).showInformationMessage = async (
-    message: string
-  ): Promise<string | undefined> => {
+  const w = writableWindow();
+  w.showInformationMessage = (message: string): Promise<string | undefined> => {
     log.info.push({ message });
-    return undefined;
+    return Promise.resolve(undefined);
   };
-  (vscode.window as any).showErrorMessage = async (
-    message: string
-  ): Promise<string | undefined> => {
+  w.showErrorMessage = (message: string): Promise<string | undefined> => {
     log.error.push({ message });
-    return undefined;
+    return Promise.resolve(undefined);
   };
-  (vscode.window as any).showWarningMessage = async (
+  w.showWarningMessage = (
     message: string,
     optionsOrFirstItem?: unknown,
-    ...rest: string[]
+    ...rest: unknown[]
   ): Promise<string | undefined> => {
     let modal = false;
     let items: string[] = [];
+    const restStrings = rest.filter((i): i is string => typeof i === 'string');
     if (
       optionsOrFirstItem &&
       typeof optionsOrFirstItem === 'object' &&
-      'modal' in (optionsOrFirstItem as Record<string, unknown>)
+      'modal' in optionsOrFirstItem
     ) {
       modal = Boolean((optionsOrFirstItem as { modal?: boolean }).modal);
-      items = rest;
+      items = restStrings;
     } else if (typeof optionsOrFirstItem === 'string') {
-      items = [optionsOrFirstItem, ...rest];
+      items = [optionsOrFirstItem, ...restStrings];
     } else {
-      items = rest;
+      items = restStrings;
     }
     log.warn.push({ message, items, modal, response: nextWarnResponse });
     const r = nextWarnResponse;
     nextWarnResponse = undefined;
-    return r;
+    return Promise.resolve(r);
   };
   return {
     log,
@@ -210,21 +210,35 @@ function installMessageTrackers(): {
  * Test-only subclass exposing protected hooks so we can drive message
  * handling without a real webview runtime.
  */
+interface ResetDialogInternals {
+  _onMessage(raw: unknown): Promise<void>;
+  _panel: { webview: { html: string } };
+}
+
 class TestResetDialog extends ResetDialog {
   public async simulateMessage(raw: unknown): Promise<void> {
-    await (this as any)._onMessage(raw);
+    await (this as unknown as ResetDialogInternals)._onMessage(raw);
   }
   public renderedHtml(): string {
-    return (this as any)._panel.webview.html as string;
+    return (this as unknown as ResetDialogInternals)._panel.webview.html;
   }
 }
 
-function makeDialog(opts: Partial<IResetDialogOptions> = {}): {
+/**
+ * Narrowed opts: the test-local `gitService` override must carry the
+ * `calls` log (produced by {@link makeGitService}) so suites that read
+ * `calls` after construction stay type-safe without casts.
+ */
+type MakeDialogOpts = Omit<Partial<IResetDialogOptions>, 'gitService'> & {
+  gitService?: IGitService & { calls: CallLog[] };
+};
+
+function makeDialog(opts: MakeDialogOpts = {}): {
   dialog: TestResetDialog;
   gitService: IGitService & { calls: CallLog[] };
   repo: IRepository;
 } {
-  const gitService = opts.gitService ? (opts.gitService as any) : makeGitService();
+  const gitService = opts.gitService ?? makeGitService();
   const repo = opts.repo ?? makeRepo();
   const dialog = new TestResetDialog(makeContext(), {
     repo,
@@ -423,7 +437,7 @@ describe('ResetDialog', () => {
       await dialog.simulateMessage({ type: 'cancel' });
       assert.strictEqual(gitService.calls.length, 0);
       // After dispose the panel should report disposed via its internal flag.
-      assert.strictEqual((dialog as any)._disposed, true);
+      assert.strictEqual((dialog as unknown as { _disposed: boolean })._disposed, true);
     });
 
     it('cancel at destructive-confirm modal (Hard) → no reset executed', async () => {

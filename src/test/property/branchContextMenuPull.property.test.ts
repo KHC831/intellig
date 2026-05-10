@@ -21,6 +21,7 @@ import {
   IPullOptions,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { invokePrivateHandler } from '../helpers/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -233,7 +234,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
           const item = createRemoteBranchTreeItem(fullRef);
 
           // Act: Call the _handlePullUsingRebase handler
-          await (commands as any)._handlePullUsingRebase(item);
+          await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
           // Assert: pull was called exactly once
           assert.strictEqual(
@@ -282,7 +283,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
           const item = createRemoteBranchTreeItem(fullRef);
 
           // Act: Call the _handlePullUsingMerge handler
-          await (commands as any)._handlePullUsingMerge(item);
+          await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
 
           // Assert: pull was called exactly once
           assert.strictEqual(
@@ -334,7 +335,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
             const item = createRemoteBranchTreeItem(fullRef);
 
             // Act: Test with rebase
-            await (commands as any)._handlePullUsingRebase(item);
+            await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
             // Assert: pull was called once
             assert.strictEqual(gitService.pullCalls.length, 1);
@@ -371,7 +372,7 @@ describe('Feature: branch-context-menu - Pull Strategy Property Tests', () => {
           const item = createRemoteBranchTreeItem(fullRef);
 
           // Act
-          await (commands as any)._handlePullUsingRebase(item);
+          await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
           // Assert: pull was called with a valid repository
           assert.strictEqual(gitService.pullCalls.length, 1);

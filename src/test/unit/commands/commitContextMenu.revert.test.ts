@@ -26,6 +26,7 @@ import { IGitService, IRepository, IDiff } from '../../../services/interfaces/IG
 import { IRebaseService } from '../../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../../mocks/vscode';
+import { writableWindow } from '../../helpers/windowStub';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -249,45 +250,56 @@ function installWindowStubs(
   const oWarn = vscode.window.showWarningMessage;
   const oQP = vscode.window.showQuickPick;
 
-  (vscode.window as any).showInformationMessage = async (m: string) => {
+  const w = writableWindow();
+  w.showInformationMessage = (m: string): Promise<string | undefined> => {
     trackers.info.push(m);
-    return undefined;
+    return Promise.resolve(undefined);
   };
-  (vscode.window as any).showErrorMessage = async (m: string) => {
+  w.showErrorMessage = (m: string): Promise<string | undefined> => {
     trackers.error.push(m);
-    return undefined;
+    return Promise.resolve(undefined);
   };
-  (vscode.window as any).showWarningMessage = async (
+  w.showWarningMessage = (
     m: string,
     optsOrFirst?: unknown,
-    ...rest: string[]
-  ) => {
+    ...rest: unknown[]
+  ): Promise<string | undefined> => {
     let modal = false;
     let items: string[] = [];
-    if (optsOrFirst && typeof optsOrFirst === 'object' && 'modal' in (optsOrFirst as any)) {
+    const restStrings = rest.filter((i): i is string => typeof i === 'string');
+    if (
+      optsOrFirst &&
+      typeof optsOrFirst === 'object' &&
+      'modal' in optsOrFirst
+    ) {
       modal = Boolean((optsOrFirst as { modal?: boolean }).modal);
-      items = rest;
+      items = restStrings;
     } else if (typeof optsOrFirst === 'string') {
-      items = [optsOrFirst, ...rest];
+      items = [optsOrFirst, ...restStrings];
     } else {
-      items = rest;
+      items = restStrings;
     }
     const response = warnResponder();
     trackers.warn.push({ message: m, items, modal, response });
-    return response;
+    return Promise.resolve(response);
   };
-  (vscode.window as any).showQuickPick = async (items: unknown, opts?: { title?: string }) => {
+  w.showQuickPick = async (
+    items: unknown,
+    opts?: unknown
+  ): Promise<unknown | undefined> => {
     const arr = (await Promise.resolve(items)) as readonly { path: string }[];
-    return quickPickResponder(arr, opts?.title);
+    const options = (opts as { title?: string } | undefined) ?? {};
+    return quickPickResponder(arr, options.title);
   };
 
   return {
     trackers,
     restore: () => {
-      (vscode.window as any).showInformationMessage = oInfo;
-      (vscode.window as any).showErrorMessage = oErr;
-      (vscode.window as any).showWarningMessage = oWarn;
-      (vscode.window as any).showQuickPick = oQP;
+      const r = writableWindow();
+      r.showInformationMessage = oInfo as unknown as typeof r.showInformationMessage;
+      r.showErrorMessage = oErr as unknown as typeof r.showErrorMessage;
+      r.showWarningMessage = oWarn as unknown as typeof r.showWarningMessage;
+      r.showQuickPick = oQP as unknown as typeof r.showQuickPick;
     },
   };
 }

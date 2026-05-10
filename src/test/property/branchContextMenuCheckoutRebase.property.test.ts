@@ -16,6 +16,7 @@ import { BranchContextMenuCommands } from '../../commands/BranchContextMenuComma
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
 import { IGitService, IRepository, IBranch } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { invokePrivateHandler } from '../helpers/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -226,7 +227,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
             const item = createBranchTreeItem(rightClickedBranch);
 
             // Act: Call the _handleCheckoutAndRebase handler
-            await (commands as any)._handleCheckoutAndRebase(item);
+            await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
             // Assert: Exactly 2 operations were called
             assert.strictEqual(
@@ -297,7 +298,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
           const item = createBranchTreeItem(rightClickedBranch);
 
           // Act
-          await (commands as any)._handleCheckoutAndRebase(item);
+          await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
           // Assert: Exactly 2 operations were called
           assert.strictEqual(gitService.operationCalls.length, 2);
@@ -333,7 +334,7 @@ describe('Feature: branch-context-menu - Checkout and Rebase Property Tests', ()
             const item = createBranchTreeItem(rightClickedBranch);
 
             // Act
-            await (commands as any)._handleCheckoutAndRebase(item);
+            await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
             // Assert: Both operations were called
             assert.strictEqual(gitService.operationCalls.length, 2);

@@ -13,7 +13,6 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import { BranchContextMenuCommands } from '../../commands/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
 import {
@@ -23,6 +22,8 @@ import {
   IBasicRebaseResult,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { writableWindow } from '../helpers/windowStub';
+import { invokePrivateHandler } from '../helpers/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -128,12 +129,12 @@ function installErrorMessageTracker(): MessageTracker {
     },
   };
 
-  (vscode.window as any).showErrorMessage = async (
+  writableWindow().showErrorMessage = (
     message: string,
     ...items: string[]
   ): Promise<string | undefined> => {
     tracker.calls.push({ message, items });
-    return undefined;
+    return Promise.resolve(undefined);
   };
 
   return tracker;
@@ -151,12 +152,13 @@ function installWarningMessageTracker(): MessageTracker {
     },
   };
 
-  (vscode.window as any).showWarningMessage = async (
+  writableWindow().showWarningMessage = (
     message: string,
-    ...items: string[]
+    ...items: unknown[]
   ): Promise<string | undefined> => {
-    tracker.calls.push({ message, items });
-    return undefined;
+    const stringItems = items.filter((i): i is string => typeof i === 'string');
+    tracker.calls.push({ message, items: stringItems });
+    return Promise.resolve(undefined);
   };
 
   return tracker;
@@ -166,26 +168,10 @@ function installWarningMessageTracker(): MessageTracker {
  * Restore the original vscode.window message functions.
  */
 function restoreMessageFunctions(): void {
-  (vscode.window as any).showErrorMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-
-  (vscode.window as any).showWarningMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-
-  (vscode.window as any).showInformationMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
+  const w = writableWindow();
+  w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
 }
 
 /**
@@ -370,7 +356,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
               name: branchName,
             });
 
-            await (commands as any)._handleUpdate(item);
+            await invokePrivateHandler(commands, '_handleUpdate', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -406,7 +392,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
               name: branchName,
             });
 
-            await (commands as any)._handlePush(item);
+            await invokePrivateHandler(commands, '_handlePush', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -440,7 +426,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             const fullRef = `${remoteName}/${branchName}`;
             const item = createRemoteBranchTreeItem(fullRef);
 
-            await (commands as any)._handlePullUsingRebase(item);
+            await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -474,7 +460,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             const fullRef = `${remoteName}/${branchName}`;
             const item = createRemoteBranchTreeItem(fullRef);
 
-            await (commands as any)._handlePullUsingMerge(item);
+            await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
 
             assert.ok(errorTracker.calls.length > 0, 'showErrorMessage should have been called');
             const calledMessage = errorTracker.calls[0].message;
@@ -521,7 +507,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
 
             const item = createLocalBranchTreeItem(targetBranch);
 
-            await (commands as any)._handleCheckoutAndRebase(item);
+            await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
 
             assert.ok(
               warningTracker.calls.length > 0,
@@ -564,7 +550,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             const fullRef = `${remoteName}/${branchName}`;
             const item = createRemoteBranchTreeItem(fullRef);
 
-            await (commands as any)._handlePullUsingRebase(item);
+            await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
 
             assert.ok(
               warningTracker.calls.length > 0,
@@ -607,7 +593,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
             const fullRef = `${remoteName}/${branchName}`;
             const item = createRemoteBranchTreeItem(fullRef);
 
-            await (commands as any)._handlePullUsingMerge(item);
+            await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
 
             assert.ok(
               warningTracker.calls.length > 0,

@@ -16,12 +16,12 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../commands/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../services/interfaces/IGitService';
 import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { writableWindow } from '../helpers/windowStub';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -69,27 +69,11 @@ function arbitraryCommitHashes(): fc.Arbitrary<string[]> {
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
 function restoreMessageFunctions(): void {
-  (vscode.window as any).showErrorMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-  (vscode.window as any).showWarningMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-  (vscode.window as any).showInformationMessage = async (
-    _message: string,
-    ..._items: string[]
-  ): Promise<string | undefined> => {
-    return undefined;
-  };
-  (vscode.window as any).showQuickPick = async (): Promise<unknown> => {
-    return undefined;
-  };
+  const w = writableWindow();
+  w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
+  w.showQuickPick = (): Promise<unknown | undefined> => Promise.resolve(undefined);
 }
 
 /**
@@ -212,7 +196,7 @@ function createTrackingGitToolWindowProvider(): GitToolWindowProvider & {
     onDidRequestLogContextAction: (_handler: unknown) => ({ dispose: () => {} }),
     refreshCallCount: 0,
     refresh: function () {
-      (this as any).refreshCallCount++;
+      (this as { refreshCallCount: number }).refreshCallCount++;
     },
   } as unknown as GitToolWindowProvider & { refreshCallCount: number };
   return provider;
@@ -243,13 +227,12 @@ function createSuccessGitCli(): any {
 describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () => {
   beforeEach(() => {
     // Mock showQuickPick to always return a selection (for resetToHere)
-    (vscode.window as any).showQuickPick = async (items: any[]) => {
-      return items[0]; // Always pick Soft
+    writableWindow().showQuickPick = (items: unknown[]): Promise<unknown | undefined> => {
+      return Promise.resolve(items[0]); // Always pick Soft
     };
     // Mock showInputBox to return a value (for editCommitMessage)
-    (vscode.window as any).showInputBox = async () => {
-      return 'new message';
-    };
+    writableWindow().showInputBox = (): Promise<string | undefined> =>
+      Promise.resolve('new message');
   });
 
   afterEach(() => {

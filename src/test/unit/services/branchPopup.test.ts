@@ -789,8 +789,8 @@ describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
     );
     assert.ok(mainRow?.buttons && mainRow.buttons.length === 1, 'main row should have star button');
     // develop is starred → full star tooltip
-    assert.strictEqual((devRow.buttons[0] as any).tooltip, 'Unstar');
-    assert.strictEqual((mainRow.buttons[0] as any).tooltip, 'Add to Favorites');
+    assert.strictEqual(devRow.buttons[0].tooltip, 'Unstar');
+    assert.strictEqual(mainRow.buttons[0].tooltip, 'Add to Favorites');
   });
 });
 

@@ -19,9 +19,11 @@ import {
   IGitService,
   IRepository,
   IBranch,
+  IPushOptions,
   IUpstream,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
+import { invokePrivateHandler } from '../helpers/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -80,7 +82,7 @@ function arbitraryUpstream(): fc.Arbitrary<IUpstream> {
  */
 function createTrackingMockGitService(): IGitService & {
   fetchCalls: Array<{ repo: IRepository; remote?: string }>;
-  pushCalls: Array<{ repo: IRepository; options?: any }>;
+  pushCalls: Array<{ repo: IRepository; options?: IPushOptions }>;
 } {
   const repoChangeEmitter = new EventEmitter<IRepository>();
   const fetchCalls: Array<{ repo: IRepository; remote?: string }> = [];
@@ -113,7 +115,7 @@ function createTrackingMockGitService(): IGitService & {
       fetchCalls.push({ repo, remote });
     },
     pull: async () => {},
-    push: async (repo: IRepository, options?: any) => {
+    push: async (repo: IRepository, options?: IPushOptions) => {
       pushCalls.push({ repo, options });
     },
     getRemotes: async () => [],
@@ -165,7 +167,7 @@ function createTrackingMockGitService(): IGitService & {
     dispose: () => {},
   } as unknown as IGitService & {
     fetchCalls: Array<{ repo: IRepository; remote?: string }>;
-    pushCalls: Array<{ repo: IRepository; options?: any }>;
+    pushCalls: Array<{ repo: IRepository; options?: IPushOptions }>;
   };
 
   return service;
@@ -237,7 +239,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act: Call the _handleUpdate handler via bracket notation
-            await (commands as any)._handleUpdate(item);
+            await invokePrivateHandler(commands, '_handleUpdate', item);
 
             // Assert: fetch was called exactly once
             assert.strictEqual(
@@ -271,7 +273,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
           const item = createBranchTreeItem(branchName, undefined);
 
           // Act: Call the _handleUpdate handler
-          await (commands as any)._handleUpdate(item);
+          await invokePrivateHandler(commands, '_handleUpdate', item);
 
           // Assert: fetch was NOT called (no upstream configured)
           assert.strictEqual(
@@ -298,7 +300,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act
-            await (commands as any)._handleUpdate(item);
+            await invokePrivateHandler(commands, '_handleUpdate', item);
 
             // Assert: fetch was called with a valid repository object
             assert.strictEqual(gitService.fetchCalls.length, 1);
@@ -335,7 +337,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act: Call the _handlePush handler via bracket notation
-            await (commands as any)._handlePush(item);
+            await invokePrivateHandler(commands, '_handlePush', item);
 
             // Assert: push was called exactly once
             assert.strictEqual(
@@ -346,18 +348,18 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
 
             // Assert: push was called with the correct remote from upstream
             assert.strictEqual(
-              gitService.pushCalls[0].options.remote,
+              gitService.pushCalls[0].options?.remote,
               upstream.remote,
               `Expected push remote to be "${upstream.remote}", ` +
-                `but was "${gitService.pushCalls[0].options.remote}"`
+                `but was "${String(gitService.pushCalls[0].options?.remote)}"`
             );
 
             // Assert: push was called with the correct branch name
             assert.strictEqual(
-              gitService.pushCalls[0].options.branch,
+              gitService.pushCalls[0].options?.branch,
               branchName,
               `Expected push branch to be "${branchName}", ` +
-                `but was "${gitService.pushCalls[0].options.branch}"`
+                `but was "${String(gitService.pushCalls[0].options?.branch)}"`
             );
           }
         ),
@@ -377,7 +379,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
           const item = createBranchTreeItem(branchName, undefined);
 
           // Act: Call the _handlePush handler
-          await (commands as any)._handlePush(item);
+          await invokePrivateHandler(commands, '_handlePush', item);
 
           // Assert: push was called exactly once
           assert.strictEqual(
@@ -388,7 +390,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
 
           // Assert: push was called with setUpstream: true
           assert.strictEqual(
-            gitService.pushCalls[0].options.setUpstream,
+            gitService.pushCalls[0].options?.setUpstream,
             true,
             `Expected push to be called with setUpstream: true when no upstream is configured`
           );
@@ -418,12 +420,12 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act
-            await (commands as any)._handlePush(item);
+            await invokePrivateHandler(commands, '_handlePush', item);
 
             // Assert: push was called without setUpstream
             assert.strictEqual(gitService.pushCalls.length, 1);
             assert.strictEqual(
-              gitService.pushCalls[0].options.setUpstream,
+              gitService.pushCalls[0].options?.setUpstream,
               undefined,
               `Expected push NOT to have setUpstream when upstream is already configured`
             );
@@ -446,7 +448,7 @@ describe('Feature: branch-context-menu - Update and Push Command Property Tests'
             const item = createBranchTreeItem(branchName, upstream);
 
             // Act
-            await (commands as any)._handlePush(item);
+            await invokePrivateHandler(commands, '_handlePush', item);
 
             // Assert: push was called with a valid repository object
             assert.strictEqual(gitService.pushCalls.length, 1);

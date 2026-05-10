@@ -17,6 +17,7 @@ import '../../../../test/setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { EventEmitter, Uri } from '../../../mocks/vscode';
+import { writableCommands, writableWindow } from '../../../helpers/windowStub';
 import type {
   IBranch,
   ICommit,
@@ -193,8 +194,14 @@ describe('HistoryTab — class behaviour', () => {
     origShowError = vscode.window.showErrorMessage;
   });
   afterEach(() => {
-    (vscode.commands as any).executeCommand = origExecuteCommand;
-    (vscode.window as any).showErrorMessage = origShowError;
+    writableCommands().executeCommand = origExecuteCommand as unknown as (
+      command: string,
+      ...rest: unknown[]
+    ) => Promise<unknown>;
+    writableWindow().showErrorMessage = origShowError as unknown as (
+      message: string,
+      ...items: string[]
+    ) => Promise<string | undefined>;
   });
 
   // ── loadFile ───────────────────────────────────────────────────────────
@@ -273,10 +280,10 @@ describe('HistoryTab — class behaviour', () => {
     await tab.loadFile('src/a.ts');
 
     const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
-    (vscode.commands as any).executeCommand = async (
+    writableCommands().executeCommand = (
       command: string,
       ...args: unknown[]
-    ): Promise<undefined> => {
+    ): Promise<unknown> => {
       if (command === 'vscode.diff') {
         diffCalls.push({
           left: args[0] as vscode.Uri,
@@ -284,7 +291,7 @@ describe('HistoryTab — class behaviour', () => {
           title: args[2] as string,
         });
       }
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
     await tab.compareWith('abcdef1', 'fedcba2');
@@ -302,10 +309,10 @@ describe('HistoryTab — class behaviour', () => {
     await tab.loadFile('src/a.ts');
 
     const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
-    (vscode.commands as any).executeCommand = async (
+    writableCommands().executeCommand = (
       command: string,
       ...args: unknown[]
-    ): Promise<undefined> => {
+    ): Promise<unknown> => {
       if (command === 'vscode.diff') {
         diffCalls.push({
           left: args[0] as vscode.Uri,
@@ -313,7 +320,7 @@ describe('HistoryTab — class behaviour', () => {
           title: args[2] as string,
         });
       }
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
     await tab.compareWithLocal('abcdef1');
@@ -333,11 +340,11 @@ describe('HistoryTab — class behaviour', () => {
     const { service } = mkGitService({ repo, commits: [] });
     const tab = new HistoryTab(service);
     const diffCalls: unknown[] = [];
-    (vscode.commands as any).executeCommand = async (command: string): Promise<undefined> => {
+    writableCommands().executeCommand = (command: string): Promise<unknown> => {
       if (command === 'vscode.diff') {
         diffCalls.push(command);
       }
-      return undefined;
+      return Promise.resolve(undefined);
     };
     await tab.compareWith('a', 'b');
     await tab.compareWithLocal('a');
@@ -353,14 +360,14 @@ describe('HistoryTab — class behaviour', () => {
     await tab.loadFile('src/a.ts');
 
     const openCalls: vscode.Uri[] = [];
-    (vscode.commands as any).executeCommand = async (
+    writableCommands().executeCommand = (
       command: string,
       ...args: unknown[]
-    ): Promise<undefined> => {
+    ): Promise<unknown> => {
       if (command === 'vscode.open') {
         openCalls.push(args[0] as vscode.Uri);
       }
-      return undefined;
+      return Promise.resolve(undefined);
     };
 
     await tab.openAtRevision('abcdef1');

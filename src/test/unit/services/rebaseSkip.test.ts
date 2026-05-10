@@ -88,10 +88,9 @@ function makeGitServiceScripted(
     dispose(): void {},
   };
   // Construct GitService bypassing its default CLI wiring.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const svc = new GitService() as any;
+  const svc = new GitService() as unknown as { _gitCli: unknown };
   svc._gitCli = mockCli;
-  return { gitService: svc as IGitService, calls };
+  return { gitService: svc as unknown as IGitService, calls };
 }
 
 describe('GitService.rebaseSkip (T3-05)', () => {
