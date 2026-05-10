@@ -24,6 +24,21 @@ import type { IRepository } from '../../../services/interfaces/IGitService';
 const EXT_ID = 'intellig-vscode.intellig';
 
 /**
+ * Narrow test-only surface on GitService for the E2E workspace-helper flow.
+ *
+ * Reaches through the frozen IGitService composite to the two methods needed
+ * by per-test fixture swapping: enumerate cached repos + drop their watchers.
+ * Kept separate from production because `removeRepositoryWatcher` is a
+ * teardown hook that shouldn't leak onto the public service interface.
+ *
+ * See `docs/testing.md` §3 for the TestSurface convention.
+ */
+interface GitServiceWorkspaceHelperSurface {
+  getRepositories(): IRepository[];
+  removeRepositoryWatcher?: (rootPath: string) => void;
+}
+
+/**
  * Ensure the extension is activated and services are ready. Idempotent —
  * safe to call in every `beforeEach`.
  */
@@ -54,10 +69,7 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
   // exposes `removeRepositoryWatcher`; we call it for every cached repo so
   // `getRepositories()` starts empty. Defensively tolerate a missing method
   // in case the API ever moves.
-  const gitService = services.gitService as unknown as {
-    getRepositories(): IRepository[];
-    removeRepositoryWatcher?: (rootPath: string) => void;
-  };
+  const gitService = services.gitService as unknown as GitServiceWorkspaceHelperSurface;
   for (const existing of gitService.getRepositories()) {
     gitService.removeRepositoryWatcher?.(existing.rootUri.fsPath);
   }
@@ -78,10 +90,7 @@ export function clearWorkspace(): void {
   if (!services) {
     return;
   }
-  const gitService = services.gitService as unknown as {
-    getRepositories(): IRepository[];
-    removeRepositoryWatcher?: (rootPath: string) => void;
-  };
+  const gitService = services.gitService as unknown as GitServiceWorkspaceHelperSurface;
   for (const existing of gitService.getRepositories()) {
     gitService.removeRepositoryWatcher?.(existing.rootUri.fsPath);
   }

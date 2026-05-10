@@ -43,7 +43,7 @@ import type {
 import type { IShelfItem, IShelfService } from '../../../services/interfaces/IShelfService';
 import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
-import { writableCommands, writableWindow } from '../../helpers/windowStub';
+import { writableCommands, writableWindow } from '../../typed/windowStub';
 
 /**
  * Type-safe accessor for CommitToolWindow's private test surface.

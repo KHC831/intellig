@@ -16,7 +16,7 @@ import { BranchContextMenuCommands } from '../../commands/BranchContextMenuComma
 import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
 import { IGitService, IRepository, IBranch } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../helpers/privateHandler';
+import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

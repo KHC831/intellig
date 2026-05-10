@@ -22,8 +22,8 @@ import {
   IBasicRebaseResult,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { writableWindow } from '../helpers/windowStub';
-import { invokePrivateHandler } from '../helpers/privateHandler';
+import { writableWindow } from '../typed/windowStub';
+import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

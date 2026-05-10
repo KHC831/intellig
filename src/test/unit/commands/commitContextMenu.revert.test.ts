@@ -26,7 +26,7 @@ import { IGitService, IRepository, IDiff } from '../../../services/interfaces/IG
 import { IRebaseService } from '../../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../../mocks/vscode';
-import { writableWindow } from '../../helpers/windowStub';
+import { writableWindow } from '../../typed/windowStub';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

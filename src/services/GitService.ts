@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import {
   IGitService,
+  IGitServiceCli,
   IRepository,
   IBranch,
   ICommit,
@@ -65,7 +66,7 @@ interface IRepositoryCache {
  * Git Service implementation.
  * Provides all Git operations through the Git CLI.
  */
-export class GitService implements IGitService {
+export class GitService implements IGitService, IGitServiceCli {
   private _gitCli: GitCli;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;

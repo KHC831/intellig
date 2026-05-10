@@ -24,7 +24,7 @@ import {
   writableEnv,
   writableCommands,
   writableWorkspace,
-} from '../../helpers/windowStub';
+} from '../../typed/windowStub';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 

@@ -4,7 +4,6 @@ import {
   resetExtensionServices,
   ExtensionServices,
   GitToolWindowProvider,
-  GitService,
   GIT_TOOL_WINDOW_VIEW_ID,
   ConsoleService,
   CommitDialog,
@@ -46,8 +45,7 @@ import {
   COMMIT_TOOL_WINDOW_VIEW_ID,
   ChangelistService,
 } from './services';
-import type { IBranch, IGitService, IRepository, ITag } from './services';
-import type { GitCli } from './utils/gitCli';
+import type { IBranch, IGitService, IGitServiceCli, IRepository, ITag } from './services';
 import { findCommitByQuery } from './services/gitToolWindow/jumpToHash';
 import { createCommandTitleProvider } from './commands/CommandTitleProvider';
 import {
@@ -4123,7 +4121,7 @@ function registerViews(context: vscode.ExtensionContext): void {
         gitService,
         extensionServices.rebaseService,
         gitToolWindowProvider,
-        (gitService as unknown as { gitCli: GitCli }).gitCli,
+        (gitService as unknown as IGitServiceCli).gitCli,
         extensionServices.conflictResolutionService
       );
       commitContextMenuCommands.register(context);
@@ -4260,13 +4258,17 @@ export async function provideGitShowContent(
   if (!repo) {
     throw new Error('No Git repository found');
   }
-  if (!(gitService instanceof GitService)) {
-    throw new Error('GitService instance required for git show');
-  }
   try {
-    const result = await gitService.gitCli.exec(['show', `${ref}:${filePath}`], {
-      cwd: repo.rootUri.fsPath,
-    });
+    // `gitCli` is exposed via the `@internal` {@link IGitServiceCli} escape
+    // hatch — the frozen {@link IGitService} composite deliberately doesn't
+    // wrap raw `git show <ref>:<path>`. See TL-1 for the role-interface
+    // decomposition that would eventually fold this into a proper method.
+    const result = await (gitService as unknown as IGitServiceCli).gitCli.exec(
+      ['show', `${ref}:${filePath}`],
+      {
+        cwd: repo.rootUri.fsPath,
+      }
+    );
     if (result.exitCode !== 0) {
       // File might not exist at this revision (e.g., newly added file)
       return '';

@@ -38,6 +38,22 @@ import type {
 import type { IMergeView } from '../../../services/interfaces/IMergeView';
 
 /**
+ * Test-only surface on GitService for injecting a scripted CLI.
+ *
+ * `_gitCli` is the private CLI handle that GitService normally wires via its
+ * constructor. The tests in this file swap in a scripted mock so we can assert
+ * both the argv passed to `git` and the shape of the returned result — without
+ * spawning a real subprocess. `unknown` is deliberate: the scripted mock
+ * implements only the shape the tests exercise (`exec`, `onCommandExecuted`,
+ * `getRepositoryRoot`, `dispose`), not the full GitCli contract.
+ *
+ * See `docs/testing.md` §3 for the TestSurface convention.
+ */
+interface GitServiceGitCliTestSurface {
+  _gitCli: unknown;
+}
+
+/**
  * Minimal extension-context stub — mirrors the pattern used by other dialog
  * tests under src/test/unit/services.
  */
@@ -88,7 +104,7 @@ function makeGitServiceScripted(
     dispose(): void {},
   };
   // Construct GitService bypassing its default CLI wiring.
-  const svc = new GitService() as unknown as { _gitCli: unknown };
+  const svc = new GitService() as unknown as GitServiceGitCliTestSurface;
   svc._gitCli = mockCli;
   return { gitService: svc as unknown as IGitService, calls };
 }

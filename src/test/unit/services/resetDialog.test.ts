@@ -29,7 +29,7 @@ import {
   showResetDialog,
 } from '../../../services/ResetDialog';
 import { IGitService, IRepository, ResetMode } from '../../../services/interfaces/IGitService';
-import { writableWindow } from '../../helpers/windowStub';
+import { writableWindow } from '../../typed/windowStub';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

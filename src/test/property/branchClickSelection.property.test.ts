@@ -16,7 +16,7 @@ import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
 import { ICommitNode, IGraphLine } from '../../utils/commitGraph';
 import { ICommit, IAuthor } from '../../services/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../helpers/privateHandler';
+import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

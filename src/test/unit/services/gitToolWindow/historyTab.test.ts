@@ -17,7 +17,7 @@ import '../../../../test/setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { EventEmitter, Uri } from '../../../mocks/vscode';
-import { writableCommands, writableWindow } from '../../../helpers/windowStub';
+import { writableCommands, writableWindow } from '../../../typed/windowStub';
 import type {
   IBranch,
   ICommit,

@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import type { GitCli } from '../../utils/gitCli';
+
 /**
  * Repository state enumeration
  */
@@ -798,4 +800,20 @@ export interface IGitService {
 
   // Disposal
   dispose(): void;
+}
+
+/**
+ * @internal — exposes the low-level `GitCli` handle for call sites that need
+ * to issue raw git commands (e.g. `git show <ref>:<path>`) that the frozen
+ * {@link IGitService} composite deliberately doesn't wrap.
+ *
+ * `GitService` implements both {@link IGitService} and this interface.
+ * Do not add new call sites without tech-lead review; each such site is a
+ * candidate to become a proper role-interface method under TL-1 (the
+ * composite decomposition effort). See `docs/testing.md` §5 for the
+ * relationship between this production escape hatch and the TestSurface
+ * idiom used by tests.
+ */
+export interface IGitServiceCli {
+  readonly gitCli: GitCli;
 }

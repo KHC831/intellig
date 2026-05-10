@@ -23,7 +23,7 @@ import {
   IUpstream,
 } from '../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { invokePrivateHandler } from '../helpers/privateHandler';
+import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
