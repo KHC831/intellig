@@ -221,7 +221,16 @@ export class ExtensionServices implements IExtensionServices {
       this._shelfService = new ShelfService();
 
       // Initialize ChangelistService (Task 10.1)
-      this._changelistService = new ChangelistService();
+      //
+      // Must be constructed with `this._gitService` so
+      // `reconcileWithGitStatus()` can read git state and the
+      // `onDidChangeRepository` subscription fires debounced reconciles.
+      // Without the wire, every call into `reconcileWithGitStatus` is a
+      // no-op — the symptom for the user is `intellig.shelve.silent`
+      // reporting "No files in active changelist" against any dirty repo
+      // (found by Tier-2 E2E coverage — task #80, fixed here in
+      // fix/changelist-gitservice-wiring).
+      this._changelistService = new ChangelistService(this._gitService);
 
       // Initialize BlameService (Task 17.1)
       this._blameService = new BlameService();

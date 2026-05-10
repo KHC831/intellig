@@ -93,6 +93,29 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 /**
+ * Minimal no-op stub used by the specs that don't exercise reconcile.
+ *
+ * ChangelistService now REQUIRES a GitService reference at construction
+ * time (fix/changelist-gitservice-wiring) so reconcile is always live.
+ * Specs that don't care about reconcile pass this stub:
+ *   - `getStatus` always returns `[]` (nothing dirty → reconcile is a
+ *     no-op but still runs; storage won't be mutated).
+ *   - `onDidChangeRepository` accepts listeners but never fires, so the
+ *     debounced `scheduleReconcile` path stays dormant unless a spec
+ *     explicitly drives it.
+ */
+function makeNoopGitServiceStub(): unknown {
+  return {
+    getStatus: async (_repo: IRepository): Promise<{ path: string }[]> => [],
+    onDidChangeRepository: (_listener: (repo: IRepository) => void) => ({
+      dispose: () => {
+        // no-op
+      },
+    }),
+  };
+}
+
+/**
  * Unit tests for ChangelistService.
  * Tests the changelist functionality for organizing uncommitted changes.
  */
@@ -129,8 +152,12 @@ describe('ChangelistService', () => {
       submodules: [],
     };
 
-    // Create the changelist service
-    changelistService = createChangelistService();
+    // Create the changelist service with the no-op stub — specs under
+    // this `describe` don't assert on reconcile behavior, so the stub's
+    // empty-status / no-fire semantics keep storage deterministic.
+    changelistService = createChangelistService(
+      makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+    );
   });
 
   /**
@@ -441,7 +468,9 @@ describe('ChangelistService', () => {
       changelistService.createChangelist(mockRepo, 'Persistent');
 
       // Create a new service instance
-      const newService = createChangelistService();
+      const newService = createChangelistService(
+        makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+      );
 
       try {
         // Get changelists from new instance
@@ -459,7 +488,9 @@ describe('ChangelistService', () => {
       changelistService.moveToChangelist(mockRepo, ['file1.txt', 'file2.txt'], changelist.id);
 
       // Create a new service instance
-      const newService = createChangelistService();
+      const newService = createChangelistService(
+        makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+      );
 
       try {
         const changelists = newService.getChangelists(mockRepo);
@@ -670,7 +701,9 @@ describe('ChangelistService', () => {
       assert.strictEqual(active.id, cl.id);
 
       // Also visible across a fresh service instance (persistence check).
-      const fresh = createChangelistService();
+      const fresh = createChangelistService(
+        makeNoopGitServiceStub() as unknown as Parameters<typeof createChangelistService>[0]
+      );
       try {
         const active2 = await fresh.getActiveChangelist(mockRepo);
         assert.strictEqual(active2.id, cl.id);

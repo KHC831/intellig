@@ -90,34 +90,33 @@ export class ChangelistService implements IChangelistService {
   private _reconcileTimers: Map<string, NodeJS.Timeout> = new Map();
 
   /**
-   * Optional reference to GitService for status lookups and
-   * repository-change subscription. When omitted, automatic reconcile
-   * is disabled; callers can still drive `reconcileWithGitStatus`
-   * manually by passing a service at call time is not supported — the
-   * constructor argument is the single wiring point.
+   * Reference to GitService for status lookups and repository-change
+   * subscription. Required — `reconcileWithGitStatus()` cannot run
+   * without a backing git-status source, and the production-time
+   * manifestation of a missing wire was a silently-no-op `shelve.silent`
+   * command (Tier-2 E2E coder-tier2-e2e report, 2026-05-10). Non-optional
+   * so the type checker catches future regressions at construction.
    */
-  private readonly _gitService?: IGitService;
+  private readonly _gitService: IGitService;
 
   /**
    * Event fired when changelists change
    */
   readonly onDidChangeChangelists: vscode.Event<IChangelist[]>;
 
-  constructor(gitService?: IGitService) {
+  constructor(gitService: IGitService) {
     this._onDidChangeChangelists = new vscode.EventEmitter<IChangelist[]>();
     this.onDidChangeChangelists = this._onDidChangeChangelists.event;
 
     this._gitService = gitService;
 
-    if (gitService) {
-      // Subscribe to repository changes so storage stays in sync with
-      // external `git add`, file removal, rename, etc.
-      this._disposables.push(
-        gitService.onDidChangeRepository((repo) => {
-          this.scheduleReconcile(repo);
-        })
-      );
-    }
+    // Subscribe to repository changes so storage stays in sync with
+    // external `git add`, file removal, rename, etc.
+    this._disposables.push(
+      gitService.onDidChangeRepository((repo) => {
+        this.scheduleReconcile(repo);
+      })
+    );
   }
 
   /**
@@ -512,11 +511,6 @@ export class ChangelistService implements IChangelistService {
    * serialization.
    */
   private async doReconcile(repo: IRepository): Promise<void> {
-    if (!this._gitService) {
-      // Nothing to reconcile against.
-      return;
-    }
-
     let statuses: IFileStatus[];
     try {
       statuses = await this._gitService.getStatus(repo);
@@ -821,13 +815,12 @@ export class ChangelistService implements IChangelistService {
 /**
  * Create a new ChangelistService instance.
  *
- * @param gitService - Optional GitService used to drive git-status
- *   reconciliation and listen for repository-change events. When
- *   omitted, automatic reconcile is disabled and
- *   {@link ChangelistService.reconcileWithGitStatus} becomes a no-op.
+ * @param gitService - GitService used to drive git-status reconciliation
+ *   and listen for repository-change events. Required — see
+ *   {@link ChangelistService} constructor docs.
  * @returns A new ChangelistService instance
  */
-export function createChangelistService(gitService?: IGitService): ChangelistService {
+export function createChangelistService(gitService: IGitService): ChangelistService {
   return new ChangelistService(gitService);
 }
 

@@ -2,25 +2,19 @@
  * Tier-2 E2E — shelf commands.
  *
  * Covers:
- *   - `intellig.unshelve.silent`  — unshelves the single pending entry
- *                                    without prompting.
- *   - `intellig.showShelfList`    — opens the shelf quick pick.
- *
- * `intellig.shelve.silent` is NOT exercised end-to-end here. The wrapping
- * command body calls `ChangelistService.reconcileWithGitStatus()` to
- * populate the active changelist before shelving; reconcile is a no-op
- * unless the service was constructed with a GitService reference, and the
- * production wiring at `ExtensionServices.initialize()` omits that argument
- * (see `ChangelistService` constructor signature + `ExtensionServices.ts`
- * line ~224). Running the command against a dirty fixture repo deterministically
- * short-circuits at "No files in active changelist" — a real production bug.
- * Per the Tier-2 task directive, this test PR flags the bug rather than
- * patching it. Follow-up: wire `gitService` into `ChangelistService` inside
- * `ExtensionServices.initialize()` (one-line fix).
- *
- * To still verify the *unshelve* path end-to-end we seed an entry via the
- * `ShelfService` direct API in `beforeEach`, then run the silent-unshelve
- * command through `executeCommand` like every other test.
+ *   - `intellig.shelve.silent`   — captures the active changelist without
+ *                                  prompting. Depends on
+ *                                  `ChangelistService.reconcileWithGitStatus()`
+ *                                  running so the active changelist has
+ *                                  the dirty files; reconcile is now
+ *                                  always-on after fix/changelist-
+ *                                  gitservice-wiring (before that fix,
+ *                                  this spec was infeasible — see the
+ *                                  coder-tier2-e2e writeup in
+ *                                  AGENT_WORKSPACE.md).
+ *   - `intellig.unshelve.silent` — unshelves the single pending entry
+ *                                  without prompting.
+ *   - `intellig.showShelfList`   — opens the shelf quick pick.
  */
 
 import * as assert from 'assert';
@@ -28,7 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { createFixtureRepo, Fixture } from '../support/gitFixture';
+import { createFixtureRepo, execGit, Fixture } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';
 import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
 import { getServices } from '../../../extension';
@@ -49,15 +43,53 @@ describe('e2e — shelf commands', function () {
     }
   });
 
+  it('intellig.shelve.silent — captures a dirty tracked file into a new shelf entry', async () => {
+    fix = await createFixtureRepo({ commits: 1 });
+
+    // `ShelfService.shelve` diffs via `git diff -- <path>`, which needs a
+    // tracked + modified file. Commit first, then mutate.
+    const fpath = path.join(fix.rootPath, 'dirty.txt');
+    fs.writeFileSync(fpath, 'original\n');
+    await execGit(fix.rootPath, ['add', 'dirty.txt']);
+    await execGit(fix.rootPath, ['commit', '-m', 'add dirty.txt']);
+    fs.writeFileSync(fpath, 'modified\n');
+
+    const repo = await useFixtureWorkspace(fix.rootPath);
+    stubs = stubPrompts({});
+
+    const services = getServices();
+    assert.ok(services, 'extension services not initialised');
+
+    // Pre-condition: shelf is empty.
+    const before = services!.shelfService.getShelfItems(repo);
+    assert.strictEqual(before.length, 0, 'sanity: shelf should start empty');
+
+    await vscode.commands.executeCommand('intellig.shelve.silent');
+
+    // Post-conditions:
+    //   1. Exactly one new shelf entry exists.
+    //   2. The entry references `dirty.txt` in its file list.
+    //   3. The working-tree copy of `dirty.txt` has been reset to HEAD
+    //      content (shelve is capture + reset).
+    const after = services!.shelfService.getShelfItems(repo);
+    assert.strictEqual(after.length, 1, `expected exactly one shelf item, got ${after.length}`);
+    assert.ok(
+      after[0].files.some((f) => f.path === 'dirty.txt'),
+      `shelf entry should reference dirty.txt; got files=${JSON.stringify(after[0].files.map((f) => f.path))}`
+    );
+    assert.strictEqual(
+      fs.readFileSync(fpath, 'utf8'),
+      'original\n',
+      'shelve should restore the working-tree copy to HEAD content'
+    );
+  });
+
   it('intellig.unshelve.silent — restores a pre-seeded shelf entry to the working tree', async () => {
     fix = await createFixtureRepo({ commits: 1 });
 
-    // The shelf service diffs via `git diff -- <path>`, which only returns
-    // output for tracked files. Commit the file first, then modify it so
-    // the diff is non-empty.
+    // Tracked + modified file so `git diff --` has output.
     const fpath = path.join(fix.rootPath, 'round-trip.txt');
     fs.writeFileSync(fpath, 'original\n');
-    const { execGit } = await import('../support/gitFixture');
     await execGit(fix.rootPath, ['add', 'round-trip.txt']);
     await execGit(fix.rootPath, ['commit', '-m', 'add round-trip.txt']);
     fs.writeFileSync(fpath, 'round trip content\n');
@@ -68,9 +100,6 @@ describe('e2e — shelf commands', function () {
     const services = getServices();
     assert.ok(services, 'extension services not initialised');
 
-    // Seed a shelf entry directly (bypasses the shelve-silent bug). The
-    // ShelfService.shelve() API resets the working-tree file to HEAD as
-    // part of capture.
     const seeded = await services!.shelfService.shelve(repo, 'e2e-seed', {
       files: ['round-trip.txt'],
     });
