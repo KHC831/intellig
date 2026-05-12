@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { atomicWriteFileSync } from '../utils/atomicWrite';
 import {
   IShelfService,
   IShelfItem,
@@ -671,9 +672,10 @@ export class ShelfService implements IShelfService {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      // Write storage file
+      // Write storage file atomically (write-to-temp + rename). See
+      // {@link atomicWriteFileSync} for the crash-during-write rationale.
       const content = JSON.stringify(storage, null, 2);
-      fs.writeFileSync(storagePath, content, 'utf8');
+      atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {
       console.error('Failed to save shelf storage:', error);
       throw new Error('Failed to save shelf storage');

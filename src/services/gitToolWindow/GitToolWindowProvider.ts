@@ -186,6 +186,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    */
   private _historyTab: HistoryTab | undefined;
 
+  /**
+   * TL-17 — disposable for the `onDidChangeRepository` subscription wired by
+   * {@link attachGitService}. Held so a second `attachGitService` call (e.g.
+   * in tests) can dispose the prior subscription before wiring a new one.
+   */
+  private _remoteCacheSubscription: vscode.Disposable | undefined;
+
   // Event emitters
   private readonly _onDidChangeState = new vscode.EventEmitter<void>();
   private readonly _onDidRequestContextAction = new vscode.EventEmitter<{
@@ -332,6 +339,34 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       },
     });
     this._tabRouter.register('history', this._historyTab.asTabHandler());
+
+    // TL-17 — parsed-remote cache must be invalidated whenever a repository
+    // mutates (e.g. the user runs `git remote set-url`), otherwise
+    // `_getDetailsPanelHtml` keeps rendering issue/PR links against the old
+    // forge URL until the extension reloads. Subscribe once per attached
+    // service and drop both the prior subscription and any stale cache
+    // entries on re-attach.
+    //
+    // S-2 (R2 polish) — deliberately NOT pushed into `_disposables`: that
+    // would leak a stale entry per re-attach (the disposed disposable stays
+    // pinned in the array). The subscription is disposed in {@link dispose}
+    // instead, which always holds exactly one reference to the live one.
+    this._remoteCacheSubscription?.dispose();
+    this._remoteCacheSubscription = gitService.onDidChangeRepository(
+      (changed: IRepository): void => {
+        if (changed) {
+          // Invalidate only the entry for the repo that actually changed so
+          // unrelated repos keep their cached parse result.
+          this._parsedRemoteCache.delete(changed.rootUri.fsPath);
+        } else {
+          // Defensive: unkeyed event — blow the whole cache away.
+          this._parsedRemoteCache.clear();
+        }
+      }
+    );
+    // Fresh attach — any cache entries accumulated against the previous
+    // service instance are now stale by definition.
+    this._parsedRemoteCache.clear();
   }
 
   /**
@@ -716,10 +751,20 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     return Array.from(this._extendedLogState.selectedCommits);
   }
 
-  // Disposal is owned by `BaseWebviewView.dispose()` — drains `_disposables`,
-  // marks disposed, and clears `_view`. No subclass-specific teardown is
-  // needed here; the event emitters are already registered with
-  // `_disposables` in the constructor.
+  /**
+   * Tear down subclass-owned disposables that deliberately bypass
+   * `_disposables` (see S-2 rationale on {@link attachGitService}), then
+   * delegate to the base class for the standard drain + `_view` clear.
+   *
+   * Idempotent: after the first call the subscription handle is cleared, so
+   * a second `dispose()` won't double-dispose it; `BaseWebviewView.dispose`
+   * guards on `_disposed` regardless.
+   */
+  public override dispose(): void {
+    this._remoteCacheSubscription?.dispose();
+    this._remoteCacheSubscription = undefined;
+    super.dispose();
+  }
 
   /**
    * Handle messages from the webview

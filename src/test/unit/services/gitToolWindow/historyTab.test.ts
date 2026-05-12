@@ -27,6 +27,7 @@ import type {
 } from '../../../../services/interfaces/IGitService';
 import {
   HistoryTab,
+  NO_FILE_LOADED_MESSAGE,
   buildCompareWithLocalTitle,
   buildDiffAnyTwoTitle,
   buildFileAtRevisionUri,
@@ -190,9 +191,11 @@ describe('HistoryTab — class behaviour', () => {
   // Preserve and restore vscode mocks per test.
   let origExecuteCommand: typeof vscode.commands.executeCommand;
   let origShowError: typeof vscode.window.showErrorMessage;
+  let origShowInfo: typeof vscode.window.showInformationMessage;
   beforeEach(() => {
     origExecuteCommand = vscode.commands.executeCommand;
     origShowError = vscode.window.showErrorMessage;
+    origShowInfo = vscode.window.showInformationMessage;
   });
   afterEach(() => {
     writableCommands().executeCommand = origExecuteCommand as unknown as (
@@ -200,6 +203,10 @@ describe('HistoryTab — class behaviour', () => {
       ...rest: unknown[]
     ) => Promise<unknown>;
     writableWindow().showErrorMessage = origShowError as unknown as (
+      message: string,
+      ...items: string[]
+    ) => Promise<string | undefined>;
+    writableWindow().showInformationMessage = origShowInfo as unknown as (
       message: string,
       ...items: string[]
     ) => Promise<string | undefined>;
@@ -344,6 +351,64 @@ describe('HistoryTab — class behaviour', () => {
     await tab.compareWith('a', 'b');
     await tab.compareWithLocal('a');
     assert.strictEqual(diffCalls.length, 0);
+  });
+
+  // ── M-4: user feedback on empty-state fall-through ─────────────────────
+
+  it('openAtRevision, compareWith, compareWithLocal show an info toast when filePath is unset', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({ repo, commits: [] });
+    const tab = new HistoryTab(service);
+    const infoMessages: string[] = [];
+    writableWindow().showInformationMessage = (message: string): Promise<string | undefined> => {
+      infoMessages.push(message);
+      return Promise.resolve(undefined);
+    };
+
+    await tab.openAtRevision('abc');
+    await tab.compareWith('a', 'b');
+    await tab.compareWithLocal('a');
+    assert.strictEqual(
+      infoMessages.length,
+      3,
+      `expected 3 info toasts, got ${infoMessages.length}`
+    );
+    for (const msg of infoMessages) {
+      assert.strictEqual(msg, NO_FILE_LOADED_MESSAGE);
+    }
+  });
+
+  // ── L-1: compareWithLocal joins repo root via Uri.joinPath ─────────────
+
+  it('compareWithLocal joins the repo rootUri via Uri.joinPath (no ad-hoc / separator)', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({ repo, commits: [mkCommit('abc')] });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/nested/a.ts');
+
+    const diffCalls: Array<{ left: vscode.Uri; right: vscode.Uri; title: string }> = [];
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
+      if (command === 'vscode.diff') {
+        diffCalls.push({
+          left: args[0] as vscode.Uri,
+          right: args[1] as vscode.Uri,
+          title: args[2] as string,
+        });
+      }
+      return Promise.resolve(undefined);
+    };
+
+    await tab.compareWithLocal('abcdef1');
+    assert.strictEqual(diffCalls.length, 1);
+    // Uri.joinPath combines root /repo + subpath src/nested/a.ts.
+    const expected = Uri.joinPath(repo.rootUri, 'src/nested/a.ts');
+    assert.strictEqual(diffCalls[0].right.toString(), expected.toString());
+    // Must not contain double separators (which the old `/` fallback could
+    // produce if the root URI trailing-slash heuristic misfired).
+    assert.ok(
+      !diffCalls[0].right.path.includes('//'),
+      `right URI path should not contain '//': ${diffCalls[0].right.toString()}`
+    );
   });
 
   // ── openAtRevision ─────────────────────────────────────────────────────

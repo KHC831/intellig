@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { atomicWriteFileSync } from '../utils/atomicWrite';
 import { IChangelistService, IChangelist, IFileChange } from './interfaces/IChangelistService';
 import { IGitService, IRepository, FileStatus, IFileStatus } from './interfaces/IGitService';
 
@@ -40,6 +41,15 @@ const RECONCILE_DEBOUNCE_MS = 300;
 
 /**
  * Changelist storage model for JSON persistence.
+ *
+ * TL-10 — forward-compat round-trip: unknown top-level keys and unknown
+ * per-item keys are preserved verbatim across load/save cycles. This lets
+ * a newer version of the extension introduce new fields without older
+ * versions silently dropping them when they persist back to disk. The
+ * shape we recognise is narrow (known keys below); everything else is
+ * captured in `_unknownTopLevel` / `_unknownPerItem` and re-emitted on
+ * save. These two fields are purely in-memory bookkeeping — they are
+ * never themselves written to disk as named keys.
  */
 interface IChangelistStorage {
   version: number;
@@ -49,6 +59,12 @@ interface IChangelistStorage {
    */
   activeChangelistId: string;
   changelists: IChangelistStorageItem[];
+  /**
+   * TL-10 — unknown top-level keys captured during load. Spread back
+   * out when saving so forward-compat fields survive a round trip.
+   * @internal
+   */
+  _unknownTopLevel?: Record<string, unknown>;
 }
 
 /**
@@ -64,6 +80,133 @@ interface IChangelistStorageItem {
    */
   description?: string;
   files: string[];
+  /**
+   * TL-10 — unknown per-item keys captured during load. Spread back
+   * out when saving so forward-compat fields survive a round trip.
+   * @internal
+   */
+  _unknownItem?: Record<string, unknown>;
+}
+
+/**
+ * The set of known top-level keys. Used by the TL-10 round-trip logic to
+ * partition a parsed payload into known vs. unknown halves.
+ */
+const KNOWN_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
+  'version',
+  'activeChangelistId',
+  'changelists',
+]);
+
+/**
+ * The set of known per-item keys. Same purpose as {@link KNOWN_TOP_LEVEL_KEYS}
+ * but for individual changelist records.
+ */
+const KNOWN_ITEM_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'name',
+  'isDefault',
+  'description',
+  'files',
+]);
+
+/**
+ * TL-10 — pure version of {@link ChangelistService.migrateStorage}, exported
+ * so the property test can exercise load logic without constructing the
+ * whole service. Unit tests rely on this matching the class method exactly.
+ *
+ * @internal
+ */
+export function migrateStorageForTest(parsed: Record<string, unknown>): IChangelistStorage {
+  if (!parsed || !Array.isArray(parsed.changelists)) {
+    return {
+      version: CHANGELIST_STORAGE_VERSION,
+      activeChangelistId: DEFAULT_CHANGELIST_ID,
+      changelists: [],
+    };
+  }
+
+  const version = typeof parsed.version === 'number' ? parsed.version : 1;
+
+  const rawItems = parsed.changelists as unknown[];
+  const changelists: IChangelistStorageItem[] = rawItems.map((raw) => {
+    const item = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const unknownItem: Record<string, unknown> = {};
+    for (const k of Object.keys(item)) {
+      if (!KNOWN_ITEM_KEYS.has(k)) {
+        unknownItem[k] = item[k];
+      }
+    }
+    return {
+      id: typeof item.id === 'string' ? item.id : '',
+      name: typeof item.name === 'string' ? item.name : '',
+      isDefault: Boolean(item.isDefault),
+      description: typeof item.description === 'string' ? item.description : '',
+      files: Array.isArray(item.files) ? (item.files as string[]).slice() : [],
+      ...(Object.keys(unknownItem).length > 0 ? { _unknownItem: unknownItem } : {}),
+    };
+  });
+
+  if (version > CHANGELIST_STORAGE_VERSION) {
+    console.warn(
+      `Changelist storage version ${version} is newer than expected (${CHANGELIST_STORAGE_VERSION}); reading best-effort`
+    );
+  }
+
+  const activeChangelistId =
+    typeof parsed.activeChangelistId === 'string' && parsed.activeChangelistId.length > 0
+      ? parsed.activeChangelistId
+      : DEFAULT_CHANGELIST_ID;
+
+  const unknownTopLevel: Record<string, unknown> = {};
+  for (const k of Object.keys(parsed)) {
+    if (!KNOWN_TOP_LEVEL_KEYS.has(k)) {
+      unknownTopLevel[k] = parsed[k];
+    }
+  }
+
+  return {
+    version: CHANGELIST_STORAGE_VERSION,
+    activeChangelistId,
+    changelists,
+    ...(Object.keys(unknownTopLevel).length > 0 ? { _unknownTopLevel: unknownTopLevel } : {}),
+  };
+}
+
+/**
+ * TL-10 — serialize an in-memory storage back to the on-disk JSON shape.
+ *
+ * Known keys emit in the fixed order `{version, activeChangelistId,
+ * changelists, ...unknownTopLevel}`; per-item keys emit in the fixed order
+ * `{id, name, isDefault, description, files, ...unknownItem}`.
+ *
+ * The internal bookkeeping fields (`_unknownTopLevel`, `_unknownItem`) are
+ * consumed here and MUST NOT appear in the emitted JSON. Callers that
+ * need to round-trip unknowns pass them in via those fields and get them
+ * back out as anonymous sibling keys.
+ *
+ * Exported only for tests — production code always goes through
+ * {@link ChangelistService.saveChangelistStorage}.
+ *
+ * @internal
+ */
+export function serializeStorageForDisk(storage: IChangelistStorage): Record<string, unknown> {
+  const items = storage.changelists.map((cl) => {
+    const known: Record<string, unknown> = {
+      id: cl.id,
+      name: cl.name,
+      isDefault: cl.isDefault,
+      description: typeof cl.description === 'string' ? cl.description : '',
+      files: cl.files.slice(),
+    };
+    return cl._unknownItem ? { ...known, ...cl._unknownItem } : known;
+  });
+  const known: Record<string, unknown> = {
+    version: storage.version,
+    activeChangelistId: storage.activeChangelistId,
+    changelists: items,
+  };
+  return storage._unknownTopLevel ? { ...known, ...storage._unknownTopLevel } : known;
 }
 
 /**
@@ -665,7 +808,10 @@ export class ChangelistService implements IChangelistService {
     try {
       if (fs.existsSync(storagePath)) {
         const content = fs.readFileSync(storagePath, 'utf8');
-        const parsed = JSON.parse(content) as Partial<IChangelistStorage>;
+        // TL-10 — parse into a loose record so unknown keys survive the
+        // migrate → save round trip. The known-field extraction lives in
+        // {@link migrateStorage}.
+        const parsed = JSON.parse(content) as Record<string, unknown>;
         return this.migrateStorage(parsed);
       }
     } catch (error) {
@@ -686,42 +832,14 @@ export class ChangelistService implements IChangelistService {
    *
    * Unknown future versions are treated as v2 if the shape is close
    * enough (changelists array present); otherwise we reset to empty.
+   *
+   * TL-10 — any top-level or per-item keys we don't recognise are
+   * captured into `_unknownTopLevel` / `_unknownItem` and re-emitted on
+   * save (see {@link saveChangelistStorage}) so a newer extension's
+   * forward-compat fields survive round-tripping through this version.
    */
-  private migrateStorage(parsed: Partial<IChangelistStorage>): IChangelistStorage {
-    if (!parsed || !Array.isArray(parsed.changelists)) {
-      return {
-        version: CHANGELIST_STORAGE_VERSION,
-        activeChangelistId: DEFAULT_CHANGELIST_ID,
-        changelists: [],
-      };
-    }
-
-    const version = typeof parsed.version === 'number' ? parsed.version : 1;
-
-    const changelists: IChangelistStorageItem[] = parsed.changelists.map((item) => ({
-      id: item.id,
-      name: item.name,
-      isDefault: Boolean(item.isDefault),
-      description: typeof item.description === 'string' ? item.description : '',
-      files: Array.isArray(item.files) ? item.files.slice() : [],
-    }));
-
-    if (version > CHANGELIST_STORAGE_VERSION) {
-      console.warn(
-        `Changelist storage version ${version} is newer than expected (${CHANGELIST_STORAGE_VERSION}); reading best-effort`
-      );
-    }
-
-    const activeChangelistId =
-      typeof parsed.activeChangelistId === 'string' && parsed.activeChangelistId.length > 0
-        ? parsed.activeChangelistId
-        : DEFAULT_CHANGELIST_ID;
-
-    return {
-      version: CHANGELIST_STORAGE_VERSION,
-      activeChangelistId,
-      changelists,
-    };
+  private migrateStorage(parsed: Record<string, unknown>): IChangelistStorage {
+    return migrateStorageForTest(parsed);
   }
 
   /**
@@ -752,9 +870,14 @@ export class ChangelistService implements IChangelistService {
         }
       }
 
-      // Write storage file
-      const content = JSON.stringify(storage, null, 2);
-      fs.writeFileSync(storagePath, content, 'utf8');
+      // TL-10 — serialise into a plain object so the known keys land in a
+      // deterministic order AND the unknown-key bookkeeping fields
+      // (`_unknownTopLevel`, `_unknownItem`) never leak to disk. The
+      // unknown keys themselves are spread back in verbatim, so
+      // forward-compat fields from a newer extension version survive a
+      // load/save round trip through this (older) version.
+      const content = JSON.stringify(serializeStorageForDisk(storage), null, 2);
+      atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {
       console.error('Failed to save changelist storage:', error);
       throw new Error('Failed to save changelist storage');

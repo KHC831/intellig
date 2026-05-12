@@ -79,6 +79,13 @@ export function createInitialHistoryTabState(): IHistoryTabState {
   };
 }
 
+/**
+ * User-facing message shown when a command requires a loaded file but none is
+ * set yet (e.g. the user invoked the History tab without first selecting a
+ * file). Exported so tests can assert on the exact string.
+ */
+export const NO_FILE_LOADED_MESSAGE = 'Load a file first — use "Git: Show History" on a file.';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -345,6 +352,7 @@ export class HistoryTab {
    */
   public async openAtRevision(rev: string): Promise<void> {
     if (!this._state.filePath) {
+      void vscode.window.showInformationMessage(NO_FILE_LOADED_MESSAGE);
       return;
     }
     const uri = buildFileAtRevisionUri(this._state.filePath, rev);
@@ -360,6 +368,7 @@ export class HistoryTab {
    */
   public async compareWith(from: string, to: string): Promise<void> {
     if (!this._state.filePath) {
+      void vscode.window.showInformationMessage(NO_FILE_LOADED_MESSAGE);
       return;
     }
     const filePath = this._state.filePath;
@@ -378,6 +387,7 @@ export class HistoryTab {
    */
   public async compareWithLocal(rev: string): Promise<void> {
     if (!this._state.filePath) {
+      void vscode.window.showInformationMessage(NO_FILE_LOADED_MESSAGE);
       return;
     }
     const repo = this._getRepo();
@@ -386,9 +396,10 @@ export class HistoryTab {
     }
     const filePath = this._state.filePath;
     const leftUri = buildFileAtRevisionUri(filePath, rev);
-    const rootFsPath = repo.rootUri.fsPath;
-    const separator = rootFsPath.endsWith('/') || rootFsPath.endsWith('\\') ? '' : '/';
-    const rightUri = vscode.Uri.file(`${rootFsPath}${separator}${filePath}`);
+    // Use `vscode.Uri.joinPath` so the join is always performed against the
+    // repo root URI with correct path semantics (POSIX vs Windows), matching
+    // the pattern used elsewhere (e.g. CommitContextMenuCommands).
+    const rightUri = vscode.Uri.joinPath(repo.rootUri, filePath);
     const title = buildCompareWithLocalTitle(filePath, rev);
     try {
       await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);

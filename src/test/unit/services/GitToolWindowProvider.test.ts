@@ -5,7 +5,23 @@
 import '../../../test/setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import { Uri, Webview } from '../../mocks/vscode';
+import { EventEmitter, Uri, Webview } from '../../mocks/vscode';
+import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import type { IRemoteUrl } from '../../../utils/remoteUrl';
+
+/**
+ * Test-surface reaching into {@link GitToolWindowProvider}'s private
+ * parsed-remote cache state. The TL-17 cache-invalidation contract is not
+ * observable through the public API (no getter exposes cache membership
+ * without also mutating it), so the tests below assert it via a narrow
+ * cast through this surface.
+ *
+ * Kept deliberately small (single field the test genuinely drives) per
+ * docs/testing.md §3. No `I`-prefix; no kitchen-sink fields.
+ */
+interface GitToolWindowProviderInternals {
+  _parsedRemoteCache: Map<string, IRemoteUrl | undefined>;
+}
 
 describe('GitToolWindowProvider', () => {
   let provider: GitToolWindowProvider;
@@ -1719,6 +1735,126 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(html.includes('padding: 1px 5px'), 'Should include padding 1px 5px');
       assert.ok(html.includes('border-radius: 3px'), 'Should include border-radius 3px');
       assert.ok(html.includes('margin-left: 4px'), 'Should include margin-left 4px');
+    });
+  });
+
+  // ─── TL-17: parsed-remote cache invalidation on repo change ────────────────
+  describe('_parsedRemoteCache — TL-17 invalidation', () => {
+    function mkRepo(rootPath: string, remoteUrl: string | undefined): IRepository {
+      return {
+        rootUri: Uri.file(rootPath),
+        state: 'idle',
+        head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+        remotes: remoteUrl ? [{ name: 'origin', fetchUrl: remoteUrl, pushUrl: remoteUrl }] : [],
+        submodules: [],
+      };
+    }
+
+    function mkGitService(repos: IRepository[]): {
+      service: IGitService;
+      fire: (r: IRepository) => void;
+    } {
+      const emitter = new EventEmitter<IRepository>();
+      const service = {
+        onDidChangeRepository: emitter.event,
+        getRepositories: () => repos,
+      } as unknown as IGitService;
+      return { service, fire: (r: IRepository) => emitter.fire(r) };
+    }
+
+    /**
+     * Seed a parsed-remote cache entry for `repo` as-if `_getSelectedRepoRemote`
+     * had run against it. Local to this suite (not on the production class)
+     * per docs/testing.md §3. Writes directly to `_parsedRemoteCache` — the
+     * value is a minimal `IRemoteUrl` shape; these tests only assert
+     * key-level membership, so the specific parse result is irrelevant.
+     */
+    function seedCacheForRepo(internals: GitToolWindowProviderInternals, repo: IRepository): void {
+      internals._parsedRemoteCache.set(repo.rootUri.fsPath, {
+        host: 'github.com',
+        owner: 'acme',
+        repo: 'seed',
+        provider: 'github',
+        pathPrefix: 'acme',
+      });
+    }
+
+    it('drops the cached entry for a repo when onDidChangeRepository fires for it', () => {
+      const repoA = mkRepo('/repo-a', 'git@github.com:acme/a.git');
+      const repoB = mkRepo('/repo-b', 'git@github.com:acme/b.git');
+      const { service, fire } = mkGitService([repoA, repoB]);
+      provider.attachGitService(service);
+      provider.setAvailableRepositories([repoA, repoB]);
+
+      // Seed the cache entry for repo A via the TestSurface cast.
+      const internals = provider as unknown as GitToolWindowProviderInternals;
+      seedCacheForRepo(internals, repoA);
+      assert.strictEqual(
+        internals._parsedRemoteCache.has(repoA.rootUri.fsPath),
+        true,
+        'cache seeded for repo A'
+      );
+
+      // Fire onDidChangeRepository for repo A — its cache entry must be dropped.
+      fire(repoA);
+
+      assert.strictEqual(
+        internals._parsedRemoteCache.has(repoA.rootUri.fsPath),
+        false,
+        'cache entry for repo A is evicted after onDidChangeRepository fires'
+      );
+    });
+
+    it('leaves other cached entries intact when a different repo changes', () => {
+      const repoA = mkRepo('/repo-a', 'git@github.com:acme/a.git');
+      const repoB = mkRepo('/repo-b', 'git@github.com:acme/b.git');
+      const { service, fire } = mkGitService([repoA, repoB]);
+      provider.attachGitService(service);
+      provider.setAvailableRepositories([repoA, repoB]);
+
+      const internals = provider as unknown as GitToolWindowProviderInternals;
+      seedCacheForRepo(internals, repoA);
+      seedCacheForRepo(internals, repoB);
+      assert.strictEqual(internals._parsedRemoteCache.has(repoA.rootUri.fsPath), true);
+      assert.strictEqual(internals._parsedRemoteCache.has(repoB.rootUri.fsPath), true);
+
+      // Fire onDidChangeRepository ONLY for repo B.
+      fire(repoB);
+
+      assert.strictEqual(
+        internals._parsedRemoteCache.has(repoA.rootUri.fsPath),
+        true,
+        'unrelated repo A cache entry should survive'
+      );
+      assert.strictEqual(
+        internals._parsedRemoteCache.has(repoB.rootUri.fsPath),
+        false,
+        'changed repo B cache entry should be evicted'
+      );
+    });
+
+    it('clears the entire cache on a fresh attachGitService call', () => {
+      const repoA = mkRepo('/repo-a', 'git@github.com:acme/a.git');
+      const { service: service1 } = mkGitService([repoA]);
+      provider.attachGitService(service1);
+      provider.setAvailableRepositories([repoA]);
+
+      const internals = provider as unknown as GitToolWindowProviderInternals;
+      seedCacheForRepo(internals, repoA);
+      assert.strictEqual(
+        internals._parsedRemoteCache.has(repoA.rootUri.fsPath),
+        true,
+        'cache seeded'
+      );
+
+      const { service: service2 } = mkGitService([repoA]);
+      provider.attachGitService(service2);
+
+      assert.strictEqual(
+        internals._parsedRemoteCache.size,
+        0,
+        'cache fully cleared on re-attach to a new GitService'
+      );
     });
   });
 });

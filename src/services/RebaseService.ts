@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { atomicWriteFileSync } from '../utils/atomicWrite';
 import {
   IRebaseService,
   IRebaseSession,
@@ -303,8 +304,10 @@ cat << 'EOF' > "$1"
 ${todoContent}EOF
 `;
 
-    // Write the script file
-    fs.writeFileSync(todoScriptPath, todoScript, { mode: 0o755 });
+    // Write the script file atomically (write-to-temp + rename).
+    // Preserves mode 0o755 so git can exec the sequence editor. See
+    // {@link atomicWriteFileSync} for the crash-during-write rationale.
+    atomicWriteFileSync(todoScriptPath, todoScript, { mode: 0o755 });
 
     try {
       // Start the interactive rebase with our custom sequence editor
