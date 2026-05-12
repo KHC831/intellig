@@ -524,90 +524,13 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
       );
     });
 
-    it('_handlePullUsingRebase shows warning with conflict count when pull throws with CONFLICT markers', async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          arbitraryRemoteName(),
-          arbitraryBranchName(),
-          arbitraryConflictArray(),
-          async (remoteName, branchName, conflictFiles) => {
-            warningTracker.reset();
-            errorTracker.reset();
-
-            // Build an error message with CONFLICT markers, one per file
-            const conflictMessage = conflictFiles
-              .map((file) => `CONFLICT (content): Merge conflict in ${file}`)
-              .join('\n');
-
-            const gitService = createErrorThrowingMockGitService({
-              pull: async () => {
-                throw new Error(conflictMessage);
-              },
-            });
-            const branchTreeProvider = createMockBranchTreeProvider(gitService);
-            const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
-
-            const fullRef = `${remoteName}/${branchName}`;
-            const item = createRemoteBranchTreeItem(fullRef);
-
-            await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
-
-            assert.ok(
-              warningTracker.calls.length > 0,
-              'showWarningMessage should have been called for conflicts'
-            );
-            const calledMessage = warningTracker.calls[0].message;
-            assert.ok(
-              calledMessage.includes(String(conflictFiles.length)),
-              `Warning notification "${calledMessage}" should contain the conflict count "${conflictFiles.length}"`
-            );
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
-
-    it('_handlePullUsingMerge shows warning with conflict count when pull throws with CONFLICT markers', async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          arbitraryRemoteName(),
-          arbitraryBranchName(),
-          arbitraryConflictArray(),
-          async (remoteName, branchName, conflictFiles) => {
-            warningTracker.reset();
-            errorTracker.reset();
-
-            // Build an error message with CONFLICT markers, one per file
-            const conflictMessage = conflictFiles
-              .map((file) => `CONFLICT (content): Merge conflict in ${file}`)
-              .join('\n');
-
-            const gitService = createErrorThrowingMockGitService({
-              pull: async () => {
-                throw new Error(conflictMessage);
-              },
-            });
-            const branchTreeProvider = createMockBranchTreeProvider(gitService);
-            const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
-
-            const fullRef = `${remoteName}/${branchName}`;
-            const item = createRemoteBranchTreeItem(fullRef);
-
-            await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
-
-            assert.ok(
-              warningTracker.calls.length > 0,
-              'showWarningMessage should have been called for conflicts'
-            );
-            const calledMessage = warningTracker.calls[0].message;
-            assert.ok(
-              calledMessage.includes(String(conflictFiles.length)),
-              `Warning notification "${calledMessage}" should contain the conflict count "${conflictFiles.length}"`
-            );
-          }
-        ),
-        { numRuns: 100 }
-      );
-    });
+    // TL-33: the CONFLICT-marker-count property tests for _handlePullUsingRebase
+    // and _handlePullUsingMerge were retired along with the _parseConflictCount
+    // helper. In production the `_conflictResolutionService` is always wired
+    // (see `ExtensionServices.initialize`), so the pull fallback now probes
+    // the working tree via `getConflictedFiles` instead of counting CONFLICT
+    // markers in an error string. Positive probe-path coverage lives in
+    // `branchContextMenu.fixes.test.ts`; the regression for the old regex
+    // bug is no longer meaningful.
   });
 });

@@ -14,7 +14,12 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { atomicWriteFileSync, type IAtomicWriteFs } from '../../../utils/atomicWrite';
+import {
+  atomicWriteFile,
+  atomicWriteFileSync,
+  type IAtomicWriteFs,
+  type IAtomicWriteFsAsync,
+} from '../../../utils/atomicWrite';
 
 describe('atomicWriteFileSync', () => {
   let tmpDir: string;
@@ -155,5 +160,150 @@ describe('atomicWriteFileSync', () => {
     const payload = Buffer.from([0x01, 0x02, 0x03]);
     atomicWriteFileSync(target, payload);
     assert.deepStrictEqual(fs.readFileSync(target), payload);
+  });
+});
+
+// TL-37 — async variant covering the same invariants. Used by
+// MergeView.markResolved, which runs on the extension-host event loop
+// and cannot block on sync I/O.
+describe('atomicWriteFile (async)', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-atomic-write-async-'));
+  });
+
+  afterEach(() => {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  });
+
+  it('writes content atomically to the target path', async () => {
+    const target = path.join(tmpDir, 'resolved.ts');
+    await atomicWriteFile(target, 'const x = 1;\n', { encoding: 'utf8' });
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'const x = 1;\n');
+  });
+
+  it('leaves no temp files in the target directory after a successful write', async () => {
+    const target = path.join(tmpDir, 'resolved.ts');
+    await atomicWriteFile(target, 'ok', { encoding: 'utf8' });
+    const entries = fs.readdirSync(tmpDir);
+    assert.deepStrictEqual(entries, ['resolved.ts']);
+  });
+
+  it('overwrites an existing file at the target path', async () => {
+    const target = path.join(tmpDir, 'resolved.ts');
+    fs.writeFileSync(target, 'OLD', 'utf8');
+    await atomicWriteFile(target, 'NEW', { encoding: 'utf8' });
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'NEW');
+  });
+
+  it('applies the requested file mode', async function () {
+    if (process.platform === 'win32') {
+      this.skip();
+      return;
+    }
+    const target = path.join(tmpDir, 'executable.sh');
+    await atomicWriteFile(target, '#!/bin/sh\necho hi\n', { mode: 0o755 });
+    const stat = fs.statSync(target);
+    assert.strictEqual(
+      stat.mode & 0o777,
+      0o755,
+      `expected 0o755, got ${(stat.mode & 0o777).toString(8)}`
+    );
+  });
+
+  it('crash-sim: when rename throws, no temp file is left behind AND target is unchanged', async () => {
+    const target = path.join(tmpDir, 'resolved.ts');
+    fs.writeFileSync(target, 'OLD', 'utf8');
+
+    const faulty: IAtomicWriteFsAsync = {
+      writeFile: fs.promises.writeFile,
+      rename: (): Promise<never> => Promise.reject(new Error('simulated crash during rename')),
+      unlink: fs.promises.unlink,
+      exists: async (p) => {
+        try {
+          await fs.promises.access(p);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    };
+
+    await assert.rejects(
+      () => atomicWriteFile(target, 'NEW', { encoding: 'utf8' }, faulty),
+      /simulated crash/
+    );
+
+    // Original content preserved — atomic guarantee.
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'OLD');
+    // No temp debris.
+    const entries = fs.readdirSync(tmpDir);
+    assert.deepStrictEqual(
+      entries,
+      ['resolved.ts'],
+      `expected no temp debris; got ${entries.join(',')}`
+    );
+  });
+
+  it('crash-sim: when writeFile throws, no temp file is left behind AND target is unchanged', async () => {
+    const target = path.join(tmpDir, 'resolved.ts');
+    fs.writeFileSync(target, 'OLD', 'utf8');
+
+    const faulty: IAtomicWriteFsAsync = {
+      writeFile: ((): Promise<never> =>
+        Promise.reject(new Error('disk full'))) as unknown as typeof fs.promises.writeFile,
+      rename: fs.promises.rename,
+      unlink: fs.promises.unlink,
+      exists: async () => false,
+    };
+
+    await assert.rejects(
+      () => atomicWriteFile(target, 'NEW', { encoding: 'utf8' }, faulty),
+      /disk full/
+    );
+
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'OLD');
+    const entries = fs.readdirSync(tmpDir);
+    assert.deepStrictEqual(entries, ['resolved.ts']);
+  });
+
+  it('swallows secondary errors from unlink when cleanup itself fails, preserving the original error', async () => {
+    const target = path.join(tmpDir, 'resolved.ts');
+    fs.writeFileSync(target, 'OLD', 'utf8');
+
+    const faulty: IAtomicWriteFsAsync = {
+      writeFile: fs.promises.writeFile,
+      rename: (): Promise<never> => Promise.reject(new Error('primary rename error')),
+      unlink: (): Promise<never> => Promise.reject(new Error('secondary unlink error')),
+      exists: async () => true,
+    };
+
+    await assert.rejects(
+      () => atomicWriteFile(target, 'NEW', { encoding: 'utf8' }, faulty),
+      /primary rename error/
+    );
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'OLD');
+  });
+
+  it('supports Buffer payloads (no-encoding mode)', async () => {
+    const target = path.join(tmpDir, 'resolved.bin');
+    const payload = Buffer.from([0x01, 0x02, 0x03]);
+    await atomicWriteFile(target, payload);
+    assert.deepStrictEqual(fs.readFileSync(target), payload);
+  });
+
+  it('falls through to real fs when no fsImpl argument is provided', async () => {
+    // Smoke test — ensures the default `defaultFsAsync` object is well-formed
+    // (i.e. every field resolves to a real `fs.promises.*` function). Guards
+    // against a regression where a typo in one of the defaults would only
+    // surface when a caller opted out of DI.
+    const target = path.join(tmpDir, 'default-impl.txt');
+    await atomicWriteFile(target, 'hello');
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'hello');
   });
 });

@@ -33,10 +33,27 @@ const SHELF_STORAGE_FILE = 'intellig-shelf.json';
 
 /**
  * Shelf storage model for JSON persistence.
+ *
+ * TL-34 — forward-compat round-trip: unknown top-level keys and unknown
+ * per-item keys are preserved verbatim across load/save cycles, mirroring
+ * the TL-10 pattern applied to ChangelistService. A newer version of the
+ * extension can introduce new fields without older versions silently
+ * dropping them when they persist back to disk. The shape we recognise is
+ * narrow (see {@link KNOWN_SHELF_TOP_LEVEL_KEYS} /
+ * {@link KNOWN_SHELF_ITEM_KEYS}); everything else is captured into
+ * `_unknownTopLevel` / `_unknownItem` and re-emitted on save. These two
+ * fields are purely in-memory bookkeeping — they are never written to
+ * disk as named keys.
  */
 interface IShelfStorage {
   version: number;
   items: IShelfStorageItem[];
+  /**
+   * TL-34 — unknown top-level keys captured during load. Spread back out
+   * when saving so forward-compat fields survive a round trip.
+   * @internal
+   */
+  _unknownTopLevel?: Record<string, unknown>;
 }
 
 /**
@@ -49,15 +66,158 @@ interface IShelfStorageItem {
   files: IShelfStorageFile[];
   /** v2 (T2-10): epoch ms of successful unshelve, if the entry is Already-Unshelved. */
   unshelvedAt?: number;
+  /**
+   * TL-34 — unknown per-item keys captured during load. Spread back out
+   * when saving so forward-compat fields survive a round trip.
+   * @internal
+   */
+  _unknownItem?: Record<string, unknown>;
 }
 
 /**
  * Shelf storage file model.
+ *
+ * Per-file fields are fixed — the diff payload itself is opaque text, so
+ * we don't attempt unknown-key preservation at this nesting level.
  */
 interface IShelfStorageFile {
   path: string;
   originalContent: string;
   patchContent: string;
+}
+
+/**
+ * The set of known top-level keys. Used by the TL-34 round-trip logic to
+ * partition a parsed payload into known vs. unknown halves. Kept in sync
+ * with {@link IShelfStorage}.
+ */
+const KNOWN_SHELF_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(['version', 'items']);
+
+/**
+ * The set of known per-item keys. Same purpose as
+ * {@link KNOWN_SHELF_TOP_LEVEL_KEYS} but for individual shelf records.
+ * Kept in sync with {@link IShelfStorageItem}.
+ */
+const KNOWN_SHELF_ITEM_KEYS: ReadonlySet<string> = new Set([
+  'id',
+  'name',
+  'timestamp',
+  'files',
+  'unshelvedAt',
+]);
+
+/**
+ * TL-34 — pure version of {@link ShelfService.loadShelfStorage}'s parse
+ * half, exported so property tests can exercise the load logic without
+ * constructing the whole service. Unit tests rely on this matching the
+ * class method exactly.
+ *
+ * Accepts anything JSON.parse might return (including non-object or
+ * missing-keys shapes) and always returns a well-formed {@link IShelfStorage}.
+ *
+ * @internal
+ */
+export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      version: SHELF_STORAGE_VERSION,
+      items: [],
+    };
+  }
+
+  const record = parsed as Record<string, unknown>;
+
+  const version = typeof record.version === 'number' ? record.version : 1;
+  if (version > SHELF_STORAGE_VERSION) {
+    console.warn(
+      `Shelf storage version ${version} is newer than expected (${SHELF_STORAGE_VERSION}); reading best-effort`
+    );
+  }
+
+  const rawItems = Array.isArray(record.items) ? record.items : [];
+  const items: IShelfStorageItem[] = rawItems.map((raw) => {
+    const item = raw !== null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const unknownItem: Record<string, unknown> = {};
+    for (const k of Object.keys(item)) {
+      if (!KNOWN_SHELF_ITEM_KEYS.has(k)) {
+        unknownItem[k] = item[k];
+      }
+    }
+    const files = Array.isArray(item.files)
+      ? (item.files as unknown[]).map((f): IShelfStorageFile => {
+          const fileRec = f !== null && typeof f === 'object' ? (f as Record<string, unknown>) : {};
+          return {
+            path: typeof fileRec.path === 'string' ? fileRec.path : '',
+            originalContent:
+              typeof fileRec.originalContent === 'string' ? fileRec.originalContent : '',
+            patchContent: typeof fileRec.patchContent === 'string' ? fileRec.patchContent : '',
+          };
+        })
+      : [];
+    return {
+      id: typeof item.id === 'string' ? item.id : '',
+      name: typeof item.name === 'string' ? item.name : '',
+      timestamp: typeof item.timestamp === 'number' ? item.timestamp : 0,
+      files,
+      ...(typeof item.unshelvedAt === 'number' ? { unshelvedAt: item.unshelvedAt } : {}),
+      ...(Object.keys(unknownItem).length > 0 ? { _unknownItem: unknownItem } : {}),
+    };
+  });
+
+  const unknownTopLevel: Record<string, unknown> = {};
+  for (const k of Object.keys(record)) {
+    if (!KNOWN_SHELF_TOP_LEVEL_KEYS.has(k)) {
+      unknownTopLevel[k] = record[k];
+    }
+  }
+
+  return {
+    // Always re-tag the version to the current schema so the next save
+    // writes the canonical shape. v1 → v2 is pure-additive (added
+    // `unshelvedAt`), and a future v3 etc. would follow the same rule.
+    version: SHELF_STORAGE_VERSION,
+    items,
+    ...(Object.keys(unknownTopLevel).length > 0 ? { _unknownTopLevel: unknownTopLevel } : {}),
+  };
+}
+
+/**
+ * TL-34 — serialize an in-memory shelf storage back to the on-disk JSON
+ * shape.
+ *
+ * Known keys emit in the fixed order `{version, items, ...unknownTopLevel}`;
+ * per-item keys emit in the fixed order
+ * `{id, name, timestamp, files, unshelvedAt?, ...unknownItem}`. The
+ * internal bookkeeping fields (`_unknownTopLevel`, `_unknownItem`) are
+ * consumed here and MUST NOT appear in the emitted JSON.
+ *
+ * Exported only for tests — production code always goes through
+ * {@link ShelfService.saveShelfStorage}.
+ *
+ * @internal
+ */
+export function serializeShelfForDisk(storage: IShelfStorage): Record<string, unknown> {
+  const items = storage.items.map((item) => {
+    const known: Record<string, unknown> = {
+      id: item.id,
+      name: item.name,
+      timestamp: item.timestamp,
+      files: item.files.map((f) => ({
+        path: f.path,
+        originalContent: f.originalContent,
+        patchContent: f.patchContent,
+      })),
+    };
+    if (item.unshelvedAt !== undefined) {
+      known.unshelvedAt = item.unshelvedAt;
+    }
+    return item._unknownItem ? { ...known, ...item._unknownItem } : known;
+  });
+  const known: Record<string, unknown> = {
+    version: storage.version,
+    items,
+  };
+  return storage._unknownTopLevel ? { ...known, ...storage._unknownTopLevel } : known;
 }
 
 /**
@@ -618,6 +778,11 @@ export class ShelfService implements IShelfService {
   /**
    * Load shelf storage from file.
    *
+   * TL-34: parse into a `Record<string, unknown>` first, then partition
+   * into known/unknown keys at both the top level and per-item level so
+   * forward-compat fields survive a round trip. See
+   * {@link migrateShelfStorageForTest} for the pure test-exported variant.
+   *
    * @param repo - The repository
    * @returns The shelf storage
    */
@@ -627,23 +792,8 @@ export class ShelfService implements IShelfService {
     try {
       if (fs.existsSync(storagePath)) {
         const content = fs.readFileSync(storagePath, 'utf8');
-        const storage = JSON.parse(content) as IShelfStorage;
-
-        // Validate version. v1 → v2 is a pure additive migration: new
-        // optional `unshelvedAt` field. Entries without the field simply
-        // remain "not yet unshelved". Re-tag the version in-place so the
-        // next save writes the current schema.
-        if (storage.version !== SHELF_STORAGE_VERSION) {
-          if (storage.version === 1) {
-            storage.version = SHELF_STORAGE_VERSION;
-          } else {
-            console.warn(
-              `Shelf storage version mismatch: expected ${SHELF_STORAGE_VERSION}, got ${storage.version}`
-            );
-          }
-        }
-
-        return storage;
+        const parsed = JSON.parse(content) as unknown;
+        return migrateShelfStorageForTest(parsed);
       }
     } catch (error) {
       console.error('Failed to load shelf storage:', error);
@@ -658,6 +808,10 @@ export class ShelfService implements IShelfService {
 
   /**
    * Save shelf storage to file.
+   *
+   * TL-34: route through {@link serializeShelfForDisk} so `_unknownTopLevel`
+   * / `_unknownItem` get spread back out as anonymous sibling keys and the
+   * internal bookkeeping names never appear in the JSON.
    *
    * @param repo - The repository
    * @param storage - The shelf storage to save
@@ -674,7 +828,7 @@ export class ShelfService implements IShelfService {
 
       // Write storage file atomically (write-to-temp + rename). See
       // {@link atomicWriteFileSync} for the crash-during-write rationale.
-      const content = JSON.stringify(storage, null, 2);
+      const content = JSON.stringify(serializeShelfForDisk(storage), null, 2);
       atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {
       console.error('Failed to save shelf storage:', error);

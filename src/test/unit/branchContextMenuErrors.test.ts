@@ -557,51 +557,14 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
-    it('_handlePullUsingRebase should show warning when pull throws with CONFLICT markers', async () => {
-      const warningTracker = installWarningMessageTracker();
-
-      const gitService = createMockGitService({
-        pull: async () => {
-          throw new Error(
-            'CONFLICT (content): Merge issue in file1.ts\nCONFLICT (content): Merge issue in file2.ts'
-          );
-        },
-      });
-      const branchTreeProvider = createMockBranchTreeProvider(gitService);
-      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
-
-      const item = createRemoteBranchTreeItem('origin/feature');
-      await invokePrivateHandler(commands, '_handlePullUsingRebase', item);
-
-      assert.ok(
-        warningTracker.calls.length > 0,
-        'showWarningMessage should have been called for pull rebase conflicts'
-      );
-      const msg = warningTracker.calls[0].message;
-      assert.ok(msg.includes('2'), `Warning should contain conflict count 2, got: "${msg}"`);
-    });
-
-    it('_handlePullUsingMerge should show warning when pull throws with CONFLICT markers', async () => {
-      const warningTracker = installWarningMessageTracker();
-
-      const gitService = createMockGitService({
-        pull: async () => {
-          throw new Error('CONFLICT (content): Merge issue in src/index.ts');
-        },
-      });
-      const branchTreeProvider = createMockBranchTreeProvider(gitService);
-      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
-
-      const item = createRemoteBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handlePullUsingMerge', item);
-
-      assert.ok(
-        warningTracker.calls.length > 0,
-        'showWarningMessage should have been called for pull merge conflicts'
-      );
-      const msg = warningTracker.calls[0].message;
-      assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
-    });
+    // TL-33: tests for the `_parseConflictCount` fallback path were removed.
+    // The pull-throws-with-CONFLICT-markers branch no longer stringifies a
+    // count out of the error text; when `_conflictResolutionService` is
+    // wired (always true in production — see `ExtensionServices.initialize`)
+    // conflict detection probes the working tree via `getConflictedFiles`,
+    // and when the service is absent (test-only constructor shape) the code
+    // falls through to the generic "Failed to pull …" error message. The
+    // positive probe path is covered in `branchContextMenu.fixes.test.ts`.
   });
 
   // ─── General Error Handling ─────────────────────────────

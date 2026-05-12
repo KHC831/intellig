@@ -117,6 +117,38 @@ const defaultFs: IAtomicWriteFs = {
 };
 
 /**
+ * Narrow subset of the `fs.promises` module that {@link atomicWriteFile} uses.
+ * Same shape as {@link IAtomicWriteFs} but with the promise-returning variants.
+ *
+ * @internal
+ */
+export interface IAtomicWriteFsAsync {
+  writeFile: typeof fs.promises.writeFile;
+  rename: typeof fs.promises.rename;
+  unlink: typeof fs.promises.unlink;
+  /**
+   * Probe whether a path exists. Only used on the error path to clean up
+   * the temp file — we tolerate a racy answer because the next call is
+   * `unlink` which itself no-ops on ENOENT.
+   */
+  exists: (targetPath: string) => Promise<boolean>;
+}
+
+const defaultFsAsync: IAtomicWriteFsAsync = {
+  writeFile: fs.promises.writeFile,
+  rename: fs.promises.rename,
+  unlink: fs.promises.unlink,
+  exists: async (p) => {
+    try {
+      await fs.promises.access(p);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+};
+
+/**
  * Synchronously write `content` to `targetPath` atomically: the content
  * is first written to a sibling temp file, then renamed over the target.
  *
@@ -131,17 +163,7 @@ export function atomicWriteFileSync(
   fsImpl: IAtomicWriteFs = defaultFs
 ): void {
   const { mode, encoding = 'utf8' } = options;
-  const dir = path.dirname(targetPath);
-  const base = path.basename(targetPath);
-  // Collision-resistant sibling name under reasonable concurrency:
-  // pid-scoped + 8 base36 chars ≈ 41 bits of entropy. Not cryptographically
-  // unique — `Math.random()` is deliberately cheap — but the combination
-  // means two writers in the same directory at the same instant won't race
-  // on the temp name often enough to measurably perturb the rename.
-  const tmpPath = path.join(
-    dir,
-    `.${base}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`
-  );
+  const tmpPath = buildTempPath(targetPath);
 
   try {
     const writeOptions: fs.WriteFileOptions =
@@ -169,4 +191,77 @@ export function atomicWriteFileSync(
     }
     throw err;
   }
+}
+
+/**
+ * Promise-returning variant of {@link atomicWriteFileSync} for async callers
+ * that cannot block the event loop. Same guarantees:
+ *
+ * - Content is written to a sibling temp file and then renamed over the
+ *   target. A concurrent reader observes either the old or the new
+ *   complete file — never a partial write.
+ * - On any failure (write or rename) the temp file is best-effort-unlinked
+ *   and the original error is thrown.
+ *
+ * Used by working-tree writers that run on VS Code's extension host (e.g.
+ * `MergeView.markResolved` — TL-37) where the content being written is
+ * about to be staged + committed, so a partial write would corrupt the
+ * commit. For ephemeral private temp files (e.g. `PatchService`'s
+ * `mkdtemp`-created scratch dir) or user-picked export paths (e.g.
+ * `ShelfView.createPatch`, `CommitContextMenuCommands._handleCreatePatch`)
+ * the plain async `writeFile` remains acceptable — no concurrent observer,
+ * no commit at stake.
+ *
+ * Limitations are identical to the sync variant — see the module header.
+ *
+ * @throws The underlying fs error on write or rename failure.
+ */
+export async function atomicWriteFile(
+  targetPath: string,
+  content: string | Buffer,
+  options: IAtomicWriteOptions = {},
+  fsImpl: IAtomicWriteFsAsync = defaultFsAsync
+): Promise<void> {
+  const { mode, encoding = 'utf8' } = options;
+  const tmpPath = buildTempPath(targetPath);
+
+  try {
+    const writeOptions: fs.WriteFileOptions =
+      typeof content === 'string'
+        ? mode !== undefined
+          ? { encoding, mode }
+          : { encoding }
+        : mode !== undefined
+          ? { mode }
+          : {};
+    await fsImpl.writeFile(tmpPath, content, writeOptions);
+    await fsImpl.rename(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      if (await fsImpl.exists(tmpPath)) {
+        await fsImpl.unlink(tmpPath);
+      }
+    } catch {
+      /* deliberate swallow — see JSDoc */
+    }
+    throw err;
+  }
+}
+
+/**
+ * Construct the sibling temp-file path used by both variants. Centralises
+ * the naming convention so any future tweak (e.g. adopting `crypto.randomUUID`
+ * for stronger entropy) stays in one place.
+ *
+ * @internal
+ */
+function buildTempPath(targetPath: string): string {
+  const dir = path.dirname(targetPath);
+  const base = path.basename(targetPath);
+  // Collision-resistant sibling name under reasonable concurrency:
+  // pid-scoped + 8 base36 chars ≈ 41 bits of entropy. Not cryptographically
+  // unique — `Math.random()` is deliberately cheap — but the combination
+  // means two writers in the same directory at the same instant won't race
+  // on the temp name often enough to measurably perturb the rename.
+  return path.join(dir, `.${base}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 10)}`);
 }

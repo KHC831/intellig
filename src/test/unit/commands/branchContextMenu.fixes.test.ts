@@ -36,6 +36,7 @@ import {
 } from '../../../services/interfaces/IConflictResolutionService';
 import type { PullDialog } from '../../../services/PullDialog';
 import { EventEmitter, Uri } from '../../mocks/vscode';
+import { writableWindow } from '../../typed/windowStub';
 
 // ─── Mock Helpers ────────────────────────────────────────────────────────────
 
@@ -432,5 +433,349 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
     assert.strictEqual(pullDialog._calls.length, 1);
     const [, , source] = pullDialog._calls[0].args;
     assert.deepStrictEqual(source, { remote: 'origin-only', branch: 'origin-only' });
+  });
+});
+
+// ─── Tests: TL-33 pull-fallback conflict-service probe ────────────────────────
+
+/**
+ * TL-33 coverage: the pull-fallback path (no PullDialog accessor wired)
+ * previously stringified a conflict count out of the error message via
+ * `_parseConflictCount`. That helper was deleted once we confirmed
+ * `_conflictResolutionService` is always wired in production
+ * (`ExtensionServices.initialize` unconditionally constructs it). The
+ * fallback now probes the working tree via `getConflictedFiles` when the
+ * conflict service is wired, and auto-opens the Resolve Conflicts dialog
+ * if the probe returns any unresolved files. When the probe finds no
+ * conflicts (or the service isn't wired — test-only), the handler falls
+ * through to the generic "Failed to pull …" error message.
+ */
+describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict service', () => {
+  function makePullThrowingGitService(err: Error): MockGitService {
+    const gitService = createMockGitService();
+    const calls = gitService._calls;
+    // Override pull to throw; all other methods remain no-op stubs.
+    (gitService as unknown as { pull: IGitService['pull'] }).pull = async (
+      repo: IRepository,
+      options?: unknown
+    ) => {
+      calls.pull.push({ args: [repo, options] });
+      throw err;
+    };
+    return gitService;
+  }
+
+  it('pull throws → conflict service reports files → opens resolve dialog', async () => {
+    const gitService = makePullThrowingGitService(new Error('Automatic merge failed'));
+    const crs = createMockConflictResolutionService([
+      { path: 'src/a.ts', resolved: false },
+      { path: 'src/b.ts', resolved: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(
+      gitService as unknown as IGitService,
+      provider,
+      crs as unknown as IConflictResolutionService,
+      () => undefined // accessor present but no dialog → take fallback
+    );
+
+    const item = createRemoteBranchTreeItem('origin/feature');
+    await (
+      commands as unknown as {
+        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handlePullUsingRebase(item);
+
+    assert.strictEqual(gitService._calls.pull.length, 1);
+    assert.strictEqual(crs._calls.getConflictedFiles.length, 1);
+    assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 1);
+    const [repoArg, filesArg, ctxArg] = crs._calls.openResolveConflictsDialog[0].args;
+    assert.strictEqual(repoArg, repo);
+    assert.strictEqual(filesArg.length, 2);
+    assert.strictEqual(filesArg[0].path, 'src/a.ts');
+    assert.strictEqual(filesArg[0].resolved, false);
+    assert.strictEqual(ctxArg.operation, 'rebase');
+    assert.strictEqual(ctxArg.target, 'origin/feature');
+    assert.strictEqual(ctxArg.canAbort, true);
+    assert.strictEqual(ctxArg.canContinue, true);
+    assert.strictEqual(provider._refreshCalls, 1, 'refresh fires after conflict handoff');
+  });
+
+  it('pull throws → conflict service reports no files → shows generic error', async () => {
+    const gitService = makePullThrowingGitService(new Error('Network error: connection reset'));
+    const crs = createMockConflictResolutionService([]); // no conflicts in working tree
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+
+    // Capture showErrorMessage calls for assertion.
+    const errorCalls: string[] = [];
+    const savedError = writableWindow().showErrorMessage;
+    writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+      errorCalls.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        crs as unknown as IConflictResolutionService,
+        () => undefined
+      );
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingMerge(item);
+
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      assert.strictEqual(crs._calls.getConflictedFiles.length, 1);
+      assert.strictEqual(
+        crs._calls.openResolveConflictsDialog.length,
+        0,
+        'no dialog when probe finds zero conflicts'
+      );
+      assert.ok(errorCalls.length > 0, 'generic error message should be shown');
+      assert.ok(
+        errorCalls[0].includes('Failed to pull using merge'),
+        `error message should name the strategy, got: "${errorCalls[0]}"`
+      );
+      assert.ok(
+        errorCalls[0].includes('Network error'),
+        `error message should include original error text, got: "${errorCalls[0]}"`
+      );
+    } finally {
+      writableWindow().showErrorMessage = savedError;
+    }
+  });
+
+  it('pull throws → no conflict service wired → shows generic error (no probe)', async () => {
+    const gitService = makePullThrowingGitService(new Error('unreachable host'));
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const errorCalls: string[] = [];
+    const savedError = writableWindow().showErrorMessage;
+    writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+      errorCalls.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        undefined, // no conflict service — test-only shape
+        () => undefined
+      );
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingRebase(item);
+
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      assert.ok(errorCalls.length > 0, 'generic error message should be shown');
+      assert.ok(
+        errorCalls[0].includes('Failed to pull using rebase'),
+        `error should name strategy, got: "${errorCalls[0]}"`
+      );
+    } finally {
+      writableWindow().showErrorMessage = savedError;
+    }
+  });
+});
+
+// ─── Tests: Wave-3-R2 Finding #2 probe swallows pull error ───────────────────
+
+/**
+ * Wave-3-R2 Finding #2 coverage: the pull-fallback path's `getConflictedFiles`
+ * probe lives inside the outer `catch(error)` block. If the probe itself
+ * throws (git process crash, transient fs/access issue, conflict-service
+ * bug), control used to escape the outer catch before the generic
+ * `showErrorMessage('Failed to pull using …')` ran — the user saw nothing
+ * and the original pull failure was silently swallowed.
+ *
+ * The fix wraps the probe + dialog handoff in an inner try/catch that
+ * logs-and-falls-through to the generic error. This suite locks that in:
+ * when the probe throws, the outer error toast still fires, the resolve
+ * dialog is NOT opened, and the probe error is captured via
+ * `console.error` for debugging.
+ */
+describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull error', () => {
+  function makePullThrowingGitService(err: Error): MockGitService {
+    const gitService = createMockGitService();
+    const calls = gitService._calls;
+    (gitService as unknown as { pull: IGitService['pull'] }).pull = async (
+      repo: IRepository,
+      options?: unknown
+    ) => {
+      calls.pull.push({ args: [repo, options] });
+      throw err;
+    };
+    return gitService;
+  }
+
+  /**
+   * Conflict-service mock whose `getConflictedFiles` rejects with the given
+   * error. Exercises the exact failure mode the fix guards against.
+   */
+  function createProbeThrowingConflictService(probeError: Error): MockConflictResolutionService {
+    const calls: MockConflictResolutionService['_calls'] = {
+      openResolveConflictsDialog: [],
+      getConflictedFiles: [],
+    };
+    return {
+      _calls: calls,
+      _conflictedFiles: [],
+      getConflictedFiles: async (repo: IRepository) => {
+        calls.getConflictedFiles.push({ args: [repo] });
+        throw probeError;
+      },
+      openResolveConflictsDialog: async (
+        repo: IRepository,
+        files: IConflictedFile[],
+        opContext: IConflictOpContext
+      ): Promise<void> => {
+        calls.openResolveConflictsDialog.push({ args: [repo, files, opContext] });
+      },
+    } as unknown as MockConflictResolutionService;
+  }
+
+  it('pull throws → probe throws → generic pull error still surfaced, no dialog, probe error logged', async () => {
+    const pullError = new Error('fatal: unable to access origin: connection refused');
+    const probeError = new Error('git status crashed during conflict probe');
+    const gitService = makePullThrowingGitService(pullError);
+    const crs = createProbeThrowingConflictService(probeError);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const errorCalls: string[] = [];
+    const savedError = writableWindow().showErrorMessage;
+    writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+      errorCalls.push(message);
+      return Promise.resolve(undefined);
+    };
+
+    // Spy console.error to confirm the probe failure was captured for
+    // debugging without surfacing a second user-facing toast.
+    const consoleErrorCalls: unknown[][] = [];
+    const savedConsoleError = console.error;
+    console.error = (...args: unknown[]): void => {
+      consoleErrorCalls.push(args);
+    };
+
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        crs as unknown as IConflictResolutionService,
+        () => undefined // fallback path (no PullDialog)
+      );
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingMerge(item);
+
+      // Pull attempted; probe attempted (and rejected).
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      assert.strictEqual(crs._calls.getConflictedFiles.length, 1);
+
+      // Resolve-conflicts dialog must NOT be opened — the probe failed
+      // before determining whether conflicts were present.
+      assert.strictEqual(
+        crs._calls.openResolveConflictsDialog.length,
+        0,
+        'resolve dialog must not open when probe fails'
+      );
+
+      // Outer generic error message MUST still be shown with the original
+      // pull-failure context. This is the regression we guard against.
+      assert.strictEqual(
+        errorCalls.length,
+        1,
+        `expected exactly one showErrorMessage call, got ${errorCalls.length}: ${errorCalls.join(' | ')}`
+      );
+      assert.ok(
+        errorCalls[0].includes('Failed to pull using merge'),
+        `error must name the strategy, got: "${errorCalls[0]}"`
+      );
+      assert.ok(
+        errorCalls[0].includes('connection refused'),
+        `error must include original pull failure context, got: "${errorCalls[0]}"`
+      );
+
+      // Probe error captured via console.error for debugging.
+      assert.ok(consoleErrorCalls.length >= 1, 'probe failure must be logged via console.error');
+      const probeLogged = consoleErrorCalls.some((args) =>
+        args.some(
+          (a) => a === probeError || (a instanceof Error && a.message === probeError.message)
+        )
+      );
+      assert.ok(
+        probeLogged,
+        `probe error should appear in console.error calls; got: ${JSON.stringify(
+          consoleErrorCalls.map((a) => a.map((x) => (x instanceof Error ? x.message : String(x))))
+        )}`
+      );
+    } finally {
+      writableWindow().showErrorMessage = savedError;
+      console.error = savedConsoleError;
+    }
+  });
+
+  it('pullUsingRebase: probe throws → rebase strategy surfaced in outer error, no dialog', async () => {
+    const pullError = new Error('fatal: rebase failed mid-flight');
+    const probeError = new Error('ENOENT: .git/index disappeared');
+    const gitService = makePullThrowingGitService(pullError);
+    const crs = createProbeThrowingConflictService(probeError);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const errorCalls: string[] = [];
+    const savedError = writableWindow().showErrorMessage;
+    writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+      errorCalls.push(message);
+      return Promise.resolve(undefined);
+    };
+    const savedConsoleError = console.error;
+    console.error = (): void => {
+      /* silence probe log for this spec */
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        crs as unknown as IConflictResolutionService,
+        () => undefined
+      );
+
+      const item = createRemoteBranchTreeItem('origin/feature');
+      await (
+        commands as unknown as {
+          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingRebase(item);
+
+      assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 0);
+      assert.strictEqual(errorCalls.length, 1);
+      assert.ok(
+        errorCalls[0].includes('Failed to pull using rebase'),
+        `rebase preset must name the rebase strategy, got: "${errorCalls[0]}"`
+      );
+      assert.ok(
+        errorCalls[0].includes('rebase failed mid-flight'),
+        `original pull error text must survive, got: "${errorCalls[0]}"`
+      );
+    } finally {
+      writableWindow().showErrorMessage = savedError;
+      console.error = savedConsoleError;
+    }
   });
 });

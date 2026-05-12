@@ -7,6 +7,8 @@ import {
   ConflictResolution,
 } from './interfaces/IMergeView';
 import { IGitService, IRepository } from './interfaces/IGitService';
+import { atomicWriteFile } from '../utils/atomicWrite';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Three-Way Merge View implementation
@@ -224,23 +226,55 @@ export class MergeView implements IMergeView {
   }
 
   /**
-   * Mark the file as resolved
+   * Mark the file as resolved.
+   *
+   * TL-37: route the working-tree write through `atomicWriteFile` (async
+   * variant of the TL-6 helper). The file being overwritten is about to
+   * be `git add`-ed and committed — a partial write here would ship a
+   * truncated blob into the commit, and any concurrent reader (git hook,
+   * second VS Code window, external linter) could observe a half-written
+   * file mid-flight. The sibling-temp + rename pattern keeps the target
+   * path at either the old complete content or the new complete content,
+   * never a half-written intermediate. `vscode.workspace.fs.writeFile`
+   * offers no such guarantee (checked against the vscode.d.ts contract
+   * and the reference implementation for `file:` URIs — see
+   * `src/utils/atomicWrite.ts` module JSDoc).
+   *
+   * Wave-3-R2: error handling is internalised here rather than at each
+   * callsite. The webview message dispatcher invokes this fire-and-forget
+   * (`void this.markResolved()`), and once TL-37 routed the write through
+   * atomic rename, real filesystem errors (EBUSY on a locked file,
+   * ENOSPC on a full disk, EPERM on a read-only tree) surface reliably
+   * from `renameSync` where the previous `vscode.workspace.fs.writeFile`
+   * silently swallowed many failures. If we re-throw here, the
+   * dispatcher discards the rejection and the user sees the pane close
+   * with no feedback while `git add` runs against stale content. Instead
+   * we catch, surface a sanitised toast (paths/credentials may appear in
+   * fs errnos), and keep the pane visible so the user can retry or
+   * dismiss with context intact. `_onDidResolve` does NOT fire on the
+   * error path so downstream consumers don't treat the file as resolved.
    */
   async markResolved(): Promise<void> {
     if (!this._mergeState || !this._repository) {
       return;
     }
 
-    // Write the resolved content to the file
+    // Write the resolved content to the file via the atomic helper.
     const resolvedContent = this._generateResolvedContent();
-    const fileUri = vscode.Uri.file(
-      path.join(this._repository.rootUri.fsPath, this._mergeState.file)
-    );
+    const targetPath = path.join(this._repository.rootUri.fsPath, this._mergeState.file);
 
-    await vscode.workspace.fs.writeFile(fileUri, Buffer.from(resolvedContent, 'utf-8'));
+    try {
+      await atomicWriteFile(targetPath, resolvedContent);
 
-    // Stage the file to mark it as resolved
-    await this._gitService.stage(this._repository, [this._mergeState.file]);
+      // Stage the file to mark it as resolved
+      await this._gitService.stage(this._repository, [this._mergeState.file]);
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to mark resolved: ${sanitizeGitError(raw)}`);
+      // Leave the pane visible so the user can retry; do NOT fire the
+      // resolve event since the file was not successfully committed.
+      return;
+    }
 
     // Fire the resolve event
     this._onDidResolve.fire(this._mergeState.file);

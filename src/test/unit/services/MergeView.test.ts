@@ -1,7 +1,22 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { MergeView } from '../../../services/MergeView';
 import { IGitService, IRepository, IFileStatus } from '../../../services/interfaces/IGitService';
+import type { IMergeState } from '../../../services/interfaces/IMergeView';
+import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
+
+/**
+ * TestSurface for the private state MergeView exposes to
+ * `markResolved()`. Matches docs/testing.md §3 — declared at the top of
+ * the test file, single-purpose, no `I`-prefix.
+ */
+interface MergeViewInternals {
+  _mergeState: IMergeState | undefined;
+  _repository: IRepository | undefined;
+}
 
 /**
  * Unit tests for MergeView
@@ -118,6 +133,205 @@ describe('MergeView', () => {
       await mergeView.markResolved();
       // Should complete without error
       assert.ok(true);
+    });
+
+    // TL-37 — markResolved must write the resolved content atomically (via
+    // atomicWriteFile), not through a direct workspace.fs.writeFile. The
+    // invariant we care about: during a simulated mid-flight write, a
+    // concurrent reader sees either the full OLD content or the full NEW
+    // content, never a partial/truncated file. We verify this by:
+    //   1. Seeding a real on-disk file with OLD content.
+    //   2. Priming _mergeState so _generateResolvedContent() returns a
+    //      known NEW payload.
+    //   3. Calling markResolved and asserting the file is at NEW with no
+    //      `.<name>.tmp-*` debris in the directory afterwards.
+    //
+    // This also guards the Phase 4 regression where vscode.workspace.fs
+    // was substituted for a non-atomic direct write.
+    // Wave-3-R2 Finding #1 — markResolved must surface atomic-write failures
+    // as a toast and leave the pane + merge state intact. Before the fix,
+    // the webview dispatcher invoked `void this.markResolved()` (fire-and-
+    // forget) and a rejected promise from atomicWriteFile silently closed
+    // the pane while `git add` never ran → user sees the merge "complete"
+    // against stale content. The fix internalises error handling in
+    // markResolved itself: catch the throw, sanitise + toast, and return
+    // without firing `_onDidResolve` or calling `hide()`.
+    //
+    // We trigger a real atomic-write failure by pointing the repo root at
+    // a non-existent path — the sibling-temp file write then fails with
+    // ENOENT (no such directory). This is a realistic failure mode for
+    // read-only / unmounted / racing-dispose working trees and exercises
+    // the exact error path we care about (rename throws → catch block).
+    it('surfaces error via showErrorMessage when atomic write fails; pane + state preserved', async () => {
+      const tracker = installErrorMessageTracker();
+      // Track stage invocations to confirm we never staged a half-written
+      // file — stage must not run once the write has failed.
+      const stageCalls: Array<{ repo: IRepository; paths: string[] }> = [];
+      (mockGitService as unknown as { stage: IGitService['stage'] }).stage = (
+        repo: IRepository,
+        paths: string[]
+      ): Promise<void> => {
+        stageCalls.push({ repo, paths });
+        return Promise.resolve();
+      };
+
+      // Track _onDidResolve emissions so we can assert the event does NOT
+      // fire on the error path (downstream consumers gate on it).
+      const resolveEvents: string[] = [];
+      const resolveSub = mergeView.onDidResolve((file) => {
+        resolveEvents.push(file);
+      });
+
+      try {
+        // Point the repo at a non-existent directory so atomicWriteFile's
+        // sibling-tmp writeFile rejects with ENOENT — the exact shape of
+        // the kernel error we want to guard against (same catch path as
+        // EBUSY/EPERM on a locked/read-only tree).
+        const missingDir = path.join(
+          os.tmpdir(),
+          `intellig-mergeview-missing-${process.pid}-${Date.now()}`
+        );
+        const internals = mergeView as unknown as MergeViewInternals;
+        internals._repository = {
+          rootUri: vscode.Uri.file(missingDir),
+          state: 'idle',
+          head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+          remotes: [],
+          submodules: [],
+        };
+        const zeroRange = new vscode.Range(0, 0, 0, 0);
+        internals._mergeState = {
+          file: 'README.md',
+          base: 'OLD\n',
+          current: 'NEW\n',
+          incoming: 'OLD\n',
+          conflicts: [
+            {
+              id: 0,
+              baseRange: zeroRange,
+              currentRange: zeroRange,
+              incomingRange: zeroRange,
+              baseContent: 'OLD\n',
+              currentContent: 'NEW\n',
+              incomingContent: 'OLD\n',
+              resolved: true,
+              resolution: 'current',
+            },
+          ],
+          resolvedConflicts: new Set([0]),
+        };
+
+        // Must NOT throw out of the catch — the fix internalises the error.
+        await mergeView.markResolved();
+
+        // Error toast surfaced with a user-facing prefix + the underlying
+        // error context (sanitised via sanitizeGitError but ENOENT on a
+        // local tmp path has no credentials to redact, so the raw message
+        // passes through).
+        assert.strictEqual(
+          tracker.calls.length,
+          1,
+          `expected exactly one showErrorMessage call, got ${tracker.calls.length}`
+        );
+        assert.ok(
+          tracker.calls[0].message.startsWith('Failed to mark resolved:'),
+          `expected user-facing prefix, got: "${tracker.calls[0].message}"`
+        );
+        assert.ok(
+          tracker.calls[0].message.length > 'Failed to mark resolved:'.length + 1,
+          'error message should include the sanitised error context'
+        );
+
+        // `stage` must NOT have been invoked — staging a file whose
+        // working-tree content is still the pre-merge version would ship
+        // conflict markers into the commit.
+        assert.strictEqual(
+          stageCalls.length,
+          0,
+          'stage() must not run when atomicWriteFile failed'
+        );
+
+        // `_onDidResolve` must NOT have fired — downstream consumers
+        // (e.g. the conflict-resolution dialog refresh) treat the file
+        // as unresolved when the event is absent.
+        assert.strictEqual(
+          resolveEvents.length,
+          0,
+          '_onDidResolve must not fire on the error path'
+        );
+
+        // Pane + merge state preserved so the user can retry or dismiss
+        // with context intact. `hide()` clears `_mergeState`, so checking
+        // that the state is still defined also proves `hide()` was NOT
+        // called.
+        assert.ok(
+          mergeView.getMergeState() !== undefined,
+          'merge state must persist after error (pane should stay open)'
+        );
+      } finally {
+        resolveSub.dispose();
+        restoreMessageFunctions();
+      }
+    });
+
+    it('atomic-write: resolved content lands at target path with no temp debris', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-mergeview-atomic-'));
+      try {
+        const conflictedPath = path.join(tmpDir, 'README.md');
+        fs.writeFileSync(conflictedPath, 'OLD\n', 'utf8');
+
+        // Prime the private merge state directly — we're testing the write
+        // path, not the parse/load pipeline.
+        const internals = mergeView as unknown as MergeViewInternals;
+        internals._repository = {
+          rootUri: vscode.Uri.file(tmpDir),
+          state: 'idle',
+          head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+          remotes: [],
+          submodules: [],
+        };
+        const zeroRange = new vscode.Range(0, 0, 0, 0);
+        internals._mergeState = {
+          file: 'README.md',
+          base: 'OLD\n',
+          current: 'NEW\n',
+          incoming: 'OLD\n',
+          conflicts: [
+            {
+              id: 0,
+              baseRange: zeroRange,
+              currentRange: zeroRange,
+              incomingRange: zeroRange,
+              baseContent: 'OLD\n',
+              currentContent: 'NEW\n',
+              incomingContent: 'OLD\n',
+              resolved: true,
+              resolution: 'current',
+            },
+          ],
+          resolvedConflicts: new Set([0]),
+        };
+
+        await mergeView.markResolved();
+
+        // File content landed.
+        assert.strictEqual(fs.readFileSync(conflictedPath, 'utf8'), 'NEW\n');
+
+        // No atomic-write debris — confirms the sibling-temp + rename
+        // discipline completed cleanly.
+        const entries = fs.readdirSync(tmpDir);
+        assert.deepStrictEqual(
+          entries,
+          ['README.md'],
+          `expected zero temp debris, got: ${entries.join(',')}`
+        );
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
     });
   });
 

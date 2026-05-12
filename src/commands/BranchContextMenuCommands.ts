@@ -910,48 +910,44 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const conflictCount = this._parseConflictCount(errorMessage);
-      if (conflictCount > 0) {
-        // T1-08(a) handoff: if the conflict service is wired in, auto-open the
-        // Resolve Conflicts dialog. Pull-using-rebase maps to `'rebase'` and
-        // pull-using-merge maps to `'merge'` — conceptually these are the same
-        // post-conflict states that merge / rebase produce directly.
-        if (this._conflictResolutionService) {
+      // T1-08(a) handoff: when the conflict service is wired in (always true
+      // in production via ExtensionServices — see `ConflictResolutionService`
+      // construction in `ExtensionServices.initialize`), probe the working
+      // tree for unresolved conflicts and auto-open the Resolve Conflicts
+      // dialog if any are present. Pull-using-rebase maps to `'rebase'` and
+      // pull-using-merge maps to `'merge'` — conceptually the same
+      // post-conflict states merge / rebase produce directly.
+      // Wave-3-R2: wrap the probe + dialog handoff in an inner try/catch so
+      // a probe failure (git process crash, transient fs/access issue) does
+      // NOT swallow the original pull error. Before this guard, a throw
+      // from `getConflictedFiles` (or from the dialog wiring) escaped the
+      // outer catch block before the generic `showErrorMessage` ran,
+      // leaving the user with no surface-level feedback on the real pull
+      // failure. We log-and-fall-through: the generic error below still
+      // fires, and the probe error is captured for debugging.
+      if (this._conflictResolutionService) {
+        try {
           const conflicts = await this._conflictResolutionService.getConflictedFiles(repo);
-          await this._openResolveConflictsDialog(
-            repo,
-            conflicts.map((c) => c.path),
-            { operation: preset === 'rebase' ? 'rebase' : 'merge', target: item.branch.name }
-          );
-        } else {
-          const strategy = preset === 'rebase' ? 'Rebase' : 'Merge';
-          void vscode.window.showWarningMessage(
-            `${strategy} conflicts in ${conflictCount} file(s). Please resolve conflicts.`
-          );
+          if (conflicts.length > 0) {
+            await this._openResolveConflictsDialog(
+              repo,
+              conflicts.map((c) => c.path),
+              { operation: preset === 'rebase' ? 'rebase' : 'merge', target: item.branch.name }
+            );
+            this._branchTreeProvider.refresh();
+            return;
+          }
+        } catch (probeError) {
+          // Do NOT surface a toast for the probe failure itself — the
+          // outer generic error below is the one the user cares about
+          // (it names the pull strategy + the original fatal). Keep the
+          // probe error in the console/log for debugging.
+          console.error('[intellig] pull-fallback conflict probe failed:', probeError);
         }
-        this._branchTreeProvider.refresh();
-      } else {
-        const strategy = preset === 'rebase' ? 'rebase' : 'merge';
-        void vscode.window.showErrorMessage(`Failed to pull using ${strategy}: ${errorMessage}`);
       }
+      const strategy = preset === 'rebase' ? 'rebase' : 'merge';
+      void vscode.window.showErrorMessage(`Failed to pull using ${strategy}: ${errorMessage}`);
     }
-  }
-
-  // ============================================
-  // Helper Methods
-  // ============================================
-
-  /**
-   * Parse the number of conflicted files from a git error message.
-   * Git error messages contain "CONFLICT (<kind>): <description> in <path>"
-   * markers for each conflicted file. We anchor on the literal uppercase
-   * `CONFLICT (` prefix so we don't double-count the lowercase "conflict"
-   * that appears in the human-readable "Merge conflict in <path>" suffix
-   * of the same line. Returns 0 if no conflict markers are found.
-   */
-  private _parseConflictCount(errorMessage: string): number {
-    const matches = errorMessage.match(/CONFLICT \(/g);
-    return matches ? matches.length : 0;
   }
 
   // ============================================
