@@ -13,6 +13,9 @@
 
 import '../../../test/setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type * as vscode from 'vscode';
 import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
 import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
@@ -23,12 +26,7 @@ import {
 } from '../../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../../services/GitToolWindowProvider';
 import { EventEmitter, Uri } from '../../mocks/vscode';
-import {
-  writableWindow,
-  writableEnv,
-  writableCommands,
-  writableWorkspace,
-} from '../../typed/windowStub';
+import { writableWindow, writableEnv, writableCommands } from '../../typed/windowStub';
 
 // ─── Mock Helpers ─────────────────────────────────────────────────────────────
 
@@ -519,17 +517,59 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
   // ─── createPatch ──────────────────────────────────────────────────────────
 
   describe('_handleCreatePatch', () => {
-    it('runs git format-patch and prompts save dialog', async () => {
-      let savedContent: Buffer | undefined;
+    it('runs git format-patch, atomic-writes the result to the user-picked path', async () => {
+      // TL-38: the write side now goes through `atomicWriteFile` (Node
+      // fs promises, not vscode.workspace.fs). Point the save dialog at
+      // a real tmp path, let the real atomic helper run, and assert the
+      // file lands with the expected content + no temp debris.
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-createpatch-ok-'));
+      const outPath = path.join(tmpDir, 'test.patch');
       writableWindow().showSaveDialog = (): Promise<vscode.Uri | undefined> =>
-        Promise.resolve(Uri.file('/tmp/test.patch'));
-      writableWorkspace().fs = {
-        ...writableWorkspace().fs,
-        writeFile: (_uri: vscode.Uri, content: Uint8Array): Promise<void> => {
-          savedContent = Buffer.from(content);
-          return Promise.resolve();
-        },
-      };
+        Promise.resolve(Uri.file(outPath));
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      try {
+        await commands._handleAction('createPatch', [testHash]);
+
+        const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
+        assert.ok(call, 'gitCli.exec should have been called');
+        const args = call.args[0] as string[];
+        assert.ok(args.includes('format-patch'));
+        assert.ok(args.includes(testHash));
+        // The patch file lands at the picked path with the format-patch stdout.
+        assert.strictEqual(fs.readFileSync(outPath, 'utf-8'), 'patch content');
+        // And no sibling `.tmp-<pid>-*` debris remains in the directory.
+        const debris = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp-'));
+        assert.strictEqual(debris.length, 0, `unexpected tmp debris: ${debris.join(', ')}`);
+        assert.strictEqual(messages.info.length, 1);
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    it('surfaces sanitised toast when atomic write fails; no success toast', async () => {
+      // TL-38 fault injection: pick a non-existent sub-directory so
+      // atomicWriteFile's sibling-tmp write rejects with ENOENT. Exercises
+      // the inner try/catch added in _handleCreatePatch — write-only
+      // failure must surface as "Failed to write patch:" and suppress
+      // the success "Patch saved to …" toast.
+      const missingDir = path.join(
+        os.tmpdir(),
+        `intellig-createpatch-missing-${process.pid}-${Date.now()}`,
+        'test.patch'
+      );
+      writableWindow().showSaveDialog = (): Promise<vscode.Uri | undefined> =>
+        Promise.resolve(Uri.file(missingDir));
       const messages = createMessageTrackers();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
@@ -540,13 +580,21 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('createPatch', [testHash]);
 
-      const call = gitCli.calls.find((c: CallTracker) => c.method === 'exec');
-      assert.ok(call, 'gitCli.exec should have been called');
-      const args = call.args[0] as string[];
-      assert.ok(args.includes('format-patch'));
-      assert.ok(args.includes(testHash));
-      assert.ok(savedContent);
-      assert.strictEqual(messages.info.length, 1);
+      assert.strictEqual(
+        messages.error.length,
+        1,
+        `expected exactly one error toast, got ${messages.error.length}`
+      );
+      assert.ok(
+        messages.error[0].message.startsWith('Failed to write patch:'),
+        `expected "Failed to write patch:" prefix, got: "${messages.error[0].message}"`
+      );
+      // Success toast suppressed — no "Patch saved to …" fired.
+      assert.strictEqual(
+        messages.info.length,
+        0,
+        'success toast must not fire after write failure'
+      );
     });
 
     it('does nothing when user cancels save dialog', async () => {

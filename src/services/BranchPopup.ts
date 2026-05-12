@@ -23,6 +23,7 @@
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from './interfaces/IGitService';
 import { resolveRepo } from '../utils/resolveRepo';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
  * Workspace-state key under which the recent-branches LRU map is persisted.
@@ -646,8 +647,12 @@ export class BranchPopup {
       })
     );
 
-    // Initial status bar update
-    void this._initializeStatusBar();
+    // Initial status bar update. Bucket C (TL-40): init path, downstream
+    // listeners retry on repository change; log-and-suppress is correct.
+    safeFireAndForget(
+      this._initializeStatusBar(),
+      'BranchPopup.constructor: initial status-bar update'
+    );
   }
 
   /**

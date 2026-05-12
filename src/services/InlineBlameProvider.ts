@@ -3,6 +3,7 @@ import { IInlineBlameProvider } from './interfaces/IInlineBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine, IRepository } from './interfaces/IGitService';
 import { BlameOptionsSource } from './BlameOptionsSource';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { parseRemoteUrl, type IRemoteUrl } from '../utils/remoteUrl';
 import { commitUrl } from '../utils/hostingLinks';
 import * as path from 'path';
@@ -66,7 +67,12 @@ export class InlineBlameProvider implements IInlineBlameProvider {
         this._optionsSource.onDidChange(() => {
           this._blameCache.clear();
           if (this._enabled && this._currentEditor) {
-            void this.updateDecoration(this._currentEditor, this._currentLine);
+            // Bucket B (TL-40): blame fetches can fail (async gitCli);
+            // surface to console without blocking the option-source sync.
+            safeFireAndForget(
+              this.updateDecoration(this._currentEditor, this._currentLine),
+              'InlineBlameProvider.onDidChange: re-blame after options change'
+            );
           }
         })
       );
@@ -140,7 +146,12 @@ export class InlineBlameProvider implements IInlineBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
-          void this.updateDecoration(this._currentEditor, this._currentLine);
+          // Bucket B (TL-40): blame fetches can fail (async gitCli);
+          // log+suppress so the event-listener chain stays alive.
+          safeFireAndForget(
+            this.updateDecoration(this._currentEditor, this._currentLine),
+            'InlineBlameProvider.onDidChangeTextDocument: re-blame after edit'
+          );
         }
       })
     );
@@ -157,7 +168,11 @@ export class InlineBlameProvider implements IInlineBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
-          void this.updateDecoration(this._currentEditor, this._currentLine);
+          // Bucket B (TL-40): same rationale as onDidChangeTextDocument.
+          safeFireAndForget(
+            this.updateDecoration(this._currentEditor, this._currentLine),
+            'InlineBlameProvider.onDidSaveTextDocument: re-blame after save'
+          );
         }
       })
     );
@@ -179,7 +194,11 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     if (editor) {
       this._currentEditor = editor;
       this._currentLine = editor.selection.active.line;
-      void this.updateDecoration(editor, this._currentLine);
+      // Bucket B (TL-40): enable is sync; async blame fetch follows.
+      safeFireAndForget(
+        this.updateDecoration(editor, this._currentLine),
+        'InlineBlameProvider.enable: initial decoration'
+      );
     }
   }
 

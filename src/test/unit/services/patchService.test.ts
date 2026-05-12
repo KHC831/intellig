@@ -31,7 +31,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { PatchService, validateBaseDir, validateStripLevel } from '../../../services/PatchService';
+import {
+  PatchService,
+  PatchWriteFailed,
+  validateBaseDir,
+  validateStripLevel,
+} from '../../../services/PatchService';
 import { ApplyPatchDialog } from '../../../services/ApplyPatchDialog';
 import type {
   IGitService,
@@ -456,12 +461,90 @@ describe('PatchService.createPatchFromLocalChanges', () => {
         stagedOnly: true,
       });
       assert.strictEqual(fs.readFileSync(outPath, 'utf-8'), 'FILE_DIFF\n');
+      // TL-38: atomicWriteFile must clean up its sibling-tmp file so no
+      // `.out.patch.tmp-<pid>-*` garbage remains in the directory.
+      const debris = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp-'));
+      assert.strictEqual(debris.length, 0, `unexpected tmp debris: ${debris.join(', ')}`);
     } finally {
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       } catch {
         // ignore
       }
+    }
+  });
+
+  // TL-38: fault injection — a failing atomic write must surface a
+  // sanitised toast inside the service (so callers don't have to re-toast)
+  // AND throw a typed `PatchWriteFailed` so extension.ts can distinguish
+  // write-only failure from other errors and suppress its own redundant
+  // toast.
+  it('outputPath: throws PatchWriteFailed + shows sanitised toast when atomic write fails', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'FILE_DIFF\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    // Non-existent parent directory → atomicWriteFile's sibling-tmp
+    // write rejects with ENOENT.
+    const missingPath = path.join(
+      os.tmpdir(),
+      `intellig-patchout-missing-${process.pid}-${Date.now()}`,
+      'out.patch'
+    );
+
+    const errorCalls: Array<{ message: string }> = [];
+    const originalError = vscode.window.showErrorMessage;
+    (
+      vscode.window as unknown as {
+        showErrorMessage: (message: string, ...items: string[]) => Promise<string | undefined>;
+      }
+    ).showErrorMessage = (message: string) => {
+      errorCalls.push({ message });
+      return Promise.resolve(undefined);
+    };
+
+    try {
+      let thrown: unknown;
+      try {
+        await svc.createPatchFromLocalChanges(repo, {
+          outputPath: missingPath,
+          stagedOnly: true,
+        });
+      } catch (err) {
+        thrown = err;
+      }
+      if (!(thrown instanceof PatchWriteFailed)) {
+        assert.fail(
+          `must throw PatchWriteFailed, got ${thrown === undefined ? 'undefined' : String(thrown)}`
+        );
+      }
+      assert.strictEqual(
+        thrown.userNotified,
+        true,
+        'PatchWriteFailed must carry userNotified=true sentinel'
+      );
+      // Senior-wave4 OBS #7: `{ cause: err }` wiring must survive future
+      // refactors so downstream debuggers can still walk the chain to the
+      // original ENOENT/EBUSY. Asserting the shape here pins it.
+      assert.ok(
+        thrown.cause instanceof Error,
+        'PatchWriteFailed must preserve original error via `cause`'
+      );
+      assert.strictEqual(
+        errorCalls.length,
+        1,
+        `expected exactly one toast, got ${errorCalls.length}`
+      );
+      assert.ok(
+        errorCalls[0].message.startsWith('Failed to write patch:'),
+        `expected sanitised prefix, got: "${errorCalls[0].message}"`
+      );
+    } finally {
+      (
+        vscode.window as unknown as {
+          showErrorMessage: typeof originalError;
+        }
+      ).showErrorMessage = originalError;
     }
   });
 });

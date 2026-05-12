@@ -11,6 +11,7 @@
 import * as vscode from 'vscode';
 import { IAutoFetchService, AutoFetchPauseReason } from './interfaces/IAutoFetchService';
 import { IGitService, IRepository } from './interfaces/IGitService';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
  * Minimum polling interval in seconds. Values below this are clamped to
@@ -163,7 +164,10 @@ export class AutoFetchService implements IAutoFetchService {
     const delay = baseMs * this._backoffMultiplier;
     this._timer = setTimeout(() => {
       this._timer = undefined;
-      void this._tick();
+      // Bucket C (TL-40): timer tick is a watcher-style callback; `_tick`
+      // internalises its own auth/backoff toasts. Log+suppress keeps the
+      // schedule alive on transient rejections.
+      safeFireAndForget(this._tick(), 'AutoFetchService.reschedule: timer tick');
     }, delay);
   }
 

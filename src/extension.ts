@@ -44,6 +44,7 @@ import {
   isCommitToolWindowEnabled,
   COMMIT_TOOL_WINDOW_VIEW_ID,
   ChangelistService,
+  PatchWriteFailed,
 } from './services';
 import type { IBranch, IGitService, IGitServiceCli, IRepository, ITag } from './services';
 import { findCommitByQuery } from './services/gitToolWindow/jumpToHash';
@@ -1726,6 +1727,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
         void vscode.window.showInformationMessage(`Patch created: ${uri.fsPath}`);
       } catch (error) {
+        // TL-38: PatchWriteFailed means the service has already surfaced a
+        // sanitised toast — we must not re-toast or the user sees two
+        // error banners for one failure.
+        if (error instanceof PatchWriteFailed) {
+          return;
+        }
         const errMsg = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`Failed to create patch: ${errMsg}`);
       }
@@ -2743,6 +2750,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
         void vscode.window.showInformationMessage(`Patch saved to ${uri.fsPath}`);
       } catch (error) {
+        // TL-38: PatchWriteFailed means the service has already surfaced a
+        // sanitised toast — we must not re-toast or the user sees two
+        // error banners for one failure.
+        if (error instanceof PatchWriteFailed) {
+          return;
+        }
         const msg = error instanceof Error ? error.message : 'Unknown error';
         void vscode.window.showErrorMessage(`Failed to create patch: ${msg}`);
       }

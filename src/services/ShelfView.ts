@@ -20,6 +20,9 @@ import {
   ShelfContextAction,
 } from './interfaces/IShelfView';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
+import { atomicWriteFile } from '../utils/atomicWrite';
+import { sanitizeGitError } from '../utils/gitError';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
  * Quick pick item for shelf list
@@ -260,8 +263,10 @@ export class ShelfView implements IShelfView {
       const shelfItem = await this._shelfService.shelve(repository, name.trim(), selection);
       void vscode.window.showInformationMessage(`Shelved changes: "${name}"`);
 
-      // Refresh the shelf list
-      void this.refresh();
+      // Refresh the shelf list. Bucket B (TL-40): refresh() internalises
+      // its own errors (see _state.error), so safeFireAndForget here is
+      // defence-in-depth for any future direct-throw paths.
+      safeFireAndForget(this.refresh(), 'ShelfView.showShelveDialog: refresh after shelve');
 
       return {
         shelved: true,
@@ -385,8 +390,11 @@ export class ShelfView implements IShelfView {
         }
       }
 
-      // Refresh the shelf list
-      void this.refresh();
+      // Refresh the shelf list. Bucket B (TL-40): log-and-suppress is OK
+      // here — refresh() already catches internally, and if a future direct
+      // throw bubbles up we surface it through console.error rather than
+      // letting it disappear.
+      safeFireAndForget(this.refresh(), 'ShelfView.unshelve: refresh after success');
 
       this._onDidRequestAction.fire({ action: 'unshelve', shelfItem });
 
@@ -560,8 +568,9 @@ export class ShelfView implements IShelfView {
       this._shelfService.deleteShelfItem(this._repository, id);
       void vscode.window.showInformationMessage(`Deleted shelf item: "${shelfItem.name}"`);
 
-      // Refresh the shelf list
-      void this.refresh();
+      // Refresh the shelf list. Bucket B (TL-40): state-sync only, internal
+      // errors already caught by refresh(); direct throws go to console.
+      safeFireAndForget(this.refresh(), 'ShelfView.deleteShelfItem: refresh after delete');
 
       this._onDidRequestAction.fire({ action: 'delete', shelfItem });
 
@@ -785,16 +794,30 @@ export class ShelfView implements IShelfView {
       return { success: false };
     }
 
+    // TL-38: route through atomicWriteFile so a partial write (EBUSY on a
+    // Windows-locked file, ENOSPC on a full disk, process kill mid-flight)
+    // never leaves a truncated `.patch` file at the user-picked path —
+    // `git apply`/`git am` would silently fail downstream on that junk.
+    // Sibling-tmp + rename keeps the target either at its previous content
+    // or at the new content, never a partial intermediate.
     try {
       const content = shelfItem.files.map((f) => f.diff).join('\n');
-      await vscode.workspace.fs.writeFile(target, Buffer.from(content, 'utf-8'));
+      await atomicWriteFile(target.fsPath, content);
       void vscode.window.showInformationMessage(`Patch written to ${target.fsPath}`);
       this._onDidRequestAction.fire({ action: 'createPatch', shelfItem });
       return { success: true, action: 'createPatch', shelfItem };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to write patch: ${errorMessage}`);
-      return { success: false, action: 'createPatch', shelfItem, error: errorMessage };
+      const raw = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
+      // Senior-wave4 LOW #2: sanitize the raw error before embedding in
+      // the structured result. Downstream consumers (logs, telemetry,
+      // webviews) otherwise leak credentials via the string form.
+      return {
+        success: false,
+        action: 'createPatch',
+        shelfItem,
+        error: sanitizeGitError(raw),
+      };
     }
   }
 
@@ -854,7 +877,10 @@ export class ShelfView implements IShelfView {
       return;
     }
     this._showAlreadyUnshelved = show;
-    void this.refresh();
+    // Bucket B (TL-40): synchronous toggle → async refresh; stays sync so
+    // callers (e.g. command palette handlers) don't need to await. Rejections
+    // land in console.error rather than floating off into space.
+    safeFireAndForget(this.refresh(), 'ShelfView.setShowAlreadyUnshelved: refresh after toggle');
   }
 
   /**
@@ -873,8 +899,12 @@ export class ShelfView implements IShelfView {
       return;
     }
 
-    // Refresh shelf list
-    void this.refresh();
+    // Refresh shelf list. Bucket B (TL-40): refresh() executes its
+    // try/catch body synchronously before awaiting anything (the only
+    // async work is Promise.resolve()), so `_state.error` is set by the
+    // time we read it two lines below. Preserve that ordering with
+    // safeFireAndForget rather than switching to await.
+    safeFireAndForget(this.refresh(), 'ShelfView._showShelfList: refresh on open');
 
     if (this._state.error) {
       void vscode.window.showErrorMessage(`Failed to load shelf items: ${this._state.error}`);

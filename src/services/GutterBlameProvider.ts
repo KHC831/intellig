@@ -3,6 +3,7 @@ import { IGutterBlameProvider } from './interfaces/IGutterBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine } from './interfaces/IGitService';
 import { BlameOptionsSource } from './BlameOptionsSource';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 import * as path from 'path';
 
 /**
@@ -66,7 +67,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         this._optionsSource.onDidChange(() => {
           this._blameCache.clear();
           if (this._enabled && this._currentEditor) {
-            void this.updateDecorations(this._currentEditor);
+            // Bucket B (TL-40): blame fetches can fail async; log+suppress
+            // so the option-source sync doesn't stall on one bad editor.
+            safeFireAndForget(
+              this.updateDecorations(this._currentEditor),
+              'GutterBlameProvider.onDidChange: re-blame after options change'
+            );
           }
         })
       );
@@ -163,7 +169,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
-          void this.updateDecorations(this._currentEditor);
+          // Bucket B (TL-40): blame fetches can fail async.
+          safeFireAndForget(
+            this.updateDecorations(this._currentEditor),
+            'GutterBlameProvider.onDidSaveTextDocument: re-blame after save'
+          );
         }
       })
     );
@@ -180,7 +190,12 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
 
     this._updateDebounceTimer = setTimeout(() => {
-      void this.updateDecorations(editor);
+      // Bucket B (TL-40): debounced scroll/edit update; log+suppress so
+      // the debounce cycle keeps firing even if one fetch rejects.
+      safeFireAndForget(
+        this.updateDecorations(editor),
+        'GutterBlameProvider.debounceUpdate: debounced decoration refresh'
+      );
     }, 100);
   }
 
@@ -199,7 +214,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       this._currentEditor = editor;
-      void this.updateDecorations(editor);
+      // Bucket B (TL-40): enable() is sync; async blame fetch follows.
+      safeFireAndForget(
+        this.updateDecorations(editor),
+        'GutterBlameProvider.enable: initial decorations'
+      );
     }
   }
 

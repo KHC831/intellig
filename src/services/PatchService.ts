@@ -19,6 +19,31 @@ import { IGitService, IRepository } from './interfaces/IGitService';
 import { IConflictedFile } from './interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../utils/gitCli';
 import { sanitizeGitError } from '../utils/gitError';
+import { atomicWriteFile } from '../utils/atomicWrite';
+
+/**
+ * TL-38 — thrown when `createPatchFromLocalChanges` fails writing the patch
+ * to a user-picked `outputPath`. The service has already surfaced a
+ * sanitised toast via `vscode.window.showErrorMessage`, so callers that
+ * detect this error class MUST NOT show their own "Failed to create patch"
+ * toast — doing so produces a double-notification for one failure.
+ *
+ * Callers that want to bail without re-toasting can `if (err instanceof
+ * PatchWriteFailed) return;` before their generic catch-all.
+ */
+export class PatchWriteFailed extends Error {
+  /**
+   * Marker property — kept in addition to the `instanceof` check so callers
+   * in adjacent bundles (where `instanceof` might fall through a cross-
+   * boundary prototype chain) can fall back to a duck-typed check.
+   */
+  readonly userNotified = true;
+
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'PatchWriteFailed';
+  }
+}
 
 /**
  * Lowercase tokens that indicate git apply / am produced conflict markers
@@ -205,7 +230,19 @@ export class PatchService implements IPatchService {
       await vscode.env.clipboard.writeText(patch);
     }
     if (options.outputPath) {
-      await fs.promises.writeFile(options.outputPath, patch, 'utf-8');
+      // TL-38: route the user-picked save through atomicWriteFile so a
+      // partial write never leaves a truncated `.patch` file at the
+      // picked path — `git apply` / `git am` would silently fail on junk.
+      // Surface a sanitised toast here + re-throw as PatchWriteFailed so
+      // callers can distinguish write-only failure from a successful
+      // write + later clipboard issue, and skip their own re-toast.
+      try {
+        await atomicWriteFile(options.outputPath, patch);
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err);
+        void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
+        throw new PatchWriteFailed(raw, { cause: err });
+      }
     }
 
     return patch;

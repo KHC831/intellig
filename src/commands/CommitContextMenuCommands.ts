@@ -11,6 +11,8 @@ import { showResetDialog } from '../services/ResetDialog';
 import { GitCli } from '../utils/gitCli';
 import { IConflictResolutionService } from '../services/interfaces/IConflictResolutionService';
 import { resolveRepo } from '../utils/resolveRepo';
+import { atomicWriteFile } from '../utils/atomicWrite';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Signature of the repository resolver injected into
@@ -777,27 +779,45 @@ export class CommitContextMenuCommands {
 
     const hash = commitHashes[0];
 
+    let stdout: string;
     try {
       const result = await this._gitCli.exec(['format-patch', '-1', hash, '--stdout'], {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       });
-
-      const saveUri = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.file(`${hash.substring(0, 8)}.patch`),
-        filters: { 'Patch Files': ['patch'], 'All Files': ['*'] },
-      });
-
-      if (!saveUri) {
-        return;
-      }
-
-      await vscode.workspace.fs.writeFile(saveUri, Buffer.from(result.stdout, 'utf-8'));
-      void vscode.window.showInformationMessage(`Patch saved to ${saveUri.fsPath}`);
+      stdout = result.stdout;
     } catch (error) {
+      // git exec failure — keep the historical "Failed to create patch"
+      // phrasing so existing tests + docs still match.
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to create patch: ${errorMessage}`);
+      return;
     }
+
+    const saveUri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(`${hash.substring(0, 8)}.patch`),
+      filters: { 'Patch Files': ['patch'], 'All Files': ['*'] },
+    });
+
+    if (!saveUri) {
+      return;
+    }
+
+    // TL-38: route the user-picked save through atomicWriteFile so a
+    // partial write (EBUSY on a Windows-locked file, ENOSPC on a full
+    // disk, process kill mid-flight) never leaves a truncated `.patch`
+    // file — `git apply`/`git am` would silently fail downstream on junk.
+    // Write error is caught separately from the git exec error above so
+    // a write-only failure can't be masked by a git-exec error path in
+    // future refactors.
+    try {
+      await atomicWriteFile(saveUri.fsPath, stdout);
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
+      return;
+    }
+    void vscode.window.showInformationMessage(`Patch saved to ${saveUri.fsPath}`);
   }
 
   /**

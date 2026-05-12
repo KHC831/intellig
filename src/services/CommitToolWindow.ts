@@ -33,6 +33,7 @@ import { performCommit } from './CommitDialog';
 import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 export const COMMIT_TOOL_WINDOW_VIEW_ID = 'intellig.commitToolWindow';
 
@@ -531,8 +532,9 @@ export class CommitToolWindow extends BaseWebviewView {
 
     // Kick an async load. The initial HTML render already happened via
     // BaseWebviewView._render(); a data refresh follows once the services
-    // respond.
-    void this._reloadState();
+    // respond. Bucket C (TL-40): init path; the view rerenders on
+    // onDidChangeRepository, so a first-load reject self-heals.
+    safeFireAndForget(this._reloadState(), 'CommitToolWindow._onResolve: initial state reload');
   }
 
   /**

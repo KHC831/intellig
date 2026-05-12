@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
+import { safeFireAndForget } from './safeFireAndForget';
 
 /**
  * Abstract base class for IntelliG `WebviewViewProvider`s.
@@ -83,12 +84,24 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(
       (message: unknown) => {
+        // Bucket B (TL-40): a `void this._handleMessage(message)` used to
+        // silently swallow async rejections here. Audit of subclass
+        // handlers (CommitToolWindow._handleWebviewMessage and
+        // GitToolWindowProvider._handleWebviewMessage) showed they each
+        // internalise user-visible errors already (toasts surfaced from
+        // within the handler + postMessage failure results), so a
+        // handler-level reject is a bug signal rather than a direct
+        // user-facing failure — log with context so it's grep-able in
+        // the extension host output.
         try {
-          void this._handleMessage(message);
+          safeFireAndForget(
+            Promise.resolve(this._handleMessage(message)),
+            'BaseWebviewView.resolveWebviewView: async _handleMessage rejection'
+          );
         } catch (error) {
           // Defensive: a synchronously-thrown error from a handler must not
-          // take down the host. Async rejections are the subclass's
-          // responsibility; _handleMessage's Promise chain is not awaited here.
+          // take down the host. safeFireAndForget only catches async
+          // rejections — sync throws are handled here.
           console.error('BaseWebviewView: message handler threw', error);
         }
       },

@@ -134,7 +134,7 @@ export type {
   PullFlagKey,
 } from './PullDialog';
 
-export { PatchService, createPatchService } from './PatchService';
+export { PatchService, createPatchService, PatchWriteFailed } from './PatchService';
 
 export { ApplyPatchDialog, showApplyPatchDialog } from './ApplyPatchDialog';
 export type { IApplyPatchDialogOptions } from './ApplyPatchDialog';

@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from './interfaces/IGitService';
 import { resolveRepo } from '../utils/resolveRepo';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
  * Tree item types for the branch tree
@@ -185,8 +186,13 @@ export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeIte
       this.refresh();
     });
 
-    // Initialize with first repository
-    void this._initializeRepository();
+    // Initialize with first repository. Bucket C (TL-40): init path;
+    // `onDidChangeRepository` above picks up repos discovered later, so a
+    // cold-start failure is transient.
+    safeFireAndForget(
+      this._initializeRepository(),
+      'BranchTreeProvider.constructor: initial repository load'
+    );
   }
 
   /**

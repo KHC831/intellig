@@ -12,6 +12,7 @@ import {
 } from './interfaces/IStatusBarService';
 import { IGitService, IRepository } from './interfaces/IGitService';
 import { resolveRepo } from '../utils/resolveRepo';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
  * Default status bar display options
@@ -132,8 +133,10 @@ export class StatusBarService implements IStatusBarService {
       })
     );
 
-    // Initialize with current repository
-    void this._initialize();
+    // Initialize with current repository. Bucket C (TL-40): init path;
+    // the `onDidChangeRepository` listener above picks up late-arriving
+    // repos, so an initial failure self-heals.
+    safeFireAndForget(this._initialize(), 'StatusBarService.constructor: initial repository load');
   }
 
   /**

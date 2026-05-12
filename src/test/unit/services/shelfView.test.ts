@@ -16,6 +16,9 @@
  */
 
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { ShelfView } from '../../../services/ShelfView';
 import {
@@ -28,6 +31,7 @@ import {
 } from '../../../services/interfaces/IShelfService';
 import { IRepository, IDiff } from '../../../services/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
+import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
 
 /**
  * Build a controllable IShelfService stub. Tests push items onto `_items` and
@@ -333,6 +337,107 @@ describe('ShelfView — T2-10', () => {
         removeFromShelf: true,
         removeAppliedFiles: false,
       });
+    });
+  });
+
+  describe('createPatchFromShelf — TL-38 atomic write', () => {
+    it('writes the combined patch atomically to the user-picked path', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-shelfpatch-ok-'));
+      const outPath = path.join(tmpDir, 'wip.patch');
+
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [
+          { path: 'x.ts', diff: 'diff --git a/x.ts b/x.ts\n' },
+          { path: 'y.ts', diff: 'diff --git a/y.ts b/y.ts\n' },
+        ],
+      });
+      await view.refresh();
+
+      const originalSave = vscode.window.showSaveDialog;
+      (
+        vscode.window as unknown as {
+          showSaveDialog: () => Promise<vscode.Uri | undefined>;
+        }
+      ).showSaveDialog = async () => vscode.Uri.file(outPath);
+
+      try {
+        const result = await view.createPatchFromShelf('a');
+        assert.strictEqual(result.success, true);
+        const written = fs.readFileSync(outPath, 'utf-8');
+        assert.ok(written.includes('diff --git a/x.ts'));
+        assert.ok(written.includes('diff --git a/y.ts'));
+        // No sibling tmp-debris remains after the atomic rename.
+        const debris = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp-'));
+        assert.strictEqual(debris.length, 0, `unexpected tmp debris: ${debris.join(', ')}`);
+      } finally {
+        (vscode.window as unknown as { showSaveDialog: typeof originalSave }).showSaveDialog =
+          originalSave;
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    it('surfaces sanitised toast when atomic write fails; no success toast, no event fired', async () => {
+      // Pick a non-existent directory so atomicWriteFile's sibling-tmp
+      // write rejects with ENOENT. Exercises the catch path in
+      // createPatchFromShelf — write failure must surface as a toast,
+      // suppress the success info toast, and NOT fire onDidRequestAction.
+      const missingPath = path.join(
+        os.tmpdir(),
+        `intellig-shelfpatch-missing-${process.pid}-${Date.now()}`,
+        'wip.patch'
+      );
+
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [{ path: 'x.ts', diff: 'diff --git a/x.ts b/x.ts\n' }],
+      });
+      await view.refresh();
+
+      const tracker = installErrorMessageTracker();
+      const requestedActions: string[] = [];
+      const actionSub = view.onDidRequestAction((e) => {
+        requestedActions.push(e.action);
+      });
+      const originalSave = vscode.window.showSaveDialog;
+      (
+        vscode.window as unknown as {
+          showSaveDialog: () => Promise<vscode.Uri | undefined>;
+        }
+      ).showSaveDialog = async () => vscode.Uri.file(missingPath);
+
+      try {
+        const result = await view.createPatchFromShelf('a');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.action, 'createPatch');
+        assert.strictEqual(
+          tracker.calls.length,
+          1,
+          `expected exactly one showErrorMessage call, got ${tracker.calls.length}`
+        );
+        assert.ok(
+          tracker.calls[0].message.startsWith('Failed to write patch:'),
+          `expected user-facing prefix, got: "${tracker.calls[0].message}"`
+        );
+        assert.strictEqual(
+          requestedActions.length,
+          0,
+          'onDidRequestAction(createPatch) must not fire when the write failed'
+        );
+      } finally {
+        actionSub.dispose();
+        restoreMessageFunctions();
+        (vscode.window as unknown as { showSaveDialog: typeof originalSave }).showSaveDialog =
+          originalSave;
+      }
     });
   });
 

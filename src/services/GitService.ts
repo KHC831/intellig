@@ -53,6 +53,7 @@ import {
   getTagFormat,
 } from '../utils/gitParser';
 import { sortCommitsStable } from '../utils/commitSort';
+import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
  * Cache entry for repository information
@@ -183,15 +184,29 @@ export class GitService implements IGitService, IGitServiceCli {
         for (const folder of event.removed) {
           this.removeRepositoryWatcher(folder.uri.fsPath);
         }
-        // Discover repositories in added folders
+        // Discover repositories in added folders. Bucket C (TL-40):
+        // discovery failures here are transient (`.git/**` mid-clone,
+        // unmounted NFS, permission denied); downstream commands will
+        // retry on next invocation. Surface to console so a broken
+        // folder is debuggable without spamming the user.
         for (const folder of event.added) {
-          void this.discoverRepository(folder.uri.fsPath);
+          safeFireAndForget(
+            this.discoverRepository(folder.uri.fsPath),
+            `GitService.onDidChangeWorkspaceFolders: discover added folder ${folder.uri.fsPath}`
+          );
         }
       })
     );
 
-    // Initial repository discovery
-    void this.discoverRepositories();
+    // Initial repository discovery. Bucket C (TL-40): same rationale as
+    // above — startup race conditions (extension host activates before
+    // the workspace is ready) are the usual failure mode, and the
+    // workspace-folder listener above will pick up any late-arriving
+    // folders.
+    safeFireAndForget(
+      this.discoverRepositories(),
+      'GitService.constructor: initial repository discovery'
+    );
   }
 
   /**
@@ -431,7 +446,15 @@ export class GitService implements IGitService, IGitServiceCli {
           });
           return;
         }
-        void this._performDebouncedRefresh(rootPath);
+        // Bucket C (TL-40): `_performDebouncedRefresh` already catches its
+        // own errors internally (see the try/catch that logs to
+        // console.error around `loadRepository`), but we still route the
+        // outer call through safeFireAndForget so a future unhandled-
+        // rejection path doesn't regress silently.
+        safeFireAndForget(
+          this._performDebouncedRefresh(rootPath),
+          `GitService.setupRepositoryWatcher: debounced refresh for ${rootPath}`
+        );
       }, GitService.WATCHER_DEBOUNCE_MS);
       this._refreshTimers.set(rootPath, timer);
     };

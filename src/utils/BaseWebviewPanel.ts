@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
+import { safeFireAndForget } from './safeFireAndForget';
 
 /**
  * Abstract base class for IntelliG webview panels.
@@ -42,7 +43,30 @@ export abstract class BaseWebviewPanel {
 
     this._panel.webview.onDidReceiveMessage(
       (message: unknown) => {
-        void this._onMessage(message);
+        // Bucket B (TL-40): route async rejections through the shared
+        // helper so a subclass handler that rejects (e.g. a failed
+        // `gitService.push()` awaited inside PushDialog._onMessage) gets
+        // logged to the extension host console instead of silently
+        // dropped. Subclass handlers (PushDialog, MergeDialog,
+        // ResolveConflictsDialog, ResetDialog, ApplyPatchDialog,
+        // NewBranchDialog) each surface user-visible errors via toasts
+        // from inside their `_onMessage` implementations, so a reject
+        // that reaches this layer is a bug signal rather than a direct
+        // data-safety regression.
+        //
+        // Senior-wave4 LOW #3: also guard against sync-throws. Mirrors
+        // BaseWebviewView's pattern — a synchronously-thrown error from a
+        // future sync `_onMessage` override must not take down the
+        // extension host. `safeFireAndForget` only catches async
+        // rejections, so sync throws need this outer try/catch.
+        try {
+          safeFireAndForget(
+            Promise.resolve(this._onMessage(message)),
+            `BaseWebviewPanel.onDidReceiveMessage: async _onMessage rejection [${viewType}]`
+          );
+        } catch (error) {
+          console.error(`BaseWebviewPanel [${viewType}]: _onMessage threw synchronously`, error);
+        }
       },
       null,
       this._disposables
