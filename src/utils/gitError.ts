@@ -42,7 +42,7 @@ const CREDENTIAL_URL_REGEX = /\b(https?):\/\/([^\s:/@]+):[^@\s]*@/gi;
  * single-quoted paths, so spaces in the middle of the path don't occur
  * inside the username segment.
  *
- * ### Left-anchor (senior-wave4-r2 LOW #1)
+ * ### Left-anchor
  *
  * Group [1] captures a start-of-string OR one of the delimiters that
  * typically precede an absolute path in stderr/logs: whitespace, quote
@@ -71,12 +71,12 @@ const POSIX_HOME_PATH_REGEX = /(^|[\s'"([])\/(?:Users|home)\/([^/\s'"]+)\//g;
  * `Users` path segment both vary by locale and tool — git echoes paths
  * with mixed casing depending on how the stderr was generated.
  *
- * ### Left-anchor (senior-wave4-r3 LOW #1)
+ * ### Left-anchor
  *
  * Symmetric to the POSIX left-anchor: group [1] captures start-of-string
  * or a delimiter (whitespace, quote, open-paren/bracket) so a bare
  * bigram like `log:C:\Users\alice\...` can't collapse through the `:C:`
- * infix. The R3 forward-slash form had the same hazard with
+ * infix. The forward-slash form had the same hazard with
  * `log:/Users/alice/x` → `lo~/x`; both Windows shapes now share the
  * POSIX anchor for symmetry.
  *
@@ -99,7 +99,7 @@ const WINDOWS_BACKSLASH_HOME_PATH_REGEX = /(^|[\s'"([])([A-Za-z]):\\Users\\([^\\
  * regex would otherwise find a second match inside the already-partially-
  * redacted string.
  *
- * ### Left-anchor (senior-wave4-r3 LOW #1)
+ * ### Left-anchor
  *
  * Same left-anchor as the backslash variant. Without it,
  * `log:/Users/alice/x` gets matched on the trailing `g:/Users/alice/`

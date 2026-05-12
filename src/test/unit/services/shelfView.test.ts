@@ -441,6 +441,133 @@ describe('ShelfView — T2-10', () => {
     });
   });
 
+  describe('error sanitization — unshelve / deleteShelfItem / renameShelfItem', () => {
+    // Bracket-delimited URL triggers the CREDENTIAL_URL_REGEX pattern
+    // reliably (same sentinel used in sanitizeGitError unit tests).
+    const RAW = 'push failed: https://alice:secret@example.com/repo.git\n/Users/alice/code';
+    const EXPECTED = 'push failed: https://<redacted>@example.com/repo.git\n~/code';
+
+    it('unshelve: sanitizes both the toast and the structured error', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [{ path: 'x.ts', diff: 'diff' }],
+      });
+      await view.refresh();
+
+      // Replace the unshelve stub with one that throws a credentialed error.
+      svc.unshelve = async () => {
+        throw new Error(RAW);
+      };
+
+      const tracker = installErrorMessageTracker();
+      try {
+        // Pass options explicitly so the unshelve-options QuickPick isn't
+        // summoned. We want the error-path to run against the actual
+        // service call, not bail early on a missing dialog response.
+        const result = await view.unshelve('a', { removeFromShelf: true });
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.error, EXPECTED);
+        assert.ok(
+          !result.error?.includes('alice:secret'),
+          'structured error must not leak credentials'
+        );
+        assert.ok(
+          !result.error?.includes('/Users/alice'),
+          'structured error must not leak home path'
+        );
+        assert.strictEqual(tracker.calls.length, 1);
+        assert.strictEqual(tracker.calls[0].message, `Failed to unshelve: ${EXPECTED}`);
+      } finally {
+        restoreMessageFunctions();
+      }
+    });
+
+    it('deleteShelfItem: sanitizes both the toast and the structured error', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [{ path: 'x.ts', diff: 'diff' }],
+      });
+      await view.refresh();
+
+      svc.deleteShelfItem = (): void => {
+        throw new Error(RAW);
+      };
+
+      // Auto-confirm the Delete prompt.
+      const originalWarn = vscode.window.showWarningMessage;
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (...args: unknown[]) => Promise<string | undefined>;
+        }
+      ).showWarningMessage = async () => 'Delete';
+
+      const tracker = installErrorMessageTracker();
+      try {
+        const result = await view.deleteShelfItem('a');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.error, EXPECTED);
+        assert.ok(
+          !result.error?.includes('alice:secret'),
+          'structured error must not leak credentials'
+        );
+        assert.strictEqual(tracker.calls.length, 1);
+        assert.strictEqual(tracker.calls[0].message, `Failed to delete shelf item: ${EXPECTED}`);
+      } finally {
+        restoreMessageFunctions();
+        (
+          vscode.window as unknown as {
+            showWarningMessage: typeof originalWarn;
+          }
+        ).showWarningMessage = originalWarn;
+      }
+    });
+
+    it('renameShelfItem: sanitizes both the toast and the structured error', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'old',
+        timestamp: new Date(),
+        files: [],
+      });
+      await view.refresh();
+
+      svc.renameShelf = (): void => {
+        throw new Error(RAW);
+      };
+
+      const originalInput = vscode.window.showInputBox;
+      (
+        vscode.window as unknown as {
+          showInputBox: (opts?: unknown) => Promise<string | undefined>;
+        }
+      ).showInputBox = async () => 'new-name';
+
+      const tracker = installErrorMessageTracker();
+      try {
+        const result = await view.renameShelfItem('a');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.error, EXPECTED);
+        assert.ok(
+          !result.error?.includes('alice:secret'),
+          'structured error must not leak credentials'
+        );
+        assert.strictEqual(tracker.calls.length, 1);
+        assert.strictEqual(tracker.calls[0].message, `Failed to rename shelf: ${EXPECTED}`);
+      } finally {
+        restoreMessageFunctions();
+        (
+          vscode.window as unknown as {
+            showInputBox: typeof originalInput;
+          }
+        ).showInputBox = originalInput;
+      }
+    });
+  });
+
   describe('importPatches', () => {
     it('opens file dialog and imports each selected patch', async () => {
       const originalOpen = vscode.window.showOpenDialog;

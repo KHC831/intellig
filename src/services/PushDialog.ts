@@ -151,7 +151,7 @@ export function defaultPrimaryAction(rows: ReadonlyArray<IPushRow>): PushAction 
 }
 
 /**
- * SR-5: human-facing label for the primary button. Extracted as a pure
+ * Human-facing label for the primary button. Extracted as a pure
  * helper so the host + webview-patch pipeline stay in sync.
  */
 export function primaryButtonLabel(action: PushAction): string {
@@ -289,7 +289,7 @@ export async function runPushRow(
     };
   }
 
-  // `buildPushOptions` throws on invalid ref names (SR-3 security guard).
+  // `buildPushOptions` throws on invalid ref names.
   // Catch and surface as a row error so the dialog doesn't unmount.
   let options: IPushOptions;
   try {
@@ -350,7 +350,7 @@ interface IPushDialogMessage {
 }
 
 /**
- * SR-5: host → webview incremental-patch messages. When a user edits a row's
+ * Host → webview incremental-patch messages. When a user edits a row's
  * target field or toggles an overflow checkbox, the host would previously
  * call `_render()` to regenerate the entire body — which wiped input focus,
  * selection, and mid-word keystrokes. We now send a targeted DOM patch so
@@ -622,7 +622,7 @@ export class PushDialog extends BaseWebviewPanel {
 
     // Script is returned separately (LOW-1) so `_render()` can splice it into
     // a nonced `<script>` without fragile regex extraction. Contains the
-    // SR-5 incremental patch handlers (patchRow / patchOverflow) that replace
+    // Incremental patch handlers (patchRow / patchOverflow) that replace
     // the old full-rerender path.
     const script = `
       (function() {
@@ -677,7 +677,7 @@ export class PushDialog extends BaseWebviewPanel {
           vscode.postMessage({ type: 'cancel' });
         });
 
-        // SR-5: apply incremental host→webview patches. Only derived
+        // Apply incremental host→webview patches. Only derived
         // display state is touched; the user's checkbox / text-input
         // value is left alone so the caret doesn't bounce.
         function applyPrimary(primary) {
@@ -785,7 +785,7 @@ ${body}
         // A target-edit might flip the default primary action (divergence
         // vs. protected state), so recompute.
         this._primaryAction = defaultPrimaryAction(this._rows);
-        // SR-5: send an incremental DOM patch rather than a full
+        // Send an incremental DOM patch rather than a full
         // _render(). Full re-render steals focus mid-edit and drops
         // keystrokes.
         this._patchRow(msg.rowId);
@@ -799,7 +799,7 @@ ${body}
         if (msg.action && isPushAction(msg.action)) {
           this._primaryAction = msg.action;
         }
-        // SR-5: incremental patch; same rationale as updateRow above. The
+        // Incremental patch; same rationale as updateRow above. The
         // user's checkbox / radio is already visually toggled by the time
         // this fires — we only need to refresh derived controls (primary
         // button label + force-action option availability).
@@ -872,7 +872,7 @@ ${body}
   }
 
   /**
-   * SR-5: compute the derived primary-button payload the webview needs to
+   * Compute the derived primary-button payload the webview needs to
    * keep its label + disabled state in sync after an incremental update.
    */
   private _computePrimaryPayload(): {
@@ -891,7 +891,7 @@ ${body}
   }
 
   /**
-   * SR-5: send an incremental patch for a single row. Only derived display
+   * Send an incremental patch for a single row. Only derived display
    * state — data-protected attribute on the row, primary-button label, and
    * Force-Push-Anyway option availability — is included. The user's raw
    * inputs (checkbox, target-branch value) are NOT echoed back so we don't
@@ -912,7 +912,7 @@ ${body}
   }
 
   /**
-   * SR-5: send an incremental patch after an overflow-checkbox / force-
+   * Send an incremental patch after an overflow-checkbox / force-
    * action-select change. Updates just the primary-button label + select
    * availability.
    */

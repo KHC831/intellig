@@ -889,8 +889,9 @@ export class RebaseEditor {
   /**
    * Generate a nonce for content security policy. Delegates to the shared
    * CSPRNG-backed helper (`generateNonce`, base64url, 128-bit entropy) so
-   * every IntelliG webview uses the same nonce strategy. Was previously an
-   * inline `Math.random()`-based generator — see TL-13 / SR-R3 MEDIUM.
+   * every IntelliG webview uses the same nonce strategy. Replaces a former
+   * inline `Math.random()`-based generator so nonces are cryptographically
+   * random instead of predictable.
    */
   private _getNonce(): string {
     return generateNonce();

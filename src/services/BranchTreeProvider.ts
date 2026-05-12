@@ -186,7 +186,7 @@ export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeIte
       this.refresh();
     });
 
-    // Initialize with first repository. Bucket C (TL-40): init path;
+    // Initialize with first repository. Bucket C: init path;
     // `onDidChangeRepository` above picks up repos discovered later, so a
     // cold-start failure is transient.
     safeFireAndForget(
@@ -198,7 +198,7 @@ export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeIte
   /**
    * Initialize the current repository for this tree provider.
    *
-   * R6-Gap-C: route through `resolveRepo(preferActive: true)` so the
+   * Route through `resolveRepo(preferActive: true)` so the
    * branches view reflects the active editor's repo in multi-root
    * workspaces, not an arbitrary first-enumerated repo. Falls back to
    * discovering the first workspace folder when the git service hasn't

@@ -177,7 +177,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       this._activeDialogs.delete(key);
       // Completion or abort implies the op is finished → flip context key
       // for this repo. Other repos' active state is preserved.
-      // Bucket B (TL-40): setContext failures are cosmetic (we fall
+      // Bucket B: setContext failures are cosmetic (we fall
       // through to the next state transition), but we log them instead
       // of silently dropping the rejection so a broken setContext proxy
       // is diagnosable from the extension-host console.
@@ -210,7 +210,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
     }
     const timer = setTimeout(() => {
       this._watcherDebounces.delete(key);
-      // Bucket B (TL-40): state-file check errors are transient (race with
+      // Bucket B: state-file check errors are transient (race with
       // concurrent `.git/**` mutations); log-and-suppress is the right
       // answer here because the next watcher event will retry the check.
       // `_runStateFileCheck` returns `Promise<boolean>` so we drop the

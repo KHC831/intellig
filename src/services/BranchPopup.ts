@@ -647,7 +647,7 @@ export class BranchPopup {
       })
     );
 
-    // Initial status bar update. Bucket C (TL-40): init path, downstream
+    // Initial status bar update. Bucket C: init path, downstream
     // listeners retry on repository change; log-and-suppress is correct.
     safeFireAndForget(
       this._initializeStatusBar(),
@@ -658,7 +658,7 @@ export class BranchPopup {
   /**
    * Initialize the status bar with current repository info.
    *
-   * R6-Gap-C (M-1): route through `resolveRepo(preferActive: true)` so the
+   * Route through `resolveRepo(preferActive: true)` so the
    * active-editor's repo drives the status-bar branch display in multi-root
    * workspaces. Falls back to discovering the first workspace folder's repo
    * when the git service hasn't yet enumerated any repositories (cold start).

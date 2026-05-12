@@ -1,5 +1,5 @@
 /**
- * TL-40 — shared helper for state-sync / initialization fire-and-forget calls.
+ * Shared helper for state-sync / initialization fire-and-forget calls.
  *
  * The codebase has several `void this.asyncMethod()` patterns where the
  * caller is synchronous (event handler, constructor, debounce timer) and
@@ -12,7 +12,7 @@
  * grep for (class + method + trigger), so an extension-host trace pinpoints
  * the offending call site.
  *
- * ### Context-string convention (Wave-4 R2, senior finding #9)
+ * ### Context-string convention
  *
  * Use `ClassName.methodName: trigger-description`:
  *
@@ -56,9 +56,8 @@
  *
  * 2. **`void this.markResolved()` (MergeView:656)** — data-safety path,
  *    already handled with an internalised try/catch + sanitised toast
- *    inside `markResolved` itself (TL-37 + Wave-3 R2). The outer `void`
- *    is the dispatcher; internalisation is the right pattern, not helper
- *    wrapping.
+ *    inside `markResolved` itself. The outer `void` is the dispatcher;
+ *    internalisation is the right pattern, not helper wrapping.
  *
  * 3. **`void this.reconcileWithGitStatus(repo).catch(...)`
  *    (ChangelistService:725)** — already wears an explicit `.catch` with

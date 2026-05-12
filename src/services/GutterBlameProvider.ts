@@ -67,7 +67,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         this._optionsSource.onDidChange(() => {
           this._blameCache.clear();
           if (this._enabled && this._currentEditor) {
-            // Bucket B (TL-40): blame fetches can fail async; log+suppress
+            // Bucket B: blame fetches can fail async; log+suppress
             // so the option-source sync doesn't stall on one bad editor.
             safeFireAndForget(
               this.updateDecorations(this._currentEditor),
@@ -169,7 +169,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
-          // Bucket B (TL-40): blame fetches can fail async.
+          // Bucket B: blame fetches can fail async.
           safeFireAndForget(
             this.updateDecorations(this._currentEditor),
             'GutterBlameProvider.onDidSaveTextDocument: re-blame after save'
@@ -190,7 +190,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
 
     this._updateDebounceTimer = setTimeout(() => {
-      // Bucket B (TL-40): debounced scroll/edit update; log+suppress so
+      // Bucket B: debounced scroll/edit update; log+suppress so
       // the debounce cycle keeps firing even if one fetch rejects.
       safeFireAndForget(
         this.updateDecorations(editor),
@@ -214,7 +214,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       this._currentEditor = editor;
-      // Bucket B (TL-40): enable() is sync; async blame fetch follows.
+      // Bucket B: enable() is sync; async blame fetch follows.
       safeFireAndForget(
         this.updateDecorations(editor),
         'GutterBlameProvider.enable: initial decorations'

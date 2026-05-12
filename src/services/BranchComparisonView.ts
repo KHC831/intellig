@@ -249,7 +249,7 @@ export class BranchComparisonView implements IBranchComparisonView {
       // scheme: 'git', ... })`, which made VS Code hand the URI to its own
       // builtin `git` provider with an unexpected query shape — causing
       // "Compare Branches → file diff" to throw "Unable to resolve resource"
-      // (senior-R5 L-3, user-reported).
+      // (user-reported crash on "Compare Branches → file diff").
       const branch1Uri = vscode.Uri.parse(
         `intellig-git:${filePath}?${encodeURIComponent(this._state.branch1)}`
       );

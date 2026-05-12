@@ -34,23 +34,22 @@ const SHELF_STORAGE_FILE = 'intellig-shelf.json';
 /**
  * Shelf storage model for JSON persistence.
  *
- * TL-34 — forward-compat round-trip: unknown top-level keys and unknown
- * per-item keys are preserved verbatim across load/save cycles, mirroring
- * the TL-10 pattern applied to ChangelistService. A newer version of the
- * extension can introduce new fields without older versions silently
- * dropping them when they persist back to disk. The shape we recognise is
- * narrow (see {@link KNOWN_SHELF_TOP_LEVEL_KEYS} /
- * {@link KNOWN_SHELF_ITEM_KEYS}); everything else is captured into
- * `_unknownTopLevel` / `_unknownItem` and re-emitted on save. These two
- * fields are purely in-memory bookkeeping — they are never written to
- * disk as named keys.
+ * Forward-compat round-trip: unknown top-level keys and unknown per-item
+ * keys are preserved verbatim across load/save cycles, mirroring the same
+ * pattern applied to ChangelistService. A newer version of the extension
+ * can introduce new fields without older versions silently dropping them
+ * when they persist back to disk. The shape we recognise is narrow (see
+ * {@link KNOWN_SHELF_TOP_LEVEL_KEYS} / {@link KNOWN_SHELF_ITEM_KEYS});
+ * everything else is captured into `_unknownTopLevel` / `_unknownItem`
+ * and re-emitted on save. These two fields are purely in-memory
+ * bookkeeping — they are never written to disk as named keys.
  */
 interface IShelfStorage {
   version: number;
   items: IShelfStorageItem[];
   /**
-   * TL-34 — unknown top-level keys captured during load. Spread back out
-   * when saving so forward-compat fields survive a round trip.
+   * Unknown top-level keys captured during load. Spread back out when
+   * saving so forward-compat fields survive a round trip.
    * @internal
    */
   _unknownTopLevel?: Record<string, unknown>;
@@ -67,8 +66,8 @@ interface IShelfStorageItem {
   /** v2 (T2-10): epoch ms of successful unshelve, if the entry is Already-Unshelved. */
   unshelvedAt?: number;
   /**
-   * TL-34 — unknown per-item keys captured during load. Spread back out
-   * when saving so forward-compat fields survive a round trip.
+   * Unknown per-item keys captured during load. Spread back out when
+   * saving so forward-compat fields survive a round trip.
    * @internal
    */
   _unknownItem?: Record<string, unknown>;
@@ -77,38 +76,75 @@ interface IShelfStorageItem {
 /**
  * Shelf storage file model.
  *
- * Per-file fields are fixed — the diff payload itself is opaque text, so
- * we don't attempt unknown-key preservation at this nesting level.
+ * Per-file fields are fixed — the diff payload itself is opaque text. For
+ * forward-compat with possible future per-file metadata (e.g. binary-flag,
+ * mode bits, encoding hint), unknown keys encountered at this nesting
+ * level are captured into `_unknownFileField` and re-emitted on save,
+ * mirroring the top-level / per-item pattern above.
  */
 interface IShelfStorageFile {
   path: string;
   originalContent: string;
   patchContent: string;
+  /**
+   * Unknown per-file keys captured during load. Spread back out when
+   * saving so forward-compat per-file fields survive a round trip.
+   * @internal
+   */
+  _unknownFileField?: Record<string, unknown>;
 }
 
 /**
- * The set of known top-level keys. Used by the TL-34 round-trip logic to
- * partition a parsed payload into known vs. unknown halves. Kept in sync
- * with {@link IShelfStorage}.
+ * The set of known top-level keys. Used by the forward-compat round-trip
+ * logic to partition a parsed payload into known vs. unknown halves. Kept in
+ * sync with {@link IShelfStorage} via the compile-time `satisfies` clause —
+ * adding a field to the interface without listing it here fails the build.
+ * `_unknownTopLevel` is excluded as in-memory bookkeeping.
  */
-const KNOWN_SHELF_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(['version', 'items']);
+const KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC = {
+  version: true,
+  items: true,
+} as const satisfies Record<Exclude<keyof IShelfStorage, '_unknownTopLevel'>, true>;
+
+const KNOWN_SHELF_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC)
+);
 
 /**
  * The set of known per-item keys. Same purpose as
- * {@link KNOWN_SHELF_TOP_LEVEL_KEYS} but for individual shelf records.
- * Kept in sync with {@link IShelfStorageItem}.
+ * {@link KNOWN_SHELF_TOP_LEVEL_KEYS} but for individual shelf records. Same
+ * compile-time audit — adding a field to {@link IShelfStorageItem} requires a
+ * matching entry here or the build fails. `_unknownItem` is excluded as
+ * in-memory bookkeeping.
  */
-const KNOWN_SHELF_ITEM_KEYS: ReadonlySet<string> = new Set([
-  'id',
-  'name',
-  'timestamp',
-  'files',
-  'unshelvedAt',
-]);
+const KNOWN_SHELF_ITEM_KEYS_SPEC = {
+  id: true,
+  name: true,
+  timestamp: true,
+  files: true,
+  unshelvedAt: true,
+} as const satisfies Record<Exclude<keyof IShelfStorageItem, '_unknownItem'>, true>;
+
+const KNOWN_SHELF_ITEM_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_SHELF_ITEM_KEYS_SPEC));
 
 /**
- * TL-34 — pure version of {@link ShelfService.loadShelfStorage}'s parse
- * half, exported so property tests can exercise the load logic without
+ * The set of known per-file keys. Partitions a parsed shelf-file record into
+ * known vs. unknown halves so the unknown half survives a load/save round
+ * trip. Compile-time audit mirrors the top-level / per-item registries —
+ * `_unknownFileField` is the only excluded key because it's in-memory
+ * bookkeeping.
+ */
+const KNOWN_SHELF_FILE_KEYS_SPEC = {
+  path: true,
+  originalContent: true,
+  patchContent: true,
+} as const satisfies Record<Exclude<keyof IShelfStorageFile, '_unknownFileField'>, true>;
+
+const KNOWN_SHELF_FILE_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_SHELF_FILE_KEYS_SPEC));
+
+/**
+ * Pure version of {@link ShelfService.loadShelfStorage}'s parse half,
+ * exported so property tests can exercise the load logic without
  * constructing the whole service. Unit tests rely on this matching the
  * class method exactly.
  *
@@ -146,11 +182,20 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
     const files = Array.isArray(item.files)
       ? (item.files as unknown[]).map((f): IShelfStorageFile => {
           const fileRec = f !== null && typeof f === 'object' ? (f as Record<string, unknown>) : {};
+          const unknownFileField: Record<string, unknown> = {};
+          for (const k of Object.keys(fileRec)) {
+            if (!KNOWN_SHELF_FILE_KEYS.has(k)) {
+              unknownFileField[k] = fileRec[k];
+            }
+          }
           return {
             path: typeof fileRec.path === 'string' ? fileRec.path : '',
             originalContent:
               typeof fileRec.originalContent === 'string' ? fileRec.originalContent : '',
             patchContent: typeof fileRec.patchContent === 'string' ? fileRec.patchContent : '',
+            ...(Object.keys(unknownFileField).length > 0
+              ? { _unknownFileField: unknownFileField }
+              : {}),
           };
         })
       : [];
@@ -182,14 +227,15 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
 }
 
 /**
- * TL-34 — serialize an in-memory shelf storage back to the on-disk JSON
- * shape.
+ * Serialize an in-memory shelf storage back to the on-disk JSON shape.
  *
  * Known keys emit in the fixed order `{version, items, ...unknownTopLevel}`;
  * per-item keys emit in the fixed order
- * `{id, name, timestamp, files, unshelvedAt?, ...unknownItem}`. The
- * internal bookkeeping fields (`_unknownTopLevel`, `_unknownItem`) are
- * consumed here and MUST NOT appear in the emitted JSON.
+ * `{id, name, timestamp, files, unshelvedAt?, ...unknownItem}`; per-file
+ * keys emit in the fixed order
+ * `{path, originalContent, patchContent, ...unknownFileField}`. The internal
+ * bookkeeping fields (`_unknownTopLevel`, `_unknownItem`, `_unknownFileField`)
+ * are consumed here and MUST NOT appear in the emitted JSON.
  *
  * Exported only for tests — production code always goes through
  * {@link ShelfService.saveShelfStorage}.
@@ -202,11 +248,14 @@ export function serializeShelfForDisk(storage: IShelfStorage): Record<string, un
       id: item.id,
       name: item.name,
       timestamp: item.timestamp,
-      files: item.files.map((f) => ({
-        path: f.path,
-        originalContent: f.originalContent,
-        patchContent: f.patchContent,
-      })),
+      files: item.files.map((f) => {
+        const knownFile: Record<string, unknown> = {
+          path: f.path,
+          originalContent: f.originalContent,
+          patchContent: f.patchContent,
+        };
+        return f._unknownFileField ? { ...knownFile, ...f._unknownFileField } : knownFile;
+      }),
     };
     if (item.unshelvedAt !== undefined) {
       known.unshelvedAt = item.unshelvedAt;
@@ -778,8 +827,8 @@ export class ShelfService implements IShelfService {
   /**
    * Load shelf storage from file.
    *
-   * TL-34: parse into a `Record<string, unknown>` first, then partition
-   * into known/unknown keys at both the top level and per-item level so
+   * Parse into a `Record<string, unknown>` first, then partition into
+   * known/unknown keys at both the top level and per-item level so
    * forward-compat fields survive a round trip. See
    * {@link migrateShelfStorageForTest} for the pure test-exported variant.
    *
@@ -809,8 +858,8 @@ export class ShelfService implements IShelfService {
   /**
    * Save shelf storage to file.
    *
-   * TL-34: route through {@link serializeShelfForDisk} so `_unknownTopLevel`
-   * / `_unknownItem` get spread back out as anonymous sibling keys and the
+   * Route through {@link serializeShelfForDisk} so `_unknownTopLevel` /
+   * `_unknownItem` get spread back out as anonymous sibling keys and the
    * internal bookkeeping names never appear in the JSON.
    *
    * @param repo - The repository

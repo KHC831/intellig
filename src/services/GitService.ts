@@ -90,7 +90,7 @@ export class GitService implements IGitService, IGitServiceCli {
   /**
    * Latched on `dispose()`. Guards every watcher callback path so that an
    * in-flight `loadRepository` promise can't schedule a fresh debounce timer
-   * or fire the change emitter against a disposed service (task #98 F1).
+   * or fire the change emitter against a disposed service.
    *
    * Without this, a window reload that lands mid-reload leaks an untracked
    * timer via the `.finally(() => handleChange())` chain — `dispose()` clears
@@ -129,15 +129,15 @@ export class GitService implements IGitService, IGitServiceCli {
    *    branch change is captured by HEAD/refs/** which we already watch.
    *  - `config` — remote URL / user / alias edits are rare and editor-driven;
    *    deliberately not watched. Fresh values are picked up via the 5 s cache
-   *    TTL on `_repositories` plus any explicit reload path (task #98 F4).
+   *    TTL on `_repositories` plus any explicit reload path.
    *  - `modules/**` — submodule state changes surface through the parent
    *    repo's `HEAD` / `index` updates; the inner `.git/modules/<name>/`
    *    tree is deliberately not watched. Relies on the 5 s cache TTL +
-   *    explicit reload (task #98 F4).
+   *    explicit reload.
    *  - `worktrees/**` — linked-worktree metadata (`git worktree add/remove`)
    *    mutates here but the active worktree's state is already reflected
    *    through the other allow-listed entries. Deliberately not watched;
-   *    relies on the 5 s cache TTL + explicit reload (task #98 F4).
+   *    relies on the 5 s cache TTL + explicit reload.
    */
   private static readonly WATCHED_GIT_PATTERNS: readonly string[] = [
     'HEAD',
@@ -184,7 +184,7 @@ export class GitService implements IGitService, IGitServiceCli {
         for (const folder of event.removed) {
           this.removeRepositoryWatcher(folder.uri.fsPath);
         }
-        // Discover repositories in added folders. Bucket C (TL-40):
+        // Discover repositories in added folders. Bucket C:
         // discovery failures here are transient (`.git/**` mid-clone,
         // unmounted NFS, permission denied); downstream commands will
         // retry on next invocation. Surface to console so a broken
@@ -198,7 +198,7 @@ export class GitService implements IGitService, IGitServiceCli {
       })
     );
 
-    // Initial repository discovery. Bucket C (TL-40): same rationale as
+    // Initial repository discovery. Bucket C: same rationale as
     // above — startup race conditions (extension host activates before
     // the workspace is ready) are the usual failure mode, and the
     // workspace-folder listener above will pick up any late-arriving
@@ -416,7 +416,7 @@ export class GitService implements IGitService, IGitServiceCli {
     const handleChange = (): void => {
       // First-line dispose gate: chained re-entries from `.finally()` below
       // or late-arriving watcher events must become no-ops once dispose()
-      // has latched (task #98 F1).
+      // has latched.
       if (this._disposed) {
         return;
       }
@@ -426,7 +426,7 @@ export class GitService implements IGitService, IGitServiceCli {
       }
       const timer = setTimeout(() => {
         // Same gate inside the timer callback — dispose() may have landed
-        // between scheduling and firing (task #98 F1).
+        // between scheduling and firing.
         if (this._disposed) {
           return;
         }
@@ -446,7 +446,7 @@ export class GitService implements IGitService, IGitServiceCli {
           });
           return;
         }
-        // Bucket C (TL-40): `_performDebouncedRefresh` already catches its
+        // Bucket C: `_performDebouncedRefresh` already catches its
         // own errors internally (see the try/catch that logs to
         // console.error around `loadRepository`), but we still route the
         // outer call through safeFireAndForget so a future unhandled-
@@ -466,7 +466,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // workspace-folder removal. Disposable.dispose() is idempotent so it
     // wasn't user-visible, but the entry slowly accumulated across the
     // session. Only the _onDidChangeRepository emitter and other process-
-    // lifetime disposables belong in `_disposables` (task #98 F2).
+    // lifetime disposables belong in `_disposables`.
     const watchers: vscode.FileSystemWatcher[] = [];
     for (const pattern of GitService.WATCHED_GIT_PATTERNS) {
       const watcher = vscode.workspace.createFileSystemWatcher(
@@ -492,8 +492,7 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   private async _performDebouncedRefresh(rootPath: string): Promise<void> {
     // Re-check the dispose latch at the start of the async tail — the timer
-    // callback that scheduled us may have won the race against dispose()
-    // (task #98 F1).
+    // callback that scheduled us may have won the race against dispose().
     if (this._disposed) {
       return;
     }
@@ -504,7 +503,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // always cleared, but fire the emitter *outside* the catch block:
     // otherwise a subscriber throwing synchronously gets re-wrapped as a
     // "repository reload failed" error, which is both misleading and hides
-    // the real bug location (task #98 F3).
+    // the real bug location.
     let repo: IRepository | undefined;
     try {
       repo = await reload;
@@ -1543,7 +1542,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // Deterministic sort: primary by commit date, secondary by
     // parent-before-child (topological) inside date-tied groups, and only
     // falling back to hash-alphabetical when no parent edge disambiguates.
-    // See `src/utils/commitSort.ts` for the full rationale (SR-R3 LOW / TR-5).
+    // See `src/utils/commitSort.ts` for the full rationale.
     const sortedInfos = sortCommitsStable(commitInfos);
 
     const oldestCommit = sortedInfos[0].hash;
@@ -2142,7 +2141,7 @@ export class GitService implements IGitService, IGitServiceCli {
   dispose(): void {
     // Latch the dispose flag first so any in-flight `loadRepository` promise
     // that resolves after this point becomes a no-op when its `.finally(() =>
-    // handleChange())` chain re-enters (task #98 F1). This is the primary
+    // handleChange())` chain re-enters. This is the primary
     // defense against calling `git spawn` + `_onDidChangeRepository.fire()`
     // on a disposed service during a window reload that catches a reload
     // mid-flight.

@@ -146,3 +146,161 @@ reading across two files isn't paid back by a single caller.
   that the frozen `IGitService` composite deliberately doesn't wrap: see
   `IGitServiceCli` in `src/services/interfaces/IGitService.ts`. That's a
   production interface (marked `@internal`), not a TestSurface.
+
+## §6. Lint rules that catch real bugs
+
+A handful of lint rules have caught real production defects in this repo.
+This section teaches the pattern each rule detects so you recognise it in
+a PR before the linter does. For policy on suppressing a rule, see
+[CONTRIBUTING.md → Suppressing a lint rule](../CONTRIBUTING.md#suppressing-a-lint-rule).
+
+- **`@typescript-eslint/no-floating-promises`** — a `Promise` whose
+  rejection nobody ever observes. The classic catch here isn't a
+  production fire-and-forget; it's a test that *claims* to assert
+  something but silently passes because the assertion lives behind an
+  unawaited call. The regex double-count bug in
+  `BranchContextMenuCommands._parseConflictCount` (a case-insensitive
+  `/CONFLICT/gi` matched both `CONFLICT` and `conflict in` on the same
+  line, inflating the count the pull-fallback dialog rendered — user
+  saw "merge shows 6 conflicts but the file only has 3") survived for
+  multiple PRs because its property test called
+  `fc.assert(fc.property(...))` without `await`. The `Promise`
+  resolved-via-throw into nothing; mocha reported the test as green;
+  the regex kept over-counting. A `no-floating-promises` lint would
+  have flagged the unawaited `fc.assert` at the point it was
+  introduced. When a fire-and-forget is genuinely intentional
+  (state-sync refresh, init path), route through
+  `safeFireAndForget(promise, label)` so the rejection lands on
+  `console.error` with a contextual label rather than disappearing.
+
+- **`@typescript-eslint/no-misused-promises`** — an async function
+  passed where a sync callback is expected (e.g. `setTimeout`, event
+  handlers). The runtime silently swallows rejections and the caller
+  sees "nothing happened." If you hit this rule inside an event handler
+  and genuinely want fire-and-forget semantics, wrap through
+  `safeFireAndForget` or declare the handler sync and route the work to
+  a dedicated promise chain.
+
+- **`@typescript-eslint/await-thenable`** — `await` on a non-Promise
+  silently resolves to the value. Harmless in toy code; a latent bug in
+  a refactor that changed a method from async to sync without updating
+  call sites. The rule catches it at compile time.
+
+- **`@typescript-eslint/no-base-to-string`** — string-concatenating an
+  object that didn't override `toString()` surfaces `[object Object]`
+  in logs and (worse) in user-facing error toasts. The rule flags any
+  template literal or `+` operator where a non-stringifiable value can
+  flow in.
+
+## §7. Data-safety patterns
+
+Two patterns live under this umbrella: forward-compat storage (survive
+version skew across reader / writer) and atomic working-tree writes
+(survive partial-failure mid-flight). Both defend against the same class
+of failure — persisting half-state that a later read observes as
+authoritative — and the testing strategies are parallel enough that they
+read best side-by-side.
+
+### 7.1. Storage forward-compat registry
+
+Services that persist JSON to the `.git/` directory (currently
+`ChangelistService` → `intellig-changelists.json` and `ShelfService` →
+`intellig-shelf.json`) follow a common forward-compat pattern so an older
+version of the extension doesn't silently drop fields emitted by a newer
+version when it reads and re-saves the file:
+
+1. Declare a narrow storage interface (`IChangelistStorage` /
+   `IShelfStorage`) listing only the keys the current version
+   recognises.
+2. Declare a `KNOWN_*_KEYS_SPEC` `satisfies` literal that causes the
+   build to fail if a new field is added to the interface without being
+   registered in the spec. The `Set` used at runtime is derived from the
+   spec via `Object.keys(...)` so the two can never drift.
+3. During load (`migrateStorageForTest` / `migrateShelfStorageForTest`),
+   partition the parsed record into known vs. unknown keys; stash the
+   unknown half on `_unknownTopLevel` (top-level) or `_unknownItem`
+   (per-item) or `_unknownFileField` (per-file, shelf only). These are
+   in-memory bookkeeping — they never themselves appear as on-disk keys.
+4. During save (`serializeStorageForDisk` / `serializeShelfForDisk`),
+   emit the known keys in a stable order, then spread the captured
+   unknowns back out as anonymous siblings.
+
+Property tests assert the round trip with a fast-check arbitrary that
+injects a few arbitrary-named scalar extras at each level:
+
+```ts
+fc.assert(
+  fc.property(payloadArb, (raw) => {
+    const onDisk = mkPayload(raw);            // JSON-shaped input
+    const loaded = migrateStorageForTest(onDisk);
+    const emitted = serializeStorageForDisk(loaded);
+    for (const k of Object.keys(raw.topLevelUnknown)) {
+      assert.deepStrictEqual(emitted[k], raw.topLevelUnknown[k]);
+    }
+  })
+);
+```
+
+Plus a hand-crafted pinned regression `it(...)` that locks in a
+realistic forward-compat payload (e.g. a top-level `schemaExtension`
+object, per-item `labels`/`priority`, per-file `isBinary`/`encoding`).
+
+Reference implementations:
+- `src/services/ChangelistService.ts` — `KNOWN_TOP_LEVEL_KEYS_SPEC` /
+  `KNOWN_ITEM_KEYS_SPEC`; `migrateStorageForTest` /
+  `serializeStorageForDisk`.
+- `src/services/ShelfService.ts` — `KNOWN_SHELF_TOP_LEVEL_KEYS_SPEC` /
+  `KNOWN_SHELF_ITEM_KEYS_SPEC` / `KNOWN_SHELF_FILE_KEYS_SPEC`;
+  `migrateShelfStorageForTest` / `serializeShelfForDisk`.
+
+Reference property suites:
+- `src/test/property/changelistStorageRoundTrip.property.test.ts`
+- `src/test/property/shelfStorageRoundTrip.property.test.ts`
+
+### 7.2. Atomic-write testing patterns
+
+All writes from `PatchService.createPatchFromLocalChanges`,
+`ShelfView.createPatchFromShelf`, `CommitContextMenuCommands` patch
+export, `MergeView.markResolved`, `ChangelistService.saveChangelistStorage`,
+and `ShelfService.saveShelfStorage` route through `atomicWriteFile` in
+`src/utils/atomicWrite.ts`. This matters because a partial write (EBUSY
+on a Windows-locked file, ENOSPC on a full disk, SIGKILL mid-flight)
+must never leave a truncated file at the target path — downstream
+consumers (`git apply`, `git am`, storage loaders) silently fail on junk.
+
+Three test patterns give us confidence these sites stay honest:
+
+1. **Injection seam — `IAtomicWriteFsAsync`.** `atomicWriteFile`
+   accepts an optional `fs` dependency matching
+   `IAtomicWriteFsAsync`. Unit tests pass a synthetic fs whose `rename`
+   throws EBUSY / `writeFile` throws ENOSPC / `unlink` throws ENOENT
+   etc., and assert that the target file is left in its previous state
+   and that the sibling `<target>.tmp-<pid>-<ts>` is cleaned up (or
+   demonstrably removed even under failure).
+
+2. **Real-fs integration — `mkdtemp` + happy path + fault injection.**
+   Integration tests (`patchService.test.ts`,
+   `shelfView.test.ts` `createPatchFromShelf`,
+   `commitContextMenu.test.ts`) use a real
+   `fs.mkdtempSync(os.tmpdir() + '/...-')` workspace, call through the
+   public API, read the resulting file, and assert content. For the
+   fault-injection half, they point the save dialog at a path whose
+   parent directory does not exist — this is the canonical cheap fault
+   because `atomicWriteFile` naturally rejects with ENOENT when its
+   sibling-tmp write can't open its parent.
+
+3. **Sibling-tmp-debris hygiene.** After a successful write, the
+   directory listing must contain the target file and nothing else that
+   matches the `.tmp-` discriminator. After a failed write, the target
+   must not exist and no `.tmp-*` sibling may remain. Both assertions
+   are cheap and cover the "rename survived but tmp leaked" and
+   "tmp survived but rename rolled back" failure modes.
+
+Reference test files:
+- `src/test/unit/services/patchService.test.ts` (integration + atomic)
+- `src/test/unit/services/shelfView.test.ts` (`createPatchFromShelf` —
+  TL-38 atomic write)
+- `src/test/unit/commands/CommitContextMenuCommands.test.ts`
+  (commit-context patch export: atomic write + fault injection)
+- `src/test/unit/utils/atomicWrite.test.ts` (unit-level fault injection
+  via `IAtomicWriteFsAsync`)

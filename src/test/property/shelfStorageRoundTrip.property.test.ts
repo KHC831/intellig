@@ -49,17 +49,25 @@ describe('ShelfService storage round-trip — TL-34', () => {
             'timestamp',
             'files',
             'unshelvedAt',
+            // per-file known keys
+            'path',
+            'originalContent',
+            'patchContent',
           ].includes(k)
       ),
     unknownScalarArb,
     { minKeys: 0, maxKeys: 4 }
   );
 
-  /** A known shelf file entry. Per-file nesting is intentionally opaque. */
+  /**
+   * A shelf file entry with arbitrary unknown per-file fields merged on top.
+   * Exercises the TL-39 `_unknownFileField` forward-compat seam.
+   */
   const fileArb = fc.record({
     path: fc.string({ minLength: 1, maxLength: 24 }),
     originalContent: fc.string({ minLength: 0, maxLength: 64 }),
     patchContent: fc.string({ minLength: 0, maxLength: 128 }),
+    unknown: unknownRecordArb,
   });
 
   /** A known shelf item merged with arbitrary unknown fields. */
@@ -76,6 +84,7 @@ describe('ShelfService storage round-trip — TL-34', () => {
     path: string;
     originalContent: string;
     patchContent: string;
+    unknown: Record<string, unknown>;
   }
 
   interface IItem {
@@ -105,7 +114,12 @@ describe('ShelfService storage round-trip — TL-34', () => {
       id: it.id,
       name: it.name,
       timestamp: it.timestamp,
-      files: it.files.map((f) => ({ ...f })),
+      files: it.files.map((f) => ({
+        path: f.path,
+        originalContent: f.originalContent,
+        patchContent: f.patchContent,
+        ...f.unknown,
+      })),
       ...(it.unshelvedAt !== undefined ? { unshelvedAt: it.unshelvedAt } : {}),
       ...it.unknown,
     }));
@@ -199,13 +213,69 @@ describe('ShelfService storage round-trip — TL-34', () => {
           assert.strictEqual(outItems[i].id, raw.items[i].id);
           assert.strictEqual(outItems[i].name, raw.items[i].name);
           assert.strictEqual(outItems[i].timestamp, raw.items[i].timestamp);
-          assert.deepStrictEqual(outItems[i].files, raw.items[i].files);
+          const outFiles = outItems[i].files as Array<Record<string, unknown>>;
+          assert.strictEqual(outFiles.length, raw.items[i].files.length);
+          for (let j = 0; j < raw.items[i].files.length; j++) {
+            const rawFile = raw.items[i].files[j];
+            assert.strictEqual(outFiles[j].path, rawFile.path);
+            assert.strictEqual(outFiles[j].originalContent, rawFile.originalContent);
+            assert.strictEqual(outFiles[j].patchContent, rawFile.patchContent);
+          }
           if (raw.items[i].unshelvedAt !== undefined) {
             assert.strictEqual(outItems[i].unshelvedAt, raw.items[i].unshelvedAt);
           } else {
             assert.ok(
               !Object.prototype.hasOwnProperty.call(outItems[i], 'unshelvedAt'),
               'unshelvedAt should be absent when undefined'
+            );
+          }
+        }
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('round-trips unknown per-file keys unchanged', () => {
+    fc.assert(
+      fc.property(payloadArb, (raw) => {
+        const onDisk = mkPayload(raw);
+        const loaded = migrateShelfStorageForTest(onDisk);
+        const emitted = serializeShelfForDisk(loaded);
+
+        const outItems = emitted.items as Array<Record<string, unknown>>;
+        for (let i = 0; i < raw.items.length; i++) {
+          const outFiles = outItems[i].files as Array<Record<string, unknown>>;
+          assert.strictEqual(outFiles.length, raw.items[i].files.length);
+          for (let j = 0; j < raw.items[i].files.length; j++) {
+            const expected = raw.items[i].files[j].unknown;
+            for (const k of Object.keys(expected)) {
+              assert.deepStrictEqual(
+                outFiles[j][k],
+                expected[k],
+                `item[${i}].files[${j}] key "${k}" was dropped or mutated`
+              );
+            }
+          }
+        }
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  it('does not emit the per-file bookkeeping field on disk', () => {
+    fc.assert(
+      fc.property(payloadArb, (raw) => {
+        const onDisk = mkPayload(raw);
+        const loaded = migrateShelfStorageForTest(onDisk);
+        const emitted = serializeShelfForDisk(loaded);
+
+        const outItems = emitted.items as Array<Record<string, unknown>>;
+        for (const item of outItems) {
+          const outFiles = item.files as Array<Record<string, unknown>>;
+          for (const file of outFiles) {
+            assert.ok(
+              !Object.prototype.hasOwnProperty.call(file, '_unknownFileField'),
+              '_unknownFileField leaked to emitted JSON'
             );
           }
         }
@@ -233,6 +303,11 @@ describe('ShelfService storage round-trip — TL-34', () => {
               path: 'src/a.ts',
               originalContent: 'old',
               patchContent: 'diff --git ...',
+              // Per-file forward-compat extension: a future version might
+              // stamp a binary-flag or encoding hint here. Must survive
+              // round-trip through an older reader.
+              isBinary: false,
+              encoding: 'utf-8',
             },
           ],
           labels: ['release', 'wip'],
@@ -264,5 +339,14 @@ describe('ShelfService storage round-trip — TL-34', () => {
     assert.strictEqual(outItems[1].priority, 7);
     // Known optional field round-trips too.
     assert.strictEqual(outItems[1].unshelvedAt, 1_700_000_200_000);
+
+    // Per-file forward-compat fields survive the round trip.
+    const firstItemFiles = outItems[0].files as Array<Record<string, unknown>>;
+    assert.strictEqual(firstItemFiles[0].isBinary, false);
+    assert.strictEqual(firstItemFiles[0].encoding, 'utf-8');
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(firstItemFiles[0], '_unknownFileField'),
+      '_unknownFileField must not leak to emitted JSON'
+    );
   });
 });

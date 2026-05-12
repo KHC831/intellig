@@ -164,7 +164,7 @@ export class AutoFetchService implements IAutoFetchService {
     const delay = baseMs * this._backoffMultiplier;
     this._timer = setTimeout(() => {
       this._timer = undefined;
-      // Bucket C (TL-40): timer tick is a watcher-style callback; `_tick`
+      // Bucket C: timer tick is a watcher-style callback; `_tick`
       // internalises its own auth/backoff toasts. Log+suppress keeps the
       // schedule alive on transient rejections.
       safeFireAndForget(this._tick(), 'AutoFetchService.reschedule: timer tick');

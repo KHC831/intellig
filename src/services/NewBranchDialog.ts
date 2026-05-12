@@ -46,7 +46,7 @@ export function validateNewBranchName(value: string): string | undefined {
     return 'Branch name cannot be empty';
   }
   // Security: reject leading `-` (git parses `-foo` as a CLI flag) and
-  // leading `.` (invalid per git-check-ref-format). Mirrors R1 SR-3.
+  // leading `.` (invalid per git-check-ref-format).
   if (!/^(?![-.])[\w\-./]+$/.test(value)) {
     return 'Branch name contains invalid characters';
   }

@@ -917,7 +917,7 @@ export class BranchContextMenuCommands {
       // dialog if any are present. Pull-using-rebase maps to `'rebase'` and
       // pull-using-merge maps to `'merge'` — conceptually the same
       // post-conflict states merge / rebase produce directly.
-      // Wave-3-R2: wrap the probe + dialog handoff in an inner try/catch so
+      // Wrap the probe + dialog handoff in an inner try/catch so
       // a probe failure (git process crash, transient fs/access issue) does
       // NOT swallow the original pull error. Before this guard, a throw
       // from `getConflictedFiles` (or from the dialog wiring) escaped the

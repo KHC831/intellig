@@ -18,15 +18,15 @@ import { GitCli, createGitCli, IGitCommandResult } from '../utils/gitCli';
  * Rebase Service implementation.
  * Manages interactive rebase operations including starting, modifying, and controlling rebases.
  *
- * TL-34 audit note (parallel to the TL-10 / TL-34 round-trip work on
- * ChangelistService + ShelfService): RebaseService holds zero
+ * Persistent-state audit (parallel to the forward-compat round-trip work
+ * on ChangelistService + ShelfService): RebaseService holds zero
  * IntelliG-owned persistent state. All rebase session state lives in
  * git's own `.git/rebase-merge/*` metadata (`onto`, `head-name`,
  * `git-rebase-todo`, `done`, …) — git both writes and consumes those
  * files. The only thing this service writes is an ephemeral
  * `.git/rebase-todo-script.sh` sequence editor that's deleted after
  * `git rebase -i` returns. There is no JSON / YAML / plist payload we
- * could lose forward-compat fields in, and therefore no TL-10 round-trip
+ * could lose forward-compat fields in, and therefore no round-trip
  * pattern is needed here. In-memory `_sessions` is the only IntelliG
  * representation and it's ephemeral per extension activation. If a
  * future change introduces persistent rebase-session metadata (e.g. a

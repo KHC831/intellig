@@ -187,7 +187,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private _historyTab: HistoryTab | undefined;
 
   /**
-   * TL-17 — disposable for the `onDidChangeRepository` subscription wired by
+   * Disposable for the `onDidChangeRepository` subscription wired by
    * {@link attachGitService}. Held so a second `attachGitService` call (e.g.
    * in tests) can dispose the prior subscription before wiring a new one.
    */
@@ -340,14 +340,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     });
     this._tabRouter.register('history', this._historyTab.asTabHandler());
 
-    // TL-17 — parsed-remote cache must be invalidated whenever a repository
+    // Parsed-remote cache must be invalidated whenever a repository
     // mutates (e.g. the user runs `git remote set-url`), otherwise
     // `_getDetailsPanelHtml` keeps rendering issue/PR links against the old
     // forge URL until the extension reloads. Subscribe once per attached
     // service and drop both the prior subscription and any stale cache
     // entries on re-attach.
     //
-    // S-2 (R2 polish) — deliberately NOT pushed into `_disposables`: that
+    // Deliberately NOT pushed into `_disposables`: that
     // would leak a stale entry per re-attach (the disposed disposable stays
     // pinned in the array). The subscription is disposed in {@link dispose}
     // instead, which always holds exactly one reference to the live one.
@@ -3951,8 +3951,8 @@ interface IWebviewMessage {
   tab?: TabId;
 }
 
-// Nonce generation is owned by `BaseWebviewView._getNonce()` (TL-16), which
+// Nonce generation is owned by `BaseWebviewView._getNonce()`, which
 // delegates to the shared `generateNonce()` helper in `utils/webviewNonce.ts`
-// so every IntelliG webview produces nonces with identical shape + entropy
-// (SR-6, TL-12). All three HTML emitters in this file call `this._getNonce()`
-// directly; the former module-local `getNonce()` has been removed.
+// so every IntelliG webview produces nonces with identical shape + entropy.
+// All three HTML emitters in this file call `this._getNonce()` directly;
+// the former module-local `getNonce()` has been removed.

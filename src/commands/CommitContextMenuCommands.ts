@@ -114,11 +114,11 @@ export class CommitContextMenuCommands {
   /**
    * Resolve the repository the current action should target.
    *
-   * R5 H-3: previously pinned `getRepositories()[0]`, which silently targeted
+   * Previously pinned `getRepositories()[0]`, which silently targeted
    * the wrong repo in multi-root workspaces for every destructive action in
    * this class. Routes through `resolveRepo(preferActive: true, silent: true)`
    * so the action follows the same fallback chain as other multi-root-aware
-   * entry points (see `CommitToolWindow._firstRepo`, R1-HIGH SR-8).
+   * entry points (see `CommitToolWindow._resolveRepo`).
    */
   private async _getRepository(): Promise<IRepository | undefined> {
     return this._resolveRepo(this._gitService, {
@@ -803,9 +803,9 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // TL-38: route the user-picked save through atomicWriteFile so a
-    // partial write (EBUSY on a Windows-locked file, ENOSPC on a full
-    // disk, process kill mid-flight) never leaves a truncated `.patch`
+    // Route the user-picked save through atomicWriteFile so a partial
+    // write (EBUSY on a Windows-locked file, ENOSPC on a full disk,
+    // process kill mid-flight) never leaves a truncated `.patch`
     // file — `git apply`/`git am` would silently fail downstream on junk.
     // Write error is caught separately from the git exec error above so
     // a write-only failure can't be masked by a git-exec error path in
@@ -844,7 +844,7 @@ export class CommitContextMenuCommands {
       // extension.ts::registerGitContentProvider) reads the URI query as the
       // raw, URL-encoded git ref. Prior shape used the unregistered
       // `git-show:` scheme with a JSON query, causing VS Code to fail to
-      // resolve the left-hand side of the diff (senior-R5 L-3, user-reported).
+      // resolve the left-hand side of the diff (user-reported crash).
       const firstDiff = diffs[0];
       const commitUri = vscode.Uri.parse(
         `intellig-git:${firstDiff.path}?${encodeURIComponent(hash)}`

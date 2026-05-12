@@ -33,6 +33,136 @@ npm run format:check  # Check formatting (Prettier)
 npm run format        # Fix formatting
 ```
 
+CI enforces zero errors and zero warnings (`npm run lint -- --max-warnings 0`).
+Drift from that baseline blocks merge.
+
+### Suppressing a lint rule
+
+Lint rules in this repo aren't cosmetic — see
+[`docs/testing.md` §6](docs/testing.md#6-lint-rules-that-catch-real-bugs)
+for the class of production bugs they've caught. Before reaching for a
+disable, check whether the rule is pointing at something real. When a
+disable is genuinely the right call, follow these conventions so every
+suppression is reviewable on its own.
+
+- **Preferred shape: `eslint-disable-next-line` with a rationale.** The
+  disable applies to exactly one line and the rationale lives on the
+  same line, right after a `--` separator:
+
+  ```ts
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises -- fire-and-forget timer; rejection logged to OutputChannel
+  setTimeout(() => this._refresh(), 300);
+  ```
+
+  The `--` form is readable in diffs, greppable by rule name, and
+  explicit about *why* the rule doesn't apply here.
+
+- **File-level `/* eslint-disable <rule> */`** — reserved for files
+  where the rule genuinely doesn't apply at all (generated code, test
+  scaffolding with an intentional structural shape the rule rejects).
+  Requires a JSDoc-style rationale comment at the top of the file
+  explaining the scope:
+
+  ```ts
+  /* eslint-disable @typescript-eslint/require-await --
+   * Test stub factories synthesise IShelfService implementations
+   * whose method signatures return Promise<T>; the no-await stub
+   * bodies are intentional to match the interface contract.
+   */
+  ```
+
+- **Blanket `/* eslint-disable */`** — don't. If more than one rule is
+  genuinely noise for a file, list them by name in a file header so the
+  next reader sees which rules you meant to silence and can reconsider
+  each one independently.
+
+- **Review expectation.** Every new disable is a reviewer finding. The
+  reviewer either accepts the rationale or asks you to rewrite the code
+  so the rule passes. Code that silently introduces disables under the
+  radar regresses the lint baseline — we've spent several phases
+  cleaning it up and the zero-warning gate exists so the work stays
+  done.
+
+#### Pre-approved disables
+
+A narrow set of disables is already accepted in this repo and does not
+need per-PR review. Reviewers may still push back, but the onus is on
+the reviewer to justify tightening — the patterns below have been
+audited and land the "disable is cheaper than rewrite" way.
+
+- **`@typescript-eslint/require-await` on interface-contract methods
+  whose body is legitimately synchronous.** Several `ChangelistService`
+  entry points (`setActiveChangelist`, `getActiveChangelist`,
+  `getChangelistForFile`) return `Promise<T>` because the interface
+  contract commits to an async shape even though the current
+  implementation resolves synchronously — a future cache-miss path
+  (deferred storage read, lazy revalidation) will actually await, and
+  the public signature should not churn when that lands. Any symmetric
+  `ShelfService` / other service method with the same interface-first
+  rationale qualifies. Use `eslint-disable-next-line` with a rationale
+  naming the interface contract.
+
+- **File-level `require-await` disable for test-stub factory files that
+  follow the variadic-`unknown[]` `throwError` pattern
+  (see [`docs/testing.md` §3](docs/testing.md#3-the-testsurface-idiom)).**
+  Those factories synthesise service implementations whose method
+  signatures return `Promise<T>`; the no-await stub bodies are
+  intentional because the whole point is that every method throws. A
+  JSDoc-style file-header disable with a pointer to the pattern doc is
+  the right shape.
+
+### Upgrading `@typescript-eslint`
+
+Each `@typescript-eslint` minor/major bump ships new rules. We treat
+rule adoption as a deliberate engineering decision, not a default, so
+the bump goes through a triage pass:
+
+1. **Must-adopt.** The new rule catches a bug class we've seen in
+   production, or tightens type safety on a hot path (e.g. a rule that
+   would have caught `no-floating-promises`-style bugs before they
+   shipped). Enable it in `.eslintrc.json`. Fix the call sites. Update
+   [`docs/testing.md` §6](docs/testing.md#6-lint-rules-that-catch-real-bugs)
+   with a one-paragraph "why this rule" note.
+
+2. **Opt-in.** Cosmetic but improves grep/readability (e.g.
+   `consistent-type-imports`, `prefer-nullish-coalescing`). Enable at
+   the cost of one focused refactor phase; don't mix with unrelated
+   work.
+
+3. **Skip.** Requires widespread rewrites for ambiguous benefit, or the
+   rule is known-buggy on a shape we rely on. Document the skip reason
+   with a line comment in `.eslintrc.json`:
+
+   ```jsonc
+   // Skipped: would require rewriting ~200 call sites with no
+   //         observed bug class; revisit if the team grows past ~10.
+   "@typescript-eslint/prefer-readonly-parameter-types": "off",
+   ```
+
+4. **Process (single rule / small bump).** Open a task per rule
+   decision (must-adopt, opt-in, or skip-with-rationale). Adopt each
+   must-adopt / opt-in rule in a focused phase — the Phase 1-4 lint
+   cleanups (no-floating-promises, require-await, no-unsafe-*,
+   residuals) are the exemplar. Each phase lands with a senior +
+   tech-lead review; the CI gate moves to zero-warnings once all
+   must-adopt rules are clean.
+
+5. **Process (bulk bump, 5+ new rules).** One task per rule is noise.
+   Instead open one *parent* triage task with a must-adopt / opt-in /
+   skip table covering every new rule in the bump. Spawn sub-tasks
+   only for the must-adopt and opt-in rows — each of those still gets
+   its own focused phase + review. Skip-with-rationale entries land
+   inline as line comments in `.eslintrc.json` directly from the
+   parent task, no sub-task needed.
+
+6. **Optional: quarterly skip revisit.** Skipped rules can age into
+   must-adopt (the team grows, the hot path shifts, a bug class the
+   rule catches shows up in production). A quarterly pass over the
+   `.eslintrc.json` skip list — re-checking each rationale against the
+   current codebase shape — is cheap and keeps the skip list from
+   calcifying. No rule is permanently skipped; the comment explains
+   *why today* it's skipped, not *why forever*.
+
 ## Tests
 
 Unit tests use mocha with ts-node and run directly from TypeScript source. Property-based tests (fast-check) run from compiled JS.

@@ -532,7 +532,7 @@ export class CommitToolWindow extends BaseWebviewView {
 
     // Kick an async load. The initial HTML render already happened via
     // BaseWebviewView._render(); a data refresh follows once the services
-    // respond. Bucket C (TL-40): init path; the view rerenders on
+    // respond. Bucket C: init path; the view rerenders on
     // onDidChangeRepository, so a first-load reject self-heals.
     safeFireAndForget(this._reloadState(), 'CommitToolWindow._onResolve: initial state reload');
   }
@@ -781,7 +781,7 @@ export class CommitToolWindow extends BaseWebviewView {
       return;
     }
 
-    // SR-4: the webview posts `contextOpen` on right-click to ask the host to
+    // The webview posts `contextOpen` on right-click to ask the host to
     // present the IntelliJ-parity menu. We populate a QuickPick from the
     // already-tested label helpers (fileContextMenuLabels /
     // changelistContextMenuLabels) and recurse with the user's pick. A file
@@ -975,8 +975,8 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   /**
-   * SR-8 (T2-03 parity): resolve the target repository for commit /
-   * selectFile / _reloadState. Honors the preferActive path so multi-root
+   * Resolve the target repository for commit / selectFile / _reloadState.
+   * Honors the preferActive path so multi-root
    * workspaces route to the active-editor's repo instead of
    * `repositories[0]`. The `silent` flag suppresses the toast — callers
    * handle the undefined return (commit surfaces its own error; reload
@@ -990,8 +990,8 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   /**
-   * SR-4: look up a file entry across all changelists so the right-click
-   * helper can pick the right menu shape (Add to VCS vs. normal).
+   * Look up a file entry across all changelists so the right-click helper
+   * can pick the right menu shape (Add to VCS vs. normal).
    */
   private _findFileChange(path: string): IFileChange | undefined {
     for (const cl of this._changelists) {

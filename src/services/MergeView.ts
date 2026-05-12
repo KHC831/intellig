@@ -228,9 +228,9 @@ export class MergeView implements IMergeView {
   /**
    * Mark the file as resolved.
    *
-   * TL-37: route the working-tree write through `atomicWriteFile` (async
-   * variant of the TL-6 helper). The file being overwritten is about to
-   * be `git add`-ed and committed — a partial write here would ship a
+   * Route the working-tree write through `atomicWriteFile` (async variant
+   * of the atomic write helper). The file being overwritten is about to be
+   * `git add`-ed and committed — a partial write here would ship a
    * truncated blob into the commit, and any concurrent reader (git hook,
    * second VS Code window, external linter) could observe a half-written
    * file mid-flight. The sibling-temp + rename pattern keeps the target
@@ -240,10 +240,10 @@ export class MergeView implements IMergeView {
    * and the reference implementation for `file:` URIs — see
    * `src/utils/atomicWrite.ts` module JSDoc).
    *
-   * Wave-3-R2: error handling is internalised here rather than at each
-   * callsite. The webview message dispatcher invokes this fire-and-forget
-   * (`void this.markResolved()`), and once TL-37 routed the write through
-   * atomic rename, real filesystem errors (EBUSY on a locked file,
+   * Error handling is internalised here rather than at each callsite. The
+   * webview message dispatcher invokes this fire-and-forget
+   * (`void this.markResolved()`), and once the write went through atomic
+   * rename, real filesystem errors (EBUSY on a locked file,
    * ENOSPC on a full disk, EPERM on a read-only tree) surface reliably
    * from `renameSync` where the previous `vscode.workspace.fs.writeFile`
    * silently swallowed many failures. If we re-throw here, the

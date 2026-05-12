@@ -538,7 +538,7 @@ ${body}
   private async _buildApplyOptions(
     msg: Extract<IncomingMessage, { type: 'apply' }>
   ): Promise<IApplyPatchOptions> {
-    // SR-7: validate at the webview boundary as defense-in-depth. The
+    // Validate at the webview boundary as defense-in-depth. The
     // webview sends `parseInt(..., 10)` which returns NaN on non-numeric
     // values; PatchService would catch that too, but surfacing here produces
     // a cleaner error message.

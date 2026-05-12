@@ -228,9 +228,7 @@ export class ExtensionServices implements IExtensionServices {
       // `onDidChangeRepository` subscription fires debounced reconciles.
       // Without the wire, every call into `reconcileWithGitStatus` is a
       // no-op — the symptom for the user is `intellig.shelve.silent`
-      // reporting "No files in active changelist" against any dirty repo
-      // (found by Tier-2 E2E coverage — task #80, fixed here in
-      // fix/changelist-gitservice-wiring).
+      // reporting "No files in active changelist" against any dirty repo.
       this._changelistService = new ChangelistService(this._gitService);
 
       // Initialize BlameService (Task 17.1)
@@ -239,8 +237,8 @@ export class ExtensionServices implements IExtensionServices {
       // Initialize ConsoleService (Task 19.4)
       // Connects to GitService to capture command output
       this._consoleService = new ConsoleService();
-      // TL-29: reach through the @internal IGitServiceCli escape hatch
-      // instead of `instanceof GitService`. The composite IGitService
+      // Reach through the @internal IGitServiceCli escape hatch instead
+      // of `instanceof GitService`. The composite IGitService
       // deliberately doesn't expose raw GitCli; any impl that wants to
       // opt into console-capture wires can implement IGitServiceCli.
       const cliEscape = this._gitService as unknown as Partial<IGitServiceCli>;

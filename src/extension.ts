@@ -399,7 +399,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // T1-04 — changelist commands. These back the context menu in the Commit
   // tool window's Local Changes tab.
-  // R6-Gap-C: every handler routes through `resolveRepo(preferActive)` so
+  // every handler routes through `resolveRepo(preferActive)` so
   // changelist ops in multi-root workspaces target the repo owning the
   // active editor, not an arbitrary `repositories[0]`.
   const changelistNewCommand = vscode.commands.registerCommand(
@@ -883,7 +883,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
 
     const gitService = extensionServices.gitService;
-    // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+    // prefer the active-editor's repo in multi-root workspaces.
     let repo = await resolveRepo(gitService, {
       preferActive: true,
       silent: true,
@@ -920,7 +920,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       return undefined;
     }
     const gitService = extensionServices.gitService;
-    // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+    // prefer the active-editor's repo in multi-root workspaces.
     let repo = await resolveRepo(gitService, {
       preferActive: true,
       silent: true,
@@ -967,7 +967,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         return;
       }
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       let repo = await resolveRepo(gitService, {
         preferActive: true,
         silent: true,
@@ -1088,7 +1088,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1162,7 +1162,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1188,7 +1188,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1270,7 +1270,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       // arrays on error so the command degrades to pure SHA matching rather
       // than failing outright.
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the tool-window's selected repo when set, otherwise
+      // prefer the tool-window's selected repo when set, otherwise
       // fall back to the active-editor's repo in multi-root workspaces.
       const repo =
         gitToolWindowProvider.getSelectedRepository() ??
@@ -1319,7 +1319,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo (that's the file being
+      // prefer the active-editor's repo (that's the file being
       // staged) in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
@@ -1360,7 +1360,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo (that's the file being
+      // prefer the active-editor's repo (that's the file being
       // unstaged) in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
@@ -1407,7 +1407,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       } else {
         // If no file provided, show a picker for conflicted files
         const gitService = extensionServices.gitService;
-        // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+        // prefer the active-editor's repo in multi-root workspaces.
         const repo = await resolveRepo(gitService, {
           preferActive: true,
         });
@@ -1532,7 +1532,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1575,7 +1575,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
     const gitService = extensionServices.gitService;
     const conflictService = extensionServices.conflictResolutionService;
-    // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+    // prefer the active-editor's repo in multi-root workspaces.
     const repo = await resolveRepo(gitService, {
       preferActive: true,
     });
@@ -1634,7 +1634,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // NOTE: `intellig.toolWindow.jumpToHash` is the real T3-06 implementation
   // (see `jumpToHashCommand` above). A duplicate stub registration previously
   // lived here and crashed activation (VS Code throws on duplicate
-  // registerCommand). Removed during R5 senior-review ship-blocker fixes (C-1).
+  // registerCommand). The duplicate has since been removed.
 
   // T1-12: Apply Patch… — opens the ApplyPatchDialog for the active repo.
   // When invoked with a URI (e.g. from an explorer context menu on a .patch
@@ -1727,7 +1727,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
         void vscode.window.showInformationMessage(`Patch created: ${uri.fsPath}`);
       } catch (error) {
-        // TL-38: PatchWriteFailed means the service has already surfaced a
+        // PatchWriteFailed means the service has already surfaced a
         // sanitised toast — we must not re-toast or the user sees two
         // error banners for one failure.
         if (error instanceof PatchWriteFailed) {
@@ -1749,7 +1749,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the fileUri's repo (when invoked from a context
+      // prefer the fileUri's repo (when invoked from a context
       // menu), falling back to the active-editor's repo in multi-root
       // workspaces.
       const repo = await resolveRepo(gitService, {
@@ -1803,7 +1803,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1848,7 +1848,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1893,7 +1893,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1932,7 +1932,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -1975,7 +1975,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -2012,7 +2012,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const conflictService = extensionServices.conflictResolutionService;
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces.
+      // prefer the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
       });
@@ -2259,7 +2259,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // honor the explorer-selected file's repo (hintRepoPath);
       // fall back to the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: fileUri?.fsPath,
@@ -2331,7 +2331,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // honor the explorer-selected file's repo (hintRepoPath);
       // fall back to the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: fileUri?.fsPath,
@@ -2400,7 +2400,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // honor the explorer-selected file's repo (hintRepoPath);
       // fall back to the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: fileUri?.fsPath,
@@ -2459,7 +2459,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // honor the explorer-selected file's repo (hintRepoPath);
       // fall back to the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: fileUri?.fsPath,
@@ -2507,7 +2507,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       const gitService = extensionServices.gitService;
-      // R6-Gap-C: honor the explorer-selected file's repo (hintRepoPath);
+      // honor the explorer-selected file's repo (hintRepoPath);
       // fall back to the active-editor's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: fileUri?.fsPath,
@@ -2750,7 +2750,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
         void vscode.window.showInformationMessage(`Patch saved to ${uri.fsPath}`);
       } catch (error) {
-        // TL-38: PatchWriteFailed means the service has already surfaced a
+        // PatchWriteFailed means the service has already surfaced a
         // sanitised toast — we must not re-toast or the user sees two
         // error banners for one failure.
         if (error instanceof PatchWriteFailed) {
@@ -2806,7 +2806,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const blameService = extensionServices.blameService;
-      // R6-Gap-C: honor the active-editor file's repo in multi-root workspaces.
+      // honor the active-editor file's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: activeEditor.document.uri.fsPath,
         preferActive: true,
@@ -2872,7 +2872,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const blameService = extensionServices.blameService;
-      // R6-Gap-C: honor the active-editor file's repo in multi-root workspaces.
+      // honor the active-editor file's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: activeEditor.document.uri.fsPath,
         preferActive: true,
@@ -2922,7 +2922,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const gitService = extensionServices.gitService;
       const blameService = extensionServices.blameService;
-      // R6-Gap-C: honor the active-editor file's repo in multi-root workspaces.
+      // honor the active-editor file's repo in multi-root workspaces.
       const repo = await resolveRepo(gitService, {
         hintRepoPath: activeEditor.document.uri.fsPath,
         preferActive: true,
@@ -3914,7 +3914,7 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
       }
 
-      // R6-Gap-C: prefer the active-editor's repo in multi-root workspaces
+      // prefer the active-editor's repo in multi-root workspaces
       // on initial load when no tool-window repo selection has been made yet.
       const preferred = await resolveRepo(gitService, {
         preferActive: true,
@@ -3992,7 +3992,7 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
     const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
-      // R6-Gap-C: prefer the tool-window's selected repo (that's where the
+      // prefer the tool-window's selected repo (that's where the
       // commit was clicked), falling back to the active-editor's repo in
       // multi-root workspaces. The cold-start discovery path stays as a
       // last-resort fallback.
@@ -4029,7 +4029,7 @@ function registerViews(context: vscode.ExtensionContext): void {
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
     const commitDiffListener = gitToolWindowProvider.onDidRequestCommitDiff(
       async ({ commitHash, filePath }) => {
-        // R6-Gap-C: prefer the tool-window's selected repo (that's where the
+        // prefer the tool-window's selected repo (that's where the
         // diff was requested), falling back to the active-editor's repo in
         // multi-root workspaces. The cold-start discovery path stays as a
         // last-resort fallback.
@@ -4217,8 +4217,8 @@ function registerViews(context: vscode.ExtensionContext): void {
  * and to the real `vscode.workspace.workspaceFolders` fallback; tests call this
  * directly with a `GitService` whose `_gitCli` has been swapped for a mock.
  *
- * Query-shape contract (see task #93 for the ADR placeholder): producers MUST
- * emit `intellig-git:${path}?${encodeURIComponent(ref)}`. This function
+ * Query-shape contract (ADR pending): producers MUST emit
+ * `intellig-git:${path}?${encodeURIComponent(ref)}`. This function
  * `decodeURIComponent`s the query exactly once so refs containing `/`
  * (`origin/main` → `origin%2Fmain` on the wire) round-trip back to `git show`.
  *
@@ -4236,13 +4236,12 @@ export async function provideGitShowContent(
   // `encodeURIComponent(ref)` when building `intellig-git:` URIs; decoding
   // here ensures refs containing `/` (e.g. `origin/main` → `origin%2Fmain`)
   // round-trip correctly to `git show`. Without this, `git show
-  // origin%2Fmain:path` fails to resolve the revision. (Task #92, A1)
+  // origin%2Fmain:path` fails to resolve the revision.
   //
   // A malformed percent-encoding (e.g. `%GG`) throws a raw `URIError` from
   // the platform `decodeURIComponent`. Wrap it in a friendly error that
   // identifies the contract violation so upstream error handlers and logs
   // point at the URI rather than at an opaque "URI malformed" message.
-  // (Task #103, A2)
   let ref: string;
   try {
     ref = decodeURIComponent(uri.query);
@@ -4254,7 +4253,7 @@ export async function provideGitShowContent(
     throw new Error('No git ref specified in URI query');
   }
 
-  // R6-Gap-C: honor the URI's filePath as a repo hint so diff provider
+  // honor the URI's filePath as a repo hint so diff provider
   // reaches for the correct repo in multi-root workspaces. Falls back
   // to the active-editor's repo, then to workspace-folder discovery.
   let repo = await resolveRepo(gitService, {
@@ -4274,8 +4273,8 @@ export async function provideGitShowContent(
   try {
     // `gitCli` is exposed via the `@internal` {@link IGitServiceCli} escape
     // hatch — the frozen {@link IGitService} composite deliberately doesn't
-    // wrap raw `git show <ref>:<path>`. See TL-1 for the role-interface
-    // decomposition that would eventually fold this into a proper method.
+    // wrap raw `git show <ref>:<path>`. An eventual role-interface
+    // decomposition (see backlog) would fold this into a proper method.
     const result = await (gitService as unknown as IGitServiceCli).gitCli.exec(
       ['show', `${ref}:${filePath}`],
       {
@@ -4957,7 +4956,7 @@ export function validateBranchName(value: string): string | undefined {
     return 'Branch name cannot be empty';
   }
   // Security: reject leading `-` (git parses `-foo` as a CLI flag) and
-  // leading `.` (invalid per git-check-ref-format). Mirrors R1 SR-3.
+  // leading `.` (invalid per git-check-ref-format).
   if (!/^(?![-.])[\w\-./]+$/.test(value)) {
     return 'Branch name contains invalid characters';
   }

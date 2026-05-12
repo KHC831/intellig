@@ -67,7 +67,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
         this._optionsSource.onDidChange(() => {
           this._blameCache.clear();
           if (this._enabled && this._currentEditor) {
-            // Bucket B (TL-40): blame fetches can fail (async gitCli);
+            // Bucket B: blame fetches can fail (async gitCli);
             // surface to console without blocking the option-source sync.
             safeFireAndForget(
               this.updateDecoration(this._currentEditor, this._currentLine),
@@ -146,7 +146,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
-          // Bucket B (TL-40): blame fetches can fail (async gitCli);
+          // Bucket B: blame fetches can fail (async gitCli);
           // log+suppress so the event-listener chain stays alive.
           safeFireAndForget(
             this.updateDecoration(this._currentEditor, this._currentLine),
@@ -168,7 +168,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
           this._currentEditor &&
           this._currentEditor.document.uri.toString() === uri
         ) {
-          // Bucket B (TL-40): same rationale as onDidChangeTextDocument.
+          // Bucket B: same rationale as onDidChangeTextDocument.
           safeFireAndForget(
             this.updateDecoration(this._currentEditor, this._currentLine),
             'InlineBlameProvider.onDidSaveTextDocument: re-blame after save'
@@ -194,7 +194,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     if (editor) {
       this._currentEditor = editor;
       this._currentLine = editor.selection.active.line;
-      // Bucket B (TL-40): enable is sync; async blame fetch follows.
+      // Bucket B: enable is sync; async blame fetch follows.
       safeFireAndForget(
         this.updateDecoration(editor, this._currentLine),
         'InlineBlameProvider.enable: initial decoration'

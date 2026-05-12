@@ -133,7 +133,7 @@ export class StatusBarService implements IStatusBarService {
       })
     );
 
-    // Initialize with current repository. Bucket C (TL-40): init path;
+    // Initialize with current repository. Bucket C: init path;
     // the `onDidChangeRepository` listener above picks up late-arriving
     // repos, so an initial failure self-heals.
     safeFireAndForget(this._initialize(), 'StatusBarService.constructor: initial repository load');
@@ -185,7 +185,7 @@ export class StatusBarService implements IStatusBarService {
   /**
    * Initialize the status bar with current repository info.
    *
-   * R6-Gap-C: route through `resolveRepo(preferActive: true)` so the
+   * Route through `resolveRepo(preferActive: true)` so the
    * status bar branch indicator reflects the active editor's repo in
    * multi-root workspaces, not an arbitrary first-enumerated repo.
    * Falls back to the first workspace folder's repo when the git

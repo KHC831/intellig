@@ -535,7 +535,7 @@ ${body}
       this.updateFileStatus(path, 'resolved');
     } else {
       // `result.error` may include git stderr which can embed credentials in
-      // remote URLs — scrub before surfacing (TL-11).
+      // remote URLs — scrub before surfacing.
       void vscode.window.showErrorMessage(
         sanitizeGitError(result.error || `Failed to accept current version for ${path}`)
       );
@@ -548,7 +548,7 @@ ${body}
       this.updateFileStatus(path, 'resolved');
     } else {
       // `result.error` may include git stderr which can embed credentials in
-      // remote URLs — scrub before surfacing (TL-11).
+      // remote URLs — scrub before surfacing.
       void vscode.window.showErrorMessage(
         sanitizeGitError(result.error || `Failed to accept incoming version for ${path}`)
       );
@@ -561,7 +561,7 @@ ${body}
       await this._mergeView.show(path);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // Scrub credentials from any embedded remote URL before surfacing (TL-11).
+      // Scrub credentials from any embedded remote URL before surfacing.
       void vscode.window.showErrorMessage(`Failed to open merge view: ${sanitizeGitError(msg)}`);
     }
   }
@@ -724,7 +724,7 @@ ${body}
       this._close('completed');
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      // Scrub credentials from git stderr before surfacing (TL-11).
+      // Scrub credentials from git stderr before surfacing.
       void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
     }
   }

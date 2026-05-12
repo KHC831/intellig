@@ -43,22 +43,21 @@ export abstract class BaseWebviewPanel {
 
     this._panel.webview.onDidReceiveMessage(
       (message: unknown) => {
-        // Bucket B (TL-40): route async rejections through the shared
-        // helper so a subclass handler that rejects (e.g. a failed
-        // `gitService.push()` awaited inside PushDialog._onMessage) gets
-        // logged to the extension host console instead of silently
-        // dropped. Subclass handlers (PushDialog, MergeDialog,
-        // ResolveConflictsDialog, ResetDialog, ApplyPatchDialog,
-        // NewBranchDialog) each surface user-visible errors via toasts
-        // from inside their `_onMessage` implementations, so a reject
-        // that reaches this layer is a bug signal rather than a direct
-        // data-safety regression.
+        // Route async rejections through the shared helper so a subclass
+        // handler that rejects (e.g. a failed `gitService.push()` awaited
+        // inside PushDialog._onMessage) gets logged to the extension host
+        // console instead of silently dropped. Subclass handlers
+        // (PushDialog, MergeDialog, ResolveConflictsDialog, ResetDialog,
+        // ApplyPatchDialog, NewBranchDialog) each surface user-visible
+        // errors via toasts from inside their `_onMessage` implementations,
+        // so a reject that reaches this layer is a bug signal rather than a
+        // direct data-safety regression.
         //
-        // Senior-wave4 LOW #3: also guard against sync-throws. Mirrors
-        // BaseWebviewView's pattern — a synchronously-thrown error from a
-        // future sync `_onMessage` override must not take down the
-        // extension host. `safeFireAndForget` only catches async
-        // rejections, so sync throws need this outer try/catch.
+        // Also guard against sync-throws. Mirrors BaseWebviewView's
+        // pattern — a synchronously-thrown error from a future sync
+        // `_onMessage` override must not take down the extension host.
+        // `safeFireAndForget` only catches async rejections, so sync throws
+        // need this outer try/catch.
         try {
           safeFireAndForget(
             Promise.resolve(this._onMessage(message)),
@@ -140,7 +139,12 @@ export abstract class BaseWebviewPanel {
   protected abstract _getBodyHtml(): string;
 
   /**
-   * Subclass hook: handle a message posted from the webview.
+   * Handle a message from the webview.
+   *
+   * Must not reject with user-facing errors — surface failures via toast
+   * inside the handler. Rejections reaching the base class are
+   * console-logged only (via `safeFireAndForget`) and will NOT produce
+   * user-visible feedback.
    */
   protected abstract _onMessage(message: unknown): void | Promise<void>;
 
@@ -197,7 +201,7 @@ ${body}
   /**
    * Generate a CSP nonce. Delegates to the shared {@link generateNonce}
    * helper in `utils/webviewNonce.ts` so every IntelliG webview produces
-   * nonces with identical shape + entropy (SR-6, TL-12).
+   * nonces with identical shape + entropy.
    */
   protected _getNonce(): string {
     return generateNonce();

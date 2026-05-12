@@ -1,5 +1,5 @@
 /**
- * TL-6 — atomic file write helper.
+ * Atomic file write helper.
  *
  * Replaces ad-hoc `fs.writeFileSync(path, content)` calls in services that
  * persist JSON state (ChangelistService, ShelfService) and shell scripts
@@ -204,9 +204,9 @@ export function atomicWriteFileSync(
  *   and the original error is thrown.
  *
  * Used by working-tree writers that run on VS Code's extension host (e.g.
- * `MergeView.markResolved` — TL-37) where the content being written is
- * about to be staged + committed, so a partial write would corrupt the
- * commit. For ephemeral private temp files (e.g. `PatchService`'s
+ * `MergeView.markResolved`) where the content being written is about to be
+ * staged + committed, so a partial write would corrupt the commit. For
+ * ephemeral private temp files (e.g. `PatchService`'s
  * `mkdtemp`-created scratch dir) or user-picked export paths (e.g.
  * `ShelfView.createPatch`, `CommitContextMenuCommands._handleCreatePatch`)
  * the plain async `writeFile` remains acceptable — no concurrent observer,

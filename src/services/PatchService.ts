@@ -22,7 +22,7 @@ import { sanitizeGitError } from '../utils/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 
 /**
- * TL-38 — thrown when `createPatchFromLocalChanges` fails writing the patch
+ * Thrown when `createPatchFromLocalChanges` fails writing the patch
  * to a user-picked `outputPath`. The service has already surfaced a
  * sanitised toast via `vscode.window.showErrorMessage`, so callers that
  * detect this error class MUST NOT show their own "Failed to create patch"
@@ -106,7 +106,7 @@ export class PatchService implements IPatchService {
         stderr: 'Apply Patch: patchPath and patchContent are mutually exclusive.',
       };
     }
-    // SR-7: validate baseDir cannot escape the repo root and stripLevel is a
+    // Validate baseDir cannot escape the repo root and stripLevel is a
     // sane integer. Both flow into the `git apply` argv, so we refuse bad
     // input at the service boundary rather than leaning on git's own parse.
     const baseDirErr = validateBaseDir(options.baseDir, repo.rootUri.fsPath);
@@ -230,9 +230,9 @@ export class PatchService implements IPatchService {
       await vscode.env.clipboard.writeText(patch);
     }
     if (options.outputPath) {
-      // TL-38: route the user-picked save through atomicWriteFile so a
-      // partial write never leaves a truncated `.patch` file at the
-      // picked path — `git apply` / `git am` would silently fail on junk.
+      // Route the user-picked save through atomicWriteFile so a partial
+      // write never leaves a truncated `.patch` file at the picked path —
+      // `git apply` / `git am` would silently fail on junk.
       // Surface a sanitised toast here + re-throw as PatchWriteFailed so
       // callers can distinguish write-only failure from a successful
       // write + later clipboard issue, and skip their own re-toast.
@@ -384,7 +384,7 @@ export function createPatchService(gitService: IGitService): PatchService {
 }
 
 /**
- * Validate an `IApplyPatchOptions.baseDir` input (SR-7).
+ * Validate an `IApplyPatchOptions.baseDir` input.
  *
  * The value is passed to `git apply --directory <value>`. git itself will
  * happily accept a path outside the repo; we refuse that up-front to prevent
@@ -421,7 +421,7 @@ export function validateBaseDir(baseDir: string | undefined, repoRoot: string): 
 }
 
 /**
- * Validate an `IApplyPatchOptions.stripLevel` input (SR-7).
+ * Validate an `IApplyPatchOptions.stripLevel` input.
  *
  * Rules: must be a finite non-negative integer, and reasonably small
  * (`≤ 20`) so a typo doesn't turn into `git apply -p999999` which strips the

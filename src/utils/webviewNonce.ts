@@ -11,8 +11,9 @@ import { randomBytes } from 'node:crypto';
  * - `CommitToolWindow` (local-changes + shelf HTML renderers)
  * - `GitToolWindowProvider` (log / details / branches panes)
  *
- * Replaces the former `Math.random()`-based implementations (SR-6, TL-12).
- * Kept deliberately tiny and dependency-free so every call site can import
+ * Replaces the former `Math.random()`-based implementations so every
+ * webview nonce is cryptographically random instead of predictable. Kept
+ * deliberately tiny and dependency-free so every call site can import
  * directly from `node:crypto` via this one entry point.
  */
 export function generateNonce(): string {

@@ -532,8 +532,9 @@ export interface IBranchComparison {
  * `docs/adr/ADR-001-igitservice-composite-freeze.md`. New git capabilities
  * should land on role interfaces (e.g. `IGitRemote`, `IGitHistory`,
  * `IGitBranches`, `IGitStash`, `IGitTags`, `IGitWorkingTree`,
- * `IGitRepository`, `IGitReplay`), not on this composite. Await TL-1 for
- * the full decomposition; until then, this composite is dead-letter.
+ * `IGitRepository`, `IGitReplay`), not on this composite. The full
+ * role-interface decomposition is tracked in the backlog; until then,
+ * this composite is dead-letter.
  */
 export interface IGitService {
   // Repository operations
@@ -809,8 +810,8 @@ export interface IGitService {
  *
  * `GitService` implements both {@link IGitService} and this interface.
  * Do not add new call sites without tech-lead review; each such site is a
- * candidate to become a proper role-interface method under TL-1 (the
- * composite decomposition effort). See `docs/testing.md` §5 for the
+ * candidate to become a proper role-interface method under the composite
+ * decomposition effort (see backlog). See `docs/testing.md` §5 for the
  * relationship between this production escape hatch and the TestSurface
  * idiom used by tests.
  */

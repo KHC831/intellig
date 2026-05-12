@@ -12,7 +12,7 @@ import { safeFireAndForget } from './safeFireAndForget';
  * {@link vscode.WebviewViewProvider.resolveWebviewView} rather than created
  * imperatively.
  *
- * ### Scope of ownership (TL-16)
+ * ### Scope of ownership
  *
  * The base class owns:
  *   - Assigning `this._view` on resolve and clearing it on dispose.
@@ -84,9 +84,9 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(
       (message: unknown) => {
-        // Bucket B (TL-40): a `void this._handleMessage(message)` used to
-        // silently swallow async rejections here. Audit of subclass
-        // handlers (CommitToolWindow._handleWebviewMessage and
+        // A `void this._handleMessage(message)` used to silently swallow
+        // async rejections here. Audit of subclass handlers
+        // (CommitToolWindow._handleWebviewMessage and
         // GitToolWindowProvider._handleWebviewMessage) showed they each
         // internalise user-visible errors already (toasts surfaced from
         // within the handler + postMessage failure results), so a
@@ -156,7 +156,12 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Subclass hook: handle a message posted from the webview.
+   * Handle a message from the webview.
+   *
+   * Must not reject with user-facing errors — surface failures via toast
+   * inside the handler. Rejections reaching the base class are
+   * console-logged only (via `safeFireAndForget`) and will NOT produce
+   * user-visible feedback.
    */
   protected abstract _handleMessage(message: unknown): void | Promise<void>;
 
@@ -187,8 +192,7 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
 
   /**
    * Generate a CSP nonce. Delegates to the shared {@link generateNonce} helper
-   * so every IntelliG webview produces nonces with identical shape + entropy
-   * (SR-6, TL-12).
+   * so every IntelliG webview produces nonces with identical shape + entropy.
    */
   protected _getNonce(): string {
     return generateNonce();

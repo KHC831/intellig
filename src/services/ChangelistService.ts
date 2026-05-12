@@ -42,14 +42,14 @@ const RECONCILE_DEBOUNCE_MS = 300;
 /**
  * Changelist storage model for JSON persistence.
  *
- * TL-10 — forward-compat round-trip: unknown top-level keys and unknown
- * per-item keys are preserved verbatim across load/save cycles. This lets
- * a newer version of the extension introduce new fields without older
- * versions silently dropping them when they persist back to disk. The
- * shape we recognise is narrow (known keys below); everything else is
- * captured in `_unknownTopLevel` / `_unknownPerItem` and re-emitted on
- * save. These two fields are purely in-memory bookkeeping — they are
- * never themselves written to disk as named keys.
+ * Forward-compat round-trip: unknown top-level keys and unknown per-item
+ * keys are preserved verbatim across load/save cycles. This lets a newer
+ * version of the extension introduce new fields without older versions
+ * silently dropping them when they persist back to disk. The shape we
+ * recognise is narrow (known keys below); everything else is captured in
+ * `_unknownTopLevel` / `_unknownPerItem` and re-emitted on save. These
+ * two fields are purely in-memory bookkeeping — they are never themselves
+ * written to disk as named keys.
  */
 interface IChangelistStorage {
   version: number;
@@ -60,8 +60,8 @@ interface IChangelistStorage {
   activeChangelistId: string;
   changelists: IChangelistStorageItem[];
   /**
-   * TL-10 — unknown top-level keys captured during load. Spread back
-   * out when saving so forward-compat fields survive a round trip.
+   * Unknown top-level keys captured during load. Spread back out when
+   * saving so forward-compat fields survive a round trip.
    * @internal
    */
   _unknownTopLevel?: Record<string, unknown>;
@@ -81,38 +81,51 @@ interface IChangelistStorageItem {
   description?: string;
   files: string[];
   /**
-   * TL-10 — unknown per-item keys captured during load. Spread back
-   * out when saving so forward-compat fields survive a round trip.
+   * Unknown per-item keys captured during load. Spread back out when
+   * saving so forward-compat fields survive a round trip.
    * @internal
    */
   _unknownItem?: Record<string, unknown>;
 }
 
 /**
- * The set of known top-level keys. Used by the TL-10 round-trip logic to
- * partition a parsed payload into known vs. unknown halves.
+ * The set of known top-level keys. Used by the forward-compat round-trip
+ * logic to partition a parsed payload into known vs. unknown halves.
+ *
+ * Compile-time audit: the `satisfies Record<...>` clause below makes TS
+ * fail to compile if a new field is added to {@link IChangelistStorage}
+ * without being listed here (or if a listed key is removed from the
+ * interface). `_unknownTopLevel` is excluded because it is an in-memory
+ * bookkeeping field, not an on-disk key.
  */
-const KNOWN_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
-  'version',
-  'activeChangelistId',
-  'changelists',
-]);
+const KNOWN_TOP_LEVEL_KEYS_SPEC = {
+  version: true,
+  activeChangelistId: true,
+  changelists: true,
+} as const satisfies Record<Exclude<keyof IChangelistStorage, '_unknownTopLevel'>, true>;
+
+const KNOWN_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_TOP_LEVEL_KEYS_SPEC));
 
 /**
  * The set of known per-item keys. Same purpose as {@link KNOWN_TOP_LEVEL_KEYS}
- * but for individual changelist records.
+ * but for individual changelist records. Same compile-time audit mechanism —
+ * adding a field to {@link IChangelistStorageItem} requires a matching entry
+ * here or the build fails. `_unknownItem` is excluded as in-memory
+ * bookkeeping.
  */
-const KNOWN_ITEM_KEYS: ReadonlySet<string> = new Set([
-  'id',
-  'name',
-  'isDefault',
-  'description',
-  'files',
-]);
+const KNOWN_ITEM_KEYS_SPEC = {
+  id: true,
+  name: true,
+  isDefault: true,
+  description: true,
+  files: true,
+} as const satisfies Record<Exclude<keyof IChangelistStorageItem, '_unknownItem'>, true>;
+
+const KNOWN_ITEM_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_ITEM_KEYS_SPEC));
 
 /**
- * TL-10 — pure version of {@link ChangelistService.migrateStorage}, exported
- * so the property test can exercise load logic without constructing the
+ * Pure version of {@link ChangelistService.migrateStorage}, exported so
+ * the property test can exercise load logic without constructing the
  * whole service. Unit tests rely on this matching the class method exactly.
  *
  * @internal
@@ -174,7 +187,7 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
 }
 
 /**
- * TL-10 — serialize an in-memory storage back to the on-disk JSON shape.
+ * Serialize an in-memory storage back to the on-disk JSON shape.
  *
  * Known keys emit in the fixed order `{version, activeChangelistId,
  * changelists, ...unknownTopLevel}`; per-item keys emit in the fixed order
@@ -808,7 +821,7 @@ export class ChangelistService implements IChangelistService {
     try {
       if (fs.existsSync(storagePath)) {
         const content = fs.readFileSync(storagePath, 'utf8');
-        // TL-10 — parse into a loose record so unknown keys survive the
+        // Parse into a loose record so unknown keys survive the
         // migrate → save round trip. The known-field extraction lives in
         // {@link migrateStorage}.
         const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -833,10 +846,10 @@ export class ChangelistService implements IChangelistService {
    * Unknown future versions are treated as v2 if the shape is close
    * enough (changelists array present); otherwise we reset to empty.
    *
-   * TL-10 — any top-level or per-item keys we don't recognise are
-   * captured into `_unknownTopLevel` / `_unknownItem` and re-emitted on
-   * save (see {@link saveChangelistStorage}) so a newer extension's
-   * forward-compat fields survive round-tripping through this version.
+   * Any top-level or per-item keys we don't recognise are captured into
+   * `_unknownTopLevel` / `_unknownItem` and re-emitted on save (see
+   * {@link saveChangelistStorage}) so a newer extension's forward-compat
+   * fields survive round-tripping through this version.
    */
   private migrateStorage(parsed: Record<string, unknown>): IChangelistStorage {
     return migrateStorageForTest(parsed);
@@ -870,7 +883,7 @@ export class ChangelistService implements IChangelistService {
         }
       }
 
-      // TL-10 — serialise into a plain object so the known keys land in a
+      // Serialise into a plain object so the known keys land in a
       // deterministic order AND the unknown-key bookkeeping fields
       // (`_unknownTopLevel`, `_unknownItem`) never leak to disk. The
       // unknown keys themselves are spread back in verbatim, so

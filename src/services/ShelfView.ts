@@ -263,7 +263,7 @@ export class ShelfView implements IShelfView {
       const shelfItem = await this._shelfService.shelve(repository, name.trim(), selection);
       void vscode.window.showInformationMessage(`Shelved changes: "${name}"`);
 
-      // Refresh the shelf list. Bucket B (TL-40): refresh() internalises
+      // Refresh the shelf list. Bucket B: refresh() internalises
       // its own errors (see _state.error), so safeFireAndForget here is
       // defence-in-depth for any future direct-throw paths.
       safeFireAndForget(this.refresh(), 'ShelfView.showShelveDialog: refresh after shelve');
@@ -390,7 +390,7 @@ export class ShelfView implements IShelfView {
         }
       }
 
-      // Refresh the shelf list. Bucket B (TL-40): log-and-suppress is OK
+      // Refresh the shelf list. Bucket B: log-and-suppress is OK
       // here — refresh() already catches internally, and if a future direct
       // throw bubbles up we surface it through console.error rather than
       // letting it disappear.
@@ -405,9 +405,14 @@ export class ShelfView implements IShelfView {
         conflicts: result.conflicts,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to unshelve: ${errorMessage}`);
-      return { success: false, action: 'unshelve', shelfItem, error: errorMessage };
+      // Sanitize both the toast and the structured result — raw git
+      // stderr can embed credentials in remote URLs, and the structured
+      // error flows into downstream consumers (logs, telemetry,
+      // webviews) that shouldn't receive unsanitised text either.
+      const raw = error instanceof Error ? error.message : String(error);
+      const sanitized = sanitizeGitError(raw);
+      void vscode.window.showErrorMessage(`Failed to unshelve: ${sanitized}`);
+      return { success: false, action: 'unshelve', shelfItem, error: sanitized };
     }
   }
 
@@ -568,7 +573,7 @@ export class ShelfView implements IShelfView {
       this._shelfService.deleteShelfItem(this._repository, id);
       void vscode.window.showInformationMessage(`Deleted shelf item: "${shelfItem.name}"`);
 
-      // Refresh the shelf list. Bucket B (TL-40): state-sync only, internal
+      // Refresh the shelf list. Bucket B: state-sync only, internal
       // errors already caught by refresh(); direct throws go to console.
       safeFireAndForget(this.refresh(), 'ShelfView.deleteShelfItem: refresh after delete');
 
@@ -580,9 +585,14 @@ export class ShelfView implements IShelfView {
         shelfItem,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to delete shelf item: ${errorMessage}`);
-      return { success: false, action: 'delete', shelfItem, error: errorMessage };
+      // Sanitize both the toast and the structured result — raw git
+      // stderr can embed credentials in remote URLs, and the structured
+      // error flows into downstream consumers (logs, telemetry,
+      // webviews) that shouldn't receive unsanitised text either.
+      const raw = error instanceof Error ? error.message : String(error);
+      const sanitized = sanitizeGitError(raw);
+      void vscode.window.showErrorMessage(`Failed to delete shelf item: ${sanitized}`);
+      return { success: false, action: 'delete', shelfItem, error: sanitized };
     }
   }
 
@@ -745,9 +755,14 @@ export class ShelfView implements IShelfView {
       this._onDidRequestAction.fire({ action: 'rename', shelfItem });
       return { success: true, action: 'rename', shelfItem };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to rename shelf: ${errorMessage}`);
-      return { success: false, action: 'rename', shelfItem, error: errorMessage };
+      // Sanitize both the toast and the structured result — raw git
+      // stderr can embed credentials in remote URLs, and the structured
+      // error flows into downstream consumers (logs, telemetry,
+      // webviews) that shouldn't receive unsanitised text either.
+      const raw = error instanceof Error ? error.message : String(error);
+      const sanitized = sanitizeGitError(raw);
+      void vscode.window.showErrorMessage(`Failed to rename shelf: ${sanitized}`);
+      return { success: false, action: 'rename', shelfItem, error: sanitized };
     }
   }
 
@@ -794,7 +809,7 @@ export class ShelfView implements IShelfView {
       return { success: false };
     }
 
-    // TL-38: route through atomicWriteFile so a partial write (EBUSY on a
+    // Route through atomicWriteFile so a partial write (EBUSY on a
     // Windows-locked file, ENOSPC on a full disk, process kill mid-flight)
     // never leaves a truncated `.patch` file at the user-picked path —
     // `git apply`/`git am` would silently fail downstream on that junk.
@@ -809,7 +824,7 @@ export class ShelfView implements IShelfView {
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
-      // Senior-wave4 LOW #2: sanitize the raw error before embedding in
+      // Sanitize the raw error before embedding in
       // the structured result. Downstream consumers (logs, telemetry,
       // webviews) otherwise leak credentials via the string form.
       return {
@@ -877,7 +892,7 @@ export class ShelfView implements IShelfView {
       return;
     }
     this._showAlreadyUnshelved = show;
-    // Bucket B (TL-40): synchronous toggle → async refresh; stays sync so
+    // Bucket B: synchronous toggle → async refresh; stays sync so
     // callers (e.g. command palette handlers) don't need to await. Rejections
     // land in console.error rather than floating off into space.
     safeFireAndForget(this.refresh(), 'ShelfView.setShowAlreadyUnshelved: refresh after toggle');
@@ -899,7 +914,7 @@ export class ShelfView implements IShelfView {
       return;
     }
 
-    // Refresh shelf list. Bucket B (TL-40): refresh() executes its
+    // Refresh shelf list. Bucket B: refresh() executes its
     // try/catch body synchronously before awaiting anything (the only
     // async work is Promise.resolve()), so `_state.error` is set by the
     // time we read it two lines below. Preserve that ordering with
