@@ -19,6 +19,7 @@ import {
   IGitError,
   IRecoveryAction,
 } from '../utils/errorHandler';
+import { getOutputChannel } from '../utils/outputChannel';
 
 /**
  * Default timeout for status bar messages in milliseconds
@@ -97,8 +98,21 @@ export class NotificationService implements INotificationService {
   private _outputChannel: vscode.OutputChannel;
 
   constructor() {
-    this._outputChannel = vscode.window.createOutputChannel('IntelliG');
-    this._disposables.push(this._outputChannel);
+    // Consume the shared `IntelliG` singleton from `src/utils/outputChannel.ts`
+    // rather than constructing our own channel. `vscode.window.createOutputChannel`
+    // does NOT dedupe by name — each call returns a fresh instance and
+    // produces a separate entry in the Output-pane dropdown. Pre-fix, this
+    // constructor called `createOutputChannel('IntelliG')` directly, which
+    // produced a SECOND `IntelliG` entry alongside the one the shared
+    // singleton owns (populated when `initOutputChannel(context)` runs in
+    // `activate()`). That's the duplicate-dropdown-entry UX wart.
+    //
+    // Disposal is owned by `initOutputChannel(context)` which pushes the
+    // singleton onto `context.subscriptions`. Do NOT push onto
+    // `_disposables` here — doing so would call `dispose()` twice (once via
+    // context, once via this service's dispose()), which `OutputChannel`
+    // tolerates in practice but is still incorrect lifecycle.
+    this._outputChannel = getOutputChannel();
   }
 
   /**

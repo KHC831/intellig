@@ -614,5 +614,211 @@ describe('ShelfView — T2-10', () => {
           originalOpen;
       }
     });
+
+    // TL-55: sanitize importPatches error path. Per-file import failures
+    // embed their raw Error message into the structured result; `git
+    // apply`/`git am` can surface credentialed remote URLs (from patch
+    // headers) and /Users/<name> absolute paths, both of which must be
+    // redacted before the string flows into downstream consumers (logs,
+    // telemetry, webviews, aggregated UI counters).
+    it('sanitizes importPatch errors — credentialed URLs + home paths redacted', async () => {
+      const RAW = 'apply failed: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+      const EXPECTED = 'apply failed: https://<redacted>@example.com/repo.git\n~/project';
+
+      svc.importPatch = (): Promise<IShelfItem> => {
+        throw new Error(RAW);
+      };
+
+      const originalOpen = vscode.window.showOpenDialog;
+      (
+        vscode.window as unknown as {
+          showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
+        }
+      ).showOpenDialog = async () => [vscode.Uri.file('/tmp/bad.patch')];
+
+      try {
+        const results = await view.importPatches();
+        assert.strictEqual(results.length, 1);
+        assert.strictEqual(results[0].success, false);
+        assert.strictEqual(results[0].error, EXPECTED);
+        assert.ok(
+          !results[0].error?.includes('alice:secret'),
+          'structured error must not leak credentials'
+        );
+        assert.ok(
+          !results[0].error?.includes('/Users/alice'),
+          'structured error must not leak home path'
+        );
+      } finally {
+        (vscode.window as unknown as { showOpenDialog: typeof originalOpen }).showOpenDialog =
+          originalOpen;
+      }
+    });
+  });
+
+  // TL-42: refresh() returns { error? } so callers can surface a refresh
+  // failure immediately rather than leaving it latent in _state.error until
+  // the next shelf-list open. These specs pin the three behaviours:
+  //   (a) success → resolves with `{}` (no error field)
+  //   (b) service-throw → resolves with { error: sanitized } AND updates
+  //       _state.error for the _showShelfList render path
+  //   (c) sanitization — credentialed URL in the service error surfaces
+  //       through the refresh() return value, not just the toast
+  describe('refresh() — { error? } return contract', () => {
+    it('resolves with {} when the service read succeeds', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'ok',
+        timestamp: new Date(),
+        files: [],
+      });
+      const result = await view.refresh();
+      assert.deepStrictEqual(result, {});
+      assert.strictEqual(view.getState().error, undefined);
+    });
+
+    it('resolves with { error } and updates _state.error when getShelfItems throws', async () => {
+      svc.getShelfItems = (): IShelfItem[] => {
+        throw new Error('shelf storage corrupt');
+      };
+      const result = await view.refresh();
+      assert.ok(result.error, 'refresh() must surface an error');
+      assert.ok(
+        result.error.includes('shelf storage corrupt'),
+        `unexpected error text: ${result.error}`
+      );
+      assert.strictEqual(
+        view.getState().error,
+        result.error,
+        '_state.error must mirror the returned error for the _showShelfList render path'
+      );
+    });
+
+    it('sanitizes credentialed URLs and home paths in the returned error', async () => {
+      const RAW = 'read failed: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+      const EXPECTED = 'read failed: https://<redacted>@example.com/repo.git\n~/project';
+      svc.getShelfItems = (): IShelfItem[] => {
+        throw new Error(RAW);
+      };
+      const result = await view.refresh();
+      assert.strictEqual(result.error, EXPECTED);
+      assert.ok(
+        !result.error.includes('alice:secret'),
+        'refresh() error must not leak credentials'
+      );
+      assert.ok(!result.error.includes('/Users/alice'), 'refresh() error must not leak home path');
+    });
+
+    it('resolves with {} when no repository is bound (no-op)', async () => {
+      (view as unknown as { _repository: IRepository | undefined })._repository = undefined;
+      const result = await view.refresh();
+      assert.deepStrictEqual(result, {});
+    });
+  });
+
+  // TL-42: verify user-facing callers (unshelve/delete/shelve/importPatches)
+  // surface a refresh() failure as a warning toast. Previously refresh
+  // failures would sit latent in _state.error until the next shelf-list
+  // open, so a stale view after unshelve had no user-visible trace.
+  describe('refresh-failure surfacing in user-facing callers', () => {
+    it('unshelve emits a warning toast when the post-action refresh fails', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [{ path: 'x.ts', diff: 'diff' }],
+      });
+      // First refresh (seeding) must succeed so unshelve finds the item.
+      await view.refresh();
+
+      // Now flip getShelfItems to throw on the post-unshelve refresh.
+      let refreshCallCount = 0;
+      const originalGet = svc.getShelfItems;
+      svc.getShelfItems = (): IShelfItem[] => {
+        refreshCallCount += 1;
+        if (refreshCallCount >= 1) {
+          throw new Error('refresh IO error');
+        }
+        return originalGet(repo);
+      };
+
+      const warnCalls: string[] = [];
+      const originalWarn = vscode.window.showWarningMessage;
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (m: string, ...items: string[]) => Promise<string | undefined>;
+        }
+      ).showWarningMessage = async (m: string): Promise<string | undefined> => {
+        warnCalls.push(m);
+        return undefined;
+      };
+
+      try {
+        await view.unshelve('a', { removeFromShelf: true });
+        assert.ok(
+          warnCalls.some((m) => m.startsWith('Shelf list refresh failed:')),
+          `expected refresh-failed warning toast, got: ${warnCalls.join(' | ')}`
+        );
+      } finally {
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
+      }
+    });
+
+    it('deleteShelfItem emits a warning toast when the post-action refresh fails', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [{ path: 'x.ts', diff: 'diff' }],
+      });
+      await view.refresh();
+
+      // After delete, the next refresh() fires getShelfItems on an
+      // already-emptied items array — we want it to throw instead.
+      const originalGet = svc.getShelfItems;
+      let fail = false;
+      svc.getShelfItems = (): IShelfItem[] => {
+        if (fail) {
+          throw new Error('refresh IO error');
+        }
+        return originalGet(repo);
+      };
+
+      // Auto-confirm the Delete prompt.
+      const originalWarn = vscode.window.showWarningMessage;
+      const warnCalls: string[] = [];
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (m: string, ...items: unknown[]) => Promise<string | undefined>;
+        }
+      ).showWarningMessage = async (
+        m: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => {
+        warnCalls.push(m);
+        // The first call is the Delete confirm modal; flip to failure
+        // mode so the post-delete refresh throws.
+        if (m.includes('Are you sure')) {
+          fail = true;
+          return 'Delete';
+        }
+        return undefined;
+      };
+
+      try {
+        const result = await view.deleteShelfItem('a');
+        assert.strictEqual(result.success, true, 'delete itself must succeed');
+        assert.ok(
+          warnCalls.some((m) => m.startsWith('Shelf list refresh failed:')),
+          `expected refresh-failed warning toast, got: ${warnCalls.join(' | ')}`
+        );
+      } finally {
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
+      }
+    });
   });
 });

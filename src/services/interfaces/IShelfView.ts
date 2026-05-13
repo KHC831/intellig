@@ -107,8 +107,22 @@ export interface IShelfView {
 
   /**
    * Refresh the shelf list.
+   *
+   * Resolves to an object describing the outcome. On success, `error` is
+   * undefined. On failure (service read throws, state update fails),
+   * `error` contains a human-readable message suitable for a toast or
+   * OutputChannel line. Never rejects — all errors are caught internally
+   * and surfaced through the return value so every caller (sync + async)
+   * can react in their own idiomatic way.
+   *
+   * Previously this resolved to `void` and errors were stashed into
+   * `_state.error`, which only one caller (`_showShelfList`) read.
+   * Callers in the user-facing path (unshelve, delete, shelve) were
+   * missing the error entirely — failures became latent until the next
+   * shelf-list open. The `{ error? }` return fixes that by making the
+   * outcome explicit at every call site.
    */
-  refresh(): Promise<void>;
+  refresh(): Promise<{ error?: string }>;
 
   /**
    * Get the current state of the shelf view.

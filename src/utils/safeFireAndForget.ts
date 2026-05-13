@@ -8,9 +8,11 @@
  * user-reported "the UI didn't refresh after X" bugs.
  *
  * `safeFireAndForget` routes those rejections through `console.error` with
- * a caller-supplied context string. The context MUST be specific enough to
- * grep for (class + method + trigger), so an extension-host trace pinpoints
- * the offending call site.
+ * a caller-supplied context string, and optionally mirrors the log into a
+ * user-visible `vscode.OutputChannel` so field bug reports can be triaged
+ * from `Output → IntelliG` without a reload-to-extension-development host.
+ * The context MUST be specific enough to grep for (class + method +
+ * trigger), so an extension-host trace pinpoints the offending call site.
  *
  * ### Context-string convention
  *
@@ -25,6 +27,19 @@
  *
  * The colon separates the identifier (what) from the trigger (why), which
  * makes grepping by class+method independent of the reason text.
+ *
+ * ### Routing failures to the shared OutputChannel
+ *
+ * Init/watcher sites pass the shared channel so a production user can see
+ * why a watcher silently failed:
+ *
+ * ```ts
+ * safeFireAndForget(this.discoverRepositories(),
+ *   'GitService.constructor: initial repository discovery',
+ *   { outputChannel: getOutputChannel() });
+ * ```
+ *
+ * Default remains console-only to keep non-init call sites terse.
  *
  * ### When NOT to use this
  *
@@ -74,22 +89,58 @@
  * microtask queue before any other handler we chain on top.
  */
 
+import type * as vscode from 'vscode';
+
+/**
+ * Options bag for `safeFireAndForget`. Kept separate (and optional) so
+ * non-init call sites don't have to thread anything extra through; init
+ * call sites opt-in by passing the shared OutputChannel.
+ */
+export interface ISafeFireAndForgetOptions {
+  /**
+   * Optional OutputChannel to mirror the rejection log into. When set, the
+   * same `[intellig] <context>: <err>` message that goes to `console.error`
+   * is also written via `outputChannel.appendLine(...)`. Intended for
+   * init/watcher paths where a user-visible log is the difference between
+   * a debuggable bug report and a silent failure.
+   */
+  outputChannel?: vscode.OutputChannel;
+}
+
 /**
  * Fire the given promise without awaiting, logging any rejection to
- * `console.error` tagged with the caller-supplied `context`.
+ * `console.error` (and optionally to a caller-supplied OutputChannel)
+ * tagged with the caller-supplied `context`.
  *
  * @param promise - The promise to observe. VS Code's `Thenable<void>` is
  *   accepted alongside native `Promise<void>`.
  * @param context - A grep-friendly tag identifying the call site. Include
  *   the class name, method name, and trigger — e.g. `'ShelfView.unshelve
  *   refresh after success'`.
+ * @param options - Optional routing bag. When `options.outputChannel` is
+ *   set, the rejection is also appended to that channel so a shipped user
+ *   can see the failure in `Output → IntelliG` without attaching a
+ *   devtools console.
  */
-export function safeFireAndForget(promise: Promise<void> | Thenable<void>, context: string): void {
+export function safeFireAndForget(
+  promise: Promise<void> | Thenable<void>,
+  context: string,
+  options?: ISafeFireAndForgetOptions
+): void {
   Promise.resolve(promise).catch((err: unknown) => {
     // Keep the log prefix stable so the extension-host troubleshooting
     // docs can grep for it. Do NOT sanitize here — raw stacks belong in
     // the console for debugging; user-facing toasts live at the
     // internalised-catch pattern documented in the module JSDoc.
     console.error(`[intellig] ${context}:`, err);
+    if (options?.outputChannel) {
+      const timestamp = new Date().toISOString();
+      // Stringify-then-appendLine so the channel shows the full error
+      // including the stack if available, without relying on VS Code's
+      // console-formatting of a raw Error.
+      const rendered =
+        err instanceof Error ? `${err.message}${err.stack ? `\n${err.stack}` : ''}` : String(err);
+      options.outputChannel.appendLine(`[${timestamp}] [intellig] ${context}: ${rendered}`);
+    }
   });
 }

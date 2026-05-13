@@ -55,6 +55,7 @@ import {
   CommitContextMenuCommands,
 } from './commands';
 import type { LogContextAction } from './services/GitToolWindowProvider';
+import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
 import { resolveRepo } from './utils/resolveRepo';
 import { isTabbedGitToolWindowEnabled } from './services/gitToolWindow/config';
 import { parseRemoteUrl } from './utils/remoteUrl';
@@ -179,6 +180,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Hold a reference to the extension context for non-command call paths
     // that need it later (e.g. the Push dialog constructed from branch menu).
     extensionContext = context;
+
+    // Initialize the shared IntelliG OutputChannel early so any init/watcher
+    // rejection routed through safeFireAndForget lands somewhere the user
+    // can see. Registered with context.subscriptions so it disposes on
+    // deactivate alongside the rest of the extension's resources.
+    initOutputChannel(context);
 
     // Get or create the extension services container
     extensionServices = getExtensionServices();
@@ -3686,7 +3693,17 @@ function registerViews(context: vscode.ExtensionContext): void {
       // initial binding (it's a no-op beyond storing the repo).
       (shelfViewRef as unknown as { _repository: IRepository })._repository = repo;
       (stashViewRef as unknown as { _repository: IRepository })._repository = repo;
-      await shelfViewRef.refresh();
+      // refresh() returns { error? }; a bind-time refresh failure is
+      // usually a transient FS race and won't block the caller from
+      // running the subsequent unshelve/view/delete — but we mirror it
+      // into the shared OutputChannel so a persistent breakage is
+      // debuggable from `Output → IntelliG` in a shipped user's host.
+      const refreshResult = await shelfViewRef.refresh();
+      if (refreshResult.error) {
+        getOutputChannel().appendLine(
+          `[${new Date().toISOString()}] [intellig] extension.bindShelfRepo: refresh failed: ${refreshResult.error}`
+        );
+      }
       return repo;
     };
 

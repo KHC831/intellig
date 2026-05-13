@@ -53,6 +53,7 @@ import {
   getTagFormat,
 } from '../utils/gitParser';
 import { sortCommitsStable } from '../utils/commitSort';
+import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
@@ -192,7 +193,8 @@ export class GitService implements IGitService, IGitServiceCli {
         for (const folder of event.added) {
           safeFireAndForget(
             this.discoverRepository(folder.uri.fsPath),
-            `GitService.onDidChangeWorkspaceFolders: discover added folder ${folder.uri.fsPath}`
+            `GitService.onDidChangeWorkspaceFolders: discover added folder ${folder.uri.fsPath}`,
+            { outputChannel: getOutputChannel() }
           );
         }
       })
@@ -205,7 +207,8 @@ export class GitService implements IGitService, IGitServiceCli {
     // folders.
     safeFireAndForget(
       this.discoverRepositories(),
-      'GitService.constructor: initial repository discovery'
+      'GitService.constructor: initial repository discovery',
+      { outputChannel: getOutputChannel() }
     );
   }
 
@@ -453,7 +456,8 @@ export class GitService implements IGitService, IGitServiceCli {
         // rejection path doesn't regress silently.
         safeFireAndForget(
           this._performDebouncedRefresh(rootPath),
-          `GitService.setupRepositoryWatcher: debounced refresh for ${rootPath}`
+          `GitService.setupRepositoryWatcher: debounced refresh for ${rootPath}`,
+          { outputChannel: getOutputChannel() }
         );
       }, GitService.WATCHER_DEBOUNCE_MS);
       this._refreshTimers.set(rootPath, timer);

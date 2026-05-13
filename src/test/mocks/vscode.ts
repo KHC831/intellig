@@ -412,6 +412,50 @@ export const window = {
   showSaveDialog: async (_options?: unknown): Promise<Uri | undefined> => {
     return undefined;
   },
+  createOutputChannel(name: string): {
+    name: string;
+    _lines: string[];
+    append(value: string): void;
+    appendLine(value: string): void;
+    clear(): void;
+    show(): void;
+    hide(): void;
+    dispose(): void;
+    replace(value: string): void;
+  } {
+    // Minimal stub — captures every `appendLine` call in `_lines` so
+    // tests asserting OutputChannel routing (safeFireAndForget with
+    // `options.outputChannel`) can inspect what was written. Each
+    // call returns a fresh instance; production code caches a
+    // singleton, but tests are free to construct their own.
+    return {
+      name,
+      _lines: [],
+      append(value: string): void {
+        // `append` without newline — tests usually assert via appendLine,
+        // but we capture both for symmetry.
+        this._lines.push(value);
+      },
+      appendLine(value: string): void {
+        this._lines.push(value);
+      },
+      clear(): void {
+        this._lines = [];
+      },
+      show(): void {
+        /* no-op in tests */
+      },
+      hide(): void {
+        /* no-op in tests */
+      },
+      dispose(): void {
+        /* no-op in tests */
+      },
+      replace(value: string): void {
+        this._lines = [value];
+      },
+    };
+  },
   createStatusBarItem(
     _alignment?: unknown,
     _priority?: number
