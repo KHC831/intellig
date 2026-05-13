@@ -32,6 +32,7 @@ import {
 import { IRepository, IDiff } from '../../../services/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
 import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
+import { disposeOutputChannel, getOutputChannel } from '../../../utils/outputChannel';
 
 /**
  * Build a controllable IShelfService stub. Tests push items onto `_items` and
@@ -615,6 +616,89 @@ describe('ShelfView — T2-10', () => {
       }
     });
 
+    // TL-64: aggregate toast "N patch file(s) could not be imported"
+    // is informative-only. The per-file sanitized error lives in the
+    // returned result[], but nothing downstream rendered it before —
+    // users had no way to see which file failed with what error. Route
+    // each failed patch's sanitized error into the shared OutputChannel
+    // as a separate `appendLine` so `Output → IntelliG` shows the
+    // filename + error. Keep the toast text unchanged.
+    it('routes each failed import to OutputChannel with filename + sanitized error', async () => {
+      // Two files: one succeeds, two fail with different sanitisable errors.
+      const RAW_A = 'apply failed: https://alice:secret@example.com/a.git';
+      const EXPECTED_A = 'apply failed: https://<redacted>@example.com/a.git';
+      const RAW_B = 'apply failed: /Users/alice/project/b.patch: corrupt';
+      const EXPECTED_B = 'apply failed: ~/project/b.patch: corrupt';
+
+      svc.importPatch = (_repo, options): Promise<IShelfItem> => {
+        if (options.patchPath === '/tmp/a.patch') {
+          throw new Error(RAW_A);
+        }
+        if (options.patchPath === '/tmp/b.patch') {
+          throw new Error(RAW_B);
+        }
+        return Promise.resolve({
+          id: 'ok-1',
+          name: options.name ?? 'ok',
+          timestamp: new Date(),
+          files: [{ path: options.patchPath ?? 'p', diff: 'diff' }],
+        });
+      };
+
+      // Drop any prior cached channel so this test's appendLine calls
+      // go into a fresh _lines bucket.
+      disposeOutputChannel();
+      const channel = getOutputChannel() as unknown as { _lines: string[] };
+
+      const originalOpen = vscode.window.showOpenDialog;
+      (
+        vscode.window as unknown as {
+          showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
+        }
+      ).showOpenDialog = async () => [
+        vscode.Uri.file('/tmp/a.patch'),
+        vscode.Uri.file('/tmp/b.patch'),
+        vscode.Uri.file('/tmp/ok.patch'),
+      ];
+
+      try {
+        const results = await view.importPatches();
+        assert.strictEqual(results.length, 3);
+        const failedCount = results.filter((r) => !r.success).length;
+        assert.strictEqual(failedCount, 2, 'expected exactly two failed imports');
+
+        // The OutputChannel must carry one line per failure with the
+        // filename + sanitized error. Successful imports are silent.
+        const failureLines = channel._lines.filter((l) => l.includes('ShelfView.importPatches'));
+        assert.strictEqual(
+          failureLines.length,
+          2,
+          `expected two per-file failure lines in OutputChannel, got:\n  ${channel._lines.join('\n  ')}`
+        );
+
+        // Each line must contain the filename + its own sanitized error.
+        const lineForA = failureLines.find((l) => l.includes('a.patch'));
+        const lineForB = failureLines.find((l) => l.includes('b.patch'));
+        assert.ok(lineForA, 'expected a line mentioning a.patch');
+        assert.ok(lineForB, 'expected a line mentioning b.patch');
+        assert.ok(
+          lineForA.includes(EXPECTED_A),
+          `a.patch line must carry sanitized error; got: ${lineForA}`
+        );
+        assert.ok(
+          lineForB.includes(EXPECTED_B),
+          `b.patch line must carry sanitized error; got: ${lineForB}`
+        );
+        // And must not leak the raw credentials / home path.
+        assert.ok(!lineForA.includes('alice:secret'), 'a.patch line must not leak credentials');
+        assert.ok(!lineForB.includes('/Users/alice'), 'b.patch line must not leak home path');
+      } finally {
+        (vscode.window as unknown as { showOpenDialog: typeof originalOpen }).showOpenDialog =
+          originalOpen;
+        disposeOutputChannel();
+      }
+    });
+
     // TL-55: sanitize importPatches error path. Per-file import failures
     // embed their raw Error message into the structured result; `git
     // apply`/`git am` can surface credentialed remote URLs (from patch
@@ -658,10 +742,12 @@ describe('ShelfView — T2-10', () => {
 
   // TL-42: refresh() returns { error? } so callers can surface a refresh
   // failure immediately rather than leaving it latent in _state.error until
-  // the next shelf-list open. These specs pin the three behaviours:
+  // the next shelf-list open. TL-56 then removed the redundant _state.error
+  // mirror: no production consumer reads IShelfViewState.error (the sole
+  // reader, _showShelfList, already surfaces refreshResult.error directly).
+  // These specs pin the three behaviours now:
   //   (a) success → resolves with `{}` (no error field)
-  //   (b) service-throw → resolves with { error: sanitized } AND updates
-  //       _state.error for the _showShelfList render path
+  //   (b) service-throw → resolves with { error: sanitized }
   //   (c) sanitization — credentialed URL in the service error surfaces
   //       through the refresh() return value, not just the toast
   describe('refresh() — { error? } return contract', () => {
@@ -674,10 +760,42 @@ describe('ShelfView — T2-10', () => {
       });
       const result = await view.refresh();
       assert.deepStrictEqual(result, {});
-      assert.strictEqual(view.getState().error, undefined);
     });
 
-    it('resolves with { error } and updates _state.error when getShelfItems throws', async () => {
+    // TL-56 invariant: getState() MUST NOT expose an `error` field. The
+    // canonical error channel is the refresh() return value; an
+    // additional sideband on IShelfViewState was unused in production
+    // and created the risk that a future caller would read the
+    // latent-until-next-refresh value instead of the live one.
+    it('getState() does not expose an error field — refresh() is the sole error channel', async () => {
+      // After a successful refresh
+      svc._items.push({
+        id: 'a',
+        name: 'ok',
+        timestamp: new Date(),
+        files: [],
+      });
+      await view.refresh();
+      assert.strictEqual(
+        'error' in view.getState(),
+        false,
+        'getState() must not carry an error field after a successful refresh'
+      );
+
+      // And after a failed refresh
+      svc.getShelfItems = (): IShelfItem[] => {
+        throw new Error('shelf storage corrupt');
+      };
+      const result = await view.refresh();
+      assert.ok(result.error, 'refresh() must still surface the error on its return value');
+      assert.strictEqual(
+        'error' in view.getState(),
+        false,
+        'getState() must not carry an error field after a failed refresh — refresh() return is canonical'
+      );
+    });
+
+    it('resolves with { error } when getShelfItems throws', async () => {
       svc.getShelfItems = (): IShelfItem[] => {
         throw new Error('shelf storage corrupt');
       };
@@ -686,11 +804,6 @@ describe('ShelfView — T2-10', () => {
       assert.ok(
         result.error.includes('shelf storage corrupt'),
         `unexpected error text: ${result.error}`
-      );
-      assert.strictEqual(
-        view.getState().error,
-        result.error,
-        '_state.error must mirror the returned error for the _showShelfList render path'
       );
     });
 
@@ -763,6 +876,142 @@ describe('ShelfView — T2-10', () => {
         (
           vscode.window as unknown as { showWarningMessage: typeof originalWarn }
         ).showWarningMessage = originalWarn;
+      }
+    });
+
+    // TL-63: parallel specs for showShelveDialog + importPatches +
+    // _showShelfList to close the coverage gap identified by tech-lead-
+    // wave6. These all pass on current code (the surfacing code lives
+    // at each call site already); they're explicitly GREEN-FIRST,
+    // locking in the behaviour so a future regression that drops the
+    // warning toast fails a pinned spec instead of sliding through.
+    it('showShelveDialog emits a warning toast when the post-action refresh fails', async () => {
+      // Seed a status so the dialog proceeds past the "no changes" early return.
+      const view2 = new ShelfView(svc, () =>
+        Promise.resolve([{ path: 'x.ts', indexStatus: 'M', workTreeStatus: ' ' } as never])
+      );
+      (view2 as unknown as { _repository: IRepository })._repository = repo;
+
+      // The first refresh (seeding in the shelf-list open path) doesn't
+      // run through this method; showShelveDialog calls shelve + then
+      // refresh. Force the post-shelve refresh to throw.
+      svc.getShelfItems = (): IShelfItem[] => {
+        throw new Error('refresh IO error');
+      };
+
+      const originalPick = vscode.window.showQuickPick;
+      (
+        vscode.window as unknown as {
+          showQuickPick: (items: unknown[]) => Promise<unknown>;
+        }
+      ).showQuickPick = async (items: unknown[]) => items.slice();
+
+      const originalInput = vscode.window.showInputBox;
+      (
+        vscode.window as unknown as {
+          showInputBox: (opts?: unknown) => Promise<string | undefined>;
+        }
+      ).showInputBox = async () => 'my-shelf';
+
+      const warnCalls: string[] = [];
+      const originalWarn = vscode.window.showWarningMessage;
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (m: string, ...items: unknown[]) => Promise<string | undefined>;
+        }
+      ).showWarningMessage = async (m: string): Promise<string | undefined> => {
+        warnCalls.push(m);
+        return undefined;
+      };
+
+      try {
+        await view2.showShelveDialog(repo);
+        assert.ok(
+          warnCalls.some((m) => m.startsWith('Shelf list refresh failed:')),
+          `expected refresh-failed warning toast, got: ${warnCalls.join(' | ')}`
+        );
+      } finally {
+        (vscode.window as unknown as { showQuickPick: typeof originalPick }).showQuickPick =
+          originalPick;
+        (vscode.window as unknown as { showInputBox: typeof originalInput }).showInputBox =
+          originalInput;
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
+        view2.dispose();
+      }
+    });
+
+    it('importPatches emits a warning toast when the post-action refresh fails', async () => {
+      // importPatches fires refresh at the end; make it throw.
+      const originalGet = svc.getShelfItems;
+      let imported = 0;
+      svc.importPatch = (_r, opts): Promise<IShelfItem> => {
+        imported += 1;
+        return Promise.resolve({
+          id: `imp-${imported}`,
+          name: opts.name ?? 'imp',
+          timestamp: new Date(),
+          files: [{ path: 'p', diff: 'diff' }],
+        });
+      };
+      svc.getShelfItems = (): IShelfItem[] => {
+        throw new Error('refresh IO error');
+      };
+
+      const originalOpen = vscode.window.showOpenDialog;
+      (
+        vscode.window as unknown as {
+          showOpenDialog: () => Promise<vscode.Uri[] | undefined>;
+        }
+      ).showOpenDialog = async () => [vscode.Uri.file('/tmp/a.patch')];
+
+      const warnCalls: string[] = [];
+      const originalWarn = vscode.window.showWarningMessage;
+      (
+        vscode.window as unknown as {
+          showWarningMessage: (m: string, ...items: unknown[]) => Promise<string | undefined>;
+        }
+      ).showWarningMessage = async (m: string): Promise<string | undefined> => {
+        warnCalls.push(m);
+        return undefined;
+      };
+
+      try {
+        await view.importPatches();
+        assert.ok(
+          warnCalls.some((m) => m.startsWith('Shelf list refresh failed:')),
+          `expected refresh-failed warning toast, got: ${warnCalls.join(' | ')}`
+        );
+      } finally {
+        (vscode.window as unknown as { showOpenDialog: typeof originalOpen }).showOpenDialog =
+          originalOpen;
+        (
+          vscode.window as unknown as { showWarningMessage: typeof originalWarn }
+        ).showWarningMessage = originalWarn;
+        svc.getShelfItems = originalGet.bind(svc);
+      }
+    });
+
+    it('_showShelfList emits an error toast when the refresh-on-open fails', async () => {
+      svc.getShelfItems = (): IShelfItem[] => {
+        throw new Error('refresh IO error');
+      };
+      const tracker = installErrorMessageTracker();
+      try {
+        // show() delegates to the private _showShelfList which is the
+        // caller we're pinning here; the refresh-on-open failure must
+        // route to showErrorMessage (more severe than the warning toast
+        // path taken by user-action callers) because the user
+        // explicitly asked to open the list and can't see one without a
+        // successful refresh.
+        await view.show(repo);
+        assert.ok(
+          tracker.calls.some((c) => c.message.startsWith('Failed to load shelf items:')),
+          `expected load-failed error toast, got: ${tracker.calls.map((c) => c.message).join(' | ')}`
+        );
+      } finally {
+        restoreMessageFunctions();
       }
     });
 

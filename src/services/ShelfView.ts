@@ -117,7 +117,6 @@ export class ShelfView implements IShelfView {
       shelfItems: [],
       selectedId: undefined,
       loading: false,
-      error: undefined,
     };
   }
 
@@ -162,14 +161,12 @@ export class ShelfView implements IShelfView {
    * failure `error` holds a human-readable (sanitised) message suitable for
    * a toast or OutputChannel entry. Never rejects — every caller (sync or
    * async) handles the outcome by reading the returned object, which makes
-   * failure propagation explicit at every call site and removes the
-   * ordering-fragile `_state.error` sideband the caller had to remember to
-   * read after `safeFireAndForget(...)`.
+   * failure propagation explicit at every call site.
    *
-   * `_state.error` is still updated for the `_showShelfList` render path and
-   * any future consumer of `getState()`, but the returned object is the
-   * canonical channel — callers should NOT poke at `_state.error` after
-   * awaiting `refresh()`.
+   * No sideband on `_state` — `getState()` carries no `error` field. The
+   * returned object is the sole canonical channel; callers handle the
+   * failure where they observe it rather than reading latent state on a
+   * later open.
    */
   refresh(): Promise<{ error?: string }> {
     if (!this._repository) {
@@ -177,7 +174,6 @@ export class ShelfView implements IShelfView {
     }
 
     this._state.loading = true;
-    this._state.error = undefined;
 
     try {
       const items = this._shelfService.getShelfItems(this._repository);
@@ -187,7 +183,6 @@ export class ShelfView implements IShelfView {
     } catch (error) {
       const raw = error instanceof Error ? error.message : 'Unknown error';
       const sanitized = sanitizeGitError(raw);
-      this._state.error = sanitized;
       return Promise.resolve({ error: sanitized });
     } finally {
       this._state.loading = false;
@@ -411,8 +406,7 @@ export class ShelfView implements IShelfView {
       }
 
       // refresh() never rejects — await it so a refresh failure becomes a
-      // visible warning instead of sitting latent in `_state.error` until
-      // the next shelf-list open. The unshelve itself already produced
+      // visible warning immediately. The unshelve itself already produced
       // its own toast above, so a failed refresh is a secondary signal.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
@@ -896,7 +890,18 @@ export class ShelfView implements IShelfView {
         // leak either. Mirrors the TL-46 sanitization pattern applied
         // to unshelve / delete / rename above.
         const raw = error instanceof Error ? error.message : String(error);
-        results.push({ success: false, error: sanitizeGitError(raw) });
+        const sanitized = sanitizeGitError(raw);
+        // TL-64: route the per-file failure into the shared
+        // OutputChannel so the aggregate toast ("N patch file(s) could
+        // not be imported") has an actionable companion in
+        // `Output → IntelliG`. The toast itself is informative-only;
+        // users who want detail open the channel. Filename + sanitized
+        // error on a single line keeps the log greppable without
+        // leaking credentials or home paths.
+        getOutputChannel().appendLine(
+          `[${new Date().toISOString()}] [intellig] ShelfView.importPatches: ${uri.fsPath}: ${sanitized}`
+        );
+        results.push({ success: false, error: sanitized });
       }
     }
     const okCount = results.filter((r) => r.success).length;
@@ -928,12 +933,20 @@ export class ShelfView implements IShelfView {
    * Toggle whether Already-Unshelved entries are visible in the tree.
    *
    * Synchronous caller surface (command-palette handler, QuickPick
-   * accept). `refresh()` is async and returns `{ error? }`; we route the
-   * outcome through `safeFireAndForget` (so a sync caller isn't forced
-   * to await) and feed any refresh error into the shared OutputChannel.
-   * A silent-refresh failure on a view toggle isn't worth a toast — the
-   * user didn't ask for a side-effect — but it MUST be debuggable, which
-   * is exactly what the OutputChannel mirror buys us.
+   * accept). `refresh()` is async and returns `{ error? }` by contract
+   * (never rejects), so a silent-refresh error surfaces only on the
+   * inner `.then(...)` — we feed that into the shared OutputChannel.
+   *
+   * The outer `safeFireAndForget` intentionally does NOT pass
+   * `{ outputChannel }` even though the historic pattern did. Because
+   * the inner handler already appends the sanitized refresh error, the
+   * outer option was a dead path in the common case (refresh doesn't
+   * reject) and a duplicate log in the impossible case (refresh reject
+   * + inner handler throw). A silent-refresh failure on a view toggle
+   * isn't worth a toast — the user didn't ask for a side-effect — but
+   * it MUST be debuggable, and the inner-path log buys that; the outer
+   * `console.error` default catches the only remaining signal worth
+   * capturing (an unexpected throw inside the inner handler itself).
    */
   setShowAlreadyUnshelved(show: boolean): void {
     if (this._showAlreadyUnshelved === show) {
@@ -948,8 +961,7 @@ export class ShelfView implements IShelfView {
           );
         }
       }),
-      'ShelfView.setShowAlreadyUnshelved: refresh after toggle',
-      { outputChannel: getOutputChannel() }
+      'ShelfView.setShowAlreadyUnshelved: refresh after toggle'
     );
   }
 
@@ -970,10 +982,10 @@ export class ShelfView implements IShelfView {
     }
 
     // refresh() returns `{ error? }` so we read the outcome from the
-    // promise directly — no more `_state.error` ordering dance. A
-    // refresh-on-open failure blocks the list view entirely, so we
-    // surface it as an error toast (the user asked to see the shelf;
-    // the quiet-log policy for passive toggles doesn't apply here).
+    // promise directly. A refresh-on-open failure blocks the list view
+    // entirely, so we surface it as an error toast (the user asked to
+    // see the shelf; the quiet-log policy for passive toggles doesn't
+    // apply here).
     const refreshResult = await this.refresh();
     if (refreshResult.error) {
       void vscode.window.showErrorMessage(`Failed to load shelf items: ${refreshResult.error}`);

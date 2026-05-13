@@ -173,9 +173,4 @@ export interface INotificationService {
    * @returns Disposable to hide the message early
    */
   showStatusMessage(message: string, timeout?: number): vscode.Disposable;
-
-  /**
-   * Dispose of the notification service and its resources.
-   */
-  dispose(): void;
 }

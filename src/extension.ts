@@ -302,9 +302,13 @@ export function deactivate(): void {
       statusBarService = undefined;
     }
 
-    // Dispose the Notification Service
+    // Release the Notification Service reference. It owns no
+    // disposables of its own — the shared OutputChannel it consumes is
+    // registered against `context.subscriptions` by
+    // `initOutputChannel(context)`, so deactivation of the context
+    // handles the underlying tear-down. Nulling the reference here
+    // just lets a subsequent `activate` construct a fresh instance.
     if (notificationService) {
-      notificationService.dispose();
       notificationService = undefined;
     }
 
@@ -4161,9 +4165,13 @@ function registerViews(context: vscode.ExtensionContext): void {
     statusBarService = createStatusBarService(gitService);
     context.subscriptions.push(statusBarService);
 
-    // Initialize Notification Service
+    // Initialize Notification Service. It owns no disposables of its
+    // own — the shared `IntelliG` OutputChannel it consumes is
+    // registered against `context.subscriptions` by
+    // `initOutputChannel(context)` earlier in activate — so we do NOT
+    // push the service itself onto the subscriptions list (it has no
+    // `dispose()` to call).
     notificationService = createNotificationService();
-    context.subscriptions.push(notificationService);
 
     // Initialize Keymap Service
     keymapService = new KeymapService(extensionServices.configurationService);

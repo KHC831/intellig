@@ -209,12 +209,30 @@ describe('e2e — post-activate idle invariant (Tier-2 real-repo reproduction)',
     );
   });
 
-  it('total spawn count across activation + idle stays bounded', () => {
+  /**
+   * Pins the activation-only spawn ceiling.
+   *
+   * This spec runs right after `beforeEach` installs the spawn counter,
+   * so `counter.spawns.length` at this point reflects only what the
+   * extension emitted during activation + repo-bind handshake — there
+   * is no idle window observed here. A previous name ("total spawn
+   * count across activation + idle…") misleadingly implied a combined
+   * budget, but no idle window is awaited in this spec. The real
+   * idle-window check lives in the sibling spec above, which sleeps
+   * IDLE_WINDOW_MS and filters spawns by timestamp.
+   *
+   * `TOTAL_BUDGET` therefore caps **activation-only** spawns: a regression
+   * that makes activation chatty (e.g. redundant branch/tag reads on
+   * startup) trips this spec, even though the steady-state watcher is
+   * healthy. Keeping the two signals separate lets a failure point at
+   * "activation bloat" vs "watcher loop" without disambiguation.
+   */
+  it('activation-only git spawn count stays under TOTAL_BUDGET', () => {
     assert.ok(counter, 'spawn counter not installed');
     const total = counter.spawns.length;
     // eslint-disable-next-line no-console
     console.log(
-      `[idle invariant tier-2] total git spawns since counter install: ${total}/${TOTAL_BUDGET}`
+      `[idle invariant tier-2] activation-only git spawns since counter install: ${total}/${TOTAL_BUDGET}`
     );
     if (total <= TOTAL_BUDGET) {
       return;
@@ -225,10 +243,11 @@ describe('e2e — post-activate idle invariant (Tier-2 real-repo reproduction)',
       args: s.args.join(' '),
     }));
     assert.fail(
-      `REFRESH LOOP SUSPECTED — ${total} git spawns total since counter install ` +
-        `(budget ${TOTAL_BUDGET}). The watcher-loop fix caps steady-state spawns ` +
-        `to a handful; a number this large points at a debounce / watcher-scope ` +
-        `regression.\n` +
+      `ACTIVATION-CHATTINESS SUSPECTED — ${total} git spawns between activation and ` +
+        `the assertion (budget ${TOTAL_BUDGET}, no idle window awaited in this spec). ` +
+        `A number this large points at redundant activation-path spawns (e.g. duplicated ` +
+        `branch/tag reads, refresh-on-bind loops) rather than a steady-state watcher ` +
+        `regression, which the sibling idle-window spec catches separately.\n` +
         `Last ${tail.length} spawns:\n` +
         tail.map((t) => `  [${t.at}] ${t.cmd} ${t.args}`).join('\n')
     );

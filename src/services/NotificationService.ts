@@ -94,7 +94,6 @@ const OPERATION_ERROR_PREFIXES: Record<GitOperationType, string> = {
  * - Error handling: Provide user-friendly error messages with recovery suggestions
  */
 export class NotificationService implements INotificationService {
-  private _disposables: vscode.Disposable[] = [];
   private _outputChannel: vscode.OutputChannel;
 
   constructor() {
@@ -108,10 +107,8 @@ export class NotificationService implements INotificationService {
     // `activate()`). That's the duplicate-dropdown-entry UX wart.
     //
     // Disposal is owned by `initOutputChannel(context)` which pushes the
-    // singleton onto `context.subscriptions`. Do NOT push onto
-    // `_disposables` here — doing so would call `dispose()` twice (once via
-    // context, once via this service's dispose()), which `OutputChannel`
-    // tolerates in practice but is still incorrect lifecycle.
+    // singleton onto `context.subscriptions`; the service itself holds
+    // no disposables and therefore has no `dispose()` of its own.
     this._outputChannel = getOutputChannel();
   }
 
@@ -443,16 +440,6 @@ export class NotificationService implements INotificationService {
     timeout: number = DEFAULT_STATUS_MESSAGE_TIMEOUT
   ): vscode.Disposable {
     return vscode.window.setStatusBarMessage(message, timeout);
-  }
-
-  /**
-   * Dispose of the notification service and its resources.
-   */
-  dispose(): void {
-    for (const disposable of this._disposables) {
-      disposable.dispose();
-    }
-    this._disposables = [];
   }
 }
 

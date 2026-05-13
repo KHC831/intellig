@@ -66,7 +66,14 @@ export interface IShelfListItem {
 }
 
 /**
- * State for the Shelf View
+ * State for the Shelf View.
+ *
+ * Deliberately carries no `error` field. Refresh failures are surfaced
+ * through the `{ error? }` return value of {@link IShelfView.refresh}
+ * at every call site; a sideband on the view state would be a latent
+ * mirror that callers could accidentally read after the canonical
+ * channel had already been handled. See
+ * {@link IShelfView.refresh} for the contract.
  */
 export interface IShelfViewState {
   /** List of shelf items */
@@ -75,8 +82,6 @@ export interface IShelfViewState {
   selectedId?: string;
   /** Whether the view is loading */
   loading: boolean;
-  /** Error message if any */
-  error?: string;
 }
 
 /**
@@ -116,11 +121,12 @@ export interface IShelfView {
    * can react in their own idiomatic way.
    *
    * Previously this resolved to `void` and errors were stashed into
-   * `_state.error`, which only one caller (`_showShelfList`) read.
-   * Callers in the user-facing path (unshelve, delete, shelve) were
-   * missing the error entirely — failures became latent until the next
-   * shelf-list open. The `{ error? }` return fixes that by making the
-   * outcome explicit at every call site.
+   * an `_state.error` sideband that only one caller (`_showShelfList`)
+   * read; callers in the user-facing path (unshelve, delete, shelve)
+   * missed the error entirely and failures became latent until the
+   * next shelf-list open. The `{ error? }` return fixes that by making
+   * the outcome explicit at every call site, and the sideband was
+   * subsequently removed so there is exactly one canonical channel.
    */
   refresh(): Promise<{ error?: string }>;
 
