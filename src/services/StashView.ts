@@ -14,6 +14,7 @@ import {
   StashContextAction,
 } from './interfaces/IStashView';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Quick pick item for stash list
@@ -79,7 +80,6 @@ export class StashView implements IStashView {
       stashes: [],
       selectedIndex: undefined,
       loading: false,
-      error: undefined,
     };
   }
 
@@ -102,14 +102,23 @@ export class StashView implements IStashView {
 
   /**
    * Refresh the stash list.
+   *
+   * Resolves to `{ error?: string }`. On success `error` is undefined; on
+   * failure `error` holds a human-readable (sanitised) message suitable
+   * for a toast or OutputChannel entry. Never rejects — every caller
+   * (sync or async) handles the outcome by reading the returned object.
+   *
+   * No sideband on `_state` — `getState()` carries no `error` field. The
+   * returned object is the sole canonical channel; per ADR-006 QuickPick
+   * views bind errors through the refresh return value rather than a
+   * `_state.error` mirror. See `docs/adr/ADR-006-...md`.
    */
-  async refresh(): Promise<void> {
+  async refresh(): Promise<{ error?: string }> {
     if (!this._repository) {
-      return;
+      return {};
     }
 
     this._state.loading = true;
-    this._state.error = undefined;
 
     try {
       const stashes = await this._gitService.stashList(this._repository);
@@ -118,9 +127,11 @@ export class StashView implements IStashView {
         selected: false,
       }));
       this._onDidChangeStashes.fire(stashes);
+      return {};
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this._state.error = errorMessage;
+      const raw = error instanceof Error ? error.message : 'Unknown error';
+      const sanitized = sanitizeGitError(raw);
+      return { error: sanitized };
     } finally {
       this._state.loading = false;
     }
@@ -193,8 +204,15 @@ export class StashView implements IStashView {
         message ? `Stashed changes: "${message}"` : 'Stashed changes'
       );
 
-      // Refresh the stash list
-      await this.refresh();
+      // refresh() never rejects — it returns `{ error? }` so we surface
+      // a post-stash refresh failure as a warning toast. The stash
+      // itself succeeded, so this is a secondary signal (the user's
+      // view may be stale until next list-open). showWarningMessage,
+      // not showErrorMessage. Mirrors ShelfView's Wave 7 policy.
+      const refreshResult = await this.refresh();
+      if (refreshResult.error) {
+        void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
+      }
 
       return {
         created: true,
@@ -333,8 +351,13 @@ export class StashView implements IStashView {
       await this._gitService.stashPop(this._repository, index);
       void vscode.window.showInformationMessage(`Popped stash@{${index}}`);
 
-      // Refresh the stash list
-      await this.refresh();
+      // refresh() never rejects — surface refresh failure as a warning
+      // toast (the pop itself succeeded). See showCreateDialog for the
+      // policy rationale.
+      const refreshResult = await this.refresh();
+      if (refreshResult.error) {
+        void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
+      }
 
       this._onDidRequestAction.fire({ action: 'pop', stash });
 
@@ -412,7 +435,11 @@ export class StashView implements IStashView {
         `Created branch '${branchName}' from stash@{${index}} and applied it`
       );
       // The stash is dropped by `git stash branch` on success; refresh.
-      await this.refresh();
+      // refresh() never rejects — surface failure as a warning toast.
+      const refreshResult = await this.refresh();
+      if (refreshResult.error) {
+        void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
+      }
 
       this._onDidRequestAction.fire({ action: 'branch', stash });
       return { success: true, action: 'branch', stash };
@@ -481,7 +508,11 @@ export class StashView implements IStashView {
     try {
       await this._gitService.stashRename(this._repository, index, newMessage);
       void vscode.window.showInformationMessage(`Renamed stash@{${index}}`);
-      await this.refresh();
+      // refresh() never rejects — surface failure as a warning toast.
+      const refreshResult = await this.refresh();
+      if (refreshResult.error) {
+        void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
+      }
       this._onDidRequestAction.fire({ action: 'rename', stash });
       return { success: true, action: 'rename', stash };
     } catch (error) {
@@ -522,8 +553,11 @@ export class StashView implements IStashView {
       await this._gitService.stashDrop(this._repository, index);
       void vscode.window.showInformationMessage(`Dropped stash@{${index}}`);
 
-      // Refresh the stash list
-      await this.refresh();
+      // refresh() never rejects — surface failure as a warning toast.
+      const refreshResult = await this.refresh();
+      if (refreshResult.error) {
+        void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
+      }
 
       this._onDidRequestAction.fire({ action: 'drop', stash });
 
@@ -740,11 +774,12 @@ export class StashView implements IStashView {
       return;
     }
 
-    // Refresh stash list
-    await this.refresh();
-
-    if (this._state.error) {
-      void vscode.window.showErrorMessage(`Failed to load stashes: ${this._state.error}`);
+    // Refresh stash list. refresh() returns `{ error? }` (never rejects),
+    // so we read the outcome from the promise directly. Per ADR-006, the
+    // return value is the canonical error channel for QuickPick views.
+    const refreshResult = await this.refresh();
+    if (refreshResult.error) {
+      void vscode.window.showErrorMessage(`Failed to load stashes: ${refreshResult.error}`);
       return;
     }
 

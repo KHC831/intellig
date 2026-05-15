@@ -19,6 +19,7 @@ import {
   IBranchComparisonResult,
   BranchComparisonAction,
 } from './interfaces/IBranchComparisonView';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Quick pick item for branch selection
@@ -89,7 +90,6 @@ export class BranchComparisonView implements IBranchComparisonView {
       branch2: undefined,
       comparison: undefined,
       loading: false,
-      error: undefined,
     };
   }
 
@@ -121,10 +121,12 @@ export class BranchComparisonView implements IBranchComparisonView {
       }
     }
 
-    // Perform the comparison
-    await this.setBranches(firstBranch, secondBranch);
+    // Perform the comparison. setBranches() returns `{ error? }` (never
+    // rejects) — per ADR-006, the return value is the canonical error
+    // channel for QuickPick views.
+    const setResult = await this.setBranches(firstBranch, secondBranch);
 
-    if (this._state.error || !this._state.comparison) {
+    if (setResult.error || !this._state.comparison) {
       return { compared: false };
     }
 
@@ -148,13 +150,21 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Refresh the comparison with current branches.
+   *
+   * Resolves to `{ error?: string }`. On success `error` is undefined; on
+   * failure `error` holds a human-readable (sanitised) message suitable
+   * for a toast or OutputChannel entry. Never rejects.
+   *
+   * No sideband on `_state` — `getState()` carries no `error` field. Per
+   * ADR-006 (`docs/adr/ADR-006-...md`) QuickPick views bind errors
+   * through the refresh return value rather than a `_state.error` mirror.
    */
-  async refresh(): Promise<void> {
+  async refresh(): Promise<{ error?: string }> {
     if (!this._repository || !this._state.branch1 || !this._state.branch2) {
-      return;
+      return {};
     }
 
-    await this._performComparison();
+    return this._performComparison();
   }
 
   /**
@@ -165,31 +175,39 @@ export class BranchComparisonView implements IBranchComparisonView {
   }
 
   /**
-   * Set the branches to compare.
+   * Set the branches to compare and run the comparison as a side effect.
+   *
+   * Resolves to `{ error?: string }` — same canonical-channel shape as
+   * {@link refresh}. Per ADR-006.
    *
    * @param branch1 - The first branch
    * @param branch2 - The second branch
    */
-  async setBranches(branch1: string, branch2: string): Promise<void> {
+  async setBranches(branch1: string, branch2: string): Promise<{ error?: string }> {
     this._state.branch1 = branch1;
     this._state.branch2 = branch2;
-    await this._performComparison();
+    return this._performComparison();
   }
 
   /**
    * Swap the two branches being compared.
+   *
+   * Resolves to the same `{ error? }` shape as {@link refresh}.
    */
-  async swapBranches(): Promise<void> {
+  async swapBranches(): Promise<{ error?: string }> {
     if (!this._state.branch1 || !this._state.branch2) {
-      return;
+      return {};
     }
 
     const temp = this._state.branch1;
     this._state.branch1 = this._state.branch2;
     this._state.branch2 = temp;
 
-    await this._performComparison();
-    this._showComparisonResults();
+    const result = await this._performComparison();
+    if (!result.error) {
+      this._showComparisonResults();
+    }
+    return result;
   }
 
   /**
@@ -365,14 +383,19 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Perform the branch comparison.
+   *
+   * Resolves to `{ error?: string }`. On success `error` is undefined; on
+   * failure `error` holds a sanitised, human-readable message. Never
+   * rejects. The error toast is still emitted from this method (for
+   * UX continuity with the pre-Wave-8 behaviour) but the canonical
+   * channel for downstream callers is the return value, not a sideband.
    */
-  private async _performComparison(): Promise<void> {
+  private async _performComparison(): Promise<{ error?: string }> {
     if (!this._repository || !this._state.branch1 || !this._state.branch2) {
-      return;
+      return {};
     }
 
     this._state.loading = true;
-    this._state.error = undefined;
 
     try {
       const comparison = await this._gitService.compareBranches(
@@ -383,12 +406,14 @@ export class BranchComparisonView implements IBranchComparisonView {
 
       this._state.comparison = comparison;
       this._onDidChangeComparison.fire(comparison);
+      return {};
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this._state.error = errorMessage;
+      const raw = error instanceof Error ? error.message : 'Unknown error';
+      const sanitized = sanitizeGitError(raw);
       this._state.comparison = undefined;
       this._onDidChangeComparison.fire(undefined);
-      void vscode.window.showErrorMessage(`Failed to compare branches: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to compare branches: ${sanitized}`);
+      return { error: sanitized };
     } finally {
       this._state.loading = false;
     }
@@ -396,6 +421,15 @@ export class BranchComparisonView implements IBranchComparisonView {
 
   /**
    * Show the comparison results in a quick pick.
+   *
+   * Early-returns when `_state.comparison` is undefined — this is the
+   * post-failure state (`_performComparison` clears it on error). The
+   * Wave 8 contract surfaces refresh errors through the return value
+   * of `refresh()` / `setBranches()` / `swapBranches()`, so callers
+   * normally check the result before reaching this method; the guard
+   * here is the last line of defence against the comparison-null path.
+   * Pinned by the TL-75 test in
+   * `src/test/unit/services/branchComparisonView.test.ts`.
    */
   private _showComparisonResults(): void {
     if (!this._state.comparison || !this._state.branch1 || !this._state.branch2) {
@@ -441,8 +475,15 @@ export class BranchComparisonView implements IBranchComparisonView {
             quickPick.hide();
             await this.swapBranches();
           } else if (selected.action === 'refresh') {
-            await this.refresh();
-            quickPick.items = this._buildComparisonQuickPickItems(this._state.comparison!);
+            // refresh() returns `{ error? }` (never rejects). On success
+            // we rebuild the items with the new comparison; on error
+            // _performComparison already showed the toast and cleared
+            // `_state.comparison`, so we leave the existing items in
+            // place rather than crash on the non-null assertion.
+            const result = await this.refresh();
+            if (!result.error && this._state.comparison) {
+              quickPick.items = this._buildComparisonQuickPickItems(this._state.comparison);
+            }
           }
           break;
       }

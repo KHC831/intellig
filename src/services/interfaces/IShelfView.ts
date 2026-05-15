@@ -72,8 +72,10 @@ export interface IShelfListItem {
  * through the `{ error? }` return value of {@link IShelfView.refresh}
  * at every call site; a sideband on the view state would be a latent
  * mirror that callers could accidentally read after the canonical
- * channel had already been handled. See
- * {@link IShelfView.refresh} for the contract.
+ * channel had already been handled. Per ADR-006
+ * (`docs/adr/ADR-006-error-state-binding-by-view-type.md`), QuickPick
+ * views like this one bind errors through the refresh return value;
+ * see {@link IShelfView.refresh} for the contract.
  */
 export interface IShelfViewState {
   /** List of shelf items */
@@ -127,6 +129,10 @@ export interface IShelfView {
    * next shelf-list open. The `{ error? }` return fixes that by making
    * the outcome explicit at every call site, and the sideband was
    * subsequently removed so there is exactly one canonical channel.
+   *
+   * See ADR-006 for the rule governing when a view binds errors via
+   * this canonical-channel pattern vs. an `_state.error` sideband
+   * (template-rendering views).
    */
   refresh(): Promise<{ error?: string }>;
 

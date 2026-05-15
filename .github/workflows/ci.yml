@@ -36,6 +36,17 @@ jobs:
       - name: Lint
         run: npm run lint -- --max-warnings 0
 
+      # TL-74 (Wave 8 R2). Per ADR-006, the QuickPick view-state
+      # interfaces (IShelfViewState, IStashViewState,
+      # IBranchComparisonViewState) deliberately carry no `error`
+      # field — refresh failures travel through a `Promise<{ error? }>`
+      # return value, never via a state sideband. This grep-based
+      # guard fails the build if a future change reacquires the
+      # `error?: string` field on any of those state interfaces.
+      # Cheap, fast, no test infrastructure needed.
+      - name: Structural guard — QuickPick view-state interfaces
+        run: npm run check:quickpick-state
+
       - name: Compile
         run: npm run compile
 

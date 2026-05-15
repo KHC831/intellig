@@ -141,14 +141,16 @@ function makeGitService(overrides: {
 interface ToastLog {
   info: string[];
   error: string[];
+  warning: string[];
 }
 
 function installWindowStubs(
   inputBoxResponder: (opts: vscode.InputBoxOptions | undefined) => string | undefined
 ): { toasts: ToastLog; restore: () => void } {
-  const toasts: ToastLog = { info: [], error: [] };
+  const toasts: ToastLog = { info: [], error: [], warning: [] };
   const oInfo = vscode.window.showInformationMessage;
   const oErr = vscode.window.showErrorMessage;
+  const oWarn = vscode.window.showWarningMessage;
   const oInput = vscode.window.showInputBox;
   (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage = async (
     m: string
@@ -162,6 +164,12 @@ function installWindowStubs(
     toasts.error.push(m);
     return undefined;
   };
+  (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = async (
+    m: string
+  ): Promise<string | undefined> => {
+    toasts.warning.push(m);
+    return undefined;
+  };
   (vscode.window as unknown as { showInputBox: unknown }).showInputBox = async (
     opts?: vscode.InputBoxOptions
   ): Promise<string | undefined> => {
@@ -171,6 +179,7 @@ function installWindowStubs(
     (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
       oInfo;
     (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
+    (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = oWarn;
     (vscode.window as unknown as { showInputBox: unknown }).showInputBox = oInput;
   };
   return { toasts, restore };
@@ -518,5 +527,319 @@ describe('StashView T2-09 — branch from stash + rename', () => {
         view.dispose();
       }
     });
+  });
+});
+
+// TL-68 (Wave 8 A) — refresh() canonical-channel contract.
+//
+// Before Wave 8 StashView used the pre-Wave-7 `_state.error` sideband:
+// refresh() resolved to `void`, errors were stashed into `_state.error`, and
+// _showShelfList read the latent value back. That mirrored the
+// (now-removed) ShelfView pattern. Per ADR-006 the rule is now that
+// QuickPick views surface refresh failures through the refresh() return
+// value, never through a sideband on view state. These specs pin the new
+// contract:
+//   (a) successful refresh resolves to `{}` — no error key present
+//   (b) failing refresh resolves to `{ error: <sanitized> }`
+//   (c) getState() carries no `error` field after either path
+//   (d) sanitized credentialed URLs / home paths in the returned error
+describe('StashView TL-68 — refresh() returns { error? } (no _state.error sideband)', () => {
+  it('resolves with {} when stashList succeeds', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    const view = createStashView(gitService);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      const result = await view.refresh();
+      assert.deepStrictEqual(
+        result,
+        {},
+        'successful refresh must resolve with an empty object — no error key'
+      );
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('resolves with { error } when stashList throws', async () => {
+    const gitService = makeGitService({ stashes: [] });
+    // Replace stashList with a thrower.
+    (gitService as unknown as { stashList: unknown }).stashList = (): Promise<never> => {
+      return Promise.reject(new Error('git stash list failed'));
+    };
+    const view = createStashView(gitService);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      const result = await view.refresh();
+      assert.ok(result.error, 'refresh() must resolve with an error key when stashList throws');
+      assert.ok(
+        result.error.includes('git stash list failed'),
+        `unexpected error text: ${result.error}`
+      );
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('getState() does not expose an error field — refresh() is the sole error channel', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    const view = createStashView(gitService);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+
+      // After a successful refresh
+      await view.refresh();
+      assert.strictEqual(
+        'error' in view.getState(),
+        false,
+        'getState() must not carry an error field after a successful refresh'
+      );
+
+      // And after a failed refresh — the canonical channel is still the
+      // refresh() return; the state object stays clean.
+      (gitService as unknown as { stashList: unknown }).stashList = (): Promise<never> => {
+        return Promise.reject(new Error('git stash list failed'));
+      };
+      const result = await view.refresh();
+      assert.ok(result.error, 'refresh() must surface the error on its return value');
+      assert.strictEqual(
+        'error' in view.getState(),
+        false,
+        'getState() must not carry an error field after a failed refresh — refresh() return is canonical'
+      );
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('sanitizes credentialed URLs and home paths in the returned error', async () => {
+    const RAW = 'list failed: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'list failed: https://<redacted>@example.com/repo.git\n~/project';
+    const gitService = makeGitService({ stashes: [] });
+    (gitService as unknown as { stashList: unknown }).stashList = (): Promise<never> => {
+      return Promise.reject(new Error(RAW));
+    };
+    const view = createStashView(gitService);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      const result = await view.refresh();
+      assert.strictEqual(result.error, EXPECTED);
+      assert.ok(
+        !result.error?.includes('alice:secret'),
+        'returned error must not leak credentials'
+      );
+      assert.ok(!result.error?.includes('/Users/alice'), 'returned error must not leak home path');
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('resolves with {} when no repository is bound (no-op)', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    const view = createStashView(gitService);
+    try {
+      // Do NOT prime _repository — refresh() should be a no-op resolve.
+      const result = await view.refresh();
+      assert.deepStrictEqual(result, {});
+    } finally {
+      view.dispose();
+    }
+  });
+});
+
+// Wave 8 R2 (senior re-review HIGH) — every post-action caller in
+// StashView must surface refresh failures as a warning toast prefixed
+// with `Stash list refresh failed:`. This mirrors ShelfView's Wave 7
+// policy (see `Shelf list refresh failed:` specs in shelfView.test.ts):
+// the action itself succeeded, so a refresh failure is a *secondary*
+// signal — `showWarningMessage`, not `showErrorMessage`.
+//
+// Pre-fix code path: 5 of 6 callers (`showCreateDialog`, `popStash`,
+// `branchFromStash`, `renameStash`, `dropStash`) called
+// `await this.refresh();` and discarded the result, so a refresh
+// failure was silent until the next list-open. This describe block
+// pins the new contract per caller.
+//
+// Helper: prime the view with one successful refresh (so the entry the
+// action targets is reachable), then flip `stashList` to throw on the
+// post-action refresh. Assert exactly one warning toast prefixed
+// `Stash list refresh failed:` fired.
+describe('StashView post-action refresh — warning toast on refresh failure', () => {
+  /**
+   * Build a gitService whose `stashList` succeeds the first N invocations
+   * (returning the seed stashes) and throws thereafter. Used to seed
+   * the view's internal state via the first refresh, then exercise a
+   * post-action refresh that hits the failure branch.
+   */
+  function makeFlakyGitService(
+    seed: IStash[],
+    successesBeforeFailure: number,
+    overrides?: {
+      stashBranchImpl?: (repo: IRepository, index: number, name: string) => Promise<void>;
+      stashRenameImpl?: (repo: IRepository, index: number, msg: string) => Promise<void>;
+    }
+  ): IGitService & { calls: CallLog[] } {
+    let count = 0;
+    const svc = makeGitService({
+      stashes: seed,
+      stashBranchImpl: overrides?.stashBranchImpl,
+      stashRenameImpl: overrides?.stashRenameImpl,
+    });
+    (svc as unknown as { stashList: unknown }).stashList = (): Promise<IStash[]> => {
+      count += 1;
+      if (count <= successesBeforeFailure) {
+        return Promise.resolve(seed);
+      }
+      return Promise.reject(new Error('stash list IO error'));
+    };
+    return svc;
+  }
+
+  it('showCreateDialog emits a warning toast when the post-stash refresh fails', async () => {
+    // showCreateDialog's path: showInputBox → showQuickPick options →
+    // gitService.stash → refresh. Stash itself succeeds; refresh fails.
+    // The seed is empty since the action creates the entry.
+    const gitService = makeFlakyGitService([], 0); // every refresh fails
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => 'wip-changes');
+
+    // showCreateDialog also calls _showStashOptionsDialog which uses
+    // showQuickPick — stub it to pick the default options array.
+    const oQuickPick = vscode.window.showQuickPick;
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = async (
+      items: unknown
+    ): Promise<unknown> => {
+      const arr = (await Promise.resolve(items)) as readonly vscode.QuickPickItem[];
+      // Return the default-picked one (Stash Changes), not multi-pick.
+      return arr.filter((i) => i.picked);
+    };
+
+    try {
+      const result = await view.showCreateDialog(makeRepo());
+      assert.strictEqual(result.created, true, 'stash itself must have succeeded');
+      assert.ok(
+        toasts.warning.some((m) => m.startsWith('Stash list refresh failed:')),
+        `expected warning toast prefixed 'Stash list refresh failed:', got: ${JSON.stringify(toasts.warning)}`
+      );
+    } finally {
+      (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = oQuickPick;
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('popStash emits a warning toast when the post-pop refresh fails', async () => {
+    // First refresh seeds the list (so popStash finds index 0); the
+    // post-pop refresh fails. successesBeforeFailure=1 covers the seed
+    // refresh inside `_showStashList` if it ran, but here we drive
+    // refresh() directly.
+    const gitService = makeFlakyGitService(makeStashes(), 1);
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      // Seed
+      await view.refresh();
+
+      const result = await view.popStash(0);
+      assert.strictEqual(result.success, true, 'pop itself must have succeeded');
+      assert.ok(
+        toasts.warning.some((m) => m.startsWith('Stash list refresh failed:')),
+        `expected warning toast, got: ${JSON.stringify(toasts.warning)}`
+      );
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('branchFromStash emits a warning toast when the post-branch refresh fails', async () => {
+    const gitService = makeFlakyGitService(makeStashes(), 1, {
+      stashBranchImpl: async () => {}, // success
+    });
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => 'feature/wip');
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh(); // seed
+
+      const result = await view.branchFromStash(0);
+      assert.strictEqual(result.success, true, 'branch itself must have succeeded');
+      assert.ok(
+        toasts.warning.some((m) => m.startsWith('Stash list refresh failed:')),
+        `expected warning toast, got: ${JSON.stringify(toasts.warning)}`
+      );
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('renameStash emits a warning toast when the post-rename refresh fails', async () => {
+    const gitService = makeFlakyGitService(makeStashes(), 1, {
+      stashRenameImpl: async () => {}, // success
+    });
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => 'renamed subject');
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh(); // seed
+
+      const result = await view.renameStash(1);
+      assert.strictEqual(result.success, true, 'rename itself must have succeeded');
+      assert.ok(
+        toasts.warning.some((m) => m.startsWith('Stash list refresh failed:')),
+        `expected warning toast, got: ${JSON.stringify(toasts.warning)}`
+      );
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('dropStash emits a warning toast when the post-drop refresh fails', async () => {
+    const gitService = makeFlakyGitService(makeStashes(), 1);
+    const view = createStashView(gitService);
+    // installWindowStubs returns toasts.info+error+warning, but
+    // dropStash also gates on `showWarningMessage` returning 'Drop'
+    // for the modal confirmation. We need to hijack only the modal
+    // call — return 'Drop' there, push other warnings into toasts.warning.
+    const { toasts, restore } = installWindowStubs(() => undefined);
+
+    // Override showWarningMessage with a smarter responder: if the
+    // call is the modal-confirm (carries `{ modal: true }`), return
+    // 'Drop' so the action proceeds; otherwise it's the
+    // refresh-failed toast we want to capture.
+    const oWarn = vscode.window.showWarningMessage;
+    (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = async (
+      m: string,
+      ...rest: unknown[]
+    ): Promise<string | undefined> => {
+      const isModal =
+        rest.length >= 1 &&
+        typeof rest[0] === 'object' &&
+        rest[0] !== null &&
+        (rest[0] as { modal?: boolean }).modal === true;
+      if (isModal) {
+        return 'Drop';
+      }
+      toasts.warning.push(m);
+      return undefined;
+    };
+
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh(); // seed
+
+      const result = await view.dropStash(0);
+      assert.strictEqual(result.success, true, 'drop itself must have succeeded');
+      assert.ok(
+        toasts.warning.some((m) => m.startsWith('Stash list refresh failed:')),
+        `expected warning toast prefixed 'Stash list refresh failed:', got: ${JSON.stringify(toasts.warning)}`
+      );
+    } finally {
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = oWarn;
+      restore();
+      view.dispose();
+    }
   });
 });

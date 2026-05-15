@@ -7,7 +7,15 @@ import * as vscode from 'vscode';
 import { IRepository, ICommit, IBranchComparison } from './IGitService';
 
 /**
- * State for the branch comparison view
+ * State for the branch comparison view.
+ *
+ * Deliberately carries no `error` field. Refresh failures are surfaced
+ * through the `{ error? }` return value of {@link IBranchComparisonView.refresh}
+ * (and {@link IBranchComparisonView.setBranches}) at every call site; a
+ * sideband on the view state would be a latent mirror that callers could
+ * accidentally read after the canonical channel had already been handled.
+ * See ADR-006 (`docs/adr/`) and {@link IBranchComparisonView.refresh}
+ * for the contract.
  */
 export interface IBranchComparisonViewState {
   /** The first branch being compared (typically current branch) */
@@ -18,8 +26,6 @@ export interface IBranchComparisonViewState {
   comparison: IBranchComparison | undefined;
   /** Whether the view is currently loading */
   loading: boolean;
-  /** Error message if any */
-  error: string | undefined;
 }
 
 /**
@@ -102,8 +108,23 @@ export interface IBranchComparisonView {
 
   /**
    * Refresh the comparison with current branches.
+   *
+   * Resolves to an object describing the outcome. On success, `error` is
+   * undefined. On failure (compareBranches throws), `error` contains a
+   * human-readable, sanitized message suitable for a toast or
+   * OutputChannel line. Never rejects — every caller (sync or async)
+   * handles the outcome by reading the returned object, which makes
+   * failure propagation explicit at every call site.
+   *
+   * Per ADR-006 (`docs/adr/ADR-006-error-state-binding-by-view-type.md`),
+   * this QuickPick view binds errors through the refresh return value
+   * rather than a `_state.error` sideband. Pre-Wave-8 the sideband was
+   * the canonical channel and only `show()` read it; downstream callers
+   * (post-swap, post-refresh-action paths) silently swallowed the error.
+   * The `{ error? }` shape fixes that by making the outcome explicit at
+   * every call site.
    */
-  refresh(): Promise<void>;
+  refresh(): Promise<{ error?: string }>;
 
   /**
    * Get the current state of the branch comparison view.
@@ -113,15 +134,26 @@ export interface IBranchComparisonView {
   /**
    * Set the branches to compare.
    *
+   * Performs the comparison as a side effect. Resolves to the same
+   * `{ error? }` shape as {@link refresh} — see ADR-006 for the
+   * canonical-channel rule.
+   *
    * @param branch1 - The first branch
    * @param branch2 - The second branch
    */
-  setBranches(branch1: string, branch2: string): Promise<void>;
+  setBranches(branch1: string, branch2: string): Promise<{ error?: string }>;
 
   /**
    * Swap the two branches being compared.
+   *
+   * Resolves to the same `{ error? }` shape as {@link refresh}. On
+   * success, the comparison QuickPick is re-rendered with the swapped
+   * result; on error, callers should surface `result.error` themselves
+   * since the implementation only emits the toast inside
+   * `_performComparison` and skips the re-render to avoid showing a
+   * stale picker over a known-failed comparison.
    */
-  swapBranches(): Promise<void>;
+  swapBranches(): Promise<{ error?: string }>;
 
   /**
    * Compare with remote tracking branch.

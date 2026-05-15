@@ -1373,6 +1373,7 @@
     "test:unit": "mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
     "test:property": "mocha --require ts-node/register --timeout 30000 'src/test/property/**/*.property.test.ts'",
     "test:property:stress": "node scripts/propertyStress.mjs",
+    "check:quickpick-state": "bash scripts/check-quickpick-state-no-error.sh",
     "test:ext-host": "npm run compile && node ./out/test/ext-host/runTests.js",
     "test:e2e": "npm run compile && node ./out/test/e2e/runTests.js"
   },

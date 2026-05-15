@@ -59,7 +59,25 @@ export interface IHistoryTabState {
   followRenames: boolean;
   /** List of branches to render in the branch-filter dropdown. */
   availableBranches: IBranch[];
-  /** Any error string to surface in the UI. */
+  /**
+   * Any error string to surface in the UI.
+   *
+   * **Kept as a state-sideband on purpose.** Per ADR-006
+   * (`docs/adr/ADR-006-error-state-binding-by-view-type.md`),
+   * HistoryTab is the canonical example of the HTML / template-rendering
+   * pattern: the renderer in
+   * `src/services/gitToolWindow/html/historyHtml.ts` is a synchronous
+   * function over this state object and reads `state.error` directly
+   * during HTML construction (`state.error ? renderError(...) : ''`).
+   * Awaiting a refresh `Promise<{ error? }>` is the wrong shape there
+   * because the renderer can't suspend mid-template, so the canonical-
+   * channel pattern used by ShelfView / StashView / BranchComparisonView
+   * does not apply.
+   *
+   * Do **not** "consolidate" this field into a refresh return value
+   * without first refactoring the render shape — that was the trap
+   * Wave 8 R2 added the cross-reference to prevent.
+   */
   error: string | undefined;
   /** True while a load is in-flight (for a simple spinner / disabled UI). */
   loading: boolean;

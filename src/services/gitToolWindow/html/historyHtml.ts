@@ -39,6 +39,13 @@ function renderEmptyState(): string {
 function renderLoadedState(state: IHistoryTabState): string {
   const header = renderHeader(state);
   const toolbar = renderToolbar(state);
+  // Synchronous read of the `error` sideband is the structurally correct
+  // shape for HTML / template-rendering views per ADR-006
+  // (`docs/adr/ADR-006-error-state-binding-by-view-type.md`). The
+  // canonical-channel `Promise<{ error? }>` pattern used by ShelfView /
+  // StashView / BranchComparisonView does not apply here — this
+  // renderer cannot await mid-template. See the JSDoc on
+  // `IHistoryTabState.error` for the full reasoning.
   const error = state.error ? renderError(state.error) : '';
   const list = renderCommitList(state);
   return `

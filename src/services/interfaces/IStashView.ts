@@ -51,7 +51,14 @@ export interface IStashListItem {
 }
 
 /**
- * State for the Stash View
+ * State for the Stash View.
+ *
+ * Deliberately carries no `error` field. Refresh failures are surfaced
+ * through the `{ error? }` return value of {@link IStashView.refresh}
+ * at every call site; a sideband on the view state would be a latent
+ * mirror that callers could accidentally read after the canonical
+ * channel had already been handled. See ADR-006 (`docs/adr/`) and
+ * {@link IStashView.refresh} for the contract.
  */
 export interface IStashViewState {
   /** List of stashes */
@@ -60,8 +67,6 @@ export interface IStashViewState {
   selectedIndex?: number;
   /** Whether the view is loading */
   loading: boolean;
-  /** Error message if any */
-  error?: string;
 }
 
 /**
@@ -93,8 +98,23 @@ export interface IStashView {
 
   /**
    * Refresh the stash list.
+   *
+   * Resolves to an object describing the outcome. On success, `error` is
+   * undefined. On failure (service read throws, state update fails),
+   * `error` contains a human-readable, sanitized message suitable for a
+   * toast or OutputChannel line. Never rejects — every caller (sync or
+   * async) handles the outcome by reading the returned object, which makes
+   * failure propagation explicit at every call site.
+   *
+   * Per ADR-006 (`docs/adr/ADR-006-error-state-binding-by-view-type.md`),
+   * this QuickPick view binds errors through the refresh return value
+   * rather than a `_state.error` sideband. Pre-Wave-8 the sideband was the
+   * canonical channel and only `_showStashList` read it; downstream
+   * callers (post-pop, post-drop, post-rename, post-create-branch refresh
+   * paths) silently swallowed the error. The `{ error? }` shape fixes
+   * that by making the outcome explicit at every call site.
    */
-  refresh(): Promise<void>;
+  refresh(): Promise<{ error?: string }>;
 
   /**
    * Get the current state of the stash view.
