@@ -26,6 +26,7 @@ import {
   AUTO_INDENT_MIN_GROUP_SIZE,
   BranchPopup,
   FAVORITE_BRANCHES_STATE_KEY,
+  IBranchQuickPickItem,
   RECENT_BRANCHES_MAX,
   buildLocalBranchActionMenu,
   buildRemoteBranchActionMenu,
@@ -875,6 +876,84 @@ describe('BranchPopup - R6-Gap-C multi-root status-bar init', () => {
       (vscode.window as unknown as { activeTextEditor: unknown }).activeTextEditor = originalActive;
       (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
         originalCreate;
+    }
+  });
+});
+
+// TL-72 (Wave 9) — `_dispatchSelectedAction` catch block must run the
+// raw command-execution error through `sanitizeGitError` before
+// pushing it into the showErrorMessage toast template. Pre-fix,
+// BranchPopup.ts:986 concatenated `error.message` directly. Branch
+// commands often surface `git push`/`git pull` stderr that contains
+// credentialed remote URLs and POSIX home paths; without sanitisation
+// these leak into the user's notification history.
+describe('BranchPopup TL-72 — action-path toast routes through sanitizeGitError', () => {
+  it('_dispatchSelectedAction sanitizes credentialed URL + home path in toast', async () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+    const repoChangeEmitter = new EventEmitter<IRepository>();
+    const gitService = {
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+      onDidChangeRepository: repoChangeEmitter.event,
+    } as unknown as IGitService;
+
+    // Stub commands.getCommands and commands.executeCommand to drive
+    // the catch block. getCommands returns the registered list (so the
+    // dispatcher proceeds past the "Coming soon" fallback);
+    // executeCommand throws with a credentialed payload.
+    const oGetCommands = vscode.commands.getCommands;
+    const oExec = vscode.commands.executeCommand;
+    (vscode.commands as unknown as { getCommands: unknown }).getCommands = (): Thenable<string[]> =>
+      Promise.resolve(['intellig.branch.checkout']);
+    (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =
+      (): Promise<never> => Promise.reject(new Error(RAW));
+
+    const errors: string[] = [];
+    const oErr = vscode.window.showErrorMessage;
+    (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = (
+      m: string
+    ): Promise<string | undefined> => {
+      errors.push(m);
+      return Promise.resolve(undefined);
+    };
+
+    try {
+      const popup = new BranchPopup(gitService);
+      try {
+        const selected: IBranchQuickPickItem = {
+          label: '$(git-branch) feature/x',
+          commandId: 'intellig.branch.checkout',
+          branch: {
+            name: 'feature/x',
+            type: 'local',
+            commit: 'abcdef0',
+            isHead: false,
+          },
+        };
+
+        const result = await (
+          popup as unknown as {
+            _dispatchSelectedAction: (
+              repo: IRepository | undefined,
+              s: IBranchQuickPickItem
+            ) => Promise<{ cancelled: boolean }>;
+          }
+        )._dispatchSelectedAction(undefined, selected);
+
+        assert.strictEqual(result.cancelled, true);
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assert.strictEqual(errors[0], `Branch operation failed: ${EXPECTED}`);
+        assert.ok(!errors[0].includes('alice:secret'), 'toast must not leak credentials');
+        assert.ok(!errors[0].includes('/Users/alice'), 'toast must not leak home path');
+      } finally {
+        popup.dispose();
+      }
+    } finally {
+      (vscode.commands as unknown as { getCommands: unknown }).getCommands = oGetCommands;
+      (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = oExec;
+      (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
     }
   });
 });

@@ -2,6 +2,13 @@
 #
 # Structural CI guard — TL-74 (Wave 8 R2).
 #
+# This is one of two on-disk structural guards in the codebase.
+# See ADR-007 (`docs/adr/ADR-007-structural-guards-as-complementary-tool.md`)
+# for the meta-policy: when to reach for a guard vs a per-site spec,
+# the per-FILE representative-spec floor that must hold underneath
+# every guard, and the maintenance contract this script header
+# adheres to (bug class / heuristic / FPs / FNs / retirement criteria).
+#
 # Per ADR-006 (`docs/adr/ADR-006-error-state-binding-by-view-type.md`),
 # QuickPick / dialog / non-rendering view-STATE interfaces deliberately
 # carry no `error` field — refresh failures are surfaced through the

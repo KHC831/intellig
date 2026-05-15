@@ -31,6 +31,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IMergeOptions, IRepository } from './interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
+import { sanitizeGitError } from '../utils/gitError';
 
 /** Options for constructing a {@link MergeDialog}. */
 export interface IMergeDialogOptions {
@@ -404,7 +405,7 @@ ${body}
       this._busy = false;
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to merge: ${msg}`);
+      void vscode.window.showErrorMessage(`Failed to merge: ${sanitizeGitError(msg)}`);
       this._busy = false;
     }
   }

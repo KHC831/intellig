@@ -29,6 +29,7 @@ import {
   IGitService,
   IRepository,
   IBranchComparison,
+  ICommit,
 } from '../../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
@@ -409,6 +410,97 @@ describe('BranchComparisonView TL-75 — _showComparisonResults early-return aft
         'positive-path sanity: with _state.comparison populated, createQuickPick must be called exactly once'
       );
     } finally {
+      view.dispose();
+    }
+  });
+});
+
+// TL-72 (Wave 9) — action-path catch-block toasts must run through
+// `sanitizeGitError`. Pre-fix, `viewCommit` and `_showFileDiffContent`
+// concatenated raw `error.message` into the toast template, so a
+// credentialed remote URL or absolute home path in stderr leaked
+// straight into the user's notification history. The refresh-path
+// (`_performComparison` line 412 area) was already sanitised in Wave 8;
+// these two action paths are the residual sites.
+describe('BranchComparisonView TL-72 — action-path toasts route through sanitizeGitError', () => {
+  const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+  const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+  function captureErrorToasts(): { errors: string[]; restore: () => void } {
+    const errors: string[] = [];
+    const oErr = vscode.window.showErrorMessage;
+    (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = async (
+      m: string
+    ): Promise<string | undefined> => {
+      errors.push(m);
+      return undefined;
+    };
+    return {
+      errors,
+      restore: (): void => {
+        (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
+      },
+    };
+  }
+
+  function makeCommit(): ICommit {
+    return {
+      hash: 'a1b2c3d4',
+      shortHash: 'a1b2c3d',
+      message: 'feat: thing',
+      author: { name: 'A', email: 'a@b.co' },
+      committer: { name: 'A', email: 'a@b.co' },
+      parents: [],
+      authorDate: new Date('2026-01-01'),
+      commitDate: new Date('2026-01-01'),
+    };
+  }
+
+  it('viewCommit sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService();
+    (gitService as unknown as { getCommitDiff: unknown }).getCommitDiff = (): Promise<never> =>
+      Promise.reject(new Error(RAW));
+    const view = createBranchComparisonView(gitService);
+    const { errors, restore } = captureErrorToasts();
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.viewCommit(makeCommit());
+      assert.strictEqual(errors.length, 1, 'expected one error toast');
+      assert.strictEqual(errors[0], `Failed to view commit: ${EXPECTED}`);
+      assert.ok(!errors[0].includes('alice:secret'), 'toast must not leak credentials');
+      assert.ok(!errors[0].includes('/Users/alice'), 'toast must not leak home path');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('_showFileDiffContent sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService();
+    // _showFileDiffContent reaches into gitCli.exec — make that throw.
+    (gitService as unknown as { gitCli: unknown }).gitCli = {
+      exec: (): Promise<never> => Promise.reject(new Error(RAW)),
+    };
+    const view = createBranchComparisonView(gitService);
+    const { errors, restore } = captureErrorToasts();
+    try {
+      // Prime branches so _showFileDiffContent won't early-return.
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      (view as unknown as { _state: { branch1?: string; branch2?: string } })._state.branch1 =
+        'main';
+      (view as unknown as { _state: { branch1?: string; branch2?: string } })._state.branch2 =
+        'feature/x';
+
+      await (
+        view as unknown as { _showFileDiffContent: (filePath: string) => Promise<void> }
+      )._showFileDiffContent('src/app.ts');
+
+      assert.strictEqual(errors.length, 1, 'expected one error toast');
+      assert.strictEqual(errors[0], `Failed to get file diff: ${EXPECTED}`);
+      assert.ok(!errors[0].includes('alice:secret'), 'toast must not leak credentials');
+      assert.ok(!errors[0].includes('/Users/alice'), 'toast must not leak home path');
+    } finally {
+      restore();
       view.dispose();
     }
   });

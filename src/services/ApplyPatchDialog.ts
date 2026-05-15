@@ -27,6 +27,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IRepository } from './interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
+import { sanitizeGitError } from '../utils/gitError';
 import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
 import { validateStripLevel } from './PatchService';
 
@@ -475,7 +476,7 @@ ${body}
       applyOptions = await this._buildApplyOptions(msg);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Apply Patch: ${errMsg}`);
+      void vscode.window.showErrorMessage(`Apply Patch: ${sanitizeGitError(errMsg)}`);
       return;
     }
 
@@ -484,7 +485,7 @@ ${body}
       result = await this._patchService.applyPatch(this._repo, applyOptions);
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Apply Patch failed: ${errMsg}`);
+      void vscode.window.showErrorMessage(`Apply Patch failed: ${sanitizeGitError(errMsg)}`);
       return;
     }
 
@@ -526,7 +527,7 @@ ${body}
     }
 
     // Hard failure: surface git stderr.
-    const detail = result.stderr ? `: ${result.stderr}` : '';
+    const detail = result.stderr ? `: ${sanitizeGitError(result.stderr)}` : '';
     void vscode.window.showErrorMessage(`Apply Patch failed${detail}`);
   }
 

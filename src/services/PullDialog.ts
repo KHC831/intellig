@@ -14,6 +14,7 @@
 import * as vscode from 'vscode';
 import { IBranch, IGitService, IPullOptions, IRepository } from './interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
+import { sanitizeGitError } from '../utils/gitError';
 
 // ─── Flag-key helpers ────────────────────────────────────────────────────────
 
@@ -400,11 +401,13 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
         // If the dialog itself fails to open, fall back to the original
         // warning toast so the user at least knows about the conflicts.
         const reason = handoffError instanceof Error ? handoffError.message : 'Unknown error';
-        void deps.showWarningMessage(`Pull produced conflicts — resolve manually (${reason}).`);
+        void deps.showWarningMessage(
+          `Pull produced conflicts — resolve manually (${sanitizeGitError(reason)}).`
+        );
       }
       return { status: 'conflict', options, message };
     }
-    void deps.showErrorMessage(`Failed to pull: ${message}`);
+    void deps.showErrorMessage(`Failed to pull: ${sanitizeGitError(message)}`);
     return { status: 'error', options, message };
   }
 }

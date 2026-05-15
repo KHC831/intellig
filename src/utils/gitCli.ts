@@ -32,7 +32,30 @@ export interface IGitCommandOptions {
 }
 
 /**
- * Error thrown when a Git command fails
+ * Error thrown when a Git command fails.
+ *
+ * **The constructed `message` is UNSANITISED.** It carries the raw
+ * `git` stderr / stdout (and the full argv joined with spaces). When
+ * `git` was invoked against a remote whose URL embeds credentials
+ * (e.g. `https://x-access-token:ghp_…@github.com/owner/repo.git`),
+ * those credentials WILL be present in `error.message`. Likewise,
+ * `fs`-style errnos in the spawn-failure path (`ENOENT`, etc.) can
+ * carry absolute home paths (`/Users/<name>/…`).
+ *
+ * Downstream consumers MUST run `sanitizeGitError(error.message)`
+ * (or the higher-level `formatActionFailureToast(prefix, error)`
+ * helper, both in `src/utils/gitError.ts`) before surfacing the
+ * message in any user-visible channel — toasts, OutputChannel,
+ * structured error responses, etc. The Wave 9 R4 structural guard
+ * (`scripts/check-action-toasts-sanitized.sh`) enforces this for
+ * `vscode.window.show*Message(...)` calls; other surfaces are
+ * caller-responsibility.
+ *
+ * The constructor deliberately does NOT pre-sanitise. Sanitisation
+ * is a *rendering-time* concern: callers that log to a private file
+ * for diagnostics may want the raw form, while callers that pipe to
+ * a toast must scrub. Pre-sanitising in the constructor would erase
+ * information the diagnostic-log path legitimately needs.
  */
 export class GitCommandError extends Error {
   constructor(

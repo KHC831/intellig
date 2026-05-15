@@ -239,7 +239,9 @@ export class CommitContextMenuCommands {
       diffs = await this._gitService.getCommitDiff(repo, hash);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to list files for ${shortHash}: ${msg}`);
+      void vscode.window.showErrorMessage(
+        `Failed to list files for ${shortHash}: ${sanitizeGitError(msg)}`
+      );
       return;
     }
     if (!diffs || diffs.length === 0) {
@@ -313,7 +315,7 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to drop changes: ${msg}`);
+      void vscode.window.showErrorMessage(`Failed to drop changes: ${sanitizeGitError(msg)}`);
     }
   }
 
@@ -352,7 +354,7 @@ export class CommitContextMenuCommands {
       void vscode.window.showInformationMessage(`Copied commit hash: ${hash}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to copy hash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to copy hash: ${sanitizeGitError(errorMessage)}`);
     }
   }
 
@@ -397,7 +399,9 @@ export class CommitContextMenuCommands {
               void vscode.window.showInformationMessage('Cherry-pick aborted.');
             } catch (abortError) {
               const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-              void vscode.window.showErrorMessage(`Failed to abort cherry-pick: ${abortMsg}`);
+              void vscode.window.showErrorMessage(
+                `Failed to abort cherry-pick: ${sanitizeGitError(abortMsg)}`
+              );
             }
           }
         }
@@ -405,7 +409,9 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to cherry-pick: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -517,7 +523,9 @@ export class CommitContextMenuCommands {
               void vscode.window.showInformationMessage('Revert aborted.');
             } catch (abortError) {
               const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-              void vscode.window.showErrorMessage(`Failed to abort revert: ${abortMsg}`);
+              void vscode.window.showErrorMessage(
+                `Failed to abort revert: ${sanitizeGitError(abortMsg)}`
+              );
             }
           }
         }
@@ -525,7 +533,7 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to revert: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(errorMessage)}`);
     }
   }
 
@@ -589,7 +597,9 @@ export class CommitContextMenuCommands {
       await this._gitCli.exec(['revert', '-n', hash], { cwd, throwOnError: true });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to start selective revert: ${msg}`);
+      void vscode.window.showErrorMessage(
+        `Failed to start selective revert: ${sanitizeGitError(msg)}`
+      );
       return 'handled';
     }
 
@@ -610,7 +620,7 @@ export class CommitContextMenuCommands {
         // swallow; the primary error below is what the user needs to see
       }
       void vscode.window.showErrorMessage(
-        `Failed to exclude files from revert: ${msg}. Revert aborted.`
+        `Failed to exclude files from revert: ${sanitizeGitError(msg)}. Revert aborted.`
       );
       return 'handled';
     }
@@ -630,7 +640,9 @@ export class CommitContextMenuCommands {
       await this._gitCli.exec(['commit', '-m', commitMessage], { cwd, throwOnError: true });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to commit partial revert: ${msg}`);
+      void vscode.window.showErrorMessage(
+        `Failed to commit partial revert: ${sanitizeGitError(msg)}`
+      );
       return 'handled';
     }
 
@@ -683,7 +695,9 @@ export class CommitContextMenuCommands {
             this._gitToolWindowProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to stash and checkout: ${stashMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+            );
           }
         } else if (choice === 'Force Checkout') {
           try {
@@ -694,11 +708,15 @@ export class CommitContextMenuCommands {
             this._gitToolWindowProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to force checkout: ${forceMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
+            );
           }
         }
       } else {
-        void vscode.window.showErrorMessage(`Failed to checkout revision: ${errorMessage}`);
+        void vscode.window.showErrorMessage(
+          `Failed to checkout revision: ${sanitizeGitError(errorMessage)}`
+        );
       }
     }
   }
@@ -790,7 +808,9 @@ export class CommitContextMenuCommands {
       // git exec failure — keep the historical "Failed to create patch"
       // phrasing so existing tests + docs still match.
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to create patch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to create patch: ${sanitizeGitError(errorMessage)}`
+      );
       return;
     }
 
@@ -859,7 +879,9 @@ export class CommitContextMenuCommands {
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to compare with local: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to compare with local: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -909,7 +931,9 @@ export class CommitContextMenuCommands {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to show repository at revision: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to show repository at revision: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -941,7 +965,9 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to undo commit: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to undo commit: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1021,7 +1047,9 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to drop commit: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to drop commit: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1141,7 +1169,9 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to edit commit message: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to edit commit message: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1191,7 +1221,9 @@ export class CommitContextMenuCommands {
               void vscode.window.showInformationMessage('Merge aborted.');
             } catch (abortError) {
               const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-              void vscode.window.showErrorMessage(`Failed to abort merge: ${abortMsg}`);
+              void vscode.window.showErrorMessage(
+                `Failed to abort merge: ${sanitizeGitError(abortMsg)}`
+              );
             }
           }
         }
@@ -1199,7 +1231,7 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to merge: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to merge: ${sanitizeGitError(errorMessage)}`);
     }
   }
 
@@ -1222,7 +1254,9 @@ export class CommitContextMenuCommands {
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to start interactive rebase: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to start interactive rebase: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 

@@ -307,7 +307,9 @@ export class BranchComparisonView implements IBranchComparisonView {
       this._onDidSelectCommit.fire(commit);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to view commit: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to view commit: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -673,7 +675,9 @@ export class BranchComparisonView implements IBranchComparisonView {
       await vscode.window.showTextDocument(doc, { preview: true });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to get file diff: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to get file diff: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 

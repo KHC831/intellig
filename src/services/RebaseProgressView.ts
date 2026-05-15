@@ -13,6 +13,7 @@ import {
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Message types from webview to extension
@@ -171,7 +172,9 @@ export class RebaseProgressView implements vscode.Disposable {
       this._handleRebaseResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to continue rebase: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to continue rebase: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -202,7 +205,9 @@ export class RebaseProgressView implements vscode.Disposable {
       this.hide();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to abort rebase: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to abort rebase: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -230,7 +235,9 @@ export class RebaseProgressView implements vscode.Disposable {
       this._handleRebaseResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to skip commit: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to skip commit: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -247,7 +254,9 @@ export class RebaseProgressView implements vscode.Disposable {
       this._handleRebaseResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to update commit message: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to update commit message: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 

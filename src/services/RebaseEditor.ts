@@ -14,6 +14,7 @@ import {
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Options for opening the rebase editor
@@ -90,7 +91,9 @@ export class RebaseEditor {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to start rebase: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to start rebase: ${sanitizeGitError(errorMessage)}`
+      );
       return { executed: false, error: errorMessage };
     }
 
@@ -241,7 +244,7 @@ export class RebaseEditor {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Rebase failed: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Rebase failed: ${sanitizeGitError(errorMessage)}`);
       if (this._resolvePromise) {
         this._resolvePromise({ executed: true, success: false, error: errorMessage });
         this._resolvePromise = undefined;

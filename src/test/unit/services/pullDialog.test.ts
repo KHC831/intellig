@@ -602,6 +602,26 @@ describe('T1-02 PullDialog — runPullDialog', () => {
     assert.deepStrictEqual(h.warningMessages, []);
     assert.deepStrictEqual(h.openResolveConflictsDialogCalls, []);
   });
+
+  // TL-72 (Wave 9) — non-conflict pull failure must run through
+  // sanitizeGitError before the toast is rendered. Pre-fix the catch
+  // block at PullDialog.ts:407 concatenated raw `error.message` into
+  // the showErrorMessage template, leaking credentialed remote URLs
+  // and POSIX home paths into the user's notification history.
+  it('TL-72 — non-conflict pull error toast sanitizes credentialed URL + home path', async () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+    const h = createHarness({
+      sourcePick: '$(cloud) main',
+      pullError: new Error(RAW),
+    });
+    const outcome = await runPullDialog(h.deps);
+    assert.strictEqual(outcome.status, 'error');
+    assert.strictEqual(h.errorMessages.length, 1);
+    assert.strictEqual(h.errorMessages[0], `Failed to pull: ${EXPECTED}`);
+    assert.ok(!h.errorMessages[0].includes('alice:secret'), 'toast must not leak credentials');
+    assert.ok(!h.errorMessages[0].includes('/Users/alice'), 'toast must not leak home path');
+  });
 });
 
 // ─── GitService.pull arg order (via a mock gitCli-like stub) ────────────────

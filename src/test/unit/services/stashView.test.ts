@@ -843,3 +843,184 @@ describe('StashView post-action refresh — warning toast on refresh failure', (
     }
   });
 });
+
+// TL-72 (Wave 9) — every StashView action-path catch block must route the
+// raw git stderr through `sanitizeGitError` before pushing it into the
+// `showErrorMessage` toast. Pre-fix, six of these sites concatenated
+// `error.message` directly into the toast template, so a credentialed
+// remote URL or absolute home path in stderr leaked into the user's
+// notification history (and any user-shared bug-report screenshots).
+//
+// One spec per action site asserts both halves of the sanitiser
+// (credentialed URL → `<redacted>@`, POSIX home → `~/`) plus the
+// negative pair (toast does NOT include `alice:secret`, toast does NOT
+// include `/Users/alice`). A future regression that drops the
+// sanitizer call on any one site will fail the corresponding spec,
+// not silently leak credentials again.
+describe('StashView TL-72 — action-path toasts route through sanitizeGitError', () => {
+  const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+  const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+  function assertSanitized(actual: string | undefined, prefix: string): void {
+    assert.ok(actual, 'expected an error toast');
+    assert.strictEqual(actual, `${prefix}: ${EXPECTED}`);
+    assert.ok(!actual.includes('alice:secret'), 'toast must not leak credentials');
+    assert.ok(!actual.includes('/Users/alice'), 'toast must not leak home path');
+  }
+
+  it('showCreateDialog (createStash) sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    (gitService as unknown as { stash: unknown }).stash = (): Promise<never> =>
+      Promise.reject(new Error(RAW));
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => 'wip');
+
+    const oQuickPick = vscode.window.showQuickPick;
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = async (
+      items: unknown
+    ): Promise<unknown> => {
+      const arr = (await Promise.resolve(items)) as readonly vscode.QuickPickItem[];
+      return arr.filter((i) => i.picked);
+    };
+
+    try {
+      const result = await view.showCreateDialog(makeRepo());
+      assert.strictEqual(result.created, false);
+      assertSanitized(toasts.error[0], 'Failed to create stash');
+    } finally {
+      (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = oQuickPick;
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('applyStash sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    (gitService as unknown as { stashApply: unknown }).stashApply = (): Promise<never> =>
+      Promise.reject(new Error(RAW));
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      const result = await view.applyStash(0);
+      assert.strictEqual(result.success, false);
+      assertSanitized(toasts.error[0], 'Failed to apply stash');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('popStash sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    (gitService as unknown as { stashPop: unknown }).stashPop = (): Promise<never> =>
+      Promise.reject(new Error(RAW));
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      const result = await view.popStash(0);
+      assert.strictEqual(result.success, false);
+      assertSanitized(toasts.error[0], 'Failed to pop stash');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('branchFromStash sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({
+      stashes: makeStashes(),
+      stashBranchImpl: () => Promise.reject(new Error(RAW)),
+    });
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => 'feature/x');
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      const result = await view.branchFromStash(0);
+      assert.strictEqual(result.success, false);
+      assertSanitized(toasts.error[0], 'Failed to create branch from stash');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('renameStash sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({
+      stashes: makeStashes(),
+      stashRenameImpl: () => Promise.reject(new Error(RAW)),
+    });
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => 'new name');
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      const result = await view.renameStash(0);
+      assert.strictEqual(result.success, false);
+      assertSanitized(toasts.error[0], 'Failed to rename stash');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('dropStash sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    (gitService as unknown as { stashDrop: unknown }).stashDrop = (): Promise<never> =>
+      Promise.reject(new Error(RAW));
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+
+    // dropStash gates on a modal confirm → return 'Drop' so the action proceeds.
+    const oWarn = vscode.window.showWarningMessage;
+    (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = async (
+      m: string,
+      ...rest: unknown[]
+    ): Promise<string | undefined> => {
+      const isModal =
+        rest.length >= 1 &&
+        typeof rest[0] === 'object' &&
+        rest[0] !== null &&
+        (rest[0] as { modal?: boolean }).modal === true;
+      if (isModal) {
+        return 'Drop';
+      }
+      toasts.warning.push(m);
+      return undefined;
+    };
+
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      const result = await view.dropStash(0);
+      assert.strictEqual(result.success, false);
+      assertSanitized(toasts.error[0], 'Failed to drop stash');
+    } finally {
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = oWarn;
+      restore();
+      view.dispose();
+    }
+  });
+
+  it('viewStash sanitizes credentialed URL + home path in toast', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    (gitService as unknown as { stashShow: unknown }).stashShow = (): Promise<never> =>
+      Promise.reject(new Error(RAW));
+    const view = createStashView(gitService);
+    const { toasts, restore } = installWindowStubs(() => undefined);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      await view.refresh();
+      const diffs = await view.viewStash(0);
+      assert.deepStrictEqual(diffs, []);
+      assertSanitized(toasts.error[0], 'Failed to view stash');
+    } finally {
+      restore();
+      view.dispose();
+    }
+  });
+});

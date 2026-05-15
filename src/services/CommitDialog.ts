@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import { IGitService, IRepository, IDiff, IHunk, ICommitOptions } from './interfaces/IGitService';
 import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
 import { generateNonce } from '../utils/webviewNonce';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * workspaceState key persisting the gear-menu `--no-verify` toggle so it
@@ -676,7 +677,7 @@ export class CommitDialog {
 
     if (!result.success) {
       void vscode.window.showErrorMessage(
-        result.error ? `Commit failed: ${result.error}` : 'Commit failed'
+        result.error ? `Commit failed: ${sanitizeGitError(result.error)}` : 'Commit failed'
       );
       return;
     }
@@ -766,7 +767,9 @@ export class CommitDialog {
       this._updateWebview();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to stage file: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to stage file: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -784,7 +787,9 @@ export class CommitDialog {
       this._updateWebview();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to unstage file: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to unstage file: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -809,7 +814,9 @@ export class CommitDialog {
       void vscode.window.showInformationMessage('Hunk staged successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to stage hunk: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to stage hunk: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -834,7 +841,9 @@ export class CommitDialog {
       void vscode.window.showInformationMessage('Hunk unstaged successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to unstage hunk: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to unstage hunk: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -923,7 +932,9 @@ export class CommitDialog {
       void vscode.window.showInformationMessage('Selected lines staged successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to stage lines: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to stage lines: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 

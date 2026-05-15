@@ -21,6 +21,7 @@
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository } from './interfaces/IGitService';
+import { sanitizeGitError } from '../utils/gitError';
 
 /** Options for constructing a {@link NewBranchDialog}. */
 export interface INewBranchDialogOptions {
@@ -367,7 +368,7 @@ ${body}
       this.dispose();
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to create branch: ${msg}`);
+      void vscode.window.showErrorMessage(`Failed to create branch: ${sanitizeGitError(msg)}`);
       this._busy = false;
     }
   }

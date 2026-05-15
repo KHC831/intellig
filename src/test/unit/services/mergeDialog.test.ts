@@ -416,4 +416,25 @@ describe('T3-02 MergeDialog — lifecycle', () => {
     assert.strictEqual(opts?.squash, undefined);
     assert.strictEqual(opts?.noFf, undefined);
   });
+
+  // TL-72 (Wave 9) — `_executeMerge` catch block must run the raw
+  // git stderr through `sanitizeGitError` before pushing it into the
+  // showErrorMessage toast template. Pre-fix, MergeDialog.ts:407
+  // concatenated `error.message` directly, so credentialed remote URLs
+  // (e.g. https://x:token@github.com/o/r.git in `fatal: unable to
+  // access`) and POSIX home paths leaked into the user's notification
+  // history.
+  it('TL-72 — merge failure toast sanitizes credentialed URL + home path', async () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+    const log = installMessageTrackers();
+    const gitService = makeGitService(undefined, new Error(RAW));
+    const h = makeDialog({ gitService });
+    await h.dialog.simulateMessage({ type: 'merge' });
+
+    assert.strictEqual(log.error.length, 1, 'expected one error toast');
+    assert.strictEqual(log.error[0], `Failed to merge: ${EXPECTED}`);
+    assert.ok(!log.error[0].includes('alice:secret'), 'toast must not leak credentials');
+    assert.ok(!log.error[0].includes('/Users/alice'), 'toast must not leak home path');
+  });
 });

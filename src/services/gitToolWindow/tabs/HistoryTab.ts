@@ -35,6 +35,7 @@
 import * as vscode from 'vscode';
 import type { IWebviewTabMessage, TabMessageHandler } from '../tabRouter';
 import type { IBranch, ICommit, IGitService, IRepository } from '../../interfaces/IGitService';
+import { sanitizeGitError } from '../../../utils/gitError';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -450,7 +451,7 @@ export class HistoryTab {
     const msg = err instanceof Error ? err.message : fallback;
     this._state = { ...this._state, error: msg };
     this._emit();
-    void vscode.window.showErrorMessage(msg);
+    void vscode.window.showErrorMessage(sanitizeGitError(msg));
   }
 }
 

@@ -143,3 +143,49 @@ export function sanitizeGitError(message: string): string {
     .replace(WINDOWS_FORWARDSLASH_HOME_PATH_REGEX, '$1~/')
     .replace(POSIX_HOME_PATH_REGEX, '$1~/');
 }
+
+/**
+ * Format an action-failure toast body that's safe to drop directly
+ * into `vscode.window.showErrorMessage(...)`.
+ *
+ * Wave 9 R4 (TL-72 follow-up). Senior-wave9 found 18 command handlers
+ * in `extension.ts` that bypassed the structural sanitisation guard
+ * by inlining the err-derived ternary directly into the toast template:
+ *
+ * ```ts
+ * void vscode.window.showErrorMessage(
+ *   `Failed to revert file: ${error instanceof Error ? error.message : 'Unknown error'}`
+ * );
+ * ```
+ *
+ * The guard's `${VAR}` allowlist rule expects a single allowlisted
+ * variable name; ternary expressions silently slipped through.
+ * Hoisting each ternary into a local `const` would require touching
+ * 18 closures and was deemed bug-prone (one missed site = leak).
+ * Instead, every catch block calls this single seam:
+ *
+ * ```ts
+ * void vscode.window.showErrorMessage(
+ *   formatActionFailureToast('Failed to revert file', error)
+ * );
+ * ```
+ *
+ * The returned string is `${prefix}: ${sanitizeGitError(message)}`
+ * with `'Unknown error'` substituted when the thrown value isn't
+ * an `Error` instance. The 18 swept sites in extension.ts plus
+ * future inline-ternary callers all funnel through this helper, so
+ * the structural guard's `.message` rule + the per-site specs in
+ * `gitError.test.ts` (Wave 9 R4 describe block) provide
+ * defense-in-depth.
+ *
+ * @param prefix — the user-facing action label (e.g. `'Failed to
+ *   revert file'`). Rendered verbatim before `: `; not sanitised
+ *   because it is hard-coded by the call site.
+ * @param error — the thrown value. `Error` instances contribute
+ *   `error.message`; everything else falls back to `'Unknown error'`.
+ * @returns the formatted, sanitised toast body.
+ */
+export function formatActionFailureToast(prefix: string, error: unknown): string {
+  const raw = error instanceof Error ? error.message : 'Unknown error';
+  return `${prefix}: ${sanitizeGitError(raw)}`;
+}

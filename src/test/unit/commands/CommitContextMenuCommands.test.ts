@@ -1483,4 +1483,41 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(provider.refreshCallCount, 0);
     });
   });
+
+  // TL-72 (Wave 9) — every CommitContextMenuCommands action-path catch
+  // block must run the raw git stderr through `sanitizeGitError`. This
+  // file has 12 such sites (cherryPick / revert / undo / drop / edit
+  // commit message / etc.) — instead of a per-site spec we pin the bug
+  // class on a representative call (`_handleCherryPick` reaches the
+  // ${errorMessage} template at line 408). The other 11 sites share
+  // the identical pattern.
+  describe('TL-72 — error toast sanitization (representative)', () => {
+    it('_handleCherryPick sanitizes credentialed URL + home path in error toast', async () => {
+      const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+      const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        cherryPick: async () => {
+          throw new Error(RAW);
+        },
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('cherryPick', [testHash]);
+
+      assert.strictEqual(messages.error.length, 1, 'expected one error toast');
+      assert.strictEqual(messages.error[0].message, `Failed to cherry-pick: ${EXPECTED}`);
+      assert.ok(
+        !messages.error[0].message.includes('alice:secret'),
+        'toast must not leak credentials'
+      );
+      assert.ok(
+        !messages.error[0].message.includes('/Users/alice'),
+        'toast must not leak home path'
+      );
+    });
+  });
 });

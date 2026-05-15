@@ -564,6 +564,193 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
     });
   });
 
+  // TL-72 (Wave 9) — every CommitDialog action-path catch block must
+  // run the raw git stderr through `sanitizeGitError` before pushing
+  // it into the showErrorMessage toast. Pre-fix, six call-sites in
+  // CommitDialog.ts (commit failure + stage/unstage/stage-hunk/unstage-hunk
+  // /stage-lines failures) concatenated `error.message` directly into
+  // the toast template, leaking credentialed remote URLs and POSIX
+  // home paths into the user's notification history. Each spec drives
+  // the corresponding private handler directly through the dialog
+  // instance and asserts the sanitised toast surface.
+  describe('CommitDialog TL-72 — action-path toasts route through sanitizeGitError', () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+    function captureErrorToasts(): { errors: string[]; restore: () => void } {
+      const errors: string[] = [];
+      const oErr = vscode.window.showErrorMessage;
+      (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = (
+        m: string
+      ): Promise<string | undefined> => {
+        errors.push(m);
+        return Promise.resolve(undefined);
+      };
+      return {
+        errors,
+        restore: (): void => {
+          (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
+        },
+      };
+    }
+
+    function assertSanitized(actual: string, prefix: string): void {
+      assert.strictEqual(actual, `${prefix}: ${EXPECTED}`);
+      assert.ok(!actual.includes('alice:secret'), 'toast must not leak credentials');
+      assert.ok(!actual.includes('/Users/alice'), 'toast must not leak home path');
+    }
+
+    it('_handleCommit failure toast sanitizes credentialed URL + home path', async () => {
+      const mem = new InMemoryMemento();
+      const gitService = makeGitService({
+        commitImpl: () => Promise.reject(new Error(RAW)),
+      });
+      const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService, mem);
+      const { errors, restore } = captureErrorToasts();
+      try {
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        (dialog as unknown as { _stagedFiles: unknown })._stagedFiles = [
+          { path: 'a.ts', status: 'M', staged: true, selected: true },
+        ];
+        (dialog as unknown as { _commitMessage: string })._commitMessage = 'feat: x';
+
+        await (
+          dialog as unknown as {
+            _handleCommit: (m: { type: string; message?: string }) => Promise<void>;
+          }
+        )._handleCommit({ type: 'commit', message: 'feat: x' });
+
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Commit failed');
+      } finally {
+        restore();
+        dialog.dispose();
+      }
+    });
+
+    it('_handleStageFile failure toast sanitizes credentialed URL + home path', async () => {
+      const gitService = makeGitService({
+        stageImpl: () => Promise.reject(new Error(RAW)),
+      });
+      const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService);
+      const { errors, restore } = captureErrorToasts();
+      try {
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        await (
+          dialog as unknown as { _handleStageFile: (p: string) => Promise<void> }
+        )._handleStageFile('a.ts');
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to stage file');
+      } finally {
+        restore();
+        dialog.dispose();
+      }
+    });
+
+    it('_handleUnstageFile failure toast sanitizes credentialed URL + home path', async () => {
+      const gitService = makeGitService({
+        unstageImpl: () => Promise.reject(new Error(RAW)),
+      });
+      const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService);
+      const { errors, restore } = captureErrorToasts();
+      try {
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        await (
+          dialog as unknown as { _handleUnstageFile: (p: string) => Promise<void> }
+        )._handleUnstageFile('a.ts');
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to unstage file');
+      } finally {
+        restore();
+        dialog.dispose();
+      }
+    });
+
+    it('_handleStageHunk failure toast sanitizes credentialed URL + home path', async () => {
+      const gitService = makeGitService();
+      (gitService as unknown as { stageHunk: unknown }).stageHunk = (): Promise<never> =>
+        Promise.reject(new Error(RAW));
+      const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService);
+      const { errors, restore } = captureErrorToasts();
+      try {
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        (dialog as unknown as { _selectedFilePath: string })._selectedFilePath = 'a.ts';
+        (dialog as unknown as { _currentDiff: unknown })._currentDiff = {
+          path: 'a.ts',
+          status: 'modified',
+          binary: false,
+          hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+        };
+        await (
+          dialog as unknown as { _handleStageHunk: (i: number) => Promise<void> }
+        )._handleStageHunk(0);
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to stage hunk');
+      } finally {
+        restore();
+        dialog.dispose();
+      }
+    });
+
+    it('_handleUnstageHunk failure toast sanitizes credentialed URL + home path', async () => {
+      const gitService = makeGitService();
+      (gitService as unknown as { unstageHunk: unknown }).unstageHunk = (): Promise<never> =>
+        Promise.reject(new Error(RAW));
+      const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService);
+      const { errors, restore } = captureErrorToasts();
+      try {
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        (dialog as unknown as { _selectedFilePath: string })._selectedFilePath = 'a.ts';
+        (dialog as unknown as { _currentDiff: unknown })._currentDiff = {
+          path: 'a.ts',
+          status: 'modified',
+          binary: false,
+          hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+        };
+        await (
+          dialog as unknown as { _handleUnstageHunk: (i: number) => Promise<void> }
+        )._handleUnstageHunk(0);
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to unstage hunk');
+      } finally {
+        restore();
+        dialog.dispose();
+      }
+    });
+
+    it('_handleStageSelectedLines failure toast sanitizes credentialed URL + home path', async () => {
+      const gitService = makeGitService();
+      (gitService as unknown as { stageLines: unknown }).stageLines = (): Promise<never> =>
+        Promise.reject(new Error(RAW));
+      const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService);
+      const { errors, restore } = captureErrorToasts();
+      try {
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        (dialog as unknown as { _selectedFilePath: string })._selectedFilePath = 'a.ts';
+        (dialog as unknown as { _currentDiff: unknown })._currentDiff = {
+          path: 'a.ts',
+          status: 'modified',
+          binary: false,
+          hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [] }],
+        };
+        // Seed selected line numbers so the handler doesn't short-circuit.
+        const selectedLines = new Map<number, Set<number>>();
+        selectedLines.set(0, new Set([1, 2]));
+        (dialog as unknown as { _selectedLines: Map<number, Set<number>> })._selectedLines =
+          selectedLines;
+
+        await (
+          dialog as unknown as { _handleStageSelectedLines: (i: number) => Promise<void> }
+        )._handleStageSelectedLines(0);
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to stage lines');
+      } finally {
+        restore();
+        dialog.dispose();
+      }
+    });
+  });
+
   describe('CommitDialog constructor — workspaceState seeding', () => {
     it('restores the --no-verify toggle from workspaceState on construction', () => {
       const mem = new InMemoryMemento();

@@ -682,4 +682,42 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
     });
   });
+
+  // TL-72 (Wave 9) — every BranchContextMenuCommands action-path catch
+  // block must run the raw git stderr through `sanitizeGitError`. This
+  // file has 21 such sites (checkout / merge / rebase / push / pull /
+  // delete / rename / create / etc.) — instead of a per-site spec we
+  // pin the bug class on a representative call (`_handlePush` reaches
+  // the ${errorMessage} template at line 648). The other 20 sites
+  // share the identical pattern; a CI grep audit (post-publish backlog)
+  // would catch any future regression that drops the sanitiser.
+  describe('TL-72 — error toast sanitization (representative)', () => {
+    it('_handlePush sanitizes credentialed URL + home path in error toast', async () => {
+      const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+      const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+      const errorTracker = installErrorMessageTracker();
+
+      const gitService = createMockGitService({
+        push: async () => {
+          throw new Error(RAW);
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('main', { remote: 'origin', name: 'main' });
+      await invokePrivateHandler(commands, '_handlePush', item);
+
+      assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
+      assert.strictEqual(errorTracker.calls[0].message, `Failed to push branch: ${EXPECTED}`);
+      assert.ok(
+        !errorTracker.calls[0].message.includes('alice:secret'),
+        'toast must not leak credentials'
+      );
+      assert.ok(
+        !errorTracker.calls[0].message.includes('/Users/alice'),
+        'toast must not leak home path'
+      );
+    });
+  });
 });

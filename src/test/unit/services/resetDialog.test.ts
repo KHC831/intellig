@@ -779,4 +779,37 @@ describe('ResetDialog', () => {
       }
     });
   });
+
+  // TL-72 (Wave 9) — `_executeReset` catch block must run the raw
+  // git stderr through `sanitizeGitError` before pushing it into the
+  // showErrorMessage toast template. Pre-fix, ResetDialog.ts:406
+  // concatenated `error.message` directly, leaking credentialed remote
+  // URLs and POSIX home paths into the user's notification history.
+  describe('TL-72 — error toast sanitization', () => {
+    it('reset failure toast sanitizes credentialed URL + home path', async () => {
+      const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+      const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+      const trackers = installMessageTrackers();
+      const gitService = makeGitService({
+        reset: () => Promise.reject(new Error(RAW)),
+      });
+      const { dialog } = makeDialog({ gitService });
+      try {
+        await dialog.simulateMessage({ type: 'reset', mode: 'soft' });
+
+        assert.strictEqual(trackers.log.error.length, 1, 'expected one error toast');
+        assert.strictEqual(trackers.log.error[0].message, `Failed to reset: ${EXPECTED}`);
+        assert.ok(
+          !trackers.log.error[0].message.includes('alice:secret'),
+          'toast must not leak credentials'
+        );
+        assert.ok(
+          !trackers.log.error[0].message.includes('/Users/alice'),
+          'toast must not leak home path'
+        );
+      } finally {
+        dialog.dispose();
+      }
+    });
+  });
 });

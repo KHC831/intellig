@@ -267,4 +267,71 @@ describe('RebaseEditor', () => {
       assert.strictEqual(session, undefined);
     });
   });
+
+  // TL-72 (Wave 9) — both action-path catch blocks in RebaseEditor must
+  // run the raw git stderr through `sanitizeGitError` before pushing it
+  // into the showErrorMessage toast. Pre-fix, RebaseEditor.ts:93 (show
+  // → startInteractiveRebase failure) and :244 (_handleExecute →
+  // executeRebase failure) concatenated `error.message` directly,
+  // leaking credentialed remote URLs and POSIX home paths into the
+  // user's notification history.
+  describe('TL-72 — error toast sanitization', () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+    function captureErrorToasts(): { errors: string[]; restore: () => void } {
+      const errors: string[] = [];
+      const oErr = vscode.window.showErrorMessage;
+      (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = (
+        m: string
+      ): Promise<string | undefined> => {
+        errors.push(m);
+        return Promise.resolve(undefined);
+      };
+      return {
+        errors,
+        restore: (): void => {
+          (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
+        },
+      };
+    }
+
+    it('show() — startInteractiveRebase failure toast sanitizes credentialed URL + home path', async () => {
+      mockRebaseService.startInteractiveRebase = (): Promise<IRebaseSession> =>
+        Promise.reject(new Error(RAW));
+      const { errors, restore } = captureErrorToasts();
+      try {
+        const result = await rebaseEditor.show(mockRepository, { onto: 'main' });
+        assert.strictEqual(result.executed, false);
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assert.strictEqual(errors[0], `Failed to start rebase: ${EXPECTED}`);
+        assert.ok(!errors[0].includes('alice:secret'), 'toast must not leak credentials');
+        assert.ok(!errors[0].includes('/Users/alice'), 'toast must not leak home path');
+      } finally {
+        restore();
+      }
+    });
+
+    it('_handleExecute() — executeRebase failure toast sanitizes credentialed URL + home path', async () => {
+      // Prime the editor with a valid session so _handleExecute proceeds.
+      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
+      (rebaseEditor as unknown as { _repository: IRepository })._repository = mockRepository;
+      (rebaseEditor as unknown as { _session: IRebaseSession })._session =
+        mockRebaseService.getRebaseSession(mockRepository)!;
+
+      // Stub executeRebase to throw with a credentialed payload.
+      mockRebaseService.executeRebase = (): Promise<never> => Promise.reject(new Error(RAW));
+
+      const { errors, restore } = captureErrorToasts();
+      try {
+        await (rebaseEditor as unknown as { _handleExecute: () => Promise<void> })._handleExecute();
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assert.strictEqual(errors[0], `Rebase failed: ${EXPECTED}`);
+        assert.ok(!errors[0].includes('alice:secret'), 'toast must not leak credentials');
+        assert.ok(!errors[0].includes('/Users/alice'), 'toast must not leak home path');
+      } finally {
+        restore();
+      }
+    });
+  });
 });

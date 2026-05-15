@@ -7,7 +7,7 @@
  */
 
 import * as assert from 'assert';
-import { sanitizeGitError } from '../../../utils/gitError';
+import { sanitizeGitError, formatActionFailureToast } from '../../../utils/gitError';
 
 describe('sanitizeGitError', () => {
   it('passes clean messages through unchanged', () => {
@@ -279,5 +279,72 @@ describe('sanitizeGitError', () => {
         assert.ok(scrubbed.includes('~\\project\\file.ts'));
       });
     });
+  });
+});
+
+// Wave 9 R4 — TL-72 follow-up. Senior-wave9 found 18 reachable command
+// handlers in extension.ts that bypass the structural guard's allowlist
+// regex by inlining the err-derived ternary directly into the toast
+// template:
+//
+//     `Failed to revert file: ${error instanceof Error ? error.message : 'Unknown error'}`
+//
+// The guard's `\$\{VAR\}` rule requires the body to be a single name;
+// ternary expressions silently slip through. Sanitizing each catch
+// block via a hoist would require touching 18 closures and importing
+// `sanitizeGitError` everywhere; we extract a shared helper instead.
+//
+// `formatActionFailureToast(prefix, error)` is the single seam every
+// catch block calls. It MUST:
+//   1. Accept the action prefix as plain text (rendered verbatim).
+//   2. Coerce Error / non-Error / string to a message string with the
+//      `'Unknown error'` fallback the codebase has used since Wave 4.
+//   3. Run the message through `sanitizeGitError` before returning.
+//   4. Format as `${prefix}: ${sanitized}` so it drops directly into
+//      a `showErrorMessage(...)` call without further interpolation.
+//
+// These specs pin (1)-(4) explicitly so future drift in any of them
+// breaks a behavioural test, not just the structural guard.
+describe('formatActionFailureToast — Wave 9 R4 helper for inline-ternary sites', () => {
+  it('returns "<prefix>: Unknown error" for non-Error inputs', () => {
+    // Coerces unknown shapes to the standard fallback so the toast
+    // remains intelligible even when an exotic value is thrown.
+    const result = formatActionFailureToast('Failed to revert file', 'string-thrown');
+    assert.strictEqual(result, 'Failed to revert file: Unknown error');
+  });
+
+  it('extracts and sanitizes Error.message — credentialed URL', () => {
+    const RAW = "fatal: unable to access 'https://x:ghp_TOKEN_XYZ@github.com/owner/repo.git/'";
+    const result = formatActionFailureToast('Failed to revert file', new Error(RAW));
+    assert.ok(!result.includes('ghp_TOKEN_XYZ'), `token must be redacted; got: "${result}"`);
+    assert.ok(!result.includes('x:ghp_'), `user:token portion must be redacted; got: "${result}"`);
+    assert.ok(result.includes('<redacted>@github.com'));
+    assert.ok(result.startsWith('Failed to revert file: '));
+  });
+
+  it('extracts and sanitizes Error.message — POSIX home path', () => {
+    const result = formatActionFailureToast(
+      'Failed to open merge view',
+      new Error("ENOENT: no such file or directory, open '/Users/alice/project/conflict.ts'")
+    );
+    assert.ok(!result.includes('/Users/alice/'), 'home path must be redacted');
+    assert.ok(!result.includes('alice'), 'username must be redacted');
+    assert.ok(result.includes('~/project/conflict.ts'));
+    assert.ok(result.startsWith('Failed to open merge view: '));
+  });
+
+  it('passes a clean message through unchanged after the prefix', () => {
+    const result = formatActionFailureToast('Failed to merge', new Error('not a fast-forward'));
+    assert.strictEqual(result, 'Failed to merge: not a fast-forward');
+  });
+
+  it('handles an Error subclass with a populated message', () => {
+    class GitError extends Error {
+      constructor() {
+        super('exit code 128');
+      }
+    }
+    const result = formatActionFailureToast('Push failed', new GitError());
+    assert.strictEqual(result, 'Push failed: exit code 128');
   });
 });

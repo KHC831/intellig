@@ -291,7 +291,9 @@ export class ShelfView implements IShelfView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to shelve changes: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to shelve changes: ${sanitizeGitError(errorMessage)}`
+      );
       return { shelved: false };
     }
   }
@@ -497,7 +499,9 @@ export class ShelfView implements IShelfView {
       return diffs;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to view shelf item: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to view shelf item: ${sanitizeGitError(errorMessage)}`
+      );
       return [];
     }
   }

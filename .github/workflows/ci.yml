@@ -47,6 +47,22 @@ jobs:
       - name: Structural guard — QuickPick view-state interfaces
         run: npm run check:quickpick-state
 
+      # TL-72 (Wave 9). Closes the credential-leak boundary on every
+      # user-visible toast surface. `git` stderr can embed credentials
+      # in remote URLs and absolute home paths in errno-style errors;
+      # piping that into `vscode.window.showErrorMessage` /
+      # `showWarningMessage` leaks tokens + usernames into the user's
+      # notification history. This guard awk-checks every show*Message
+      # call in `src/` and fails the build if a known err-derived
+      # variable (`m`, `msg`, `errMsg`, `errorMessage`, `raw`, `reason`,
+      # …) is interpolated without going through `sanitizeGitError(...)`.
+      # Legitimate non-error interpolations (user-typed query strings,
+      # short-hash fragments, etc.) opt out via a
+      # `// sanitize-exempt: <reason>` comment. See the script header
+      # for full rationale + heuristic notes.
+      - name: Structural guard — action-toast credential sanitisation
+        run: npm run check:action-toasts
+
       - name: Compile
         run: npm run compile
 

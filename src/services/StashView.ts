@@ -200,6 +200,7 @@ export class StashView implements IStashView {
     // Step 3: Create the stash
     try {
       await this._gitService.stash(repository, message || undefined, options);
+      // sanitize-exempt: user-input: message is the user-typed stash label from showInputBox above, not git stderr
       void vscode.window.showInformationMessage(
         message ? `Stashed changes: "${message}"` : 'Stashed changes'
       );
@@ -221,7 +222,9 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to create stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to create stash: ${sanitizeGitError(errorMessage)}`
+      );
       return { created: false };
     }
   }
@@ -313,7 +316,9 @@ export class StashView implements IStashView {
           return { success: false, action: 'apply', stash, error: errorMessage };
         }
       }
-      void vscode.window.showErrorMessage(`Failed to apply stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to apply stash: ${sanitizeGitError(errorMessage)}`
+      );
       return { success: false, action: 'apply', stash, error: errorMessage };
     }
   }
@@ -387,7 +392,7 @@ export class StashView implements IStashView {
           return { success: false, action: 'pop', stash, error: errorMessage };
         }
       }
-      void vscode.window.showErrorMessage(`Failed to pop stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to pop stash: ${sanitizeGitError(errorMessage)}`);
       return { success: false, action: 'pop', stash, error: errorMessage };
     }
   }
@@ -464,7 +469,9 @@ export class StashView implements IStashView {
           return { success: false, action: 'branch', stash, error: errorMessage };
         }
       }
-      void vscode.window.showErrorMessage(`Failed to create branch from stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to create branch from stash: ${sanitizeGitError(errorMessage)}`
+      );
       return { success: false, action: 'branch', stash, error: errorMessage };
     }
   }
@@ -517,7 +524,9 @@ export class StashView implements IStashView {
       return { success: true, action: 'rename', stash };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to rename stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to rename stash: ${sanitizeGitError(errorMessage)}`
+      );
       return { success: false, action: 'rename', stash, error: errorMessage };
     }
   }
@@ -539,6 +548,7 @@ export class StashView implements IStashView {
     }
 
     // Show confirmation dialog
+    // sanitize-exempt: user-input: stash.message is the user-typed stash label captured via showInputBox, not git stderr
     const confirm = await vscode.window.showWarningMessage(
       `Are you sure you want to drop stash@{${index}}?\n"${stash.message || 'No message'}"`,
       { modal: true },
@@ -568,7 +578,9 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to drop stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to drop stash: ${sanitizeGitError(errorMessage)}`
+      );
       return { success: false, action: 'drop', stash, error: errorMessage };
     }
   }
@@ -607,7 +619,9 @@ export class StashView implements IStashView {
       return diffs;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to view stash: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to view stash: ${sanitizeGitError(errorMessage)}`
+      );
       return [];
     }
   }

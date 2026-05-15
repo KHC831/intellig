@@ -11,6 +11,7 @@ import type { PullDialog } from '../services/PullDialog';
 import type { PushDialog } from '../services/PushDialog';
 import type { MergeDialog } from '../services/MergeDialog';
 import type { NewBranchDialog } from '../services/NewBranchDialog';
+import { sanitizeGitError } from '../utils/gitError';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
 export type PullDialogAccessor = () => PullDialog | undefined;
@@ -324,7 +325,9 @@ export class BranchContextMenuCommands {
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to stash and checkout: ${stashMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+            );
           }
         } else if (choice === 'Force Checkout') {
           try {
@@ -333,11 +336,15 @@ export class BranchContextMenuCommands {
             this._branchTreeProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to force checkout: ${forceMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
+            );
           }
         }
       } else {
-        void vscode.window.showErrorMessage(`Failed to checkout branch: ${errorMessage}`);
+        void vscode.window.showErrorMessage(
+          `Failed to checkout branch: ${sanitizeGitError(errorMessage)}`
+        );
       }
     }
   }
@@ -392,7 +399,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to create branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to create branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -436,7 +445,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to merge branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to merge branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -473,7 +484,7 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to rebase: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to rebase: ${sanitizeGitError(errorMessage)}`);
     }
   }
 
@@ -503,7 +514,9 @@ export class BranchContextMenuCommands {
       void vscode.window.showInformationMessage(message);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to compare branches: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to compare branches: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -543,7 +556,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to rename branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to rename branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -572,7 +587,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to delete branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to delete branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -606,7 +623,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to update branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to update branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -645,7 +664,9 @@ export class BranchContextMenuCommands {
       void vscode.window.showInformationMessage(`Pushed branch '${item.branch.name}'`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to push branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to push branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -689,7 +710,9 @@ export class BranchContextMenuCommands {
       files = await this._gitService.getChangedFilesAgainstWorkingTree(repo, branchRef);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to list changed files: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to list changed files: ${sanitizeGitError(errorMessage)}`
+      );
       return;
     }
 
@@ -732,7 +755,9 @@ export class BranchContextMenuCommands {
         await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to show diff for ${filePath}: ${errorMessage}`);
+        void vscode.window.showErrorMessage(
+          `Failed to show diff for ${filePath}: ${sanitizeGitError(errorMessage)}`
+        );
       }
     }
   }
@@ -813,7 +838,9 @@ export class BranchContextMenuCommands {
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to stash and checkout: ${stashMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+            );
           }
         } else if (choice === 'Force Checkout') {
           try {
@@ -839,11 +866,15 @@ export class BranchContextMenuCommands {
             this._branchTreeProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to force checkout and rebase: ${forceMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to force checkout and rebase: ${sanitizeGitError(forceMsg)}`
+            );
           }
         }
       } else {
-        void vscode.window.showErrorMessage(`Failed to checkout and rebase: ${errorMessage}`);
+        void vscode.window.showErrorMessage(
+          `Failed to checkout and rebase: ${sanitizeGitError(errorMessage)}`
+        );
       }
     }
   }
@@ -946,7 +977,9 @@ export class BranchContextMenuCommands {
         }
       }
       const strategy = preset === 'rebase' ? 'rebase' : 'merge';
-      void vscode.window.showErrorMessage(`Failed to pull using ${strategy}: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to pull using ${strategy}: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1017,7 +1050,9 @@ export class BranchContextMenuCommands {
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to stash and checkout: ${stashMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
+            );
           }
         } else if (choice === 'Force Checkout') {
           try {
@@ -1036,11 +1071,15 @@ export class BranchContextMenuCommands {
             this._branchTreeProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
-            void vscode.window.showErrorMessage(`Failed to force checkout: ${forceMsg}`);
+            void vscode.window.showErrorMessage(
+              `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
+            );
           }
         }
       } else {
-        void vscode.window.showErrorMessage(`Failed to checkout branch: ${errorMessage}`);
+        void vscode.window.showErrorMessage(
+          `Failed to checkout branch: ${sanitizeGitError(errorMessage)}`
+        );
       }
     }
   }
@@ -1103,7 +1142,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to cherry-pick: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1154,7 +1195,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to delete remote branch: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to delete remote branch: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1189,7 +1232,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to checkout tag: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to checkout tag: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1225,7 +1270,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to cherry-pick: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1254,7 +1301,9 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to delete tag: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Failed to delete tag: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
@@ -1272,7 +1321,7 @@ export class BranchContextMenuCommands {
       void vscode.window.showInformationMessage(`Pushed tag '${item.tag.name}' to remote`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to push tag: ${errorMessage}`);
+      void vscode.window.showErrorMessage(`Failed to push tag: ${sanitizeGitError(errorMessage)}`);
     }
   }
 

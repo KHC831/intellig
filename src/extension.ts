@@ -60,6 +60,7 @@ import { resolveRepo } from './utils/resolveRepo';
 import { isTabbedGitToolWindowEnabled } from './services/gitToolWindow/config';
 import { parseRemoteUrl } from './utils/remoteUrl';
 import { commitUrl } from './utils/hostingLinks';
+import { sanitizeGitError, formatActionFailureToast } from './utils/gitError';
 
 /**
  * Global reference to the extension services container.
@@ -216,7 +217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } catch (error) {
     console.error('Failed to activate IntelliG extension:', error);
     void vscode.window.showErrorMessage(
-      `Failed to activate IntelliG extension: ${error instanceof Error ? error.message : 'Unknown error'}`
+      formatActionFailureToast('Failed to activate IntelliG extension', error)
     );
     throw error;
   }
@@ -438,7 +439,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         extensionServices.changelistService.createChangelist(repo, name.trim());
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to create changelist: ${m}`);
+        void vscode.window.showErrorMessage(`Failed to create changelist: ${sanitizeGitError(m)}`);
       }
     }
   );
@@ -460,7 +461,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await extensionServices.changelistService.setActiveChangelist(repo, changelistId);
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to set active changelist: ${m}`);
+        void vscode.window.showErrorMessage(
+          `Failed to set active changelist: ${sanitizeGitError(m)}`
+        );
       }
     }
   );
@@ -496,7 +499,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         extensionServices.changelistService.renameChangelist(repo, changelistId, newName.trim());
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to rename changelist: ${m}`);
+        void vscode.window.showErrorMessage(`Failed to rename changelist: ${sanitizeGitError(m)}`);
       }
     }
   );
@@ -518,7 +521,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         extensionServices.changelistService.deleteChangelist(repo, changelistId);
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to delete changelist: ${m}`);
+        void vscode.window.showErrorMessage(`Failed to delete changelist: ${sanitizeGitError(m)}`);
       }
     }
   );
@@ -554,7 +557,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
           service.setDescription(repo, changelistId, newDescription);
         } catch (err) {
           const m = err instanceof Error ? err.message : 'Unknown error';
-          void vscode.window.showErrorMessage(`Failed to update description: ${m}`);
+          void vscode.window.showErrorMessage(
+            `Failed to update description: ${sanitizeGitError(m)}`
+          );
         }
       }
     }
@@ -586,7 +591,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         service.moveToChangelist(repo, files, picked.id);
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to move files: ${m}`);
+        void vscode.window.showErrorMessage(`Failed to move files: ${sanitizeGitError(m)}`);
       }
     }
   );
@@ -637,7 +642,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         );
       } catch (err) {
         const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to shelve changelist: ${m}`);
+        void vscode.window.showErrorMessage(`Failed to shelve changelist: ${sanitizeGitError(m)}`);
       }
     }
   );
@@ -702,7 +707,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to push tags: ${message}`);
+      void vscode.window.showErrorMessage(`Failed to push tags: ${sanitizeGitError(message)}`);
     }
   });
 
@@ -762,7 +767,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage(message);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Fetch failed: ${msg}`);
+      void vscode.window.showErrorMessage(`Fetch failed: ${sanitizeGitError(msg)}`);
     }
   });
 
@@ -1026,7 +1031,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Silent shelve failed: ${errorMessage}`);
+        void vscode.window.showErrorMessage(
+          `Silent shelve failed: ${sanitizeGitError(errorMessage)}`
+        );
       }
     }
   );
@@ -1303,6 +1310,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
       const match = findCommitByQuery(query, loadedCommits, branches, tags);
       if (!match) {
+        // sanitize-exempt: user-input: query.trim() is the user-typed search string echoed back, not git stderr
         void vscode.window.showWarningMessage(`No commit found matching '${query.trim()}'`);
         return;
       }
@@ -1352,7 +1360,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           }
         } catch (error) {
           void vscode.window.showErrorMessage(
-            `Failed to stage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+            formatActionFailureToast('Failed to stage file', error)
           );
         }
       } else {
@@ -1393,7 +1401,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           }
         } catch (error) {
           void vscode.window.showErrorMessage(
-            `Failed to unstage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+            formatActionFailureToast('Failed to unstage file', error)
           );
         }
       } else {
@@ -1458,7 +1466,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await mergeView.show(filePath);
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to open merge view: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to open merge view', error)
         );
       }
     }
@@ -1626,7 +1634,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage('Commit skipped.');
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      void vscode.window.showErrorMessage(`Failed to skip commit: ${errMsg}`);
+      void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
     }
   });
 
@@ -1745,7 +1753,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           return;
         }
         const errMsg = error instanceof Error ? error.message : String(error);
-        void vscode.window.showErrorMessage(`Failed to create patch: ${errMsg}`);
+        void vscode.window.showErrorMessage(`Failed to create patch: ${sanitizeGitError(errMsg)}`);
       }
     }
   );
@@ -2124,7 +2132,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await rebaseEditor.show(repo, { onto: selected.label });
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to start interactive rebase: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to start interactive rebase', error)
         );
       }
     }
@@ -2195,14 +2203,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
       });
 
       if (selected) {
+        // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr; cannot embed credentials git emits in error paths
         void vscode.window.showInformationMessage(
           `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
         );
       }
     } catch (error) {
-      void vscode.window.showErrorMessage(
-        `Failed to get history: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to get history', error));
     }
   });
 
@@ -2252,9 +2259,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         gitToolWindowProvider.refresh();
       }
     } catch (error) {
-      void vscode.window.showErrorMessage(
-        `Failed to revert file: ${error instanceof Error ? error.message : 'Unknown error'}`
-      );
+      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to revert file', error));
     }
   });
 
@@ -2319,6 +2324,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           const fileDiff = diff.find((d) => d.path === filePath || d.oldPath === filePath);
           if (fileDiff) {
             // Open diff view
+            // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr
             void vscode.window.showInformationMessage(
               `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
             );
@@ -2326,7 +2332,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to get file history: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to get file history', error)
         );
       }
     }
@@ -2395,7 +2401,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         );
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to compare with branch: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to compare with branch', error)
         );
       }
     }
@@ -2454,7 +2460,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to revert file: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to revert file', error)
         );
       }
     }
@@ -2502,7 +2508,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to stage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to stage file', error)
         );
       }
     }
@@ -2550,7 +2556,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to unstage file: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to unstage file', error)
         );
       }
     }
@@ -2599,9 +2605,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           `${filePath} (HEAD ↔ Working Tree)`
         );
       } catch (error) {
-        void vscode.window.showErrorMessage(
-          `Failed to show diff: ${error instanceof Error ? error.message : 'Unknown error'}`
-        );
+        void vscode.window.showErrorMessage(formatActionFailureToast('Failed to show diff', error));
       }
     }
   );
@@ -2645,7 +2649,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to add file to VCS: ${msg}`);
+        void vscode.window.showErrorMessage(`Failed to add file to VCS: ${sanitizeGitError(msg)}`);
       }
     }
   );
@@ -2683,7 +2687,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await vscode.commands.executeCommand('vscode.diff', leftUri, resolvedUri, title);
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to compare with HEAD: ${msg}`);
+        void vscode.window.showErrorMessage(
+          `Failed to compare with HEAD: ${sanitizeGitError(msg)}`
+        );
       }
     }
   );
@@ -2768,7 +2774,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           return;
         }
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to create patch: ${msg}`);
+        void vscode.window.showErrorMessage(`Failed to create patch: ${sanitizeGitError(msg)}`);
       }
     }
   );
@@ -2854,13 +2860,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
         });
 
         if (selected) {
+          // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr
           void vscode.window.showInformationMessage(
             `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
           );
         }
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to get line history: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to get line history', error)
         );
       }
     }
@@ -2910,7 +2917,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         );
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to copy commit hash: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to copy commit hash', error)
         );
       }
     }
@@ -2994,6 +3001,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
                 hour: '2-digit',
                 minute: '2-digit',
               });
+              // sanitize-exempt: non-error-data: commit.message + commit.author.name come from `git log`/`git show` output, not git stderr; user-authored content
               void vscode.window.showInformationMessage(
                 `Commit: ${commit.shortHash}\nAuthor: ${commit.author.name}\nDate: ${dateStr}\n\n${commit.message}`,
                 { modal: true }
@@ -3020,7 +3028,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Failed to show commit: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Failed to show commit', error)
         );
       }
     }
@@ -3138,7 +3146,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await inlineBlameProvider?.refresh();
       } catch (error) {
         void vscode.window.showErrorMessage(
-          `Annotate Previous failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+          formatActionFailureToast('Annotate Previous failed', error)
         );
       }
     }
@@ -3344,7 +3352,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await _openCommitFileDiff(repo, hash, parent, gitService);
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to show diff: ${msg}`);
+        void vscode.window.showErrorMessage(`Failed to show diff: ${sanitizeGitError(msg)}`);
       }
     }
   );
@@ -3419,7 +3427,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         await vscode.commands.executeCommand('vscode.open', uri);
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to open file at revision: ${msg}`);
+        void vscode.window.showErrorMessage(
+          `Failed to open file at revision: ${sanitizeGitError(msg)}`
+        );
       }
     }
   );
@@ -4082,7 +4092,7 @@ function registerViews(context: vscode.ExtensionContext): void {
           }
         } catch (error) {
           void vscode.window.showErrorMessage(
-            `Failed to open diff: ${error instanceof Error ? error.message : 'Unknown error'}`
+            formatActionFailureToast('Failed to open diff', error)
           );
         }
       }
@@ -4700,7 +4710,7 @@ export async function runNewTagFlow(
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    void deps.showErrorMessage(`Failed to create tag: ${msg}`);
+    void deps.showErrorMessage(`Failed to create tag: ${sanitizeGitError(msg)}`);
   }
 }
 
@@ -4822,10 +4832,11 @@ async function _runCherryPickVariant(
       return;
     }
     // Defensive: no conflicts, no success — surface a generic error.
+    // sanitize-exempt: sha-prefix: shortHash is a 7-char SHA fragment, bounded charset cannot embed credentials
     void vscode.window.showWarningMessage(`Cherry-pick of ${shortHash} completed with warnings.`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Cherry-pick failed: ${msg}`);
+    void vscode.window.showErrorMessage(`Cherry-pick failed: ${sanitizeGitError(msg)}`);
   }
 }
 
@@ -4892,7 +4903,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
   } catch (stashError) {
     const msg = stashError instanceof Error ? stashError.message : 'Unknown error';
     void vscode.window.showErrorMessage(
-      `Refusing to switch branch — failed to stash dirty state: ${msg}`
+      `Refusing to switch branch — failed to stash dirty state: ${sanitizeGitError(msg)}`
     );
     return;
   }
@@ -4934,7 +4945,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Apply Files to Branch failed: ${msg}`);
+    void vscode.window.showErrorMessage(`Apply Files to Branch failed: ${sanitizeGitError(msg)}`);
   } finally {
     // Always return to the original branch unless we're on the target with
     // unresolved conflicts (already returned above). Pop the stash after
@@ -4945,7 +4956,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
       } catch (backError) {
         const msg = backError instanceof Error ? backError.message : 'Unknown error';
         void vscode.window.showWarningMessage(
-          `Could not return to '${currentBranchName}': ${msg}. ` +
+          `Could not return to '${currentBranchName}': ${sanitizeGitError(msg)}. ` +
             `You may be on '${targetBranch}' now.`
         );
       }
@@ -4956,7 +4967,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
       } catch (popError) {
         const msg = popError instanceof Error ? popError.message : 'Unknown error';
         void vscode.window.showWarningMessage(
-          `Could not pop auto-stash: ${msg}. Run 'git stash pop' manually.`
+          `Could not pop auto-stash: ${sanitizeGitError(msg)}. Run 'git stash pop' manually.`
         );
       }
     }
@@ -5069,7 +5080,7 @@ async function _openCommitOnHost(hash: string): Promise<void> {
     await vscode.env.openExternal(vscode.Uri.parse(link));
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Open on Host failed: ${msg}`);
+    void vscode.window.showErrorMessage(`Open on Host failed: ${sanitizeGitError(msg)}`);
   }
 }
 
@@ -5154,7 +5165,7 @@ async function _openRefPairDiffPicker(
     );
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    void vscode.window.showErrorMessage(`Failed to compare: ${msg}`);
+    void vscode.window.showErrorMessage(`Failed to compare: ${sanitizeGitError(msg)}`);
   }
 }
 

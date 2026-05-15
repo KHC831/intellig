@@ -34,6 +34,7 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { sanitizeGitError } from '../utils/gitError';
 
 export const COMMIT_TOOL_WINDOW_VIEW_ID = 'intellig.commitToolWindow';
 
@@ -734,7 +735,7 @@ export class CommitToolWindow extends BaseWebviewView {
         error: result.error,
       });
       void vscode.window.showErrorMessage(
-        result.error ? `Commit failed: ${result.error}` : 'Commit failed'
+        result.error ? `Commit failed: ${sanitizeGitError(result.error)}` : 'Commit failed'
       );
       return;
     }
@@ -767,7 +768,7 @@ export class CommitToolWindow extends BaseWebviewView {
         await vscode.commands.executeCommand('intellig.push');
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Push failed: ${msg}`);
+        void vscode.window.showErrorMessage(`Push failed: ${sanitizeGitError(msg)}`);
       }
     }
 

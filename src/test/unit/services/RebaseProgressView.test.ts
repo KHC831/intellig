@@ -514,4 +514,112 @@ describe('RebaseProgressView', () => {
       assert.strictEqual(session, undefined);
     });
   });
+
+  // TL-72 (Wave 9) — every RebaseProgressView action-path catch block
+  // must run the raw git stderr through `sanitizeGitError` before the
+  // toast is rendered. Pre-fix, four call-sites concatenated raw
+  // `error.message` into showErrorMessage templates. The four handlers
+  // (continue/abort/skip/provideRewordMessage) all surface git stderr
+  // directly, which can carry credentialed remote URLs and POSIX home
+  // paths into the user's notification history.
+  describe('TL-72 — error toast sanitization', () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+    function captureErrorToasts(): { errors: string[]; restore: () => void } {
+      const errors: string[] = [];
+      const oErr = vscode.window.showErrorMessage;
+      (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = (
+        m: string
+      ): Promise<string | undefined> => {
+        errors.push(m);
+        return Promise.resolve(undefined);
+      };
+      return {
+        errors,
+        restore: (): void => {
+          (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
+        },
+      };
+    }
+
+    function assertSanitized(actual: string, prefix: string): void {
+      assert.strictEqual(actual, `${prefix}: ${EXPECTED}`);
+      assert.ok(!actual.includes('alice:secret'), 'toast must not leak credentials');
+      assert.ok(!actual.includes('/Users/alice'), 'toast must not leak home path');
+    }
+
+    beforeEach(() => {
+      // Prime _repository so the private handlers don't early-return.
+      (rebaseProgressView as unknown as { _repository: IRepository })._repository = mockRepository;
+    });
+
+    it('_handleContinue failure toast sanitizes credentialed URL + home path', async () => {
+      mockRebaseService.continueRebase = (): Promise<never> => Promise.reject(new Error(RAW));
+      const { errors, restore } = captureErrorToasts();
+      try {
+        await (
+          rebaseProgressView as unknown as { _handleContinue: () => Promise<void> }
+        )._handleContinue();
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to continue rebase');
+      } finally {
+        restore();
+      }
+    });
+
+    it('_handleAbort failure toast sanitizes credentialed URL + home path', async () => {
+      mockRebaseService.abortRebase = (): Promise<never> => Promise.reject(new Error(RAW));
+      const { errors, restore } = captureErrorToasts();
+      // _handleAbort gates on a modal confirm; stub showWarningMessage to return 'Abort Rebase'.
+      const oWarn = vscode.window.showWarningMessage;
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
+        ..._args: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Abort Rebase');
+      try {
+        await (
+          rebaseProgressView as unknown as { _handleAbort: () => Promise<void> }
+        )._handleAbort();
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to abort rebase');
+      } finally {
+        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = oWarn;
+        restore();
+      }
+    });
+
+    it('_handleSkip failure toast sanitizes credentialed URL + home path', async () => {
+      mockRebaseService.skipCommit = (): Promise<never> => Promise.reject(new Error(RAW));
+      const { errors, restore } = captureErrorToasts();
+      // _handleSkip also gates on a modal confirm.
+      const oWarn = vscode.window.showWarningMessage;
+      (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = (
+        ..._args: unknown[]
+      ): Promise<string | undefined> => Promise.resolve('Skip Commit');
+      try {
+        await (rebaseProgressView as unknown as { _handleSkip: () => Promise<void> })._handleSkip();
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to skip commit');
+      } finally {
+        (vscode.window as unknown as { showWarningMessage: unknown }).showWarningMessage = oWarn;
+        restore();
+      }
+    });
+
+    it('_handleProvideRewordMessage failure toast sanitizes credentialed URL + home path', async () => {
+      mockRebaseService.provideRewordMessage = (): Promise<never> => Promise.reject(new Error(RAW));
+      const { errors, restore } = captureErrorToasts();
+      try {
+        await (
+          rebaseProgressView as unknown as {
+            _handleProvideRewordMessage: (m: string) => Promise<void>;
+          }
+        )._handleProvideRewordMessage('new commit message');
+        assert.strictEqual(errors.length, 1, 'expected one error toast');
+        assertSanitized(errors[0], 'Failed to update commit message');
+      } finally {
+        restore();
+      }
+    });
+  });
 });

@@ -1070,4 +1070,91 @@ describe('ShelfView — T2-10', () => {
       }
     });
   });
+
+  // TL-72 (Wave 9) — close the boundary on the two remaining
+  // ShelfView action paths (`showShelveDialog`, `viewShelfItem`)
+  // whose catch blocks pre-fix concatenated raw `error.message`
+  // straight into the toast template. Mirrors the unshelve /
+  // deleteShelfItem / renameShelfItem coverage from Wave 4 (TL-46).
+  describe('TL-72 — action-path toasts route through sanitizeGitError', () => {
+    const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
+    const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
+
+    it('showShelveDialog: sanitizes credentialed URL + home path in toast', async () => {
+      const view2 = new ShelfView(svc, () =>
+        Promise.resolve([{ path: 'x.ts', indexStatus: 'M', workTreeStatus: ' ' } as never])
+      );
+      (view2 as unknown as { _repository: IRepository })._repository = repo;
+
+      // shelve throws with credentialed payload.
+      svc.shelve = (): Promise<never> => Promise.reject(new Error(RAW));
+
+      const originalPick = vscode.window.showQuickPick;
+      (
+        vscode.window as unknown as {
+          showQuickPick: (items: unknown[]) => Promise<unknown>;
+        }
+      ).showQuickPick = async (items: unknown[]) => items.slice();
+      const originalInput = vscode.window.showInputBox;
+      (
+        vscode.window as unknown as {
+          showInputBox: (opts?: unknown) => Promise<string | undefined>;
+        }
+      ).showInputBox = async () => 'my-shelf';
+
+      const tracker = installErrorMessageTracker();
+      try {
+        const result = await view2.showShelveDialog(repo);
+        assert.strictEqual(result.shelved, false);
+        assert.strictEqual(tracker.calls.length, 1, 'expected one error toast');
+        assert.strictEqual(tracker.calls[0].message, `Failed to shelve changes: ${EXPECTED}`);
+        assert.ok(
+          !tracker.calls[0].message.includes('alice:secret'),
+          'toast must not leak credentials'
+        );
+        assert.ok(
+          !tracker.calls[0].message.includes('/Users/alice'),
+          'toast must not leak home path'
+        );
+      } finally {
+        restoreMessageFunctions();
+        (vscode.window as unknown as { showQuickPick: typeof originalPick }).showQuickPick =
+          originalPick;
+        (vscode.window as unknown as { showInputBox: typeof originalInput }).showInputBox =
+          originalInput;
+        view2.dispose();
+      }
+    });
+
+    it('viewShelfItem: sanitizes credentialed URL + home path in toast', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [{ path: 'x.ts', diff: 'diff' }],
+      });
+      await view.refresh();
+
+      // getShelfDiff throws with credentialed payload.
+      svc.getShelfDiff = (): Promise<never> => Promise.reject(new Error(RAW));
+
+      const tracker = installErrorMessageTracker();
+      try {
+        const diffs = await view.viewShelfItem('a');
+        assert.deepStrictEqual(diffs, []);
+        assert.strictEqual(tracker.calls.length, 1, 'expected one error toast');
+        assert.strictEqual(tracker.calls[0].message, `Failed to view shelf item: ${EXPECTED}`);
+        assert.ok(
+          !tracker.calls[0].message.includes('alice:secret'),
+          'toast must not leak credentials'
+        );
+        assert.ok(
+          !tracker.calls[0].message.includes('/Users/alice'),
+          'toast must not leak home path'
+        );
+      } finally {
+        restoreMessageFunctions();
+      }
+    });
+  });
 });

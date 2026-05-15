@@ -24,6 +24,7 @@ import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from './interfaces/IGitService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { sanitizeGitError } from '../utils/gitError';
 
 /**
  * Workspace-state key under which the recent-branches LRU map is persisted.
@@ -983,7 +984,9 @@ export class BranchPopup {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Branch operation failed: ${errorMessage}`);
+      void vscode.window.showErrorMessage(
+        `Branch operation failed: ${sanitizeGitError(errorMessage)}`
+      );
       return { cancelled: true };
     }
   }
