@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   IGitService,
@@ -36,6 +37,12 @@ import {
   RepositoryState,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli } from '../utils/gitCli';
+import {
+  scanFolderForGitRepos,
+  defaultRepoScanFs,
+  IRepoScanFs,
+  INTERNAL_IGNORED_FOLDERS,
+} from '../utils/repoScan';
 import {
   parseStatus,
   parseLog,
@@ -101,6 +108,26 @@ export class GitService implements IGitService, IGitServiceCli {
    * on objects whose `dispose()` has already run.
    */
   private _disposed = false;
+
+  /**
+   * Filesystem injection seam for {@link scanFolderForGitRepos}. Production
+   * uses {@link defaultRepoScanFs}; unit tests overwrite this through the
+   * `_repoScanFs` private to drive scans against an in-memory tree without
+   * touching the disk.
+   */
+  private _repoScanFs: IRepoScanFs = defaultRepoScanFs;
+
+  /**
+   * Watchers that fire when a NEW `.git/` directory is created mid-session
+   * (e.g. user runs `git init` in a workspace subfolder). Keyed by
+   * workspace-folder path so we can dispose them when the folder is
+   * removed.
+   *
+   * Distinct from `_fileWatchers` (per-repo `.git/HEAD`/index/refs/**
+   * watchers) — those activate after a repo is discovered. These fire
+   * BEFORE discovery so we can pick up brand-new repos.
+   */
+  private _newRepoWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
   /** Cache TTL in milliseconds (5 seconds) */
   private static readonly CACHE_TTL = 5000;
@@ -278,16 +305,165 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Discover a repository at the given path.
+   * Discover a repository — or a set of nested repositories — at the given
+   * path.
    *
-   * @param path - The path to check
+   * Wave 10 (task #204) — previously this only checked `path` itself for
+   * `.git/`, which missed the common workspace-with-nested-repos shape
+   * (e.g. opening `~/work/` with `~/work/projectA/.git` +
+   * `~/work/projectB/.git`). Now it delegates to {@link scanFolderForGitRepos}
+   * which honors the `intellig.repositoryScanMaxDepth` (default 1) +
+   * `intellig.repositoryScanIgnoredFolders` settings, mirroring VS Code's
+   * built-in git extension.
+   *
+   * Also installs a mid-session new-repo watcher (see
+   * {@link setupNewRepoWatcher}) so subsequent `git init`s in subfolders
+   * are picked up automatically.
+   *
+   * @param folderPath - Workspace folder root to scan (not necessarily a
+   *   repo root itself; nested repos within will be discovered subject to
+   *   `intellig.repositoryScanMaxDepth`).
    */
-  private async discoverRepository(path: string): Promise<void> {
-    const rootPath = await this._gitCli.getRepositoryRoot(path);
-    if (rootPath) {
-      await this.loadRepository(rootPath);
-      this.setupRepositoryWatcher(rootPath);
+  private async discoverRepository(folderPath: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration('intellig');
+    const maxDepth = config.get<number>('repositoryScanMaxDepth', 1);
+    const ignoredFolders = config.get<string[]>('repositoryScanIgnoredFolders', []);
+
+    const repoRoots = await scanFolderForGitRepos(folderPath, {
+      maxDepth,
+      ignoredFolders,
+      fs: this._repoScanFs,
+      resolveRepoRoot: (p): Promise<string | undefined> => this._gitCli.getRepositoryRoot(p),
+    });
+
+    for (const root of repoRoots) {
+      if (!this._repositories.has(root)) {
+        const repo = await this.loadRepository(root);
+        this.setupRepositoryWatcher(root);
+        // Wave 10 R2 (TL-82 HIGH): fire `onDidChangeRepository` so the 6
+        // event-driven subscribers (BranchTreeProvider, StatusBarService,
+        // BranchPopup, ChangelistService, ConflictResolutionService,
+        // GitToolWindowProvider) see the freshly-discovered repo. Without
+        // this fire, an empty `git init` repo (no internal `.git/` writes
+        // to trigger the debounced refresh path) leaves every subscriber
+        // stale until the user manually performs a state-changing git
+        // operation. The dispose latch matches `_performDebouncedRefresh`'s
+        // post-await pattern at line ~653.
+        if (!this._disposed) {
+          this._onDidChangeRepository.fire(repo);
+        }
+      }
     }
+
+    // Install the mid-session new-repo watcher AFTER initial discovery so
+    // `discoverRepository` is idempotent — re-discovery (e.g. config change)
+    // doesn't stack watchers.
+    this.setupNewRepoWatcher(folderPath);
+  }
+
+  /**
+   * Install a `FileSystemWatcher` for `**\/.git` directory creations under
+   * a workspace folder. Fires when the user runs `git init` in a subfolder
+   * mid-session so IntelliG picks up the new repo without a window reload.
+   *
+   * **Submodule auto-load behavior (OBS-2 from Wave 10 R2 senior review):**
+   * The `**\/.git` glob fires on EVERY `.git/` directory created under the
+   * watched folder, including `.git/` directories that belong to submodules
+   * (or, more rarely, nested non-submodule sibling repos). When a
+   * submodule's `.git/` is created during a clone or submodule update, this
+   * watcher will report it and `discoverRepository` will register the
+   * submodule's working directory as a separate top-level repo in
+   * `getRepositories()`. This is intentional and matches VS Code's built-in
+   * git extension policy — IntelliG users opening a project with submodules
+   * see each submodule as an addressable repo in the multi-repo picker.
+   * The ignored-folder filter (`INTERNAL_IGNORED_FOLDERS ∪ user-config`)
+   * still prevents auto-loading of `node_modules/<pkg>/.git` style
+   * npm-packaged repos.
+   *
+   * **Why this is safe vs. the Wave 1 infinite-loop guards:**
+   *   - Listens to creation events ONLY (`ignoreChangeEvents: true`,
+   *     `ignoreDeleteEvents: true`). The Wave 1 loop was caused by
+   *     `**\/*` watching every modify of `.git/objects/**`; we don't watch
+   *     modifies and we restrict to `.git` basename.
+   *   - The handler re-runs `discoverRepository` on the parent dir, which
+   *     dedupes via `_repositories.has(root)` — so a clone that creates a
+   *     `.git/` won't kick off a second `loadRepository` for the same root.
+   *   - `_disposed` is checked before any work.
+   *   - Ignored-folder filter (basename match against
+   *     `INTERNAL_IGNORED_FOLDERS ∪ user-config`) prevents auto-loading
+   *     `node_modules/<pkg>/.git` style npm-packaged repos.
+   *
+   * @param folderPath - Workspace folder to watch.
+   */
+  private setupNewRepoWatcher(folderPath: string): void {
+    if (this._newRepoWatchers.has(folderPath) || this._disposed) {
+      return;
+    }
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(folderPath), '**/.git'),
+      false /* ignoreCreateEvents */,
+      true /* ignoreChangeEvents */,
+      true /* ignoreDeleteEvents */
+    );
+    watcher.onDidCreate((uri) => {
+      if (this._disposed) {
+        return;
+      }
+      // The URI is the `.git` directory itself; the repo root is its parent.
+      const fsPath = uri.fsPath;
+      const lastSep = Math.max(fsPath.lastIndexOf('/'), fsPath.lastIndexOf('\\'));
+      if (lastSep <= 0) {
+        return;
+      }
+      const repoParentDir = fsPath.slice(0, lastSep);
+
+      // Filter against ignored folders. Re-read config in case it changed
+      // since `discoverRepository` ran.
+      const config = vscode.workspace.getConfiguration('intellig');
+      const userIgnored = config.get<string[]>('repositoryScanIgnoredFolders', []);
+      // Apply the same filter the scanner uses: basename of any ancestor
+      // between the workspace folder and the parent dir matching an
+      // ignored name disqualifies this `.git/`.
+      //
+      // Wave 10 R2 senior MEDIUM (path-prefix string match): use
+      // `path.relative` rather than `repoParentDir.startsWith(folderPath)`.
+      // The string-prefix check incorrectly matched `/workspace/foo` as
+      // inside `/work` because `'/workspace/foo'.startsWith('/work')` is
+      // true. `path.relative` returns `'../workspace/foo'` for that case,
+      // which we detect via the `..` prefix and bail.
+      const rel = path.relative(folderPath, repoParentDir);
+      if (rel.length > 0 && (rel === '..' || rel.startsWith('..' + path.sep))) {
+        // The created `.git/` is OUTSIDE the watched folder. This shouldn't
+        // happen given the RelativePattern glob, but defend against it.
+        return;
+      }
+      if (path.isAbsolute(rel)) {
+        // Different drive on Windows — also outside the watched folder.
+        return;
+      }
+      const segments = rel.split(/[/\\]/).filter((s) => s.length > 0);
+      const allIgnored = new Set<string>([...INTERNAL_IGNORED_FOLDERS, ...userIgnored]);
+      if (segments.some((seg) => allIgnored.has(seg))) {
+        return;
+      }
+
+      if (this._repositories.has(repoParentDir)) {
+        return;
+      }
+      // Dispatch through the same discovery entry point so the new repo
+      // gets a `.git/` watcher installed (Wave 1 guards apply) and the
+      // change-emitter fires. Bucket C: discovery failures here are the
+      // same flavor as the constructor path (mid-init races, permission
+      // denied), so we route through `safeFireAndForget` with the shared
+      // OutputChannel.
+      safeFireAndForget(
+        this.discoverRepository(repoParentDir),
+        `GitService.setupNewRepoWatcher: discover new repo at ${repoParentDir}`,
+        { outputChannel: getOutputChannel() }
+      );
+    });
+
+    this._newRepoWatchers.set(folderPath, watcher);
   }
 
   /**
@@ -527,20 +703,79 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param rootPath - The repository root path
    */
   private removeRepositoryWatcher(rootPath: string): void {
-    const watchers = this._fileWatchers.get(rootPath);
-    if (watchers) {
-      for (const watcher of watchers) {
-        watcher.dispose();
+    // Wave 10 R2 senior HIGH (lifecycle leak): pre-Wave-10 the workspace
+    // folder path was always identical to the repo root path, so a single
+    // exact-match cleanup sufficed. Post-Wave-10 with nested-repo
+    // discovery, opening `~/work/` may register `~/work/projectA` and
+    // `~/work/projectB` as separate repos — so when the user removes
+    // `~/work` from the workspace mid-session, we must dispose every
+    // watcher / cache entry whose key is `~/work` itself OR a path-child
+    // of `~/work`. Otherwise the orphans live on, spawn `git status`
+    // against an unmounted/deleted folder, and degrade the post-activate
+    // idle invariant.
+    //
+    // Use `path.relative` rather than string `startsWith(rootPath + sep)`
+    // so we correctly distinguish `/work/projectA` (path-child of /work)
+    // from `/workspace/other` (sibling that shares only a string prefix).
+    const isInsideOrEqual = (candidate: string): boolean => {
+      if (candidate === rootPath) {
+        return true;
       }
-      this._fileWatchers.delete(rootPath);
+      const rel = path.relative(rootPath, candidate);
+      // path.relative returns '..' or starts with '..' + sep when candidate
+      // is OUTSIDE rootPath; absolute path means different drive on Windows.
+      if (rel.length === 0 || rel === '..' || rel.startsWith('..' + path.sep)) {
+        return false;
+      }
+      // Defense against Windows absolute-path pivot (different drive).
+      if (path.isAbsolute(rel)) {
+        return false;
+      }
+      return true;
+    };
+
+    // Collect first, then mutate — Map iteration during deletion is well-
+    // defined per spec, but explicit collection makes the intent clearer.
+    const watcherKeysToRemove: string[] = [];
+    for (const key of this._fileWatchers.keys()) {
+      if (isInsideOrEqual(key)) {
+        watcherKeysToRemove.push(key);
+      }
     }
-    const timer = this._refreshTimers.get(rootPath);
-    if (timer) {
-      clearTimeout(timer);
-      this._refreshTimers.delete(rootPath);
+    for (const key of watcherKeysToRemove) {
+      const watchers = this._fileWatchers.get(key);
+      if (watchers) {
+        for (const watcher of watchers) {
+          watcher.dispose();
+        }
+        this._fileWatchers.delete(key);
+      }
+      const timer = this._refreshTimers.get(key);
+      if (timer) {
+        clearTimeout(timer);
+        this._refreshTimers.delete(key);
+      }
+      this._reloading.delete(key);
     }
-    this._reloading.delete(rootPath);
-    this._repositories.delete(rootPath);
+
+    const repoKeysToRemove: string[] = [];
+    for (const key of this._repositories.keys()) {
+      if (isInsideOrEqual(key)) {
+        repoKeysToRemove.push(key);
+      }
+    }
+    for (const key of repoKeysToRemove) {
+      this._repositories.delete(key);
+    }
+
+    // Wave 10: dispose the mid-session new-repo watcher when a workspace
+    // folder is removed. Keyed by `folderPath` — same key that's passed in
+    // here from `onDidChangeWorkspaceFolders`.
+    const newRepoWatcher = this._newRepoWatchers.get(rootPath);
+    if (newRepoWatcher) {
+      newRepoWatcher.dispose();
+      this._newRepoWatchers.delete(rootPath);
+    }
   }
 
   // ============================================
@@ -2160,6 +2395,13 @@ export class GitService implements IGitService, IGitServiceCli {
       }
     }
     this._fileWatchers.clear();
+
+    // Wave 10: dispose mid-session new-repo watchers as well. Mirrors the
+    // per-repo file-watcher disposal above.
+    for (const watcher of this._newRepoWatchers.values()) {
+      watcher.dispose();
+    }
+    this._newRepoWatchers.clear();
 
     for (const timer of this._refreshTimers.values()) {
       clearTimeout(timer);

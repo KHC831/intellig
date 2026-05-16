@@ -1193,6 +1193,19 @@
           ],
           "description": "Branches for which destructive operations are guarded: Reset modes Hard/Keep are disabled, and the Push dialog disables 'Force Push (Anyway)' (bare --force) when the target matches. '--force-with-lease' remains available. Remove a branch from this list to enable the guarded operations."
         },
+        "intellig.repositoryScanMaxDepth": {
+          "type": "number",
+          "default": 1,
+          "description": "Maximum depth to scan workspace folders for nested git repositories. Set to -1 for unlimited (uses realpath cycle guard). Mirrors VS Code's git.repositoryScanMaxDepth setting."
+        },
+        "intellig.repositoryScanIgnoredFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional folder names (basename) to skip when scanning for nested git repositories. The following are always excluded and cannot be overridden: .git, node_modules, .vscode, out, dist, .next, target, build, vendor."
+        },
         "intellig.shelve.removeAppliedFiles": {
           "type": "boolean",
           "default": false,

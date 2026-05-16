@@ -539,6 +539,18 @@ export interface IBranchComparison {
 export interface IGitService {
   // Repository operations
   getRepository(uri: vscode.Uri): Promise<IRepository | undefined>;
+  /**
+   * Returns every repository discovered across all workspace folders.
+   *
+   * Includes nested repositories within each workspace folder, subject to
+   * the `intellig.repositoryScanMaxDepth` setting (default `1`, mirroring
+   * VS Code's `git.repositoryScanMaxDepth`). Common build/dependency
+   * folders (`node_modules`, `dist`, `out`, etc.) are always skipped, plus
+   * any extra basenames the user adds to
+   * `intellig.repositoryScanIgnoredFolders`. New repositories created
+   * mid-session (e.g. via `git init` in a subfolder) are picked up
+   * automatically by a `**\/.git` filesystem watcher.
+   */
   getRepositories(): IRepository[];
   onDidChangeRepository: vscode.Event<IRepository>;
 
