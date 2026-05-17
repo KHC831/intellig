@@ -48,6 +48,7 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
+import { sortCommitsStable } from '../../utils/commitSort';
 
 /**
  * View ID for the Git Tool Window
@@ -541,8 +542,15 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     branchMap?: Map<string, string[]>,
     tagMap?: Map<string, string[]>
   ): void {
-    // Generate commit graph nodes
-    const commitNodes = generateCommitGraph(commits, branchMap, tagMap);
+    // Stably sort commits before graph generation. `sortCommitsStable`
+    // returns oldest-first using a topological tie-break when parents
+    // are available; we reverse for the newest-first order
+    // `generateCommitGraph` expects. This makes lane positions
+    // deterministic across sessions even when `git log`'s default
+    // ordering shifts (the upstream variance the prior README
+    // "Commit-graph ordering" caveat called out). TL-99.
+    const stable = sortCommitsStable(commits).reverse();
+    const commitNodes = generateCommitGraph(stable, branchMap, tagMap);
 
     const emptyBranchMap: Map<string, string[]> = new Map();
     const emptyTagMap: Map<string, string[]> = new Map();

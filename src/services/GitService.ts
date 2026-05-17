@@ -417,7 +417,15 @@ export class GitService implements IGitService, IGitServiceCli {
    *   repo root itself; nested repos within will be discovered subject to
    *   `intellig.repositoryScanMaxDepth`).
    */
-  private async discoverRepository(folderPath: string): Promise<void> {
+  private async discoverRepository(rawFolderPath: string): Promise<void> {
+    // TL-99b: normalize before using as a `_newRepoWatchers` map key. On
+    // Windows, VS Code's `Uri.fsPath` has known drive-letter case
+    // inconsistency across versions (`c:\work` vs `C:\work`); without
+    // normalization the watcher-dedup short-circuit (`_newRepoWatchers
+    // .has(folderPath)`) misses the duplicate and stacks watchers.
+    // `path.normalize` is platform-aware and cheap; on macOS/Linux it's
+    // an idempotent no-op for already-canonical paths.
+    const folderPath = path.normalize(rawFolderPath);
     const config = vscode.workspace.getConfiguration('intellig');
     const maxDepth = config.get<number>('repositoryScanMaxDepth', 1);
     const ignoredFolders = config.get<string[]>('repositoryScanIgnoredFolders', []);

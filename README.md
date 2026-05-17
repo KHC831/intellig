@@ -131,9 +131,6 @@ through VS Code's git extension API. The practical implications:
 
 - **Submodule init mid-session** — auto-loaded as a separate top-level
   repo (intentional, matches VS Code's git extension).
-- **Commit-graph ordering** — commits with identical timestamps may
-  render in slightly different lane positions across sessions. The
-  displayed history is correct; only the lane layout may shift.
 - **One-shot `rm -rf .git/` may not auto-detect** — when the entire
   `.git/` directory is removed in a single syscall (`rm -rf .git`),
   VS Code's `FileSystemWatcher` does not always deliver a child-path

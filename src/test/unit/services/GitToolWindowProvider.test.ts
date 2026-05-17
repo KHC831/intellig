@@ -220,6 +220,13 @@ describe('Log View', () => {
 
   describe('updateLogState', () => {
     it('should update log state with commits', () => {
+      // TL-99: `updateLogState` now stably sorts via `sortCommitsStable`
+      // (oldest-first by date, with topological tie-break on parents)
+      // and reverses for newest-first display order. With identical
+      // `commitDate` timestamps and `def` listing `abc` as parent,
+      // the topological tie-break places `abc` first (oldest), then
+      // `.reverse()` makes the display order `[def, abc]` — child first,
+      // parent second, matching `git log`'s newest-first convention.
       const commits = [
         createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
@@ -229,8 +236,8 @@ describe('Log View', () => {
 
       const extendedState = provider.getExtendedLogState();
       assert.strictEqual(extendedState.commitNodes.length, 2);
-      assert.strictEqual(extendedState.commitNodes[0].commit.hash, 'abc1234567890');
-      assert.strictEqual(extendedState.commitNodes[1].commit.hash, 'def4567890123');
+      assert.strictEqual(extendedState.commitNodes[0].commit.hash, 'def4567890123');
+      assert.strictEqual(extendedState.commitNodes[1].commit.hash, 'abc1234567890');
     });
 
     it('should generate graph visualization data', () => {
