@@ -47,10 +47,15 @@ every one of the following is true:
    constructed service would be a chicken-and-egg bootstrap failure.
 
 3. **Test-isolation hook.** The module must expose a reset/dispose
-   helper (e.g. `disposeOutputChannel()`) that drops the cached instance
-   so unit tests can run against a fresh singleton each time. Without
-   this hook the singleton leaks between specs and creates order-dependent
-   flakiness.
+   helper (e.g. `__resetOutputChannelForTest()`) that drops the cached
+   instance so unit tests can run against a fresh singleton each time.
+   Without this hook the singleton leaks between specs and creates
+   order-dependent flakiness. The TestSurface idiom (see
+   `docs/testing.md` §3) requires the `__<name>ForTest` prefix on
+   module-scope test-only exports — it encodes the
+   "production-callers-MUST-NOT" contract in the function name itself
+   and pairs with a structural CI guard that fails the build on any
+   production reference.
 
 4. **Registered for disposal.** The module must expose an
    `initX(context)` function that registers the cached instance against
@@ -71,8 +76,8 @@ the cost of a little bootstrap plumbing.
 - The utils-singleton track stays scoped to its original purpose
   (cross-cutting observability with early-access needs) instead of
   slowly eating features that should live on services.
-- The `initX` / `disposeX` shape is consistent across singletons, so a
-  new one is mechanical to add once a real need is demonstrated.
+- The `initX` / `__resetXForTest` shape is consistent across singletons,
+  so a new one is mechanical to add once a real need is demonstrated.
 
 ### Negative / costs
 
@@ -83,8 +88,8 @@ the cost of a little bootstrap plumbing.
   simpler. That friction is intentional: it keeps the singleton track
   from being the path of least resistance.
 - Writing a new singleton still costs more boilerplate than writing a
-  new module-level helper function. The `initX`/`disposeX`/test-reset
-  triad is not free. Only pay it when the criteria actually apply.
+  new module-level helper function. The `initX` / `__resetXForTest`
+  pair is not free. Only pay it when the criteria actually apply.
 
 ### Neutral
 
@@ -105,7 +110,11 @@ the cost of a little bootstrap plumbing.
 - (2) `GitService.setupRepositoryWatcher` and
   `ConflictResolutionService` state-sync paths fire during service
   construction, when `NotificationService` is not yet guaranteed wired.
-- (3) `disposeOutputChannel()` drops the cached instance for unit tests.
+- (3) `__resetOutputChannelForTest()` drops the cached instance for
+  unit tests. The `__<name>ForTest` prefix is the TestSurface
+  function-name convention (see `docs/testing.md` §3); a structural CI
+  guard (`scripts/check-output-channel-test-surface.sh`) fails the build
+  if any production file references it.
 - (4) `initOutputChannel(context)` pushes the channel onto
   `context.subscriptions` so deactivation tears it down alongside
   every other extension disposable.

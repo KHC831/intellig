@@ -178,6 +178,86 @@ const KEYMAPS: Map<KeymapPreset, IKeymap> = new Map([
 ]);
 
 /**
+ * Validate that `raw` is one of the known `KeymapPreset` enum values.
+ *
+ * The settings.json schema's `enum` is a UI hint only — at runtime, a
+ * user can type any string. A typo'd preset (e.g. `'vim'`) is
+ * normalised to `undefined` so the resolver falls through to the
+ * legacy boolean rather than passing the typo through to
+ * `getKeymapDefinitionForPreset`, which silently selects 'default' for
+ * unknown names.
+ *
+ * @internal — exposed for unit tests asserting typo handling.
+ */
+export function validatePreset(raw: unknown): KeymapPreset | undefined {
+  return raw === 'default' || raw === 'intellij' ? raw : undefined;
+}
+
+/**
+ * @internal
+ *
+ * Read the user's keymap preset from configuration, distinguishing
+ * user-set values from schema defaults. EXPORTED ONLY for unit tests
+ * (`KeymapService.preset-migration.test.ts`,
+ * `KeymapService.freeFunctions.test.ts`) and internal use within
+ * `KeymapService` itself. Do NOT import from outside this module —
+ * keymap reads should go through `KeymapService`'s public API
+ * (`getCurrentKeymap()`, `getKeymapDefinition()`, etc.).
+ *
+ * The typed `IConfigurationService.get()` merges schema defaults in, so
+ * a user who has not set keymapPreset gets `'default'` from the typed
+ * config — and policy A would then suppress the legacy fallback.
+ * `inspect()` exposes the per-scope writes directly. Validates the
+ * inspect()'d value against the known enum: typo'd presets like
+ * `'vim'` fall through to `undefined` so the legacy fallback engages
+ * safely.
+ *
+ * Workspace value wins over global if both exist; matches VS Code's
+ * effective-value semantics.
+ */
+export function readUserSetPreset(
+  configurationService: IConfigurationService
+): KeymapPreset | undefined {
+  const inspected = configurationService.inspect('keymapPreset');
+  if (!inspected) {
+    return undefined;
+  }
+  const raw: unknown = inspected.workspaceValue ?? inspected.globalValue;
+  return validatePreset(raw);
+}
+
+/**
+ * Resolve the active keymap from the two configuration knobs.
+ *
+ * Policy A ("preset wins when set"):
+ *   - When `preset` is set at any scope (`'default'` or `'intellij'`),
+ *     it is authoritative. The legacy `useIntelliJKeymap` boolean is
+ *     NOT consulted.
+ *   - The legacy fallback applies ONLY when `preset` is the schema
+ *     default (`undefined`). Backward-compat for users who never knew
+ *     about the new knob.
+ *
+ * Why policy A: a user who explicitly types `keymapPreset: 'default'`
+ * while leaving a stale `useIntelliJKeymap: true` (e.g., from a
+ * workspace they inherited) MUST get the default keymap — silently
+ * overriding their explicit choice with the legacy is a UX correctness
+ * bug. The deprecation narrative is "preset is authoritative; legacy
+ * is read-only fallback for users who didn't migrate yet."
+ *
+ * @internal — exposed for unit tests asserting the 8-cell resolver
+ * matrix.
+ */
+export function resolveKeymap(
+  preset: KeymapPreset | undefined,
+  legacyOptIn: boolean | undefined
+): KeymapPreset {
+  if (preset !== undefined) {
+    return preset;
+  }
+  return legacyOptIn === true ? 'intellij' : 'default';
+}
+
+/**
  * Keymap Service implementation.
  * Manages keyboard shortcut presets and provides keymap switching functionality.
  */
@@ -199,15 +279,27 @@ export class KeymapService implements IKeymapService {
     this._onDidChangeKeymap = new vscode.EventEmitter<KeymapPreset>();
     this.onDidChangeKeymap = this._onDidChangeKeymap.event;
 
-    // Initialize current keymap from configuration
-    this._currentKeymap = this.configurationService.get('useIntelliJKeymap')
-      ? 'intellij'
-      : 'default';
+    // Initialize current keymap. Read `keymapPreset` via the typed
+    // `inspect()` (see `readUserSetPreset`) so we can distinguish
+    // "user explicitly set a value at any scope" from "no user value,
+    // schema default returned". Under policy A, the legacy
+    // `useIntelliJKeymap` fallback fires ONLY when no preset is set at
+    // any scope — which the typed `get()` cannot express because it
+    // merges in the schema default.
+    this._currentKeymap = resolveKeymap(
+      readUserSetPreset(this.configurationService),
+      this.configurationService.get('useIntelliJKeymap')
+    );
 
-    // Listen for configuration changes
+    // Listen for configuration changes. Re-inspect on every change so
+    // the resolver sees fresh inspect() state, not the merged snapshot
+    // in the change event.
     this._disposables.push(
       this.configurationService.onDidChangeConfiguration((config) => {
-        const newKeymap = config.useIntelliJKeymap ? 'intellij' : 'default';
+        const newKeymap = resolveKeymap(
+          readUserSetPreset(this.configurationService),
+          config.useIntelliJKeymap
+        );
         if (newKeymap !== this._currentKeymap) {
           this._currentKeymap = newKeymap;
           this._onDidChangeKeymap.fire(this._currentKeymap);

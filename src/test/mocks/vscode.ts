@@ -85,31 +85,73 @@ export enum ProgressLocation {
   Notification = 15,
 }
 
-// Mock configuration storage
-const configurationStore: Map<string, Map<string, unknown>> = new Map();
+// Mock configuration storage (Wave 135 R5 / M2 — per-scope tracker).
+//
+// Real VS Code distinguishes three scopes through `inspect()`:
+//   - `defaultValue` — schema default (declared in package.json
+//     `contributes.configuration`).
+//   - `globalValue` — user wrote it at user-settings scope.
+//   - `workspaceValue` — user wrote it at workspace-settings scope.
+// And `get()` resolves with workspace > global > default precedence.
+//
+// Pre-R5 the mock collapsed all three into one map, so tests
+// couldn't distinguish "user explicitly wrote 'default'" from
+// "schema default returned 'default'." That hole let H1 in R5
+// land mostly correctly but tests had to bypass the mock through
+// `IKeymapMigrationConfigSeam` to drive the per-scope shape.
+// M2 rebuilds the mock so production code can use
+// `IConfigurationService.inspect()` uniformly without bypass.
+interface ScopeStore {
+  global: Map<string, unknown>;
+  workspace: Map<string, unknown>;
+  schemaDefaults: Map<string, unknown>;
+}
+const configurationStore: Map<string, ScopeStore> = new Map();
 
-// Initialize default configuration values
+// Initialize default configuration values. Schema defaults populate
+// the `schemaDefaults` slot; `global` and `workspace` start empty
+// (no user has written) so `inspect().globalValue` is undefined
+// until a test explicitly writes via `setMockConfigValue` or the
+// production code calls `update`.
 function initializeDefaultConfig(): void {
-  const intellijGitConfig = new Map<string, unknown>();
-  intellijGitConfig.set('defaultCommitSignOff', false);
-  intellijGitConfig.set('commitMessageTemplate', '');
-  intellijGitConfig.set('pullRebase', false);
-  intellijGitConfig.set('autoFetchEnabled', true);
-  intellijGitConfig.set('autoFetchInterval', 180);
-  intellijGitConfig.set('defaultToolWindowTab', 'local-changes');
-  intellijGitConfig.set('blameAnnotationStyle', 'inline');
-  intellijGitConfig.set('showStatusBarBranch', true);
-  intellijGitConfig.set('useIntelliJKeymap', false);
-  intellijGitConfig.set('modifiedFileColor', '#6897BB');
-  intellijGitConfig.set('addedFileColor', '#629755');
-  intellijGitConfig.set('deletedFileColor', '#6C6C6C');
-  intellijGitConfig.set('ignoredFileColor', '#848504');
-  intellijGitConfig.set('conflictFileColor', '#FF0000');
-  configurationStore.set('intellig', intellijGitConfig);
+  const schemaDefaults = new Map<string, unknown>();
+  schemaDefaults.set('defaultCommitSignOff', false);
+  schemaDefaults.set('commitMessageTemplate', '');
+  schemaDefaults.set('pullRebase', false);
+  schemaDefaults.set('autoFetchEnabled', true);
+  schemaDefaults.set('autoFetchInterval', 180);
+  schemaDefaults.set('defaultToolWindowTab', 'local-changes');
+  schemaDefaults.set('blameAnnotationStyle', 'inline');
+  schemaDefaults.set('showStatusBarBranch', true);
+  schemaDefaults.set('useIntelliJKeymap', false);
+  schemaDefaults.set('keymapPreset', 'default');
+  schemaDefaults.set('modifiedFileColor', '#6897BB');
+  schemaDefaults.set('addedFileColor', '#629755');
+  schemaDefaults.set('deletedFileColor', '#6C6C6C');
+  schemaDefaults.set('ignoredFileColor', '#848504');
+  schemaDefaults.set('conflictFileColor', '#FF0000');
+  configurationStore.set('intellig', {
+    global: new Map(),
+    workspace: new Map(),
+    schemaDefaults,
+  });
 }
 
 // Initialize on module load
 initializeDefaultConfig();
+
+function ensureSection(section: string): ScopeStore {
+  let store = configurationStore.get(section);
+  if (!store) {
+    store = {
+      global: new Map(),
+      workspace: new Map(),
+      schemaDefaults: new Map(),
+    };
+    configurationStore.set(section, store);
+  }
+  return store;
+}
 
 // Mock WorkspaceConfiguration
 export interface WorkspaceConfiguration {
@@ -134,6 +176,18 @@ export interface WorkspaceConfiguration {
 
 // Configuration change event listeners
 const configChangeListeners: ((e: ConfigurationChangeEvent) => void)[] = [];
+
+/**
+ * Workspace-folder change event listeners. R1/C1 (TL-88 follow-up): pre-R1
+ * the mock had a no-op `onDidChangeWorkspaceFolders` that returned a stub
+ * disposable, which made it impossible for tests to drive the real
+ * production listener path (`vscode.workspace.onDidChangeWorkspaceFolders`)
+ * the way `onDidChangeConfiguration` already supported. This registry
+ * + the {@link fireWorkspaceFoldersChange} helper lets tests synthesize a
+ * folder-removal event and verify the production handler fires the
+ * `onDidRemoveRepository` emitter.
+ */
+const workspaceFoldersListeners: ((e: unknown) => void)[] = [];
 
 /**
  * Test-only registry of active FileSystemWatcher mocks. Tests can read this
@@ -169,48 +223,99 @@ export interface ConfigurationChangeEvent {
 // Mock workspace namespace
 export const workspace = {
   getConfiguration(section?: string): WorkspaceConfiguration {
-    const sectionConfig = section ? configurationStore.get(section) : new Map();
+    const store = section ? configurationStore.get(section) : undefined;
 
     return {
       get<T>(key: string, defaultValue?: T): T | undefined {
-        const value = sectionConfig?.get(key);
-        if (value !== undefined) {
-          return value as T;
+        // Resolve workspace > global > schema-default (matches VS
+        // Code semantics).
+        if (!store) {
+          return defaultValue;
+        }
+        if (store.workspace.has(key)) {
+          return store.workspace.get(key) as T;
+        }
+        if (store.global.has(key)) {
+          return store.global.get(key) as T;
+        }
+        const schema = store.schemaDefaults.get(key);
+        if (schema !== undefined) {
+          return schema as T;
         }
         return defaultValue;
       },
       has(key: string): boolean {
-        return sectionConfig?.has(key) ?? false;
+        if (!store) {
+          return false;
+        }
+        return store.workspace.has(key) || store.global.has(key) || store.schemaDefaults.has(key);
       },
       inspect<T>(key: string) {
-        const value = sectionConfig?.get(key);
-        return {
-          key: section ? `${section}.${key}` : key,
-          defaultValue: value as T,
-          globalValue: value as T,
-        };
+        // Wave 135 R5 / M2: per-scope tracker now lets `inspect()`
+        // distinguish "user wrote at user scope" (globalValue)
+        // from "user wrote at workspace scope" (workspaceValue)
+        // from "schema default returned" (defaultValue) — matching
+        // production VS Code semantics. Returns undefined for any
+        // scope where the user has not explicitly written.
+        if (!store) {
+          return {
+            key: section ? `${section}.${key}` : key,
+          };
+        }
+        const result: {
+          key: string;
+          defaultValue?: T;
+          globalValue?: T;
+          workspaceValue?: T;
+          workspaceFolderValue?: T;
+        } = { key: section ? `${section}.${key}` : key };
+        if (store.schemaDefaults.has(key)) {
+          result.defaultValue = store.schemaDefaults.get(key) as T;
+        }
+        if (store.global.has(key)) {
+          result.globalValue = store.global.get(key) as T;
+        }
+        if (store.workspace.has(key)) {
+          result.workspaceValue = store.workspace.get(key) as T;
+        }
+        return result;
       },
       async update(
         key: string,
         value: unknown,
-        _target?: ConfigurationTarget | boolean
+        target?: ConfigurationTarget | boolean
       ): Promise<void> {
-        if (section) {
-          let sectionMap = configurationStore.get(section);
-          if (!sectionMap) {
-            sectionMap = new Map();
-            configurationStore.set(section, sectionMap);
-          }
-          sectionMap.set(key, value);
-
-          // Fire configuration change event
-          const event: ConfigurationChangeEvent = {
-            affectsConfiguration(s: string): boolean {
-              return s === section || s.startsWith(`${section}.`);
-            },
-          };
-          configChangeListeners.forEach((listener) => listener(event));
+        if (!section) {
+          return;
         }
+        // Wave 135 R6 / L4: explicitly reject WorkspaceFolder target.
+        // Pre-R6 the mock silently coerced WorkspaceFolder writes to
+        // Global, which would have given a future test author writing
+        // a WorkspaceFolder-scope spec a green run that was actually
+        // testing global-scope semantics. Better to fail fast with a
+        // clear path forward.
+        if (target === ConfigurationTarget.WorkspaceFolder) {
+          throw new Error(
+            'mock does not support ConfigurationTarget.WorkspaceFolder; ' +
+              'add a workspaceFolder scope to ScopeStore if you need it.'
+          );
+        }
+        const sectionStore = ensureSection(section);
+        const useWorkspace = target === ConfigurationTarget.Workspace;
+        const map = useWorkspace ? sectionStore.workspace : sectionStore.global;
+        if (value === undefined) {
+          map.delete(key);
+        } else {
+          map.set(key, value);
+        }
+
+        // Fire configuration change event
+        const event: ConfigurationChangeEvent = {
+          affectsConfiguration(s: string): boolean {
+            return s === section || s.startsWith(`${section}.`);
+          },
+        };
+        configChangeListeners.forEach((listener) => listener(event));
       },
     };
   },
@@ -229,8 +334,16 @@ export const workspace = {
     };
   },
 
-  onDidChangeWorkspaceFolders(_listener: (e: unknown) => void): { dispose: () => void } {
-    return { dispose: () => {} };
+  onDidChangeWorkspaceFolders(listener: (e: unknown) => void): { dispose: () => void } {
+    workspaceFoldersListeners.push(listener);
+    return {
+      dispose: (): void => {
+        const i = workspaceFoldersListeners.indexOf(listener);
+        if (i >= 0) {
+          workspaceFoldersListeners.splice(i, 1);
+        }
+      },
+    };
   },
 
   createFileSystemWatcher(
@@ -913,14 +1026,74 @@ export function resetMockConfiguration(): void {
 }
 
 /**
- * Set a mock configuration value.
- * Useful for testing specific configuration scenarios.
+ * Synthesize a `vscode.workspace.onDidChangeWorkspaceFolders` event so
+ * production listeners (e.g. `GitService`'s folder-removal handler) can
+ * be exercised in unit tests. Pass `removed` and/or `added` arrays of
+ * `{ uri, name, index }` workspace-folder shapes.
+ *
+ * R1/C1 (TL-88 follow-up): pre-R1 the mock's `onDidChangeWorkspaceFolders`
+ * was a stub that didn't deliver events, so tests couldn't verify the
+ * `onDidRemoveRepository` event fires on the COMMON folder-removal path
+ * (only the EXOTIC `.git/HEAD`-deletion path was reachable).
+ *
+ * @param event Object with optional `removed` + `added` workspace-folder lists.
  */
-export function setMockConfigValue(section: string, key: string, value: unknown): void {
-  let sectionMap = configurationStore.get(section);
-  if (!sectionMap) {
-    sectionMap = new Map();
-    configurationStore.set(section, sectionMap);
+export function fireWorkspaceFoldersChange(event: {
+  removed?: { uri: Uri; name: string; index: number }[];
+  added?: { uri: Uri; name: string; index: number }[];
+}): void {
+  const payload = {
+    removed: event.removed ?? [],
+    added: event.added ?? [],
+  };
+  for (const listener of [...workspaceFoldersListeners]) {
+    listener(payload);
   }
-  sectionMap.set(key, value);
+}
+
+/**
+ * Set a mock configuration value at a specific scope.
+ *
+ * Wave 135 R5 / M2: writes default to `ConfigurationTarget.Global`
+ * (matching pre-R5 mock semantics), but tests that need to assert
+ * the user-set vs schema-default distinction can pass an explicit
+ * target. Setting `value === undefined` clears the user value at
+ * that scope (mirrors `vscode.workspace.getConfiguration().update(key, undefined, target)`).
+ *
+ * For schema-default writes use `setMockSchemaDefault` below.
+ *
+ * @param section - configuration section (e.g. 'intellig').
+ * @param key - configuration key within the section.
+ * @param value - the new value, or undefined to clear at the target scope.
+ * @param target - which scope to write to; defaults to Global.
+ */
+export function setMockConfigValue(
+  section: string,
+  key: string,
+  value: unknown,
+  target: ConfigurationTarget = ConfigurationTarget.Global
+): void {
+  const sectionStore = ensureSection(section);
+  const map =
+    target === ConfigurationTarget.Workspace ? sectionStore.workspace : sectionStore.global;
+  if (value === undefined) {
+    map.delete(key);
+  } else {
+    map.set(key, value);
+  }
+}
+
+/**
+ * Wave 135 R5 / M2: set a schema-default value for a key. Tests
+ * rarely need this — `initializeDefaultConfig` populates the
+ * standard set — but a few schema-evolution tests want to drive
+ * the default directly.
+ */
+export function setMockSchemaDefault(section: string, key: string, value: unknown): void {
+  const sectionStore = ensureSection(section);
+  if (value === undefined) {
+    sectionStore.schemaDefaults.delete(key);
+  } else {
+    sectionStore.schemaDefaults.set(key, value);
+  }
 }

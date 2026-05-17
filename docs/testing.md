@@ -89,6 +89,55 @@ No kitchen-sink surfaces.
   `GitServiceGitCliTestSurface` (injects a scripted CLI into a real
   `GitService` instance).
 
+### Function-name prefix variant for module-scope test-only exports
+
+The `<ClassName>TestSurface` interface idiom above covers reaching
+into private *class* members. For **module-scope test-only exports**
+(top-level `export function`s in a non-class module — typically a
+singleton's reset hook or a helper a test needs to call directly),
+use the `__<name>ForTest` prefix convention instead:
+
+```ts
+// src/utils/outputChannel.ts
+export function __resetOutputChannelForTest(): void {
+  // …
+}
+```
+
+**Rules:**
+
+1. Double-underscore prefix + `ForTest` suffix. The double-underscore
+   makes test-only intent visible at every call-site without needing
+   to chase the import.
+2. JSDoc tagged `@internal` and explicitly says "Production code MUST
+   NOT call this" plus the failure mode (e.g. "tears down the cached
+   singleton mid-flight").
+3. **Pair with a structural CI guard** that greps `src/` for the
+   literal name and fails the build on any production caller. The
+   canonical example is
+   `scripts/check-output-channel-test-surface.sh` (registered as
+   `npm run check:output-channel-test-surface`; wired into
+   `.github/workflows/ci.yml` alongside the other `check:*` guards).
+
+**When to use the prefix vs. the interface:**
+
+- **Class with private members** → declare a `TestSurface` interface
+  and cast through `as unknown as`. The class's public API stays
+  un-prefixed.
+- **Module-level singleton or free helper** → use `__*ForTest` on the
+  exported symbol itself. There's no "interface to declare" — the
+  function is the surface.
+
+**Grandfathered exceptions.** Some pre-existing test-only module
+exports follow a different naming (`migrateStorageForTest`,
+`serializeStorageForDisk`, `migrateShelfStorageForTest`,
+`serializeShelfForDisk`) — they predate the prefix convention and
+are kept as-is to avoid churn. New test-only module exports MUST use
+the `__*ForTest` prefix. A future sweep TL may rename the
+grandfathered set; until then, run `git grep -nE 'export function
+(.*ForTest|serialize.*ForDisk)' src/` to enumerate the current
+inventory.
+
 ### The variadic-`unknown[]` `throwError` pattern
 
 Error-path stub factories for `IGitService` (and similar composite role

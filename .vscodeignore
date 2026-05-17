@@ -1,10 +1,29 @@
+# ============================================================
+# ORDERING MATTERS. Do NOT add `!out/**/*.js` or any `!out/**`
+# re-include without auditing test-JS exclusion. The 365→108 file
+# regression on 2026-05-15 was caused by a `!out/**/*.js`
+# re-include silently overriding `out/test/**`. Result: 210 KB of
+# .agent/ coordination notes and the entire test JS tree shipped
+# in the .vsix.
+#
+# Structural guard: `npm run check:vsix-clean` runs `vsce ls` and
+# greps for forbidden patterns. Run it before any change to this
+# file. See scripts/check-vsix-clean.sh for the maintenance
+# contract.
+# ============================================================
 .vscode/**
 .vscode-test/**
 .kiro/**
 .git/**
+.github/**
+.agent/**
+.claude/**
+.idea/**
+.DS_Store
 src/**
-out/test/**
 node_modules/**
+docs/**
+scripts/**
 .eslintrc.json
 .prettierrc
 .prettierignore
@@ -13,6 +32,8 @@ node_modules/**
 tsconfig.json
 package-lock.json
 CONTRIBUTING.md
+AGENT_WORKSPACE.md
 **/*.map
 **/*.ts
-!out/**/*.js
+out/test/**
+out/**/*.test.js

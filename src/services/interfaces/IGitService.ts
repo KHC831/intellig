@@ -553,6 +553,22 @@ export interface IGitService {
    */
   getRepositories(): IRepository[];
   onDidChangeRepository: vscode.Event<IRepository>;
+  /**
+   * TL-88 (#213): fired when a previously-discovered repository is
+   * removed from tracking — either because the user removed the
+   * containing workspace folder, OR because the repo's `.git/HEAD` was
+   * deleted mid-session (`rm -rf .git`, aggressive `git worktree remove`,
+   * etc.). Subscribers that mirror the repo list (BranchTreeProvider,
+   * StatusBarService, BranchPopup, ChangelistService,
+   * ConflictResolutionService, GitToolWindowProvider) listen and drop
+   * the repo from their UI.
+   *
+   * R1 / M1 (TL-88 follow-up): required (not optional) on the interface
+   * so production callers can subscribe directly without `?.()` guards.
+   * Test mocks adopt the {@link noopEvent} helper from
+   * `src/test/mocks/noopEvent.ts` to add a one-line stub.
+   */
+  onDidRemoveRepository: vscode.Event<IRepository>;
 
   // Commit operations
   commit(repo: IRepository, message: string, options: ICommitOptions): Promise<void>;

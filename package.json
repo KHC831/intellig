@@ -1,8 +1,8 @@
 {
   "name": "intellig",
   "displayName": "IntelliG",
-  "description": "IntelliG Git integration for VS Code",
-  "version": "0.0.1",
+  "description": "IntelliJ IDEA-style Git workflows for VS Code: changelists, branch popup, interactive rebase, shelf, and a custom three-way merge view.",
+  "version": "0.1.0",
   "publisher": "intellig-vscode",
   "engines": {
     "vscode": "^1.85.0"
@@ -14,10 +14,20 @@
   "keywords": [
     "git",
     "intellij",
-    "version control",
     "scm",
-    "source control"
+    "version control",
+    "source control",
+    "branches",
+    "rebase",
+    "stash",
+    "shelf",
+    "changelist"
   ],
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1e3a8a",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/KHC831/intellig"
@@ -26,7 +36,7 @@
     "url": "https://github.com/KHC831/intellig/issues"
   },
   "homepage": "https://github.com/KHC831/intellig#readme",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -1142,7 +1152,9 @@
         "intellig.useIntelliJKeymap": {
           "type": "boolean",
           "default": false,
-          "description": "Use IntelliJ-style keyboard shortcuts"
+          "description": "DEPRECATED — superseded by intellig.keymapPreset. This setting is no longer read by any keybinding's `when` clause; set `intellig.keymapPreset` to \"intellij\" instead. Will be removed in a future minor release.",
+          "deprecationMessage": "Use intellig.keymapPreset instead. Set it to \"intellij\" to enable the IntelliJ-style preset.",
+          "markdownDeprecationMessage": "Use `intellig.keymapPreset` instead. Set it to `\"intellij\"` to enable the IntelliJ-style preset."
         },
         "intellig.keymapPreset": {
           "type": "string",
@@ -1329,31 +1341,31 @@
         "command": "intellig.showBranchPopup",
         "key": "alt+`",
         "mac": "alt+`",
-        "when": "!inDebugMode && config.intellig.useIntelliJKeymap"
+        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.toggleBlame",
         "key": "ctrl+alt+shift+a",
         "mac": "cmd+alt+shift+a",
-        "when": "editorTextFocus && config.intellig.useIntelliJKeymap"
+        "when": "editorTextFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.showHistory",
         "key": "ctrl+h",
         "mac": "cmd+h",
-        "when": "!inDebugMode && config.intellig.useIntelliJKeymap"
+        "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.branch.compareWithCurrent",
         "key": "ctrl+d",
         "mac": "cmd+d",
-        "when": "!inDebugMode && !terminalFocus && config.intellig.useIntelliJKeymap"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.revertFile",
         "key": "ctrl+alt+z",
         "mac": "cmd+alt+z",
-        "when": "!inDebugMode && !terminalFocus && config.intellig.useIntelliJKeymap"
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       },
       {
         "command": "intellig.showShelfList",
@@ -1374,7 +1386,8 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run prepublish:guard && npm run check:config-coherence && npm run check:100-gate && npm run compile",
+    "prepublish:guard": "node scripts/prepublish-guard.mjs",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
@@ -1388,6 +1401,14 @@
     "test:property:stress": "node scripts/propertyStress.mjs",
     "check:quickpick-state": "bash scripts/check-quickpick-state-no-error.sh",
     "check:action-toasts": "bash scripts/check-action-toasts-sanitized.sh",
+    "check:output-channel-test-surface": "bash scripts/check-output-channel-test-surface.sh",
+    "check:config-coherence": "node scripts/check-readme-config-coherence.mjs",
+    "check:vsix-clean": "bash scripts/check-vsix-clean.sh",
+    "check:100-gate": "bash scripts/check-100-gate.sh",
+    "check:publish-vsix": "bash scripts/check-publish-vsix.sh",
+    "check:watcher-families": "node scripts/check-watcher-families-registered.mjs",
+    "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:output-channel-test-surface",
+    "package:dogfood": "INTELLIG_ALLOW_PLACEHOLDERS=1 INTELLIG_DOGFOOD_BUILD=1 INTELLIG_DOGFOOD_INVOCATION=1 npx --yes @vscode/vsce@2.24.0 package --out intellig-${npm_package_version}-dogfood.vsix",
     "test:ext-host": "npm run compile && node ./out/test/ext-host/runTests.js",
     "test:e2e": "npm run compile && node ./out/test/e2e/runTests.js"
   },

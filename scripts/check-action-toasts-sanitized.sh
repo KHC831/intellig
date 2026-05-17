@@ -2,12 +2,74 @@
 #
 # Structural CI guard — TL-72 (Wave 9) + TL-78/TL-79 (Wave 9 R3).
 #
-# This is one of two on-disk structural guards in the codebase. See
-# ADR-007 (`docs/adr/ADR-007-structural-guards-as-complementary-tool.md`)
-# for the meta-policy: when to reach for a guard vs a per-site spec,
-# the per-FILE representative-spec floor that must hold underneath
-# every guard, and the maintenance contract this script header
-# adheres to (bug class / heuristic / FPs / FNs / retirement criteria).
+# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+#
+# 1. Bug class
+#    Credential / home-path leak via toast. Error messages from
+#    `git` stderr can embed credentials in remote URLs
+#    (`https://x-access-token:ghp_…@github.com/...`) and absolute
+#    home paths (`/Users/<name>/…`); piping that into a toast
+#    `vscode.window.show*Message(...)` leaks tokens + usernames
+#    into the user's notification history (and any user-shared
+#    bug-report screenshots). The fix is uniform: route the raw
+#    string through `sanitizeGitError(...)` before the toast
+#    renders.
+#
+# 2. Heuristic + how it scales
+#    awk-checks every `show(Error|Warning|Information)Message(...)`
+#    call in `src/` (excluding `src/test/`) for either:
+#      a. `${VAR}` where VAR ∈ SUSPICIOUS_VARS allowlist of
+#         error-derived names (m, msg, errMsg, errorMessage,
+#         message, raw, reason, abort/force/stash-prefixed
+#         variants).
+#      b. `${...}` containing `.message` anywhere inside —
+#         catches inline `${error instanceof Error ? error.message
+#         : ...}` ternaries and property access on captured
+#         exceptions.
+#    A call is exempt only when annotated with
+#    `// sanitize-exempt: <CATEGORY>: <reason>` where CATEGORY ∈
+#    EXEMPT_CATEGORIES allowlist (user-input / sha-prefix /
+#    pre-sanitized / non-error-data). Multi-line toasts are joined
+#    by paren-depth tracking. Adding a new variable / category is a
+#    one-line addition to the corresponding allowlist plus a
+#    rationale paragraph in the categories section.
+#
+# 3. Known false-positive cases
+#    - Whitelisted variable names that legitimately carry sanitised
+#      data (e.g. `${pre-sanitised-msg-from-NotificationService}`).
+#      Suppressed via `// sanitize-exempt: pre-sanitized: <reason>`.
+#    - SHA fragments + user-typed query strings + ID strings —
+#      bounded character sets, can't embed credentials. Suppressed
+#      via `// sanitize-exempt: sha-prefix:` / `user-input:`.
+#    - Multi-line toast calls don't false-positive on inner
+#      function-call arg lists because we paren-count rather than
+#      string-split.
+#
+# 4. Known false-negative cases
+#    - A new variable name conventional for error-derived values
+#      that is NOT in SUSPICIOUS_VARS would be invisible. Mitigated
+#      by the per-site spec floor: every shipped `show*Message`
+#      call has a corresponding TL-72 unit test asserting the
+#      sanitised path is exercised, so a new name without a guard
+#      entry would surface during PR review of the new spec.
+#    - Indirect leakage: if `sanitizeGitError(x)` itself becomes
+#      buggy (e.g. accidentally returns input unchanged), this
+#      guard wouldn't notice — that's covered by the
+#      `gitError.test.ts` spec suite.
+#    - String concatenation outside template literals (`'...' +
+#      errMsg + '...'`) is currently not pattern-matched. The
+#      codebase uses template literals exclusively; flagging
+#      concatenation requires a pattern extension if the style
+#      ever drifts.
+#
+# 5. Retirement criteria
+#    Retire when (a) `git` runtime gains a built-in credential
+#    redactor for stderr that we can rely on instead of
+#    sanitiseGitError, OR (b) a typed Result<T, SanitizedError>
+#    wrapper makes raw error strings unreachable from the toast
+#    surface by construction, OR (c) the credential / home-path
+#    leak class becomes unreachable via Marketplace-level
+#    privacy attestation.
 #
 # Closes the credential-leak boundary on every user-visible toast surface.
 # Per Wave 4-9, error messages from `git` stderr can embed credentials in

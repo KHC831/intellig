@@ -32,9 +32,9 @@
  *
  * The channel is registered against the extension context once, on first
  * access via `initOutputChannel(context)`. Subsequent calls return the same
- * instance. Calling `disposeOutputChannel()` (test-only) drops the cache so
- * the next `getOutputChannel()` creates a fresh channel — useful for tests
- * that need a clean slate.
+ * instance. Calling `__resetOutputChannelForTest()` (test-only) drops the
+ * cache so the next `getOutputChannel()` creates a fresh channel — useful
+ * for tests that need a clean slate.
  */
 
 import * as vscode from 'vscode';
@@ -42,6 +42,17 @@ import * as vscode from 'vscode';
 const CHANNEL_NAME = 'IntelliG';
 
 let _channel: vscode.OutputChannel | undefined;
+/**
+ * Tracks whether the channel has been pushed onto a host
+ * `ExtensionContext.subscriptions` array. Module-level flag so
+ * `initOutputChannel` can early-return on subsequent calls without
+ * scanning the (potentially 50+ entry) subscriptions list with
+ * `Array.prototype.includes`.
+ *
+ * Reset to `false` by `__resetOutputChannelForTest()` so each test
+ * starts from a clean slate.
+ */
+let _channelRegistered = false;
 
 /**
  * Lazily create (or return) the shared `IntelliG` OutputChannel.
@@ -58,27 +69,45 @@ export function getOutputChannel(): vscode.OutputChannel {
 
 /**
  * Register the channel with the extension's disposable registry so it
- * disposes on deactivate. Idempotent — repeated calls do not double-register
- * because `registerDisposable` is a single subscription push on the caller's
- * side; we guard by creating the channel only once here.
+ * disposes on deactivate. Idempotent — repeated calls early-return via
+ * the module-level `_channelRegistered` flag rather than scanning
+ * `context.subscriptions` with `Array.prototype.includes` (which would
+ * be O(n) over the full activation subscription list, typically 50+
+ * entries).
+ *
+ * The flag is reset to `false` by `__resetOutputChannelForTest()` so a
+ * test that drops the singleton can re-register against a fresh
+ * `ExtensionContext` stub.
  */
 export function initOutputChannel(context: vscode.ExtensionContext): vscode.OutputChannel {
   const channel = getOutputChannel();
-  if (!context.subscriptions.includes(channel)) {
+  if (!_channelRegistered) {
     context.subscriptions.push(channel);
+    _channelRegistered = true;
   }
   return channel;
 }
 
 /**
- * Drop the cached channel. Test-only — production code should never need to
- * reset the singleton.
+ * Test-only seam. Resets the module-level singleton so tests can re-init
+ * (drop the cached channel; the next `getOutputChannel()` will create a
+ * fresh one). Production code MUST NOT call this.
+ *
+ * Naming follows the TestSurface function-name prefix variant for
+ * module-scope test-only exports (see `docs/testing.md` §3, subsection
+ * "Function-name prefix variant for module-scope test-only exports").
+ * The literal name is also enforced by the structural CI guard
+ * `scripts/check-output-channel-test-surface.sh`, which forbids any
+ * reference outside `src/test/**`.
  *
  * @internal
  */
-export function disposeOutputChannel(): void {
+export function __resetOutputChannelForTest(): void {
   if (_channel) {
     _channel.dispose();
     _channel = undefined;
   }
+  // Also reset the registration flag so `initOutputChannel(ctx)` will
+  // push onto a fresh context's `subscriptions` after the reset.
+  _channelRegistered = false;
 }

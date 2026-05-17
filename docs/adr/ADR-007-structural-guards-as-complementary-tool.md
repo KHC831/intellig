@@ -10,7 +10,7 @@ ad-hoc in its own wave; none of them named the pattern as a category,
 and the rationale for "guard vs spec vs both" got re-litigated in
 review on every wave-N+1 invariant that looked similar.
 
-The two on-disk structural guards as of Wave 9 R3:
+The seven on-disk structural guards as of Wave 135 R4 / Cluster B R2:
 
 - **`scripts/check-quickpick-state-no-error.sh`** (TL-74, Wave 8 R2).
   Per ADR-006, three QuickPick view-state interfaces
@@ -167,11 +167,12 @@ cost.
   future TS where `${...}` is no longer the interpolation syntax).
   Mitigation: the per-FILE specs catch the actual behaviour; the
   guard is the structural lock, not the proof.
-- Two on-disk guards is below the threshold where this ADR pays for
-  itself in re-litigation savings; the ADR is being written
-  pre-emptively because the pattern is going to recur (Wave 9 senior
-  review explicitly discussed it as TL-77, which is what this ADR
-  resolves).
+- The ADR was written pre-emptively at 2 guards (Wave 9 R3 / TL-77)
+  because the pattern was going to recur. As of Wave 135 R4 /
+  Cluster B R2 the count is 7 — comfortably above the
+  "guard-vs-rederive economics" inflection — so the ADR is now
+  recouping its drafting cost via consistent header structure
+  and per-guard FP/FN logs.
 
 ### Neutral
 
@@ -213,10 +214,148 @@ cost.
   name not in `SUSPICIOUS_VARS` would slip; mitigated by the
   per-FILE spec floor catching new shapes during review.
 
+- **`scripts/check-readme-config-coherence.mjs` (Wave 135 R1 / H2,
+  R3 M4 threshold).** Asserts every `intellig.*` row in README
+  config tables has a default that matches
+  `package.json.contributes.configuration.properties.<key>.default`.
+  Soft-warns on schema keys missing from README; hard-fails when
+  the missing-from-README count crosses
+  `UNDOCUMENTED_FAIL_THRESHOLD=5` (Wave 135 R3 / M4). Companion
+  specs: none — the bug class is purely structural (markdown ↔
+  JSON schema agreement), with no behavioural counterpart that a
+  unit test could anchor. The R0 review caught 4 stale defaults
+  + 2 duplicate rows on first run; per-FILE spec floor would have
+  needed a test for every config table, which is itself the
+  drift surface this guard catches. False-positive log: none.
+  False-negative log: a schema with a non-primitive default that
+  doesn't JSON-normalize would silently mismatch.
+
+- **`scripts/check-vsix-clean.sh` (Wave 135 R1 / H3).** Runs
+  `vsce ls` (under the `INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1`
+  bypass) and rejects any forbidden file class — `.test.js`,
+  `out/test/`, `.agent/`, `AGENT_WORKSPACE.md`, `.idea/`,
+  `.kiro/`, `.vscode-test/`, `docs/`, `scripts/`, `src/`,
+  `tsconfig.json`, `eslintrc`, `prettierrc`, `mocharc`,
+  `package-lock.json`, `CONTRIBUTING.md`, `.DS_Store`, `.map`,
+  `.ts`. Companion specs: none in unit/property — bug class is
+  the `.vsix` manifest, not source. R0 caught 365 stowaway files
+  (210 KB `.agent/` + 507 KB `AGENT_WORKSPACE.md`) leaking via a
+  `!out/**/*.js` re-include in `.vscodeignore`. False-positive
+  log: none. False-negative log: vsce version drift could change
+  `vsce ls` output format (mitigated via pinned `@vscode/vsce@2.24.0`).
+
+- **`scripts/check-100-gate.sh` (Wave 135 R3 / H1 + TL-96, Cluster
+  B R0).** When `package.json.version >= 1.0.0`, asserts every
+  `[ ]` in CONTRIBUTING.md `### 1.0.0 gate checklist` is ticked
+  AND structurally verifies gate condition (2): the experimental
+  flags (`intellig.useCommitToolWindow`,
+  `intellig.useTabbedGitToolWindow`) must be either absent from
+  `contributes.configuration.properties` (Remove decision per the
+  experimental-flag graduation sub-protocol) OR have
+  `default !== false` AND no "Experimental" mention in
+  `description` / `markdownDescription`. No-op for pre-1.0
+  (current state). TL-96 (Cluster B R0) promoted gate (2) from
+  honour-system to structurally checked; gate (1) is also
+  structurally checked via `prepublish-guard.mjs`'s `license`
+  fingerprint (see TL-93 entry below); gates (3) and (4) remain
+  honour-system by their nature (scope decision, time-bounded
+  user-feedback cycle aren't mechanically checkable from
+  `package.json` shape alone). TL-98 (#226) tracks promoting
+  gate (3) once TL-87 lands a structural marker for `.git`-
+  as-file support. Companion specs:
+  `src/test/unit/scripts/check100Gate.test.ts` (11 specs: pre-1.0
+  short-circuit, version-extraction edge cases, structural gate
+  (2) violations + passes). False-positive log: gate (2)'s
+  case-insensitive "Experimental" substring match would FP on a
+  graduated flag whose description mentions "Experimental" in
+  unrelated context (mitigation: reword). False-negative log: a
+  graduate-then-rollback workflow that lowers a flag back to
+  `default: false` is correctly flagged as still-experimental.
+
+- **`scripts/prepublish-guard.mjs` + `scripts/prerelease-state.json`
+  (TL-93, Cluster B R0).** Refuses to package a `.vsix` while any
+  release-blocking placeholder is still in place: LICENSE (≥2
+  placeholder markers via the `minMarkers` rule), icon
+  (`sha256` equality against the bundled placeholder hash),
+  CHANGELOG date (`regex` matching `## [<anything>] - YYYY-MM-DD`),
+  SECURITY.md email (`literal` `<EMAIL_PLACEHOLDER>`). The
+  fingerprint config is data-driven via the JSON sidecar:
+  adding a 5th placeholder = adding a JSON entry, replacing the
+  icon = updating `placeholderHash` there. Triple-gated dogfood
+  bypass (`INTELLIG_ALLOW_PLACEHOLDERS=1` +
+  `INTELLIG_DOGFOOD_BUILD=1` + `INTELLIG_DOGFOOD_INVOCATION=1`)
+  is the build-time layer of the placeholder-bypass defense
+  layering (see "Defense layering for placeholder bypass" below).
+  CI step `Structural guard — prerelease-state.json shape (TL-93)`
+  validates the JSON shape independently, since the live tree
+  legitimately fails the placeholder fingerprints pre-1.0.
+  Companion specs:
+  `src/test/unit/scripts/prepublishGuard.test.ts` (15 specs
+  exercising each rule type + tag-cascade short-circuit + config-
+  error surfaces + characterization of the shipped JSON state).
+  False-positive log: a real LICENSE legitimately matching ≥2
+  markers (mitigation: trim the markers list in the JSON or
+  reword the LICENSE clause). False-negative log: any new
+  placeholder phrasing not in the marker list slips silently
+  (mitigation: per-FILE characterization spec on the JSON state).
+
+- **`scripts/check-publish-vsix.sh` (TL-95, Cluster B R0).**
+  Refuses to publish a `*-dogfood.vsix` filename. Case-
+  insensitive suffix match on basename; no-arg invocation is a
+  no-op (publish-flow safety-net wiring shape, not a required
+  step). The `package:dogfood` npm script tags its output
+  `intellig-<version>-dogfood.vsix` so the artifact carries the
+  marker filename inherently — a maintainer who grabs the wrong
+  vsix trips this guard the moment their publish script runs
+  `npm run check:publish-vsix -- "$vsix"`. The artifact-at-rest
+  layer of the placeholder-bypass defense layering. Companion
+  specs: `src/test/unit/scripts/checkPublishVsix.test.ts` (7
+  specs: no-arg no-op, real publish, dogfood trip, case-
+  insensitivity, basename match, filename-only, mixed-list).
+  False-positive log: a legitimately-named extension whose
+  actual package name ends in `-dogfood` would be flagged
+  (mitigation: tighten the pattern to also check publisher
+  prefix). False-negative log: a maintainer who renames the
+  dogfood vsix back to `intellig-<version>.vsix` before
+  uploading defeats the filename check (mitigation: documented
+  in TL-95 §4 — primary defense is the prepublish-guard's
+  noisy `BYPASSED` line, this is the second line of defense
+  against "forgot which terminal I built in").
+
+### Defense layering for placeholder bypass
+
+The TL-93 / TL-95 pair is intentionally over-determined: each
+guard catches a different temporal failure mode, and the layers
+together close the placeholder-bypass surface across the whole
+publish flow.
+
+| Layer | Tool | Catches |
+|---|---|---|
+| Build-time | `prepublish-guard.mjs` triple env-gate | Maintainer accidentally packages a placeholder-laden tree. Fail-closed unless ALL THREE of `INTELLIG_ALLOW_PLACEHOLDERS=1` + `INTELLIG_DOGFOOD_BUILD=1` + `INTELLIG_DOGFOOD_INVOCATION=1` are set. |
+| Artifact-at-rest | `package:dogfood --out intellig-<version>-dogfood.vsix` | Maintainer who legitimately ran `package:dogfood` for local install gets a marker filename so the artifact is unambiguously NOT for upload. |
+| Publish-time | `check-publish-vsix.sh` | Maintainer (or a publish script) who points `vsce publish` at a `*-dogfood.vsix` is refused before the upload starts. |
+
+No single layer is sufficient: a stale shell-export of the three
+env vars defeats the build-time gate; a maintainer renaming the
+dogfood vsix defeats the artifact-at-rest layer; a maintainer
+running `vsce publish` directly without going through the npm
+publish-flow script defeats the publish-time check. The layers
+together approximate Marketplace-side attestation until that's
+available; until then, the cost (3 cheap guards, 1 JSON sidecar)
+is small and the failure mode (a credentialed dogfood vsix on
+the Marketplace) is irreversible.
+
 ## References
 
 - `scripts/check-quickpick-state-no-error.sh` — TL-74 guard.
 - `scripts/check-action-toasts-sanitized.sh` — TL-72/78/79 guard.
+- `scripts/check-readme-config-coherence.mjs` — Wave 135 R1 H2 +
+  R3 M4 guard.
+- `scripts/check-vsix-clean.sh` — Wave 135 R1 H3 guard.
+- `scripts/check-100-gate.sh` — Wave 135 R3 H1 + TL-96 guard.
+- `scripts/prepublish-guard.mjs` + `scripts/prerelease-state.json`
+  — TL-93 placeholder-fingerprint dispatcher + JSON sidecar.
+- `scripts/check-publish-vsix.sh` — TL-95 dogfood-filename guard.
 - ADR-006 — error-state binding by view type. The rule TL-74 enforces.
 - `docs/testing.md` — TestSurface idiom (§3) and tier-escalation
   guidance (referenced by the per-site spec column).

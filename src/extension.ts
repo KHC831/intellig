@@ -56,6 +56,7 @@ import {
 } from './commands';
 import type { LogContextAction } from './services/GitToolWindowProvider';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
+import { runKeymapMigrationSafe } from './utils/keymapMigration';
 import { resolveRepo } from './utils/resolveRepo';
 import { isTabbedGitToolWindowEnabled } from './services/gitToolWindow/config';
 import { parseRemoteUrl } from './utils/remoteUrl';
@@ -187,6 +188,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // can see. Registered with context.subscriptions so it disposes on
     // deactivate alongside the rest of the extension's resources.
     initOutputChannel(context);
+
+    // Wave 135 R3 / C1 — one-time migration from the deprecated
+    // `intellig.useIntelliJKeymap` boolean to `intellig.keymapPreset`.
+    // Runs before service init so KeymapService picks up the migrated
+    // value on its first read. Idempotent — once the legacy boolean
+    // is cleared, this is a no-op on subsequent activations.
+    //
+    // Wave 135 R4 / M1 — migration is non-essential. KeymapService's
+    // `resolveKeymap` legacy fallback covers the keymap surface
+    // even if migration fails (read-only settings.json, sync
+    // conflict, transient policy error). The safe wrapper
+    // `runKeymapMigrationSafe` (Wave 135 R5 / M3 path A) routes
+    // failures to OutputChannel and returns; activation continues.
+    //
+    // Wave 135 R5 / L2 perf note: the seam re-acquires
+    // `vscode.workspace.getConfiguration('intellig')` per inspect /
+    // update call. Cheap (microseconds) and pins fresh-state
+    // semantics so a re-inspect immediately after update reads the
+    // post-update value.
+    await runKeymapMigrationSafe(
+      {
+        inspect: <T>(key: string) => vscode.workspace.getConfiguration('intellig').inspect<T>(key),
+        update: (key, value, target) =>
+          Promise.resolve(vscode.workspace.getConfiguration('intellig').update(key, value, target)),
+      },
+      (message) => vscode.window.showInformationMessage(message),
+      getOutputChannel(),
+      sanitizeGitError
+    );
 
     // Get or create the extension services container
     extensionServices = getExtensionServices();

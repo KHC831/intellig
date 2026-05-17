@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "_comment": "Placeholder fingerprints for scripts/prepublish-guard.mjs. The guard reads this file and dispatches one check per entry by `rule`. Adding a 5th placeholder = adding a JSON entry, not editing the guard script. Replacing the icon = updating `placeholderHash` here, not the script. See ADR-007 §'Guard maintenance contract' and the header of prepublish-guard.mjs for the bug class, false-pos/neg, and retirement criteria.",
+  "license": {
+    "path": "LICENSE",
+    "rule": "minMarkers",
+    "markers": ["License pending", "PLACEHOLDER", "evaluation purposes only"],
+    "minMatches": 2,
+    "failMessage": "LICENSE still contains placeholder phrasing. Replace with the final license text before packaging."
+  },
+  "icon": {
+    "path": "images/icon.png",
+    "rule": "sha256",
+    "placeholderHash": "e22b6a8cc166bb1df08ea7b47ab3b55891d14889ca096117163cede36b2c13d2",
+    "failMessage": "images/icon.png is still the placeholder. Replace with the final designed icon and update `placeholderHash` in scripts/prerelease-state.json (or remove this entry) before packaging."
+  },
+  "changelog": {
+    "path": "CHANGELOG.md",
+    "rule": "regex",
+    "pattern": "^## \\[[^\\]]+\\] - YYYY-MM-DD",
+    "flags": "m",
+    "failMessage": "CHANGELOG.md has a release section with a YYYY-MM-DD placeholder date. Fill in the actual release date (format: YYYY-MM-DD) before packaging.",
+    "tag": "changelogDate"
+  },
+  "security": {
+    "path": "SECURITY.md",
+    "rule": "literal",
+    "placeholder": "<EMAIL_PLACEHOLDER>",
+    "failMessage": "SECURITY.md still contains <EMAIL_PLACEHOLDER>. Replace with the real security-report contact address before packaging."
+  }
+}

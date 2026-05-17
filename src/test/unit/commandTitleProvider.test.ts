@@ -14,6 +14,7 @@ import '../setup';
 import * as assert from 'assert';
 import { resolveLabel, CommandTitleProvider } from '../../commands/CommandTitleProvider';
 import { EventEmitter } from '../mocks/vscode';
+import { noopEvent } from '../mocks/noopEvent';
 import {
   IGitService,
   IRepository,
@@ -31,6 +32,7 @@ function createMockGitService(): IGitService {
   const repoChangeEmitter = new EventEmitter<IRepository>();
   return {
     onDidChangeRepository: repoChangeEmitter.event,
+    onDidRemoveRepository: noopEvent<IRepository>(),
     getRepositories: () => [],
     getRepository: async () => undefined,
     getBranches: async () => [],

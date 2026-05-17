@@ -26,37 +26,105 @@ import type { Dirent } from 'fs';
 import * as path from 'path';
 
 /**
- * Internal always-excluded folder names (basename match, case-sensitive).
- * Hidden, non-overridable: even if the user passes an empty
- * `ignoredFolders`, these names are skipped. The list mirrors the most
- * common build/dependency folders that would otherwise spawn `git rev-parse
- * --show-toplevel` thousands of times for no useful result.
+ * Internal always-excluded folder names. Hidden, non-overridable: even if
+ * the user passes an empty `ignoredFolders`, these names are skipped. The
+ * list mirrors the most common build/dependency folders that would
+ * otherwise spawn `git rev-parse --show-toplevel` thousands of times for
+ * no useful result.
  *
  * `.git` itself is included so the helper can never re-enter a `.git/`
- * directory while scanning a parent for nested repos.
+ * directory while scanning a parent for nested repos. Per TL-87 / #212
+ * the filter applies to both `.git` directories AND `.git` files (the
+ * latter are how linked worktrees and submodule worktrees encode their
+ * repo metadata as `gitdir: <path>` pointers); the basename match is
+ * shape-agnostic so either form is handled uniformly.
+ *
+ * **R1 / H2 — split case-policy.** Pre-R1 every entry was matched
+ * case-insensitively (TL-89 / #214). That silently broke a Linux user
+ * with `Build/projectA/.git`: pre-TL-89 their repo was discovered (case-
+ * sensitive Linux fs; `Build` ≠ `build`), post-TL-89 `Build` was filtered.
+ * Same for `Out/`, `Target/`, `Vendor/`, `Dist/` — common Pascal-case
+ * directories in C#/.NET, Rust, Java, monorepo conventions. The "git
+ * crashes anyway on case-insensitive volumes" justification only holds
+ * for `.git` / `.vscode` / `node_modules` / `.next`, which are
+ * filesystem-canonicalized on Windows + case-insensitive macOS.
+ *
+ * R1's split policy:
+ *   - {@link CASE_INSENSITIVE_IGNORED_NAMES}: filtered case-insensitively
+ *     because they're filesystem-canonicalized anyway (`.git`, `.vscode`,
+ *     `node_modules`, `.next`).
+ *   - {@link CASE_SENSITIVE_IGNORED_NAMES}: filtered with EXACT case
+ *     (`out`, `dist`, `target`, `build`, `vendor`) so case-sensitive
+ *     Linux users keep working repos like `Build/projectA/.git`.
  */
-export const INTERNAL_IGNORED_FOLDERS: readonly string[] = [
+export const CASE_INSENSITIVE_IGNORED_NAMES: readonly string[] = [
   '.git',
-  'node_modules',
   '.vscode',
+  'node_modules',
+  '.next',
+];
+
+export const CASE_SENSITIVE_IGNORED_NAMES: readonly string[] = [
   'out',
   'dist',
-  '.next',
   'target',
   'build',
   'vendor',
 ];
 
 /**
+ * Backward-compatible union of internal ignored folders. Production code
+ * should prefer the split sets above; this is kept exported because the
+ * Wave-10 new-repo watcher's mid-session ancestor filter (in
+ * `GitService.setupNewRepoWatcher`) does an equality check against the
+ * union and treats both halves the same way (which is fine there because
+ * the new-repo watcher's ancestor list is checked against actual on-disk
+ * paths via `path.relative`, not against an arbitrary user folder name).
+ */
+export const INTERNAL_IGNORED_FOLDERS: readonly string[] = [
+  ...CASE_INSENSITIVE_IGNORED_NAMES,
+  ...CASE_SENSITIVE_IGNORED_NAMES,
+];
+
+/**
  * Filesystem injection seam. Production code passes the default
  * implementation backed by `node:fs/promises`; unit tests pass an in-memory
  * stub so they don't have to set up real directory trees.
+ *
+ * @remarks
+ * **TL-87 (#212) — `isFile()` on each entry.** Linked worktrees and
+ * submodule worktrees encode their repo metadata as a `.git` *file*
+ * containing a `gitdir: <path>` pointer rather than a `.git/` directory.
+ * The scanner currently treats those entries via the per-path
+ * `resolveRepoRoot` callback (production: `git rev-parse --show-toplevel`,
+ * which handles both shapes uniformly), so adding `isFile()` does not
+ * change the discovery contract today. It IS, however, required so that
+ * the `INTERNAL_IGNORED_FOLDERS` filter applies to a `.git` *file* child
+ * the same way it applies to a `.git` *directory* child — without a
+ * shape-aware skip we'd happily call `git rev-parse` against the `.git`
+ * file path itself, which is a known a-priori repo signal and shouldn't
+ * spawn a subprocess.
  */
 export interface IRepoScanFs {
   readdir(
     path: string,
     options: { withFileTypes: true }
-  ): Promise<{ name: string; isDirectory(): boolean; isSymbolicLink(): boolean }[]>;
+  ): Promise<
+    {
+      name: string;
+      isDirectory(): boolean;
+      isSymbolicLink(): boolean;
+      /**
+       * TL-87 (#212): true when the entry is a regular file (not a directory
+       * and not a symlink). Most importantly used to recognize the `.git`
+       * file shape used by linked worktrees + submodule worktrees, but the
+       * current scan algorithm only requires it to be present on the type —
+       * the runtime decision logic uses `isDirectory()` exclusively for
+       * recursion and the basename match for filtering.
+       */
+      isFile(): boolean;
+    }[]
+  >;
   realpath(path: string): Promise<string>;
 }
 
@@ -69,8 +137,17 @@ export const defaultRepoScanFs: IRepoScanFs = {
   async readdir(
     p: string,
     options: { withFileTypes: true }
-  ): Promise<{ name: string; isDirectory(): boolean; isSymbolicLink(): boolean }[]> {
+  ): Promise<
+    {
+      name: string;
+      isDirectory(): boolean;
+      isSymbolicLink(): boolean;
+      isFile(): boolean;
+    }[]
+  > {
     const entries: Dirent[] = await fs.readdir(p, options);
+    // node:fs Dirent already exposes isFile()/isDirectory()/isSymbolicLink();
+    // we just narrow the structural type the rest of the scanner consumes.
     return entries;
   },
   async realpath(p: string): Promise<string> {
@@ -91,8 +168,16 @@ export interface IScanRepoOptions {
    */
   maxDepth: number;
   /**
-   * User-configured ignored folder basenames (case-sensitive). Union'd
-   * with {@link INTERNAL_IGNORED_FOLDERS}.
+   * User-configured ignored folder basenames. Union'd with
+   * {@link INTERNAL_IGNORED_FOLDERS}.
+   *
+   * **TL-89 + R1/H2:** the comparison for user-supplied folders is
+   * case-INsensitive (Windows-parity); INTERNAL folders are split per
+   * the policy documented above on {@link CASE_INSENSITIVE_IGNORED_NAMES}
+   * / {@link CASE_SENSITIVE_IGNORED_NAMES}. So `mybuild`, `MyBuild`, and
+   * `MYBUILD` all match the same set of children when supplied here,
+   * but `Build` (capital B) is NOT filtered by the internal `build`
+   * entry on case-sensitive Linux.
    */
   ignoredFolders: readonly string[];
   /**
@@ -146,7 +231,23 @@ export async function scanFolderForGitRepos(
   opts: IScanRepoOptions
 ): Promise<string[]> {
   const fsImpl = opts.fs ?? defaultRepoScanFs;
-  const ignored = new Set<string>([...INTERNAL_IGNORED_FOLDERS, ...opts.ignoredFolders]);
+  // R1 / H2 (refines TL-89 / #214): split case policy.
+  //   - {@link CASE_INSENSITIVE_IGNORED_NAMES} (`.git`, `.vscode`,
+  //     `node_modules`, `.next`): always filesystem-canonicalized on
+  //     Windows + case-insensitive macOS, so a basename match is
+  //     case-insensitive. Lowercase both sides at filter time.
+  //   - {@link CASE_SENSITIVE_IGNORED_NAMES} (`out`, `dist`, `target`,
+  //     `build`, `vendor`): match EXACTLY so Pascal-case build dirs on
+  //     case-sensitive Linux (`Build/projectA/.git`, `Out/cargo`, etc.)
+  //     are still discovered. Pre-R1 these were lowercased uniformly,
+  //     which silently filtered legitimate Linux repos.
+  //   - User-supplied `opts.ignoredFolders`: matched case-insensitively
+  //     so a Windows user who configures `["mybuild"]` doesn't have to
+  //     guess the on-disk casing.
+  const caseInsensitiveIgnored = new Set<string>(
+    [...CASE_INSENSITIVE_IGNORED_NAMES, ...opts.ignoredFolders].map((n) => n.toLowerCase())
+  );
+  const caseSensitiveIgnored = new Set<string>(CASE_SENSITIVE_IGNORED_NAMES);
   const results = new Set<string>();
   // Track realpath of every directory we've already entered so the symlink
   // cycle guard at `maxDepth === -1` can detect a self-loop.
@@ -185,7 +286,12 @@ export async function scanFolderForGitRepos(
       visitedRealpaths.add(realDir);
     }
 
-    let entries: { name: string; isDirectory(): boolean; isSymbolicLink(): boolean }[];
+    let entries: {
+      name: string;
+      isDirectory(): boolean;
+      isSymbolicLink(): boolean;
+      isFile(): boolean;
+    }[];
     try {
       entries = await fsImpl.readdir(dir, { withFileTypes: true });
     } catch {
@@ -195,10 +301,15 @@ export async function scanFolderForGitRepos(
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) {
+      // R1 / H2 (refines TL-89 / #214): split case policy. Apply BEFORE
+      // the directory-only filter so a `.git` *file* child (TL-87 / #212:
+      // linked-worktree shape) is also skipped without spawning
+      // `git rev-parse --show-toplevel` against a known repo signal.
+      const lowerName = entry.name.toLowerCase();
+      if (caseInsensitiveIgnored.has(lowerName) || caseSensitiveIgnored.has(entry.name)) {
         continue;
       }
-      if (ignored.has(entry.name)) {
+      if (!entry.isDirectory()) {
         continue;
       }
 

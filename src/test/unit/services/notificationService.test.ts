@@ -24,7 +24,7 @@ import '../../../test/setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { NotificationService } from '../../../services/NotificationService';
-import { disposeOutputChannel, getOutputChannel } from '../../../utils/outputChannel';
+import { __resetOutputChannelForTest, getOutputChannel } from '../../../utils/outputChannel';
 
 /**
  * Install a spy on `vscode.window.createOutputChannel` that records every
@@ -58,11 +58,11 @@ describe('NotificationService — IntelliG OutputChannel singleton', () => {
     // Drop any cached singleton from a prior test so the spy can observe
     // the FIRST createOutputChannel call when getOutputChannel()
     // bootstraps the module-level cache.
-    disposeOutputChannel();
+    __resetOutputChannelForTest();
   });
 
   afterEach(() => {
-    disposeOutputChannel();
+    __resetOutputChannelForTest();
   });
 
   it('constructs only one "IntelliG" OutputChannel when the singleton + NotificationService coexist', () => {

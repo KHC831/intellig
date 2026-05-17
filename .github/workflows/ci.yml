@@ -63,8 +63,112 @@ jobs:
       - name: Structural guard — action-toast credential sanitisation
         run: npm run check:action-toasts
 
+      # TL-58 (Cluster C). The OutputChannel module exposes a
+      # `__resetOutputChannelForTest()` seam (TestSurface idiom — see
+      # docs/testing.md §3) that drops the module-level singleton so a
+      # fresh test can re-init from a clean slate. Production code MUST
+      # NOT call it: invoking the seam mid-flight tears down the cached
+      # OutputChannel, and any safeFireAndForget calls that route
+      # through the cached instance crash on a disposed channel. This
+      # guard greps src/ for the literal name and fails the build if
+      # any production file (anything outside `src/utils/outputChannel.ts`
+      # itself + `src/test/**`) references it.
+      - name: Structural guard — OutputChannel TestSurface seam
+        run: npm run check:output-channel-test-surface
+
+      # Wave 135 R1 / H2. README and package.json schema must agree on
+      # every documented intellig.* default. Drift caught in R1: stale
+      # defaults for modifiedFileColor, fetchTags enum, removeAppliedFiles,
+      # and protectedBranches. Guard parses the schema and asserts every
+      # README row matches. See scripts/check-readme-config-coherence.mjs.
+      - name: Structural guard — README ↔ schema config coherence
+        run: npm run check:config-coherence
+
       - name: Compile
         run: npm run compile
+
+      # Wave 135 R1 / H3. Asserts vsce ls would not include any
+      # forbidden file class (.agent/, AGENT_WORKSPACE.md, out/test/,
+      # *.test.js, etc.). Catches the .vscodeignore re-include
+      # regression class that shipped 365 stowaway files in the first
+      # Wave 135 vsce package run before the .vscodeignore was hardened.
+      # Runs after compile so out/ is current.
+      - name: Structural guard — .vsix bundle cleanliness
+        run: npm run check:vsix-clean
+
+      # Wave 135 R3 / H1 + Wave 135 R4 / TL-96. When package.json.version
+      # >= 1.0.0, asserts every checkbox in CONTRIBUTING.md "1.0.0 gate
+      # checklist" is ticked AND the experimental flags
+      # (`intellig.useCommitToolWindow`, `intellig.useTabbedGitToolWindow`)
+      # have been structurally graduated (default !== false + no
+      # "Experimental" mention in description). No-op for 0.x. Wired
+      # into vscode:prepublish too, so a real `vsce publish` of 1.0.0
+      # with unticked items or un-graduated flags fails locally before
+      # reaching CI.
+      - name: Structural guard — 1.0.0 release gate
+        run: npm run check:100-gate
+
+      # R1 / M2 (TL-91 follow-up). Asserts every watcher-family
+      # field declared on `GitService` (`Map<string,
+      # vscode.Disposable[] | vscode.FileSystemWatcher[]>`) is
+      # registered with the shared cleanup registry via
+      # `this._watcherMaps.push(...)` in the constructor. Pre-R1 a
+      # contributor adding a new watcher family could silently leak
+      # watchers across window reloads. ADR-008 § "Register every
+      # watcher family in `_watcherMaps` at construction" requires
+      # this; the guard enforces it at CI.
+      - name: Structural guard — watcher families registered
+        run: npm run check:watcher-families
+
+      # TL-100 (#229) follow-up: collapse this prerelease-state.json
+      # shape step AND the publish-vsix safety net step below into a
+      # single `npm run check:all` umbrella step once Cluster C
+      # merges its `check:output-channel-test-surface` alias to main.
+      # Until then the two-step shape is intentional — `check:all`
+      # references the missing alias, so collapsing now would break
+      # CI on Cluster B's own merge.
+
+      # Cluster B R1 / C2 — TL-93 prerelease-state.json shape. The
+      # prepublish-guard chains off `vscode:prepublish`, which only
+      # fires on `vsce package`; CI doesn't run packaging, so JSON-
+      # shape regressions (malformed JSON, missing `path`/`rule`,
+      # unknown rule type) wouldn't surface until a maintainer ran
+      # `vsce package` locally. This step catches those classes
+      # at PR time, independently of the live tree's placeholder
+      # state (which legitimately fails pre-1.0).
+      - name: Structural guard — prerelease-state.json shape (TL-93)
+        run: |
+          node -e "
+            const s = require('./scripts/prerelease-state.json');
+            const supported = ['minMarkers', 'sha256', 'regex', 'literal'];
+            for (const [k, v] of Object.entries(s)) {
+              if (k.startsWith('\$') || k.startsWith('_')) continue;
+              if (!v || typeof v !== 'object') {
+                throw new Error('entry ' + k + ' is malformed (not an object)');
+              }
+              if (typeof v.path !== 'string' || v.path.length === 0) {
+                throw new Error('entry ' + k + ' missing required string \`path\`');
+              }
+              if (typeof v.rule !== 'string' || !supported.includes(v.rule)) {
+                throw new Error('entry ' + k + ' has unknown rule ' + JSON.stringify(v.rule) + '; supported: ' + supported.join(', '));
+              }
+            }
+            console.log('[check:prerelease-state-shape] OK — ' + Object.keys(s).filter(k => !k.startsWith('\$') && !k.startsWith('_')).length + ' fingerprint entries valid.');
+          "
+
+      # Cluster B R1 / C1 — TL-95 dogfood vsix safety net. Without
+      # CI enforcement, only human discipline + the prepublish-guard's
+      # BYPASSED line stand between a maintainer and a Marketplace-
+      # uploaded dogfood vsix. We exercise BOTH the pass shape
+      # (real publish filename) and the fail shape (dogfood filename)
+      # so a regression in either direction surfaces here.
+      - name: Structural guard — publish vsix filename safety net (TL-95)
+        run: |
+          npm run check:publish-vsix -- intellig-0.1.0.vsix
+          if npm run check:publish-vsix -- intellig-0.1.0-dogfood.vsix; then
+            echo "[ci] FAIL: check:publish-vsix did not reject *-dogfood.vsix" >&2
+            exit 1
+          fi
 
       - name: Unit tests
         run: npm run test:unit

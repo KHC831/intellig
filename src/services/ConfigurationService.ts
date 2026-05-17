@@ -5,6 +5,7 @@ import {
   IExtensionConfiguration,
   GitToolWindowTab,
   BlameAnnotationStyle,
+  KeymapPresetName,
 } from './interfaces/IConfigurationService';
 
 /**
@@ -32,6 +33,7 @@ const DEFAULT_CONFIGURATION: IExtensionConfiguration = {
 
   // Keyboard shortcuts
   useIntelliJKeymap: false,
+  keymapPreset: 'default',
 
   // Colors
   modifiedFileColor: '#6897BB',
@@ -54,6 +56,7 @@ const CONFIG_KEY_MAP: Record<keyof IExtensionConfiguration, string> = {
   blameAnnotationStyle: 'blameAnnotationStyle',
   showStatusBarBranch: 'showStatusBarBranch',
   useIntelliJKeymap: 'useIntelliJKeymap',
+  keymapPreset: 'keymapPreset',
   modifiedFileColor: 'modifiedFileColor',
   addedFileColor: 'addedFileColor',
   deletedFileColor: 'deletedFileColor',
@@ -118,6 +121,35 @@ export class ConfigurationService implements IConfigurationService {
   }
 
   /**
+   * Wave 135 R5 / M1: typed delegate to
+   * `vscode.workspace.getConfiguration('intellig').inspect<T>(key)`.
+   * Lets migrations and services distinguish "user wrote at user
+   * scope" / "user wrote at workspace scope" / "schema default"
+   * without bypassing this service.
+   */
+  inspect<K extends keyof IExtensionConfiguration>(
+    key: K
+  ):
+    | {
+        globalValue?: IExtensionConfiguration[K];
+        workspaceValue?: IExtensionConfiguration[K];
+        defaultValue?: IExtensionConfiguration[K];
+      }
+    | undefined {
+    const settingName = CONFIG_KEY_MAP[key];
+    const config = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
+    const inspected = config.inspect<IExtensionConfiguration[K]>(settingName);
+    if (!inspected) {
+      return undefined;
+    }
+    return {
+      globalValue: inspected.globalValue,
+      workspaceValue: inspected.workspaceValue,
+      defaultValue: inspected.defaultValue,
+    };
+  }
+
+  /**
    * Update a configuration value.
    * Supports targeting user settings, workspace settings, or workspace folder settings.
    *
@@ -127,7 +159,7 @@ export class ConfigurationService implements IConfigurationService {
    */
   async update<K extends keyof IExtensionConfiguration>(
     key: K,
-    value: IExtensionConfiguration[K],
+    value: IExtensionConfiguration[K] | undefined,
     target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Global
   ): Promise<void> {
     const settingName = CONFIG_KEY_MAP[key];
@@ -204,6 +236,11 @@ export class ConfigurationService implements IConfigurationService {
         config,
         'useIntelliJKeymap',
         DEFAULT_CONFIGURATION.useIntelliJKeymap
+      ),
+      keymapPreset: this.getConfigValue<KeymapPresetName>(
+        config,
+        'keymapPreset',
+        DEFAULT_CONFIGURATION.keymapPreset
       ),
 
       // Colors

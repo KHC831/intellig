@@ -32,7 +32,7 @@ import {
 import { IRepository, IDiff } from '../../../services/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
 import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
-import { disposeOutputChannel, getOutputChannel } from '../../../utils/outputChannel';
+import { __resetOutputChannelForTest, getOutputChannel } from '../../../utils/outputChannel';
 
 /**
  * Build a controllable IShelfService stub. Tests push items onto `_items` and
@@ -647,7 +647,7 @@ describe('ShelfView — T2-10', () => {
 
       // Drop any prior cached channel so this test's appendLine calls
       // go into a fresh _lines bucket.
-      disposeOutputChannel();
+      __resetOutputChannelForTest();
       const channel = getOutputChannel() as unknown as { _lines: string[] };
 
       const originalOpen = vscode.window.showOpenDialog;
@@ -695,7 +695,7 @@ describe('ShelfView — T2-10', () => {
       } finally {
         (vscode.window as unknown as { showOpenDialog: typeof originalOpen }).showOpenDialog =
           originalOpen;
-        disposeOutputChannel();
+        __resetOutputChannelForTest();
       }
     });
 

@@ -1,10 +1,12 @@
 import * as assert from 'assert';
+import * as vscode from 'vscode';
 import {
   ConfigurationService,
   getDefaultConfiguration,
   getConfigurationSection,
 } from '../../../services/ConfigurationService';
 import { IExtensionConfiguration } from '../../../services/interfaces/IConfigurationService';
+import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 describe('ConfigurationService', () => {
   let service: ConfigurationService;
@@ -120,6 +122,83 @@ describe('ConfigurationService', () => {
         ['inline', 'gutter', 'both'].includes(blameAnnotationStyle),
         `Invalid blameAnnotationStyle: ${blameAnnotationStyle}`
       );
+    });
+  });
+
+  describe('inspect (Wave 135 R5 / M1; coverage added in Wave 135 R6 / L1)', () => {
+    // The mock's per-scope tracker (Wave 135 R5 / M2) is exercised
+    // here directly. These specs pin the contract that other
+    // services (KeymapService) and migrations (runKeymapMigration)
+    // depend on for distinguishing user-set from schema-default.
+    beforeEach(() => {
+      resetMockConfiguration();
+    });
+
+    it('returns defaultValue populated when only schema default exists', () => {
+      // The mock initializes `intellig.keymapPreset` schema-default
+      // to 'default'; nothing is user-set.
+      const result = service.inspect('keymapPreset');
+      assert.ok(result, 'inspect should return a result object');
+      assert.strictEqual(result.defaultValue, 'default');
+      assert.strictEqual(result.globalValue, undefined);
+      assert.strictEqual(result.workspaceValue, undefined);
+    });
+
+    it('returns globalValue set, workspaceValue undefined when only Global written', () => {
+      setMockConfigValue('intellig', 'keymapPreset', 'intellij', vscode.ConfigurationTarget.Global);
+      const result = service.inspect('keymapPreset');
+      assert.ok(result);
+      assert.strictEqual(result.globalValue, 'intellij');
+      assert.strictEqual(result.workspaceValue, undefined);
+      assert.strictEqual(result.defaultValue, 'default');
+    });
+
+    it('returns workspaceValue set, globalValue undefined when only Workspace written', () => {
+      setMockConfigValue(
+        'intellig',
+        'keymapPreset',
+        'intellij',
+        vscode.ConfigurationTarget.Workspace
+      );
+      const result = service.inspect('keymapPreset');
+      assert.ok(result);
+      assert.strictEqual(result.globalValue, undefined);
+      assert.strictEqual(result.workspaceValue, 'intellij');
+      assert.strictEqual(result.defaultValue, 'default');
+    });
+
+    it('returns both populated when both scopes have user values', () => {
+      setMockConfigValue('intellig', 'keymapPreset', 'default', vscode.ConfigurationTarget.Global);
+      setMockConfigValue(
+        'intellig',
+        'keymapPreset',
+        'intellij',
+        vscode.ConfigurationTarget.Workspace
+      );
+      const result = service.inspect('keymapPreset');
+      assert.ok(result);
+      assert.strictEqual(result.globalValue, 'default');
+      assert.strictEqual(result.workspaceValue, 'intellij');
+    });
+
+    it("changing one scope doesn't bleed into another (independence)", () => {
+      // Set workspace value; then global write of a different value
+      // — workspace should be untouched.
+      setMockConfigValue(
+        'intellig',
+        'keymapPreset',
+        'intellij',
+        vscode.ConfigurationTarget.Workspace
+      );
+      setMockConfigValue('intellig', 'keymapPreset', 'default', vscode.ConfigurationTarget.Global);
+      const result = service.inspect('keymapPreset');
+      assert.ok(result);
+      assert.strictEqual(
+        result.workspaceValue,
+        'intellij',
+        'workspace value must not be affected by a global write'
+      );
+      assert.strictEqual(result.globalValue, 'default');
     });
   });
 

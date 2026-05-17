@@ -214,10 +214,28 @@ function arbitraryBranchClickScenario(): fc.Arbitrary<{
     });
     const finalEntries = uniqueEntries.length > 0 ? uniqueEntries : [entries[0]];
 
-    // Collect all branch names with their associated hashes
+    // Collect all branch names with their associated hashes.
+    //
+    // TL-81 fix (post-Wave-135): cross-entry dedup of branch names by FIRST
+    // appearance. The generator originally pushed every (name, hash) pair
+    // including cross-entry duplicates, so when two distinct entries shared a
+    // branch name (e.g. hashA → ["a"], hashB → ["a"]) and the random index
+    // landed on the *second* copy, `expectedHash` was hashB but
+    // `_handleBranchClick("a")` walks `branchMap.entries()` in insertion order
+    // and returns hashA. That mismatch surfaced as a ~10% stress flake at
+    // src/test/property/branchClickSelection.property.test.ts:286 (originally
+    // shrunk from seed 319426092). The two pinned regression specs at the
+    // bottom of this file lock down the production tie-break contract; this
+    // dedup makes the generator emit `expectedHash` values that agree with
+    // that contract.
     const allBranches: { name: string; hash: string }[] = [];
+    const seenBranchNames = new Set<string>();
     for (const entry of finalEntries) {
       for (const branch of entry.branches) {
+        if (seenBranchNames.has(branch)) {
+          continue;
+        }
+        seenBranchNames.add(branch);
         allBranches.push({ name: branch, hash: entry.hash });
       }
     }
@@ -390,6 +408,131 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
         }),
         { numRuns: 100 }
       );
+    });
+  });
+
+  // ─── Pinned regressions ─────────────────────────────────────────────────────
+  //
+  // TL-81 stress-flake investigation (post-Wave-135). The original Property 3
+  // generator can emit a scenario where TWO distinct commits share the SAME
+  // branch name string in the branch map (e.g. hashA → ["a"], hashB → ["a"]).
+  // The generator's `arbitraryBranchClickScenario` builds a flat
+  // `allBranches[]` list across entries WITHOUT cross-entry name dedup, so
+  // when fast-check shrinks toward small branch names it will eventually
+  // sample the second copy of "a" — and `expectedHash` is set to whichever
+  // entry contributed that copy. Meanwhile `_handleBranchClick` iterates
+  // `branchMap.entries()` in insertion order and returns the FIRST matching
+  // commit, which is the OTHER entry. That mismatch surfaces as a
+  // `branchClickSelection.property.test.ts:286` failure under the 10× stress
+  // runner (seed 319426092 was the originally-shrunk reproducer).
+  //
+  // Two pinned regression specs encode the exact contract the generator
+  // assumes: when a branch name appears under multiple commit hashes,
+  // `_handleBranchClick(name)` MUST select the FIRST-inserted hash (i.e.
+  // map-iteration order, the "earliest commit" tie-break). The deeper
+  // generator fix lives alongside — `arbitraryBranchClickScenario` now picks
+  // `expectedHash` based on the same first-insertion rule, so the two layers
+  // agree on tie-break semantics.
+  //
+  // Note: this "first-insertion-order wins" contract is fall-out-of-
+  // implementation (`Map.entries()` is spec'd to iterate in insertion
+  // order), NOT a deliberately-chosen UX. Real-world `git for-each-ref`
+  // output never duplicates a branch name across hashes, so the scenario
+  // these specs pin is hypothetical from the user's perspective. Revisit
+  // the contract if a future feature ever surfaces ambiguous
+  // branch-to-hash mappings — e.g. cross-worktree branches, stale fetch
+  // state, or a UI that synthesizes multiple "branch-like" labels for the
+  // same name. At that point the right answer might be "select most
+  // recent commit by date" or "show a disambiguator," and the pinned
+  // specs + generator dedup here would need a coordinated update.
+  describe('Property 3: pinned regressions — shared-branch-name tie-break', () => {
+    /**
+     * Pinned: when two commits share the same branch name in the branch map,
+     * clicking that branch selects the FIRST-inserted commit (map-iteration
+     * order). This is the production contract; the property generator must
+     * compute `expectedHash` consistently with this rule.
+     */
+    it('shared branch name across hashes — _handleBranchClick selects first-inserted hash', () => {
+      const provider = createProvider();
+      try {
+        const hashA = '1111111111111111111111111111111111111111';
+        const hashB = '2222222222222222222222222222222222222222';
+        const author: IAuthor = { name: 'tester', email: 't@example.com' };
+        const date = new Date(2020, 0, 1);
+        const mkCommit = (h: string, msg: string): ICommit => ({
+          hash: h,
+          shortHash: h.substring(0, 7),
+          message: msg,
+          author,
+          committer: author,
+          parents: [],
+          authorDate: date,
+          commitDate: date,
+        });
+        const commits: ICommit[] = [mkCommit(hashA, 'first'), mkCommit(hashB, 'second')];
+        // Both commits claim the SAME branch name "a". Insertion order: A first.
+        const branchMap = new Map<string, string[]>();
+        branchMap.set(hashA, ['a']);
+        branchMap.set(hashB, ['a']);
+        const tagMap = new Map<string, string[]>();
+        provider.updateLogState(commits, branchMap, tagMap);
+
+        void invokePrivateHandler(provider, '_handleBranchClick', 'a');
+
+        const state = provider.getExtendedLogState();
+        assert.strictEqual(
+          state.expandedCommit,
+          hashA,
+          'first-inserted hash wins the tie-break when a branch name is shared'
+        );
+      } finally {
+        provider.dispose();
+      }
+    });
+
+    /**
+     * Pinned: reverse insertion order — the same shared-branch-name scenario
+     * but with hashB inserted first into the branch map. The first-inserted
+     * commit is now hashB, so the click must select B (not A).
+     *
+     * This pair of specs together pins the contract: tie-break is
+     * map-insertion order, not lexical-hash order, not last-write-wins.
+     */
+    it('shared branch name — reverse insertion order selects first-inserted hash (hashB)', () => {
+      const provider = createProvider();
+      try {
+        const hashA = '1111111111111111111111111111111111111111';
+        const hashB = '2222222222222222222222222222222222222222';
+        const author: IAuthor = { name: 'tester', email: 't@example.com' };
+        const date = new Date(2020, 0, 1);
+        const mkCommit = (h: string, msg: string): ICommit => ({
+          hash: h,
+          shortHash: h.substring(0, 7),
+          message: msg,
+          author,
+          committer: author,
+          parents: [],
+          authorDate: date,
+          commitDate: date,
+        });
+        const commits: ICommit[] = [mkCommit(hashB, 'second'), mkCommit(hashA, 'first')];
+        const branchMap = new Map<string, string[]>();
+        branchMap.set(hashB, ['a']); // B inserted FIRST this time
+        branchMap.set(hashA, ['a']);
+        const tagMap = new Map<string, string[]>();
+        provider.updateLogState(commits, branchMap, tagMap);
+
+        void invokePrivateHandler(provider, '_handleBranchClick', 'a');
+
+        const state = provider.getExtendedLogState();
+        assert.strictEqual(
+          state.expandedCommit,
+          hashB,
+          'first-inserted hash wins regardless of lexical hash order'
+        );
+      } finally {
+        provider.dispose();
+      }
     });
   });
 });

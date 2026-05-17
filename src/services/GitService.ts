@@ -79,6 +79,15 @@ export class GitService implements IGitService, IGitServiceCli {
   private _gitCli: GitCli;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
+  /**
+   * TL-88 (#213): fired when a previously-discovered repository is removed
+   * from `_repositories` — either because the user removed its workspace
+   * folder, or because its `.git/HEAD` was deleted mid-session
+   * (`rm -rf .git`). Subscribers (BranchTreeProvider, StatusBarService,
+   * BranchPopup, ChangelistService, etc.) listen so they can drop the
+   * repo from their UI without polling.
+   */
+  private _onDidRemoveRepository: vscode.EventEmitter<IRepository>;
   private _onDidFetch: vscode.EventEmitter<{ repo: IRepository; result: IFetchResult }>;
   private _disposables: vscode.Disposable[] = [];
   /**
@@ -126,8 +135,37 @@ export class GitService implements IGitService, IGitServiceCli {
    * Distinct from `_fileWatchers` (per-repo `.git/HEAD`/index/refs/**
    * watchers) — those activate after a repo is discovered. These fire
    * BEFORE discovery so we can pick up brand-new repos.
+   *
+   * **TL-91 (#219) shape note:** stored as `Disposable[]` (single-element
+   * arrays in practice) so this map fits the shared `_watcherMaps`
+   * registry signature. The previous shape was `Map<string,
+   * vscode.FileSystemWatcher>` (single value); the registry walker
+   * iterates per-key and calls dispose on each entry, which the
+   * single-element-array shape supports without bespoke handling.
    */
-  private _newRepoWatchers: Map<string, vscode.FileSystemWatcher> = new Map();
+  private _newRepoWatchers: Map<string, vscode.FileSystemWatcher[]> = new Map();
+
+  /**
+   * **TL-91 (#219) — watcher families registry.**
+   *
+   * Each watcher family (per-repo `.git/<entry>` watchers, mid-session
+   * `**\/.git` new-repo watchers, hypothetical future families like
+   * submodule-init or worktree-add watchers) registers the Map that owns
+   * its lifecycle here. `removeRepositoryWatcher(rootPath)` walks every
+   * registered Map uniformly, disposing entries whose key is `rootPath`
+   * itself OR a path-child of `rootPath` per the Wave 10 R2 / TL-83
+   * cleanup contract.
+   *
+   * Without the registry, every new family would silently leak unless the
+   * contributor remembered to extend the cleanup loop. The registry
+   * pattern makes "I added a new watcher family" → "register its map" the
+   * single line of code needed for correct lifecycle.
+   *
+   * Order is non-significant; cleanup walks all maps regardless of
+   * registration order. Initialized at constructor time so the references
+   * `_fileWatchers` / `_newRepoWatchers` are stable.
+   */
+  private readonly _watcherMaps: Array<Map<string, vscode.Disposable[]>> = [];
 
   /** Cache TTL in milliseconds (5 seconds) */
   private static readonly CACHE_TTL = 5000;
@@ -186,6 +224,13 @@ export class GitService implements IGitService, IGitServiceCli {
   readonly onDidChangeRepository: vscode.Event<IRepository>;
 
   /**
+   * Event fired when a previously-discovered repository is removed from
+   * tracking (workspace folder removed OR `.git/HEAD` deleted mid-session
+   * per TL-88 / #213). Fires exactly once per repo per removal cause.
+   */
+  readonly onDidRemoveRepository: vscode.Event<IRepository>;
+
+  /**
    * Event fired when a fetch completes (successful or not)
    */
   readonly onDidFetch: vscode.Event<{ repo: IRepository; result: IFetchResult }>;
@@ -194,8 +239,23 @@ export class GitService implements IGitService, IGitServiceCli {
     this._gitCli = createGitCli(gitPath);
     this._onDidChangeRepository = new vscode.EventEmitter<IRepository>();
     this.onDidChangeRepository = this._onDidChangeRepository.event;
+    this._onDidRemoveRepository = new vscode.EventEmitter<IRepository>();
+    this.onDidRemoveRepository = this._onDidRemoveRepository.event;
     this._onDidFetch = new vscode.EventEmitter<{ repo: IRepository; result: IFetchResult }>();
     this.onDidFetch = this._onDidFetch.event;
+
+    // TL-91 (#219): register the two known watcher families with the
+    // shared cleanup registry. Future families add a single line here
+    // and `removeRepositoryWatcher` automatically walks them.
+    //
+    // R1 / M2 (TL-91 follow-up): the structural guard
+    // `scripts/check-watcher-families-registered.mjs` enforces that
+    // EVERY field matching the watcher-family declaration shape
+    // (`Map<string, vscode.Disposable[] | vscode.FileSystemWatcher[]>`)
+    // is pushed onto `_watcherMaps` here. Adding a new family without
+    // this line fails CI.
+    this._watcherMaps.push(this._fileWatchers);
+    this._watcherMaps.push(this._newRepoWatchers);
 
     // Forward Git command events for console logging
     this._disposables.push(
@@ -221,6 +281,39 @@ export class GitService implements IGitService, IGitServiceCli {
           safeFireAndForget(
             this.discoverRepository(folder.uri.fsPath),
             `GitService.onDidChangeWorkspaceFolders: discover added folder ${folder.uri.fsPath}`,
+            { outputChannel: getOutputChannel() }
+          );
+        }
+      })
+    );
+
+    // TL-86 (#211): re-run discovery on all workspace folders when the
+    // repository-scan-related settings change. Pre-TL-86 the two settings
+    // (`intellig.repositoryScanMaxDepth` + `intellig.repositoryScanIgnoredFolders`)
+    // were read once at workspace-folder-add time; mid-session edits had no
+    // effect until window reload, with no signal to the user.
+    //
+    // Idempotency: `discoverRepository` short-circuits via `_repositories.has(root)`
+    // for repos already tracked, so a re-scan after a no-op config tweak does
+    // not re-fire `onDidChangeRepository` for known repos. Newly-discovered
+    // repos (e.g. after a depth increase) fire the emitter per repo per the
+    // existing TL-82 contract.
+    this._disposables.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (
+          !event.affectsConfiguration('intellig.repositoryScanMaxDepth') &&
+          !event.affectsConfiguration('intellig.repositoryScanIgnoredFolders')
+        ) {
+          return;
+        }
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders) {
+          return;
+        }
+        for (const folder of folders) {
+          safeFireAndForget(
+            this.discoverRepository(folder.uri.fsPath),
+            `GitService.onDidChangeConfiguration: rediscover ${folder.uri.fsPath}`,
             { outputChannel: getOutputChannel() }
           );
         }
@@ -463,7 +556,9 @@ export class GitService implements IGitService, IGitServiceCli {
       );
     });
 
-    this._newRepoWatchers.set(folderPath, watcher);
+    // TL-91 (#219): single-element-array shape so the map fits the shared
+    // `_watcherMaps` registry walker uniformly with `_fileWatchers`.
+    this._newRepoWatchers.set(folderPath, [watcher]);
   }
 
   /**
@@ -639,6 +734,36 @@ export class GitService implements IGitService, IGitServiceCli {
       this._refreshTimers.set(rootPath, timer);
     };
 
+    // TL-88 (#213): a deletion of `.git/HEAD` is the strongest signal that
+    // the repo was destroyed (`rm -rf .git`, an aggressive `git worktree
+    // remove`, etc.). HEAD is required for any working repo, so its
+    // disappearance is unambiguous. We treat it specially: instead of the
+    // debounced refresh path (which would swallow the consequent
+    // `git symbolic-ref` failures and leave a stale entry), we route to
+    // `removeRepositoryWatcher(rootPath)` and fire the new
+    // `onDidRemoveRepository` event so subscribers can drop the repo.
+    //
+    // Other entries in WATCHED_GIT_PATTERNS still go to `handleChange` for
+    // delete events because they're transient by design (e.g. `MERGE_HEAD`
+    // disappears when a merge resolves; `index` may briefly be deleted by
+    // `git reset --hard` and then recreated). HEAD is the one with no
+    // legitimate "transient delete" interpretation.
+    const handleHeadDelete = (): void => {
+      if (this._disposed) {
+        return;
+      }
+      // R1 / C1 (TL-88 follow-up): `removeRepositoryWatcher` now fires
+      // `onDidRemoveRepository` for every removed repo internally (the
+      // shared cleanup path used by both `.git/HEAD` deletion AND
+      // workspace-folder removal). We just delegate. Idempotency:
+      // `_repositories.has(rootPath)` short-circuits the second-fire so a
+      // duplicated delete event is a no-op.
+      if (!this._repositories.has(rootPath)) {
+        return;
+      }
+      this.removeRepositoryWatcher(rootPath);
+    };
+
     // Per-root watchers live in `_fileWatchers` which is the sole lifecycle
     // owner — `removeRepositoryWatcher` disposes and removes from that map,
     // and `dispose()` walks the same map. Previously each watcher was ALSO
@@ -654,7 +779,16 @@ export class GitService implements IGitService, IGitServiceCli {
       );
       watcher.onDidChange(handleChange);
       watcher.onDidCreate(handleChange);
-      watcher.onDidDelete(handleChange);
+      // TL-88: only the HEAD watcher routes deletes to handleHeadDelete;
+      // all other patterns continue to go through the debounced refresh
+      // path (whose `_performDebouncedRefresh` already tolerates transient
+      // delete-then-recreate sequences via the cache invalidation +
+      // reload chain).
+      if (pattern === 'HEAD') {
+        watcher.onDidDelete(handleHeadDelete);
+      } else {
+        watcher.onDidDelete(handleChange);
+      }
       watchers.push(watcher);
     }
 
@@ -734,22 +868,51 @@ export class GitService implements IGitService, IGitServiceCli {
       return true;
     };
 
-    // Collect first, then mutate — Map iteration during deletion is well-
-    // defined per spec, but explicit collection makes the intent clearer.
-    const watcherKeysToRemove: string[] = [];
-    for (const key of this._fileWatchers.keys()) {
-      if (isInsideOrEqual(key)) {
-        watcherKeysToRemove.push(key);
+    // TL-91 (#219): walk EVERY registered watcher-family map uniformly.
+    // Pre-TL-91 this method hardcoded `_fileWatchers` and a separate
+    // `_newRepoWatchers.get(rootPath)` exact-match cleanup; new families
+    // would silently leak unless contributors remembered to extend the
+    // function. The `_watcherMaps` registry makes "register the new map"
+    // the single touchpoint for correct lifecycle.
+    //
+    // Per-map cleanup applies the path-child rule (key === rootPath OR
+    // path.relative descendant) so removing `/work` correctly disposes
+    // `/work/projectA` + `/work/projectB` watchers across ALL maps,
+    // not just `_fileWatchers`. Sibling-prefix names like `/workspace`
+    // stay untouched.
+    for (const map of this._watcherMaps) {
+      const keysToRemove: string[] = [];
+      for (const key of map.keys()) {
+        if (isInsideOrEqual(key)) {
+          keysToRemove.push(key);
+        }
+      }
+      for (const key of keysToRemove) {
+        const disposables = map.get(key);
+        if (disposables) {
+          for (const d of disposables) {
+            d.dispose();
+          }
+          map.delete(key);
+        }
       }
     }
-    for (const key of watcherKeysToRemove) {
-      const watchers = this._fileWatchers.get(key);
-      if (watchers) {
-        for (const watcher of watchers) {
-          watcher.dispose();
-        }
-        this._fileWatchers.delete(key);
+
+    // Refresh-timer + in-flight-reload cleanup remains keyed off the same
+    // path-child rule but lives outside `_watcherMaps` because it's not a
+    // watcher family — it's the per-repo state that the watcher feeds.
+    const stateKeysToRemove: string[] = [];
+    for (const key of this._refreshTimers.keys()) {
+      if (isInsideOrEqual(key)) {
+        stateKeysToRemove.push(key);
       }
+    }
+    for (const key of this._reloading.keys()) {
+      if (isInsideOrEqual(key) && !stateKeysToRemove.includes(key)) {
+        stateKeysToRemove.push(key);
+      }
+    }
+    for (const key of stateKeysToRemove) {
       const timer = this._refreshTimers.get(key);
       if (timer) {
         clearTimeout(timer);
@@ -758,23 +921,40 @@ export class GitService implements IGitService, IGitServiceCli {
       this._reloading.delete(key);
     }
 
+    // R1 / C1 (TL-88 follow-up): fire `onDidRemoveRepository` for EVERY
+    // matched repo BEFORE deleting from `_repositories`. Pre-R1 only the
+    // `.git/HEAD`-deletion path (`handleHeadDelete`) fired the emitter,
+    // which violated the JSDoc contract that promises both removal causes
+    // (workspace-folder removal AND `.git/HEAD` deletion) trigger the
+    // event. Six future subscribers (BranchTreeProvider, StatusBarService,
+    // BranchPopup, ChangelistService, ConflictResolutionService,
+    // GitToolWindowProvider) need this on the COMMON folder-removal path,
+    // not just the EXOTIC `rm -rf .git` path.
+    //
+    // Capture the IRepository handles BEFORE delete so subscribers receive
+    // valid objects (post-delete the cache is gone). Idempotency: if the
+    // same call arrives twice (e.g. `handleHeadDelete` → workspace-folder-
+    // removal listener firing in close succession), the second call's
+    // `repoKeysToRemove` will be empty because the first call already
+    // emptied `_repositories` for the matching keys.
     const repoKeysToRemove: string[] = [];
+    const reposToFire: IRepository[] = [];
     for (const key of this._repositories.keys()) {
       if (isInsideOrEqual(key)) {
         repoKeysToRemove.push(key);
+        const cache = this._repositories.get(key);
+        if (cache) {
+          reposToFire.push(cache.repository);
+        }
       }
     }
     for (const key of repoKeysToRemove) {
       this._repositories.delete(key);
     }
-
-    // Wave 10: dispose the mid-session new-repo watcher when a workspace
-    // folder is removed. Keyed by `folderPath` — same key that's passed in
-    // here from `onDidChangeWorkspaceFolders`.
-    const newRepoWatcher = this._newRepoWatchers.get(rootPath);
-    if (newRepoWatcher) {
-      newRepoWatcher.dispose();
-      this._newRepoWatchers.delete(rootPath);
+    if (!this._disposed) {
+      for (const repo of reposToFire) {
+        this._onDidRemoveRepository.fire(repo);
+      }
     }
   }
 
@@ -2386,22 +2566,24 @@ export class GitService implements IGitService, IGitServiceCli {
     // mid-flight.
     this._disposed = true;
     this._onDidChangeRepository.dispose();
+    this._onDidRemoveRepository.dispose();
     this._onDidFetch.dispose();
     this._gitCli.dispose();
 
-    for (const watchers of this._fileWatchers.values()) {
-      for (const watcher of watchers) {
-        watcher.dispose();
+    // TL-91 (#219): dispose every registered watcher family uniformly.
+    // Pre-TL-91 this loop hardcoded `_fileWatchers` then `_newRepoWatchers`;
+    // a future family added without remembering this site would leak its
+    // watchers across window reloads. The registry walker is the single
+    // touchpoint so adding a new family means only `this._watcherMaps.push(...)`
+    // in the constructor.
+    for (const map of this._watcherMaps) {
+      for (const disposables of map.values()) {
+        for (const d of disposables) {
+          d.dispose();
+        }
       }
+      map.clear();
     }
-    this._fileWatchers.clear();
-
-    // Wave 10: dispose mid-session new-repo watchers as well. Mirrors the
-    // per-repo file-watcher disposal above.
-    for (const watcher of this._newRepoWatchers.values()) {
-      watcher.dispose();
-    }
-    this._newRepoWatchers.clear();
 
     for (const timer of this._refreshTimers.values()) {
       clearTimeout(timer);

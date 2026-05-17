@@ -219,12 +219,18 @@ Before declaring an extension change done, press F5 (see [Local Development](#lo
    - Commit tool window (if `intellig.useCommitToolWindow` is on): Local Changes + Shelf tabs render.
    - Push/pull: `IntelliG: Push` and `IntelliG: Pull` work against a test remote.
    - Rebase: interactive rebase of the last 2 commits opens the editor; pick/squash succeed.
-   - Stash: `IntelliG: Stash Changes`, then `IntelliG: Show Shelf List`.
+   - Shelf: `IntelliG: Shelve Silently`, then `IntelliG: Show Shelf List`.
    - Conflicts: create a merge conflict (`git merge <conflicting-branch>`); the resolve dialog opens; "Accept Yours" / "Accept Theirs" / "Abort" each succeed.
 
 4. **Flags toggle cleanly.** Toggle `intellig.useCommitToolWindow` and `intellig.useTabbedGitToolWindow` off → on → off. Views rebind without activation errors or stale state.
 
-5. **Deactivation is clean.** Close the dev host. It exits within ~2 seconds. No orphaned `node` processes in Activity Monitor.
+5. **Multi-repo discovery.** Open a workspace folder containing two `.git` subfolders (e.g. `~/work/` with `~/work/projectA/.git` and `~/work/projectB/.git`). Verify both are discovered — the IntelliG branch popup or status bar should let you switch between them, and `getRepositories()` (via the Git tool window) should list both.
+
+6. **Mid-session new-repo detection.** Inside an open workspace folder, run `git init newproj/`. Verify the new repo is auto-detected without a window reload — it should show up in the branch popup / repo picker within a few seconds.
+
+7. **Output channel readable.** Open `Output → IntelliG`. Verify the channel exists and is readable for at least one error path — for example, force a known-bad `IntelliG: Import Patches into Shelf` operation (point at a non-applicable patch) and confirm sanitized per-file diagnostics appear in the channel.
+
+8. **Deactivation is clean.** Close the dev host. It exits within ~2 seconds. No orphaned `node` processes in Activity Monitor.
 
 If any of the above fails: do not ship.
 
@@ -240,6 +246,253 @@ npx vsce package
 # Install the .vsix in VS Code:
 #   Extensions panel → ⋯ → Install from VSIX...
 ```
+
+The `vscode:prepublish` script chains a `prepublish:guard`
+([`scripts/prepublish-guard.mjs`](scripts/prepublish-guard.mjs)) that
+refuses to package when LICENSE / icon / CHANGELOG date / SECURITY.md
+contact are still placeholders. The guard reads its placeholder
+fingerprints from
+[`scripts/prerelease-state.json`](scripts/prerelease-state.json) —
+add a new entry there (not in the script) when a 5th placeholder
+class lands; update `placeholderHash` there (not in the script)
+when the icon is replaced. If you see a `[prepublish-guard] FAIL:
+…` message during `npx vsce package`, fill in the indicated
+placeholder and try again.
+
+### Publishing to the Marketplace
+
+The publish flow expects a **non-dogfood** vsix filename. There are
+two build paths:
+
+- **Real publish** — `npx --yes @vscode/vsce@2.24.0 package` (no
+  env vars set). Output: `intellig-<version>.vsix`. The
+  prepublish guard runs and asserts the tree has no placeholders.
+  This is the artifact you upload to the Marketplace.
+- **Local dogfood** — `npm run package:dogfood`. Output:
+  `intellig-<version>-dogfood.vsix` (note the `-dogfood` suffix).
+  Engages the placeholder bypass; the resulting .vsix is for local
+  install only and MUST NOT be uploaded.
+
+> **Shell requirement.** Both build paths assume a POSIX shell
+> (sh / bash / zsh). The `package:dogfood` npm script uses inline
+> `KEY=VALUE` env-var prefixes and `${npm_package_version}`
+> expansion in `--out`, neither of which native cmd.exe /
+> PowerShell handle. Windows maintainers should run from Git Bash
+> or WSL.
+
+`npm run check:publish-vsix -- <path>` is a filename-based safety
+net that refuses to proceed when the path matches `*-dogfood.vsix`
+(TL-95). The leading `--` is required so npm forwards `<path>` to
+the script instead of consuming it as an npm option (without it,
+the script sees zero args, no-ops, and the safety net is silently
+defeated). Wire it into your publish script before invoking
+`vsce publish`:
+
+```bash
+# Pseudo publish flow
+vsix="intellig-$(node -p 'require("./package.json").version').vsix"
+npx --yes @vscode/vsce@2.24.0 package          # writes $vsix
+npm run check:publish-vsix -- "$vsix"          # refuses if *-dogfood.vsix
+npx --yes @vscode/vsce@2.24.0 publish -i "$vsix"
+```
+
+### Structural guards
+
+The repo ships a set of CI-time structural guards as a complement
+to per-site unit specs (rationale + maintenance contract:
+[ADR-007](docs/adr/ADR-007-structural-guards-as-complementary-tool.md)).
+Each guard has its own npm-script alias under `check:*`; CI runs
+them as named steps so a regression points at the offending
+class. Run a single guard locally as `npm run check:<name>`:
+
+| `check:` script | Guard |
+|---|---|
+| `check:quickpick-state` | `IShelf/Stash/BranchComparisonViewState` carry no `error` field (TL-74) |
+| `check:action-toasts` | `vscode.window.show*Message` calls don't leak unsanitized git stderr (TL-72/78/79) |
+| `check:config-coherence` | README config tables match `package.json` schema defaults |
+| `check:vsix-clean` | `vsce ls` output excludes every forbidden file class |
+| `check:100-gate` | 1.0.0 gate checklist + structural gate (2) (TL-96) |
+| `check:publish-vsix` | Refuses any `*-dogfood.vsix` filename (TL-95) |
+| `check:output-channel-test-surface` | OutputChannel test seam not used in production (Cluster C, TL-58) |
+
+`npm run check:all` runs every structural guard in sequence — the
+recommended pre-push smoke. CI keeps the steps named individually
+so failures point at a specific guard rather than the umbrella.
+Adding a new guard means: ship the script + ADR-007 maintenance-
+contract header + an `check:<name>` npm alias + an entry in this
+table + an entry in `check:all` + a CI step. All six places must
+land together; reviewers will catch any miss.
+
+> **Note (transient):** `check:output-channel-test-surface` lands
+> with Cluster C (TL-58); until that branch merges to main,
+> `npm run check:all` will fail at this step with an opaque
+> "Missing script" error. Run individual `check:*` scripts from
+> the table above in the meantime, or skip the umbrella entirely.
+> TL-100 (#229) tracks the CI-side collapse of the individual
+> guard steps into a single `npm run check:all` step once Cluster
+> C lands the missing alias.
+
+## Changelog cadence
+
+`CHANGELOG.md` follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Workflow:
+
+1. Every wave-squash that changes user-visible behavior appends a
+   bullet to the `## [Unreleased]` section at the top of
+   `CHANGELOG.md`. Categorize under `### Added`, `### Changed`,
+   `### Fixed`, `### Removed`, or `### Deprecated`.
+2. At release time, rename `[Unreleased]` to the new version with
+   today's date, then add a fresh empty `[Unreleased]` block at the
+   top.
+
+Example before release:
+
+```markdown
+## [Unreleased]
+
+### Added
+- New `intellig.foo` config knob that does foo.
+
+## [0.1.0] - 2026-05-XX
+…
+```
+
+Example after `0.2.0` release:
+
+```markdown
+## [Unreleased]
+
+## [0.2.0] - 2026-06-12
+
+### Added
+- New `intellig.foo` config knob that does foo.
+
+## [0.1.0] - 2026-05-XX
+…
+```
+
+The pre-publish guard refuses to package when the top dated entry is
+still a `YYYY-MM-DD` placeholder, so the rename-and-date step cannot
+be skipped accidentally.
+
+## Versioning policy
+
+IntelliG follows [semver](https://semver.org/), with the following
+0.x carve-outs and the 1.0.0 gate explicitly enumerated:
+
+- **0.x** — settings, commands, and on-disk storage shapes may change
+  in minor bumps. Every breaking change in 0.x ships with a
+  deprecation note in `CHANGELOG.md`. Forward-compatible storage
+  round-trip (see [ADR-003](docs/adr/ADR-003-storage-forward-compat-round-trip.md))
+  ensures old state files survive minor bumps without data loss.
+
+  **Deprecated-field retirement timeline.** Each deprecated config
+  field is removed from the schema two minor versions after its
+  deprecation lands, giving users one full minor cycle to migrate
+  via runtime auto-migration (when applicable) plus the
+  `deprecationMessage` chrome in the settings UI. Concretely:
+  `intellig.useIntelliJKeymap` is deprecated as of v0.1.0 and will
+  be removed from the schema in v0.3.0. Subsequent deprecations
+  follow the same N → N+2 retirement window unless the
+  CHANGELOG entry explicitly states otherwise.
+- **1.0.0** — gates on **all** of:
+  1. `LICENSE` finalized (real terms, not placeholder).
+  2. Experimental flags (`useCommitToolWindow`,
+     `useTabbedGitToolWindow`) graduated through the explicit
+     sub-protocol below — neither still labeled "Experimental" in
+     the schema description nor still gated `false` by default.
+  3. `.git`-as-file (linked worktrees, submodules with detached
+     gitdir) supported, or explicitly documented as out-of-scope.
+  4. At least one full quarterly cycle of user feedback against a
+     0.x release where conditions 1-3 are already met.
+
+### Experimental-flag graduation sub-protocol
+
+Each experimental flag follows this pipeline before 1.0.0:
+
+1. **Default-flip in a 0.x minor.** The flag's default flips from
+   `false` to `true` in a tagged 0.x release. The flag remains
+   in the schema with `default: true` so users on the previous
+   default can roll back via settings. CHANGELOG entry calls out
+   the flip and the rollback knob.
+2. **Quarterly feedback window.** At least one full quarter of
+   real-user usage on the new default. The OutputChannel + GitHub
+   issues become the data source.
+3. **Decision (one of three).**
+   - **Remove** — promote to non-optional behavior; delete the flag
+     from the schema. Keep storage round-trip preservation so a
+     downgrade to a 0.x version that still reads the flag survives.
+   - **Keep** — flag stays opt-out (default `true`) but remains
+     a documented setting. Common when the behavior should be
+     dominant but a small population legitimately wants the
+     legacy mode.
+   - **Rollback** — feedback was negative; default-flip back to
+     `false` in a 0.x patch and re-enter step 1 with revised
+     defaults (or shelve indefinitely).
+
+Each flag's pipeline state is tracked inline in the
+`contributes.configuration.properties[<flag>].description` text
+("Experimental — flipping to default in 0.M.0 / next quarterly
+review YYYY-MM-DD").
+
+### 1.0.0 gate checklist
+
+Track the four conditions inline as the project approaches 1.0.0.
+
+- [ ] (1) `LICENSE` finalized — real terms in tree.
+- [ ] (2) Experimental flags graduated:
+  - [ ] `intellig.useCommitToolWindow` — pipeline state: …
+  - [ ] `intellig.useTabbedGitToolWindow` — pipeline state: …
+- [ ] (3) `.git`-as-file behavior decided:
+  - [ ] Supported, OR
+  - [ ] Documented out-of-scope in README.
+- [ ] (4) Quarterly feedback cycle complete with conditions 1-3
+  met. Cycle start date: …. Cycle end date: ….
+
+**Gates (1) and (2) are structurally enforced.** Marking the
+checkbox does not bypass either check.
+
+- **Gate (1) — LICENSE finalized.** Enforced by
+  `scripts/prepublish-guard.mjs` via the `license` fingerprint in
+  `scripts/prerelease-state.json`: a placeholder LICENSE blocks
+  `vsce package` regardless of checkbox state. The fingerprint
+  flags any LICENSE that contains ≥2 of the configured placeholder
+  markers (`License pending`, `PLACEHOLDER`, `evaluation purposes
+  only`); a real EULA can legitimately contain one phrase in
+  isolation, two together is the trip threshold.
+- **Gate (2) — Experimental flags graduated.** Enforced by
+  `scripts/check-100-gate.sh` running parse logic against
+  `package.json` (TL-96): each experimental flag must be either
+  (i) absent from `contributes.configuration.properties` (Remove
+  decision) OR (ii) have `default !== false` AND no longer mention
+  "Experimental" in its `description` / `markdownDescription`.
+
+Gates (3) and (4) remain markdown-checkbox by their nature (the
+`.git`-as-file scope decision and the time-bounded user-feedback
+cycle aren't mechanically checkable from `package.json` shape
+alone). TL-98 (#226) tracks promoting gate (3) once Cluster A's
+TL-87 lands a structural marker for `.git`-as-file support.
+
+Pre-1.0.0 releases are 0.MINOR.PATCH; the parity of MINOR has no
+special meaning.
+
+## Backlog tracking
+
+Open follow-up tasks are tracked in the team's TaskList (the same
+system that drives wave dispatches). To find them, use whatever
+TaskList interface your tooling provides; the canonical IDs for
+open follow-ups deferred from prior waves are listed below as
+forward references so future contributors can grep for them.
+
+- **TL-92** — ADR-README: define the trigger criterion for the
+  "~12-entry topical regroup" guidance.
+- **TL-93** — pre-publish placeholder consolidation into a single
+  `prerelease-state.json` (or similar) so all checks read from
+  one source.
+
+This section is intentionally short — the TaskList is authoritative
+for state. Cite tasks here only when a future contributor would
+otherwise be unable to discover them via grep.
 
 ## Project Structure
 

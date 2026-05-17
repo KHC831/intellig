@@ -76,7 +76,14 @@ function makeFsStub(
     async readdir(
       p: string,
       _options: { withFileTypes: true }
-    ): Promise<{ name: string; isDirectory(): boolean; isSymbolicLink(): boolean }[]> {
+    ): Promise<
+      {
+        name: string;
+        isDirectory(): boolean;
+        isSymbolicLink(): boolean;
+        isFile(): boolean;
+      }[]
+    > {
       const children = tree[p] ?? [];
       return children.map((name) => ({
         name,
@@ -85,6 +92,11 @@ function makeFsStub(
         },
         isSymbolicLink(): boolean {
           return symlinks.has(`${p}/${name}`);
+        },
+        isFile(): boolean {
+          // TL-87 (#212): IRepoScanFs.Dirent requires isFile(); the
+          // discovery scenarios in this file only model directories.
+          return false;
         },
       }));
     },

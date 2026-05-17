@@ -2,34 +2,54 @@
 #
 # Structural CI guard — TL-74 (Wave 8 R2).
 #
-# This is one of two on-disk structural guards in the codebase.
-# See ADR-007 (`docs/adr/ADR-007-structural-guards-as-complementary-tool.md`)
-# for the meta-policy: when to reach for a guard vs a per-site spec,
-# the per-FILE representative-spec floor that must hold underneath
-# every guard, and the maintenance contract this script header
-# adheres to (bug class / heuristic / FPs / FNs / retirement criteria).
+# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
 #
-# Per ADR-006 (`docs/adr/ADR-006-error-state-binding-by-view-type.md`),
-# QuickPick / dialog / non-rendering view-STATE interfaces deliberately
-# carry no `error` field — refresh failures are surfaced through the
-# `Promise<{ error? }>` return value of `refresh()` (and siblings),
-# never via a sideband on view state.
+# 1. Bug class
+#    Per ADR-006, the three QuickPick / dialog / non-rendering
+#    view-STATE interfaces (IShelfViewState, IStashViewState,
+#    IBranchComparisonViewState) deliberately carry no `error`
+#    field — refresh failures travel through the
+#    `Promise<{ error? }>` return value of `refresh()` (and
+#    siblings), never via a sideband on view state. This guard
+#    asserts the invariant against drift.
 #
-# This script awk-checks the three migrated state-interface declarations
-# for any reintroduction of an `error?: string` field. Result-shape
-# interfaces in the same files (e.g. `IStashActionResult`,
-# `IShelfActionResult`, `IBranchComparisonActionResult`) are *allowed*
-# to carry `error?: string` — those are method-return shapes, not view
-# state. The script disambiguates by tracking which interface block we
-# are inside.
+# 2. Heuristic + how it scales
+#    awk state machine. Enter "tracked" mode when we hit
+#    `interface I<Name>ViewState {`; leave on the matching closing
+#    brace. Inside tracked mode, an `error?: string` (or
+#    `error: string | undefined`) field-shape line triggers the
+#    guard. Brace-depth tracking handles nested anonymous types.
+#    Adding a fourth tracked view-state interface is a one-line
+#    addition to the TARGETS array.
 #
-# Implementation: awk state machine. Enter "tracked" mode when we hit
-# `interface IShelfViewState {` / `interface IStashViewState {` /
-# `interface IBranchComparisonViewState {`; leave on the matching
-# closing brace. Inside tracked mode, an `error?: string` (or
-# `error: string | undefined`) field-shape line triggers the guard.
-# Single-line block tracking via brace depth so nested anonymous
-# types don't confuse the match.
+# 3. Known false-positive cases
+#    - Result-shape interfaces in the same files (e.g.
+#      `IStashActionResult`, `IShelfActionResult`,
+#      `IBranchComparisonActionResult`) are ALLOWED to carry
+#      `error?: string` — those are method-return shapes, not view
+#      state. The interface-name match in TARGETS disambiguates.
+#    - A comment line like `// error?: string is forbidden` inside
+#      the tracked block would NOT trigger because the awk pattern
+#      anchors on field-shape, not arbitrary text.
+#
+# 4. Known false-negative cases
+#    - A new view-STATE interface that introduces an `error` field
+#      under a NAME not in TARGETS is invisible to this guard.
+#      Mitigated by ADR-006 review at PR time and the
+#      per-FILE representative spec floor.
+#    - Indirect leakage: e.g. a state interface that embeds another
+#      type which carries `error`. The guard reads only the
+#      direct interface body. New embedding cases require an ADR-006
+#      revision.
+#    - Renames of a tracked interface: the script will fail loudly
+#      on the missing-file error rather than silently passing.
+#
+# 5. Retirement criteria
+#    Retire when ADR-006 is superseded (e.g. a unified
+#    error-channel design supersedes view-state vs return-value
+#    separation), OR when typecheck-level enforcement (a
+#    branded-type opaque wrapper) makes the bug class unreachable
+#    by construction.
 #
 # Exit: 0 on clean, 1 on any reacquisition.
 

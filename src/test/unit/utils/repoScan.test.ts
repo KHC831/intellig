@@ -45,7 +45,14 @@ function makeFs(state: IFsState): IRepoScanFs {
     async readdir(
       dirPath: string,
       _options: { withFileTypes: true }
-    ): Promise<{ name: string; isDirectory(): boolean; isSymbolicLink(): boolean }[]> {
+    ): Promise<
+      {
+        name: string;
+        isDirectory(): boolean;
+        isSymbolicLink(): boolean;
+        isFile(): boolean;
+      }[]
+    > {
       const children = state.dirs.get(dirPath);
       if (!children) {
         return [];
@@ -63,6 +70,12 @@ function makeFs(state: IFsState): IRepoScanFs {
           },
           isSymbolicLink(): boolean {
             return isSymlink;
+          },
+          isFile(): boolean {
+            // TL-87 (#212): IRepoScanFs.Dirent now requires isFile(); none
+            // of the entries in this suite are files (everything is a dir),
+            // so the helper just returns false uniformly.
+            return false;
           },
         };
       });

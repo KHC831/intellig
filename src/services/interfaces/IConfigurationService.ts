@@ -11,6 +11,13 @@ export type GitToolWindowTab = 'local-changes' | 'log' | 'console';
 export type BlameAnnotationStyle = 'inline' | 'gutter' | 'both';
 
 /**
+ * Keymap preset name. `default` = VS Code-style; `intellij` =
+ * IntelliJ IDEA-style. Drives both the in-process KeymapService
+ * label and the package.json keybinding `when` clauses.
+ */
+export type KeymapPresetName = 'default' | 'intellij';
+
+/**
  * Extension configuration model
  */
 export interface IExtensionConfiguration {
@@ -29,7 +36,18 @@ export interface IExtensionConfiguration {
   showStatusBarBranch: boolean;
 
   // Keyboard shortcuts
+  /**
+   * @deprecated since 0.1.0. Use `keymapPreset` instead. Read by
+   * KeymapService for backward-compat fallback only; will be
+   * removed in the same release that drops the schema entry.
+   */
   useIntelliJKeymap: boolean;
+  /**
+   * Successor to `useIntelliJKeymap`. Drives the in-process
+   * keymap label AND the package.json keybinding `when` clauses
+   * (`config.intellig.keymapPreset == 'intellij'`).
+   */
+  keymapPreset: KeymapPresetName;
 
   // Colors
   modifiedFileColor: string;
@@ -49,16 +67,42 @@ export interface IConfigurationService {
   getConfiguration(): IExtensionConfiguration;
 
   /**
-   * Get a specific configuration value
+   * Get a specific configuration value. Resolves with workspace >
+   * user > schema-default precedence, matching VS Code's effective
+   * value. For migrations that need to distinguish "user set
+   * explicitly" from "schema default returned," use {@link inspect}.
    */
   get<K extends keyof IExtensionConfiguration>(key: K): IExtensionConfiguration[K];
+
+  /**
+   * Inspect a configuration value across scopes. Wave 135 R5 / M1
+   * formalisation — previously two production sites bypassed this
+   * service to call `vscode.workspace.getConfiguration().inspect()`
+   * directly because the typed `get()` substitutes schema default
+   * and the user-set vs default distinction was lost.
+   *
+   * Each field is undefined if the user has not explicitly written
+   * at that scope. The schema default lives in `defaultValue`. To
+   * detect "user explicitly chose value X at any scope," check
+   * `workspaceValue ?? globalValue !== undefined` and ignore
+   * `defaultValue`.
+   */
+  inspect<K extends keyof IExtensionConfiguration>(
+    key: K
+  ):
+    | {
+        globalValue?: IExtensionConfiguration[K];
+        workspaceValue?: IExtensionConfiguration[K];
+        defaultValue?: IExtensionConfiguration[K];
+      }
+    | undefined;
 
   /**
    * Update a configuration value
    */
   update<K extends keyof IExtensionConfiguration>(
     key: K,
-    value: IExtensionConfiguration[K],
+    value: IExtensionConfiguration[K] | undefined,
     target?: vscode.ConfigurationTarget
   ): Promise<void>;
 

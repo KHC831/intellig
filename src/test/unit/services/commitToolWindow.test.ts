@@ -43,6 +43,7 @@ import type {
 import type { IShelfItem, IShelfService } from '../../../services/interfaces/IShelfService';
 import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
+import { noopEvent } from '../../mocks/noopEvent';
 import { writableCommands, writableWindow } from '../../typed/windowStub';
 
 /**
@@ -344,6 +345,7 @@ describe('CommitToolWindow — host behavior', () => {
     const gitService: IGitService = {
       // Repository operations exercised by CommitToolWindow
       onDidChangeRepository: repoChange.event,
+      onDidRemoveRepository: noopEvent<IRepository>(),
       getRepositories: () => [repo],
       getRepository: async () => repo,
 
