@@ -1397,7 +1397,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "node ./out/test/runTest.js",
     "test:unit": "mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
-    "test:property": "mocha --require ts-node/register --timeout 30000 'src/test/property/**/*.property.test.ts'",
+    "test:property": "mocha --require ts-node/register --timeout 60000 'src/test/property/**/*.property.test.ts'",
     "test:property:stress": "node scripts/propertyStress.mjs",
     "check:quickpick-state": "bash scripts/check-quickpick-state-no-error.sh",
     "check:action-toasts": "bash scripts/check-action-toasts-sanitized.sh",

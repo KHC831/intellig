@@ -49,6 +49,12 @@ import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { sortCommitsStable } from '../../utils/commitSort';
+import {
+  computeMenuState,
+  computeRangeSelection,
+  type IMenuItemState,
+  type MultiSelectMenuAction,
+} from './multiSelect';
 
 /**
  * View ID for the Git Tool Window
@@ -97,7 +103,19 @@ export type LocalChangesContextAction =
   | 'delete';
 
 /**
- * Context menu action types for Log View
+ * Context menu action types for Log View.
+ *
+ * R3-10 (TL2-L-1): MUST be a superset of `MultiSelectMenuAction` from
+ * `./multiSelect.ts`. Every menu `data-action` rendered in the webview
+ * resolves to a `LogContextAction` arm, and the multi-select gating
+ * (visibility / enable / reason) is computed from the
+ * `MultiSelectMenuAction` projection. If a new action ONLY participates
+ * in multi-select gating, add it to BOTH unions; if it ONLY ships
+ * outside the menu (e.g., a keyboard-only action), add it here only.
+ *
+ * Drift between the two unions is caught at runtime by
+ * `multiSelectR1.test.ts` "every rendered data-action has a matching
+ * case in CommitContextMenuCommands._handleAction".
  */
 export type LogContextAction =
   | 'copyHash'
@@ -112,7 +130,13 @@ export type LogContextAction =
   | 'dropCommit'
   | 'editCommitMessage'
   | 'mergeIntoCurrent'
-  | 'interactiveRebase';
+  | 'interactiveRebase'
+  // Wave A — multi-select-only actions. Stub handlers in
+  // CommitContextMenuCommands surface a "lands in Wave B/C" toast until
+  // the real implementations land. Adding them to the union (R1 C-2) makes
+  // the cast in `_handleCommitContextMenu` truthful again.
+  | 'squashCommits'
+  | 'compareVersions';
 
 /**
  * Extended Log state with commit nodes for graph visualization
@@ -134,6 +158,19 @@ export interface IExtendedLogState extends ILogState {
    * *which* branch the commit has already been cherry-picked to.
    */
   cherryPickBaseRef?: string;
+  /**
+   * Wave A — IntelliJ-parity multi-select anchor.
+   *
+   * The "anchor" is the last single-clicked commit; shift-click ranges
+   * are computed inclusively from the anchor to the click target. Plain
+   * click sets the anchor to the clicked hash; ctrl/cmd-click also moves
+   * the anchor (matches IntelliJ); shift-click leaves the anchor
+   * unchanged so the user can extend the range repeatedly.
+   *
+   * `null` means "no anchor yet" — the first user click of any kind
+   * promotes itself to the anchor.
+   */
+  anchorHash: string | null;
 }
 
 /**
@@ -412,6 +449,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       commitNodes: [],
       branchMap: new Map<string, string[]>(),
       tagMap: new Map<string, string[]>(),
+      anchorHash: null,
     };
   }
 
@@ -555,17 +593,45 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     const emptyBranchMap: Map<string, string[]> = new Map();
     const emptyTagMap: Map<string, string[]> = new Map();
 
+    // Wave A R1 — anchor lifecycle (TL-C-1, Senior M-2):
+    //   - Prune `selectedCommits` to the intersection with the new commit
+    //     hashes so a force-push / log-filter that drops commits doesn't
+    //     leave dangling selection state pointing at hashes that aren't
+    //     in the rendered graph anymore.
+    //   - Reset `anchorHash` to `null` when the anchor is no longer in
+    //     the new list. JS `let anchorHash` mirror is reset by the
+    //     `syncSelection` message we post below + by reading the
+    //     `data-anchor-hash` attribute on the next render (TL-H-1/M-2).
+    const newHashes = new Set(commitNodes.map((n) => n.commit.hash));
+    const prunedSelection = new Set<string>();
+    for (const h of this._extendedLogState.selectedCommits) {
+      if (newHashes.has(h)) {
+        prunedSelection.add(h);
+      }
+    }
+    const currentAnchor = this._extendedLogState.anchorHash;
+    const newAnchor = currentAnchor && newHashes.has(currentAnchor) ? currentAnchor : null;
+
     this._extendedLogState = {
       ...this._extendedLogState,
       commitNodes,
       branchMap: branchMap || emptyBranchMap,
       tagMap: tagMap || emptyTagMap,
+      selectedCommits: prunedSelection,
+      anchorHash: newAnchor,
     };
 
     this._hasRepository = true;
     this._isLoading = false;
     this._updateWebview();
+    // R5-1 (TL4-M-1, Senior L-2 partial) — fire BEFORE the post sequence.
+    // Aligns with the 5 setters (R4-7) and ADR-009 §3 generalised rule:
+    // any host method that calls `_post*` helpers fires `onDidChangeState`
+    // first so subscribers see "state changed" on the same event-loop
+    // tick the host knows it.
     this._onDidChangeState.fire();
+    this._postSyncSelection();
+    this._postMenuStateUpdate();
   }
 
   /**
@@ -651,9 +717,15 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._extendedLogState.selectedCommits.clear();
     this._extendedLogState.selectedCommits.add(hash);
     this._extendedLogState.expandedCommit = hash;
+    // Wave A — plain-click sets the multi-select anchor.
+    this._extendedLogState.anchorHash = hash;
 
+    // R4-7 (Senior L-2) — fire onDidChangeState BEFORE the post sequence
+    // so subscribers see "selection changed" on the same event-loop
+    // tick the host knows it.
     this._onDidSelectCommit.fire(hash);
     this._onDidChangeState.fire();
+    this._postMenuStateUpdate();
 
     // Send a partial update to the details panel via postMessage
     // instead of a full _updateWebview() to preserve graph scroll position.
@@ -747,16 +819,223 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     } else {
       this._extendedLogState.selectedCommits.add(hash);
     }
+    // Wave A — Ctrl/Cmd-click also moves the anchor to the clicked
+    // commit, matching IntelliJ's selection model.
+    this._extendedLogState.anchorHash = hash;
 
-    this._onDidChangeState.fire();
+    // R3-1 (HIGH) — order: render FIRST so the new document exists,
+    // THEN post so postMessage lands on the live page rather than the
+    // pre-reload one (ADR-009 §3 sub-rule). _postSyncSelection mirrors
+    // the host's anchor + selection onto the JS-side mirror so the
+    // freshly-rendered document agrees with state on first paint.
     this._updateWebview();
+    // R4-7 (Senior L-2) — fire onDidChangeState BEFORE the wire posts
+    // so subscribers see "selection changed" on the same event-loop
+    // tick the host knows it. Aligns with selectCommit's ordering.
+    this._onDidChangeState.fire();
+    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // carries data-anchor-hash; syncSelection guards against
+    // interpolation bugs and partial-update extension cases.
+    this._postSyncSelection();
+    this._postMenuStateUpdate();
   }
 
   /**
-   * Get selected commit hashes
+   * Wave A R1 (TL-M-1) — programmatic selection setter.
+   *
+   * Public API for B/C/scripted entry points: replaces the current
+   * selection with `hashes`, sets `anchorHash` to `anchor` (or `null`
+   * when omitted, or to the first hash when omitted and the selection
+   * is non-empty). Hashes not in the rendered `commitNodes` are silently
+   * dropped — matches the same virtualization-tolerant policy used by
+   * {@link rangeSelectCommit}.
+   *
+   * Does NOT fire `onDidSelectCommit` (the event is for click-driven
+   * single-select) but DOES fire `onDidChangeState` and post
+   * `updateMenuEnableState` so the webview stays in sync.
+   */
+  public selectCommits(hashes: readonly string[], anchor?: string | null): void {
+    // R3-2 (Senior M-1) — mirror selectCommit's pending-state cleanup so
+    // a programmatic selection doesn't leak a half-loaded changed-files
+    // payload into the next details-panel render.
+    this._pendingChangedFiles = undefined;
+    this._pendingChangedFilesError = undefined;
+
+    const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
+    const filtered = hashes.filter((h) => known.has(h));
+    this._extendedLogState.selectedCommits = new Set(filtered);
+
+    if (anchor === undefined) {
+      // No explicit anchor: pick the first surviving hash, or null if empty.
+      this._extendedLogState.anchorHash = filtered.length > 0 ? filtered[0] : null;
+    } else if (anchor === null) {
+      this._extendedLogState.anchorHash = null;
+    } else {
+      this._extendedLogState.anchorHash = known.has(anchor) ? anchor : null;
+    }
+    // R3-8 (Senior L-1) — for N>=2, focus the details pane on the FIRST
+    // surviving hash so the panel can't show a stale commit that's no
+    // longer in the selection. For N=1, use that single hash. For N=0,
+    // leave whatever was there (the pane will switch to the placeholder
+    // on the next render).
+    if (filtered.length >= 1) {
+      this._extendedLogState.expandedCommit = filtered[0];
+    }
+
+    // R3-1 (HIGH) — render BEFORE posting so the precomputed enable map +
+    // anchor sync land on the live document, not the pre-reload one.
+    this._updateWebview();
+    // R4-7 (Senior L-2) — fire BEFORE the post sequence (matches
+    // selectCommit's ordering).
+    this._onDidChangeState.fire();
+    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // carries data-anchor-hash; syncSelection guards against
+    // interpolation bugs and partial-update extension cases.
+    this._postSyncSelection();
+    this._postMenuStateUpdate();
+  }
+
+  /**
+   * Wave A R1 (M-1) — host-side mirror of "right-click on a non-selected
+   * commit moves selection to that commit". Called by the webview when
+   * the user opens the context menu on a row that isn't in
+   * `selectedCommits`. No-op when the hash is already part of the
+   * selection — the multi-select stays intact so the action targets all
+   * selected commits.
+   */
+  public selectIfNotSelected(hash: string): void {
+    if (this._extendedLogState.selectedCommits.has(hash)) {
+      return;
+    }
+    this.selectCommit(hash);
+  }
+
+  /**
+   * Wave A — Shift+click range-select.
+   *
+   * Replaces the existing selection with the inclusive range from the
+   * current `anchorHash` to `hash` (in display order). When `anchorHash`
+   * is `null` (no prior click) or has scrolled out of the rendered
+   * commit list (virtualization), falls back to {@link selectCommit}
+   * behavior + sets the anchor to the clicked hash.
+   *
+   * Anchor is intentionally NOT moved — IntelliJ semantics so the user
+   * can keep extending the range from the same anchor.
+   */
+  public rangeSelectCommit(hash: string): void {
+    const allHashes = this._extendedLogState.commitNodes.map((n) => n.commit.hash);
+    const range = computeRangeSelection(this._extendedLogState.anchorHash, hash, allHashes);
+
+    if (range.length === 0) {
+      // Click target not in the rendered list; nothing to do.
+      return;
+    }
+
+    const anchorIsValid =
+      this._extendedLogState.anchorHash !== null &&
+      allHashes.indexOf(this._extendedLogState.anchorHash) !== -1;
+
+    if (!anchorIsValid) {
+      // Anchor-null OR stale anchor (TL-C-1): behave like a plain-click —
+      // set anchor + selection to the clicked hash. Mirrors the
+      // applyRangeSelectionDom JS behavior so the host doesn't drift.
+      this.selectCommit(hash);
+      return;
+    }
+
+    this._pendingChangedFiles = undefined;
+    this._pendingChangedFilesError = undefined;
+
+    this._extendedLogState.selectedCommits = new Set(range);
+    this._extendedLogState.expandedCommit = hash;
+    // Anchor unchanged — shift-click does not move the anchor.
+
+    // R3-1 (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
+    this._updateWebview();
+    // R4-7 (Senior L-2) — fire BEFORE the post sequence.
+    this._onDidChangeState.fire();
+    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // carries data-anchor-hash; syncSelection guards against
+    // interpolation bugs and partial-update extension cases.
+    this._postSyncSelection();
+    this._postMenuStateUpdate();
+  }
+
+  /**
+   * Wave A — Shift+Ctrl+click additive range-select.
+   *
+   * Adds the inclusive range from `anchorHash` to `hash` to the existing
+   * selection. With anchor null, falls back to a single toggle so the
+   * first click still has an effect. Anchor is unchanged.
+   */
+  public addRangeSelectCommit(hash: string): void {
+    const allHashes = this._extendedLogState.commitNodes.map((n) => n.commit.hash);
+    const range = computeRangeSelection(this._extendedLogState.anchorHash, hash, allHashes);
+
+    if (range.length === 0) {
+      return;
+    }
+
+    const anchorIsValid =
+      this._extendedLogState.anchorHash !== null &&
+      allHashes.indexOf(this._extendedLogState.anchorHash) !== -1;
+
+    if (!anchorIsValid) {
+      // Mirror rangeSelectCommit: stale/null anchor → plain toggle.
+      this.toggleCommitSelection(hash);
+      return;
+    }
+
+    for (const h of range) {
+      this._extendedLogState.selectedCommits.add(h);
+    }
+    this._extendedLogState.expandedCommit = hash;
+
+    // R3-1 (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
+    this._updateWebview();
+    // R4-7 (Senior L-2) — fire BEFORE the post sequence.
+    this._onDidChangeState.fire();
+    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // carries data-anchor-hash; syncSelection guards against
+    // interpolation bugs and partial-update extension cases.
+    this._postSyncSelection();
+    this._postMenuStateUpdate();
+  }
+
+  /**
+   * Get selected commit hashes in DISPLAY ORDER (newest-first; matches
+   * what the user sees in the log). R3-9 (Senior L-3) introduced the
+   * display-order projection so Wave B/C consumers see hashes in the
+   * order the user expects rather than Set-iteration order.
+   *
+   * **WARNING for chronological-replay consumers (cherry-pick, rebase):**
+   * Display order is NEWEST-FIRST. Operations that replay commits onto
+   * a branch (cherry-pick, rebase) MUST `.reverse()` the result to
+   * apply commits OLDEST-FIRST; otherwise authored-order is destroyed
+   * and `git log` shows the new commits backwards relative to the
+   * source branch. R4-3 (TL3-M-2).
+   *
+   * Wave B / Wave C handlers that batch-apply commits should call:
+   *
+   * ```ts
+   * const replayOrder = [...provider.getSelectedCommits()].reverse();
+   * for (const hash of replayOrder) {
+   *   await cherryPick(repo, hash);
+   * }
+   * ```
+   *
+   * Hashes that aren't in `commitNodes` are dropped (mirrors the rest
+   * of the multi-select policy).
    */
   public getSelectedCommits(): string[] {
-    return Array.from(this._extendedLogState.selectedCommits);
+    const set = this._extendedLogState.selectedCommits;
+    const out: string[] = [];
+    for (const node of this._extendedLogState.commitNodes) {
+      if (set.has(node.commit.hash)) {
+        out.push(node.commit.hash);
+      }
+    }
+    return out;
   }
 
   /**
@@ -772,6 +1051,61 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._remoteCacheSubscription?.dispose();
     this._remoteCacheSubscription = undefined;
     super.dispose();
+  }
+
+  /**
+   * Wave A R1 (TL-H-2/H-3/H-4) — host-side menu-state computation.
+   *
+   * The host is the source of truth for which menu items are visible /
+   * enabled. Whenever selection or commit-list state changes, we
+   * recompute via {@link computeMenuState} and post the result to the
+   * webview. The JS side has a tiny apply-loop that toggles classes per
+   * the precomputed map — no rule duplication.
+   *
+   * Cheap: the helper is O(N) on `commitNodes.length` and runs per
+   * selection edit, not per render.
+   */
+  private _postMenuStateUpdate(): void {
+    if (!this._view) {
+      return;
+    }
+    const commitNodes = this._extendedLogState.commitNodes.map((n) => ({
+      hash: n.commit.hash,
+      parentCount: (n.commit.parents || []).length,
+    }));
+    const headHash = commitNodes.length > 0 ? commitNodes[0].hash : '';
+    const state = computeMenuState({
+      selectedHashes: this._extendedLogState.selectedCommits,
+      commitNodes,
+      headHash,
+    });
+    const msg: WaveAOutboundMessage = {
+      type: 'updateMenuEnableState',
+      state,
+      selectedCount: this._extendedLogState.selectedCommits.size,
+    };
+    void this._view.webview.postMessage(msg);
+  }
+
+  /**
+   * Wave A R1 (TL-C-1) — sync the webview's `let anchorHash` mirror with
+   * the freshly-computed host anchor after a re-render that may have
+   * pruned the prior anchor. The webview JS reads
+   * {@link IExtendedLogState.anchorHash} from the rendered
+   * `data-anchor-hash` attribute on full re-render; this message handles
+   * the partial-update case (e.g. a programmatic `selectCommits` that
+   * doesn't trigger a full HTML rebuild).
+   */
+  private _postSyncSelection(): void {
+    if (!this._view) {
+      return;
+    }
+    const msg: WaveAOutboundMessage = {
+      type: 'syncSelection',
+      anchorHash: this._extendedLogState.anchorHash,
+      selectedHashes: Array.from(this._extendedLogState.selectedCommits),
+    };
+    void this._view.webview.postMessage(msg);
   }
 
   /**
@@ -796,6 +1130,39 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       case 'toggleCommitSelection':
         if (message.commitHash) {
           this.toggleCommitSelection(message.commitHash);
+        }
+        break;
+      case 'rangeSelectCommit':
+        // Wave A — shift+click: replace selection with [anchor..click].
+        // R2 (TL-M-2): the user's click anchor travels in the message and
+        // wins over the host's cached anchorHash. Ensures the host honours
+        // the JS view of the world for this single click instead of
+        // consulting a cache that can be one render stale (ADR-009 §3).
+        // R3-3 (Senior M-2): real type narrow — accept string|null only,
+        // ignore wrong-type fields (a rogue / bug-mutated webview can't
+        // poison the host state).
+        if (message.commitHash) {
+          if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
+            this._extendedLogState.anchorHash = message.anchorHash;
+          }
+          this.rangeSelectCommit(message.commitHash);
+        }
+        break;
+      case 'addRangeSelectCommit':
+        // Wave A — shift+ctrl+click: ADD [anchor..click] to existing selection.
+        // R2 (TL-M-2): same message-anchor-wins contract as rangeSelectCommit.
+        // R3-3 (Senior M-2): same type narrow.
+        if (message.commitHash) {
+          if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
+            this._extendedLogState.anchorHash = message.anchorHash;
+          }
+          this.addRangeSelectCommit(message.commitHash);
+        }
+        break;
+      case 'selectIfNotSelected':
+        // Wave A R1 (M-1) — right-click on a non-selected commit.
+        if (message.commitHash) {
+          this.selectIfNotSelected(message.commitHash);
         }
         break;
       case 'initRepository':
@@ -1099,6 +1466,20 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * Fires the same event as the log context menu, since both operate on commits.
    */
   private _handleCommitContextMenu(action: LogContextAction, commitHashes: string[]): void {
+    // Wave A R1 (TL-M-4) — validate every targeted hash is still in the
+    // rendered commit list. The webview's selection state can drift
+    // mid-action if a refresh / force-push / log-filter change happens
+    // between the user opening the menu and clicking the action. Aborting
+    // with a toast is safer than silently firing the action with stale
+    // hashes (which could target the wrong commits after a rebase).
+    const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
+    const stale = commitHashes.filter((h) => !known.has(h));
+    if (stale.length > 0) {
+      void vscode.window.showInformationMessage(
+        'Commit selection changed since the menu opened — please retry.'
+      );
+      return;
+    }
     this._onDidRequestLogContextAction.fire({
       action,
       commitHashes,
@@ -1745,7 +2126,7 @@ ${bodyMarkup}
 
     if (commitNodes.length === 0) {
       return `
-        <div class="graph-panel" role="listbox" aria-label="Commit Graph">
+        <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
           <p class="empty-message">No commits found</p>
         </div>`;
     }
@@ -1847,8 +2228,14 @@ ${bodyMarkup}
 
     const repositorySelectorHtml = this._getRepositorySelectorHtml();
 
+    // Wave A R1 (TL-H-1, TL-M-2) — embed the anchor hash so a full
+    // re-render rehydrates the JS `let anchorHash` mirror correctly.
+    // The webview JS reads this attribute on script-execution and
+    // again whenever the host posts a `syncSelection` message.
+    const anchorAttr = this._extendedLogState.anchorHash ?? '';
+
     return `
-      <div class="graph-panel" role="listbox" aria-label="Commit Graph" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
         ${repositorySelectorHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
@@ -1935,24 +2322,34 @@ ${bodyMarkup}
         ? this._extendedLogState.commitNodes[0].commit.hash
         : '';
 
+    // Wave A \u2014 A2: items marked with `menu-multi-hidden` default to hidden;
+    // the inline-script `updateContextMenuState` JS toggles the class based
+    // on `selectedCount`. This keeps the visibility rules in one
+    // declarative place rather than string-rebuilding the menu each time.
+    //
+    // Single-only items render the `data-multi-action="single-only"` data
+    // attribute so the JS can locate them without hardcoding the action
+    // list. Multi-only items get `data-multi-action="multi-only"`.
     return `
-      <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${headHash}">
+      <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${this._escapeHtml(headHash)}">
         <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">Copy Revision Number</div>
         <div class="context-menu-item" data-action="createPatch" role="menuitem" tabindex="0">Create Patch\u2026</div>
         <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">Cherry-Pick</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="checkoutRevision" role="menuitem" tabindex="0">Checkout Revision</div>
-        <div class="context-menu-item" data-action="showRepoAtRevision" role="menuitem" tabindex="0">Show Repository at Revision</div>
-        <div class="context-menu-item" data-action="compareWithLocal" role="menuitem" tabindex="0">Compare with Local</div>
+        <div class="context-menu-item" data-action="checkoutRevision" data-multi-action="single-only" role="menuitem" tabindex="0">Checkout Revision</div>
+        <div class="context-menu-item" data-action="showRepoAtRevision" data-multi-action="single-only" role="menuitem" tabindex="0">Show Repository at Revision</div>
+        <div class="context-menu-item" data-action="compareWithLocal" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Local</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="compareVersions" data-multi-action="multi-only" role="menuitem" tabindex="0">Compare Versions</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="editCommitMessage" role="menuitem" tabindex="0">Edit Commit Message</div>
-        <div class="context-menu-item context-menu-danger" data-action="resetToHere" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
+        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message</div>
+        <div class="context-menu-item context-menu-danger" data-action="resetToHere" data-multi-action="single-only" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
         <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">Revert Commit</div>
-        <div class="context-menu-item" data-action="undoCommit" role="menuitem" tabindex="0">Undo Commit</div>
+        <div class="context-menu-item" data-action="undoCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Undo Commit</div>
         <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="mergeIntoCurrent" role="menuitem" tabindex="0">Merge into Current Branch</div>
-        <div class="context-menu-item" data-action="interactiveRebase" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
+        <div class="context-menu-item" data-action="mergeIntoCurrent" data-multi-action="single-only" role="menuitem" tabindex="0">Merge into Current Branch</div>
+        <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
       </div>`;
   }
 
@@ -2186,7 +2583,7 @@ ${bodyMarkup}
     }
 
     return `
-      <div class="details-panel multi-commit-details" role="region" aria-label="Multi-Commit Details">
+      <div class="details-panel multi-commit-details" role="region" aria-label="Multi-Commit Details" data-selected-count="${commitCount}">
         ${headerHtml}
         <div class="multi-commit-list" role="list" aria-label="Selected Commits">
           ${commitsListHtml}
@@ -2509,6 +2906,15 @@ ${bodyMarkup}
         opacity: 0.4;
         cursor: default;
         pointer-events: none;
+      }
+
+      /* Wave A R1 (C-1) — visibility flag for multi-select menu items.
+         Keeps single-only items hidden when N>=2 and multi-only items
+         hidden when their N constraint isn't met. The display: none
+         rule takes the row out of the flow so the menu collapses
+         naturally. */
+      .context-menu-item.menu-multi-hidden {
+        display: none;
       }
 
       .context-menu-arrow {
@@ -3245,16 +3651,111 @@ ${bodyMarkup}
   }
 
   /**
-   * Get inline script for the webview
+   * Get inline script for the webview.
+   *
+   * FU: extract inline-script functions to a separate `.js` resource
+   * served via `webview.asWebviewUri` when the function count crosses 5
+   * non-trivial functions OR when the first inline-script-resident
+   * function needs async data flow. Current count: 5
+   * (`applyMenuEnableMap`, `applyRangeSelectionDom`,
+   * `refreshSelectedCount`, `readInitialAnchor`, `scrollToCommit`).
+   * Trigger imminent — Wave B's per-action pre-flight checks may add
+   * the sixth. R5-5 (TL4-L-2).
    */
   private _getInlineScript(): string {
     return `
       (function() {
         const vscode = acquireVsCodeApi();
-        
+
         // State for drag and drop
         let draggedFiles = [];
         let contextMenuTarget = null;
+
+        // Wave A R1 — multi-select webview state.
+        //
+        // The HOST is the source of truth for menu visibility/enable
+        // state (ADR-009). The webview keeps a tiny mirror of:
+        //   - anchorHash    — for immediate range-selection DOM updates
+        //                     before the host's response round-trips back
+        //   - menuEnableMap — most-recent updateMenuEnableState payload
+        //
+        // anchorHash is rehydrated from the rendered \`data-anchor-hash\`
+        // attribute on script execution, and again on every
+        // \`syncSelection\` message (sent by the host after updateLogState
+        // prunes a stale anchor).
+        let anchorHash = (function readInitialAnchor() {
+          const gp = document.querySelector('.graph-panel[data-anchor-hash]');
+          if (!gp) return null;
+          const v = gp.getAttribute('data-anchor-hash') || '';
+          return v.length > 0 ? v : null;
+        })();
+
+        // Most-recent enable map posted by the host. Populated on every
+        // \`updateMenuEnableState\` message; consumed by
+        // \`applyMenuEnableMap\` when the menu opens.
+        let menuEnableMap = null;
+
+        // Reflect \`selectedCommits.size\` onto the graph-panel root's
+        // \`data-selected-count\` attribute AND the multi-commit details
+        // panel's data-selected-count (R1 L-1). Cheap enough to call on
+        // every selection change since the graph panel is bounded by the
+        // virtualization window.
+        function refreshSelectedCount() {
+          const graphPanel = document.querySelector('.graph-panel[aria-multiselectable]');
+          if (graphPanel) {
+            const selected = graphPanel.querySelectorAll('.commit-row.selected');
+            graphPanel.setAttribute('data-selected-count', String(selected.length));
+            // Mirror onto the details panel root so CSS / test hooks that
+            // bind to .multi-commit-details[data-selected-count] also stay
+            // in sync (R1 L-1).
+            const multiDetails = document.querySelector('.multi-commit-details');
+            if (multiDetails) {
+              multiDetails.setAttribute('data-selected-count', String(selected.length));
+            }
+          }
+        }
+
+        // Apply shift-click DOM mutations: replace (or extend) the
+        // \`.selected\` class on rows in the inclusive range from
+        // \`anchorHash\` to \`clickHash\`, in display order. Falls back to
+        // single-select when the anchor isn't in the rendered DOM
+        // (virtualization edge case).
+        function applyRangeSelectionDom(clickHash, additive) {
+          const rows = Array.from(document.querySelectorAll('.graph-panel .commit-row[data-hash]'));
+          const allHashes = rows.map(function(r) { return r.getAttribute('data-hash'); });
+          const clickIdx = allHashes.indexOf(clickHash);
+          if (clickIdx === -1) {
+            return;
+          }
+          if (anchorHash === null || allHashes.indexOf(anchorHash) === -1) {
+            // Anchor-null / virtualized-out fallback → behave as plain-click.
+            rows.forEach(function(r) {
+              r.classList.remove('selected');
+              r.setAttribute('aria-selected', 'false');
+            });
+            const target = rows[clickIdx];
+            target.classList.add('selected');
+            target.setAttribute('aria-selected', 'true');
+            anchorHash = clickHash;
+            refreshSelectedCount();
+            return;
+          }
+          const anchorIdx = allHashes.indexOf(anchorHash);
+          const lo = Math.min(anchorIdx, clickIdx);
+          const hi = Math.max(anchorIdx, clickIdx);
+          if (!additive) {
+            rows.forEach(function(r) {
+              r.classList.remove('selected');
+              r.setAttribute('aria-selected', 'false');
+            });
+          }
+          for (let i = lo; i <= hi; i++) {
+            rows[i].classList.add('selected');
+            rows[i].setAttribute('aria-selected', 'true');
+          }
+          refreshSelectedCount();
+          // Anchor unchanged — IntelliJ semantics.
+        }
 
         // Handle state updates from extension
         window.addEventListener('message', event => {
@@ -3280,6 +3781,43 @@ ${bodyMarkup}
               targetRow.setAttribute('aria-selected', 'true');
               targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
+            refreshSelectedCount();
+          }
+          // Wave A R1 — host pushes the precomputed menu state (visibility +
+          // enable per action) so the JS just stores it. The apply happens
+          // when the menu opens, against the cached map. Source of truth is
+          // the host; ADR-009.
+          if (message.type === 'updateMenuEnableState' && message.state) {
+            menuEnableMap = message.state;
+            // If the menu is currently open, re-apply immediately so a
+            // selection change made via keyboard / programmatic call
+            // refreshes the visible items live.
+            const openMenu = document.getElementById('commit-context-menu');
+            if (openMenu && !openMenu.hidden) {
+              applyMenuEnableMap(openMenu);
+            }
+          }
+          // Wave A R1 — host re-syncs the JS anchor mirror after a
+          // selection or commit-list change that may have invalidated it.
+          if (message.type === 'syncSelection') {
+            anchorHash = typeof message.anchorHash === 'string' && message.anchorHash.length > 0
+              ? message.anchorHash
+              : null;
+            // Reflect host-side selection onto the DOM as well.
+            const wantSelected = new Set(Array.isArray(message.selectedHashes)
+              ? message.selectedHashes
+              : []);
+            document.querySelectorAll('.graph-panel .commit-row[data-hash]').forEach(function(r) {
+              const h = r.getAttribute('data-hash');
+              if (h && wantSelected.has(h)) {
+                r.classList.add('selected');
+                r.setAttribute('aria-selected', 'true');
+              } else {
+                r.classList.remove('selected');
+                r.setAttribute('aria-selected', 'false');
+              }
+            });
+            refreshSelectedCount();
           }
         });
 
@@ -3320,14 +3858,35 @@ ${bodyMarkup}
             }
             const hash = commitRow.getAttribute('data-hash');
             if (hash) {
-              if (e.ctrlKey || e.metaKey) {
-                // Ctrl/Cmd+click: toggle multi-select
+              // Wave A — selection key combos:
+              //   Ctrl/Cmd        → toggle (existing) + move anchor
+              //   Shift           → range-replace
+              //   Shift+Ctrl/Cmd  → range-add
+              //   plain           → single-select + set anchor
+              if (e.shiftKey && (e.ctrlKey || e.metaKey)) {
+                // R2 (TL-M-2) — message anchor wins; the host treats the
+                // JS-side anchor as authoritative for THIS click.
+                vscode.postMessage({
+                  type: 'addRangeSelectCommit',
+                  commitHash: hash,
+                  anchorHash: anchorHash,
+                });
+                applyRangeSelectionDom(hash, /* additive */ true);
+              } else if (e.shiftKey) {
+                vscode.postMessage({
+                  type: 'rangeSelectCommit',
+                  commitHash: hash,
+                  anchorHash: anchorHash,
+                });
+                applyRangeSelectionDom(hash, /* additive */ false);
+              } else if (e.ctrlKey || e.metaKey) {
                 vscode.postMessage({ type: 'toggleCommitSelection', commitHash: hash });
                 commitRow.classList.toggle('selected');
                 var isNowSelected = commitRow.classList.contains('selected');
                 commitRow.setAttribute('aria-selected', String(isNowSelected));
+                anchorHash = hash;
+                refreshSelectedCount();
               } else {
-                // Plain click: single select
                 vscode.postMessage({ type: 'selectCommit', commitHash: hash });
                 document.querySelectorAll('.commit-row.selected').forEach(function(r) {
                   r.classList.remove('selected');
@@ -3335,6 +3894,8 @@ ${bodyMarkup}
                 });
                 commitRow.classList.add('selected');
                 commitRow.setAttribute('aria-selected', 'true');
+                anchorHash = hash;
+                refreshSelectedCount();
               }
             }
           }
@@ -3561,15 +4122,17 @@ ${bodyMarkup}
             case ' ':
               event.preventDefault();
               if (event.ctrlKey || event.metaKey) {
-                toggleCommitSelection(hash);
+                vscode.postMessage({ type: 'toggleCommitSelection', commitHash: hash });
                 const row = event.target.closest('.commit-row');
                 if (row) {
                   row.classList.toggle('selected');
                   const isNowSelected = row.classList.contains('selected');
                   row.setAttribute('aria-selected', String(isNowSelected));
                 }
+                anchorHash = hash;
+                refreshSelectedCount();
               } else {
-                selectCommit(hash);
+                vscode.postMessage({ type: 'selectCommit', commitHash: hash });
                 document.querySelectorAll('.commit-row.selected').forEach(function(r) {
                   r.classList.remove('selected');
                   r.setAttribute('aria-selected', 'false');
@@ -3579,8 +4142,71 @@ ${bodyMarkup}
                   row.classList.add('selected');
                   row.setAttribute('aria-selected', 'true');
                 }
+                anchorHash = hash;
+                refreshSelectedCount();
               }
               break;
+            // Wave A R1 (H-2) — keyboard range-select.
+            //
+            //   ArrowUp/Down            : single-select prev/next row
+            //   Shift+ArrowUp/Down      : range-replace prev/next row
+            //   Ctrl+Shift+ArrowUp/Down : range-add prev/next row
+            //
+            // Targets are looked up by document order of commit rows;
+            // the current graph isn't virtualised, so the rendered DOM
+            // already reflects the host's display ordering. Focus is
+            // moved to the new row so the next keypress targets it.
+            case 'ArrowUp':
+            case 'ArrowDown': {
+              event.preventDefault();
+              const rows = Array.from(document.querySelectorAll(
+                '.graph-panel .commit-row[data-hash]'
+              ));
+              const allHashes = rows.map(function(r) { return r.getAttribute('data-hash'); });
+              const curIdx = allHashes.indexOf(hash);
+              if (curIdx === -1) break;
+              const delta = event.key === 'ArrowDown' ? 1 : -1;
+              const targetIdx = curIdx + delta;
+              if (targetIdx < 0 || targetIdx >= rows.length) break;
+              const targetRow = rows[targetIdx];
+              const targetHash = allHashes[targetIdx];
+              if (!targetHash) break;
+              if (event.shiftKey && (event.ctrlKey || event.metaKey)) {
+                // R2 (TL-M-2) — message anchor wins.
+                vscode.postMessage({
+                  type: 'addRangeSelectCommit',
+                  commitHash: targetHash,
+                  anchorHash: anchorHash,
+                });
+                applyRangeSelectionDom(targetHash, /* additive */ true);
+              } else if (event.shiftKey) {
+                vscode.postMessage({
+                  type: 'rangeSelectCommit',
+                  commitHash: targetHash,
+                  anchorHash: anchorHash,
+                });
+                applyRangeSelectionDom(targetHash, /* additive */ false);
+              } else {
+                vscode.postMessage({ type: 'selectCommit', commitHash: targetHash });
+                document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+                  r.classList.remove('selected');
+                  r.setAttribute('aria-selected', 'false');
+                });
+                targetRow.classList.add('selected');
+                targetRow.setAttribute('aria-selected', 'true');
+                anchorHash = targetHash;
+                refreshSelectedCount();
+              }
+              // Move keyboard focus + scroll into view so the user
+              // visually tracks the selection even on a virtualised list.
+              if (targetRow.focus) {
+                targetRow.focus();
+              }
+              if (targetRow.scrollIntoView) {
+                targetRow.scrollIntoView({ block: 'nearest' });
+              }
+              break;
+            }
             case 'ContextMenu':
               event.preventDefault();
               showLogContextMenu(event, hash);
@@ -3607,12 +4233,30 @@ ${bodyMarkup}
             return row.getAttribute('data-hash');
           });
 
-          // If the right-clicked commit is part of the current multi-select,
-          // apply the action to all selected commits
-          if (selectedHashes.length > 1 && selectedHashes.indexOf(hash) !== -1) {
+          // R1 M-1: right-click on a non-selected commit moves the
+          // selection to ONLY that commit. Mirrors IntelliJ — the action
+          // can never silently target a different set than the user sees
+          // highlighted. The host gets the same news via
+          // selectIfNotSelected so the host-side state stays in sync and
+          // the next updateMenuEnableState reflects the move.
+          if (selectedHashes.indexOf(hash) === -1) {
+            document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+              r.classList.remove('selected');
+              r.setAttribute('aria-selected', 'false');
+            });
+            const target = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+            if (target) {
+              target.classList.add('selected');
+              target.setAttribute('aria-selected', 'true');
+            }
+            anchorHash = hash;
+            refreshSelectedCount();
+            vscode.postMessage({ type: 'selectIfNotSelected', commitHash: hash });
+            commitContextMenuHashes = [hash];
+          } else if (selectedHashes.length > 1) {
+            // Multi-select right-click on a member: target the whole set.
             commitContextMenuHashes = selectedHashes;
           } else {
-            // Single commit or right-clicked a non-selected commit
             commitContextMenuHashes = [hash];
           }
 
@@ -3632,36 +4276,64 @@ ${bodyMarkup}
             contextMenu.style.left = left + 'px';
             contextMenu.style.top = top + 'px';
 
-            const undoItem = contextMenu.querySelector('[data-action="undoCommit"]');
-            const editMsgItem = contextMenu.querySelector('[data-action="editCommitMessage"]');
-            const dropItem = contextMenu.querySelector('[data-action="dropCommit"]');
-            const headHash = contextMenu.getAttribute('data-head-hash') || '';
-            const isSingleCommit = commitContextMenuHashes.length === 1;
-            const isHeadCommit = isSingleCommit && commitContextMenuHashes[0] === headHash;
-
-            if (undoItem) {
-              if (isHeadCommit) {
-                undoItem.classList.remove('disabled');
-              } else {
-                undoItem.classList.add('disabled');
-              }
-            }
-
-            if (editMsgItem) {
-              editMsgItem.classList.add('disabled');
-            }
-
-            if (dropItem) {
-              if (isSingleCommit) {
-                dropItem.classList.remove('disabled');
-              } else {
-                dropItem.classList.add('disabled');
-              }
-            }
+            applyMenuEnableMap(contextMenu);
 
             contextMenu.hidden = false;
           }
         };
+
+        // Wave A R1 — apply-loop for the host-precomputed menu state.
+        //
+        // ADR-009: the host computes visibility + enabled per action via
+        // \`multiSelect.ts:computeMenuState\` and posts the map as
+        // \`updateMenuEnableState\`. The JS does NOT mirror the rules —
+        // it just toggles classes per the cached \`menuEnableMap\`. If the
+        // map is missing (extremely early page load, before the first
+        // host post arrives), we fall back to "enable everything" so the
+        // menu remains usable; the host's TL-M-4 validation rejects any
+        // stale invocation downstream so nothing destructive can slip
+        // through that window.
+        function applyMenuEnableMap(contextMenu) {
+          const map = menuEnableMap;
+          const items = contextMenu.querySelectorAll('.context-menu-item');
+          items.forEach(function(item) {
+            const action = item.getAttribute('data-action');
+            const entry = map ? map[action] : null;
+            const visible = entry ? entry.visible : true;
+            const enabled = entry ? entry.enabled : true;
+            if (visible) {
+              item.classList.remove('menu-multi-hidden');
+            } else {
+              item.classList.add('menu-multi-hidden');
+            }
+            if (enabled) {
+              item.classList.remove('disabled');
+            } else {
+              item.classList.add('disabled');
+            }
+            // Wave A R4-1 (TL3-H-1, Senior M-1) — surface entry.reason as
+            // a title= tooltip on visible-disabled rows. Defense-in-depth
+            // typeof check keeps a malformed payload from rendering
+            // "[object Object]" or "undefined" into the user's tooltip.
+            //
+            // INVARIANT (with multiSelect.ts:computeMenuState): the host
+            // sets reason ONLY when visible && !enabled. This gate
+            // mirrors that on the wire side. If a future host bug sets
+            // reason on a hidden row, the title write would silently
+            // emit on a .menu-multi-hidden element — invisible to the
+            // user, but a sign that the host invariant has drifted. R5-3
+            // (TL4-L-1) closes the symmetry-by-documentation loop.
+            const titleAttr =
+              entry && !entry.enabled && typeof entry.reason === 'string'
+                ? entry.reason
+                : '';
+            if (titleAttr) {
+              item.setAttribute('title', titleAttr);
+            } else {
+              item.removeAttribute('title');
+            }
+          });
+        }
 
         // Handle commit context menu item clicks
         document.addEventListener('click', (e) => {
@@ -3690,6 +4362,29 @@ ${bodyMarkup}
           if (e.key === 'Escape') {
             const commitContextMenu = document.getElementById('commit-context-menu');
             if (commitContextMenu) commitContextMenu.hidden = true;
+          }
+        });
+
+        // Wave A R1 (H-2) — delegate keyboard handling to focused commit
+        // rows so the arrow-key range-select works without per-row
+        // \`onkeydown\` attributes (which would inflate the rendered HTML).
+        document.addEventListener('keydown', function(e) {
+          const focused = e.target && e.target.closest
+            ? e.target.closest('.commit-row[data-hash]')
+            : null;
+          if (!focused) return;
+          const hash = focused.getAttribute('data-hash');
+          if (!hash) return;
+          // Only intercept the keys the handler cares about — leave
+          // everything else (Tab, Esc, plain typing) untouched.
+          const handled = (
+            e.key === 'Enter' || e.key === ' ' ||
+            e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+            e.key === 'ContextMenu' ||
+            (e.key === 'c' && (e.ctrlKey || e.metaKey))
+          );
+          if (handled) {
+            window.handleCommitKeydown(e, hash);
           }
         });
 
@@ -3941,6 +4636,47 @@ interface IWebviewLogFilter {
  * messages (selectCommit, panelResize, applyLogFilter, etc.) omit `tab`
  * and are treated as implicit `tab: 'log'` by {@link TabRouter}.
  */
+/**
+ * Wave A R1 (L-4) — typed envelopes for the four new Wave A wire types.
+ * Included as a separate union (rather than a refactor of the legacy
+ * flat `IWebviewMessage` shape) to keep the scope tight: Wave B/C can
+ * extend the union as their messages land.
+ *
+ * Inbound (webview → host):
+ *   - rangeSelectCommit       : shift-click range-replace
+ *   - addRangeSelectCommit    : shift+ctrl-click range-add
+ *   - selectIfNotSelected     : right-click on a non-selected row
+ *
+ * Outbound (host → webview):
+ *   - updateMenuEnableState   : precomputed menu visibility + enable map
+ *   - syncSelection           : anchor + selection mirror after a re-render
+ */
+// TODO(post-Wave-C): fold WaveAInboundMessage / WaveBInboundMessage /
+// WaveCInboundMessage into a single discriminated union
+// `WebviewInboundMessage`. Sub-unions are fine for the wave-by-wave
+// development we're in; long-term this is one type so the
+// `_handleWebviewMessage` switch is exhaustively-checkable.
+export type WaveAInboundMessage =
+  // R2 (TL-M-2 follow-up): the click anchor travels WITH the message.
+  // The host trusts the message anchor for this single operation rather
+  // than consulting its own cache, which can be stale by one render.
+  // ADR-009 §3 documents the exception.
+  | { type: 'rangeSelectCommit'; commitHash: string; anchorHash: string | null }
+  | { type: 'addRangeSelectCommit'; commitHash: string; anchorHash: string | null }
+  | { type: 'selectIfNotSelected'; commitHash: string };
+
+export type WaveAOutboundMessage =
+  | {
+      type: 'updateMenuEnableState';
+      state: Record<MultiSelectMenuAction, IMenuItemState>;
+      selectedCount: number;
+    }
+  | {
+      type: 'syncSelection';
+      anchorHash: string | null;
+      selectedHashes: string[];
+    };
+
 interface IWebviewMessage {
   type: string;
   path?: string;
@@ -3955,6 +4691,13 @@ interface IWebviewMessage {
   branchType?: 'local' | 'remote';
   widths?: [number, number];
   repositoryIndex?: number;
+  /**
+   * Wave A R2 (TL-M-2): click anchor that travels with
+   * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no
+   * prior anchor" (first click after a render). Authoritative for the
+   * single message it carries; see {@link WaveAInboundMessage}.
+   */
+  anchorHash?: string | null;
   /** Optional tab discriminator for T1-05 routing (design §3.4). */
   tab?: TabId;
 }

@@ -167,6 +167,23 @@ the bump goes through a triage pass:
 
 Unit tests use mocha with ts-node and run directly from TypeScript source. Property-based tests (fast-check) run from compiled JS.
 
+Per-test timeouts (raised in Wave A R1/R2 to absorb CPU-contention flakes
+the original defaults were susceptible to):
+
+- `test:unit` — 30s (`.mocharc.json` `timeout`). Wave A R2 raised this from
+  10s after a `ChangelistService.test.ts` `before each` hook flaked once
+  under load. Re-running the file alone passed in 8s — same pattern as
+  the property-suite flake R1 caught: a single slow test legitimately
+  needs more headroom on a busy host.
+- `test:property` — 60s (`package.json` `test:property` script). Wave A R1
+  raised this from 30s. The fast-check shrinking pass for some property
+  suites legitimately exceeds 30s on a busy machine; 60s is a
+  margin-of-safety choice that does not change pass rates on a quiet host.
+
+Both raises are CI-friendly: the 99th-percentile actual run time on a
+quiet host is well under the new ceilings, so the timeouts only fire on
+genuine hangs.
+
 ```bash
 # Unit tests (uses .mocharc.json — runs from src/)
 npx mocha

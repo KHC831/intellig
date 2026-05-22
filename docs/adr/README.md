@@ -24,6 +24,8 @@ status block.
   Accepted — Structural guards as a complementary tool
 - [ADR-008](ADR-008-watcher-families.md) — Accepted —
   Watcher families and the cleanup-registry pattern
+- [ADR-009](ADR-009-webview-state-ownership.md) — Accepted —
+  Webview state ownership: host leads, JS follows
 
 ## Status legend
 

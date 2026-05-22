@@ -171,6 +171,20 @@ export class CommitContextMenuCommands {
       case 'interactiveRebase':
         await this._handleInteractiveRebase(commitHashes);
         break;
+      // Wave A R1 C-2 — multi-select-only stub handlers. The real
+      // implementations land in Wave B (compareVersions) and Wave C
+      // (squashCommits); shipping the menu items without these cases
+      // would render disabled-but-clickable rows that silently no-op.
+      case 'squashCommits':
+        void vscode.window.showInformationMessage(
+          `Squash Commits will land in Wave C (selected ${commitHashes.length} commits).`
+        );
+        break;
+      case 'compareVersions':
+        void vscode.window.showInformationMessage(
+          `Compare Versions will land in Wave B (selected ${commitHashes.length} commits).`
+        );
+        break;
       default:
         // Unknown action — no-op
         break;

@@ -296,6 +296,34 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
           const testProvider = createProvider();
 
           try {
+            // Wave A R3-9 — `getSelectedCommits` projects through
+            // `commitNodes`, so the rendered commit list must contain
+            // every hash this property might toggle. Seed `commitNodes`
+            // with `initialSet ∪ {toggleHash}` before any toggle so the
+            // projection sees the hashes the property is mutating.
+            //
+            // R4-8 (Senior L-4) — fixture coupling note for future
+            // property additions: any new property that introduces hash
+            // relationships (parent chains, branch maps, merge graphs)
+            // must ALSO seed those into `commitNodes` here, or the
+            // projection will silently drop them — the property would
+            // appear to pass while actually exercising an empty
+            // selection. If you add a new arbitrary that produces
+            // hashes, audit this seeding block too.
+            const allHashes = new Set<string>(initialSet);
+            allHashes.add(toggleHash);
+            const commits: ICommit[] = Array.from(allHashes).map((h, i) => ({
+              hash: h,
+              shortHash: h.slice(0, 7),
+              message: `commit ${i}`,
+              author: { name: 'a', email: 'a@x' },
+              committer: { name: 'a', email: 'a@x' },
+              parents: [],
+              authorDate: new Date(0),
+              commitDate: new Date(0),
+            }));
+            testProvider.updateLogState(commits);
+
             // Set up the initial selection state by toggling each hash in
             for (const hash of initialSet) {
               testProvider.toggleCommitSelection(hash);

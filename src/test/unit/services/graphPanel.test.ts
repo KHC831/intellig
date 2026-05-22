@@ -626,7 +626,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have role="menuitem" on each menu item', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      assert.strictEqual(menuItemCount, 13, 'Should have 13 menu items with role="menuitem"');
+      // Wave A added two multi-select-only items: squashCommits + compareVersions.
+      assert.strictEqual(menuItemCount, 15, 'Should have 15 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -732,6 +733,24 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Extension host: selectCommit clears previous selection', () => {
+    // Wave A R3-9 — `getSelectedCommits` now projects through `commitNodes`
+    // (display-order contract for Wave B/C consumers). These tests need a
+    // populated commit list so the selection actually has somewhere to be
+    // visible from the projection.
+    beforeEach(() => {
+      provider.updateLogState([
+        makeCommit({ hash: 'aaa1111111111111111111111111111111111111111', parents: [] }),
+        makeCommit({
+          hash: 'bbb2222222222222222222222222222222222222222',
+          parents: ['aaa1111111111111111111111111111111111111111'],
+        }),
+        makeCommit({
+          hash: 'ccc3333333333333333333333333333333333333333',
+          parents: ['bbb2222222222222222222222222222222222222222'],
+        }),
+      ]);
+    });
+
     it('selectCommit should clear previous selection and select only the new commit', () => {
       // Simulate selecting two commits via toggle, then single-select a new one
       provider.toggleCommitSelection('aaa1111111111111111111111111111111111111111');
@@ -764,6 +783,21 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Extension host: toggleCommitSelection adds/removes from multi-select set', () => {
+    // Same R3-9 fixture as above.
+    beforeEach(() => {
+      provider.updateLogState([
+        makeCommit({ hash: 'aaa1111111111111111111111111111111111111111', parents: [] }),
+        makeCommit({
+          hash: 'bbb2222222222222222222222222222222222222222',
+          parents: ['aaa1111111111111111111111111111111111111111'],
+        }),
+        makeCommit({
+          hash: 'ccc3333333333333333333333333333333333333333',
+          parents: ['bbb2222222222222222222222222222222222222222'],
+        }),
+      ]);
+    });
+
     it('toggleCommitSelection should add a commit to the selection set', () => {
       provider.toggleCommitSelection('aaa1111111111111111111111111111111111111111');
 

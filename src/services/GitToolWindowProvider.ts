@@ -21,4 +21,6 @@ export type {
   LocalChangesContextAction,
   LogContextAction,
   IExtendedLogState,
+  WaveAInboundMessage,
+  WaveAOutboundMessage,
 } from './gitToolWindow/GitToolWindowProvider';
