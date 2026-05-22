@@ -34,14 +34,9 @@ for the workflow.
   `keymapPreset` already (at any scope) are not touched. The
   setting will be removed in a future minor release.
 
-## [0.1.0] - YYYY-MM-DD
+## [0.1.0] - 2026-05-22
 
 Initial Marketplace release.
-
-> **Note:** the release date is intentionally a `YYYY-MM-DD` placeholder.
-> The pre-publish guard (`scripts/prepublish-guard.mjs`) refuses to
-> package a `.vsix` until the date is filled in, so the placeholder
-> cannot accidentally ship.
 
 ### Highlights
 

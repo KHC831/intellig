@@ -278,7 +278,5 @@ Found a bug or have a question? [Open an issue](https://github.com/KHC831/intell
 
 ## License
 
-See [LICENSE](LICENSE) for details. **Note (v0.1.0):** licensing terms
-are placeholder pending finalization. The current `LICENSE` file
-states evaluation-only use; final terms will be set before a public
-GA release.
+Proprietary — all rights reserved. See [LICENSE](LICENSE) for the
+full terms. For licensing inquiries, contact kachan831@gmail.com.

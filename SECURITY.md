@@ -8,7 +8,7 @@ later) before reporting a vulnerability.
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities privately to <EMAIL_PLACEHOLDER>.
+Please report security vulnerabilities privately to kachan831@gmail.com.
 Do not file public GitHub issues for security bugs — public disclosure
 of an unpatched vulnerability puts every IntelliG user at risk.
 
