@@ -40,6 +40,7 @@ export interface WritableWindow {
   showQuickPick: (items: unknown[], options?: unknown) => Promise<unknown>;
   showInputBox: (options?: vscode.InputBoxOptions) => Promise<string | undefined>;
   showSaveDialog: (options?: vscode.SaveDialogOptions) => Promise<vscode.Uri | undefined>;
+  showOpenDialog: (options?: vscode.OpenDialogOptions) => Promise<vscode.Uri[] | undefined>;
   /**
    * Typed as `vscode.TextEditor | undefined` so tests that stub the active
    * editor get the real VS Code shape via IntelliSense rather than `unknown`.

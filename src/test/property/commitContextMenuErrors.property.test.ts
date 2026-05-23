@@ -235,6 +235,18 @@ function createErrorThrowingRebaseService(errorMsg: string): IRebaseService {
   } as IRebaseService;
 }
 
+/**
+ * Wave B R1 (TLB-H-2): handlers no longer call `getExtendedLogState`.
+ * Display order is threaded through the dispatch event. Property 5
+ * needs multi-commit createPatch to reach the gitCli call (so the
+ * gitCli error gets surfaced via showErrorMessage), so we now pass the
+ * test's random hashes as the third arg of `_handleAction` directly,
+ * and the provider mock no longer needs a state-read seam.
+ *
+ * FU (Wave B R1 TLB-M-3): rule of three — extract this mock to
+ * `src/test/helpers/mockGitToolWindowProvider.ts` when a third test
+ * file needs it. Currently 2 consumers (this + commitContextMenuDispatch).
+ */
 function createMockGitToolWindowProvider(): GitToolWindowProvider {
   return {
     onDidRequestLogContextAction: (_handler: unknown) => ({ dispose: () => {} }),
@@ -280,9 +292,14 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
     // Mock showInputBox to return a value (for editCommitMessage)
     writableWindow().showInputBox = (): Promise<string | undefined> =>
       Promise.resolve('new message');
-    // Mock showSaveDialog to return a URI (for createPatch)
+    // Mock showSaveDialog to return a URI (for createPatch single-commit path)
     writableWindow().showSaveDialog = (): Promise<import('vscode').Uri | undefined> =>
       Promise.resolve(Uri.file('/tmp/test.patch'));
+    // Wave B B3 — multi-commit createPatch asks for a directory. Returning
+    // a path lets the flow proceed to the gitCli call; the gitCli mock
+    // then throws the property's `errorMsg`, which our catch toasts.
+    writableWindow().showOpenDialog = (): Promise<import('vscode').Uri[] | undefined> =>
+      Promise.resolve([Uri.file('/tmp/patches')]);
   });
 
   afterEach(() => {
@@ -320,7 +337,15 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
               gitCli
             );
 
-            await commands._handleAction(action, commitHashes);
+            // Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): pass the test's
+            // random hashes as commitNodes (each with parentCount=1) so
+            // the multi-commit createPatch path proceeds past the
+            // Senior H-1 stale-selection check; the gitCli mock will
+            // throw and our catch surfaces the sanitised toast.
+            // parentCount=1 makes the range-form branch run — a single
+            // git invocation.
+            const commitNodes = commitHashes.map((h) => ({ hash: h, parentCount: 1 }));
+            await commands._handleAction(action, commitHashes, commitNodes);
 
             assert.ok(
               errorTracker.calls.length > 0,

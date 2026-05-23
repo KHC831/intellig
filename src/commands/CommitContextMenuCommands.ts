@@ -13,6 +13,27 @@ import { IConflictResolutionService } from '../services/interfaces/IConflictReso
 import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../utils/gitError';
+import { isSelectionContiguous, type IMenuStateNode } from '../services/gitToolWindow/multiSelect';
+
+/**
+ * Wave B R1 Senior M-2 — defence-in-depth hash format check.
+ *
+ * `_handleCommitContextMenu` (TL-M-4) already rejects hashes that
+ * aren't in the rendered `commitNodes`, but a future bypass (palette
+ * command, scripted entry point) could feed unvalidated input. A
+ * lowercase-hex regex catches obvious shell-injection / typoed-string
+ * inputs before they reach the gitCli argv. Bounds:
+ *   - 4 chars is the shortest `git rev-parse` accepts (abbreviated
+ *     refs).
+ *   - R2 (Senior M-2) bumped the upper bound from 40 to 64 to support
+ *     SHA-256 repos created by `git init --object-format=sha256` (Git
+ *     ≥ 2.29). The SHA-1 cap was silently rejecting valid SHA-256
+ *     hashes.
+ */
+const HASH_RE = /^[0-9a-f]{4,64}$/i;
+function allHashesValid(hashes: readonly string[]): boolean {
+  return hashes.every((h) => HASH_RE.test(h));
+}
 
 /**
  * Signature of the repository resolver injected into
@@ -105,7 +126,14 @@ export class CommitContextMenuCommands {
   register(context: vscode.ExtensionContext): void {
     this._context = context;
     const disposable = this._gitToolWindowProvider.onDidRequestLogContextAction((event) =>
-      this._handleAction(event.action, event.commitHashes)
+      // Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): commitNodes (the slim
+      // IMenuStateNode list, newest-first) threaded through the event
+      // payload so multi-commit handlers (cherry-pick, drop, squash,
+      // createPatch, compareVersions) don't reach back into the
+      // provider for it. ADR-009 inversion fix; R2 collapsed the prior
+      // parallel `displayOrder` + `parentCounts` records to this single
+      // typed list.
+      this._handleAction(event.action, event.commitHashes, event.commitNodes)
     );
     this._disposables.push(disposable);
     context.subscriptions.push(...this._disposables);
@@ -129,8 +157,33 @@ export class CommitContextMenuCommands {
 
   /**
    * Dispatch the action to the appropriate handler method.
+   *
+   * Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): `commitNodes` is the slim
+   * newest-first commit-node list supplied by the dispatcher
+   * (`GitToolWindowProvider._handleCommitContextMenu`). Multi-commit
+   * handlers (cherry-pick, drop, squash, createPatch, compareVersions)
+   * consume it to compute oldest-first replay order / contiguity /
+   * parent lookups WITHOUT reaching back into the provider via
+   * `getExtendedLogState()`. ADR-009 inversion fix: handlers receive
+   * everything they need on the event payload.
+   *
+   * R2 collapsed the prior `displayOrder` + `parentCounts` parallel
+   * records to this single `IMenuStateNode[]` shape — same data, one
+   * lookup, one test fixture.
+   *
+   * Single-commit handlers ignore the parameter — they only need the
+   * one hash. Defensive default `[]` lets external callers (palette
+   * commands, scripted entry points) invoke the handler chain without
+   * having to fabricate the list; those callers shouldn't exercise the
+   * multi-commit branches anyway. The multi-commit handlers' in-order
+   * checks then reject every hash for an empty `commitNodes`, surfacing
+   * the stale-selection toast — see ADR-009 §6.
    */
-  async _handleAction(action: LogContextAction, commitHashes: string[]): Promise<void> {
+  async _handleAction(
+    action: LogContextAction,
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
     switch (action) {
       case 'copyHash':
         await this._handleCopyHash(commitHashes);
@@ -148,7 +201,7 @@ export class CommitContextMenuCommands {
         await this._handleResetToHere(commitHashes);
         break;
       case 'createPatch':
-        await this._handleCreatePatch(commitHashes);
+        await this._handleCreatePatch(commitHashes, commitNodes);
         break;
       case 'showRepoAtRevision':
         await this._handleShowRepoAtRevision(commitHashes);
@@ -181,9 +234,7 @@ export class CommitContextMenuCommands {
         );
         break;
       case 'compareVersions':
-        void vscode.window.showInformationMessage(
-          `Compare Versions will land in Wave B (selected ${commitHashes.length} commits).`
-        );
+        await this._handleCompareVersions(commitHashes, commitNodes);
         break;
       default:
         // Unknown action — no-op
@@ -355,7 +406,12 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Copy the full SHA to the system clipboard.
+   * Copy the full SHA(s) to the system clipboard.
+   *
+   * N=1 (legacy): one hash, no newline.
+   * Wave B B4: N>=2 joins hashes with `\n` so a paste into a shell or
+   * editor lands them as a vertical list. Order is preserved as supplied
+   * (newest-first per the webview's DOM order).
    */
   private async _handleCopyHash(commitHashes: string[]): Promise<void> {
     if (commitHashes.length === 0) {
@@ -363,9 +419,13 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      const hash = commitHashes[0];
-      await vscode.env.clipboard.writeText(hash);
-      void vscode.window.showInformationMessage(`Copied commit hash: ${hash}`);
+      const text = commitHashes.length === 1 ? commitHashes[0] : commitHashes.join('\n');
+      await vscode.env.clipboard.writeText(text);
+      const message =
+        commitHashes.length === 1
+          ? `Copied commit hash: ${commitHashes[0]}`
+          : `Copied ${commitHashes.length} commit hashes to clipboard`;
+      void vscode.window.showInformationMessage(message);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to copy hash: ${sanitizeGitError(errorMessage)}`);
@@ -374,6 +434,17 @@ export class CommitContextMenuCommands {
 
   /**
    * Cherry-pick the selected commit(s) onto the current branch.
+   *
+   * Wave B B1 — `commitHashes` arrives in NEWEST-FIRST order (the
+   * webview sends DOM order from `.commit-row.selected`). For a
+   * cherry-pick, that's the wrong direction: replaying newest-first
+   * destroys authored ordering on the target branch. The Wave A R4-3
+   * WARNING on `getSelectedCommits()` covers this contract: chronological-
+   * replay consumers MUST `.reverse()`. We do it here so the `gitService`
+   * call site is the canonical "this is the order git will see" point.
+   *
+   * Reversing also normalizes single-commit behavior — `[h]` reversed
+   * is still `[h]`, no change.
    */
   private async _handleCherryPick(commitHashes: string[]): Promise<void> {
     const repo = await this._getRepository();
@@ -381,8 +452,12 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // Wave B B1 — display order (newest-first) → replay order
+    // (oldest-first). Slice first so we don't mutate the caller's array.
+    const replayOrder = [...commitHashes].reverse();
+
     try {
-      const result = await this._gitService.cherryPick(repo, commitHashes);
+      const result = await this._gitService.cherryPick(repo, replayOrder);
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -506,6 +581,11 @@ export class CommitContextMenuCommands {
     }
 
     try {
+      // Wave B B2 — `commitHashes` arrives newest-first (DOM order). For
+      // revert, that IS the right direction: undoing the most recent
+      // change first means each subsequent revert applies to a tree the
+      // user can mentally check against the displayed log. Cherry-pick
+      // reverses; revert does not. ADR follows the Wave A R4-3 contract.
       const result = await this._gitService.revert(repo, commitHashes);
 
       if (result.success) {
@@ -801,11 +881,43 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Generate a patch file from the selected commit and prompt the user to save it.
+   * Generate patch file(s) from the selected commit(s).
+   *
+   * Single-commit (N=1): legacy flow — `git format-patch -1 <hash>
+   * --stdout` to a temp buffer, then `vscode.window.showSaveDialog` for
+   * the destination, then `atomicWriteFile`.
+   *
+   * Multi-commit (N>=2): Wave B B3 flow.
+   *   - User picks a directory (`vscode.window.showOpenDialog` with
+   *     `canSelectFolders=true`).
+   *   - We classify the selection: "contiguous" iff the commits land on
+   *     consecutive display indices in `commitNodes`. The display order
+   *     is newest-first, so contiguous means there are no gaps in the
+   *     index range from min to max selected.
+   *   - Contiguous: `git format-patch <oldest>^..<newest> -o <dir>`. git
+   *     emits one numbered `.patch` per commit in topological order.
+   *   - Non-contiguous: `git format-patch -o <dir> <oldest> ... <newest>`
+   *     (each hash is a separate `-1` style invocation under the hood;
+   *     git produces N numbered patches, one per supplied commit).
+   *   - In both modes git writes the files itself, so the host doesn't
+   *     do per-file I/O — a partial mid-write failure leaves the dir
+   *     state coherent (failed patches just aren't there).
    */
-  private async _handleCreatePatch(commitHashes: string[]): Promise<void> {
+  private async _handleCreatePatch(
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
     const repo = await this._getRepository();
     if (!repo || commitHashes.length === 0) {
+      return;
+    }
+    // R1 Senior M-2 — defence-in-depth hash regex.
+    if (!allHashesValid(commitHashes)) {
+      return;
+    }
+
+    if (commitHashes.length >= 2) {
+      await this._handleCreatePatchMulti(repo, commitHashes, commitNodes);
       return;
     }
 
@@ -851,7 +963,159 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
       return;
     }
-    void vscode.window.showInformationMessage(`Patch saved to ${saveUri.fsPath}`);
+    // R1 Senior M-3 — clickable "Open Folder" affordance (IntelliJ parity).
+    void this._toastPatchSavedSingle(saveUri.fsPath);
+  }
+
+  /**
+   * Wave B B3 — multi-commit `format-patch` driver. See
+   * {@link _handleCreatePatch} for the contract.
+   *
+   * R2 (TLBR1-L-1): consumes the typed `commitNodes` payload (newest-
+   * first `IMenuStateNode[]`) and derives `displayOrder` + parent
+   * lookups from it, replacing the prior parallel records.
+   *
+   * R2 (Senior L-4): see ADR-009 §6 for the display-order vs replay-
+   * order contract; `getSelectedCommitsOldestFirst()` is the
+   * programmatic-caller equivalent of the dispatch payload.
+   *
+   * R1 fixes (preserved):
+   *   - Senior H-1: every commitHash MUST resolve in displayOrder; abort
+   *     with the TL-M-4 toast otherwise (no silent drop).
+   *   - Senior H-2: when oldest is the initial commit (parents=0),
+   *     `<oldest>^..` doesn't resolve. Switch to positional fallback.
+   *   - TLB-H-1: contiguity check delegates to `isSelectionContiguous`
+   *     from `multiSelect.ts` (no inline `indices.every` reimpl).
+   *   - TLB-H-2: takes `commitNodes` directly via the dispatch event,
+   *     no `getExtendedLogState()` call.
+   *   - Senior M-3: success toast offers "Open Folder" via
+   *     `revealFileInOS`.
+   */
+  private async _handleCreatePatchMulti(
+    repo: IRepository,
+    commitHashes: readonly string[],
+    commitNodes: readonly IMenuStateNode[]
+  ): Promise<void> {
+    // R2 (TLBR1-L-1) — derive `displayOrder` from the typed nodes.
+    const displayOrder = commitNodes.map((n) => n.hash);
+
+    // R1 Senior H-1 — every commitHash MUST be in displayOrder. The
+    // host (TL-M-4) already validates against commitNodes; this is the
+    // belt-and-suspenders mirror at the handler boundary.
+    const inOrder = new Set(displayOrder);
+    const stale = commitHashes.filter((h) => !inOrder.has(h));
+    if (stale.length > 0) {
+      void vscode.window.showInformationMessage(
+        'Commit selection changed since the menu opened — please retry.'
+      );
+      return;
+    }
+
+    // Project to display indices for contiguity + range-form bounds.
+    const indexByHash = new Map<string, number>();
+    for (let i = 0; i < displayOrder.length; i++) {
+      indexByHash.set(displayOrder[i], i);
+    }
+    const indices = commitHashes
+      .map((h) => indexByHash.get(h))
+      .filter((i): i is number => i !== undefined)
+      .slice()
+      .sort((a, b) => a - b);
+    // Display order (newest-first): smallest index = newest commit.
+    const newestIdx = indices[0];
+    const oldestIdx = indices[indices.length - 1];
+    const newestHash = displayOrder[newestIdx];
+    const oldestHash = displayOrder[oldestIdx];
+
+    // R1 TLB-H-1 — delegate contiguity to the multiSelect helper.
+    const isContiguous = isSelectionContiguous(new Set(commitHashes), displayOrder);
+
+    // R1 Senior H-2 — `<oldest>^..` fails when oldest is the initial
+    // commit (no parent → `oldest^` doesn't resolve). Detect via the
+    // event-supplied commitNodes and fall through to the positional
+    // form, which uses each hash standalone and tolerates initial-commit.
+    const oldestParents = commitNodes.find((n) => n.hash === oldestHash)?.parentCount ?? 1;
+    const useRangeForm = isContiguous && oldestParents > 0;
+
+    // Ask the user once for the destination directory.
+    const dirChoice = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Save Patches Here',
+      title: `Choose a folder for ${commitHashes.length} patch files`,
+    });
+    if (!dirChoice || dirChoice.length === 0) {
+      // Quiet abort — the user cancelled.
+      return;
+    }
+    const outDir = dirChoice[0].fsPath;
+
+    // Build the format-patch argv. Output flag first so range / positional
+    // code paths share the same prefix.
+    const argv = ['format-patch', '-o', outDir];
+    if (useRangeForm) {
+      // <oldest>^..<newest> emits one .patch per commit in the range,
+      // numbered topologically (oldest-first). `^..` = "from oldest's
+      // parent up to newest inclusive."
+      argv.push(`${oldestHash}^..${newestHash}`);
+    } else {
+      // R1 Senior M-4: declarative one-liner replaces the pre-R1
+      // walk-through comment block. Sort descending by display index
+      // → oldest-first replay order (newest-first display means
+      // larger index = older).
+      const positional = [...commitHashes]
+        .filter((h) => indexByHash.has(h))
+        .sort((a, b) => (indexByHash.get(b) ?? 0) - (indexByHash.get(a) ?? 0));
+      argv.push(...positional);
+    }
+
+    try {
+      const result = await this._gitCli.exec(argv, {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      });
+      // git format-patch prints the path of each emitted file on stdout,
+      // one per line. Count non-empty lines to surface "wrote N patches".
+      const written = result.stdout
+        .split('\n')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0).length;
+      void this._toastPatchSavedMulti(outDir, written || commitHashes.length);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to create patches: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * R1 Senior M-3 — show the success toast with a clickable "Open
+   * Folder" action that reveals the patch file in the host OS file
+   * manager (Finder / Explorer / xdg-open). IntelliJ parity.
+   */
+  private async _toastPatchSavedSingle(filePath: string): Promise<void> {
+    const choice = await vscode.window.showInformationMessage(
+      `Patch saved to ${filePath}`,
+      'Open Folder'
+    );
+    if (choice === 'Open Folder') {
+      void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(filePath));
+    }
+  }
+
+  /**
+   * R1 Senior M-3 — multi-commit success toast variant.
+   */
+  private async _toastPatchSavedMulti(outDir: string, count: number): Promise<void> {
+    const choice = await vscode.window.showInformationMessage(
+      `Wrote ${count} patch file(s) to ${outDir}`,
+      'Open Folder'
+    );
+    if (choice === 'Open Folder') {
+      void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outDir));
+    }
   }
 
   /**
@@ -895,6 +1159,135 @@ export class CommitContextMenuCommands {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to compare with local: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * Wave B B4 — Compare Versions: open `vscode.diff` between the two
+   * selected commits.
+   *
+   * Reuses the `intellig-git:` `TextDocumentContentProvider` already
+   * registered for `_handleCompareWithLocal` so both diff flows share
+   * one URI scheme. The provider reads the URI query as the
+   * URL-encoded git ref; we hand it the OLDEST hash on the LHS and the
+   * NEWEST hash on the RHS (matches IntelliJ's "Compare Versions"
+   * direction — older on the left, newer on the right).
+   *
+   * Action visibility / enable is gated host-side by `computeMenuState`
+   * (visible AND enabled iff N=2). This handler only runs when the
+   * gating allows it; defensive `length !== 2` no-op so a stale
+   * dispatch can't crash.
+   */
+  private async _handleCompareVersions(
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
+    if (commitHashes.length !== 2) {
+      // Should never happen — the menu gating ensures N=2 — but stay
+      // quiet rather than throw on a stale dispatch.
+      return;
+    }
+    // R1 Senior M-2 — defence-in-depth hash regex (R2 raised cap to 64
+    // for SHA-256 support).
+    if (!allHashesValid(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepository();
+    if (!repo) {
+      return;
+    }
+
+    // R2 (TLBR1-L-1) — derive displayOrder from the typed nodes.
+    const displayOrder = commitNodes.map((n) => n.hash);
+
+    // R2 (Senior M-3) — symmetry with `_handleCreatePatchMulti`: every
+    // commitHash must be in commitNodes. Without this guard a hex-format
+    // hash that isn't in the rendered log slips past the regex check
+    // and `git diff <bad>..<good>` produces a noisy "fatal: bad
+    // revision" toast instead of the cleaner stale-selection phrasing.
+    const inOrder = new Set(displayOrder);
+    const stale = commitHashes.filter((h) => !inOrder.has(h));
+    if (stale.length > 0) {
+      void vscode.window.showInformationMessage(
+        'Commit selection changed since the menu opened — please retry.'
+      );
+      return;
+    }
+
+    // The webview hands hashes in newest-first display order. See
+    // ADR-009 §5 (selection mutations come in two flavours) and the
+    // Wave A R4-3 WARNING on `getSelectedCommits()` for the contract:
+    // newest-first is the canonical projection from the rendered log.
+    // R1 TLB-H-2 + R2 (TLBR1-L-1): project against the dispatched
+    // commitNodes instead of `getExtendedLogState()` so the handler
+    // stays decoupled from provider state.
+    //
+    // R1 TLB-L-2 + R2 Senior L-1 + R3 Senior L-2: TL-M-4 already aborts
+    // upstream when a hash isn't in the rendered commitNodes, AND the
+    // in-order guard immediately above also catches it; the swap-
+    // fallback that lived here pre-R1 is dead. Webview-driven dispatches
+    // see TL-M-4 + the in-order check; an external caller passing
+    // default `commitNodes = []` will see EVERY hash as stale and get
+    // the stale-selection toast — they must supply a non-empty
+    // `commitNodes: readonly IMenuStateNode[]` covering both targeted
+    // hashes. The canonical projection lives in
+    // `GitToolWindowProvider._handleCommitContextMenu`, which maps
+    // `getExtendedLogState().commitNodes` to
+    // `{hash, parentCount: parents.length}` per node; programmatic
+    // callers should mirror that projection (or call into the same
+    // routing path). The idx0 / idx1 projection here only runs after
+    // both guards, so both indices are guaranteed found.
+    const idx0 = displayOrder.indexOf(commitHashes[0]);
+    const idx1 = displayOrder.indexOf(commitHashes[1]);
+    // Larger display index = older commit.
+    const oldHash = idx0 > idx1 ? commitHashes[0] : commitHashes[1];
+    const newHash = idx0 > idx1 ? commitHashes[1] : commitHashes[0];
+
+    // R1 TLB-M-1 (Senior M-1) — `git diff --name-only oldHash..newHash`
+    // gives ONLY the changes from oldHash to newHash, the right
+    // semantic for "compare these two commits". The pre-R1 path used
+    // `getMultiCommitDiff` which returns CUMULATIVE changes across all
+    // listed commits — wrong for non-adjacent endpoints where the user
+    // explicitly skipped the intermediates.
+    const result = await this._gitCli.exec(['diff', '--name-only', `${oldHash}..${newHash}`], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: false,
+    });
+
+    // R1 Senior L-3 — propagate failure as a sanitised toast instead
+    // of silently returning undefined.
+    if (result.exitCode !== 0) {
+      const stderr = (result.stderr || result.stdout || 'git diff failed').trim();
+      void vscode.window.showErrorMessage(
+        `Failed to compare versions: ${sanitizeGitError(stderr)}`
+      );
+      return;
+    }
+
+    const firstFile = result.stdout
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)[0];
+    if (!firstFile) {
+      void vscode.window.showInformationMessage(
+        `No file changes between ${oldHash.substring(0, 8)} and ${newHash.substring(0, 8)}.`
+      );
+      return;
+    }
+    const lhs = vscode.Uri.parse(`intellig-git:${firstFile}?${encodeURIComponent(oldHash)}`);
+    const rhs = vscode.Uri.parse(`intellig-git:${firstFile}?${encodeURIComponent(newHash)}`);
+    try {
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        lhs,
+        rhs,
+        `${firstFile} (${oldHash.substring(0, 8)} ↔ ${newHash.substring(0, 8)})`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to compare versions: ${sanitizeGitError(errorMessage)}`
       );
     }
   }

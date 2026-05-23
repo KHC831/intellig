@@ -53,6 +53,7 @@ import {
   computeMenuState,
   computeRangeSelection,
   type IMenuItemState,
+  type IMenuStateNode,
   type MultiSelectMenuAction,
 } from './multiSelect';
 
@@ -245,6 +246,21 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private readonly _onDidRequestLogContextAction = new vscode.EventEmitter<{
     action: LogContextAction;
     commitHashes: string[];
+    /**
+     * Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): NEWEST-FIRST commit-node
+     * projection at dispatch time. Each entry is the slim
+     * `IMenuStateNode { hash, parentCount }` (already used by the menu
+     * helper). Handlers derive `displayOrder` via
+     * `commitNodes.map(n => n.hash)` and look up parents via
+     * `commitNodes.find(n => n.hash === oldestHash)?.parentCount`.
+     *
+     * R2 collapsed the pre-R2 parallel records (`displayOrder: string[]`
+     * + `parentCounts: Record<string, number>`) to this single
+     * structurally-typed list — one source of truth, one lookup, one
+     * test fixture shape. Wave A R4-3 / ADR-009 §6 cover the
+     * chronological-replay direction conventions.
+     */
+    commitNodes: readonly IMenuStateNode[];
   }>();
   private readonly _onDidSelectCommit = new vscode.EventEmitter<string>();
   private readonly _onDidRequestCommitDiff = new vscode.EventEmitter<{
@@ -1027,7 +1043,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * Hashes that aren't in `commitNodes` are dropped (mirrors the rest
    * of the multi-select policy).
    */
-  public getSelectedCommits(): string[] {
+  public getSelectedCommits(): readonly string[] {
     const set = this._extendedLogState.selectedCommits;
     const out: string[] = [];
     for (const node of this._extendedLogState.commitNodes) {
@@ -1036,6 +1052,32 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       }
     }
     return out;
+  }
+
+  /**
+   * Wave B R1 (TLB-H-3) — selected commit hashes in OLDEST-FIRST replay
+   * order: chronologically older commits first, suitable for any git
+   * operation that replays commits onto a branch (cherry-pick, drop,
+   * squash, rebase). Returns `getSelectedCommits().slice().reverse()`.
+   *
+   * The naming is the explicit-direction antidote to the chronological-
+   * replay footgun documented in `getSelectedCommits()`'s WARNING:
+   *   - Use `getSelectedCommits()` for display-order consumers (clipboard
+   *     copy, status-bar count, `Compare Versions` lhs/rhs picking, or
+   *     revert where newest-first is the right replay direction).
+   *   - Use `getSelectedCommitsOldestFirst()` for chronological-replay
+   *     consumers (cherry-pick, drop, squash, rebase).
+   *
+   * Aimed at external programmatic callers (palette commands, scripted
+   * entry points) and Wave C handlers. Wave B's webview-driven dispatch
+   * receives display-order via the event payload (TLB-H-2) and
+   * `.reverse()`s inline at the call site for cherry-pick — both
+   * approaches converge on the same direction. ADR-009 §6.
+   *
+   * @returns Hashes in oldest-first replay order; `[]` when no selection.
+   */
+  public getSelectedCommitsOldestFirst(): readonly string[] {
+    return this.getSelectedCommits().slice().reverse();
   }
 
   /**
@@ -1480,9 +1522,20 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       );
       return;
     }
+    // Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): push the slim newest-first
+    // commit-node projection forward so handlers don't call back into
+    // the provider. ADR-009 §6 covers the direction convention. R2
+    // collapsed the prior parallel records (`displayOrder` +
+    // `parentCounts`) to this single typed list — same data, one
+    // lookup, one test-fixture shape.
+    const commitNodes: IMenuStateNode[] = this._extendedLogState.commitNodes.map((n) => ({
+      hash: n.commit.hash,
+      parentCount: (n.commit.parents || []).length,
+    }));
     this._onDidRequestLogContextAction.fire({
       action,
       commitHashes,
+      commitNodes,
     });
   }
 

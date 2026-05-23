@@ -43,6 +43,12 @@ const IMPLEMENTED_ACTIONS: LogContextAction[] = [
   'editCommitMessage',
   'mergeIntoCurrent',
   'interactiveRebase',
+  // Wave B R2 (Senior M-1): `compareVersions` is now a real handler
+  // (Wave B B4 landed in the prior round). Property 4's "for any
+  // LogContextAction the right handler is called" claim was structurally
+  // false while it was a stub — adding it here closes the gap.
+  // `squashCommits` stays out: it's still a Wave A R1 stub until Wave C.
+  'compareVersions',
 ];
 
 /**
@@ -88,6 +94,8 @@ const ACTION_TO_HANDLER: Record<string, string> = {
   editCommitMessage: '_handleEditCommitMessage',
   mergeIntoCurrent: '_handleMergeIntoCurrent',
   interactiveRebase: '_handleInteractiveRebase',
+  // Wave B R2 (Senior M-1) — see IMPLEMENTED_ACTIONS comment.
+  compareVersions: '_handleCompareVersions',
 };
 
 interface HandlerCallRecord {
@@ -213,6 +221,9 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
 /**
  * Create a mock GitToolWindowProvider with a trackable refresh method.
  */
+// FU (Wave B R1 TLB-M-3): rule of three — extract this mock to
+// `src/test/helpers/mockGitToolWindowProvider.ts` when a third test
+// file needs it. Currently 2 consumers (this + commitContextMenuErrors).
 function createMockGitToolWindowProvider(): GitToolWindowProvider & { refreshCalled: boolean } {
   const provider = {
     onDidRequestLogContextAction: (_handler: unknown) => ({ dispose: () => {} }),
@@ -220,6 +231,15 @@ function createMockGitToolWindowProvider(): GitToolWindowProvider & { refreshCal
       this.refreshCalled = true;
     },
     refreshCalled: false,
+    // Wave B R1 (TLB-H-2): handlers no longer call `getExtendedLogState`.
+    // Display order is threaded through the dispatch event payload
+    // instead. The property test feeds `_handleAction(action, hashes)`
+    // directly with default `displayOrder=[]`, so multi-commit handlers
+    // hit the early-return-with-toast branch (Senior H-1: stale
+    // selection). The dispatch property only checks "the right handler
+    // was called", not the action's downstream behavior; multi-commit
+    // semantics are covered by `src/test/unit/commands/waveB.test.ts`
+    // and `src/test/unit/commands/waveBR1.test.ts`.
   } as unknown as GitToolWindowProvider & { refreshCalled: boolean };
   return provider;
 }
@@ -257,13 +277,15 @@ function createSpiedCommands(commitHash?: string): {
 
   // Install spies on each handler method. Handlers are private on
   // `commands`; the spy replaces each by indexing through a keyed record.
-  type HandlerFn = (commitHashes: string[]) => Promise<unknown>;
+  // R3-1 (Senior L-1): forward ALL positional args via `...args`, since
+  // multi-commit handlers take `(commitHashes, commitNodes)` post R2-4.
+  type HandlerFn = (...args: unknown[]) => Promise<unknown>;
   const handlerBag = commands as unknown as Record<string, HandlerFn>;
   for (const [, methodName] of Object.entries(ACTION_TO_HANDLER)) {
     const original = handlerBag[methodName].bind(commands);
-    handlerBag[methodName] = async (commitHashes: string[]): Promise<unknown> => {
-      calls.push({ method: methodName, commitHashes });
-      return original(commitHashes);
+    handlerBag[methodName] = async (...args: unknown[]): Promise<unknown> => {
+      calls.push({ method: methodName, commitHashes: args[0] as string[] });
+      return original(...args);
     };
   }
 
@@ -280,6 +302,17 @@ function createSpiedCommands(commitHash?: string): {
   // Mock showSaveDialog to return a URI for createPatch
   writableWindow().showSaveDialog = (): Promise<import('vscode').Uri | undefined> => {
     return Promise.resolve(Uri.file('/tmp/test.patch'));
+  };
+
+  // Wave B R3 (Senior L-1): the spy now forwards `commitNodes` post
+  // R2-4, so multi-commit `createPatch` (≥2 hashes) actually reaches
+  // `_handleCreatePatchMulti` and calls `showOpenDialog`. Mock returns
+  // a target dir so the property test exercises the real dispatch path
+  // without throwing; the dispatch property only asserts on the spy
+  // call shape, downstream behaviour is covered in waveB.test.ts /
+  // waveBR1.test.ts.
+  writableWindow().showOpenDialog = (): Promise<import('vscode').Uri[] | undefined> => {
+    return Promise.resolve([Uri.file('/tmp')]);
   };
 
   return { commands, calls };
@@ -312,7 +345,14 @@ describe('Feature: git-graph-context-menu - Action Dispatch Property Tests', () 
             const { commands, calls } = createSpiedCommands(commitHashes[0]);
             calls.length = 0;
 
-            await commands._handleAction(action, commitHashes);
+            // Wave B R2 (Senior M-1 + TLBR1-L-1): pass commitHashes as
+            // the commitNodes payload so multi-commit actions
+            // (createPatch, compareVersions) proceed past the
+            // stale-selection check. The dispatch property only checks
+            // "the right handler was called", and the spy fires before
+            // any in-handler validation runs.
+            const commitNodes = commitHashes.map((h) => ({ hash: h, parentCount: 1 }));
+            await commands._handleAction(action, commitHashes, commitNodes);
 
             const expectedMethod = ACTION_TO_HANDLER[action];
 

@@ -228,6 +228,61 @@ would require a partial-update message for every kind of edit, and
 the resulting matrix is what `_updateWebview()` already covers in
 one shot.
 
+### 6. Display-order vs replay-order at the git boundary (Wave B R1 TLB-M-2)
+
+The Git Tool Window's commit list is rendered NEWEST-FIRST: the most
+recent commit sits at the top, the oldest at the bottom. That's the
+"display order." When the user multi-selects commits and triggers a
+git operation, each operation expects a specific direction:
+
+- **`git cherry-pick A B C`** replays commits in argument order. The
+  user's intent is "redo these commits, oldest first, on top of HEAD."
+  Argv MUST be OLDEST-FIRST: `git cherry-pick <oldest> ... <newest>`.
+  The Wave A R4-3 WARNING on `getSelectedCommits()` documents the
+  newest-first display contract; cherry-pick callers MUST `.reverse()`
+  the result before invoking git.
+- **`git revert --no-edit A B C`** also replays in argument order, but
+  for revert the right direction is NEWEST-FIRST: undoing the most
+  recent change first lets each subsequent revert apply to a tree the
+  user can mentally check against the displayed log. No `.reverse()`.
+- **`git rebase -i …` / `drop` / `squash`** replays oldest-first like
+  cherry-pick. Wave C handlers MUST `.reverse()` before issuing the
+  rebase plan.
+- **`git format-patch <oldest>^..<newest>`** emits one numbered
+  `.patch` per commit in the range, in topological (oldest-first)
+  order. The endpoints are picked from the display indices: smallest
+  index = newest, largest index = oldest.
+
+Wave B made these direction decisions by hand at four call sites
+(`_handleCherryPick` reverses; `_handleRevert` doesn't; `_handleCreatePatchMulti`
+projects to oldest-first inside; `_handleCompareVersions` swaps
+LHS/RHS to OLDER ↔ NEWER). To remove the footgun for future callers
+(palette commands, scripted entry points, Wave C's drop/squash), the
+provider exposes a typed sibling helper:
+
+- `GitToolWindowProvider.getSelectedCommits()` — newest-first display
+  order. Use for revert / clipboard / `Compare Versions` lhs/rhs
+  picking / status-bar count.
+- `GitToolWindowProvider.getSelectedCommitsOldestFirst()` — chronological
+  replay order (the reversed sibling). Use for cherry-pick / drop /
+  squash / rebase. The naming makes the direction explicit at the call
+  site so a contributor doesn't have to remember to `.reverse()`.
+
+Wave B R1 (TLB-H-2) also pushed display-order forward through the
+context-menu dispatch event payload, so handlers receive
+`{commitHashes, commitNodes}` directly and don't reach back into
+provider state. ADR-009 §1 inversion fix. Wave B R2 (TLBR1-L-1)
+collapsed the originally-parallel `displayOrder: string[]` +
+`parentCounts: Record<string, number>` records to the typed
+`commitNodes: readonly IMenuStateNode[]` (same shape used by the menu
+helper) — one lookup, one test-fixture, one source of truth.
+
+The two seams converge: webview-driven flows derive
+`displayOrder = commitNodes.map(n => n.hash)` from the event and
+`.reverse()` inline at the call site for cherry-pick; external
+programmatic callers take `getSelectedCommitsOldestFirst()` (and pass
+it straight to git). Both produce the same direction.
+
 ## Consequences
 
 ### Positive
