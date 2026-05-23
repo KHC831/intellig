@@ -227,6 +227,9 @@ function createErrorThrowingRebaseService(errorMsg: string): IRebaseService {
     provideRewordMessage: async () => {
       throw new Error(errorMsg);
     },
+    provideSquashMessage: async () => {
+      throw new Error(errorMsg);
+    },
     amendEditCommit: async () => {
       throw new Error(errorMsg);
     },
@@ -300,6 +303,13 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
     // then throws the property's `errorMsg`, which our catch toasts.
     writableWindow().showOpenDialog = (): Promise<import('vscode').Uri[] | undefined> =>
       Promise.resolve([Uri.file('/tmp/patches')]);
+    // Wave C — _handleDropCommitMulti shows a destructive-op confirm
+    // modal on N>=2 selections. Auto-confirm so the error path runs.
+    writableWindow().showWarningMessage = ((): Promise<string | undefined> =>
+      Promise.resolve('Drop')) as unknown as (
+      message: string,
+      ...items: unknown[]
+    ) => Promise<string | undefined>;
   });
 
   afterEach(() => {

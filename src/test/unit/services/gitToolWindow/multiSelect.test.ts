@@ -236,6 +236,39 @@ describe('multiSelect — pure helpers', () => {
       assert.strictEqual(e.createPatch, false);
     });
 
+    // Wave C D3 — drop must reject merge commits. Silent history-flattening
+    // (a multi-parent commit dropped via interactive rebase loses one
+    // parent's reachable history without warning) is a footgun, so the UI
+    // disables the action entirely. Tooltip surfaces the reason via
+    // computeMenuState.
+    it('Wave C D3 — disables dropCommit when any selected commit is a merge', () => {
+      const cleanSingle = computeMenuEnableState({ ...baseInputs, selectedCount: 1 });
+      const cleanMulti = computeMenuEnableState({ ...baseInputs, selectedCount: 3 });
+      assert.strictEqual(cleanSingle.dropCommit, true);
+      assert.strictEqual(cleanMulti.dropCommit, true);
+
+      const mergeSingle = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 1,
+        hasMergeCommitInSelection: true,
+      });
+      const mergeMulti = computeMenuEnableState({
+        ...baseInputs,
+        selectedCount: 3,
+        hasMergeCommitInSelection: true,
+      });
+      assert.strictEqual(
+        mergeSingle.dropCommit,
+        false,
+        'drop on a merge commit must be disabled (defence-in-depth at single-select too)'
+      );
+      assert.strictEqual(
+        mergeMulti.dropCommit,
+        false,
+        'drop on a multi-select containing a merge commit must be disabled'
+      );
+    });
+
     it('enables squashCommits only when N≥2 AND contiguous AND no merges', () => {
       const ok = computeMenuEnableState({
         ...baseInputs,
@@ -465,6 +498,45 @@ describe('multiSelect — pure helpers', () => {
       });
       assert.strictEqual(state.resetToHere.enabled, false);
       assert.strictEqual(state.resetToHere.visible, false);
+    });
+
+    // Wave C D3 — visible+disabled dropCommit gets a reason tooltip
+    // explaining why merge commits are rejected. Hidden rows leave reason
+    // undefined (the apply-loop never reads reason for them).
+    it('Wave C D3 — populates dropCommit reason when a merge commit is in selection', () => {
+      const withMerge = [
+        mkNode('aaa'),
+        mkNode('bbb'),
+        { hash: 'ccc', parentCount: 2 }, // merge
+        mkNode('ddd'),
+      ];
+      const state = computeMenuState({
+        selectedHashes: new Set(['ccc']),
+        commitNodes: withMerge,
+        headHash: 'aaa',
+      });
+      assert.strictEqual(state.dropCommit.visible, true);
+      assert.strictEqual(state.dropCommit.enabled, false);
+      assert.ok(
+        typeof state.dropCommit.reason === 'string' && state.dropCommit.reason.length > 0,
+        'expected a non-empty reason explaining why drop is disabled on a merge'
+      );
+      // Phrasing must mention "merge" so the user understands the gate.
+      assert.ok(
+        /merge/i.test(state.dropCommit.reason ?? ''),
+        `dropCommit reason should reference "merge"; got "${state.dropCommit.reason}"`
+      );
+    });
+
+    it('Wave C D3 — leaves dropCommit reason undefined when selection is clean', () => {
+      const state = computeMenuState({
+        selectedHashes: new Set(['bbb', 'ccc']),
+        commitNodes: nodes,
+        headHash: 'aaa',
+      });
+      assert.strictEqual(state.dropCommit.visible, true);
+      assert.strictEqual(state.dropCommit.enabled, true);
+      assert.strictEqual(state.dropCommit.reason, undefined);
     });
 
     it('handles selectedHashes that include hashes not in commitNodes (safety)', () => {

@@ -42,6 +42,12 @@ export interface WritableWindow {
   showSaveDialog: (options?: vscode.SaveDialogOptions) => Promise<vscode.Uri | undefined>;
   showOpenDialog: (options?: vscode.OpenDialogOptions) => Promise<vscode.Uri[] | undefined>;
   /**
+   * Wave C R1 — used by the squash dialog editor flow. Tests stub this
+   * to capture the document opened for the squash message and return a
+   * minimal editor object.
+   */
+  showTextDocument: (document: unknown, options?: unknown) => Promise<{ document: unknown }>;
+  /**
    * Typed as `vscode.TextEditor | undefined` so tests that stub the active
    * editor get the real VS Code shape via IntelliSense rather than `unknown`.
    */
@@ -72,6 +78,24 @@ export interface WritableWorkspace {
     readFile: (uri: vscode.Uri) => Promise<Uint8Array>;
     [k: string]: unknown;
   };
+  /**
+   * Wave C R1 — used by the squash dialog editor flow. Tests stub
+   * `openTextDocument` to inspect the seed content and return a minimal
+   * doc; `onDidSaveTextDocument` / `onDidCloseTextDocument` to drive the
+   * save / cancel branches.
+   */
+  openTextDocument: (
+    options: string | vscode.Uri | { content?: string; language?: string }
+  ) => Promise<{
+    uri: vscode.Uri;
+    getText: () => string;
+    languageId: string;
+    isUntitled: boolean;
+  }>;
+  onDidSaveTextDocument: (listener: (doc: { uri: vscode.Uri; getText: () => string }) => void) => {
+    dispose: () => void;
+  };
+  onDidCloseTextDocument: (listener: (doc: { uri: vscode.Uri }) => void) => { dispose: () => void };
 }
 
 /**

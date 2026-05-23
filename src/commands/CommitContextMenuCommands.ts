@@ -4,6 +4,10 @@
  */
 
 import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { IGitService, IRepository } from '../services/interfaces/IGitService';
 import { IRebaseService } from '../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../services/GitToolWindowProvider';
@@ -34,6 +38,27 @@ const HASH_RE = /^[0-9a-f]{4,64}$/i;
 function allHashesValid(hashes: readonly string[]): boolean {
   return hashes.every((h) => HASH_RE.test(h));
 }
+
+/**
+ * Wave C R1 (Senior L-3) — single source of truth for the stale-selection
+ * toast surfaced when an in-order guard rejects a dispatched action whose
+ * commit hash is no longer in the rendered commitNodes. Pre-R1 the same
+ * literal lived in five places (createPatchMulti, compareVersions,
+ * dropCommitMulti, squashCommits, dropCommit) and inline structural tests
+ * pinned exact matches. The const lets future copy edits land in one
+ * place. Wire format frozen here.
+ *
+ * TODO(post-locale): when locale work begins, replace this with a
+ * message-id and ship the localised string from a resource bundle.
+ *
+ * TODO(Wave D / TLC-L-2): the single-commit handlers (cherry-pick,
+ * revert, etc.) still don't run `allHashesValid` on entry — only the
+ * multi-commit ones do. Adopt the regex check at the top of every
+ * single-commit handler in a follow-up wave; the dispatch path
+ * (`_handleCommitContextMenu` TL-M-4) catches webview-driven calls,
+ * but a palette / scripted entry could feed unvalidated hex.
+ */
+const STALE_SELECTION_TOAST = 'Commit selection changed since the menu opened — please retry.';
 
 /**
  * Signature of the repository resolver injected into
@@ -213,7 +238,11 @@ export class CommitContextMenuCommands {
         await this._handleUndoCommit(commitHashes);
         break;
       case 'dropCommit':
-        await this._handleDropCommit(commitHashes);
+        // Wave C C1 — `_handleDropCommit` internally routes N>=2 to
+        // `_handleDropCommitMulti`. Keeping a single dispatcher arm
+        // preserves the dispatch-property invariant (one handler per
+        // action) while still landing the multi-commit semantics.
+        await this._handleDropCommit(commitHashes, commitNodes);
         break;
       case 'editCommitMessage':
         await this._handleEditCommitMessage(commitHashes);
@@ -224,14 +253,10 @@ export class CommitContextMenuCommands {
       case 'interactiveRebase':
         await this._handleInteractiveRebase(commitHashes);
         break;
-      // Wave A R1 C-2 — multi-select-only stub handlers. The real
-      // implementations land in Wave B (compareVersions) and Wave C
-      // (squashCommits); shipping the menu items without these cases
-      // would render disabled-but-clickable rows that silently no-op.
       case 'squashCommits':
-        void vscode.window.showInformationMessage(
-          `Squash Commits will land in Wave C (selected ${commitHashes.length} commits).`
-        );
+        // Wave C C2 — gated to N>=2 contiguous non-merge by Wave A's
+        // `computeMenuEnableState`; defence-in-depth at handler entry.
+        await this._handleSquashCommits(commitHashes, commitNodes);
         break;
       case 'compareVersions':
         await this._handleCompareVersions(commitHashes, commitNodes);
@@ -541,6 +566,226 @@ export class CommitContextMenuCommands {
     } catch {
       // Leave in stash if pop fails
     }
+  }
+
+  /**
+   * Wave C R2 (Senior R1-M-3) — pop the stash on the success path of a
+   * destructive operation (drop / squash) and surface a distinct toast
+   * if it fails. The pre-R2 helper {@link _unstash} swallows errors by
+   * design; on the success path that's misleading because the user
+   * sees "Squashed N commits successfully" but their stashed working
+   * changes silently stay in the stash list.
+   *
+   * Single source of truth so drop-multi and squash-multi share the
+   * same phrasing — pre-R2 the drop path inlined this logic and the
+   * squash path used the silent helper.
+   *
+   * Single-commit handlers (drop, edit-commit-message) keep their
+   * existing `_unstash` shape; per the TLC-L-2 follow-up TODO they
+   * adopt this helper in Wave D.
+   */
+  private async _unstashWithErrorReport(cwd: string, opName: string): Promise<void> {
+    try {
+      const popResult = await this._gitCli.exec(['stash', 'pop'], { cwd });
+      if (popResult.exitCode !== 0) {
+        const stderr = (popResult.stderr || popResult.stdout || '').trim();
+        void vscode.window.showWarningMessage(
+          `${opName} succeeded but failed to restore stash: ${sanitizeGitError(stderr || 'unknown stash pop failure')}`
+        );
+      }
+    } catch (unstashErr) {
+      const msg = unstashErr instanceof Error ? unstashErr.message : 'Unknown error';
+      void vscode.window.showWarningMessage(
+        `${opName} succeeded but failed to restore stash: ${sanitizeGitError(msg)}`
+      );
+    }
+  }
+
+  /**
+   * Wave C R1 (Senior H-1) — open an editor for the squash commit
+   * message and resolve when the user saves or closes it.
+   *
+   * Pre-R1 used `vscode.window.showInputBox`, which is a single-line
+   * affordance that renders multi-line seeds with literal `\n`
+   * characters — a real UX bug for any squash spanning a commit with a
+   * body. R1 switches to an editor opened on a tempfile inside
+   * `os.tmpdir()` so:
+   *   - multi-line editing is natural (no `\n` literals).
+   *   - language `'git-commit'` triggers VS Code's commit-message
+   *     syntax highlighting (subject vs body).
+   *   - the URI has a backing file path, so `Cmd/Ctrl-S` lands silently
+   *     (no "Save As" dialog like an untitled doc would surface).
+   *
+   * Resolution contract:
+   *   - Save → resolve with the saved text.
+   *   - Close without save → resolve `undefined` (cancel).
+   *   - Save with empty / whitespace-only content → R1 (Senior L-2)
+   *     treats this as cancel: returning `undefined` rather than
+   *     re-opening or toasting an error matches IntelliJ's "user
+   *     changed their mind" semantics.
+   *
+   * After resolution the helper closes the editor and best-effort
+   * deletes the tempfile so the user doesn't see stale artifacts.
+   */
+  private async _promptForSquashMessage(
+    seedMessage: string,
+    commitCount: number
+  ): Promise<string | undefined> {
+    // Build the tempfile path. The `.git/COMMIT_EDITMSG`-style suffix
+    // makes some VS Code installs apply git-commit highlighting
+    // automatically.
+    //
+    // R2 (Senior R1-L-1) — append 8 random hex chars to the name so two
+    // squash dialogs opened in the same millisecond on the same PID
+    // (background flow + user re-trigger) don't collide on the
+    // tempfile path.
+    const tmpDir = os.tmpdir();
+    const rand = crypto.randomBytes(4).toString('hex');
+    const tmpPath = path.join(
+      tmpDir,
+      `intellig-squash-${process.pid}-${Date.now()}-${rand}-COMMIT_EDITMSG`
+    );
+
+    // Pre-write the seed so the editor opens with content already on
+    // disk — saves a `setText` step and keeps the file content in sync
+    // with what the user sees on first frame.
+    try {
+      fs.writeFileSync(tmpPath, seedMessage, { encoding: 'utf8' });
+    } catch {
+      // R2 (Senior R1-L-2) — degraded fallback now surfaces a heads-up
+      // toast so the user knows the multi-line editor was attempted.
+      void vscode.window.showInformationMessage(
+        'Multi-line squash editor unavailable; using single-line fallback.'
+      );
+      return this._squashMessageInputBoxFallback(seedMessage, commitCount);
+    }
+
+    let document: vscode.TextDocument;
+    try {
+      document = await vscode.workspace.openTextDocument(vscode.Uri.file(tmpPath));
+    } catch {
+      // Same fallback as above — VS Code refused to open the tempfile.
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        // ignore
+      }
+      void vscode.window.showInformationMessage(
+        'Multi-line squash editor unavailable; using single-line fallback.'
+      );
+      return this._squashMessageInputBoxFallback(seedMessage, commitCount);
+    }
+
+    // R2 (Senior R1-L-3) — open beside the active column so the squash
+    // editor doesn't cover the log the user was looking at.
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      viewColumn: vscode.ViewColumn.Beside,
+    });
+
+    const expectedFsPath = document.uri.fsPath;
+
+    const message = await new Promise<string | undefined>((resolve) => {
+      let resolved = false;
+      const disposables: vscode.Disposable[] = [];
+
+      const finish = (value: string | undefined): void => {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        for (const d of disposables) {
+          d.dispose();
+        }
+        resolve(value);
+      };
+
+      disposables.push(
+        vscode.workspace.onDidSaveTextDocument((saved) => {
+          if (saved.uri.toString() === document.uri.toString()) {
+            finish(saved.getText());
+            return;
+          }
+          // R2 (Senior R1-M-2) — Save-As silent abort. When the user
+          // hits Save-As, VS Code fires `onDidSaveTextDocument` with
+          // the NEW URI (not the original tempfile's URI). The matching
+          // close event fires for the original — without this branch
+          // we'd treat it as cancel and the user's edited message
+          // disappears. Detect and surface a clarifying toast instead.
+          if (saved.uri.fsPath !== expectedFsPath) {
+            void vscode.window.showWarningMessage(
+              `Squash cancelled — message was saved to ${saved.uri.fsPath} instead of being applied. Re-run Squash if you want to use that text.`
+            );
+            finish(undefined);
+          }
+        })
+      );
+      disposables.push(
+        vscode.workspace.onDidCloseTextDocument((closed) => {
+          if (closed.uri.toString() === document.uri.toString()) {
+            // close-without-save = cancel.
+            finish(undefined);
+          }
+        })
+      );
+    });
+
+    // Best-effort cleanup. R2 (Senior R1-M-1): closing the active
+    // editor is a footgun when focus has shifted — it would close
+    // whatever the user moved on to. Use the tab API to target the
+    // squash tab specifically; falls through gracefully when the tab
+    // is already gone (e.g. user closed it manually).
+    try {
+      const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+      const squashTab = tabs.find(
+        (t) =>
+          t.input instanceof vscode.TabInputText &&
+          t.input.uri.toString() === document.uri.toString()
+      );
+      if (squashTab) {
+        await vscode.window.tabGroups.close(squashTab);
+      }
+    } catch {
+      // Tab already gone — fine.
+    }
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch {
+      // ignore
+    }
+
+    if (message === undefined) {
+      return undefined;
+    }
+    if (message.trim().length === 0) {
+      // R1 (Senior L-2) — empty save = cancel. User changed their mind
+      // mid-edit; treat that as a cancel rather than an error toast.
+      return undefined;
+    }
+    return message;
+  }
+
+  /**
+   * Wave C R2 (Senior R1-L-2) — single-line `showInputBox` fallback for
+   * `_promptForSquashMessage`. Extracted so the two failure sites
+   * (tempfile write fail, openTextDocument fail) share one implementation.
+   * The caller is expected to surface the heads-up info toast before
+   * delegating here.
+   */
+  private async _squashMessageInputBoxFallback(
+    seedMessage: string,
+    commitCount: number
+  ): Promise<string | undefined> {
+    const fallback = await vscode.window.showInputBox({
+      value: seedMessage,
+      prompt: `Squashed commit message (${commitCount} commits)`,
+      ignoreFocusOut: true,
+      valueSelection: [0, 0],
+    });
+    if (fallback === undefined || fallback.trim().length === 0) {
+      return undefined;
+    }
+    return fallback;
   }
 
   /**
@@ -1005,9 +1250,7 @@ export class CommitContextMenuCommands {
     const inOrder = new Set(displayOrder);
     const stale = commitHashes.filter((h) => !inOrder.has(h));
     if (stale.length > 0) {
-      void vscode.window.showInformationMessage(
-        'Commit selection changed since the menu opened — please retry.'
-      );
+      void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
       return;
     }
 
@@ -1209,9 +1452,7 @@ export class CommitContextMenuCommands {
     const inOrder = new Set(displayOrder);
     const stale = commitHashes.filter((h) => !inOrder.has(h));
     if (stale.length > 0) {
-      void vscode.window.showInformationMessage(
-        'Commit selection changed since the menu opened — please retry.'
-      );
+      void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
       return;
     }
 
@@ -1381,15 +1622,72 @@ export class CommitContextMenuCommands {
   /**
    * Drop the selected commit using interactive rebase.
    * Uses hash~1 as the onto target so the selected commit is included in the session.
+   *
+   * Wave C C1 — single-commit path. Multi-commit selections route via the
+   * dispatcher to {@link _handleDropCommitMulti}. Both paths share the
+   * Wave C D3 merge-commit gate (UI disables it via `computeMenuEnableState`;
+   * the handler re-checks here as belt-and-suspenders).
    */
-  private async _handleDropCommit(commitHashes: string[]): Promise<void> {
+  private async _handleDropCommit(
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
+    if (commitHashes.length === 0) {
+      return;
+    }
+
+    // Wave C R1 (Senior M-1) — hash-format validation and initial-commit
+    // guards apply to BOTH the single- and multi-commit drop paths. Lift
+    // them above the N>=2 routing so palette / scripted entry points
+    // hitting either branch get the same defence-in-depth.
+    if (!allHashesValid(commitHashes)) {
+      return;
+    }
+    // Initial-commit edge: dropping the initial commit means
+    // `<hash>~1` (single) or `<oldest>^` (multi) doesn't resolve.
+    // Check the oldest selected (last in newest-first display order).
+    if (commitNodes.length > 0) {
+      const indices = commitHashes
+        .map((h) => commitNodes.findIndex((n) => n.hash === h))
+        .filter((i) => i >= 0);
+      if (indices.length > 0) {
+        const oldestIdx = Math.max(...indices);
+        if (commitNodes[oldestIdx].parentCount === 0) {
+          void vscode.window.showErrorMessage(
+            'Cannot drop the initial commit — use `git update-ref -d HEAD` to reset the branch instead.'
+          );
+          return;
+        }
+      }
+    }
+
+    // Wave C C1 — N>=2 routes to the multi-commit drop flow. Single
+    // entry point keeps the dispatcher simple and preserves the
+    // dispatch-property invariant.
+    if (commitHashes.length >= 2) {
+      await this._handleDropCommitMulti(commitHashes, commitNodes);
+      return;
+    }
+
     const repo = await this._getRepository();
-    if (!repo || commitHashes.length === 0) {
+    if (!repo) {
       return;
     }
 
     const hash = commitHashes[0];
     const cwd = repo.rootUri.fsPath;
+
+    // Wave C D3 — defence-in-depth merge-commit gate. The UI hides the
+    // action entirely when the selection contains a merge commit, but
+    // a palette / scripted entry point could still call this handler
+    // with a merge hash. Refuse with a friendly toast.
+    const dropTargetParents = commitNodes.find((n) => n.hash === hash)?.parentCount;
+    if (dropTargetParents !== undefined && dropTargetParents >= 2) {
+      void vscode.window.showErrorMessage(
+        'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.'
+      );
+      return;
+    }
 
     try {
       const { stashed, blocked } = await this._stashIfDirty(cwd);
@@ -1456,6 +1754,424 @@ export class CommitContextMenuCommands {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to drop commit: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * Wave C C1 — drop N>=2 contiguous-or-not commits via a single
+   * interactive rebase.
+   *
+   * Flow:
+   *   1. Validate every hash is hex (R1 Senior M-2 belt + suspenders).
+   *   2. In-order guard: every selected hash must still be in the
+   *      rendered commitNodes; otherwise toast "selection changed" and
+   *      abort. Mirror of `_handleCommitContextMenu` (TL-M-4).
+   *   3. D3 defence-in-depth — refuse if any selected commit is a merge.
+   *      The UI gates this in `computeMenuEnableState`; this is the
+   *      handler-side mirror.
+   *   4. D6 initial-commit edge — `oldest^` doesn't resolve when oldest
+   *      is the initial commit. Detect via parentCount=0 and toast.
+   *   5. Confirm modal — N>=2 only (D2). List up to 5 short-shas.
+   *   6. D7 stash dirty working tree if needed (mirrors single-drop).
+   *   7. Start interactive rebase onto `oldest^`. Build the plan: every
+   *      commit in the rebase window stays `pick` unless its hash is in
+   *      the selected set, which becomes `drop`.
+   *   8. Execute. On success, refresh + toast. On conflict (D8), abort
+   *      the rebase + unstash, then route the conflict files through
+   *      `_openResolveConflictsDialog(operation: 'rebase', target: 'drop')`.
+   *
+   * Replay direction (trap #3): commitHashes arrives newest-first from
+   * the webview. The rebase window is built oldest-first by
+   * `RebaseService.getCommitsToRebase` (it walks `<onto>..HEAD --reverse`),
+   * so we don't need to manage replay order ourselves — we just turn
+   * each plan entry to drop/pick by membership in the selected set.
+   */
+  private async _handleDropCommitMulti(
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
+    const repo = await this._getRepository();
+    if (!repo || commitHashes.length < 2) {
+      return;
+    }
+
+    // 1. Hash format validation (R1 Senior M-2).
+    if (!allHashesValid(commitHashes)) {
+      return;
+    }
+
+    // 2. In-order guard — every selected hash must be in commitNodes.
+    const inOrder = new Set(commitNodes.map((n) => n.hash));
+    const stale = commitHashes.filter((h) => !inOrder.has(h));
+    if (stale.length > 0) {
+      void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
+      return;
+    }
+
+    // 3. D3 defence-in-depth — refuse merge-commit selections.
+    const selectedSet = new Set(commitHashes);
+    const hasMerge = commitNodes.some((n) => selectedSet.has(n.hash) && n.parentCount >= 2);
+    if (hasMerge) {
+      void vscode.window.showErrorMessage(
+        'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.'
+      );
+      return;
+    }
+
+    // Project to display indices and find the oldest selected (largest
+    // index in newest-first display order).
+    const indexByHash = new Map<string, number>();
+    for (let i = 0; i < commitNodes.length; i++) {
+      indexByHash.set(commitNodes[i].hash, i);
+    }
+    const indices = commitHashes
+      .map((h) => indexByHash.get(h))
+      .filter((i): i is number => i !== undefined)
+      .slice()
+      .sort((a, b) => a - b);
+    // Newest-first display: largest index = oldest commit.
+    const oldestIdx = indices[indices.length - 1];
+    const oldestHash = commitNodes[oldestIdx].hash;
+
+    // 4. D6 initial-commit edge — `oldest^` cannot resolve.
+    const oldestParents = commitNodes[oldestIdx].parentCount;
+    if (oldestParents === 0) {
+      void vscode.window.showErrorMessage(
+        'Cannot drop the initial commit — use `git update-ref -d HEAD` to reset the branch instead.'
+      );
+      return;
+    }
+
+    // 5. Confirm modal (D2 — N>=2 only). Surface up to 5 rows formatted
+    // as `<short-sha> — <subject>` so the user can verify exactly which
+    // commits the destructive op will rewrite. Pre-R1 we listed bare
+    // short-shas, which the user couldn't disambiguate against the log.
+    // R1 (Senior M-4): subjects pulled via getCommit and truncated to
+    // 60 chars; failed lookups fall back to the bare short-sha.
+    //
+    // R2 (Senior R1-L-4): wrap each lookup in a 500ms `Promise.race` so a
+    // slow / hung git process can't stall the modal indefinitely on a
+    // huge repo. Timeout falls back to the bare short-sha — the user
+    // still sees the destructive-op confirm with valid disambiguation.
+    //
+    // L-4 — bare 'Drop' label is intentional per
+    // `feedback_data_loss_confirms.md`'s minimal-confirm policy.
+    const previewLimit = 5;
+    const previewTimeoutMs = 500;
+    const previewRows = await Promise.all(
+      commitHashes.slice(0, previewLimit).map(async (h) => {
+        try {
+          const commit = await Promise.race([
+            this._gitService.getCommit(repo, h),
+            new Promise<undefined>((resolve) =>
+              setTimeout(() => resolve(undefined), previewTimeoutMs)
+            ),
+          ]);
+          const subject = (commit?.message ?? '').split('\n')[0].slice(0, 60);
+          return subject ? `${h.substring(0, 8)} — ${subject}` : h.substring(0, 8);
+        } catch {
+          return h.substring(0, 8);
+        }
+      })
+    );
+    const preview =
+      previewRows.join('\n') +
+      (commitHashes.length > previewLimit
+        ? `\n… and ${commitHashes.length - previewLimit} more`
+        : '');
+    const confirmChoice = await vscode.window.showWarningMessage(
+      `Drop ${commitHashes.length} commits? This rewrites history.\n\n${preview}`,
+      { modal: true },
+      'Drop'
+    );
+    if (confirmChoice !== 'Drop') {
+      return;
+    }
+
+    const cwd = repo.rootUri.fsPath;
+    let stashed = false;
+
+    try {
+      // 6. D7 stash dirty tree.
+      const stashResult = await this._stashIfDirty(cwd);
+      stashed = stashResult.stashed;
+      if (stashResult.blocked) {
+        void vscode.window.showErrorMessage(
+          'Cannot drop commits while you have unmerged files. Please resolve conflicts first.'
+        );
+        return;
+      }
+
+      try {
+        // 7. Start interactive rebase onto `oldest^`. The rebase window
+        // covers every commit reachable from HEAD that's newer than
+        // oldestHash^ — including non-selected commits that must stay.
+        const session = await this._rebaseService.startInteractiveRebase(repo, `${oldestHash}^`);
+
+        // Build the plan: each commit in the session stays `pick`
+        // unless its hash is in the selected drop set.
+        const plan = session.commits.map((c) =>
+          selectedSet.has(c.hash)
+            ? { hash: c.hash, action: 'drop' as const }
+            : { hash: c.hash, action: c.action }
+        );
+
+        // R1 (Senior M-3) — empty rebase-window or partial-coverage
+        // guard. If `getCommitsToRebase` returned fewer commits than
+        // the user selected (the most plausible cause: a force-push
+        // landed between dispatch and rebase, mutating reachable
+        // history), the empty plan would `executeRebase` to a no-op
+        // success and we'd surface a misleading "dropped N commits"
+        // toast. Detect via "every selected hash must be a drop in
+        // the plan"; toast STALE_SELECTION_TOAST and abort.
+        // R2 (Senior R1-L-5) — compare against `selectedSet.size`, not
+        // `commitHashes.length`. The webview never produces duplicate
+        // hashes today, but a future palette / scripted entry point
+        // might (e.g. a user pasting `[abc, abc]` from the clipboard).
+        // Comparing against the deduped set size keeps the guard
+        // robust without reading like a coincidence.
+        const planDropCount = plan.filter((p) => p.action === 'drop').length;
+        if (planDropCount < selectedSet.size) {
+          void vscode.window.showWarningMessage(STALE_SELECTION_TOAST);
+          await this._rebaseService.abortRebase(repo);
+          return;
+        }
+        this._rebaseService.updateRebasePlan(repo, plan);
+
+        const result = await this._rebaseService.executeRebase(repo);
+
+        if (result.success) {
+          void vscode.window.showInformationMessage(
+            `Dropped ${commitHashes.length} commits successfully.`
+          );
+        } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
+          // 8. D8 conflict path — abort + unstash, then hand off to the
+          // resolve dialog with operation:'rebase', target:'drop'.
+          await this._rebaseService.abortRebase(repo);
+          if (stashed) {
+            await this._unstash(cwd);
+            stashed = false;
+          }
+          await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
+            operation: 'rebase',
+            target: 'drop',
+          });
+          this._gitToolWindowProvider.refresh();
+          return;
+        }
+      } catch (opError) {
+        if (stashed) {
+          await this._unstash(cwd);
+          stashed = false;
+        }
+        throw opError;
+      }
+
+      // R1 (Senior L-1) → R2 (Senior R1-M-3): post-success unstash uses
+      // the shared {@link _unstashWithErrorReport} helper so the drop
+      // and squash success paths share the same phrasing.
+      if (stashed) {
+        await this._unstashWithErrorReport(cwd, 'Drop');
+      }
+      this._gitToolWindowProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to drop commits: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * Wave C C2 — squash N>=2 contiguous non-merge commits into one via a
+   * single interactive rebase.
+   *
+   * Flow (D1 — IntelliJ semantics: dialog runs BEFORE the rebase):
+   *   1. Validate hashes; in-order guard; defence-in-depth contiguity +
+   *      no-merge checks (UI gates them in `computeMenuEnableState`).
+   *   2. Determine the oldest selected commit (largest index in newest-
+   *      first display order). Drop the parent-count check at this
+   *      site — the squash UI gate already requires no merge commits,
+   *      and a non-merge always has a parent.
+   *   3. Fetch each selected commit's full message via `getCommit`. Join
+   *      with `\n\n` to seed the message editor.
+   *   4. Open `vscode.window.showInputBox` with the seed value (D5). On
+   *      cancel (undefined), abort with no git side-effects.
+   *   5. Stash dirty tree (D7). On unmerged-files block, error toast.
+   *   6. Start rebase onto `oldest^`. Build the plan: oldest selected
+   *      stays `pick` (it's the squash target); every other selected
+   *      becomes `squash`; non-selected stays `pick`.
+   *   7. Execute the rebase. When it pauses for the squash message,
+   *      thread the user's chosen message via `provideSquashMessage`.
+   *   8. Conflict path (D8): abort + unstash + handoff to the resolve
+   *      dialog with operation:'rebase', target:'squash'.
+   */
+  private async _handleSquashCommits(
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
+    const repo = await this._getRepository();
+    if (!repo || commitHashes.length < 2) {
+      return;
+    }
+
+    // 1. Hash format validation.
+    if (!allHashesValid(commitHashes)) {
+      return;
+    }
+
+    // 1b. In-order guard.
+    const knownHashes = new Set(commitNodes.map((n) => n.hash));
+    const stale = commitHashes.filter((h) => !knownHashes.has(h));
+    if (stale.length > 0) {
+      void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
+      return;
+    }
+
+    // 1c. Defence-in-depth — squash must be contiguous + non-merge.
+    const displayOrder = commitNodes.map((n) => n.hash);
+    if (!isSelectionContiguous(new Set(commitHashes), displayOrder)) {
+      void vscode.window.showErrorMessage(
+        'Squash needs contiguous (consecutive) commits — gaps in the selection are not supported.'
+      );
+      return;
+    }
+    const selectedSet = new Set(commitHashes);
+    const hasMerge = commitNodes.some((n) => selectedSet.has(n.hash) && n.parentCount >= 2);
+    if (hasMerge) {
+      void vscode.window.showErrorMessage('Squash cannot include merge commits.');
+      return;
+    }
+
+    // 2. Find the oldest selected commit (largest index in newest-first display order).
+    const indexByHash = new Map<string, number>();
+    for (let i = 0; i < commitNodes.length; i++) {
+      indexByHash.set(commitNodes[i].hash, i);
+    }
+    const indices = commitHashes
+      .map((h) => indexByHash.get(h))
+      .filter((i): i is number => i !== undefined)
+      .slice()
+      .sort((a, b) => a - b);
+    const oldestIdx = indices[indices.length - 1];
+    const oldestHash = commitNodes[oldestIdx].hash;
+
+    // 3. Fetch each selected commit's full message and join in oldest-
+    // first order (chronological: oldest commit's message comes first
+    // in the seed). commitHashes is newest-first; oldest-first =
+    // .slice().reverse().
+    const oldestFirst = [...commitHashes].reverse();
+    const messages: string[] = [];
+    for (const h of oldestFirst) {
+      try {
+        const commit = await this._gitService.getCommit(repo, h);
+        messages.push(commit.message ?? '');
+      } catch {
+        // If lookup fails, fall back to the short-sha so the seed
+        // still has a marker for the user to edit.
+        messages.push(h.substring(0, 8));
+      }
+    }
+    const seedMessage = messages.filter((m) => m.length > 0).join('\n\n');
+
+    // 4. Show the squash-message editor (D5, R1 Senior H-1). Pre-R1
+    // used `showInputBox`, which is single-line and rendered the
+    // multi-line `\n\n`-joined seed with literal backslash-n. R1
+    // switches to an untitled-style editor opened on a tempfile so
+    // multi-line editing works naturally and `git-commit` syntax
+    // highlighting kicks in. Cancel (close-without-save OR empty save)
+    // aborts the flow with NO git side-effects.
+    const userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+    if (userMessage === undefined) {
+      // D1 cancel — no git command runs.
+      return;
+    }
+
+    const cwd = repo.rootUri.fsPath;
+
+    try {
+      // 5. Stash dirty tree.
+      const { stashed, blocked } = await this._stashIfDirty(cwd);
+      if (blocked) {
+        void vscode.window.showErrorMessage(
+          'Cannot squash commits while you have unmerged files. Please resolve conflicts first.'
+        );
+        return;
+      }
+
+      try {
+        // 6. Start interactive rebase onto oldest^.
+        const session = await this._rebaseService.startInteractiveRebase(repo, `${oldestHash}^`);
+
+        // Build the plan: oldest selected stays `pick` (the squash target);
+        // every other selected becomes `squash`; non-selected stays `pick`.
+        const plan = session.commits.map((c) => {
+          if (!selectedSet.has(c.hash)) {
+            return { hash: c.hash, action: c.action };
+          }
+          if (c.hash === oldestHash) {
+            return { hash: c.hash, action: 'pick' as const };
+          }
+          return { hash: c.hash, action: 'squash' as const };
+        });
+        this._rebaseService.updateRebasePlan(repo, plan);
+
+        // 7. Execute. The rebase pauses after squash steps to ask for
+        // the combined message; we thread the user's chosen message
+        // via `provideSquashMessage`.
+        let result = await this._rebaseService.executeRebase(repo);
+        if (result.status === 'paused') {
+          result = await this._rebaseService.provideSquashMessage(repo, userMessage);
+        }
+
+        // R1 (Senior M-2) — `result.success` alone is not sufficient:
+        // `RebaseService.amendEditCommit` returns `{success: true,
+        // status: 'paused'}` when the amend lands but the rebase still
+        // has more steps to run. Treating that as "squash done" surfaces
+        // a misleading toast. Pin the success branch to `'completed'`
+        // and route `'paused'` through a "partial" warning so the user
+        // knows to resume manually.
+        if (result.success && result.status === 'completed') {
+          void vscode.window.showInformationMessage(
+            `Squashed ${commitHashes.length} commits successfully.`
+          );
+        } else if (result.status === 'paused') {
+          void vscode.window.showWarningMessage(
+            `Squash partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
+          );
+        } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
+          // 8. D8 conflict path — abort + unstash + handoff.
+          await this._rebaseService.abortRebase(repo);
+          if (stashed) {
+            await this._unstash(cwd);
+          }
+          await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
+            operation: 'rebase',
+            target: 'squash',
+          });
+          this._gitToolWindowProvider.refresh();
+          return;
+        }
+      } catch (opError) {
+        if (stashed) {
+          await this._unstash(cwd);
+        }
+        throw opError;
+      }
+
+      // R2 (Senior R1-M-3) — squash success path now reports unstash
+      // failures distinctly via {@link _unstashWithErrorReport}, mirroring
+      // the drop path. Pre-R2 the silent `_unstash` would leave the user
+      // believing the squash had restored their working changes.
+      if (stashed) {
+        await this._unstashWithErrorReport(cwd, 'Squash');
+      }
+      this._gitToolWindowProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to squash commits: ${sanitizeGitError(errorMessage)}`
       );
     }
   }

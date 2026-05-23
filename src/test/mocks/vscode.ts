@@ -85,6 +85,13 @@ export enum ProgressLocation {
   Notification = 15,
 }
 
+// Wave C R2 (Senior R1-M-1) — mock `vscode.TabInputText` class so the
+// squash dialog's tab-API close path can do `instanceof TabInputText`
+// checks against tab inputs constructed by tests.
+export class TabInputText {
+  constructor(public readonly uri: Uri) {}
+}
+
 // Mock configuration storage (Wave 135 R5 / M2 — per-scope tracker).
 //
 // Real VS Code distinguishes three scopes through `inspect()`:
@@ -392,6 +399,48 @@ export const workspace = {
     return { dispose: () => {} };
   },
 
+  // Wave C R1 — mock for `vscode.workspace.onDidCloseTextDocument`.
+  // Tests override on the writable `workspace` to drive the squash-
+  // editor save/close listener flow.
+  onDidCloseTextDocument(_listener: (e: unknown) => void): { dispose: () => void } {
+    return { dispose: () => {} };
+  },
+
+  // Wave C R1 — mock for `vscode.workspace.openTextDocument`. Default
+  // returns a minimal text-document stub; tests override on the
+  // writable `workspace` to drive the squash-editor flow.
+  openTextDocument: async (
+    options?:
+      | string
+      | Uri
+      | {
+          content?: string;
+          language?: string;
+        }
+  ): Promise<{
+    uri: Uri;
+    getText: () => string;
+    languageId: string;
+    isUntitled: boolean;
+  }> => {
+    if (typeof options === 'object' && options !== null && 'content' in options) {
+      const content = (options as { content?: string }).content ?? '';
+      const language = (options as { language?: string }).language ?? 'plaintext';
+      return {
+        uri: Uri.parse(`untitled:wave-c-mock-${Date.now()}`),
+        getText: () => content,
+        languageId: language,
+        isUntitled: true,
+      };
+    }
+    return {
+      uri: Uri.parse('untitled:wave-c-mock-empty'),
+      getText: () => '',
+      languageId: 'plaintext',
+      isUntitled: true,
+    };
+  },
+
   workspaceFolders: undefined as unknown[] | undefined,
 
   fs: {
@@ -524,6 +573,26 @@ export const window = {
   },
   showSaveDialog: async (_options?: unknown): Promise<Uri | undefined> => {
     return undefined;
+  },
+  // Wave C R1 — mock for `vscode.window.showTextDocument`. Default
+  // returns a minimal stub editor; tests override on the writable
+  // `window` to drive the squash-editor flow without a real editor.
+  showTextDocument: async (
+    document: unknown,
+    _options?: unknown
+  ): Promise<{ document: unknown }> => {
+    return { document };
+  },
+
+  // Wave C R2 (Senior R1-M-1) — `_promptForSquashMessage` now uses the
+  // tab API (`vscode.window.tabGroups`) to close the squash editor
+  // specifically rather than `workbench.action.closeActiveEditor`
+  // (which would close whatever was active when focus shifted). The
+  // mock returns an empty group set by default; tests stub
+  // `tabGroups.all` + `tabGroups.close` to drive the close path.
+  tabGroups: {
+    all: [] as { tabs: { input: unknown; label: string }[] }[],
+    close: async (_tab: unknown): Promise<boolean> => true,
   },
   createOutputChannel(name: string): {
     name: string;

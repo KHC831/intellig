@@ -95,6 +95,18 @@ export interface IRebaseService {
   provideRewordMessage(repo: IRepository, message: string): Promise<IRebaseResult>;
 
   /**
+   * Provide a combined message for a squash action.
+   *
+   * Wave C — symmetric companion to {@link provideRewordMessage}. The git
+   * mechanics are identical (the rebase pauses, asks for the new
+   * message, and resumes on `--continue`); the separate name carries
+   * intent at the call site for the squash N-commit flow. Should be
+   * called when the rebase is paused after a `squash` step has merged
+   * commits and is awaiting the combined message.
+   */
+  provideSquashMessage(repo: IRepository, message: string): Promise<IRebaseResult>;
+
+  /**
    * Amend the current commit during an edit pause.
    * Should be called when the rebase is paused for edit.
    */

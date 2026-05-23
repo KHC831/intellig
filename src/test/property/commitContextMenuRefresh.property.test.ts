@@ -168,13 +168,25 @@ function createSuccessGitService(headCommitHash?: string): IGitService {
   } as unknown as IGitService;
 }
 
-function createMockRebaseService(commitHash?: string): IRebaseService {
+function createMockRebaseService(
+  commitHash?: string,
+  allHashes?: readonly string[]
+): IRebaseService {
   const sessionChangeEmitter = new EventEmitter<undefined>();
   return {
     startInteractiveRebase: async () => ({
       onto: '',
       originalBranch: '',
-      commits: commitHash ? [{ hash: commitHash, message: 'test commit', action: 'pick' }] : [],
+      // Wave C R1 (Senior M-3): the drop-multi handler now asserts that
+      // the rebase window covers every selected commit (an empty /
+      // partial plan is treated as a stale selection). Feed the mock
+      // session every commit the test selected so the success branch
+      // runs through to refresh().
+      commits: allHashes
+        ? allHashes.map((h) => ({ hash: h, message: 'test commit', action: 'pick' as const }))
+        : commitHash
+          ? [{ hash: commitHash, message: 'test commit', action: 'pick' }]
+          : [],
       currentStep: 0,
       status: 'planning' as const,
     }),
@@ -185,6 +197,7 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
     abortRebase: async () => {},
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
+    provideSquashMessage: async () => ({ success: true, status: 'completed' as const }),
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
     onDidChangeRebaseSession: sessionChangeEmitter.event,
     dispose: () => {},
@@ -238,6 +251,14 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
     // Mock showInputBox to return a value (for editCommitMessage)
     writableWindow().showInputBox = (): Promise<string | undefined> =>
       Promise.resolve('new message');
+    // Wave C — _handleDropCommitMulti uses a modal showWarningMessage to
+    // confirm destructive ops on N>=2 selections. Auto-confirm so the
+    // success-path property still exercises the refresh code path.
+    writableWindow().showWarningMessage = ((): Promise<string | undefined> =>
+      Promise.resolve('Drop')) as unknown as (
+      message: string,
+      ...items: unknown[]
+    ) => Promise<string | undefined>;
   });
 
   afterEach(() => {
@@ -261,7 +282,7 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
           async (action, commitHashes) => {
             const headHash = commitHashes[0];
             const gitService = createSuccessGitService(headHash);
-            const rebaseService = createMockRebaseService(headHash);
+            const rebaseService = createMockRebaseService(headHash, commitHashes);
             const provider = createTrackingGitToolWindowProvider();
             const gitCli = createSuccessGitCli();
 
@@ -274,7 +295,12 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
 
             provider.refreshCallCount = 0;
 
-            await commands._handleAction(action, commitHashes);
+            // Wave C — multi-commit handlers (drop N>=2, squash) gate on
+            // an in-order guard against the dispatched commitNodes. Pass
+            // a synthesised list (parentCount=1 for every hash) so the
+            // refresh-path property exercises the success branch.
+            const commitNodes = commitHashes.map((h) => ({ hash: h, parentCount: 1 }));
+            await commands._handleAction(action, commitHashes, commitNodes);
 
             assert.ok(
               provider.refreshCallCount > 0,

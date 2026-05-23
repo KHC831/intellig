@@ -225,7 +225,12 @@ export function computeMenuEnableState(
     createPatch: isAtLeastOne,
     cherryPick: isAtLeastOne,
     revert: isAtLeastOne,
-    dropCommit: isAtLeastOne,
+    // Wave C D3 — drop must reject merge commits. Silent history-
+    // flattening (a multi-parent commit dropped via interactive rebase
+    // loses one parent's reachable history without warning) is a
+    // footgun. Gate at the UI surface and again at the handler entry
+    // (defence in depth).
+    dropCommit: isAtLeastOne && !hasMergeCommitInSelection,
     // N=1 actions (R1 H-1: resetToHere added here)
     editCommitMessage: isSingle,
     checkoutRevision: isSingle,
@@ -331,6 +336,14 @@ export function computeMenuState(
     return undefined;
   })();
 
+  // Wave C D3 — explain why drop is disabled when the selection contains
+  // a merge commit. Only populated when visible+disabled (R4-2 narrowing
+  // in the apply loop below); other dropCommit disables (N=0) hide the
+  // row entirely so no reason is needed.
+  const dropReason = hasMergeCommitInSelection
+    ? 'Drop cannot include merge commits — use Reset to a non-merge ancestor instead.'
+    : undefined;
+
   // Walk all action keys via the visibility record so the result is
   // statically guaranteed to cover every MultiSelectMenuAction.
   const result = {} as Record<MultiSelectMenuAction, IMenuItemState>;
@@ -347,6 +360,9 @@ export function computeMenuState(
       let reason: string | undefined;
       if (action === 'squashCommits') {
         reason = squashReason;
+      } else if (action === 'dropCommit') {
+        // Wave C D3 — merge-commit gate.
+        reason = dropReason;
       }
       // R5-2: compareVersions has no visible+disabled state by
       // construction, so no branch here. Other actions have trivial

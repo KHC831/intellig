@@ -539,6 +539,24 @@ ${todoContent}EOF
   }
 
   /**
+   * Provide a combined message for a squash action.
+   *
+   * Wave C — symmetric companion to {@link provideRewordMessage}. The git
+   * mechanics are identical: when the rebase pauses after a `squash`
+   * step, git wants a single combined commit message; we feed it through
+   * `git commit --amend -m <message>` and resume on `--continue`. The
+   * separate method name (vs. reusing `provideRewordMessage`) carries
+   * intent at the call site of the new Wave C squash N-commit flow.
+   *
+   * @param repo - The repository
+   * @param message - The combined commit message
+   * @returns The result of continuing the rebase with the combined message
+   */
+  async provideSquashMessage(repo: IRepository, message: string): Promise<IRebaseResult> {
+    return this.provideRewordMessage(repo, message);
+  }
+
+  /**
    * Amend the current commit during an edit pause.
    * This should be called when the rebase is paused for edit.
    *

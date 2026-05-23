@@ -22,7 +22,7 @@ import { IRebaseService } from '../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
 import type { GitCli } from '../../utils/gitCli';
 import { EventEmitter, Uri } from '../mocks/vscode';
-import { writableWindow } from '../typed/windowStub';
+import { writableWindow, writableWorkspace, writableCommands } from '../typed/windowStub';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -47,8 +47,9 @@ const IMPLEMENTED_ACTIONS: LogContextAction[] = [
   // (Wave B B4 landed in the prior round). Property 4's "for any
   // LogContextAction the right handler is called" claim was structurally
   // false while it was a stub — adding it here closes the gap.
-  // `squashCommits` stays out: it's still a Wave A R1 stub until Wave C.
   'compareVersions',
+  // Wave C — squashCommits now routes to a real handler.
+  'squashCommits',
 ];
 
 /**
@@ -96,6 +97,8 @@ const ACTION_TO_HANDLER: Record<string, string> = {
   interactiveRebase: '_handleInteractiveRebase',
   // Wave B R2 (Senior M-1) — see IMPLEMENTED_ACTIONS comment.
   compareVersions: '_handleCompareVersions',
+  // Wave C — squashCommits now routes to a real handler.
+  squashCommits: '_handleSquashCommits',
 };
 
 interface HandlerCallRecord {
@@ -212,6 +215,7 @@ function createMockRebaseService(commitHash?: string): IRebaseService {
     abortRebase: async () => {},
     skipCommit: async () => ({ success: true, status: 'completed' as const }),
     provideRewordMessage: async () => ({ success: true, status: 'completed' as const }),
+    provideSquashMessage: async () => ({ success: true, status: 'completed' as const }),
     amendEditCommit: async () => ({ success: true, status: 'completed' as const }),
     onDidChangeRebaseSession: sessionChangeEmitter.event,
     dispose: () => {},
@@ -314,6 +318,67 @@ function createSpiedCommands(commitHash?: string): {
   writableWindow().showOpenDialog = (): Promise<import('vscode').Uri[] | undefined> => {
     return Promise.resolve([Uri.file('/tmp')]);
   };
+
+  // Wave C — `_handleDropCommitMulti` (N>=2) shows a destructive-op
+  // confirm modal. Auto-confirm so the spy records the dispatch and
+  // the handler completes without throwing.
+  writableWindow().showWarningMessage = ((): Promise<string | undefined> =>
+    Promise.resolve('Drop')) as unknown as (
+    message: string,
+    ...items: unknown[]
+  ) => Promise<string | undefined>;
+
+  // Wave C R1 (Senior H-1) — `_handleSquashCommits` opens an editor
+  // and waits for save / close. The dispatch property only checks
+  // the handler was called, not the downstream behaviour. Auto-fire
+  // the save listener with a dummy message so the handler resolves.
+  // Stubs:
+  //   - openTextDocument returns a doc whose URI matches the save
+  //     handler's filter so the listener fires.
+  //   - showTextDocument is a no-op.
+  //   - onDidSaveTextDocument captures the listener AND fires it
+  //     synchronously with a dummy message on next microtask so the
+  //     handler's await resolves.
+  //   - onDidCloseTextDocument is captured but not fired.
+  //   - commands.executeCommand swallows the closeActiveEditor call.
+  const ws = writableWorkspace();
+  const wInner = writableWindow();
+  const cInner = writableCommands();
+  let lastDocUri: import('vscode').Uri | undefined;
+  ws.openTextDocument = (options: unknown) => {
+    if (
+      options !== null &&
+      typeof options === 'object' &&
+      'fsPath' in (options as Record<string, unknown>)
+    ) {
+      lastDocUri = options as import('vscode').Uri;
+    } else if (typeof options === 'string') {
+      lastDocUri = Uri.file(options);
+    } else {
+      lastDocUri = Uri.parse(`untitled:dispatch-prop-${Date.now()}`);
+    }
+    return Promise.resolve({
+      uri: lastDocUri,
+      getText: () => 'dispatch-prop squash msg',
+      languageId: 'plaintext',
+      isUntitled: false,
+    });
+  };
+  wInner.showTextDocument = (document: unknown) => Promise.resolve({ document });
+  ws.onDidSaveTextDocument = (
+    listener: (doc: { uri: import('vscode').Uri; getText: () => string }) => void
+  ) => {
+    // Fire on next microtask so the listener runs after the handler's
+    // showTextDocument awaits resolve.
+    setImmediate(() => {
+      if (lastDocUri) {
+        listener({ uri: lastDocUri, getText: () => 'dispatch-prop squash msg' });
+      }
+    });
+    return { dispose: () => {} };
+  };
+  ws.onDidCloseTextDocument = () => ({ dispose: () => {} });
+  cInner.executeCommand = () => Promise.resolve(undefined);
 
   return { commands, calls };
 }

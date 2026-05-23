@@ -839,6 +839,71 @@ describe('RebaseService', () => {
       });
     });
 
+    // Wave C — `provideSquashMessage` is the symmetric companion to
+    // `provideRewordMessage`. The git mechanics are identical (the rebase
+    // pauses, asks for a commit message, and resumes on `--continue`); the
+    // separate name carries intent at the call site for the squash multi-
+    // commit flow added in Wave C.
+    describe('Squash Action — provideSquashMessage', () => {
+      it('should provide squash message via provideSquashMessage', async () => {
+        mockGitCli.setExecResult('commit --amend', createMockResult(0, ''));
+        mockGitCli.setExecResult('rebase --continue', createMockResult(0, ''));
+
+        const result = await rebaseService.provideSquashMessage(
+          mockRepo,
+          'Combined squash message'
+        );
+
+        // git commit --amend -m <message> threads the user's chosen
+        // squash message into the rebase the same way reword does.
+        const calls = mockGitCli.getExecCalls();
+        const amendCall = calls.find((c) => c.args.includes('--amend') && c.args.includes('-m'));
+        assert.ok(amendCall, 'expected git commit --amend -m to be invoked');
+        assert.ok(amendCall.args.includes('Combined squash message'));
+        assert.ok(result.success);
+      });
+
+      it('should throw error when providing squash message without session', async () => {
+        const newService = new RebaseService(mockGitCli);
+
+        await assert.rejects(
+          async () => newService.provideSquashMessage(mockRepo, 'Combined squash message'),
+          /No rebase session found/
+        );
+
+        newService.dispose();
+      });
+
+      it('should surface conflict status when amend fails with conflicts', async () => {
+        mockGitCli.setExecResult('commit --amend', createMockResult(1, '', 'merge conflict'));
+        mockGitCli.setExecResult(
+          'status --porcelain',
+          createMockResult(0, 'UU src/conflicted.ts\n')
+        );
+
+        const result = await rebaseService.provideSquashMessage(mockRepo, 'msg');
+
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.status, 'conflict');
+        assert.ok(result.conflictedFiles && result.conflictedFiles.length > 0);
+      });
+
+      it('should be exposed on the IRebaseService interface', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        const src = fs.readFileSync(
+          path.join(process.cwd(), 'src/services/interfaces/IRebaseService.ts'),
+          'utf8'
+        );
+        assert.ok(
+          /provideSquashMessage\s*\(\s*repo\s*:\s*IRepository\s*,\s*message\s*:\s*string\s*\)\s*:\s*Promise<IRebaseResult>/.test(
+            src
+          ),
+          'IRebaseService must declare provideSquashMessage(repo, message): Promise<IRebaseResult>'
+        );
+      });
+    });
+
     describe('Edit Action', () => {
       it('should allow setting edit action on a commit', () => {
         const plan: IRebaseAction[] = [
