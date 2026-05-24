@@ -150,11 +150,13 @@ describe('Feature: branch-context-menu - Excluded Commands Property Tests', () =
       // - intellig.branch.update (2_sync@1)
       // - intellig.branch.push (2_sync@2)
       // - intellig.branch.rename (3_manage@1)
+      // - intellig.branch.focusOnGraph (inline@1) — Wave D / D2
       const ALLOWED_CURRENT_BRANCH_COMMANDS: ReadonlyArray<string> = [
         'intellig.branch.newBranchFrom',
         'intellig.branch.update',
         'intellig.branch.push',
         'intellig.branch.rename',
+        'intellig.branch.focusOnGraph',
       ];
 
       fc.assert(

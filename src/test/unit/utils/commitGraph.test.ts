@@ -903,3 +903,214 @@ describe('classifyBranchName()', () => {
     });
   });
 });
+
+/**
+ * Wave D — D1 Lane algorithm: divergent branch correctness.
+ *
+ * The pre-rewrite single-pass algorithm collapses divergent branches that
+ * share an unseen parent: the SECOND child of a parent inherits the first
+ * child's lane because parent-lane assignment was unconditional. The
+ * children-map two-pass algorithm in the rewrite must give each divergent
+ * branch its own lane.
+ *
+ * These tests are the RED capture for the rewrite.
+ */
+describe('Wave D — divergent branch lane correctness (D1)', () => {
+  it('two children of unseen parent get distinct lanes', () => {
+    // Display order (newest-first): tipA at lane 0, tipB diverges → must NOT
+    // collapse onto lane 0. The shared parent `base` is unseen at the time
+    // tipA is processed.
+    //
+    //   * tipA       (lane 0)
+    //   |  * tipB    (lane 1, diverges)
+    //   | /
+    //   * base       (lane 0 — first-child-wins)
+    const commits = [
+      createMockCommit('tipA', ['base'], 'Tip A'),
+      createMockCommit('tipB', ['base'], 'Tip B'),
+      createMockCommit('base', [], 'Shared root'),
+    ];
+
+    const result = generateCommitGraph(commits);
+
+    assert.strictEqual(result[0].graphColumn, 0, 'tipA in lane 0');
+    assert.strictEqual(result[1].graphColumn, 1, 'tipB MUST be in a distinct lane');
+    assert.strictEqual(result[2].graphColumn, 0, 'base settles on first-child lane');
+
+    // tipB's line connects from lane 1 → lane 0 (base).
+    assert.strictEqual(result[1].graphLines.length, 1);
+    assert.strictEqual(result[1].graphLines[0].fromColumn, 1);
+    assert.strictEqual(result[1].graphLines[0].toColumn, 0);
+  });
+
+  it('three-way fork at root yields three distinct lanes', () => {
+    //   * tipA   (lane 0)
+    //   | * tipB (lane 1)
+    //   | | * tipC (lane 2)
+    //   |/ /
+    //   * base
+    const commits = [
+      createMockCommit('tipA', ['base']),
+      createMockCommit('tipB', ['base']),
+      createMockCommit('tipC', ['base']),
+      createMockCommit('base', []),
+    ];
+
+    const result = generateCommitGraph(commits);
+
+    const lanes = new Set([result[0].graphColumn, result[1].graphColumn, result[2].graphColumn]);
+    assert.strictEqual(lanes.size, 3, 'three distinct lanes for three branch tips');
+    assert.strictEqual(result[3].graphColumn, 0, 'base on first-child lane');
+  });
+
+  it('fork-then-merge-back keeps divergence and converges at merge', () => {
+    //   * merge   (parents: feat, main2)        — main lane
+    //   |\
+    //   | * feat                                 — diverged lane
+    //   * | main2                                — main lane
+    //   |/
+    //   * base
+    const commits = [
+      createMockCommit('merge', ['main2', 'feat']),
+      createMockCommit('feat', ['base']),
+      createMockCommit('main2', ['base']),
+      createMockCommit('base', []),
+    ];
+
+    const result = generateCommitGraph(commits);
+
+    assert.strictEqual(result[0].graphColumn, 0, 'merge on lane 0');
+    assert.strictEqual(result[0].graphLines.length, 2, 'merge has two outgoing lines');
+    // feat (display index 1) and main2 (display index 2) — feat is the
+    // SECOND parent of merge so it claims a new lane; main2 inherits
+    // merge's lane (i=0 first parent).
+    assert.notStrictEqual(
+      result[1].graphColumn,
+      result[2].graphColumn,
+      'feat and main2 in distinct lanes'
+    );
+    // `base` is shared by feat (display index 1) and main2 (display
+    // index 2). The first-seen-child-wins rule puts base on feat's
+    // lane; main2's parent edge curves over to it. Whichever lane base
+    // claims, it must coincide with feat's lane.
+    assert.strictEqual(result[3].graphColumn, result[1].graphColumn, 'base on feat lane');
+  });
+
+  it('fork-fork-merge nested keeps every branch on its own lane', () => {
+    //   * mergeAll (main2, featTip)
+    //   |\
+    //   | * featTip
+    //   | * featMid
+    //   * | main2
+    //   * | main1
+    //   |/
+    //   * base
+    const commits = [
+      createMockCommit('mergeAll', ['main2', 'featTip']),
+      createMockCommit('featTip', ['featMid']),
+      createMockCommit('featMid', ['base']),
+      createMockCommit('main2', ['main1']),
+      createMockCommit('main1', ['base']),
+      createMockCommit('base', []),
+    ];
+
+    const result = generateCommitGraph(commits);
+
+    // featTip and featMid stay together on the feat lane.
+    assert.strictEqual(
+      result[1].graphColumn,
+      result[2].graphColumn,
+      'feat lane is straight (featTip → featMid)'
+    );
+    // main2 and main1 stay together on the main lane.
+    assert.strictEqual(
+      result[3].graphColumn,
+      result[4].graphColumn,
+      'main lane is straight (main2 → main1)'
+    );
+    // The two lanes must be distinct.
+    assert.notStrictEqual(
+      result[1].graphColumn,
+      result[3].graphColumn,
+      'feat and main lanes are distinct'
+    );
+  });
+
+  it('large random N=20 graph stays within K + 5 lane bound', () => {
+    // 4 distinct branch tips (terminals), each 4 commits long, all rooted
+    // at a shared base. 4 terminals + 1 root = 17, plus a couple of merges
+    // bring the count up.
+    const commits: ICommit[] = [];
+    const tips = ['A', 'B', 'C', 'D'];
+    for (const t of tips) {
+      commits.push(createMockCommit(`${t}3`, [`${t}2`]));
+      commits.push(createMockCommit(`${t}2`, [`${t}1`]));
+      commits.push(createMockCommit(`${t}1`, [`${t}0`]));
+      commits.push(createMockCommit(`${t}0`, ['base']));
+    }
+    commits.push(createMockCommit('base', []));
+
+    const result = generateCommitGraph(commits);
+    const maxCol = getMaxGraphColumn(result);
+    assert.ok(
+      maxCol <= tips.length + 4,
+      `maxCol=${maxCol} must be ≤ ${tips.length + 4} (terminals + 5 buffer)`
+    );
+    // And every tip must claim a distinct lane.
+    const tipLanes = new Set(
+      tips.map((t) => result.find((n) => n.commit.hash === `${t}3`)!.graphColumn)
+    );
+    assert.strictEqual(tipLanes.size, tips.length, 'every terminal claims a distinct lane');
+  });
+
+  it('single-branch regression: linear history still in lane 0', () => {
+    // The rewrite must NOT regress the single-branch baseline.
+    const commits = [
+      createMockCommit('c5', ['c4']),
+      createMockCommit('c4', ['c3']),
+      createMockCommit('c3', ['c2']),
+      createMockCommit('c2', ['c1']),
+      createMockCommit('c1', []),
+    ];
+
+    const result = generateCommitGraph(commits);
+    for (const node of result) {
+      assert.strictEqual(node.graphColumn, 0, `${node.commit.hash} in lane 0`);
+    }
+  });
+});
+
+describe('Wave D — focused branch path (D3)', () => {
+  it('marks on-path commits when focusedPathHashes is provided', () => {
+    const commits = [
+      createMockCommit('tip', ['mid']),
+      createMockCommit('mid', ['base']),
+      createMockCommit('base', []),
+    ];
+    const onPath = new Set(['tip', 'mid']);
+
+    const result = generateCommitGraph(commits, undefined, undefined, onPath);
+
+    assert.strictEqual(result[0].onFocusedBranchPath, true);
+    assert.strictEqual(result[1].onFocusedBranchPath, true);
+    assert.strictEqual(result[2].onFocusedBranchPath, false);
+  });
+
+  it('all commits get false when focusedPathHashes is undefined', () => {
+    const commits = [createMockCommit('tip', ['base']), createMockCommit('base', [])];
+
+    const result = generateCommitGraph(commits);
+
+    assert.strictEqual(result[0].onFocusedBranchPath, false);
+    assert.strictEqual(result[1].onFocusedBranchPath, false);
+  });
+
+  it('all commits get false when focusedPathHashes is empty', () => {
+    const commits = [createMockCommit('tip', ['base']), createMockCommit('base', [])];
+
+    const result = generateCommitGraph(commits, undefined, undefined, new Set<string>());
+
+    assert.strictEqual(result[0].onFocusedBranchPath, false);
+    assert.strictEqual(result[1].onFocusedBranchPath, false);
+  });
+});

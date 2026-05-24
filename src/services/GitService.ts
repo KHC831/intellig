@@ -2053,6 +2053,42 @@ export class GitService implements IGitService, IGitServiceCli {
     return files;
   }
 
+  /**
+   * Wave D / D3 — compute the merge-base of two refs.
+   *
+   * Wraps `git merge-base --end-of-options <refA> <refB>`. Returns the
+   * common-ancestor SHA on success, or `undefined` when:
+   *   - the refs share no common ancestor (git exits with code 1), or
+   *   - the refs are unknown (git exits with code 128 and writes a
+   *     "fatal: ..." line to stderr), or
+   *   - any other non-zero exit (defensive — caller treats as no path).
+   *
+   * Wave D R1 / Senior H-2 — `--end-of-options` separates options from
+   * positional refs, so a hostile ref string like `--upload-pack=evil`
+   * can never be interpreted by git as an option flag. The host-side
+   * caller in {@link GitToolWindowProvider.setFocusedBranch} also
+   * validates branch names against the live branchMap before invoking
+   * this method (defense in depth — neither layer alone is sufficient).
+   *
+   * Used by the Git tool window's branch-focus feature.
+   */
+  async getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
+    try {
+      const result = await this._gitCli.exec(['merge-base', '--end-of-options', refA, refB], {
+        cwd: repo.rootUri.fsPath,
+      });
+      if (result.exitCode !== 0) {
+        return undefined;
+      }
+      const sha = result.stdout.trim();
+      return sha.length > 0 ? sha : undefined;
+    } catch {
+      // Defensive: GitCli throws on spawn errors / disposed repos. Wave D
+      // Trap T-8 — caller treats undefined as "no path-to-merge-base".
+      return undefined;
+    }
+  }
+
   // ============================================
   // Blame Operations
   // ============================================

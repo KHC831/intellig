@@ -26,6 +26,9 @@ status block.
   Watcher families and the cleanup-registry pattern
 - [ADR-009](ADR-009-webview-state-ownership.md) — Accepted —
   Webview state ownership: host leads, JS follows
+- [ADR-010](ADR-010-visual-parity-discipline.md) — Accepted —
+  Visual parity discipline (snapshot tests, parity reference doc,
+  UX-review checkpoint)
 
 ## Status legend
 

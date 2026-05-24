@@ -183,8 +183,36 @@ Wave A's surfaces and message types:
 | Anchor + selection mirror | `syncSelection` | host |
 | Details panel HTML | `updateDetailsPanel` | host |
 | Graph row highlight | `selectGraphRow` | host |
+| Branch focus + on-path set (Wave D / D2 + D3) | `updateBranchFocus` | host |
 
 The list is append-only as new surfaces are added.
+
+> **Wave D — `updateBranchFocus`**: posted by
+> `GitToolWindowProvider.setFocusedBranch` after `_focusedPathHashes`
+> recomputation. Carries `focusedBranchName: string | null` and
+> `focusedHash: string | null`. The webview's inline-script handler
+> caches the payload into a `let branchFocus` and toggles
+> `branch-label-focused` on every chip whose `data-branch-name`
+> matches. Render-time application in `_getBranchLabelsHtml` is the
+> source of truth; the partial-update message exists so a focus
+> change without a full re-render still updates the chip outline
+> (Wave D Trap T-7).
+>
+> **Wave D R1 / TLD-M-1 — ordering correction**: the Wave D drop
+> originally fired + posted BEFORE `_updateWebview()` (Senior
+> caught the regression in R1). The corrected `setFocusedBranch`
+> tail follows the R5-1 (TL4-M-1) generalisation:
+> `_updateWebview()` → `_onDidChangeState.fire()` →
+> `_postBranchFocusUpdate()` (render first, fire second, post
+> last). This applies to the named-branch path AND the null-clear
+> early-return path. The post lands on the new document, not the
+> doomed pre-reload one.
+>
+> **Wave D R1 / Senior M-3 — payload slimmed**: an earlier draft
+> of `updateBranchFocus` carried `focusedPathHashes: string[]`. The
+> JS handler never read it (the SVG dim/brighten lands during the
+> full re-render that follows the post; the path data is host-
+> cached in `_focusedPathHashes`). R1 dropped it from the wire.
 
 > **FU (R5-7, TL4-L-4)**: when Wave C adds another sequencing sub-rule,
 > consider bifurcating §3 into "§3 Posting contract (basic)" + "§3a

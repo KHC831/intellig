@@ -36,6 +36,14 @@ export interface ICommitNode {
   branches: string[];
   /** Tag names pointing to this commit */
   tags: string[];
+  /**
+   * Wave D / D3 — true when this commit lies on the BFS path from the
+   * currently-focused branch tip back to its merge-base with HEAD. The
+   * renderer brightens on-path lines / commit circles and dims off-path
+   * ones (full IntelliJ parity). When no branch is focused, every node has
+   * `onFocusedBranchPath: false` and the renderer treats it as a no-op.
+   */
+  onFocusedBranchPath?: boolean;
 }
 
 /**
@@ -95,31 +103,95 @@ function findNextAvailableLane(state: ILaneState): number {
 }
 
 /**
+ * Wave D / D1 — children pre-pass.
+ *
+ * Build a map of `parentHash → array of child hashes in display order` so
+ * the main pass can ask "is THIS commit the first-seen child of `parent`?"
+ * Without this pre-pass the single-pass algorithm collapses divergent
+ * branches that share an unseen parent: the SECOND child of a parent gets
+ * its parent's lane unconditionally, which puts it on top of the first
+ * child's lane.
+ *
+ * Display order matters — we record children in the same newest-first
+ * order the main pass consumes commits, so `firstChild = arr[0]` gives the
+ * topologically-newest child of each parent.
+ *
+ * @param commits - Array of commits in topological order (newest first)
+ * @returns Map of parent hash → array of child hashes (newest-first)
+ */
+export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
+  const childrenMap = new Map<string, string[]>();
+  for (const commit of commits) {
+    for (const parent of commit.parents) {
+      const arr = childrenMap.get(parent);
+      if (arr) {
+        // Wave D R1 / Senior L-3 — defensive dedupe. A corrupt object
+        // store can produce a commit listing the same parent twice; if
+        // we let it slip through, the same child appears twice in the
+        // children list and the first-seen check is a no-op for the
+        // duplicated parent slot. Cheap O(arr.length) per push; arr is
+        // tiny in any non-pathological repo.
+        if (arr.includes(commit.hash)) {
+          continue;
+        }
+        arr.push(commit.hash);
+      } else {
+        childrenMap.set(parent, [commit.hash]);
+      }
+    }
+  }
+  return childrenMap;
+}
+
+/**
  * Generate commit graph data from a list of commits.
  *
  * This function processes commits in topological order (newest first) and assigns
  * each commit to a lane (column). It generates graph lines showing the connections
  * between commits and their parents.
  *
+ * Wave D / D1 — children-map two-pass algorithm. The pre-pass records each
+ * parent's children in display order; the main pass uses that to decide
+ * whether the current commit's parent inherits the current lane (only when
+ * THIS commit is the parent's first-seen child AND it is the parent's
+ * first parent slot, i.e. straight-down inheritance) or claims a brand
+ * new lane (any other case — divergent fork).
+ *
+ * Wave D / D3 — `focusedPathHashes` is the optional set of commit hashes
+ * on the BFS path from the focused branch tip to its merge-base with
+ * HEAD. Each `ICommitNode` is annotated with `onFocusedBranchPath` (true
+ * when its hash is in the set, false otherwise — including when the set
+ * is undefined or empty). The renderer reads this flag and the
+ * `hasFocusedBranch` global to brighten on-path / dim off-path lines.
+ *
  * The algorithm:
- * 1. Process commits from newest to oldest
- * 2. Assign each commit to a lane based on its first parent's lane or a new lane
- * 3. Generate lines connecting commits to their parents
- * 4. Handle merge commits by creating multiple lines to different parent lanes
+ * 1. Pre-pass: build childrenMap (parent hash → array of child hashes in display order).
+ * 2. Main pass: for each commit, claim a lane (inherit if pre-claimed by an earlier
+ *    child, else allocate next available); for each parent, decide whether to inherit
+ *    this commit's lane (first-child + first-parent) or claim a new lane (divergence).
+ * 3. Tag every node with `onFocusedBranchPath` for the renderer.
  *
  * @param commits - Array of commits in topological order (newest first)
  * @param branchMap - Optional map of commit hash to branch names
  * @param tagMap - Optional map of commit hash to tag names
+ * @param focusedPathHashes - Optional set of commit hashes on the focused
+ *   branch's path-to-merge-base (Wave D / D3). When `undefined` or empty,
+ *   every node's `onFocusedBranchPath` is `false`.
  * @returns Array of commit nodes with graph visualization data
  */
 export function generateCommitGraph(
   commits: ICommit[],
   branchMap?: Map<string, string[]>,
-  tagMap?: Map<string, string[]>
+  tagMap?: Map<string, string[]>,
+  focusedPathHashes?: Set<string>
 ): ICommitNode[] {
   if (commits.length === 0) {
     return [];
   }
+
+  // PRE-PASS — children-map: parent hash → array of child hashes in
+  // display order. A parent's "first-seen" child is `childrenMap[parent][0]`.
+  const childrenMap = buildChildrenMap(commits);
 
   const result: ICommitNode[] = [];
   const state: ILaneState = {
@@ -128,104 +200,73 @@ export function generateCommitGraph(
     nextLane: 0,
   };
 
-  // First pass: assign lanes to all commits based on parent relationships
-  // We need to know which commits are parents to properly assign lanes
-  const parentCommits = new Set<string>();
-  for (const commit of commits) {
-    for (const parent of commit.parents) {
-      parentCommits.add(parent);
+  // Helper that allocates a brand-new lane and bumps `nextLane` so the
+  // next allocation never collides with the one we just handed out.
+  const allocateLane = (): number => {
+    const lane = findNextAvailableLane(state);
+    if (lane >= state.nextLane) {
+      state.nextLane = lane + 1;
     }
-  }
+    return lane;
+  };
 
-  // Process each commit
+  // MAIN PASS — claim lanes + emit graph lines.
   for (const commit of commits) {
     const commitHash = commit.hash;
-    let column: number;
     const graphLines: IGraphLine[] = [];
 
-    // Check if this commit already has a lane assigned (from being a parent)
+    // --- Step A: claim a lane for THIS commit ---
+    // If a prior child already pre-claimed our lane (because we were
+    // their first-seen-child target), inherit it; otherwise allocate.
+    let column: number;
     if (state.commitToLane.has(commitHash)) {
       column = state.commitToLane.get(commitHash)!;
     } else {
-      // Assign a new lane for this commit
-      column = findNextAvailableLane(state);
+      column = allocateLane();
       state.commitToLane.set(commitHash, column);
-      if (column >= state.nextLane) {
-        state.nextLane = column + 1;
-      }
     }
-
-    // Mark this lane as active
     state.activeLanes.add(column);
 
-    // Process parents and create graph lines
+    // --- Step B: decide each parent's lane and emit a graph line ---
     const parents = commit.parents;
-
-    if (parents.length === 0) {
-      // Root commit - no lines to draw, but we can free the lane
-      // The lane will be freed after this commit is processed
-    } else if (parents.length === 1) {
-      // Single parent - normal commit
-      const parentHash = parents[0];
+    for (let i = 0; i < parents.length; i++) {
+      const parentHash = parents[i];
       let parentLane: number;
 
       if (state.commitToLane.has(parentHash)) {
+        // Already claimed — either by an earlier sibling (the common
+        // ancestor in a fork-then-merge) or by an even earlier prior
+        // commit. Use the existing lane.
         parentLane = state.commitToLane.get(parentHash)!;
       } else {
-        // Parent not yet seen, assign it to the same lane as this commit
-        parentLane = column;
+        // KEY CHANGE (D1) — only inherit our lane if WE are the parent's
+        // first-seen child in display order AND we're the parent's first
+        // parent slot. Anything else is a divergent fork that needs a
+        // brand-new lane.
+        const firstChildOfParent = childrenMap.get(parentHash)?.[0];
+        if (firstChildOfParent === commitHash && i === 0) {
+          parentLane = column; // straight-down inheritance
+        } else {
+          parentLane = allocateLane();
+        }
         state.commitToLane.set(parentHash, parentLane);
+        state.activeLanes.add(parentLane);
       }
 
       graphLines.push({
         fromColumn: column,
         toColumn: parentLane,
-        color: getColumnColor(column),
-        type: 'commit',
+        // Merge / branch lines (i > 0) take the destination lane's color
+        // so they read as "joining the merged branch's color"; the main
+        // line uses the current commit's lane color.
+        color: getColumnColor(i === 0 ? column : parentLane),
+        type: i === 0 ? 'commit' : 'merge',
       });
-    } else {
-      // Merge commit - multiple parents
-      for (let i = 0; i < parents.length; i++) {
-        const parentHash = parents[i];
-        let parentLane: number;
-
-        if (state.commitToLane.has(parentHash)) {
-          parentLane = state.commitToLane.get(parentHash)!;
-        } else {
-          if (i === 0) {
-            // First parent (main line) - keep in same lane
-            parentLane = column;
-          } else {
-            // Other parents (merged branches) - assign new lanes
-            parentLane = findNextAvailableLane(state);
-            if (parentLane >= state.nextLane) {
-              state.nextLane = parentLane + 1;
-            }
-          }
-          state.commitToLane.set(parentHash, parentLane);
-          state.activeLanes.add(parentLane);
-        }
-
-        graphLines.push({
-          fromColumn: column,
-          toColumn: parentLane,
-          color: getColumnColor(i === 0 ? column : parentLane),
-          type: i === 0 ? 'commit' : 'merge',
-        });
-      }
     }
 
-    // Check if this commit is not a parent of any other commit in our list
-    // If so, we can potentially free its lane after processing
-    if (!parentCommits.has(commitHash)) {
-      // This is a tip commit (no children in our list)
-      // The lane can be freed for reuse by subsequent commits
-      // But we keep it active for now as we process in reverse order
-    }
-
-    // Get branches and tags for this commit
     const branches = branchMap?.get(commitHash) || [];
     const tags = tagMap?.get(commitHash) || [];
+    const onFocusedBranchPath = focusedPathHashes?.has(commitHash) ?? false;
 
     result.push({
       commit,
@@ -233,6 +274,7 @@ export function generateCommitGraph(
       graphLines,
       branches,
       tags,
+      onFocusedBranchPath,
     });
   }
 

@@ -73,8 +73,17 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranchCurrent');
     });
 
-    it('should have exactly 4 menu items', () => {
-      assert.strictEqual(entries.length, 4, `Expected 4 items, got ${entries.length}`);
+    it('should have exactly 5 menu items', () => {
+      // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group
+      // for current-branch tree items.
+      assert.strictEqual(entries.length, 5, `Expected 5 items, got ${entries.length}`);
+    });
+
+    it('Wave D — should include Focus on Graph in section inline@1', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
+      );
+      assert.ok(entry, 'intellig.branch.focusOnGraph should be at inline@1 for current branch');
     });
 
     it('should include New Branch from in section 1_branchOps@1', () => {
@@ -114,7 +123,12 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
     it('should have groups ordered correctly (1_branchOps < 2_sync < 3_manage)', () => {
       const sections = entries.map((e) => parseGroup(e.group).section);
       const uniqueSections = [...new Set(sections)];
-      assert.deepStrictEqual(uniqueSections.sort(), ['1_branchOps', '2_sync', '3_manage']);
+      assert.deepStrictEqual(uniqueSections.sort(), [
+        '1_branchOps',
+        '2_sync',
+        '3_manage',
+        'inline',
+      ]);
     });
   });
 
@@ -127,8 +141,16 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranch');
     });
 
-    it('should have exactly 11 menu items', () => {
-      assert.strictEqual(entries.length, 11, `Expected 11 items, got ${entries.length}`);
+    it('should have exactly 12 menu items', () => {
+      // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group.
+      assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
+    });
+
+    it('Wave D — should include Focus on Graph in section inline@1', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
+      );
+      assert.ok(entry, 'intellig.branch.focusOnGraph should be at inline@1 for local branch');
     });
 
     it('should include Checkout in section 1_branchOps@1', () => {
@@ -208,7 +230,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.branch.delete should be at 5_manage@2');
     });
 
-    it('should have 5 distinct group sections in correct order', () => {
+    it('should have 6 distinct group sections in correct order', () => {
       const sections = [...new Set(entries.map((e) => parseGroup(e.group).section))];
       assert.deepStrictEqual(sections.sort(), [
         '1_branchOps',
@@ -216,6 +238,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         '3_integrate',
         '4_sync',
         '5_manage',
+        'inline',
       ]);
     });
   });
@@ -229,8 +252,16 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.remoteBranch');
     });
 
-    it('should have exactly 10 menu items', () => {
-      assert.strictEqual(entries.length, 10, `Expected 10 items, got ${entries.length}`);
+    it('should have exactly 11 menu items', () => {
+      // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group.
+      assert.strictEqual(entries.length, 11, `Expected 11 items, got ${entries.length}`);
+    });
+
+    it('Wave D — should include Focus on Graph in section inline@1', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
+      );
+      assert.ok(entry, 'intellig.branch.focusOnGraph should be at inline@1 for remote branch');
     });
 
     it('should include Checkout as Local in section 1_branchOps@1', () => {
@@ -303,7 +334,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.remoteBranch.deleteRemote should be at 5_manage@1');
     });
 
-    it('should have 5 distinct group sections in correct order', () => {
+    it('should have 6 distinct group sections in correct order', () => {
       const sections = [...new Set(entries.map((e) => parseGroup(e.group).section))];
       assert.deepStrictEqual(sections.sort(), [
         '1_branchOps',
@@ -311,6 +342,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         '3_integrate',
         '4_pull',
         '5_manage',
+        'inline',
       ]);
     });
   });

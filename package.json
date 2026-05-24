@@ -251,6 +251,12 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.branch.focusOnGraph",
+        "title": "Focus on Graph",
+        "category": "IntelliG",
+        "icon": "$(eye)"
+      },
+      {
         "command": "intellig.remoteBranch.checkoutAsLocal",
         "title": "Checkout",
         "category": "IntelliG"
@@ -628,6 +634,21 @@
     ],
     "menus": {
       "view/item/context": [
+        {
+          "command": "intellig.branch.focusOnGraph",
+          "when": "viewItem == intellig.localBranchCurrent",
+          "group": "inline@1"
+        },
+        {
+          "command": "intellig.branch.focusOnGraph",
+          "when": "viewItem == intellig.localBranch",
+          "group": "inline@1"
+        },
+        {
+          "command": "intellig.branch.focusOnGraph",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "inline@1"
+        },
         {
           "command": "intellig.branch.newBranchFrom",
           "when": "viewItem == intellig.localBranchCurrent",

@@ -261,6 +261,13 @@ function isValidLane(lane: number): boolean {
  * The SVG is sized to accommodate all active lanes and graph line columns.
  * Invalid lane indices (negative or > 1000) are skipped gracefully.
  *
+ * Wave D / D3 — when `hasFocusedBranch` is true, the row is rendered with
+ * focus-aware emphasis: an on-path commit (`node.onFocusedBranchPath ===
+ * true`) renders at boosted opacity (1.0) and stroke-width × 1.5; an
+ * off-path commit renders at reduced opacity (0.6) and baseline stroke.
+ * When `hasFocusedBranch` is false, both treatments are no-ops and the
+ * row matches its pre-Wave-D appearance.
+ *
  * @param node - The commit node to render
  * @param rowIndex - The row index of this commit (0-based)
  * @param activeLanes - Set of lane indices that are active at this row
@@ -268,6 +275,10 @@ function isValidLane(lane: number): boolean {
  * @param isTerminal - Whether this commit is a terminal node (branch tip with no children)
  * @param isBranchSplitPoint - Whether this commit is a branch split point (has multiple children)
  * @param childLanes - Set of lane indices where child commits of this node live (for drawing split curves from top)
+ * @param hasFocusedBranch - Wave D / D3 — true when ANY commit in the
+ *   render set is on the focused-branch path. Drives the brighten / dim
+ *   pair: true + onFocusedBranchPath = brighten; true + !onFocusedBranchPath
+ *   = dim; false = no change.
  * @returns An SVG string for this commit row
  */
 export function renderGraphSvg(
@@ -277,12 +288,25 @@ export function renderGraphSvg(
   config: IGraphRenderConfig,
   isTerminal: boolean = false,
   isBranchSplitPoint: boolean = false,
-  childLanes: Set<number> = new Set()
+  childLanes: Set<number> = new Set(),
+  hasFocusedBranch: boolean = false
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
   const bottomY = rowHeight;
   const elements: string[] = [];
+
+  // Wave D / D3 — focus-aware stroke + opacity overrides. When no branch
+  // is focused (hasFocusedBranch=false), `effectiveStroke` is just the
+  // baseline `lineWidth` and `effectiveOpacity` is 1.0 — every existing
+  // visual matches its pre-Wave-D appearance.
+  const onPath = !!node.onFocusedBranchPath;
+  const effectiveStroke = hasFocusedBranch && onPath ? lineWidth * 1.5 : lineWidth;
+  const effectiveOpacity = hasFocusedBranch ? (onPath ? 1.0 : 0.6) : 1.0;
+  // Suffix appended to every emitted SVG element when hasFocusedBranch is
+  // true so the dim / brighten effect lands on lines AND commit nodes.
+  // We embed via the `opacity` attribute (most-compatible-with-no-CSS).
+  const opacityAttr = hasFocusedBranch ? ` opacity="${effectiveOpacity}"` : '';
 
   // Compute SVG width: accommodate all active lanes, the commit's own column,
   // and all graph line columns
@@ -346,11 +370,11 @@ export function renderGraphSvg(
       // Draw only the top half of the pass-through (y=0 to y=centerY).
       // The bezier curve provides the visual connection for the bottom half.
       elements.push(
-        `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+        `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     } else {
       elements.push(
-        `<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+        `<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     }
   }
@@ -367,7 +391,7 @@ export function renderGraphSvg(
     // and not a terminal node (terminal nodes have no line above the circle)
     if (rowIndex > 0 && !isTerminal) {
       elements.push(
-        `<line x1="${commitX}" y1="0" x2="${commitX}" y2="${centerY}" stroke="${commitColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+        `<line x1="${commitX}" y1="0" x2="${commitX}" y2="${centerY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     }
 
@@ -379,7 +403,7 @@ export function renderGraphSvg(
     );
     if (hasSameLaneParent) {
       elements.push(
-        `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+        `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     }
   }
@@ -400,7 +424,7 @@ export function renderGraphSvg(
     const toX = getColumnX(line.toColumn, config);
     const color = getColumnColor(line.toColumn);
     elements.push(
-      `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+      `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
     );
   }
 
@@ -419,15 +443,15 @@ export function renderGraphSvg(
       const side = nodeRadius * 1.8;
       const bgRadius = side * 0.72; // covers the diamond's bounding circle
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${bgRadius}" fill="${fillColor}" stroke="none"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${bgRadius}" fill="${fillColor}" stroke="none"${opacityAttr}/>`
       );
       elements.push(
-        `<rect x="${cx - side / 2}" y="${cy - side / 2}" width="${side}" height="${side}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.5" transform="rotate(45, ${cx}, ${cy})"/>`
+        `<rect x="${cx - side / 2}" y="${cy - side / 2}" width="${side}" height="${side}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.5" transform="rotate(45, ${cx}, ${cy})"${opacityAttr}/>`
       );
     } else if (isBranchSplitPoint) {
       // Branch split: filled circle with two angled tick marks from bottom
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="2"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="2"${opacityAttr}/>`
       );
 
       // Two tick marks at ±30° from the bottom of the circle
@@ -449,15 +473,15 @@ export function renderGraphSvg(
       const rightEndY = bottomCY + tickLength * Math.cos(angleLeft);
 
       elements.push(
-        `<line x1="${bottomX}" y1="${bottomCY}" x2="${leftEndX}" y2="${leftEndY}" stroke="${fillColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+        `<line x1="${bottomX}" y1="${bottomCY}" x2="${leftEndX}" y2="${leftEndY}" stroke="${fillColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
       elements.push(
-        `<line x1="${bottomX}" y1="${bottomCY}" x2="${rightEndX}" y2="${rightEndY}" stroke="${fillColor}" stroke-width="${lineWidth}" stroke-linecap="round"/>`
+        `<line x1="${bottomX}" y1="${bottomCY}" x2="${rightEndX}" y2="${rightEndY}" stroke="${fillColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     } else {
       // Normal commits: stroke matches fill (no visible border)
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="2"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="2"${opacityAttr}/>`
       );
     }
 
@@ -466,15 +490,15 @@ export function renderGraphSvg(
       const ringRadius = nodeRadius + 2;
       // Draw a filled background circle at the ring radius to cover any line behind the ring gap
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1.5"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1.5"${opacityAttr}/>`
       );
       // Draw the outer ring with a contrasting stroke on top
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="none" stroke="#ffffff" stroke-width="1.5"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${ringRadius}" fill="none" stroke="#ffffff" stroke-width="1.5"${opacityAttr}/>`
       );
       // Redraw the inner filled circle on top so the center is the lane color
       elements.push(
-        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1"/>`
+        `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1"${opacityAttr}/>`
       );
     }
   }

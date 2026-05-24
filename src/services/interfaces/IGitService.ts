@@ -720,6 +720,32 @@ export interface IGitService {
   getChangedFilesAgainstWorkingTree?(repo: IRepository, ref: string): Promise<IRefDiffFile[]>;
 
   /**
+   * Wave D / D3 — compute the merge-base between two refs.
+   *
+   * Returns the SHA of the best common ancestor. Backed by
+   * `git merge-base <refA> <refB>`. Used by the Git tool window's branch
+   * focus feature to mark every commit on the path from a focused branch
+   * tip back to its merge-base with HEAD as "on the focused path".
+   *
+   * Returns `undefined` when:
+   *   - the refs share no common ancestor (disjoint histories — git
+   *     exits non-zero), or
+   *   - either ref is unknown / invalid, or
+   *   - the underlying `git merge-base` invocation fails for any reason.
+   *
+   * Optional, mirroring the {@link getCherryMarks} /
+   * {@link getChangedFilesAgainstWorkingTree} pattern: narrow test mocks
+   * needn't stub it, and the focus-on-graph caller falls back to no
+   * highlight when it's absent or returns undefined (Wave D Trap T-8).
+   *
+   * @param repo - The repository
+   * @param refA - The first ref (typically `HEAD`)
+   * @param refB - The second ref (typically the focused branch name)
+   * @returns The merge-base commit SHA, or undefined when none / on error
+   */
+  getMergeBase?(repo: IRepository, refA: string, refB: string): Promise<string | undefined>;
+
+  /**
    * Get the combined diff for multiple commits.
    * This calculates the cumulative changes across all selected commits,
    * showing the total changes from the oldest commit's parent to the newest commit.

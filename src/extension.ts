@@ -4161,6 +4161,28 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
       });
       context.subscriptions.push(branchSelectionListener);
+
+      // Wave D / D2 — `intellig.branch.focusOnGraph` inline icon command.
+      // Routes the click on the branch tree's eye icon to the provider's
+      // setFocusedBranch so the graph chip outlines, the scroll lands,
+      // and the focused-path commits brighten while the rest dim.
+      //
+      // Wave D R1 / Senior M-1 — toggle semantics: clicking the SAME
+      // branch's eye icon a second time clears focus. Matches IntelliJ
+      // parity (the eye icon turns into a toggle once focus is active).
+      const focusOnGraphCommand = vscode.commands.registerCommand(
+        'intellig.branch.focusOnGraph',
+        async (item?: { branch?: { name?: string } }) => {
+          const branchName = item?.branch?.name;
+          if (typeof branchName !== 'string' || branchName.length === 0) {
+            return;
+          }
+          const currentName = gitToolWindowProvider!.getFocusedBranchName();
+          const nextTarget = currentName === branchName ? null : branchName;
+          await gitToolWindowProvider!.setFocusedBranch(nextTarget);
+        }
+      );
+      context.subscriptions.push(focusOnGraphCommand);
     }
 
     // Create and register CommandTitleProvider for dynamic label resolution
