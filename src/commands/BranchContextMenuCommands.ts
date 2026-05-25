@@ -301,6 +301,9 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, item.branch.name);
+      // Wave G — checkout moved HEAD; reload before refresh so the
+      // BranchTreeProvider's "current branch" mark reflects fresh state.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Switched to branch '${item.branch.name}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -319,6 +322,8 @@ export class BranchContextMenuCommands {
           try {
             await this._gitService.stash(repo, `Auto-stash before checkout ${item.branch.name}`);
             await this._gitService.checkout(repo, item.branch.name);
+            // Wave G — stash + checkout pair moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
               `Stashed changes and switched to '${item.branch.name}'`
             );
@@ -332,6 +337,8 @@ export class BranchContextMenuCommands {
         } else if (choice === 'Force Checkout') {
           try {
             await this._gitService.checkout(repo, item.branch.name, { force: true });
+            // Wave G — force checkout moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(`Force switched to '${item.branch.name}'`);
             this._branchTreeProvider.refresh();
           } catch (forceError) {
@@ -393,6 +400,8 @@ export class BranchContextMenuCommands {
     try {
       await this._gitService.createBranch(repo, branchName, startPoint);
       await this._gitService.checkout(repo, branchName);
+      // Wave G — createBranch + checkout pair moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
         `Created and switched to branch '${branchName}' from '${startPoint}'`
       );
@@ -442,6 +451,8 @@ export class BranchContextMenuCommands {
           );
         }
       }
+      // Wave G — merge moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -481,6 +492,8 @@ export class BranchContextMenuCommands {
           );
         }
       }
+      // Wave G — rebase moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -552,6 +565,9 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.renameBranch(repo, item.branch.name, newName);
+      // Wave G — rename may have updated `repo.head.name` (if renaming
+      // current branch); reload before refresh.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Renamed branch to '${newName}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -583,6 +599,9 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.deleteBranch(repo, item.branch.name);
+      // Wave G — branch list changed; reload so the tree shows the
+      // post-deletion ref set deterministically.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Deleted branch '${item.branch.name}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -617,6 +636,9 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.fetch(repo, upstream.remote);
+      // Wave G — fetch updated remote-tracking refs; reload so ahead/behind
+      // counts on the branch tree match the post-fetch state.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
         `Updated branch '${item.branch.name}' from '${upstream.remote}'`
       );
@@ -662,6 +684,11 @@ export class BranchContextMenuCommands {
         });
       }
       void vscode.window.showInformationMessage(`Pushed branch '${item.branch.name}'`);
+      // Wave G R1 / UXG-L-1 — fallback push path lacked any
+      // reload/refresh; add both so ahead/behind counts on the
+      // branch tree match the post-push state.
+      await this._gitService.reloadRepository(repo);
+      this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
@@ -800,6 +827,8 @@ export class BranchContextMenuCommands {
           );
         }
       }
+      // Wave G — checkout + rebase moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -835,6 +864,8 @@ export class BranchContextMenuCommands {
                 );
               }
             }
+            // Wave G — stash + checkout + rebase moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
@@ -863,6 +894,8 @@ export class BranchContextMenuCommands {
                 );
               }
             }
+            // Wave G — force checkout + rebase moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
@@ -922,6 +955,8 @@ export class BranchContextMenuCommands {
     const dialog = this._pullDialogAccessor?.();
     if (dialog) {
       await dialog.show(repo, preset, { remote: remoteName, branch: branchName });
+      // Wave G — pull moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
       return;
     }
@@ -938,6 +973,8 @@ export class BranchContextMenuCommands {
       void vscode.window.showInformationMessage(
         `Pulled '${item.branch.name}' into current branch using ${strategy}`
       );
+      // Wave G — pull moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -965,6 +1002,9 @@ export class BranchContextMenuCommands {
               conflicts.map((c) => c.path),
               { operation: preset === 'rebase' ? 'rebase' : 'merge', target: item.branch.name }
             );
+            // Wave G — pull may have partially advanced HEAD before the
+            // conflict; reload so the tree reflects the post-conflict state.
+            await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
             return;
           }
@@ -1017,6 +1057,8 @@ export class BranchContextMenuCommands {
         });
       }
 
+      // Wave G — checkout-as-local moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Switched to branch '${branchName}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -1044,6 +1086,8 @@ export class BranchContextMenuCommands {
                 track: `${remoteName}/${branchName}`,
               });
             }
+            // Wave G — stash + checkout moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
               `Stashed changes and switched to '${branchName}'`
             );
@@ -1067,6 +1111,8 @@ export class BranchContextMenuCommands {
                 track: `${remoteName}/${branchName}`,
               });
             }
+            // Wave G — force checkout moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
             this._branchTreeProvider.refresh();
           } catch (forceError) {
@@ -1139,6 +1185,8 @@ export class BranchContextMenuCommands {
           );
         }
       }
+      // Wave G — cherry-pick moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1191,6 +1239,9 @@ export class BranchContextMenuCommands {
         branch: `:${branchName}`,
       });
 
+      // Wave G — push :branch removed remote ref; reload so the tree's
+      // remote-branches list reflects the deletion.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Deleted remote branch '${item.branch.name}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -1226,6 +1277,10 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, item.tag.name);
+      // Wave G — checkout-tag moved HEAD into detached state; reload
+      // before refresh so the tree's "current branch" mark clears
+      // (HEAD chip on the log graph drives the user-visible cue).
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
         `Checked out tag '${item.tag.name}' (detached HEAD)`
       );
@@ -1267,6 +1322,8 @@ export class BranchContextMenuCommands {
           `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
         );
       }
+      // Wave G — cherry-pick from tag moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1297,6 +1354,9 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.deleteTag(repo, item.tag.name);
+      // Wave G — tag list changed; reload so the tree's tags section
+      // reflects the post-deletion ref set.
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Deleted tag '${item.tag.name}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -1319,6 +1379,11 @@ export class BranchContextMenuCommands {
     try {
       await this._gitService.pushTag(repo, item.tag.name);
       void vscode.window.showInformationMessage(`Pushed tag '${item.tag.name}' to remote`);
+      // Wave G R1 / UXG-L-2 — pushTag updates remote-tracking refs;
+      // reload + refresh so the tag tree's "pushed to remote" cue
+      // (when present) reads the post-push state.
+      await this._gitService.reloadRepository(repo);
+      this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to push tag: ${sanitizeGitError(errorMessage)}`);

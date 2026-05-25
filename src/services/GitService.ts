@@ -384,6 +384,30 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
+   * Wave G — synchronously invalidate + reload a repository's cache entry.
+   *
+   * Mirrors the internal {@link _performDebouncedRefresh} flow minus the
+   * debounce + in-flight-guard scaffolding (callers `await` directly).
+   * Same defensive pattern as `_performDebouncedRefresh`: log on failure
+   * but don't re-throw, so caller `provider.refresh()` still runs and the
+   * watcher's eventual reload picks up the change.
+   */
+  async reloadRepository(repo: IRepository): Promise<IRepository | undefined> {
+    const rootPath = repo.rootUri.fsPath;
+    this.invalidateCache(rootPath);
+    try {
+      const fresh = await this.loadRepository(rootPath);
+      if (!this._disposed) {
+        this._onDidChangeRepository.fire(fresh);
+      }
+      return fresh;
+    } catch (err) {
+      console.error(`GitService.reloadRepository: reload for ${rootPath} failed:`, err);
+      return undefined;
+    }
+  }
+
+  /**
    * Discover repositories in the workspace.
    */
   private async discoverRepositories(): Promise<void> {

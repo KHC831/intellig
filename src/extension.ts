@@ -735,6 +735,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
         () => gitService.push(repo, { tags: true })
       );
       void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
+      // Wave G R1 / SG-M-1 — push --tags updated remote tracking refs
+      // for tags; reload + refresh so the panel reflects fresh tag-on-
+      // remote state. Pre-R1 this site had neither call.
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to push tags: ${sanitizeGitError(message)}`);
@@ -1659,9 +1666,23 @@ function registerCommands(context: vscode.ExtensionContext): void {
           res.conflicts.map((p) => ({ path: p, resolved: false })),
           { operation: 'rebase', canAbort: true, canContinue: true }
         );
+        // Wave G R1 / SG-M-1 — rebaseSkip advanced HEAD even though
+        // conflicts persist on the next commit; reload + refresh so
+        // the panel reflects the new in-progress rebase position.
+        await gitService.reloadRepository(repo);
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
         return;
       }
       void vscode.window.showInformationMessage('Commit skipped.');
+      // Wave G R1 / SG-M-1 — rebaseSkip moved HEAD; reload + refresh
+      // (pre-R1 this site had neither call, leaving the log graph
+      // showing the pre-skip rebase position).
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
@@ -3897,7 +3918,7 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
 
         if (gitToolWindowProvider) {
-          gitToolWindowProvider.updateLogState(commits, branchMap, tagMap);
+          gitToolWindowProvider.updateLogState(commits, branchMap, tagMap, repo.head?.commit);
 
           // T3-07 — compute the cherry-mark map in the background and push
           // it into the provider. We don't block the log render on it —
@@ -4535,9 +4556,16 @@ export function _openPushDialog(preselect?: {
     protectedBranches,
     pullDialogAccessor: _getPullDialog,
     onPushComplete: () => {
-      if (gitToolWindowProvider) {
-        gitToolWindowProvider.refresh();
-      }
+      // Wave G R1 / UXG-H-1 — reload before refresh so the panel sees
+      // post-push remote-tracking refs (ahead/behind reset to 0). Push
+      // can target any of `repos`; reload them all so the next refresh
+      // reads fresh state regardless of which row the user actioned.
+      void (async (): Promise<void> => {
+        await Promise.all(repos.map((r) => gitService.reloadRepository(r)));
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      })();
     },
   });
 }
@@ -4565,15 +4593,25 @@ export function _openMergeDialog(preselect: {
     void vscode.window.showErrorMessage('Extension services not initialized');
     return undefined;
   }
+  const gitService = extensionServices.gitService;
   return showMergeDialog(extensionContext, {
     repo: preselect.repo,
     sourceBranch: preselect.sourceBranch,
-    gitService: extensionServices.gitService,
+    gitService,
     conflictResolutionService: extensionServices.conflictResolutionService,
     onMergeComplete: () => {
-      if (gitToolWindowProvider) {
-        gitToolWindowProvider.refresh();
-      }
+      // Wave G R1 / UXG-H-1 — reload before refresh so the panel sees
+      // fresh `repo.head.commit` after the merge advances HEAD. Mirrors
+      // the IIFE pattern at `CommitContextMenuCommands.ts:1122`
+      // (onResetComplete) — dialog callbacks are sync so we sequence
+      // reload → refresh inside a void IIFE; watcher debounce is the
+      // safety net.
+      void (async (): Promise<void> => {
+        await gitService.reloadRepository(preselect.repo);
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      })();
     },
   });
 }
@@ -4783,9 +4821,15 @@ async function _runNewTagFlow(targetRef: string | undefined): Promise<void> {
       showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
       showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
       onTagCreated: () => {
-        if (gitToolWindowProvider) {
-          gitToolWindowProvider.refresh();
-        }
+        // Wave G R1 / SG-M-1 — createTag added a ref that drives the
+        // tag tree + log-graph tag chip; reload before refresh so the
+        // panel reads the post-mutation tag set.
+        void (async (): Promise<void> => {
+          await extensionServices!.gitService.reloadRepository(repo);
+          if (gitToolWindowProvider) {
+            gitToolWindowProvider.refresh();
+          }
+        })();
       },
     },
     targetRef
@@ -4862,6 +4906,9 @@ async function _runCherryPickVariant(
           ? 'Cherry-picked (without commit)'
           : 'Cherry-picked';
       void vscode.window.showInformationMessage(`${verb} ${shortHash}`);
+      // Wave G R1 / SG-M-1 — top-level cherry-pick advanced HEAD;
+      // reload before refresh so panel sees fresh state.
+      await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
         gitToolWindowProvider.refresh();
       }
@@ -4878,6 +4925,9 @@ async function _runCherryPickVariant(
           canContinue: true,
         }
       );
+      // Wave G R1 / SG-M-1 — partial cherry-pick may have advanced HEAD
+      // before the conflict; reload before refresh.
+      await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
         gitToolWindowProvider.refresh();
       }
@@ -4990,6 +5040,10 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
         );
       }
       // Leave the user on the target branch so they can resolve.
+      // Wave G R1 / SG-M-1 — checkout + cherry-pick advanced HEAD onto
+      // target branch; reload before refresh so the user sees the
+      // post-checkout panel state with the unresolved conflicts.
+      await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
         gitToolWindowProvider.refresh();
       }
@@ -5023,6 +5077,11 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
         );
       }
     }
+    // Wave G R1 / SG-M-1 — finally block runs after multi-step pipeline
+    // (stash → checkout → cherry-pick → checkout-back → stashPop); reload
+    // before refresh so the panel reflects the final restored state on
+    // the original branch.
+    await gitService.reloadRepository(repo);
     if (gitToolWindowProvider) {
       gitToolWindowProvider.refresh();
     }

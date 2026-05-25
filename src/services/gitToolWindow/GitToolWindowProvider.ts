@@ -189,6 +189,19 @@ export interface IExtendedLogState extends ILogState {
    * in the new branch list (mirrors the {@link anchorHash} lifecycle).
    */
   focusedBranchName: string | null;
+  /**
+   * Wave G — HEAD commit hash sourced from `repo.head?.commit` at
+   * `loadLogCommitsForRepo` time. Drives the HEAD chip prepended in
+   * {@link GitToolWindowProvider._getBranchLabelsHtml} when a node's
+   * hash matches.
+   *
+   * `undefined` means "no HEAD info available" — chip doesn't render
+   * anywhere. Set to a 40-char SHA in the common case (attached or
+   * detached HEAD both have a commit). When HEAD is at a commit
+   * outside the loaded log window, the chip simply doesn't appear on
+   * any visible row.
+   */
+  headHash?: string;
 }
 
 /**
@@ -656,7 +669,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   public updateLogState(
     commits: ICommit[],
     branchMap?: Map<string, string[]>,
-    tagMap?: Map<string, string[]>
+    tagMap?: Map<string, string[]>,
+    headHash?: string
   ): void {
     // Stably sort commits before graph generation. `sortCommitsStable`
     // returns oldest-first using a topological tie-break when parents
@@ -735,6 +749,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       selectedCommits: prunedSelection,
       anchorHash: newAnchor,
       focusedBranchName: newFocusName,
+      headHash,
     };
 
     this._hasRepository = true;
@@ -1215,7 +1230,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       hash: n.commit.hash,
       parentCount: (n.commit.parents || []).length,
     }));
-    const headHash = commitNodes.length > 0 ? commitNodes[0].hash : '';
+    // Wave G — read the real head hash from state. Pre-Wave-G this used
+    // `commitNodes[0].hash` which assumed HEAD was the newest commit; that's
+    // only true when HEAD is at the tip of the loaded log. In detached state
+    // at an older commit, the bogus assumption made `computeMenuState`'s
+    // HEAD-membership rule (which gates "Reset to here", "Squash", etc.)
+    // wrong for any commit that wasn't the top row. TG-R5.
+    const headHash = this._extendedLogState.headHash ?? '';
     const state = computeMenuState({
       selectedHashes: this._extendedLogState.selectedCommits,
       commitNodes,
@@ -2775,7 +2796,11 @@ ${bodyMarkup}
    *   `_getMultiCommitDetailsPanelHtml`, etc.).
    */
   public _getBranchLabelsHtml(node: ICommitNode): string {
-    if (!node.branches || node.branches.length === 0) {
+    const headHash = this._extendedLogState.headHash;
+    const isHeadCommit = !!headHash && node.commit.hash === headHash;
+    const hasBranches = !!node.branches && node.branches.length > 0;
+
+    if (!isHeadCommit && !hasBranches) {
       // Wave E — CSS `.commit-branches:empty { display: none }` depends
       // on this returning the LITERAL empty string (not whitespace, not
       // an HTML comment) so the empty wrapper collapses with no margin
@@ -2783,8 +2808,15 @@ ${bodyMarkup}
       return '';
     }
 
+    // Wave G — HEAD chip is prepended FIRST (leftmost) so it precedes
+    // any branch chips on the same commit. Detached HEAD: chip stands
+    // alone. Pinned by snap-9a..9f.
+    const headChipHtml = isHeadCommit
+      ? '<span class="branch-label-head" data-head-chip="true">HEAD</span>'
+      : '';
+
     const focusedBranchName = this._extendedLogState.focusedBranchName;
-    const labels = node.branches.map((branchName) => {
+    const labels = (node.branches || []).map((branchName) => {
       const classification = classifyBranchName(branchName);
       const baseClass = classification === 'remote' ? 'branch-label-remote' : 'branch-label-local';
       // Wave D / D2 — `branch-label-focused` is render-time source of
@@ -2800,7 +2832,7 @@ ${bodyMarkup}
       return `<span class="${cssClass}" data-branch-name="${escapedName}">${escapedName}</span>`;
     });
 
-    return labels.join('');
+    return headChipHtml + labels.join('');
   }
 
   /**
@@ -3847,6 +3879,30 @@ ${bodyMarkup}
       .branch-label.head-label {
         background-color: var(--vscode-gitDecoration-addedResourceForeground, #629755);
         color: white;
+      }
+
+      /* Wave G — HEAD chip (IntelliJ-parity yellow/gold). Distinct from
+         branch chips so the user reads "this is HEAD" at a glance even
+         when HEAD is on a commit that ALSO has branch-tip chips. The
+         chip lives in the same .commit-branches flex slot Wave E set up
+         for branch chips, prepended FIRST (leftmost) so it precedes
+         any branch chips. Theme variable falls back to the IntelliJ
+         shade #d4a017 when --vscode-statusBarItem-warningBackground is
+         absent (older themes). */
+      .branch-label-head {
+        display: inline-block;
+        background: var(--vscode-statusBarItem-warningBackground, #d4a017);
+        color: var(--vscode-statusBarItem-warningForeground, #1a1a1a);
+        font-size: 11px;
+        font-weight: 600;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
       }
 
       /* Wave E R1 / Senior M-1 — cap chip width with CSS ellipsis.

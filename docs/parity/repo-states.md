@@ -201,6 +201,55 @@ Layer 4 — repo-state input space:
   separator (`%x00` in the format string + `-z` flag), matching the log
   parser's existing convention.
 
+### §1.5 HEAD chip rendering (Wave G)
+
+In detached HEAD, no branch points at the current commit. Pre-Wave-G
+this resulted in a blank chip slot for the detached commit — the user
+saw nothing distinguishing "this is where I am" from "this is just
+some commit." Wave G adds a yellow/gold `HEAD` chip rendered on the
+commit pointed at by `repo.head?.commit`.
+
+Mechanic:
+
+1. `loadLogCommitsForRepo` (`extension.ts`) reads `repo.head?.commit`
+   and passes it as the 4th arg to `provider.updateLogState(...)`.
+2. `updateLogState` stores it as `_extendedLogState.headHash`.
+3. `_getBranchLabelsHtml(node)` prepends a HEAD chip when
+   `node.commit.hash === _extendedLogState.headHash`.
+
+In detached HEAD specifically:
+
+- `repo.head.name` is `undefined` (per Wave F: `git symbolic-ref HEAD`
+  exits non-zero in detached state).
+- `repo.head.commit` is the SHA the user is currently checked-out at.
+- The HEAD chip lights up that commit row in the graph; the user sees
+  exactly where HEAD lives.
+- See `docs/parity/git-log-graph.md` §2.5 for the visual treatment
+  (yellow/gold, prepended FIRST, IntelliJ parity).
+
+Refresh contract:
+
+- After `git checkout <sha>` (CLI mutation), the host calls
+  `gitService.reloadRepository(repo)` BEFORE `provider.refresh()` so
+  the panel reload runs against fresh `repo.head.commit` instead of
+  racing the file-system watcher's 250 ms debounced reload. Pre-Wave-G
+  this caused a stale-HEAD-chip window where the chip didn't move
+  until the watcher fired.
+
+Test coverage:
+
+- Layer 1 (chip-emit, detached state): `snap-9b` in
+  `commitGraphSnapshots.test.ts` covers the detached-HEAD case
+  (HEAD chip alone, no branch chips, on the detached commit).
+- Layer 1 (refresh ordering): `headChipRefresh.test.ts` pins the
+  invariant `reloadRepository` is awaited BEFORE `provider.refresh()`
+  at every CLI mutation site.
+- Layer 2 (runtime): UX-review F5 sequences `git checkout <sha>` (via
+  the inline command), captures screenshots before + after to verify
+  the HEAD chip moves immediately.
+- Layer 4: this section IS the Layer 4 §1.5 citation. Snapshot
+  back-references above close the loop.
+
 ---
 
 ## §2 In-progress merge — NOT covered (Wave G candidate)

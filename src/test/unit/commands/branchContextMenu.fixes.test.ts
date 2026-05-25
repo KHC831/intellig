@@ -99,6 +99,7 @@ function createMockGitService(
       behind: 0,
       errors: [],
     }),
+    reloadRepository: async (repo: IRepository) => repo,
   };
   return base as unknown as MockGitService;
 }

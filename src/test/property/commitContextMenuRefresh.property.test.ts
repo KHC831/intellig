@@ -98,6 +98,7 @@ function createSuccessGitService(headCommitHash?: string): IGitService {
     onDidChangeRepository: repoChangeEmitter.event,
     getRepositories: () => [mockRepo],
     getRepository: async () => mockRepo,
+    reloadRepository: async () => mockRepo,
     getBranches: async () => [],
     getTags: async () => [],
     commit: async () => {},

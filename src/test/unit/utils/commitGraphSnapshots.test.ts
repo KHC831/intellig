@@ -858,6 +858,7 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       onDidRemoveRepository: noopEvent<IRepository>(),
       getRepositories: () => [mockRepo],
       getRepository: async () => mockRepo,
+      reloadRepository: async () => mockRepo,
       getBranches: async () => parsed,
       getTags: async () => [],
       commit: async () => {},
@@ -968,6 +969,190 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       localItems.length,
       2,
       `expected 2 local branches (main + feature); got ${localItems.length} (${localItems.map((i) => i.label).join(', ')})`
+    );
+  });
+});
+
+/**
+ * Wave G / G1 — HEAD chip rendering snapshots.
+ *
+ * Wave A introduced the chip-emit infrastructure; Wave D added the
+ * focused-branch class; Wave E pinned the literal HTML output (snap-7a..e)
+ * and the layout-stage DOM tree (snap-7f). Wave G adds a NEW chip variant:
+ * the HEAD chip (yellow/gold, prepended FIRST, IntelliJ parity).
+ *
+ * Per ADR-010 R1 multi-stage discipline:
+ *   - snap-9a..d pin the chip-emit-stage HTML literal (algorithm output)
+ *   - snap-9e pins the DOM-tree layout via jsdom (renderer-layout stage)
+ *   - snap-9f pins the inline CSS contract (renderer-styling stage)
+ *
+ * Per ADR-010 Layer 4 (repo-state coverage), snap-9b explicitly covers
+ * detached-HEAD-with-no-branches; the §1.5 entry in
+ * `docs/parity/repo-states.md` cites it as the back-reference.
+ */
+
+interface HeadStateInternals {
+  _extendedLogState: IExtendedLogState;
+}
+
+function nodeAt(hash: string, branches: string[] = []): ICommitNode {
+  return {
+    commit: mkCommit(hash, ['parent1234567890123456789012345678901234']),
+    graphColumn: 0,
+    graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
+    branches,
+    tags: [],
+    onFocusedBranchPath: false,
+  };
+}
+
+describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+  const headSha = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-9a: HEAD on commit WITH branch chips → HEAD chip prepended FIRST', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    const node = nodeAt(headSha, ['main', 'origin/main']);
+    const html = provider._getBranchLabelsHtml(node);
+    // HEAD chip first, then branch chips in branchMap order.
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-head" data-head-chip="true">HEAD</span>' +
+        '<span class="branch-label-local" data-branch-name="main">main</span>' +
+        '<span class="branch-label-remote" data-branch-name="origin/main">origin/main</span>'
+    );
+  });
+
+  it('snap-9b: HEAD on commit WITHOUT branch chips (detached) → HEAD chip alone', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    const node = nodeAt(headSha, []);
+    const html = provider._getBranchLabelsHtml(node);
+    // ADR-010 Layer 4 — covers detached-HEAD repo state. Cited from
+    // `docs/parity/repo-states.md` §1.5 as the back-reference.
+    assert.strictEqual(html, '<span class="branch-label-head" data-head-chip="true">HEAD</span>');
+  });
+
+  it('snap-9c: headHash undefined → no HEAD chip anywhere; branch chips render unchanged', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = undefined;
+    const node = nodeAt(headSha, ['main']);
+    const html = provider._getBranchLabelsHtml(node);
+    // The pre-Wave-G output, byte-for-byte. Pins backward compatibility.
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-local" data-branch-name="main">main</span>'
+    );
+  });
+
+  it('snap-9d: headHash matches NO loaded node (out-of-window) → no HEAD chip on any node', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz';
+    const nodeWithBranches = nodeAt(headSha, ['feature']);
+    const nodeNoBranches = nodeAt('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', []);
+    // Neither node matches headHash → neither emits a HEAD chip.
+    assert.strictEqual(
+      provider._getBranchLabelsHtml(nodeWithBranches),
+      '<span class="branch-label-local" data-branch-name="feature">feature</span>'
+    );
+    assert.strictEqual(provider._getBranchLabelsHtml(nodeNoBranches), '');
+  });
+});
+
+describe('Wave G / G1 — HEAD chip layout snapshot (jsdom)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+  const headSha = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-9e: HEAD chip is sibling of .commit-title in .commit-branches slot (Wave E layout invariant holds)', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    const node = nodeAt(headSha, ['main']);
+    const html = provider._getGraphPanelHtml([node]);
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const doc = dom.window.document;
+
+    const headChip = doc.querySelector('.branch-label-head');
+    assert.ok(headChip, 'HEAD chip element exists');
+
+    // HEAD chip must NOT be inside .commit-title (Wave E layout
+    // invariant — chips live in the .commit-branches flex slot).
+    const parent = headChip.parentElement;
+    assert.ok(parent, 'HEAD chip has parent');
+    assert.ok(
+      !parent.classList.contains('commit-title'),
+      `HEAD chip must NOT be a child of .commit-title; got "${parent.className}"`
+    );
+    assert.ok(
+      parent.classList.contains('commit-branches'),
+      `HEAD chip should be in .commit-branches sibling slot; got "${parent.className}"`
+    );
+
+    // HEAD chip is the FIRST child of .commit-branches (prepended).
+    assert.strictEqual(
+      parent.firstElementChild,
+      headChip,
+      'HEAD chip must be the first child of .commit-branches'
+    );
+  });
+});
+
+describe('Wave G / G1 — HEAD chip CSS contract', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-9f: inline <style> embeds .branch-label-head with theme-aware background + max-width 200px', () => {
+    // Probe the full webview HTML which embeds `_getInlineStyles()`.
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // Theme variable + fallback color. Regex-alternation form per Wave E
+    // R1 snap-7h pattern — tolerates either single-rule or combined-rule
+    // declaration as long as the contract holds.
+    assert.ok(
+      /\.branch-label-head[\s,{][\s\S]*?--vscode-statusBarItem-warningBackground/.test(fullHtml),
+      'inline CSS must declare theme-aware HEAD chip background via --vscode-statusBarItem-warningBackground'
+    );
+    assert.ok(
+      /\.branch-label-head[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'inline CSS must cap HEAD chip max-width at 200px (matches Wave E R1 chip-cap contract)'
+    );
+    assert.ok(
+      /\.branch-label-head[\s,{][\s\S]*?text-overflow:\s*ellipsis/.test(fullHtml),
+      'inline CSS must declare text-overflow: ellipsis on HEAD chip'
     );
   });
 });

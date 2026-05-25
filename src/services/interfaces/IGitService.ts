@@ -570,6 +570,33 @@ export interface IGitService {
    */
   onDidRemoveRepository: vscode.Event<IRepository>;
 
+  /**
+   * Wave G — synchronously invalidate + reload a repository's cache entry,
+   * then return the fresh `IRepository`.
+   *
+   * Mutation handlers (`checkout`, `cherry-pick`, etc.) call this BEFORE
+   * `provider.refresh()` so the panel reload runs against fresh
+   * `repo.head` / `repo.state` instead of racing the
+   * {@link onDidChangeRepository} watcher path (which has a 250 ms
+   * debounce and used to be the only reload trigger). Fires
+   * `onDidChangeRepository` as a side-effect so subscribers
+   * (BranchTreeProvider, StatusBarService, etc.) refresh too.
+   *
+   * **Caller contract (Wave G R1 / SG-L-2)**: callers MUST NOT branch on
+   * the return value. The `IRepository | undefined` return type is for
+   * type safety against the failure path; the BEHAVIOR is fire-and-forget.
+   * Always call `provider.refresh()` next regardless of whether the
+   * return is `undefined` (reload failed → watcher's debounced reload
+   * picks up the change as the safety net) or a fresh `IRepository`
+   * (reload succeeded → panel reads the new value on the next render).
+   * Pinned by `headChipRefresh.test.ts` "defensive fallback" invariant.
+   *
+   * @param repo - The repository to reload
+   * @returns The fresh repository on success, or `undefined` on reload
+   *   failure. Type-narrow only; do NOT use the return for control flow.
+   */
+  reloadRepository(repo: IRepository): Promise<IRepository | undefined>;
+
   // Commit operations
   commit(repo: IRepository, message: string, options: ICommitOptions): Promise<void>;
   amend(repo: IRepository, message: string): Promise<void>;

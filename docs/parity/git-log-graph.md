@@ -217,6 +217,64 @@ without a full re-render.
 (see snap-7e in `commitGraphSnapshots.test.ts` — pins the literal
 `<span class="branch-label-local branch-label-focused" …>` emit.)
 
+### §2.5 HEAD chip (Wave G)
+
+A separate yellow/gold chip rendered FIRST (leftmost) in the
+`.commit-branches` slot when a commit's hash equals the host-tracked
+`headHash`. Composes with branch chips when collocated; renders alone in
+detached HEAD state.
+
+Visual treatment:
+
+- **Background**: `var(--vscode-statusBarItem-warningBackground, #d4a017)`
+  — IntelliJ-parity yellow/gold, theme-aware. The fallback `#d4a017` lights
+  up when older themes lack the variable.
+- **Foreground**: `var(--vscode-statusBarItem-warningForeground, #1a1a1a)`
+  for AAA contrast on the yellow background under all VS Code default
+  themes.
+- **Text**: literal `HEAD` (4 characters). The chip's class +
+  position-as-leftmost is the source of meaning; no branch name in the
+  chip text.
+- **Sizing**: same max-width / text-overflow as branch chips (200px cap
+  via Wave E R1 chip-cap contract).
+
+Source-of-truth mechanic:
+
+- Host stores `headHash` on `_extendedLogState`, sourced from
+  `repo.head?.commit` at `loadLogCommitsForRepo` time.
+- `_getBranchLabelsHtml(node)` reads `_extendedLogState.headHash` and
+  prepends `<span class="branch-label-head" data-head-chip="true">HEAD</span>`
+  when `node.commit.hash === headHash`.
+- When `headHash` is undefined OR matches no loaded node, the chip
+  doesn't render anywhere.
+
+Composition with branch chips: when HEAD is on a commit that has
+branches at it (the common attached case — HEAD is at the tip of e.g.
+`main`), the HEAD chip is prepended FIRST, then the branch chips in
+`branchMap` order. Pinned by snap-9a in `commitGraphSnapshots.test.ts`.
+
+Composition with focused-branch chip (§2.4): the focused-branch class
+`.branch-label-focused` applies to a BRANCH chip, not the HEAD chip.
+If the focused branch's tip happens to be HEAD, the row shows both
+chips: the HEAD chip (no focus class) AND the branch chip (with focus
+class). This is the IntelliJ-parity behavior and matches snap-9a's
+ordering.
+
+Test coverage:
+
+- Layer 1 (chip-emit): `snap-9a` (HEAD + branches), `snap-9b` (HEAD
+  detached), `snap-9c` (no headHash), `snap-9d` (out-of-window headHash)
+  — see `commitGraphSnapshots.test.ts`.
+- Layer 1 (layout): `snap-9e` — jsdom assertion that HEAD chip is a
+  sibling of `.commit-title` inside `.commit-branches`.
+- Layer 1 (CSS contract): `snap-9f` — inline `<style>` embeds
+  `--vscode-statusBarItem-warningBackground` + `max-width: 200px` +
+  `text-overflow: ellipsis`.
+- Layer 2 (runtime): UX-review F5 captures HEAD chip on currently-
+  checked-out commit in attached AND detached states.
+- Layer 4 (repo-state): `docs/parity/repo-states.md` §1.5 cites snap-9b
+  for the detached-state HEAD chip back-reference.
+
 ---
 
 ## §3 Branch focus (Wave D / D2 + D3)

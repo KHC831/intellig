@@ -348,6 +348,7 @@ describe('CommitToolWindow — host behavior', () => {
       onDidRemoveRepository: noopEvent<IRepository>(),
       getRepositories: () => [repo],
       getRepository: async () => repo,
+      reloadRepository: async () => repo,
 
       // Status + staging + commit + diff — exercised by performCommit path
       getStatus: async () => [],

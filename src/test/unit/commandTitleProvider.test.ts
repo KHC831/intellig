@@ -35,6 +35,7 @@ function createMockGitService(): IGitService {
     onDidRemoveRepository: noopEvent<IRepository>(),
     getRepositories: () => [],
     getRepository: async () => undefined,
+    reloadRepository: async () => undefined,
     getBranches: async () => [],
     getTags: async () => [],
     commit: async () => {},

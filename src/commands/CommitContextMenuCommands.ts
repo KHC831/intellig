@@ -402,6 +402,9 @@ export class CommitContextMenuCommands {
           `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped).`
         );
       }
+      // Wave G — synchronously reload before refresh so panel sees fresh
+      // `repo.head.commit` (history rewrite moved HEAD).
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -520,6 +523,9 @@ export class CommitContextMenuCommands {
           }
         }
       }
+      // Wave G — synchronously reload before refresh so panel sees fresh
+      // `repo.head.commit` after the cherry-pick.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -815,6 +821,9 @@ export class CommitContextMenuCommands {
     if (commitHashes.length === 1) {
       const outcome = await this._runSelectiveRevertIfApplicable(repo, commitHashes[0]);
       if (outcome === 'handled') {
+        // Wave G — selective-revert runs `git commit` internally (mutates
+        // HEAD); reload before refresh so panel sees fresh state.
+        await this._gitService.reloadRepository(repo);
         this._gitToolWindowProvider.refresh();
         return;
       }
@@ -869,6 +878,9 @@ export class CommitContextMenuCommands {
           }
         }
       }
+      // Wave G — synchronously reload before refresh so panel sees fresh
+      // `repo.head.commit` after the revert.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1005,6 +1017,9 @@ export class CommitContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, hash);
+      // Wave G — synchronously reload after checkout so the panel reload
+      // runs against fresh `repo.head.commit` (the user's stated bug).
+      await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
         `Checked out revision ${hash.substring(0, 8)} (detached HEAD)`
       );
@@ -1028,6 +1043,9 @@ export class CommitContextMenuCommands {
               `Auto-stash before checkout ${hash.substring(0, 8)}`
             );
             await this._gitService.checkout(repo, hash);
+            // Wave G — reload after the stash + checkout pair so panel
+            // reload sees fresh `repo.head.commit`.
+            await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
               `Stashed changes and checked out revision ${hash.substring(0, 8)} (detached HEAD)`
             );
@@ -1041,6 +1059,8 @@ export class CommitContextMenuCommands {
         } else if (choice === 'Force Checkout') {
           try {
             await this._gitService.checkout(repo, hash, { force: true });
+            // Wave G — reload after force checkout.
+            await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
               `Force checked out revision ${hash.substring(0, 8)} (detached HEAD)`
             );
@@ -1100,7 +1120,15 @@ export class CommitContextMenuCommands {
       protectedBranches,
       gitService: this._gitService,
       onResetComplete: () => {
-        this._gitToolWindowProvider.refresh();
+        // Wave G — fire-and-forget reload before refresh so panel sees
+        // fresh `repo.head.commit` after the dialog's resetToCommit. The
+        // callback can't be async (dialog API constraint), so we
+        // sequence reload → refresh inside an IIFE; the watcher's
+        // debounced reload remains as a fallback.
+        void (async (): Promise<void> => {
+          await this._gitService.reloadRepository(repo);
+          this._gitToolWindowProvider.refresh();
+        })();
       },
     });
   }
@@ -1610,6 +1638,8 @@ export class CommitContextMenuCommands {
       });
 
       void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
+      // Wave G — soft-reset moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1736,6 +1766,8 @@ export class CommitContextMenuCommands {
           void vscode.window.showWarningMessage(
             `Drop commit conflicts in ${result.conflictedFiles.length} file(s). The operation has been aborted.`
           );
+          // Wave G — abort moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
         }
@@ -1749,6 +1781,8 @@ export class CommitContextMenuCommands {
       if (stashed) {
         await this._unstash(cwd);
       }
+      // Wave G — drop-via-rebase moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1957,6 +1991,8 @@ export class CommitContextMenuCommands {
             operation: 'rebase',
             target: 'drop',
           });
+          // Wave G — abortRebase moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
         }
@@ -1974,6 +2010,8 @@ export class CommitContextMenuCommands {
       if (stashed) {
         await this._unstashWithErrorReport(cwd, 'Drop');
       }
+      // Wave G — multi-drop rebase moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2150,6 +2188,8 @@ export class CommitContextMenuCommands {
             operation: 'rebase',
             target: 'squash',
           });
+          // Wave G — abortRebase moved HEAD; reload before refresh.
+          await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
         }
@@ -2167,6 +2207,8 @@ export class CommitContextMenuCommands {
       if (stashed) {
         await this._unstashWithErrorReport(cwd, 'Squash');
       }
+      // Wave G — squash rebase moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2271,6 +2313,8 @@ export class CommitContextMenuCommands {
             void vscode.window.showErrorMessage(
               'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
             );
+            // Wave G — abortRebase moved HEAD; reload before refresh.
+            await this._gitService.reloadRepository(repo);
             this._gitToolWindowProvider.refresh();
             return;
           }
@@ -2289,6 +2333,8 @@ export class CommitContextMenuCommands {
       void vscode.window.showInformationMessage(
         `Updated commit message for ${hash.substring(0, 8)}`
       );
+      // Wave G — reword rewrote history; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2351,6 +2397,8 @@ export class CommitContextMenuCommands {
           }
         }
       }
+      // Wave G — merge moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -2374,6 +2422,8 @@ export class CommitContextMenuCommands {
       void vscode.window.showInformationMessage(
         `Interactive rebase started from ${hash.substring(0, 8)}`
       );
+      // Wave G — interactive rebase may have moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

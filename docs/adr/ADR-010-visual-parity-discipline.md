@@ -319,3 +319,16 @@ serve the same comparison need without duplicating the surface.
   algorithm-stage snapshots, the UX-review pass, or the senior +
   tech-lead reviews exercised the detached input shape. Layer 4
   makes the repo-state input space first-class.
+- **Wave G (2026-05-25)**: extended Layer 4 (repo-state coverage) with
+  §1.5 — HEAD chip rendering. Trigger: Wave F's detached-HEAD parser fix
+  closed the "Failed to create branch" crash, but user dogfood surfaced
+  a downstream gap: in detached HEAD the user has no visual indicator
+  of where HEAD lives. The chip-rendering pipeline (Wave A → D → E)
+  produced empty chip slots for detached commits because no branch
+  pointed there. Wave G adds a yellow/gold HEAD chip rendered on the
+  commit pointed at by `repo.head?.commit`, prepended FIRST to the
+  `.commit-branches` slot (IntelliJ parity); pinned by snap-9a..9f.
+  Also fixes a stale-HEAD-chip race by adding
+  `gitService.reloadRepository(repo)` to every CLI mutation site so
+  `provider.refresh()` runs against fresh state instead of racing the
+  watcher's 250 ms debounced reload.

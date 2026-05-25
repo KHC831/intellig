@@ -57,6 +57,7 @@ function createMockGitService(
     onDidChangeRepository: repoChangeEmitter.event,
     getRepositories: () => [repo],
     getRepository: async () => repo,
+    reloadRepository: async () => repo,
     getBranches: async () => [],
     getTags: async () => [],
     commit: async () => {},
