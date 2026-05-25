@@ -50,6 +50,7 @@ function createMockGitService(overrides: Partial<IGitService> = {}): IGitService
     onDidChangeRepository: repoChangeEmitter.event,
     getRepositories: () => [],
     getRepository: async () => undefined,
+    reloadRepository: async (repo) => repo,
     getBranches: async () => [],
     getTags: async () => [],
     commit: async () => {},

@@ -795,6 +795,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
         extensionServices.autoFetchService.resetBackoff();
       }
 
+      // Wave G follow-up: fetch advances remote-tracking refs so the
+      // ahead/behind counts on the branch tree go stale until the watcher's
+      // 250ms debounce. Reload-then-refresh closes the visible window the
+      // same way the other Wave G mutation sites do.
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+
       const remoteCount = repo.remotes.length || 1;
       const refCount = result.updatedRefs.length;
       const message =
