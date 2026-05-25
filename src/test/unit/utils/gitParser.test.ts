@@ -8,6 +8,7 @@ import {
   parseRepositoryState,
   parseHunks,
   parseDiff,
+  parseBranches,
   getLogFormat,
   getBranchFormat,
   getTagFormat,
@@ -527,6 +528,140 @@ diff --git a/file2.ts b/file2.ts
       const format = getTagFormat();
       assert.ok(format.includes('%(refname)'));
       assert.ok(format.includes('%(objecttype)'));
+    });
+  });
+
+  /**
+   * Wave F / F3 — `parseBranches` filters git's parenthesized pseudo-refs.
+   *
+   * Pre-Wave-F, `git branch -a --format` lines like
+   * `(HEAD detached at 5eed84b)|<sha>||*` leaked through `parseBranches`
+   * as `type='local'` branches with the parenthesized name as `.name`.
+   * That fake branch then propagated into the branch tree, log graph
+   * chips, and `_handleNewBranchFrom`'s `startPoint = item.branch?.name`,
+   * where it became the `<startPoint>` argument to
+   * `git checkout -b <new> <startPoint>` — failing with
+   * `fatal: '(HEAD detached at 5eed84b)' is not a commit`.
+   *
+   * The fix filters any refname matching `/^\(.*\)$/` (after `.trim()`).
+   * The predicate is broad on purpose: it catches detached HEAD,
+   * `(no branch, rebasing main)`, `(no branch, bisect started on …)`,
+   * `(no branch, cherry-pick of …)`, and any future variant — git's own
+   * format produces parenthesized labels for all such states.
+   *
+   * Detached state itself is surfaced separately via `repo.head?.commit`
+   * (StatusBarService:273-276, BranchPopup:704-707) — the parser is the
+   * wrong place to model it.
+   */
+  describe('parseBranches — Wave F pseudo-ref filtering', () => {
+    it('parseBranches-detached-1: single detached pseudo-ref → returns empty array', () => {
+      const output = '(HEAD detached at abc1234)|abc1234567890123456789012345678901234567890||*';
+      const result = parseBranches(output);
+      assert.deepStrictEqual(
+        result,
+        [],
+        'parenthesized refname must be filtered, not pass through as a branch'
+      );
+    });
+
+    it('parseBranches-detached-2: detached + 2 normal local + 1 remote → 3 branches; pseudo-ref absent', () => {
+      const output = [
+        '(HEAD detached at abc1234)|abc1234567890123456789012345678901234567890||*',
+        'refs/heads/main|def4567890123456789012345678901234567890abc|origin/main|',
+        'refs/heads/feature|ghi7890123456789012345678901234567890abcdef||',
+        'refs/remotes/origin/main|def4567890123456789012345678901234567890abc||',
+      ].join('\n');
+      const result = parseBranches(output);
+
+      assert.strictEqual(result.length, 3, 'expected 3 branches (detached pseudo-ref filtered)');
+      const names = result.map((b) => b.name);
+      assert.ok(
+        !names.some((n) => n.startsWith('(')),
+        `no branch.name should start with '('; got ${JSON.stringify(names)}`
+      );
+      assert.deepStrictEqual(names.sort(), ['feature', 'main', 'origin/main']);
+
+      // Pin: the kept entries retain their full shape (the filter only
+      // drops parenthesized lines, doesn't mangle siblings).
+      const main = result.find((b) => b.name === 'main');
+      assert.ok(main, 'main must survive the filter');
+      assert.strictEqual(main.type, 'local');
+      assert.strictEqual(main.commit, 'def4567890123456789012345678901234567890abc');
+      assert.strictEqual(main.upstream?.remote, 'origin');
+      assert.strictEqual(main.upstream?.name, 'main');
+    });
+
+    it('parseBranches-detached-3: mid-rebase pseudo-ref → filtered', () => {
+      // git emits this during `git rebase -i` while paused.
+      const output = '(no branch, rebasing main)|abc1234567890123456789012345678901234567890||*';
+      const result = parseBranches(output);
+      assert.deepStrictEqual(result, [], 'mid-rebase parenthesized label must be filtered');
+    });
+
+    it('parseBranches-detached-4: mid-bisect pseudo-ref → filtered', () => {
+      const output =
+        '(no branch, bisect started on main)|abc1234567890123456789012345678901234567890||*';
+      const result = parseBranches(output);
+      assert.deepStrictEqual(result, [], 'mid-bisect parenthesized label must be filtered');
+    });
+
+    it('parseBranches-detached-5: detached pseudo-ref as ONLY entry → returns empty array', () => {
+      // Pin the edge case where the user is detached and the only line
+      // git emits is the pseudo-ref. Pre-fix this would hand back a
+      // 1-element list with a parenthesized name; post-fix the result
+      // is empty so the UI shows zero branches and falls back to
+      // `repo.head?.commit` for detached display.
+      const output = '(HEAD detached from origin/main)|deadbeefdeadbeefdeadbeefdeadbeefdeadbeef||*';
+      const result = parseBranches(output);
+      assert.deepStrictEqual(result, []);
+    });
+
+    it('parseBranches-detached-6: mid-cherry-pick pseudo-ref → filtered', () => {
+      // git emits this while a cherry-pick is paused on a conflict.
+      // The parity doc §1.1 enumerates this as a covered variant; pin
+      // it explicitly so the structural rule's coverage is auditable
+      // by-fixture rather than implied by the predicate shape alone.
+      const output =
+        '(no branch, cherry-pick of abcdef1)|abc1234567890123456789012345678901234567890||*';
+      const result = parseBranches(output);
+      assert.deepStrictEqual(result, [], 'mid-cherry-pick parenthesized label must be filtered');
+    });
+
+    it('parseBranches-no-regression: existing local + remote fixtures parse unchanged (no over-filtering)', () => {
+      // Pin we did NOT widen the filter so it eats real branches.
+      // Note: git itself accepts `(` in refnames (`git check-ref-format
+      // 'refs/heads/(foo)'` exits 0); the filter is safe NOT because
+      // git rejects such names, but because real branches always emit
+      // through the `refs/heads/...` / `refs/remotes/...` /
+      // `refs/tags/...` prefix, so the trimmed refname starts with `r`
+      // — never with `(`. This fixture exercises names with hyphens,
+      // dots, slashes, and multi-segment paths to pin the filter is
+      // narrow.
+      const output = [
+        'refs/heads/main|def4567890123456789012345678901234567890abc||*',
+        'refs/heads/feature/JIRA-123|aaa4567890123456789012345678901234567890abc||',
+        'refs/heads/release-1.0|bbb4567890123456789012345678901234567890abc||',
+        'refs/remotes/origin/main|def4567890123456789012345678901234567890abc||',
+        'refs/remotes/upstream/feature|ccc4567890123456789012345678901234567890abc||',
+      ].join('\n');
+      const result = parseBranches(output);
+
+      assert.strictEqual(result.length, 5, 'all 5 normal branches must survive');
+      assert.deepStrictEqual(result.map((b) => b.name).sort(), [
+        'feature/JIRA-123',
+        'main',
+        'origin/main',
+        'release-1.0',
+        'upstream/feature',
+      ]);
+      // Type assignment must be unchanged for normal branches.
+      assert.strictEqual(result.find((b) => b.name === 'main')?.type, 'local');
+      assert.strictEqual(result.find((b) => b.name === 'feature/JIRA-123')?.type, 'local');
+      assert.strictEqual(result.find((b) => b.name === 'origin/main')?.type, 'remote');
+      assert.strictEqual(result.find((b) => b.name === 'upstream/feature')?.type, 'remote');
+      // isHead set correctly — main carried `*`, others did not.
+      assert.strictEqual(result.find((b) => b.name === 'main')?.isHead, true);
+      assert.strictEqual(result.find((b) => b.name === 'feature/JIRA-123')?.isHead, false);
     });
   });
 });

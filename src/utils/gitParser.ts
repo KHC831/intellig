@@ -207,6 +207,31 @@ export function parseBranches(output: string): IBranch[] {
     }
 
     const [refname, commit, upstream, head] = parts;
+
+    // Wave F — filter out git's pseudo-refs for detached HEAD / rebase /
+    // bisect / cherry-pick. These appear in `git branch -a --format` output
+    // as parenthesized strings (e.g. `(HEAD detached at 5eed84b)`,
+    // `(no branch, rebasing main)`). They have a real commit hash and
+    // `%(HEAD) === '*'` set, but they are NOT branches — they're
+    // descriptive labels git writes when no symbolic ref exists.
+    //
+    // Letting them pass as `type='local'` branches caused a "is not a
+    // commit" failure in `_handleNewBranchFrom` (the parenthesized name
+    // was passed verbatim to `git checkout -b <new> <startPoint>`), and
+    // visible bogus entries in the branch tree + log chips. Detached
+    // state is surfaced separately via `repo.head?.commit` (see
+    // `StatusBarService:273-276`, `BranchPopup:704-707`).
+    //
+    // Real branches always emit `refs/heads/...` / `refs/remotes/...` /
+    // `refs/tags/...` as their `%(refname)` value, so even a legitimate
+    // branch named literally `(foo)` is emitted as `refs/heads/(foo)` and
+    // survives this filter (the trimmed refname starts with `r`, not `(`).
+    // Only git's parenthesized PSEUDO-REFS (which never carry the `refs/...`
+    // prefix because they aren't real refs) match `^\(.*\)$`.
+    if (/^\(.*\)$/.test(refname.trim())) {
+      continue;
+    }
+
     const isHead = head === '*';
 
     let name = refname;

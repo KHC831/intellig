@@ -708,3 +708,266 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
     );
   });
 });
+
+/**
+ * Wave F / F3 — detached-HEAD pseudo-ref filtering, end-to-end.
+ *
+ * Pre-Wave-F, when HEAD was detached, `parseBranches` returned an
+ * `IBranch` with `name = '(HEAD detached at <sha>)'` and `type='local'`.
+ * That fake branch propagated into:
+ *   - the branch-map keyed by commit hash (extension.ts:3870-3879),
+ *     which then drove the log graph chip for the detached commit
+ *   - the BranchTreeProvider local-branches list, which rendered a
+ *     `(HEAD detached at …)` row in the side panel
+ *   - `_handleNewBranchFrom`'s `startPoint = item.branch?.name`,
+ *     which got passed verbatim to `git checkout -b`, failing with
+ *     `fatal: '(HEAD detached at 5eed84b)' is not a commit`
+ *
+ * Wave F / F1 filters parenthesized refnames at the parser. The two
+ * snapshots below pin the post-fix downstream contract — the chip
+ * for a detached commit is the EMPTY string, and the local-branches
+ * list contains NO parenthesized entries — so a future regression
+ * that re-introduces the leak is caught by these snapshots, not by a
+ * production-time runtime error.
+ *
+ * snap-8a: chip-emit-stage. Build the branch-map from `parseBranches`
+ *   on the detached fixture, locate the detached commit's node, assert
+ *   `_getBranchLabelsHtml(node)` returns `''`. This is the same
+ *   chip-stage contract as snap-7d (no branches → empty string), but
+ *   reached via the Wave F filter rather than an empty input.
+ *
+ * snap-8b: branch-tree-stage. Render the BranchTreeProvider local
+ *   branches list for the detached fixture and assert no item label
+ *   or `branch.name` starts with `(`.
+ */
+describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the rendering chain', () => {
+  it('snap-8a: detached fixture → branch-map empty for HEAD sha → _getBranchLabelsHtml returns ""', async () => {
+    const { parseBranches } = await import('../../../utils/gitParser');
+
+    // Reproduce the EXACT line shape `git branch -a --format=...` emits
+    // when HEAD is detached at a real commit.
+    const detachedSha = 'abc1234567890123456789012345678901234567890';
+    const fixture = `(HEAD detached at abc1234)|${detachedSha}||*`;
+
+    // Step 1: parseBranches must filter the parenthesized line out.
+    const branches = parseBranches(fixture);
+    assert.strictEqual(
+      branches.length,
+      0,
+      'Wave F: parenthesized pseudo-ref must be filtered before reaching branch-map'
+    );
+
+    // Step 2: the production path (extension.ts:3870-3879) builds a
+    // commit-hash → branch-name map from `branches`. With the parser
+    // filtering the pseudo-ref, the detached SHA has NO entry.
+    const branchMap = new Map<string, string[]>();
+    for (const b of branches) {
+      const existing = branchMap.get(b.commit) ?? [];
+      existing.push(b.name);
+      branchMap.set(b.commit, existing);
+    }
+    assert.strictEqual(
+      branchMap.has(detachedSha),
+      false,
+      'Wave F: branch-map must NOT contain the detached SHA (no branch points there)'
+    );
+
+    // Step 3: the chip emit for a node whose branches array is empty
+    // (because the branch-map didn't surface any) is the empty string.
+    // This is the contract `.commit-branches:empty { display: none }`
+    // relies on (covered by snap-7d), here re-exercised via the
+    // Wave F filter chain to pin the end-to-end behavior.
+    const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    try {
+      const node: ICommitNode = {
+        commit: mkCommit(detachedSha, ['parent1234567890123456789012345678901234']),
+        graphColumn: 0,
+        graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
+        branches: branchMap.get(detachedSha) ?? [],
+        tags: [],
+        onFocusedBranchPath: false,
+      };
+      const html = provider._getBranchLabelsHtml(node);
+      assert.strictEqual(
+        html,
+        '',
+        `Wave F: chip emit for detached commit must be empty; got "${html}"`
+      );
+    } finally {
+      provider.dispose();
+    }
+  });
+
+  it('snap-8b: branch-tree local-branches list contains NO parenthesized entry for a detached fixture', async () => {
+    // The BranchTreeProvider's `_getLocalBranches` filters by
+    // `b.type === 'local'` and maps each remaining branch onto a
+    // BranchTreeItem. Pre-Wave-F, the parenthesized pseudo-ref was
+    // typed `'local'` and rendered as a tree item. Post-Wave-F, the
+    // parser filters it before BranchTreeProvider ever sees it, so
+    // the rendered list contains zero parenthesized entries.
+
+    const { parseBranches } = await import('../../../utils/gitParser');
+    const { BranchTreeProvider } = await import('../../../services/BranchTreeProvider');
+    const { EventEmitter } = await import('../../mocks/vscode');
+    const { noopEvent } = await import('../../mocks/noopEvent');
+    const interfaces = await import('../../../services/interfaces/IGitService');
+    type IGitService = import('../../../services/interfaces/IGitService').IGitService;
+    type IRepository = import('../../../services/interfaces/IGitService').IRepository;
+    type IBranch = import('../../../services/interfaces/IGitService').IBranch;
+    type IFetchResult = import('../../../services/interfaces/IGitService').IFetchResult;
+    void interfaces;
+
+    // Fixture: detached pseudo-ref + 2 normal local + 1 remote.
+    const detachedSha = 'abc1234567890123456789012345678901234567890';
+    const mainSha = 'def4567890123456789012345678901234567890abc';
+    const featureSha = 'ghi7890123456789012345678901234567890abcdef';
+    const fixture = [
+      `(HEAD detached at abc1234)|${detachedSha}||*`,
+      `refs/heads/main|${mainSha}||`,
+      `refs/heads/feature|${featureSha}||`,
+      `refs/remotes/origin/main|${mainSha}||`,
+    ].join('\n');
+    const parsed: IBranch[] = parseBranches(fixture);
+
+    // Sanity: parser already filtered the parenthesized line; the
+    // tree provider can only render what the parser hands it.
+    assert.ok(
+      !parsed.some((b) => b.name.startsWith('(')),
+      `Wave F: parsed branches must contain no parenthesized name; got ${JSON.stringify(parsed.map((b) => b.name))}`
+    );
+
+    // Mock GitService that hands back the post-filter `parsed` list.
+    const repoChangeEmitter = new EventEmitter<IRepository>();
+    const mockRepo: IRepository = {
+      rootUri: {
+        scheme: 'file',
+        authority: '',
+        path: '/test',
+        query: '',
+        fragment: '',
+        fsPath: '/test',
+      } as unknown as IRepository['rootUri'],
+      state: 'idle',
+      head: { name: detachedSha, ahead: 0, behind: 0, commit: detachedSha },
+      remotes: [],
+      submodules: [],
+    };
+
+    const mockGitService: IGitService = {
+      onDidChangeRepository: repoChangeEmitter.event,
+      onDidRemoveRepository: noopEvent<IRepository>(),
+      getRepositories: () => [mockRepo],
+      getRepository: async () => mockRepo,
+      getBranches: async () => parsed,
+      getTags: async () => [],
+      commit: async () => {},
+      amend: async () => {},
+      createBranch: async () => {},
+      checkout: async () => {},
+      deleteBranch: async () => {},
+      renameBranch: async () => {},
+      mergeBranch: async () => ({ success: true }),
+      rebaseBranch: async () => ({ success: true }),
+      rebaseSkip: async () => ({ success: true }),
+      compareBranches: async () => ({
+        commitsAhead: [],
+        commitsBehind: [],
+        aheadCount: 0,
+        behindCount: 0,
+        changedFiles: [],
+      }),
+      fetch: async (): Promise<IFetchResult> => ({
+        updatedRefs: [],
+        ahead: 0,
+        behind: 0,
+        errors: [],
+      }),
+      onDidFetch: () => ({ dispose: () => {} }),
+      resetToCommit: async () => {},
+      pull: async () => {},
+      push: async () => {},
+      getRemotes: async () => [],
+      addRemote: async () => {},
+      removeRemote: async () => {},
+      stash: async () => {},
+      stashList: async () => [],
+      stashApply: async () => {},
+      stashPop: async () => {},
+      stashDrop: async () => {},
+      stashShow: async () => [],
+      stashBranch: async () => {},
+      stashRename: async () => {},
+      createTag: async () => {},
+      deleteTag: async () => {},
+      pushTag: async () => {},
+      getLog: async () => [],
+      getCommit: async () => ({
+        hash: '',
+        shortHash: '',
+        message: '',
+        author: { name: '', email: '' },
+        committer: { name: '', email: '' },
+        parents: [],
+        authorDate: new Date(),
+        commitDate: new Date(),
+      }),
+      getFileHistory: async () => [],
+      getDiff: async () => ({
+        path: '',
+        status: 'modified' as const,
+        hunks: [],
+        binary: false,
+      }),
+      getCommitDiff: async () => [],
+      getMultiCommitDiff: async () => [],
+      getBlame: async () => [],
+      cherryPick: async () => ({ success: true }),
+      cherryPickAbort: async () => {},
+      cherryPickContinue: async () => ({ success: true }),
+      revert: async () => ({ success: true }),
+      revertAbort: async () => {},
+      revertContinue: async () => ({ success: true }),
+      getStatus: async () => [],
+      stage: async () => {},
+      unstage: async () => {},
+      stageHunk: async () => {},
+      stageLines: async () => {},
+      unstageHunk: async () => {},
+      revertFile: async () => {},
+      dispose: () => {},
+    } as IGitService;
+
+    const treeProvider = new BranchTreeProvider(mockGitService);
+    treeProvider.setRepository(mockRepo);
+
+    // Drive `_getLocalBranches` via the public `getChildren` API.
+    const localCategory = (await treeProvider.getChildren()).find(
+      (item) => item.label === 'Local Branches'
+    );
+    assert.ok(localCategory, 'Local Branches category must exist at root');
+    const localItems = await treeProvider.getChildren(localCategory);
+
+    // Pin the contract: NO item label or branch.name starts with `(`.
+    for (const item of localItems) {
+      const label = typeof item.label === 'string' ? item.label : (item.label?.label ?? '');
+      assert.ok(
+        !label.startsWith('('),
+        `Wave F: BranchTreeItem.label must not start with '(' (parenthesized pseudo-ref); got "${label}"`
+      );
+      assert.ok(
+        !item.branch || !item.branch.name.startsWith('('),
+        `Wave F: BranchTreeItem.branch.name must not start with '('; got "${item.branch?.name}"`
+      );
+    }
+
+    // And the count matches the post-filter expectation: 2 local
+    // branches survived (main, feature). The detached pseudo-ref is
+    // gone, the remote-typed entry is excluded by the local-branch
+    // filter inside the provider.
+    assert.strictEqual(
+      localItems.length,
+      2,
+      `expected 2 local branches (main + feature); got ${localItems.length} (${localItems.map((i) => i.label).join(', ')})`
+    );
+  });
+});

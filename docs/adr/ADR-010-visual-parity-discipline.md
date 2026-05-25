@@ -174,6 +174,56 @@ The Wave D seed: `docs/parity/git-log-graph.md`.
 > the back-reference makes "verified by test" a first-class
 > sign-off mode rather than an unstated fallback.
 
+### Layer 4 — Repo-state coverage
+
+Layers 1–3 close the gap between *algorithm output* and *rendered
+visual* for the **default** repo state (clean working tree, attached
+HEAD on a normal branch). Wave F surfaced the next gap: features that
+look correct against the default state can fail catastrophically when
+the repo is in a non-default state.
+
+The Wave F production bug — "Branches → New Branch From here" failed
+with `fatal: '(HEAD detached at 5eed84b)' is not a commit` — shipped
+past three Layer-1 snapshot fixtures, a UX-review pass, and senior +
+tech-lead sign-off because every test fixture and every reviewer
+screenshot used a repo with attached HEAD. Git's `branch -a --format`
+output shape is materially different in detached HEAD / mid-rebase /
+mid-bisect / mid-cherry-pick states (it emits parenthesized
+pseudo-refs like `(HEAD detached at <sha>)`), and that shape was
+absent from the test surface.
+
+Layer 4 makes the repo-state input space explicit:
+
+1. **Repo-state landmap** — every parity-targeted feature must enumerate
+   its behaviour across the canonical non-default states in
+   `docs/parity/repo-states.md` §0 at-a-glance table. The states
+   covered today are: default, detached HEAD, in-progress merge,
+   in-progress rebase, in-progress cherry-pick, empty repo. New
+   features mark each row as covered / partially covered / NOT
+   covered, with a Wave-N citation when the gap is in scope.
+2. **Repo-state fixtures** — each non-default state that the feature
+   claims to support gets at least one Layer-1 snapshot fixture (or
+   property-test invariant) wired through the same parser → renderer
+   → HTML chain. Wave F's seed: `parseBranches-detached-1..5` +
+   snap-8a + snap-8b for the detached-HEAD state.
+3. **Repo-state cite in parity doc** — the §1.x section for each state
+   in `docs/parity/repo-states.md` carries the same snapshot
+   back-reference shape Layer 3 mandates: `(see snap-Nx in <test>)`.
+   The combination — landmap + fixtures + back-references — makes the
+   repo-state coverage auditable from the parity doc alone.
+
+The discipline now reads: **(input space) repo-state landmap →
+(algorithm) snap-N → (renderer per-element) snap-N → (renderer layout)
+snap-N → (final HTML emit) snap-N**. A regression at any stage in any
+covered state surfaces as a deliberate diff.
+
+> **Wave F seed**: `docs/parity/repo-states.md` §0 enumerates 6
+> repo states (default, detached HEAD, in-progress merge / rebase /
+> cherry-pick, empty repo). Wave F covers detached HEAD only (§1);
+> the remaining states are flagged "NOT covered, Wave G candidate"
+> in the §0 at-a-glance table so future waves can pick them up
+> without re-deriving the landmap.
+
 ## Consequences
 
 ### Positive
@@ -234,6 +284,11 @@ serve the same comparison need without duplicating the surface.
   (chip max-width + ellipsis CSS contract).
 - `docs/parity/git-log-graph.md` — Wave D seed for Layer 3; Wave E
   adds snap-back-references in §2.
+- `docs/parity/repo-states.md` — Wave F seed for Layer 4 (repo-state
+  landmap + detached-HEAD §1).
+- `src/utils/gitParser.ts` `parseBranches` — Wave F filter for git's
+  parenthesized pseudo-refs; covered by `parseBranches-detached-1..5`,
+  snap-8a, snap-8b, and the `parseBranches.property.test.ts` property.
 
 ## Update log
 
@@ -249,3 +304,18 @@ serve the same comparison need without duplicating the surface.
   CI + VISUAL-PARITY verdict because the existing snapshots only
   pinned algorithm input, the UX-review was a code audit without
   runtime check, and the parity doc had no snapshot back-references.
+- **Wave F (2026-05-24)**: established Layer 4 (repo-state coverage).
+  Every parity-targeted feature now enumerates its behaviour across
+  the canonical non-default states (detached HEAD, in-progress merge
+  / rebase / cherry-pick, empty repo) in `docs/parity/repo-states.md`
+  §0 at-a-glance table; each covered state gets at least one Layer-1
+  snapshot or property-test invariant; the parity-doc state section
+  carries snapshot back-references. Wave F seeds the layer with the
+  detached-HEAD entry (parseBranches filter for parenthesized pseudo-
+  refs, snap-8a chip-emit + snap-8b branch-tree, plus a fast-check
+  property). Trigger: Wave A–E feature work tested only against the
+  default repo state; Wave F's user dogfood found "Branches → New
+  Branch From here" crashing in detached HEAD because none of three
+  algorithm-stage snapshots, the UX-review pass, or the senior +
+  tech-lead reviews exercised the detached input shape. Layer 4
+  makes the repo-state input space first-class.
