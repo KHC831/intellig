@@ -104,6 +104,49 @@ approached in practice.
 Branch names are rendered as **chips** to the right of the commit
 icon in the same row.
 
+### §2.0 Layout (Wave E — bug-fix)
+
+Chips live in a dedicated **`.commit-branches` flex slot** that is
+a sibling of `.commit-title` inside `.commit-info`. The slot has
+`flex-shrink: 0` so chips are NEVER clipped when the panel is
+narrow; the message text in `.commit-title` ellipsises around the
+chips instead. When a commit has no branches, `.commit-branches`
+collapses via `:empty { display: none }` so it occupies no margin.
+
+```
+.commit-info  (flex row)
+├── .commit-graph         (svg lane)
+├── .commit-title         (flex: 1, overflow: hidden, ellipsis)
+├── .commit-branches      (flex-shrink: 0, holds chip <span>s)
+├── .commit-author        (fixed 140px)
+└── .commit-date          (fixed 145px)
+```
+
+> **Why a separate slot?** Pre-Wave-E the chips were nested INSIDE
+> `.commit-title`, which has `overflow: hidden` + `white-space:
+> nowrap`. At narrow panel widths the message consumed the
+> available line and the chips clipped — they only appeared when
+> the panel was widened. The Wave E fix moves chips into their
+> own flex slot so they always reserve width.
+
+(see snap-7f in `commitGraphSnapshots.test.ts` — pins the DOM tree
+shape via jsdom; chip is parsed as a child of `.commit-branches`,
+NOT `.commit-title`)
+
+> **Wave E — message text uses CSS ellipsis, not JS truncation.**
+> The host emits the FULL first line of the commit message into
+> `.commit-title`; the responsive ellipsis is purely CSS
+> (`overflow: hidden; text-overflow: ellipsis; white-space: nowrap`).
+> This means a wide panel shows as much of the subject as the
+> flex-allocated width allows; a narrow panel renders ellipsis
+> based on actual width rather than a JS hard cap. The full
+> first-line text remains the underlying content for screen
+> readers and find-in-page; the multi-line message is accessible
+> via the `title=` tooltip. Pre-Wave-E the host pre-truncated to
+> 60 characters, which made wide panels look hard-clipped for no
+> reason. (see snap-7g in `commitGraphSnapshots.test.ts` — pins
+> "no JS `...` in row text content even at 200-char first lines".)
+
 ### §2.1 Local vs remote classification
 
 `classifyBranchName` decides:
@@ -112,13 +155,45 @@ icon in the same row.
 - otherwise → **local** (`branch-label-local`)
 
 Local chips render with the green background pair; remote with the
-blue background pair.
+blue background pair. Both classes carry `display: inline-block`
+so a future change in flex layout still reserves chip width
+deterministically (Wave E hardening).
+
+(see snap-7a in `commitGraphSnapshots.test.ts` — pins literal
+`<span class="branch-label-local" data-branch-name="main">main</span>`
+for a local chip; snap-7b pins the remote variant.)
+
+> **Wave E R1 / Senior M-1 — chip max-width contract**: chips cap
+> at **200px** with `text-overflow: ellipsis` (`overflow: hidden` +
+> `white-space: nowrap` so the ellipsis actually engages, plus
+> `vertical-align: middle` so the chip sits flush with the message
+> baseline). IntelliJ caps at the same ~200px. A 70-character
+> branch name like
+> `feature/JIRA-12345-very-long-descriptive-feature-name-with-context`
+> renders to its natural width (~350px) without this cap, which
+> consumes the non-shrinking `.commit-branches` slot and squeezes
+> `.commit-title` to a few characters. The chip's underlying text
+> is still the FULL branch name — `data-branch-name` and
+> textContent both carry the unclipped string for screen readers,
+> find-in-page, and the partial-update handler in §2.3. Only the
+> visual rendering is clipped. (see snap-7h in
+> `commitGraphSnapshots.test.ts` — pins both contracts: chip
+> textContent stays full + inline CSS pins
+> `max-width: 200px` and `text-overflow: ellipsis`.)
 
 ### §2.2 Multiple branches at the same commit
 
 When several branches point at the same commit, all chips render
 side-by-side in `branchMap.get(hash)` order. The HEAD branch (when
 its commit is loaded) gets the additional `head-label` class.
+
+(see snap-7c in `commitGraphSnapshots.test.ts` — pins three chips
+emitted in input order with the correct local/remote class split.)
+
+> **Empty case**: `_getBranchLabelsHtml(node)` returns an EMPTY
+> string when `node.branches` is empty. The `.commit-branches:empty`
+> CSS rule depends on this exact return shape (no whitespace, no
+> HTML comment). (see snap-7d.)
 
 ### §2.3 `data-branch-name` attribute
 
@@ -127,6 +202,20 @@ inline-script's `updateBranchFocus` partial-update handler can find
 chips without a full DOM rebuild. The attribute value goes through
 `_escapeHtml` for the same reason chip text does — preventing
 reflective injection.
+
+(see snap-7a/7b/7c/7e — every snapshot includes the
+`data-branch-name="…"` attribute in the literal expected HTML.)
+
+### §2.4 Focused-chip class
+
+When a branch is focused (§3), its chip carries the additional
+`branch-label-focused` class IN ADDITION to the local/remote base
+class. The class is applied at render time, AND maintained by the
+`updateBranchFocus` partial-update handler when focus changes
+without a full re-render.
+
+(see snap-7e in `commitGraphSnapshots.test.ts` — pins the literal
+`<span class="branch-label-local branch-label-focused" …>` emit.)
 
 ---
 

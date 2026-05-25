@@ -170,15 +170,16 @@ function createProvider(): GitToolWindowProvider {
 }
 
 /**
- * Compute the expected truncated first line of a commit message.
- * Mirrors the logic in GitToolWindowProvider._truncateMessage().
+ * Compute the expected message summary for the row HTML.
+ *
+ * Wave E (E2-bonus): the row template no longer pre-truncates the
+ * message — `.commit-title { overflow:hidden; text-overflow:ellipsis }`
+ * does the responsive ellipsis, and the host emits the full first
+ * line so screen readers and find-in-page see complete text. Property
+ * 3 now asserts the FULL first line lands in the row HTML.
  */
-function expectedMessageSummary(message: string, maxLength: number = 60): string {
-  const firstLine = message.split('\n')[0];
-  if (firstLine.length <= maxLength) {
-    return firstLine;
-  }
-  return firstLine.substring(0, maxLength - 3) + '...';
+function expectedMessageSummary(message: string): string {
+  return message.split('\n')[0];
 }
 
 // ─── Property Tests ───────────────────────────────────────────────────────────

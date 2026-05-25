@@ -71,6 +71,31 @@ three-way fork, merge with branches at both parents, focus state).
 > attributes for CSS classes will update the snap-6 expecteds
 > explicitly.
 
+> **Wave E discipline-tightening — output snapshots, not input
+> snapshots**: a snapshot of an algorithm's OUTPUT data structure
+> is NOT a snapshot of the rendered HTML. Wave D R1's multi-stage
+> rule generalises to a stricter test: **if a function emits HTML
+> (or any string consumed by a UI layer), the snapshot must include
+> the literal emitted output, not just the function's input data**.
+> Wave D's `commitGraphSnapshots.test.ts` snap-3 captured
+> `node.branches: ['main']` — the algorithm-stage value — but did
+> NOT exercise `_getBranchLabelsHtml(node)`. Wave E's bug (chips
+> don't render in narrow panels) lived entirely in the chip-emit +
+> CSS layout layers, both of which were untested. Wave E adds:
+> - **Chip-emit-stage snapshots** (snap-7a..7e) asserting the
+>   literal HTML span output of `_getBranchLabelsHtml`
+> - **Layout-stage snapshot** (snap-7f) using jsdom to assert the
+>   chip is reachable in the DOM tree at the expected position
+>   (sibling of `.commit-title`, not a descendant)
+> - **Message-text snapshot** (snap-7g) asserting the row's
+>   `.commit-title` text content is the full first line (no JS
+>   truncation), so CSS — not JS — controls the responsive ellipsis
+>
+> The discipline now reads: **algorithm → renderer (per-element)
+> → renderer (layout) → final HTML emit**. Each stage is
+> independently snapshotted; a refactor at any stage that doesn't
+> preserve the next stage's output triggers a deliberate diff.
+
 ### Layer 2 — UX-review checkpoint
 
 Every parity-targeted UI feature gets a UX-review pass against the
@@ -94,6 +119,35 @@ synthetic fixture / repro instructions the reviewer can use.
 > verdict") is stable and should port directly when the agent
 > definition lands.
 
+> **Wave E discipline-tightening — runtime verification REQUIRED**:
+> Wave D shipped a chip-rendering bug past a VISUAL-PARITY verdict
+> because the UX-reviewer performed a code audit (read the
+> implementation, compared to the parity doc) without runtime
+> verification. From Wave E onward, the UX-review verdict MUST
+> include AT LEAST ONE of:
+>
+> 1. **F5 dogfood with screenshot** — preferred. Reviewer launches
+>    the extension, exercises the feature, captures a screenshot,
+>    attaches to the verdict. The screenshot is the artifact.
+> 2. **jsdom-rendered HTML test** — the reviewer writes (or cites)
+>    a test that synthesises the rendered HTML for the feature and
+>    asserts on the visual claim (e.g. `assert.ok(chip.parentElement
+>    .classList.contains('commit-branches'))` for chip placement).
+>    `commitGraphSnapshots.test.ts` snap-7f is the canonical
+>    template for this form.
+> 3. **Explicit cannot-F5 declaration** — only acceptable when the
+>    runtime environment is genuinely unavailable. Reviewer must
+>    write: `I cannot F5 (reason); the visual claim "<X>" is
+>    verified by snap-<id> in <file>; the parity doc citation is
+>    <section>.` This forces the discipline to make the snapshot
+>    back-reference (Layer 3) mandatory in advance.
+>
+> A code audit alone is INSUFFICIENT. The Wave D failure was the
+> canonical example: the parity doc said "chips render to the right
+> of the message," the implementation looked right at every layer
+> the reviewer inspected, and the rendered output did not match.
+> Without runtime or rendered-HTML verification, the gap is invisible.
+
 ### Layer 3 — `docs/parity/<feature>.md` reference doc
 
 A canonical living document per UI feature describing IntelliJ's
@@ -109,6 +163,16 @@ waves cite as the spec. Updates to this doc precede implementation
 changes — write the spec first, walk the code forward.
 
 The Wave D seed: `docs/parity/git-log-graph.md`.
+
+> **Wave E — snapshot back-references**: each visual claim in a
+> parity doc that maps onto an algorithm/renderer/HTML output must
+> cite the corresponding snapshot test that pins it. Format:
+> `(see snap-Nx in commitGraphSnapshots.test.ts)`. Wave E updates
+> `docs/parity/git-log-graph.md` §2 to cite snap-7a..7f for chip
+> rendering; future parity docs include this back-reference style
+> by default. Combined with the cannot-F5 declaration form above,
+> the back-reference makes "verified by test" a first-class
+> sign-off mode rather than an unstated fallback.
 
 ## Consequences
 
@@ -165,5 +229,23 @@ serve the same comparison need without duplicating the surface.
 - ADR-009 — Webview state ownership. The `updateBranchFocus` surface
   added in Wave D is documented in ADR-009 §3.
 - `src/test/unit/utils/commitGraphSnapshots.test.ts` — Wave D seed
-  for Layer 1.
-- `docs/parity/git-log-graph.md` — Wave D seed for Layer 3.
+  for Layer 1; Wave E adds snap-7a..7g (chip-emit, jsdom layout,
+  message-text full-line emission); Wave E R1 adds snap-7h
+  (chip max-width + ellipsis CSS contract).
+- `docs/parity/git-log-graph.md` — Wave D seed for Layer 3; Wave E
+  adds snap-back-references in §2.
+
+## Update log
+
+- **Wave D (2026-05-24)**: original Layers 1–3 (algorithm snap-1..5,
+  renderer snap-6a..6c, parity doc seed, UX-review charter).
+- **Wave E (2026-05-24)**: tightened Layer 1 to require literal-output
+  snapshots whenever a function emits HTML (snap-7a..7e for
+  `_getBranchLabelsHtml`); added a layout-stage snapshot via jsdom
+  (snap-7f); tightened Layer 2 to require runtime verification
+  (F5 / jsdom test / explicit cannot-F5 declaration); tightened
+  Layer 3 to require snapshot back-references in parity-doc visual
+  claims. Trigger: Wave D shipped a chip-clipping bug past green
+  CI + VISUAL-PARITY verdict because the existing snapshots only
+  pinned algorithm input, the UX-review was a code audit without
+  runtime check, and the parity doc had no snapshot back-references.

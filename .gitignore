@@ -33,3 +33,7 @@ coverage/
 # Agent coordination — local workspace only, not shipped
 .agent/
 AGENT_WORKSPACE.md
+
+# Reviewer / runtime-verification scratchpad — local artifacts (e.g. UX-
+# reviewer's runtime-check probes), never committed.
+scratch/

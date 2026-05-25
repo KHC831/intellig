@@ -2664,8 +2664,24 @@ ${bodyMarkup}
           hasFocusedBranch
         );
 
-        // Format fields
-        const messageSummary = this._escapeHtml(this._truncateMessage(commit.message, 60));
+        // Format fields.
+        //
+        // Wave E (E2-bonus) — emit the FULL first line of the commit message
+        // and let CSS `.commit-title { overflow: hidden; text-overflow:
+        // ellipsis; white-space: nowrap }` truncate responsively based on
+        // the panel's actual flex-allocated width. The pre-Wave-E call to
+        // `_truncateMessage(…, 60)` hard-capped the row text at 60 chars
+        // regardless of available space, so a 1200px-wide panel still
+        // showed `"…"` on a 70-char subject. The tooltip (`title=` below)
+        // still carries the full multi-line message so hover still
+        // reveals everything.
+        //
+        // `_truncateMessage` is preserved at :3149 — still used by
+        // `_getMultiCommitDetailsPanelHtml` at :3057 for the
+        // details-panel preview, where a hard char cap IS desired
+        // (no flex container, no responsive ellipsis behind it).
+        const messageFirstLine = commit.message.split('\n')[0];
+        const messageSummary = this._escapeHtml(messageFirstLine);
         const fullMessage = this._escapeHtml(commit.message);
         const authorName = this._escapeHtml(commit.author.name);
         const authorEmail = this._escapeHtml(commit.author.email);
@@ -2702,7 +2718,8 @@ ${bodyMarkup}
             ${graphSvg}${cherryBadgeHtml}
           </div>
           <div class="commit-info">
-            <div class="commit-title" title="${fullMessage}">${messageSummary}${branchLabelsHtml}</div>
+            <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
+            <div class="commit-branches">${branchLabelsHtml}</div>
             <span class="commit-author" title="${authorEmail}">${authorName}</span>
             <span class="commit-date" title="${fullDate}">${absoluteDate}</span>
           </div>
@@ -2749,9 +2766,20 @@ ${bodyMarkup}
    *
    * @param node - The commit node to render branch labels for
    * @returns HTML string with branch label spans, or empty string if no branches
+   *
+   * @internal Public for direct snapshot tests (snap-7a..7e in
+   *   `commitGraphSnapshots.test.ts`). The `_` prefix flags "do not
+   *   call from production code outside this class"; the `public`
+   *   visibility is intentional contract for white-box testability,
+   *   matching the existing pattern (`_getGraphPanelHtml`,
+   *   `_getMultiCommitDetailsPanelHtml`, etc.).
    */
   public _getBranchLabelsHtml(node: ICommitNode): string {
     if (!node.branches || node.branches.length === 0) {
+      // Wave E — CSS `.commit-branches:empty { display: none }` depends
+      // on this returning the LITERAL empty string (not whitespace, not
+      // an HTML comment) so the empty wrapper collapses with no margin
+      // / no flex basis. Pinned by snap-7d in commitGraphSnapshots.test.ts.
       return '';
     }
 
@@ -3749,6 +3777,26 @@ ${bodyMarkup}
         text-align: left;
       }
 
+      /* Wave E — branch chips live in a sibling flex slot of .commit-title.
+         Pre-Wave-E the chips were nested inside .commit-title which has
+         overflow:hidden + white-space:nowrap, so chips clipped at narrow
+         panel widths instead of pushing the message into ellipsis. The
+         flex-shrink: 0 here is the IntelliJ-parity invariant: chips are
+         always reachable; the message ellipsises around them. The
+         :empty rule keeps the slot from occupying the 8px right margin
+         when a commit has no branches. */
+      .commit-branches {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        gap: 4px;
+        margin-right: 8px;
+      }
+
+      .commit-branches:empty {
+        display: none;
+      }
+
       .commit-meta {
         display: flex;
         flex-direction: row;
@@ -3799,6 +3847,30 @@ ${bodyMarkup}
       .branch-label.head-label {
         background-color: var(--vscode-gitDecoration-addedResourceForeground, #629755);
         color: white;
+      }
+
+      /* Wave E R1 / Senior M-1 — cap chip width with CSS ellipsis.
+         Pre-R1 chips rendered at their natural width (no max-width, no
+         ellipsis). A 70-char branch name like
+         feature/JIRA-12345-very-long-descriptive-feature-name-with-context
+         consumed ~350px in the non-shrinking .commit-branches slot,
+         squeezing .commit-title (flex:1, min-width:0) to a few
+         characters at typical panel widths. IntelliJ caps at ~200px;
+         we match that with text-overflow: ellipsis. The chip's
+         underlying text is still the full branch name (the
+         data-branch-name attribute and textContent remain complete for
+         screen readers + find-in-page), only visual rendering is
+         clipped. vertical-align: middle is defensive — inline-block
+         with default baseline alignment can shift slightly relative to
+         message text on some font-metrics. */
+      .branch-label-local,
+      .branch-label-remote {
+        display: inline-block;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: middle;
       }
 
       .branch-label-local {

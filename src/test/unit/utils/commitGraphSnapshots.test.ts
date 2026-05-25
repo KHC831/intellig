@@ -21,10 +21,15 @@
  * — enough to reproduce the on-screen lane layout deterministically.
  */
 
+import '../../../test/setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import { generateCommitGraph, type ICommitNode } from '../../../utils/commitGraph';
 import type { ICommit } from '../../../services/interfaces/IGitService';
 import { renderGraphSvg, DEFAULT_GRAPH_CONFIG } from '../../../utils/graphRenderer';
+import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
+import type { IExtendedLogState } from '../../../services/GitToolWindowProvider';
+import { Uri } from '../../mocks/vscode';
 
 function mkCommit(hash: string, parents: string[] = []): ICommit {
   return {
@@ -305,6 +310,401 @@ describe('Wave D R1 / D4-snap — renderer-stage SVG snapshots', () => {
     assert.ok(
       !svg.includes('stroke-width="3"'),
       `off-path must not boost stroke-width; got: ${svg}`
+    );
+  });
+});
+
+/**
+ * Wave E / E3 — chip-renderer-stage HTML snapshots.
+ *
+ * snap-1..6 above pin algorithm output and SVG renderer output. The Wave E
+ * production bug — chips disappearing in narrow panels — lived in the
+ * chip-emit + CSS layout layers, both of which were untested. snap-3 only
+ * pinned `node.branches: ['feature']` (algorithm input), not the actual
+ * `<span class="branch-label-local">…</span>` HTML emit.
+ *
+ * snap-7a..7e pin the LITERAL HTML `_getBranchLabelsHtml(node)` returns.
+ * snap-7f uses jsdom to assert that the chip is parsed as a sibling of
+ * `.commit-title`, NOT a child — pinning the layout-stage shape that the
+ * Wave E fix introduced.
+ *
+ * ADR-010 Wave-E discipline: each visual transformation stage gets its
+ * own snapshot fixture set (algorithm → renderer (per-element) → renderer
+ * (layout) → final HTML emit).
+ */
+interface ProviderInternals {
+  _extendedLogState: IExtendedLogState;
+}
+
+function nodeWithBranches(hash: string, branches: string[]): ICommitNode {
+  return {
+    commit: mkCommit(hash, ['parent']),
+    graphColumn: 0,
+    graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
+    branches,
+    tags: [],
+    onFocusedBranchPath: false,
+  };
+}
+
+describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-7a: single local branch → literal <span class="branch-label-local"> HTML', () => {
+    const node = nodeWithBranches('aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ['main']);
+    const html = provider._getBranchLabelsHtml(node);
+    // Wave E pins the LITERAL emit: a future refactor that swaps span for
+    // div, drops the data-branch-name attribute, or changes the class
+    // string forces a deliberate snapshot diff.
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-local" data-branch-name="main">main</span>'
+    );
+  });
+
+  it('snap-7b: single remote branch → literal <span class="branch-label-remote"> HTML', () => {
+    const node = nodeWithBranches('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', ['origin/main']);
+    const html = provider._getBranchLabelsHtml(node);
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-remote" data-branch-name="origin/main">origin/main</span>'
+    );
+  });
+
+  it('snap-7c: multiple branches at same commit → 3 sequential <span> elements in order', () => {
+    const node = nodeWithBranches('ccc1234567890cccccccccccccccccccccccccccc', [
+      'main',
+      'develop',
+      'origin/main',
+    ]);
+    const html = provider._getBranchLabelsHtml(node);
+    assert.strictEqual(
+      html,
+      [
+        '<span class="branch-label-local" data-branch-name="main">main</span>',
+        '<span class="branch-label-local" data-branch-name="develop">develop</span>',
+        '<span class="branch-label-remote" data-branch-name="origin/main">origin/main</span>',
+      ].join('')
+    );
+  });
+
+  it('snap-7d: no branches → empty string return (the contract `.commit-branches:empty` relies on)', () => {
+    const node = nodeWithBranches('ddd1234567890dddddddddddddddddddddddddddd', []);
+    const html = provider._getBranchLabelsHtml(node);
+    // `.commit-branches:empty { display: none }` in the webview CSS depends
+    // on this returning an EMPTY string (not whitespace, not an HTML
+    // comment) so the empty wrapper collapses with no margin / no flex
+    // basis. Pin the empty return explicitly.
+    assert.strictEqual(html, '');
+  });
+
+  it('snap-7e: focused branch → chip carries `branch-label-local branch-label-focused` class', () => {
+    const node = nodeWithBranches('eee1234567890eeeeeeeeeeeeeeeeeeeeeeeeeeee', ['feature']);
+    // Inject the focused-branch state directly — `setFocusedBranch` would
+    // pull in `gitService.getMergeBase` which is out of scope for this
+    // pure-HTML snapshot.
+    const internals = provider as unknown as ProviderInternals;
+    internals._extendedLogState.focusedBranchName = 'feature';
+    const html = provider._getBranchLabelsHtml(node);
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-local branch-label-focused" data-branch-name="feature">feature</span>'
+    );
+  });
+});
+
+/**
+ * Wave E / E3-layout — jsdom layout-stage snapshot.
+ *
+ * The Wave D test surface only pinned per-element output (algorithm
+ * snap-1..5, SVG renderer snap-6). The Wave E bug lived in DOM nesting:
+ * the chip span was a CHILD of `.commit-title` (which has overflow:hidden
+ * + white-space:nowrap), so chips clipped in narrow panels. snap-7f
+ * parses the rendered graph-panel HTML through jsdom and asserts the
+ * chip's parentElement is `.commit-branches`, NOT `.commit-title`. This
+ * is the layout-stage analog of snap-6a/6b/6c — pinning the DOM tree
+ * shape that the Wave E CSS fix relies on.
+ *
+ * ADR-010 R1's "each visual transformation stage gets its own snapshot
+ * fixture set" — Wave E adds the layout stage.
+ */
+describe('Wave E / E3-layout — jsdom DOM-tree snapshot', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-7f: chip is sibling of .commit-title, not nested inside (Wave E layout fix)', () => {
+    const node = nodeWithBranches('fff1234567890ffffffffffffffffffffffffffff', ['main']);
+    const html = provider._getGraphPanelHtml([node]);
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const doc = dom.window.document;
+
+    // The chip element exists.
+    const chip = doc.querySelector('.branch-label-local');
+    assert.ok(chip, 'chip element exists in DOM after parse');
+
+    // The chip MUST NOT be nested inside `.commit-title` — that's the
+    // pre-Wave-E layout that caused chips to clip when the panel was
+    // narrow (overflow:hidden + white-space:nowrap on `.commit-title`).
+    const parent = chip.parentElement;
+    assert.ok(parent, 'chip must have a parent element');
+    assert.ok(
+      !parent.classList.contains('commit-title'),
+      `chip must NOT be a child of .commit-title (pre-Wave-E bug). Got parent class: "${parent.className}"`
+    );
+
+    // The chip lives in the dedicated `.commit-branches` flex slot —
+    // this is the IntelliJ-parity layout that reserves chip space and
+    // ellipsises the message instead of the chip.
+    assert.ok(
+      parent.classList.contains('commit-branches'),
+      `chip should be in .commit-branches sibling slot. Got parent class: "${parent.className}"`
+    );
+
+    // And `.commit-branches` is itself a sibling of `.commit-title`, not
+    // a descendant — the Wave E fix is structural, not just CSS.
+    const commitInfo = parent.parentElement;
+    assert.ok(commitInfo, '.commit-branches must have a parent .commit-info');
+    assert.ok(
+      commitInfo.classList.contains('commit-info'),
+      `expected .commit-branches inside .commit-info; got "${commitInfo.className}"`
+    );
+    const commitTitle = commitInfo.querySelector('.commit-title');
+    assert.ok(commitTitle, '.commit-info should still contain a .commit-title');
+    assert.notStrictEqual(
+      commitTitle,
+      parent,
+      '.commit-title and .commit-branches must be DISTINCT siblings'
+    );
+    assert.ok(
+      !commitTitle.contains(parent),
+      '.commit-title must NOT contain .commit-branches (the Wave E bug shape)'
+    );
+  });
+});
+
+/**
+ * Wave E / E2-bonus — JS message truncation removed.
+ *
+ * Pre-Wave-E the row template hard-capped the rendered message at 60
+ * characters via `_truncateMessage(commit.message, 60)`, appending JS
+ * `...` regardless of panel width. The fix passes the full first line
+ * to the row template and lets `.commit-title { overflow:hidden;
+ * text-overflow:ellipsis; white-space:nowrap }` handle responsive
+ * clipping. snap-7g pins the new contract: the row HTML carries the
+ * full first line of long subjects, with no embedded `...` ellipsis.
+ *
+ * (`_truncateMessage` itself is still used by `_getCommitDetailsHtml`
+ * for the details panel, where a hard cap is genuinely desired —
+ * snap-7g asserts the row ONLY, not the details panel.)
+ */
+describe('Wave E / E2-bonus — row template emits full first line, CSS handles ellipsis', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-7g: 200-char first line lands in .commit-title text content with NO embedded "..." (CSS does the ellipsis)', () => {
+    // 200 chars — well past the pre-Wave-E 60-char cap.
+    const longFirstLine =
+      'feat(scope): a deliberately verbose commit subject that nobody would actually write but exists here precisely to exceed the 60-character pre-Wave-E hard truncation by a comfortable safety margin to pin the new behaviour';
+    assert.ok(longFirstLine.length >= 200, 'fixture sanity: first line is at least 200 chars');
+    const node: ICommitNode = {
+      commit: {
+        ...mkCommit('ggg1234567890gggggggggggggggggggggggggggg', ['parent']),
+        message: longFirstLine + '\n\nBody paragraph that must NOT leak into the row title.',
+      },
+      graphColumn: 0,
+      graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
+      branches: [],
+      tags: [],
+      onFocusedBranchPath: false,
+    };
+
+    const html = provider._getGraphPanelHtml([node]);
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const doc = dom.window.document;
+    const titleEl = doc.querySelector('.commit-title');
+    assert.ok(titleEl, '.commit-title element exists');
+
+    // The row's text content is the FULL first line — no JS truncation.
+    // CSS overflow:hidden + text-overflow:ellipsis is what users see at
+    // narrow widths, but the underlying text is complete (so screen
+    // readers, find-in-page, and the responsive ellipsis all work).
+    assert.strictEqual(
+      titleEl.textContent,
+      longFirstLine,
+      `.commit-title textContent should be the full first line; got "${titleEl.textContent}"`
+    );
+
+    // The row text content must NOT contain a literal "..." — the
+    // pre-Wave-E truncation appended one. CSS ellipsis is a visual
+    // treatment, not text content; jsdom does NOT layout, so any
+    // "..." here would mean JS truncation came back.
+    assert.ok(
+      !(titleEl.textContent ?? '').includes('...'),
+      `.commit-title must NOT contain a literal "..." (pre-Wave-E truncation marker); got "${titleEl.textContent}"`
+    );
+
+    // Body paragraph must NOT leak into the row title (only into the
+    // tooltip via title=). Existing graphPanel.test.ts at :100-113
+    // already covers the multi-line case, but pin it here too so this
+    // file is the single source of truth for row-message contracts.
+    assert.ok(
+      !(titleEl.textContent ?? '').includes('Body paragraph'),
+      'multi-line body must not leak into the row .commit-title text'
+    );
+
+    // Tooltip carries the full first line (escaping aside) — useful when
+    // the visual ellipsis kicks in at narrow panel widths.
+    const titleAttr = titleEl.getAttribute('title');
+    assert.ok(titleAttr, 'commit-title should still carry a title= tooltip');
+    assert.ok(
+      titleAttr.includes(longFirstLine),
+      'title= tooltip should still carry the full message (multi-line included)'
+    );
+  });
+});
+
+/**
+ * Wave E R1 / Senior M-1 — chip max-width contract.
+ *
+ * Pre-R1 `.branch-label-local` and `.branch-label-remote` had no
+ * `max-width` and no ellipsis. A 70-char branch name like
+ * `feature/JIRA-12345-very-long-descriptive-feature-name-with-context`
+ * rendered at its natural ~350px width inside the non-shrinking
+ * `.commit-branches` slot, squeezing `.commit-title` (`flex:1,
+ * min-width:0`) to a few characters at typical panel widths. The R1 fix
+ * caps chips at 200px with `text-overflow: ellipsis` (IntelliJ parity).
+ *
+ * snap-7h pins TWO contracts:
+ *  1. The chip's textContent is the FULL branch name (HTML emit
+ *     unchanged; CSS handles visual ellipsis, not the host).
+ *  2. The inline `<style>` block embeds `max-width: 200px` and
+ *     `text-overflow: ellipsis` rules for chip selectors. jsdom does
+ *     NOT compute layout, so we pin the CSS at the source level —
+ *     a future regression that drops the cap shows up as a deliberate
+ *     diff.
+ */
+describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-7h: long branch name → chip text is full name; inline CSS pins max-width 200px + ellipsis', () => {
+    // The senior-review fixture branch name contains a `/` so
+    // `classifyBranchName` treats it as remote (`.branch-label-remote`);
+    // we also exercise a long LOCAL name so both selectors are covered.
+    const longRemoteName = 'feature/JIRA-12345-very-long-descriptive-feature-name-with-context';
+    const longLocalName = 'JIRA-12345-very-long-descriptive-feature-name-with-context-but-local';
+    assert.ok(longRemoteName.length >= 60, 'fixture sanity: remote name is at least 60 chars');
+    assert.ok(longLocalName.length >= 60, 'fixture sanity: local name is at least 60 chars');
+
+    // Chip-emit-stage assertion — host emits the FULL branch name for
+    // BOTH variants; CSS does the visual clipping.
+    const node = nodeWithBranches('hhh1234567890hhhhhhhhhhhhhhhhhhhhhhhhhhh', [
+      longLocalName,
+      longRemoteName,
+    ]);
+    const labelHtml = provider._getBranchLabelsHtml(node);
+    assert.ok(
+      labelHtml.includes(longRemoteName),
+      `chip emit must contain the FULL remote branch name (no host-side truncation); got: ${labelHtml}`
+    );
+    assert.ok(
+      labelHtml.includes(longLocalName),
+      `chip emit must contain the FULL local branch name (no host-side truncation); got: ${labelHtml}`
+    );
+
+    // Parse the chip spans and assert textContent = full branch names.
+    const chipDom = new JSDOM(`<!doctype html><html><body>${labelHtml}</body></html>`);
+    const localChip = chipDom.window.document.querySelector('.branch-label-local');
+    const remoteChip = chipDom.window.document.querySelector('.branch-label-remote');
+    assert.ok(localChip, 'local chip element parses');
+    assert.ok(remoteChip, 'remote chip element parses');
+    assert.strictEqual(
+      localChip.textContent,
+      longLocalName,
+      `local chip textContent must be the full branch name; got "${localChip.textContent}"`
+    );
+    assert.strictEqual(
+      remoteChip.textContent,
+      longRemoteName,
+      `remote chip textContent must be the full branch name; got "${remoteChip.textContent}"`
+    );
+
+    // Inline-CSS-stage assertion — the embedded `<style>` block carries
+    // the `max-width` + `text-overflow: ellipsis` rules. We probe the
+    // full webview HTML (which embeds `_getInlineStyles()`).
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // Selector list must include both chip classes (covers the combined
+    // `.branch-label-local, .branch-label-remote { … }` selector AND a
+    // future split into separate rules — either form satisfies the
+    // contract).
+    assert.ok(
+      /\.branch-label-local[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
+        /\.branch-label-local\s*,\s*\.branch-label-remote[\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'inline CSS must pin `max-width: 200px` on .branch-label-local chip selector (Wave E R1)'
+    );
+    assert.ok(
+      /\.branch-label-remote[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
+        /\.branch-label-local\s*,\s*\.branch-label-remote[\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'inline CSS must pin `max-width: 200px` on .branch-label-remote chip selector (Wave E R1)'
+    );
+    assert.ok(
+      /text-overflow:\s*ellipsis/.test(fullHtml),
+      'inline CSS must declare `text-overflow: ellipsis` somewhere — chip selectors require it for the responsive cap'
+    );
+    // The combined block must also pin `overflow: hidden` and
+    // `white-space: nowrap` — without them, `text-overflow: ellipsis` is
+    // a no-op.
+    assert.ok(
+      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*overflow:\s*hidden/.test(fullHtml),
+      'combined chip selector must declare overflow: hidden (without it ellipsis is a no-op)'
+    );
+    assert.ok(
+      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*white-space:\s*nowrap/.test(
+        fullHtml
+      ),
+      'combined chip selector must declare white-space: nowrap (without it ellipsis is a no-op)'
     );
   });
 });

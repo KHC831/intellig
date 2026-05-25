@@ -83,17 +83,33 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-title'), 'Should have commit-title class');
     });
 
-    it('should truncate long messages to ~60 characters', () => {
+    it('emits the FULL first line of long messages and lets CSS handle ellipsis (Wave E E2-bonus)', () => {
+      // Pre-Wave-E this test asserted the row HTML included literal "..."
+      // (JS hard-truncated to 60 chars). The truncation was a bug at
+      // wide panel widths — the message was capped even when there was
+      // plenty of room. Wave E removes the JS truncation and relies on
+      // CSS `.commit-title { overflow:hidden; text-overflow:ellipsis;
+      // white-space:nowrap }` to truncate responsively.
       const longMessage =
         'This is a very long commit message that exceeds sixty characters and should be truncated with ellipsis';
       const node = makeCommitNode({}, { message: longMessage });
       const html = provider._getGraphPanelHtml([node]);
 
-      assert.ok(html.includes('...'), 'Should contain ellipsis for truncated message');
-      // The full message should still be in the title attribute
+      // The FULL first line lands in the row HTML — CSS clips visually
+      // based on actual flex-allocated width, but the text content is
+      // complete (so screen readers, "find in page", and the responsive
+      // ellipsis all work correctly).
+      const titleMatch = html.match(/class="commit-title"[^>]*>([^<]*)</);
+      assert.ok(titleMatch, 'Should find commit-title element');
+      assert.strictEqual(
+        titleMatch[1],
+        longMessage,
+        'commit-title text content should be the full first line, not JS-truncated with "..."'
+      );
+      // Tooltip carries the full message too (unchanged from pre-Wave-E).
       assert.ok(
-        html.includes('This is a very long commit message'),
-        'Should contain start of message'
+        html.includes(`title="${longMessage}"`),
+        'Should still carry the full message in the title= tooltip attribute'
       );
     });
 
