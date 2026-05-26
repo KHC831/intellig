@@ -24,7 +24,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { EventEmitter, Uri } from '../../mocks/vscode';
+import { Uri } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
 import type { IRebaseService } from '../../../services/interfaces/IRebaseService';
 import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
@@ -33,7 +33,7 @@ import {
   type IExtendedLogState,
 } from '../../../services/GitToolWindowProvider';
 import type { GitCli } from '../../../utils/gitCli';
-import { noopEvent } from '../../mocks/noopEvent';
+import { createMockGitService as createSharedMockGitService } from '../../mocks/mockGitService';
 
 interface OrderedCall {
   method: string;
@@ -54,24 +54,24 @@ function createMockRepo(): IRepository {
   };
 }
 
+/**
+ * Wave H — wraps the shared `createMockGitService` factory with the
+ * Wave-G-specific call-tracking spy. The shared factory provides the
+ * default no-op stub for ~50 IGitService methods; this wrapper layers
+ * `overrides` for the 4 methods we care about (checkout / revert /
+ * cherryPick / reloadRepository) and exposes `_calls` + `_reloadShouldFail`
+ * via getter/setter for the ordering invariants.
+ *
+ * Pre-Wave-H this re-implemented the entire IGitService stub inline
+ * (~115 LoC). Post-Wave-H the shared factory carries the boilerplate
+ * and only the spy semantics live here.
+ */
 function createMockGitService(repo: IRepository): MockGitService {
   const calls: OrderedCall[] = [];
-  const repoChange = new EventEmitter<IRepository>();
   let reloadShouldFail = false;
   let mutableRepo: IRepository = repo;
 
-  const service = {
-    _calls: calls,
-    get _reloadShouldFail() {
-      return reloadShouldFail;
-    },
-    set _reloadShouldFail(v: boolean) {
-      reloadShouldFail = v;
-    },
-    onDidChangeRepository: repoChange.event,
-    onDidRemoveRepository: noopEvent<IRepository>(),
-    getRepositories: () => [mutableRepo],
-    getRepository: async () => mutableRepo,
+  const base = createSharedMockGitService(mutableRepo, {
     reloadRepository: async () => {
       calls.push({ method: 'reloadRepository' });
       if (reloadShouldFail) {
@@ -82,11 +82,6 @@ function createMockGitService(repo: IRepository): MockGitService {
       }
       return mutableRepo;
     },
-    getBranches: async () => [],
-    getTags: async () => [],
-    commit: async () => {},
-    amend: async () => {},
-    createBranch: async () => {},
     checkout: async () => {
       calls.push({ method: 'checkout' });
       // The production checkout invalidates the cache; model that by
@@ -105,72 +100,24 @@ function createMockGitService(repo: IRepository): MockGitService {
       calls.push({ method: 'revert' });
       return { success: true };
     },
-    deleteBranch: async () => {},
-    renameBranch: async () => {},
-    mergeBranch: async () => ({ success: true }),
-    rebaseBranch: async () => ({ success: true }),
-    rebaseSkip: async () => ({ success: true }),
-    compareBranches: async () => ({
-      commitsAhead: [],
-      commitsBehind: [],
-      aheadCount: 0,
-      behindCount: 0,
-      changedFiles: [],
-    }),
-    fetch: async () => ({ updatedRefs: [], ahead: 0, behind: 0, errors: [] }),
-    onDidFetch: () => ({ dispose: () => {} }),
-    resetToCommit: async () => {},
-    pull: async () => {},
-    push: async () => {},
-    getRemotes: async () => [],
-    addRemote: async () => {},
-    removeRemote: async () => {},
-    stash: async () => {},
-    stashList: async () => [],
-    stashApply: async () => {},
-    stashPop: async () => {},
-    stashDrop: async () => {},
-    stashShow: async () => [],
-    stashBranch: async () => {},
-    stashRename: async () => {},
-    createTag: async () => {},
-    deleteTag: async () => {},
-    pushTag: async () => {},
-    getLog: async () => [],
-    getCommit: async () => ({
-      hash: '',
-      shortHash: '',
-      message: '',
-      author: { name: '', email: '' },
-      committer: { name: '', email: '' },
-      parents: [],
-      authorDate: new Date(),
-      commitDate: new Date(),
-    }),
-    getFileHistory: async () => [],
-    getDiff: async () => ({ path: '', status: 'modified' as const, hunks: [], binary: false }),
-    getCommitDiff: async () => [],
-    getMultiCommitDiff: async () => [],
-    getBlame: async () => [],
     cherryPick: async () => {
       calls.push({ method: 'cherryPick' });
       return { success: true };
     },
-    cherryPickAbort: async () => {},
-    cherryPickContinue: async () => ({ success: true }),
-    revertAbort: async () => {},
-    revertContinue: async () => ({ success: true }),
-    getStatus: async () => [],
-    stage: async () => {},
-    unstage: async () => {},
-    stageHunk: async () => {},
-    stageLines: async () => {},
-    unstageHunk: async () => {},
-    revertFile: async () => {},
-    dispose: () => {},
-  };
+  });
 
-  return service as unknown as MockGitService;
+  // Augment with the test-only inspection shape (`_calls`, getter/setter
+  // for `_reloadShouldFail`). Cast through `unknown` because IGitService
+  // doesn't carry these properties — they're test fixture additions.
+  return Object.assign(base, {
+    _calls: calls,
+    get _reloadShouldFail() {
+      return reloadShouldFail;
+    },
+    set _reloadShouldFail(v: boolean) {
+      reloadShouldFail = v;
+    },
+  }) as unknown as MockGitService;
 }
 
 function makeProviderSpy(calls: OrderedCall[]): GitToolWindowProvider {

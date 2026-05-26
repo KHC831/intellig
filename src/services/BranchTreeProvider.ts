@@ -11,7 +11,12 @@ import { safeFireAndForget } from '../utils/safeFireAndForget';
 /**
  * Tree item types for the branch tree
  */
-export type BranchTreeItemType = 'local-branch' | 'remote-branch' | 'tag' | 'category';
+export type BranchTreeItemType =
+  | 'local-branch'
+  | 'remote-branch'
+  | 'tag'
+  | 'category'
+  | 'detached-head'; // Wave H — synthetic row for detached HEAD state
 
 /**
  * Context values for tree items (used in when clauses for menus)
@@ -22,6 +27,7 @@ export const CONTEXT_VALUES = {
   REMOTE_BRANCH: 'intellig.remoteBranch',
   TAG: 'intellig.tag',
   CATEGORY: 'intellig.category',
+  DETACHED_HEAD: 'intellig.detachedHead', // Wave H
 } as const;
 
 /**
@@ -32,6 +38,16 @@ export class BranchTreeItem extends vscode.TreeItem {
   public readonly branch?: IBranch;
   public readonly tag?: ITag;
   public readonly isCurrentBranch: boolean;
+  /**
+   * Wave H — full 40-char commit SHA when {@link itemType} is
+   * `'detached-head'`. Read by dispatcher (e.g. `_handleCheckout`,
+   * `_handleNewBranchFrom`) via {@link getDetachedHeadSha}; never reach
+   * inside this field directly so the dispatcher contract stays
+   * grep-able.
+   *
+   * Undefined for every non-detached-head row.
+   */
+  private readonly _detachedHeadSha?: string;
 
   constructor(
     label: string,
@@ -39,7 +55,8 @@ export class BranchTreeItem extends vscode.TreeItem {
     itemType: BranchTreeItemType,
     branch?: IBranch,
     tag?: ITag,
-    isCurrentBranch: boolean = false
+    isCurrentBranch: boolean = false,
+    detachedHeadSha?: string // Wave H — full 40-char SHA for detached row
   ) {
     super(label, collapsibleState);
 
@@ -47,6 +64,7 @@ export class BranchTreeItem extends vscode.TreeItem {
     this.branch = branch;
     this.tag = tag;
     this.isCurrentBranch = isCurrentBranch;
+    this._detachedHeadSha = detachedHeadSha;
 
     // Set context value for menu contributions
     this.contextValue = this._getContextValue();
@@ -61,6 +79,19 @@ export class BranchTreeItem extends vscode.TreeItem {
     this.tooltip = this._getTooltip();
   }
 
+  /**
+   * Wave H — public accessor for the detached HEAD SHA. Returns the full
+   * 40-char commit SHA when this row is the synthetic detached-head row;
+   * `undefined` otherwise.
+   *
+   * Dispatchers (`_handleCheckout`, `_handleNewBranchFrom`) call this
+   * to obtain the git start-point WITHOUT reading the parenthesized
+   * label string — that path is the Wave F regression class.
+   */
+  public getDetachedHeadSha(): string | undefined {
+    return this._detachedHeadSha;
+  }
+
   private _getContextValue(): string {
     switch (this.itemType) {
       case 'local-branch':
@@ -73,6 +104,8 @@ export class BranchTreeItem extends vscode.TreeItem {
         return CONTEXT_VALUES.TAG;
       case 'category':
         return CONTEXT_VALUES.CATEGORY;
+      case 'detached-head':
+        return CONTEXT_VALUES.DETACHED_HEAD; // Wave H
       default:
         return '';
     }
@@ -93,12 +126,26 @@ export class BranchTreeItem extends vscode.TreeItem {
         return new vscode.ThemeIcon('tag');
       case 'category':
         return new vscode.ThemeIcon('folder');
+      case 'detached-head':
+        // Wave H — yellow/gold matches the Wave G HEAD chip in the graph
+        // (`statusBarItem.warningBackground`). User reads "this is HEAD"
+        // consistently across both surfaces.
+        return new vscode.ThemeIcon(
+          'git-commit',
+          new vscode.ThemeColor('statusBarItem.warningBackground')
+        );
       default:
         return new vscode.ThemeIcon('circle-outline');
     }
   }
 
   private _getDescription(): string | undefined {
+    // Wave H — synthetic detached-head row description. Distinct from
+    // 'current' (which implies a branch is checked out) — 'detached'
+    // reads as "you are at this commit; HEAD is not bound to a branch".
+    if (this.itemType === 'detached-head') {
+      return 'detached';
+    }
     if (this.branch) {
       const parts: string[] = [];
 
@@ -129,6 +176,15 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getTooltip(): string {
+    // Wave H — synthetic detached-head row tooltip.
+    if (this.itemType === 'detached-head') {
+      const sha = this._detachedHeadSha ?? '';
+      return (
+        `Detached HEAD\n` +
+        `Commit: ${sha}\n` +
+        `(Not on a branch — checkout a branch to attach HEAD)`
+      );
+    }
     if (this.branch) {
       let tooltip = `Branch: ${this.branch.name}`;
       if (this.branch.commit) {
@@ -286,21 +342,54 @@ export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeIte
       return [];
     }
 
+    const items: BranchTreeItem[] = [];
+
+    // Wave H — when detached, prepend a "(HEAD detached at <sha>)" row at
+    // the TOP of Local Branches. Detached signal: `head.name === undefined
+    // && head.commit` is a non-empty string (per Wave F: `git symbolic-ref
+    // HEAD` exits non-zero in detached state, so `head.name` is undefined;
+    // `parseHead` always sets `head.commit` to `commitOutput.trim()`,
+    // which can be the EMPTY string in a corrupt repo where rev-parse
+    // also returned nothing — guard against that with `length > 0` so
+    // we don't render `(HEAD detached at )` with an empty SHA).
+    // Empty repo (`head` undefined entirely) falls through — no detached
+    // row. Mid-rebase keeps `head.name` set, so no detached row there
+    // either. Pinned by branchTree-detached-1..6 (Wave H R1).
+    const head = this._currentRepository.head;
+    if (head && head.name === undefined && head.commit && head.commit.length > 0) {
+      const shortSha = head.commit.substring(0, 7);
+      items.push(
+        new BranchTreeItem(
+          `(HEAD detached at ${shortSha})`,
+          vscode.TreeItemCollapsibleState.None,
+          'detached-head',
+          undefined,
+          undefined,
+          true, // isCurrentBranch — yes, the user IS here
+          head.commit // detachedHeadSha (full 40-char SHA)
+        )
+      );
+    }
+
     const branches = await this._gitService.getBranches(this._currentRepository);
     const localBranches = branches.filter((b) => b.type === 'local');
-    const currentBranchName = this._currentRepository.head?.name?.replace('refs/heads/', '');
+    const currentBranchName = head?.name?.replace('refs/heads/', '');
 
-    return localBranches.map((branch) => {
+    for (const branch of localBranches) {
       const isCurrentBranch = branch.name === currentBranchName || branch.isHead;
-      return new BranchTreeItem(
-        branch.name,
-        vscode.TreeItemCollapsibleState.None,
-        'local-branch',
-        branch,
-        undefined,
-        isCurrentBranch
+      items.push(
+        new BranchTreeItem(
+          branch.name,
+          vscode.TreeItemCollapsibleState.None,
+          'local-branch',
+          branch,
+          undefined,
+          isCurrentBranch
+        )
       );
-    });
+    }
+
+    return items;
   }
 
   private async _getRemoteBranches(): Promise<BranchTreeItem[]> {

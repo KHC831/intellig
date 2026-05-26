@@ -808,14 +808,9 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
 
     const { parseBranches } = await import('../../../utils/gitParser');
     const { BranchTreeProvider } = await import('../../../services/BranchTreeProvider');
-    const { EventEmitter } = await import('../../mocks/vscode');
-    const { noopEvent } = await import('../../mocks/noopEvent');
-    const interfaces = await import('../../../services/interfaces/IGitService');
-    type IGitService = import('../../../services/interfaces/IGitService').IGitService;
+    const { createMockGitService } = await import('../../mocks/mockGitService');
     type IRepository = import('../../../services/interfaces/IGitService').IRepository;
     type IBranch = import('../../../services/interfaces/IGitService').IBranch;
-    type IFetchResult = import('../../../services/interfaces/IGitService').IFetchResult;
-    void interfaces;
 
     // Fixture: detached pseudo-ref + 2 normal local + 1 remote.
     const detachedSha = 'abc1234567890123456789012345678901234567890';
@@ -836,8 +831,12 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       `Wave F: parsed branches must contain no parenthesized name; got ${JSON.stringify(parsed.map((b) => b.name))}`
     );
 
-    // Mock GitService that hands back the post-filter `parsed` list.
-    const repoChangeEmitter = new EventEmitter<IRepository>();
+    // Wave H — repo with `head.name = detachedSha` (literal SHA-as-name)
+    // is intentionally non-detached for THIS Wave F test: it pins
+    // parser-stage filtering, NOT Wave H's `head.name === undefined`
+    // tree-prepend logic. Setting `name` here keeps the synthetic
+    // detached row out of `_getLocalBranches`, so the assertion
+    // `localItems.length === 2` (main + feature) still holds.
     const mockRepo: IRepository = {
       rootUri: {
         scheme: 'file',
@@ -853,90 +852,11 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       submodules: [],
     };
 
-    const mockGitService: IGitService = {
-      onDidChangeRepository: repoChangeEmitter.event,
-      onDidRemoveRepository: noopEvent<IRepository>(),
-      getRepositories: () => [mockRepo],
-      getRepository: async () => mockRepo,
-      reloadRepository: async () => mockRepo,
+    // Wave H — extracted shared mock; pre-Wave-H this site duplicated
+    // the entire IGitService stub (~85 LoC). See `mockGitService.ts`.
+    const mockGitService = createMockGitService(mockRepo, {
       getBranches: async () => parsed,
-      getTags: async () => [],
-      commit: async () => {},
-      amend: async () => {},
-      createBranch: async () => {},
-      checkout: async () => {},
-      deleteBranch: async () => {},
-      renameBranch: async () => {},
-      mergeBranch: async () => ({ success: true }),
-      rebaseBranch: async () => ({ success: true }),
-      rebaseSkip: async () => ({ success: true }),
-      compareBranches: async () => ({
-        commitsAhead: [],
-        commitsBehind: [],
-        aheadCount: 0,
-        behindCount: 0,
-        changedFiles: [],
-      }),
-      fetch: async (): Promise<IFetchResult> => ({
-        updatedRefs: [],
-        ahead: 0,
-        behind: 0,
-        errors: [],
-      }),
-      onDidFetch: () => ({ dispose: () => {} }),
-      resetToCommit: async () => {},
-      pull: async () => {},
-      push: async () => {},
-      getRemotes: async () => [],
-      addRemote: async () => {},
-      removeRemote: async () => {},
-      stash: async () => {},
-      stashList: async () => [],
-      stashApply: async () => {},
-      stashPop: async () => {},
-      stashDrop: async () => {},
-      stashShow: async () => [],
-      stashBranch: async () => {},
-      stashRename: async () => {},
-      createTag: async () => {},
-      deleteTag: async () => {},
-      pushTag: async () => {},
-      getLog: async () => [],
-      getCommit: async () => ({
-        hash: '',
-        shortHash: '',
-        message: '',
-        author: { name: '', email: '' },
-        committer: { name: '', email: '' },
-        parents: [],
-        authorDate: new Date(),
-        commitDate: new Date(),
-      }),
-      getFileHistory: async () => [],
-      getDiff: async () => ({
-        path: '',
-        status: 'modified' as const,
-        hunks: [],
-        binary: false,
-      }),
-      getCommitDiff: async () => [],
-      getMultiCommitDiff: async () => [],
-      getBlame: async () => [],
-      cherryPick: async () => ({ success: true }),
-      cherryPickAbort: async () => {},
-      cherryPickContinue: async () => ({ success: true }),
-      revert: async () => ({ success: true }),
-      revertAbort: async () => {},
-      revertContinue: async () => ({ success: true }),
-      getStatus: async () => [],
-      stage: async () => {},
-      unstage: async () => {},
-      stageHunk: async () => {},
-      stageLines: async () => {},
-      unstageHunk: async () => {},
-      revertFile: async () => {},
-      dispose: () => {},
-    } as IGitService;
+    });
 
     const treeProvider = new BranchTreeProvider(mockGitService);
     treeProvider.setRepository(mockRepo);
@@ -1154,5 +1074,53 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
       /\.branch-label-head[\s,{][\s\S]*?text-overflow:\s*ellipsis/.test(fullHtml),
       'inline CSS must declare text-overflow: ellipsis on HEAD chip'
     );
+  });
+});
+
+/**
+ * Wave H — branch-tree-stage layout snapshot (jsdom-style end-to-end).
+ *
+ * Wave G's snap-9a..9f pinned the HEAD chip on the COMMIT graph. Wave H
+ * adds the matching parity surface: the synthetic detached-row in the
+ * BRANCHES tree sidebar. snap-10a drives `BranchTreeProvider.getChildren`
+ * end-to-end and asserts:
+ *   - the detached row is the FIRST child of Local Branches
+ *   - its label is the literal `(HEAD detached at <abbr>)` text
+ *   - its itemType is `'detached-head'`
+ *   - its contextValue is `'intellig.detachedHead'` (drives the menu
+ *     when-clauses via package.json)
+ *   - the row reads as the current location (`isCurrentBranch === true`)
+ *
+ * Mirrors snap-8b's end-to-end driving pattern. ADR-010 Layer 4
+ * back-reference for §1.6.
+ */
+describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
+  it('snap-10a: detached HEAD → "(HEAD detached at <sha>)" appears as FIRST child of Local Branches', async () => {
+    const { BranchTreeProvider } = await import('../../../services/BranchTreeProvider');
+    const { createMockGitService, detachedRepo } = await import('../../mocks/mockGitService');
+
+    const fullSha = 'abc1234567890abcdef1234567890abcdef12345';
+    const repo = detachedRepo(fullSha);
+    const gitService = createMockGitService(repo, {
+      getBranches: async () => [
+        { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: false },
+      ],
+    });
+
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(repo);
+
+    const rootChildren = await provider.getChildren();
+    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
+    assert.ok(localCategory, 'Local Branches category must exist at root');
+    const items = await provider.getChildren(localCategory);
+
+    assert.strictEqual(items[0].label, '(HEAD detached at abc1234)');
+    assert.strictEqual(items[0].itemType, 'detached-head');
+    assert.strictEqual(items[0].contextValue, 'intellig.detachedHead');
+    assert.strictEqual(items[0].isCurrentBranch, true);
+
+    assert.strictEqual(items[1].itemType, 'local-branch');
+    assert.strictEqual(items[1].label, 'main');
   });
 });

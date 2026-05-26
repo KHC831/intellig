@@ -250,6 +250,81 @@ Test coverage:
 - Layer 4: this section IS the Layer 4 §1.5 citation. Snapshot
   back-references above close the loop.
 
+### §1.6 Branch tree detached row (Wave H)
+
+In detached HEAD, IntelliJ shows a `(HEAD detached at <abbr>)` entry at
+the TOP of the Local Branches section in the BRANCHES tree, with a
+yellow/gold icon (matching the graph HEAD chip from §1.5) and a
+"detached" description. Pre-Wave-H, IntelliG showed nothing in the
+BRANCHES sidebar — neither a current-branch indicator nor a row
+pointing at HEAD — so the user had no way to know where they were
+without switching to the log graph (where Wave G's HEAD chip lives).
+
+Wave H adds:
+
+1. A new `BranchTreeItemType` variant `'detached-head'` with context
+   value `intellig.detachedHead`. **Type extension (not fake-IBranch)**
+   because `_handleNewBranchFrom` and `_handleCheckout` read
+   `item.branch?.name` as the git start-point — passing a
+   parenthesized label there would resurrect the Wave F "is not a
+   commit" failure class. The new field `BranchTreeItem.getDetachedHeadSha()`
+   returns the full 40-char SHA, which the dispatchers use as the git
+   ref instead of the parenthesized label.
+
+2. The detached row is prepended FIRST in `_getLocalBranches()` when
+   `repo.head?.name === undefined && repo.head?.commit !== undefined`.
+   Empty repos (`repo.head` undefined entirely) and mid-rebase states
+   (`repo.head.name` still set) DON'T trigger the row. Pinned by
+   `branchTree-detached-1..5` in `BranchTreeProvider.test.ts`.
+
+3. Right-click menu shows two entries (matching IntelliJ parity):
+   "Checkout" (`intellig.branch.checkout`) and "Create New Branch
+   from Here..." (`intellig.branch.newBranchFrom`). The dispatcher
+   reads the SHA from `item.getDetachedHeadSha()` for both.
+   **Checkout** re-runs `git checkout <sha>` (no-op-ish at git level
+   when already at that commit; the existing Wave G stash/force
+   fallback flow handles working-tree-dirty errors uniformly).
+   **New Branch from Here** prompts for a name + creates + checks
+   out the new branch from the SHA.
+
+Composition with §1.5 (graph HEAD chip): both the chip and the tree
+row use the same theme variable for color —
+`statusBarItem.warningBackground` — so the visual identity is
+consistent across surfaces. User who sees the gold chip on the graph
+and the gold row in the tree reads them as "both are HEAD."
+
+Refresh contract (Wave G): after `git checkout <sha>` (CLI mutation)
+the `reloadRepository` chain fires `onDidChangeRepository`, which the
+BranchTreeProvider subscribes to at construction time
+(`BranchTreeProvider.ts:184-187`). The tree re-renders synchronously
+and the detached row appears immediately. No additional plumbing
+needed for Wave H.
+
+Multi-root workspace: BranchTreeProvider is single-repo by design
+(`_currentRepository: IRepository | undefined`). The detached row
+appears only for the active repo's tree; switching repos via
+`setRepository(repo)` re-fetches and re-renders. Per-repo
+multi-tree rendering is out of scope for Wave H.
+
+Test coverage:
+
+- Layer 1 (tree-render): `branchTree-detached-1..5` in
+  `BranchTreeProvider.test.ts` covers detached / detached+branches /
+  attached / empty / mid-rebase variants.
+- Layer 1 (dispatcher safety, Wave F regression class):
+  `newBranchFrom-detached` and `checkout-detached` in
+  `branchContextMenu.fixes.test.ts` pin that the SHA (not the
+  parenthesized label) flows to `gitService.createBranch` and
+  `gitService.checkout` respectively.
+- Layer 1 (jsdom layout): `snap-10a` exercises
+  `BranchTreeProvider.getChildren` end-to-end through the public API
+  with a mock IGitService; mirrors Wave F's `snap-8b` pattern.
+- Layer 2 (runtime): UX-review F5 captures the detached row visible
+  at top of Local Branches in attached → detached → re-attached
+  cycle; right-click menu shows Checkout + New Branch From only.
+- Layer 4: this section IS the Layer 4 §1.6 citation. Snapshot
+  back-references above close the loop.
+
 ---
 
 ## §2 In-progress merge — NOT covered (Wave G candidate)

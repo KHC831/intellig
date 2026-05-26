@@ -295,16 +295,47 @@ export class BranchContextMenuCommands {
    */
   private async _handleCheckout(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
-    if (!repo || !item.branch) {
+    if (!repo) {
       return;
     }
 
+    // Wave H — accept the detached row as a checkout target. `item.branch`
+    // is undefined for the synthetic detached-head row; the SHA lives on
+    // `getDetachedHeadSha()`. The git command runs uniformly (no
+    // early-return on "already at that commit" — IntelliJ does the same;
+    // the dirty-working-tree fallback flow handles errors). The toast
+    // branches: branch name vs detached re-checkout.
+    const ref = item.branch?.name ?? item.getDetachedHeadSha();
+    if (!ref) {
+      return;
+    }
+    const successToast = (): string =>
+      item.branch
+        ? `Switched to branch '${item.branch.name}'`
+        : `Re-checked out detached HEAD at ${ref.substring(0, 7)}`;
+    const dirtyHeader = (): string =>
+      item.branch
+        ? `Cannot switch to '${item.branch.name}': local changes would be overwritten.`
+        : `Cannot re-checkout detached HEAD at ${ref.substring(0, 7)}: local changes would be overwritten.`;
+    const stashLabel = (): string =>
+      item.branch
+        ? `Auto-stash before checkout ${item.branch.name}`
+        : `Auto-stash before checkout ${ref.substring(0, 7)}`;
+    const stashSuccessToast = (): string =>
+      item.branch
+        ? `Stashed changes and switched to '${item.branch.name}'`
+        : `Stashed changes and re-checked out detached HEAD at ${ref.substring(0, 7)}`;
+    const forceSuccessToast = (): string =>
+      item.branch
+        ? `Force switched to '${item.branch.name}'`
+        : `Force re-checked out detached HEAD at ${ref.substring(0, 7)}`;
+
     try {
-      await this._gitService.checkout(repo, item.branch.name);
+      await this._gitService.checkout(repo, ref);
       // Wave G — checkout moved HEAD; reload before refresh so the
       // BranchTreeProvider's "current branch" mark reflects fresh state.
       await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Switched to branch '${item.branch.name}'`);
+      void vscode.window.showInformationMessage(successToast());
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -313,20 +344,18 @@ export class BranchContextMenuCommands {
         errorMessage.includes('Please commit your changes or stash them')
       ) {
         const choice = await vscode.window.showWarningMessage(
-          `Cannot switch to '${item.branch.name}': local changes would be overwritten.`,
+          dirtyHeader(),
           'Stash & Switch',
           'Force Checkout',
           'Cancel'
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${item.branch.name}`);
-            await this._gitService.checkout(repo, item.branch.name);
+            await this._gitService.stash(repo, stashLabel());
+            await this._gitService.checkout(repo, ref);
             // Wave G — stash + checkout pair moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(
-              `Stashed changes and switched to '${item.branch.name}'`
-            );
+            void vscode.window.showInformationMessage(stashSuccessToast());
             this._branchTreeProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
@@ -336,10 +365,10 @@ export class BranchContextMenuCommands {
           }
         } else if (choice === 'Force Checkout') {
           try {
-            await this._gitService.checkout(repo, item.branch.name, { force: true });
+            await this._gitService.checkout(repo, ref, { force: true });
             // Wave G — force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
-            void vscode.window.showInformationMessage(`Force switched to '${item.branch.name}'`);
+            void vscode.window.showInformationMessage(forceSuccessToast());
             this._branchTreeProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
@@ -365,7 +394,12 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    const startPoint = item.branch?.name || item.tag?.name;
+    // Wave H — `??` chain (was `||`) so empty-string ref names don't
+    // accidentally fall through to the next operand. Falls through to
+    // `getDetachedHeadSha()` for the synthetic detached-head row, which
+    // returns the 40-char SHA — never the parenthesized label, so this
+    // can't resurrect the Wave F bug class.
+    const startPoint = item.branch?.name ?? item.tag?.name ?? item.getDetachedHeadSha();
     if (!startPoint) {
       return;
     }

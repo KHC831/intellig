@@ -25,6 +25,7 @@ import { BranchTreeItem, BranchTreeProvider } from '../../../services/BranchTree
 import {
   IBasicRebaseResult,
   IBranch,
+  ICreateBranchOptions,
   IFetchResult,
   IGitService,
   IRepository,
@@ -37,6 +38,10 @@ import {
 import type { PullDialog } from '../../../services/PullDialog';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow } from '../../typed/windowStub';
+import {
+  createMockGitService as createSharedMockGitService,
+  detachedRepo,
+} from '../../mocks/mockGitService';
 
 // ─── Mock Helpers ────────────────────────────────────────────────────────────
 
@@ -778,5 +783,106 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       writableWindow().showErrorMessage = savedError;
       console.error = savedConsoleError;
     }
+  });
+});
+
+/**
+ * Wave H — detached row dispatcher safety pins (Wave F regression class).
+ *
+ * The synthetic detached-head row presents the user with a parenthesized
+ * label `(HEAD detached at <sha>)`. Pre-Wave-H, `_handleNewBranchFrom`
+ * read `item.branch?.name || item.tag?.name` as the git start-point —
+ * if a future refactor accidentally constructed a fake-IBranch with the
+ * parenthesized label as `.name` (the original Wave F bug shape), git's
+ * checkout-b would fail with `fatal: '(HEAD detached at <sha>)' is not
+ * a commit`.
+ *
+ * Wave H's type extension routes the SHA via `item.getDetachedHeadSha()`
+ * — never the parenthesized label. These two pins assert the SHA flows
+ * to gitService correctly AND that the parenthesized label never reaches
+ * the gitService boundary.
+ */
+describe('Wave H — detached row dispatcher safety (Wave F regression class)', () => {
+  const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
+
+  it('newBranchFrom-detached: gitService.createBranch receives the SHA, NOT the parenthesized label', async () => {
+    const repo = detachedRepo(FULL_SHA);
+    let createdStartPoint: string | undefined;
+    const gitService = createSharedMockGitService(repo, {
+      createBranch: async (
+        _repo: IRepository,
+        _name: string,
+        startPointOrOptions?: string | ICreateBranchOptions
+      ) => {
+        createdStartPoint =
+          typeof startPointOrOptions === 'string' ? startPointOrOptions : undefined;
+      },
+    });
+    const branchTreeProvider = new BranchTreeProvider(gitService);
+    branchTreeProvider.setRepository(repo);
+
+    const savedShowInputBox = writableWindow().showInputBox;
+    writableWindow().showInputBox = (async () =>
+      'feature/from-detached') as typeof writableWindow extends () => infer W
+      ? W extends { showInputBox: infer F }
+        ? F
+        : never
+      : never;
+
+    try {
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+      const rootChildren = await branchTreeProvider.getChildren();
+      const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
+      assert.ok(localCategory, 'Local Branches category must exist');
+      const items = await branchTreeProvider.getChildren(localCategory);
+      const detachedRow = items.find((i) => i.itemType === 'detached-head');
+      assert.ok(detachedRow, 'detached row must be present in fixture');
+
+      await (
+        commands as unknown as {
+          _handleNewBranchFrom(item: BranchTreeItem): Promise<void>;
+        }
+      )._handleNewBranchFrom(detachedRow);
+
+      assert.strictEqual(createdStartPoint, FULL_SHA, 'createBranch must receive the 40-char SHA');
+      assert.ok(
+        createdStartPoint && !createdStartPoint.startsWith('('),
+        `createBranch must NEVER receive a parenthesized label (Wave F regression class); got "${createdStartPoint}"`
+      );
+    } finally {
+      writableWindow().showInputBox = savedShowInputBox;
+    }
+  });
+
+  it('checkout-detached: gitService.checkout receives the SHA, NOT the parenthesized label', async () => {
+    const repo = detachedRepo(FULL_SHA);
+    let checkedOutRef: string | undefined;
+    const gitService = createSharedMockGitService(repo, {
+      checkout: async (_repo: IRepository, ref: string) => {
+        checkedOutRef = ref;
+      },
+    });
+    const branchTreeProvider = new BranchTreeProvider(gitService);
+    branchTreeProvider.setRepository(repo);
+
+    const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+    const rootChildren = await branchTreeProvider.getChildren();
+    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
+    assert.ok(localCategory, 'Local Branches category must exist');
+    const items = await branchTreeProvider.getChildren(localCategory);
+    const detachedRow = items.find((i) => i.itemType === 'detached-head');
+    assert.ok(detachedRow, 'detached row must be present in fixture');
+
+    await (
+      commands as unknown as {
+        _handleCheckout(item: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckout(detachedRow);
+
+    assert.strictEqual(checkedOutRef, FULL_SHA, 'checkout must receive the 40-char SHA');
+    assert.ok(
+      checkedOutRef && !checkedOutRef.startsWith('('),
+      `checkout must NEVER receive a parenthesized label (Wave F regression class); got "${checkedOutRef}"`
+    );
   });
 });

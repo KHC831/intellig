@@ -332,3 +332,23 @@ serve the same comparison need without duplicating the surface.
   `gitService.reloadRepository(repo)` to every CLI mutation site so
   `provider.refresh()` runs against fresh state instead of racing the
   watcher's 250 ms debounced reload.
+- **Wave H (2026-05-25)**: extended Layer 4 (repo-state coverage)
+  with §1.6 — branch tree detached row. Trigger: Wave G closed the
+  graph-side detached HEAD gap (yellow/gold HEAD chip on the commit
+  row), but user dogfood surfaced that the BRANCHES tree sidebar
+  showed nothing for detached state — no current-branch indicator,
+  no row pointing at HEAD. Wave H adds a new `'detached-head'`
+  `BranchTreeItemType` variant rendered at the TOP of Local Branches
+  with the same yellow/gold theme variable
+  (`statusBarItem.warningBackground`) Wave G uses for the graph chip.
+  Right-click menu shows Checkout + New Branch from Here, matching
+  IntelliJ parity. Dispatcher reads the 40-char SHA via
+  `getDetachedHeadSha()` so the parenthesized label never reaches
+  git (Wave F regression class). Pinned by snap-10a (jsdom layout) +
+  branchTree-detached-1..5 (state variants) + checkout-detached /
+  newBranchFrom-detached (dispatcher safety). Bonus: Wave H's
+  multi-fixture mock construction triggered the rule-of-three
+  threshold for the IGitService mock (Wave F TLF-N3 watch flag);
+  extracted to `src/test/mocks/mockGitService.ts` and updated the
+  three pre-existing call sites (snap-8b, headChipRefresh.test.ts,
+  Wave H's new fixtures).

@@ -635,6 +635,16 @@
     "menus": {
       "view/item/context": [
         {
+          "command": "intellig.branch.checkout",
+          "when": "viewItem == intellig.detachedHead",
+          "group": "1_branchOps@1"
+        },
+        {
+          "command": "intellig.branch.newBranchFrom",
+          "when": "viewItem == intellig.detachedHead",
+          "group": "1_branchOps@2"
+        },
+        {
           "command": "intellig.branch.focusOnGraph",
           "when": "viewItem == intellig.localBranchCurrent",
           "group": "inline@1"
