@@ -60,11 +60,13 @@ describe('GitService.getCherryMarks (T3-07)', () => {
     const cli: GitCliLike = {
       exec: async (args) => {
         // Verify we built the expected argv.
+        // Wave I — refs follow `--end-of-options`.
         assert.deepStrictEqual(args, [
           'log',
           '--cherry-mark',
           '--left-right',
           '--pretty=format:%H %m',
+          '--end-of-options',
           'HEAD...origin/main',
         ]);
         return {

@@ -29,10 +29,22 @@ import type {
 import { EventEmitter } from './vscode';
 import { noopEvent } from './noopEvent';
 
+/**
+ * Wave I H-3 — TestSurface for the dispose-test path. When tests need
+ * to verify subscription teardown they need to fire the change event
+ * AFTER setup; expose a hook to do that without violating the IGitService
+ * encapsulation.
+ */
+export interface IGitServiceMockTestSurface {
+  fireChangeRepository(repo: IRepository): void;
+  /** Number of currently-active onDidChangeRepository subscribers. */
+  changeRepositorySubscriberCount(): number;
+}
+
 export function createMockGitService(
   mockRepo: IRepository,
   overrides: Partial<IGitService> = {}
-): IGitService {
+): IGitService & IGitServiceMockTestSurface {
   const repoChange = new EventEmitter<IRepository>();
 
   const base: IGitService = {
@@ -116,7 +128,15 @@ export function createMockGitService(
     dispose: () => {},
   } as IGitService;
 
-  return { ...base, ...overrides };
+  // Wave I H-3 — wrap with TestSurface helpers that expose the
+  // EventEmitter without leaking it onto the public IGitService.
+  const testSurface: IGitServiceMockTestSurface = {
+    fireChangeRepository: (repo) => repoChange.fire(repo),
+    changeRepositorySubscriberCount: (): number =>
+      (repoChange as unknown as { listeners: unknown[] }).listeners.length,
+  };
+
+  return { ...base, ...overrides, ...testSurface };
 }
 
 /**

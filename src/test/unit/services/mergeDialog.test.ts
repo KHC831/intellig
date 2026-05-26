@@ -269,43 +269,49 @@ describe('T3-02 GitService.mergeBranch — arg order', () => {
   it('no options → `git merge <branch>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x');
-    assert.deepStrictEqual(executed[0], ['merge', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--end-of-options', 'feature/x']);
   });
 
   it('ffOnly → `git merge --ff-only <branch>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { ffOnly: true });
-    assert.deepStrictEqual(executed[0], ['merge', '--ff-only', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--ff-only', '--end-of-options', 'feature/x']);
   });
 
   it('noFf → `git merge --no-ff <branch>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { noFf: true });
-    assert.deepStrictEqual(executed[0], ['merge', '--no-ff', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--no-ff', '--end-of-options', 'feature/x']);
   });
 
   it('squash → `git merge --squash <branch>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { squash: true });
-    assert.deepStrictEqual(executed[0], ['merge', '--squash', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--squash', '--end-of-options', 'feature/x']);
   });
 
   it('noCommit → `git merge --no-commit <branch>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { noCommit: true });
-    assert.deepStrictEqual(executed[0], ['merge', '--no-commit', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--no-commit', '--end-of-options', 'feature/x']);
   });
 
   it('message → `-m <msg>` preserved', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { message: 'Merge X' });
-    assert.deepStrictEqual(executed[0], ['merge', '-m', 'Merge X', 'feature/x']);
+    assert.deepStrictEqual(executed[0], [
+      'merge',
+      '-m',
+      'Merge X',
+      '--end-of-options',
+      'feature/x',
+    ]);
   });
 
   it('empty message → no -m flag', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { message: '' });
-    assert.deepStrictEqual(executed[0], ['merge', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--end-of-options', 'feature/x']);
   });
 
   it('combined: noFf + noCommit + message → strategy, noCommit, -m, branch', async () => {
@@ -315,12 +321,14 @@ describe('T3-02 GitService.mergeBranch — arg order', () => {
       noCommit: true,
       message: 'X',
     });
+    // Wave I — refs follow `--end-of-options`.
     assert.deepStrictEqual(executed[0], [
       'merge',
       '--no-ff',
       '--no-commit',
       '-m',
       'X',
+      '--end-of-options',
       'feature/x',
     ]);
   });
@@ -328,7 +336,7 @@ describe('T3-02 GitService.mergeBranch — arg order', () => {
   it('ffOnly + noFf both true: CLI-precedence picks ffOnly', async () => {
     const { gitService, executed } = installGitService();
     await gitService.mergeBranch(makeRepo(), 'feature/x', { ffOnly: true, noFf: true });
-    assert.deepStrictEqual(executed[0], ['merge', '--ff-only', 'feature/x']);
+    assert.deepStrictEqual(executed[0], ['merge', '--ff-only', '--end-of-options', 'feature/x']);
   });
 });
 

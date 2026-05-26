@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomBytes } from 'node:crypto';
 import { atomicWriteFileSync } from '../utils/atomicWrite';
 import {
   IShelfService,
@@ -11,8 +12,13 @@ import {
   IUnshelveResult,
   IImportPatchOptions,
 } from './interfaces/IShelfService';
-import { IRepository, IDiff, IHunk } from './interfaces/IGitService';
+import { IRepository, IDiff, IHunk, IGitService } from './interfaces/IGitService';
 import { GitCli, createGitCli } from '../utils/gitCli';
+
+// Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
+interface IGitServiceWithCli {
+  gitCli: GitCli;
+}
 import { parseDiff } from '../utils/gitParser';
 
 /**
@@ -276,6 +282,8 @@ export function serializeShelfForDisk(storage: IShelfStorage): Record<string, un
  */
 export class ShelfService implements IShelfService {
   private _gitCli: GitCli;
+  /** See {@link RebaseService._ownsGitCli} for the Wave I WI-D rationale. */
+  private _ownsGitCli: boolean;
   private _shelfCache: Map<string, IShelfItem[]> = new Map();
   private _onDidChangeShelf: vscode.EventEmitter<IShelfItem[]>;
   private _disposables: vscode.Disposable[] = [];
@@ -285,8 +293,14 @@ export class ShelfService implements IShelfService {
    */
   readonly onDidChangeShelf: vscode.Event<IShelfItem[]>;
 
-  constructor(gitCli?: GitCli) {
-    this._gitCli = gitCli || createGitCli();
+  constructor(gitCli?: GitCli, gitService?: IGitService) {
+    if (gitService) {
+      this._gitCli = (gitService as unknown as IGitServiceWithCli).gitCli;
+      this._ownsGitCli = false;
+    } else {
+      this._gitCli = gitCli || createGitCli();
+      this._ownsGitCli = true;
+    }
     this._onDidChangeShelf = new vscode.EventEmitter<IShelfItem[]>();
     this.onDidChangeShelf = this._onDidChangeShelf.event;
   }
@@ -918,11 +932,16 @@ export class ShelfService implements IShelfService {
   /**
    * Generate a unique shelf ID.
    *
+   * Wave I L-5 — switched from `Math.random()` (predictable, can collide
+   * across rapid shelves in the same millisecond) to `randomBytes(4)`
+   * (32 bits of CSPRNG entropy → ~4.3B distinct ids per timestamp).
+   * Mirrors the pattern in `src/utils/webviewNonce.ts`.
+   *
    * @returns A unique ID string
    */
   private generateShelfId(): string {
     const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 8);
+    const random = randomBytes(4).toString('hex');
     return `shelf-${timestamp}-${random}`;
   }
 
@@ -938,6 +957,8 @@ export class ShelfService implements IShelfService {
 
   /**
    * Dispose of resources.
+   *
+   * Wave I WI-D — only dispose `_gitCli` when WE own it.
    */
   dispose(): void {
     this._onDidChangeShelf.dispose();
@@ -947,6 +968,13 @@ export class ShelfService implements IShelfService {
       disposable.dispose();
     }
     this._disposables = [];
+
+    if (this._ownsGitCli) {
+      const cli = this._gitCli as unknown as { dispose?: () => void };
+      if (typeof cli.dispose === 'function') {
+        cli.dispose();
+      }
+    }
   }
 }
 
@@ -954,8 +982,9 @@ export class ShelfService implements IShelfService {
  * Create a new ShelfService instance.
  *
  * @param gitCli - Optional GitCli instance to use
+ * @param gitService - Optional GitService whose gitCli we adopt
  * @returns A new ShelfService instance
  */
-export function createShelfService(gitCli?: GitCli): ShelfService {
-  return new ShelfService(gitCli);
+export function createShelfService(gitCli?: GitCli, gitService?: IGitService): ShelfService {
+  return new ShelfService(gitCli, gitService);
 }

@@ -215,11 +215,16 @@ export class ExtensionServices implements IExtensionServices {
       // Initialize GitService (Task 2.1)
       this._gitService = new GitService();
 
-      // Initialize RebaseService (Task 6.1)
-      this._rebaseService = new RebaseService();
+      // Initialize RebaseService (Task 6.1).
+      // Wave I WI-D — pass gitService so RebaseService routes commands
+      // through the SAME GitCli the GitService owns (so the
+      // ConsoleService captures `git rebase` calls end-to-end).
+      this._rebaseService = new RebaseService(undefined, this._gitService);
 
-      // Initialize ShelfService (Task 9.1)
-      this._shelfService = new ShelfService();
+      // Initialize ShelfService (Task 9.1).
+      // Wave I WI-D — share GitCli with the GitService for back-channel
+      // diagnostics on `git stash`/`git diff` calls.
+      this._shelfService = new ShelfService(undefined, this._gitService);
 
       // Initialize ChangelistService (Task 10.1)
       //
@@ -231,8 +236,12 @@ export class ExtensionServices implements IExtensionServices {
       // reporting "No files in active changelist" against any dirty repo.
       this._changelistService = new ChangelistService(this._gitService);
 
-      // Initialize BlameService (Task 17.1)
-      this._blameService = new BlameService();
+      // Initialize BlameService (Task 17.1).
+      // Wave I WI-C/WI-D — pass gitService for: (a) shared GitCli so
+      // `git blame` calls flow through ConsoleService, and (b) per-repo
+      // file watchers (RelativePattern rooted at repo root) instead of
+      // the workspace-global `**/*` glob.
+      this._blameService = new BlameService(undefined, this._gitService);
 
       // Initialize ConsoleService (Task 19.4)
       // Connects to GitService to capture command output

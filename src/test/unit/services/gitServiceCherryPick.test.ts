@@ -132,7 +132,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       assert.strictEqual(result.success, true);
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp.args, ['cherry-pick', 'abc1234']);
+      assert.deepStrictEqual(cp.args, ['cherry-pick', '--end-of-options', 'abc1234']);
     });
 
     it('empty hash list returns success without invoking git', async () => {
@@ -149,7 +149,12 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       await gitService.cherryPick(makeRepo(), ['abc1234'], { noCommit: true });
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp.args, ['cherry-pick', '--no-commit', 'abc1234']);
+      assert.deepStrictEqual(cp.args, [
+        'cherry-pick',
+        '--no-commit',
+        '--end-of-options',
+        'abc1234',
+      ]);
     });
 
     it('does not invoke `git show --name-only` or reset/checkout for other files', async () => {
@@ -177,7 +182,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
     it('runs cherry-pick --no-commit, then unstages + restores non-selected files', async () => {
       const { gitService, mockGitCli } = installGitService();
       // Commit touches: a.ts, b.ts, c.ts. User keeps only a.ts.
-      mockGitCli.setMockResult('show --name-only --format= abc1234', {
+      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
         exitCode: 0,
         stdout: 'a.ts\nb.ts\nc.ts\n',
         stderr: '',
@@ -192,12 +197,24 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       // The cherry-pick itself.
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp.args, ['cherry-pick', '--no-commit', 'abc1234']);
+      assert.deepStrictEqual(cp.args, [
+        'cherry-pick',
+        '--no-commit',
+        '--end-of-options',
+        'abc1234',
+      ]);
 
       // The diff discovery.
       const show = mockGitCli.findCommand(['show', '--name-only']);
       assert.ok(show);
-      assert.deepStrictEqual(show.args, ['show', '--name-only', '--format=', 'abc1234']);
+      // Wave I R1 — `commit` follows `--end-of-options` (buildGitArgs).
+      assert.deepStrictEqual(show.args, [
+        'show',
+        '--name-only',
+        '--format=',
+        '--end-of-options',
+        'abc1234',
+      ]);
 
       // The reset + checkout for the NON-selected files.
       const reset = mockGitCli.findCommand(['reset', 'HEAD']);
@@ -211,7 +228,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
 
     it('forces --no-commit even when caller did not request it', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= abc1234', {
+      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
         exitCode: 0,
         stdout: 'a.ts\nb.ts\n',
         stderr: '',
@@ -222,7 +239,12 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       });
       const cp = mockGitCli.findCommand(['cherry-pick']);
       assert.ok(cp);
-      assert.deepStrictEqual(cp.args, ['cherry-pick', '--no-commit', 'abc1234']);
+      assert.deepStrictEqual(cp.args, [
+        'cherry-pick',
+        '--no-commit',
+        '--end-of-options',
+        'abc1234',
+      ]);
     });
 
     it('empty files array short-circuits without invoking git', async () => {
@@ -234,7 +256,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
 
     it('files subset equal to all touched files skips the reset/checkout', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= abc1234', {
+      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
         exitCode: 0,
         stdout: 'a.ts\nb.ts\n',
         stderr: '',
@@ -247,12 +269,12 @@ describe('GitService.cherryPick — T2-05 variants', () => {
 
     it('multi-commit: unions touched files across every commit', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('show --name-only --format= abc1234', {
+      mockGitCli.setMockResult('show --name-only --format= --end-of-options abc1234', {
         exitCode: 0,
         stdout: 'a.ts\nb.ts\n',
         stderr: '',
       });
-      mockGitCli.setMockResult('show --name-only --format= def5678', {
+      mockGitCli.setMockResult('show --name-only --format= --end-of-options def5678', {
         exitCode: 0,
         stdout: 'b.ts\nc.ts\n',
         stderr: '',
@@ -272,7 +294,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
     it('non-zero cherry-pick exit returns success=false with conflict file list', async () => {
       const { gitService, mockGitCli } = installGitService();
       // Cherry-pick itself fails.
-      mockGitCli.setMockResult('cherry-pick abc1234', {
+      mockGitCli.setMockResult('cherry-pick --end-of-options abc1234', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in src/foo.ts',
@@ -295,7 +317,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
 
     it('conflict during --no-commit cherry-pick: same behaviour', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('cherry-pick --no-commit abc1234', {
+      mockGitCli.setMockResult('cherry-pick --no-commit --end-of-options abc1234', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in src/foo.ts',
@@ -315,7 +337,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
 
     it('conflict in file-subset mode: does NOT run the post-cherry-pick reset/checkout', async () => {
       const { gitService, mockGitCli } = installGitService();
-      mockGitCli.setMockResult('cherry-pick --no-commit abc1234', {
+      mockGitCli.setMockResult('cherry-pick --no-commit --end-of-options abc1234', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in a.ts',

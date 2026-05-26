@@ -168,9 +168,11 @@ cost.
   Mitigation: the per-FILE specs catch the actual behaviour; the
   guard is the structural lock, not the proof.
 - The ADR was written pre-emptively at 2 guards (Wave 9 R3 / TL-77)
-  because the pattern was going to recur. As of Wave 135 R4 /
-  Cluster B R2 the count is 7 — comfortably above the
-  "guard-vs-rederive economics" inflection — so the ADR is now
+  because the pattern was going to recur. As of Wave I (the post-
+  Wave-H comprehensive review) the count is 9 — the late additions
+  being `check-watcher-families-registered.mjs` (TL-87) and
+  `check-output-channel-test-surface.sh` (TL-58). Comfortably above
+  the "guard-vs-rederive economics" inflection — so the ADR is now
   recouping its drafting cost via consistent header structure
   and per-guard FP/FN logs.
 
@@ -299,6 +301,28 @@ cost.
   placeholder phrasing not in the marker list slips silently
   (mitigation: per-FILE characterization spec on the JSON state).
 
+- **`scripts/check-watcher-families-registered.mjs` (TL-87).**
+  Asserts every `vscode.FileSystemWatcher` owned by `GitService`
+  (collected on a `_*Watchers` field) is registered in the disposer
+  array, so each repo lifecycle event tears down its watcher
+  cleanly. Companion specs: the `gitServiceWatcherFamilies.test.ts`
+  characterization spec sized N=2 today (`_fileWatchers`,
+  `_newRepoWatchers`). False-positive log: a watcher field that's
+  not lifecycle-bound (e.g., a one-shot create-and-dispose) would
+  trip; mitigation is the field-naming convention. False-negative
+  log: a future field whose disposer registration is conditional on
+  configuration would slip past the disposer-array regex.
+
+- **`scripts/check-output-channel-test-surface.sh` (TL-58).**
+  Asserts NO production caller invokes `__resetOutputChannelForTest`
+  — that helper is test-only state-reset machinery and a
+  production caller would erase the OutputChannel mid-session.
+  Companion specs: `outputChannelTestSurface.test.ts` (the
+  characterization). False-positive log: none today. False-negative
+  log: a production caller that aliases the helper through a
+  re-export would slip; mitigation is the symbol's deliberately
+  test-namespaced prefix.
+
 - **`scripts/check-publish-vsix.sh` (TL-95, Cluster B R0).**
   Refuses to publish a `*-dogfood.vsix` filename. Case-
   insensitive suffix match on basename; no-arg invocation is a
@@ -356,6 +380,8 @@ the Marketplace) is irreversible.
 - `scripts/prepublish-guard.mjs` + `scripts/prerelease-state.json`
   — TL-93 placeholder-fingerprint dispatcher + JSON sidecar.
 - `scripts/check-publish-vsix.sh` — TL-95 dogfood-filename guard.
+- `scripts/check-watcher-families-registered.mjs` — TL-87 watcher-family registration guard.
+- `scripts/check-output-channel-test-surface.sh` — TL-58 OutputChannel test-surface boundary guard.
 - ADR-006 — error-state binding by view type. The rule TL-74 enforces.
 - `docs/testing.md` — TestSurface idiom (§3) and tier-escalation
   guidance (referenced by the per-site spec column).

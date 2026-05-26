@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomBytes } from 'node:crypto';
 import { atomicWriteFileSync } from '../utils/atomicWrite';
 import { IChangelistService, IChangelist, IFileChange } from './interfaces/IChangelistService';
 import { IGitService, IRepository, FileStatus, IFileStatus } from './interfaces/IGitService';
@@ -910,11 +911,15 @@ export class ChangelistService implements IChangelistService {
   /**
    * Generate a unique changelist ID.
    *
+   * Wave I L-5 — switched from `Math.random()` (predictable; collides
+   * for rapid creates in the same millisecond) to `randomBytes(4)` for
+   * 32 bits of CSPRNG entropy. Mirrors `src/utils/webviewNonce.ts`.
+   *
    * @returns A unique ID string
    */
   private generateChangelistId(): string {
     const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).substring(2, 8);
+    const random = randomBytes(4).toString('hex');
     return `changelist-${timestamp}-${random}`;
   }
 

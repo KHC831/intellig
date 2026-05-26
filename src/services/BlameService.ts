@@ -1,8 +1,13 @@
 import * as vscode from 'vscode';
 import { IBlameService, IBlameInfo, IBlameOptions } from './interfaces/IBlameService';
-import { IBlameLine, IRepository } from './interfaces/IGitService';
-import { GitCli, createGitCli } from '../utils/gitCli';
+import { IBlameLine, IGitService, IRepository } from './interfaces/IGitService';
+import { GitCli, buildGitArgs, createGitCli } from '../utils/gitCli';
 import { parseBlame } from '../utils/gitParser';
+
+// Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
+interface IGitServiceWithCli {
+  gitCli: GitCli;
+}
 
 /**
  * Cache entry for blame information
@@ -23,9 +28,22 @@ interface IBlameCacheEntry {
  */
 export class BlameService implements IBlameService {
   private _gitCli: GitCli;
+  /** See {@link RebaseService._ownsGitCli}. */
+  private _ownsGitCli: boolean;
+  private _gitService: IGitService | undefined;
   private _onDidChangeBlame: vscode.EventEmitter<{ path: string; blame: IBlameInfo }>;
   private _disposables: vscode.Disposable[] = [];
   private _blameCache: Map<string, IBlameCacheEntry> = new Map();
+  /**
+   * Wave I WI-C — per-repo file watcher map. Pre-Wave-I we registered a
+   * single `**\/*` glob across the entire workspace, which (a) triggered
+   * cache invalidation on every irrelevant `.vscode/` / `node_modules/`
+   * write, and (b) couldn't tell which repo a path belonged to. We now
+   * scope each watcher to a `RelativePattern` rooted at the repo root
+   * and re-create the map on `gitService.onDidChangeRepository` /
+   * `onDidRemoveRepository`.
+   */
+  private _watchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
   /** Cache TTL in milliseconds (30 seconds) */
   private static readonly CACHE_TTL = 30000;
@@ -35,30 +53,94 @@ export class BlameService implements IBlameService {
    */
   readonly onDidChangeBlame: vscode.Event<{ path: string; blame: IBlameInfo }>;
 
-  constructor(gitCli?: GitCli) {
-    this._gitCli = gitCli || createGitCli();
+  constructor(gitCli?: GitCli, gitService?: IGitService) {
+    if (gitService) {
+      this._gitCli = (gitService as unknown as IGitServiceWithCli).gitCli;
+      this._ownsGitCli = false;
+    } else {
+      this._gitCli = gitCli || createGitCli();
+      this._ownsGitCli = true;
+    }
+    this._gitService = gitService;
     this._onDidChangeBlame = new vscode.EventEmitter<{ path: string; blame: IBlameInfo }>();
     this.onDidChangeBlame = this._onDidChangeBlame.event;
 
-    // Set up file watcher to invalidate cache when files change
+    // Set up file watcher (per-repo when gitService is available, else
+    // legacy `**/*` global glob).
     this.setupFileWatcher();
   }
 
   /**
-   * Set up a file watcher to invalidate blame cache when files change.
+   * Set up file watchers to invalidate blame cache when files change.
+   *
+   * Wave I WI-C — when a `gitService` was passed at construction time we
+   * register one watcher per repo using a `RelativePattern` rooted at
+   * the repo's `rootUri.fsPath`. This:
+   *   - skips `.vscode/`, `node_modules/`, and other workspace noise
+   *     that lives outside any repo root,
+   *   - lets us track repo membership cheaply (the watcher key is the
+   *     repo root path), and
+   *   - re-creates the watcher map whenever a repo is added / removed
+   *     so multi-root workspaces work correctly.
+   *
+   * The legacy `**\/*` global glob is kept as a fallback for callers
+   * that still construct `BlameService` standalone (no shared
+   * gitService) — they're test-only paths and the over-broad glob is
+   * acceptable there.
    */
   private setupFileWatcher(): void {
+    if (this._gitService) {
+      this.refreshRepoWatchers();
+      this._disposables.push(
+        this._gitService.onDidChangeRepository(() => this.refreshRepoWatchers()),
+        this._gitService.onDidRemoveRepository((repo) => {
+          const key = repo.rootUri.fsPath;
+          this._watchers.get(key)?.dispose();
+          this._watchers.delete(key);
+        })
+      );
+      return;
+    }
+
+    // Legacy fallback path used by tests that pass only a GitCli.
     const watcher = vscode.workspace.createFileSystemWatcher('**/*');
-
-    watcher.onDidChange((uri) => {
-      this.invalidateCache(uri.fsPath);
-    });
-
-    watcher.onDidDelete((uri) => {
-      this.invalidateCache(uri.fsPath);
-    });
-
+    watcher.onDidChange((uri) => this.invalidateCache(uri.fsPath));
+    watcher.onDidDelete((uri) => this.invalidateCache(uri.fsPath));
     this._disposables.push(watcher);
+  }
+
+  /**
+   * Wave I WI-C — sync the per-repo watcher map to the current
+   * gitService.getRepositories() snapshot. Adds watchers for new repos
+   * and removes watchers for repos that disappeared.
+   */
+  private refreshRepoWatchers(): void {
+    if (!this._gitService) {
+      return;
+    }
+    const repos = this._gitService.getRepositories();
+    const live = new Set(repos.map((r) => r.rootUri.fsPath));
+
+    // Remove stale watchers (repos that disappeared).
+    for (const [key, watcher] of this._watchers) {
+      if (!live.has(key)) {
+        watcher.dispose();
+        this._watchers.delete(key);
+      }
+    }
+
+    // Add watchers for new repos.
+    for (const repo of repos) {
+      const key = repo.rootUri.fsPath;
+      if (this._watchers.has(key)) {
+        continue;
+      }
+      const pattern = new vscode.RelativePattern(repo.rootUri, '**/*');
+      const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+      watcher.onDidChange((uri) => this.invalidateCache(uri.fsPath));
+      watcher.onDidDelete((uri) => this.invalidateCache(uri.fsPath));
+      this._watchers.set(key, watcher);
+    }
   }
 
   /**
@@ -165,28 +247,26 @@ export class BlameService implements IBlameService {
 
     // Build git blame command. Flag order matters for readability only — git
     // accepts them in any order. The order here mirrors IntelliJ's menu.
-    const args = ['blame', '--porcelain'];
+    // Wave I — splice via buildGitArgs so a hostile revision/path can't
+    // collapse into a flag.
+    const flags: string[] = ['--porcelain'];
 
     if (options?.ignoreWhitespace) {
-      args.push('-w');
+      flags.push('-w');
     }
     if (options?.detectMovementsWithinFile) {
-      args.push('-M');
+      flags.push('-M');
     }
     if (options?.detectMovementsAcrossFiles) {
       // Pass `-C` twice so git also detects copies from files that weren't
       // modified in the same commit. Matches IntelliJ's "across files" mode,
       // which is the more thorough variant of `-C`.
-      args.push('-C');
-      args.push('-C');
+      flags.push('-C');
+      flags.push('-C');
     }
 
-    // Add revision if specified
-    if (revision) {
-      args.push(revision);
-    }
-
-    args.push('--', path);
+    const refs = revision ? [revision] : [];
+    const args = buildGitArgs('blame', flags, refs, [path]);
 
     const result = await this._gitCli.exec(args, { cwd: repoRoot });
 
@@ -268,8 +348,11 @@ export class BlameService implements IBlameService {
   ): Promise<IBlameInfo> {
     const repoRoot = repo.rootUri.fsPath;
 
-    // Get the parent commit of the specified commit
-    const parentResult = await this._gitCli.exec(['rev-parse', `${commit}^`], { cwd: repoRoot });
+    // Get the parent commit of the specified commit.
+    // Wave I — `commit` is user-controlled; splice via buildGitArgs.
+    const parentResult = await this._gitCli.exec(buildGitArgs('rev-parse', [], [`${commit}^`]), {
+      cwd: repoRoot,
+    });
 
     if (parentResult.exitCode !== 0 || !parentResult.stdout.trim()) {
       // No parent commit (initial commit) - return empty blame
@@ -278,9 +361,11 @@ export class BlameService implements IBlameService {
 
     const parentCommit = parentResult.stdout.trim();
 
-    // Check if the file existed at the parent commit
+    // Check if the file existed at the parent commit.
+    // Wave I — `parentCommit` is computed, but `path` is user-controlled
+    // and the combined `<sha>:<path>` token is also gated through buildGitArgs.
     const fileExistsResult = await this._gitCli.exec(
-      ['cat-file', '-e', `${parentCommit}:${path}`],
+      buildGitArgs('cat-file', ['-e'], [`${parentCommit}:${path}`]),
       { cwd: repoRoot }
     );
 
@@ -303,6 +388,10 @@ export class BlameService implements IBlameService {
 
   /**
    * Dispose of resources.
+   *
+   * Wave I WI-D — only dispose `_gitCli` when WE own it.
+   * Wave I WI-C — dispose every per-repo watcher in addition to the
+   * legacy `_disposables` array.
    */
   dispose(): void {
     this._onDidChangeBlame.dispose();
@@ -312,6 +401,18 @@ export class BlameService implements IBlameService {
       disposable.dispose();
     }
     this._disposables = [];
+
+    for (const watcher of this._watchers.values()) {
+      watcher.dispose();
+    }
+    this._watchers.clear();
+
+    if (this._ownsGitCli) {
+      const cli = this._gitCli as unknown as { dispose?: () => void };
+      if (typeof cli.dispose === 'function') {
+        cli.dispose();
+      }
+    }
   }
 }
 
@@ -319,8 +420,9 @@ export class BlameService implements IBlameService {
  * Create a new BlameService instance.
  *
  * @param gitCli - Optional GitCli instance to use
+ * @param gitService - Optional GitService whose gitCli we adopt
  * @returns A new BlameService instance
  */
-export function createBlameService(gitCli?: GitCli): BlameService {
-  return new BlameService(gitCli);
+export function createBlameService(gitCli?: GitCli, gitService?: IGitService): BlameService {
+  return new BlameService(gitCli, gitService);
 }

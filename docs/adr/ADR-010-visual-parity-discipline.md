@@ -352,3 +352,29 @@ serve the same comparison need without duplicating the surface.
   extracted to `src/test/mocks/mockGitService.ts` and updated the
   three pre-existing call sites (snap-8b, headChipRefresh.test.ts,
   Wave H's new fixtures).
+- **Wave I (2026-05-26)**: post-Wave-H comprehensive review surfaced 8
+  security/correctness findings (1 CRIT + 4 HIGH + 2 MED + 5 LOW)
+  ranging from an argv-injection-by-ref-name boundary
+  (`--upload-pack=evil` landing as a flag in ~15 GitService methods),
+  the parseLog `|` separator collision with author names containing
+  `|`, the leaked `BranchTreeProvider.onDidChangeRepository`
+  subscription, the secondary-service GitCli fragmentation that hid
+  `git rebase` / `git stash` / `git blame` calls from the
+  ConsoleService back-channel, the workspace-wide BlameService
+  watcher (`**/*` glob), the CommitDialog inline-onclick CSP
+  exposure, plus 5 hygiene-tier issues (unescaped data-hash, lax
+  branch-name validator, unvalidated stash-index, `\n`-split
+  compareBranches diff, predictable `Math.random()` ids). Wave I
+  bundles all 8 as one coherent ship across 8 atomic commits with
+  TDD red→green proof per commit. Layer 1 (snapshot) gained zero
+  new fixtures; Layer 2 (UX review) and Layer 3 (`docs/parity/`)
+  were unchanged. The visible-parity surface was untouched — every
+  finding was internal hygiene or a defense-in-depth seam, so this
+  Wave's contribution is to the OTHER columns of the parity-coverage
+  matrix (security + back-channel diagnostics + lifecycle hygiene).
+  Pinned by gitArgInjection.property.test.ts (200-run fast-check
+  property), GitServiceArgInjection.test.ts (~15 method-level
+  characterizations), parseLog-separator-1..2 (`\x1f` round-trip),
+  branchTree-dispose-1..3 (subscription teardown), consoleCapture-1..3
+  (back-channel), blameWatcher-1..2 (RelativePattern), and
+  commitDialog-csp-1 / -delegation-1..2 (data-action shape).

@@ -439,21 +439,21 @@ describe('BlameService', () => {
     describe('Navigate to previous revision', () => {
       it('should get parent commit and blame at that revision', async () => {
         // Mock rev-parse to get parent commit
-        mockGitCli.setMockResult('rev-parse abc123^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
         });
 
         // Mock cat-file to check file exists
-        mockGitCli.setMockResult('cat-file -e parent123:test.ts', {
+        mockGitCli.setMockResult('cat-file -e --end-of-options parent123:test.ts', {
           exitCode: 0,
           stdout: '',
           stderr: '',
         });
 
         // Mock blame at parent revision
-        mockGitCli.setMockResultByPrefix('blame --porcelain parent123', {
+        mockGitCli.setMockResultByPrefix('blame --porcelain --end-of-options parent123', {
           exitCode: 0,
           stdout: sampleBlameOutput,
           stderr: '',
@@ -471,7 +471,7 @@ describe('BlameService', () => {
 
       it('should return empty blame when no parent commit exists', async () => {
         // Mock rev-parse to fail (no parent)
-        mockGitCli.setMockResult('rev-parse abc123^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: ambiguous argument',
@@ -489,14 +489,14 @@ describe('BlameService', () => {
 
       it('should return empty blame when file did not exist at parent', async () => {
         // Mock rev-parse to get parent commit
-        mockGitCli.setMockResult('rev-parse abc123^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
         });
 
         // Mock cat-file to indicate file doesn't exist
-        mockGitCli.setMockResult('cat-file -e parent123:test.ts', {
+        mockGitCli.setMockResult('cat-file -e --end-of-options parent123:test.ts', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: Not a valid object name',
@@ -544,6 +544,72 @@ describe('BlameService', () => {
       assert.doesNotThrow(() => {
         blameService.dispose();
       });
+    });
+
+    it('Wave I WI-C: blameWatcher-1 — single repo registers exactly one RelativePattern watcher (not `**/*` global)', async () => {
+      // Verify the per-repo path. We provide a gitService with a single
+      // repo; BlameService must register a watcher with a RelativePattern
+      // rooted at that repo's path, not the legacy workspace-wide
+      // `**/*` glob.
+      const { createMockGitService, attachedRepo } = await import('../../mocks/mockGitService');
+      const { getCreatedFileSystemWatchers, RelativePattern } = await import('../../mocks/vscode');
+
+      const repo = attachedRepo();
+      const gs = createMockGitService(repo);
+      const watcherCountBefore = getCreatedFileSystemWatchers().length;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
+      const svc = new BlameService(mockGitCli as any, gs);
+
+      const newWatchers = getCreatedFileSystemWatchers().slice(watcherCountBefore);
+      assert.strictEqual(newWatchers.length, 1, 'expected exactly one watcher per repo');
+      const pattern = (newWatchers[0] as { _pattern: unknown })._pattern;
+      assert.ok(
+        pattern instanceof RelativePattern,
+        `expected RelativePattern, got ${typeof pattern}: ${JSON.stringify(pattern)}`
+      );
+      assert.strictEqual(
+        (pattern as { base: string }).base,
+        repo.rootUri.fsPath,
+        'watcher must be rooted at repo path'
+      );
+
+      svc.dispose();
+    });
+
+    it('Wave I WI-C: blameWatcher-2 — multi-repo add/remove syncs the watcher map', async () => {
+      const { createMockGitService, attachedRepo } = await import('../../mocks/mockGitService');
+      const { getCreatedFileSystemWatchers } = await import('../../mocks/vscode');
+
+      // Start with one repo.
+      const repoA = attachedRepo('main', 'a'.repeat(40));
+      const repoB: typeof repoA = {
+        ...attachedRepo('main', 'b'.repeat(40)),
+        rootUri: { fsPath: '/test/repoB', scheme: 'file' } as typeof repoA.rootUri,
+      };
+
+      // gitService initially knows only repoA.
+      let repos = [repoA];
+      const gs = createMockGitService(repoA, {
+        getRepositories: () => repos,
+      });
+
+      const watcherCountBefore = getCreatedFileSystemWatchers().length;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
+      const svc = new BlameService(mockGitCli as any, gs);
+
+      // After construction: one watcher (for repoA).
+      let newWatchers = getCreatedFileSystemWatchers().slice(watcherCountBefore);
+      assert.strictEqual(newWatchers.length, 1, 'one repo → one watcher');
+
+      // Add repoB and fire onDidChangeRepository.
+      repos = [repoA, repoB];
+      gs.fireChangeRepository(repoB);
+
+      newWatchers = getCreatedFileSystemWatchers().slice(watcherCountBefore);
+      assert.strictEqual(newWatchers.length, 2, 'two repos → two watchers');
+
+      svc.dispose();
     });
 
     it('should clear cache on dispose', async () => {
@@ -652,12 +718,12 @@ describe('BlameService', () => {
     });
 
     it('annotate-previous: getPreviousRevisionBlame uses <sha>^ via rev-parse + passes options', async () => {
-      mockGitCli.setMockResult('rev-parse abc123^', {
+      mockGitCli.setMockResult('rev-parse --end-of-options abc123^', {
         exitCode: 0,
         stdout: 'def456\n',
         stderr: '',
       });
-      mockGitCli.setMockResult('cat-file -e def456:test.ts', {
+      mockGitCli.setMockResult('cat-file -e --end-of-options def456:test.ts', {
         exitCode: 0,
         stdout: '',
         stderr: '',

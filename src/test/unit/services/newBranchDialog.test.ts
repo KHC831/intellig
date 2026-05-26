@@ -263,7 +263,8 @@ describe('T3-03 GitService.createBranch — arg order', () => {
   it('legacy string startPoint → `git branch <name> <startPoint>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.createBranch(makeRepo(), 'feature/x', 'main');
-    assert.deepStrictEqual(executed[0], ['branch', 'feature/x', 'main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], ['branch', 'feature/x', '--end-of-options', 'main']);
   });
 
   it('no startPoint → `git branch <name>`', async () => {
@@ -275,13 +276,15 @@ describe('T3-03 GitService.createBranch — arg order', () => {
   it('options.startPoint → `git branch <name> <startPoint>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.createBranch(makeRepo(), 'feature/x', { startPoint: 'main' });
-    assert.deepStrictEqual(executed[0], ['branch', 'feature/x', 'main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], ['branch', 'feature/x', '--end-of-options', 'main']);
   });
 
   it('options.force → `git branch -f <name> <startPoint>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.createBranch(makeRepo(), 'feature/x', { startPoint: 'main', force: true });
-    assert.deepStrictEqual(executed[0], ['branch', '-f', 'feature/x', 'main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], ['branch', '-f', 'feature/x', '--end-of-options', 'main']);
   });
 
   it('options.track → `git branch --track <name> <startPoint>`', async () => {
@@ -290,7 +293,14 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       startPoint: 'origin/main',
       track: true,
     });
-    assert.deepStrictEqual(executed[0], ['branch', '--track', 'feature/x', 'origin/main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], [
+      'branch',
+      '--track',
+      'feature/x',
+      '--end-of-options',
+      'origin/main',
+    ]);
   });
 
   it('options.checkout → `git checkout -b <name> <startPoint>`', async () => {
@@ -299,7 +309,14 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       startPoint: 'main',
       checkout: true,
     });
-    assert.deepStrictEqual(executed[0], ['checkout', '-b', 'feature/x', 'main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], [
+      'checkout',
+      '-b',
+      'feature/x',
+      '--end-of-options',
+      'main',
+    ]);
   });
 
   it('options.checkout + force → `git checkout -B <name> <startPoint>`', async () => {
@@ -309,7 +326,14 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       checkout: true,
       force: true,
     });
-    assert.deepStrictEqual(executed[0], ['checkout', '-B', 'feature/x', 'main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], [
+      'checkout',
+      '-B',
+      'feature/x',
+      '--end-of-options',
+      'main',
+    ]);
   });
 
   it('options.checkout + track → `git checkout -b <name> --track <startPoint>`', async () => {
@@ -319,7 +343,15 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       checkout: true,
       track: true,
     });
-    assert.deepStrictEqual(executed[0], ['checkout', '-b', 'feature/x', '--track', 'origin/main']);
+    // Wave I — startPoint follows `--end-of-options`.
+    assert.deepStrictEqual(executed[0], [
+      'checkout',
+      '-b',
+      'feature/x',
+      '--track',
+      '--end-of-options',
+      'origin/main',
+    ]);
   });
 
   // R5 C-2: service-boundary defense. Even if an upstream caller

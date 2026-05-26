@@ -97,20 +97,24 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.checkout(mockRepo, 'feature-branch');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['checkout', 'feature-branch']);
+      assert.deepStrictEqual(cmd.args, ['checkout', '--end-of-options', 'feature-branch']);
     });
 
     it('force checkout produces: git checkout -f <ref>', async () => {
       await gitService.checkout(mockRepo, 'feature-branch', { force: true });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['checkout', '-f', 'feature-branch']);
+      // Wave I — non-createBranch refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['checkout', '-f', '--end-of-options', 'feature-branch']);
     });
 
     it('create branch produces: git checkout -b <ref>', async () => {
       await gitService.checkout(mockRepo, 'new-branch', { createBranch: true });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
+      // Wave I — createBranch path keeps the historical layout: `-b` must
+      // be immediately followed by the branch name (git parser contract).
+      // Branch-name validation upstream rejects hostile names.
       assert.deepStrictEqual(cmd.args, ['checkout', '-b', 'new-branch']);
     });
 
@@ -191,7 +195,14 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.checkout(mockRepo, 'branch', { track: 'origin/branch' });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['checkout', 'branch', '--track', 'origin/branch']);
+      // Wave I — non-createBranch refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, [
+        'checkout',
+        '--end-of-options',
+        'branch',
+        '--track',
+        'origin/branch',
+      ]);
     });
 
     it('createBranch=false does not include -b', async () => {
@@ -212,7 +223,7 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.checkout(mockRepo, 'main', {});
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['checkout', 'main']);
+      assert.deepStrictEqual(cmd.args, ['checkout', '--end-of-options', 'main']);
     });
   });
 
@@ -231,7 +242,8 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.push(mockRepo, { remote: 'origin', branch: 'main' });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['push', 'origin', 'main']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['push', '--end-of-options', 'origin', 'main']);
     });
 
     it('push with setUpstream: includes --set-upstream before remote/branch', async () => {
@@ -250,7 +262,8 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.push(mockRepo, { remote: 'origin', branch: ':feature' });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['push', 'origin', ':feature']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['push', '--end-of-options', 'origin', ':feature']);
     });
 
     it('force push includes --force', async () => {
@@ -290,14 +303,16 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.pull(mockRepo, { rebase: true, remote: 'origin', branch: 'main' });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['pull', '--rebase', 'origin', 'main']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['pull', '--rebase', '--end-of-options', 'origin', 'main']);
     });
 
     it('pull without rebase: git pull <remote> <branch> (no --rebase flag)', async () => {
       await gitService.pull(mockRepo, { rebase: false, remote: 'origin', branch: 'main' });
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['pull', 'origin', 'main']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['pull', '--end-of-options', 'origin', 'main']);
       assert.ok(!cmd.args.includes('--rebase'));
     });
   });
@@ -336,28 +351,38 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.createBranch(mockRepo, 'new-feature', 'main');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['branch', 'new-feature', 'main']);
+      // Wave I — startPoint follows `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['branch', 'new-feature', '--end-of-options', 'main']);
     });
 
     it('delete branch: git branch -d <name>', async () => {
       await gitService.deleteBranch(mockRepo, 'old-feature');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['branch', '-d', 'old-feature']);
+      // Wave I R1 — name follows `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['branch', '-d', '--end-of-options', 'old-feature']);
     });
 
     it('force delete branch: git branch -D <name>', async () => {
       await gitService.deleteBranch(mockRepo, 'old-feature', true);
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['branch', '-D', 'old-feature']);
+      // Wave I R1 — name follows `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['branch', '-D', '--end-of-options', 'old-feature']);
     });
 
     it('rename branch: git branch -m <old> <new>', async () => {
       await gitService.renameBranch(mockRepo, 'old-name', 'new-name');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['branch', '-m', 'old-name', 'new-name']);
+      // Wave I R1 — names follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, [
+        'branch',
+        '-m',
+        '--end-of-options',
+        'old-name',
+        'new-name',
+      ]);
     });
   });
 
@@ -368,13 +393,14 @@ describe('GitService - Command Argument Correctness', () => {
     it('merge: git merge <branch>', async () => {
       await gitService.mergeBranch(mockRepo, 'feature');
       const cmds = mockGitCli.getAllCommands();
-      assert.deepStrictEqual(cmds[0].args, ['merge', 'feature']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmds[0].args, ['merge', '--end-of-options', 'feature']);
     });
 
     it('rebase: git rebase <onto>', async () => {
       await gitService.rebaseBranch(mockRepo, 'main');
       const cmds = mockGitCli.getAllCommands();
-      assert.deepStrictEqual(cmds[0].args, ['rebase', 'main']);
+      assert.deepStrictEqual(cmds[0].args, ['rebase', '--end-of-options', 'main']);
     });
   });
 
@@ -386,21 +412,29 @@ describe('GitService - Command Argument Correctness', () => {
       await gitService.deleteTag(mockRepo, 'v1.0.0');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['tag', '-d', 'v1.0.0']);
+      // Wave I R1 — tag name follows `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['tag', '-d', '--end-of-options', 'v1.0.0']);
     });
 
     it('push tag: git push origin refs/tags/<name>', async () => {
       await gitService.pushTag(mockRepo, 'v1.0.0');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['push', 'origin', 'refs/tags/v1.0.0']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['push', '--end-of-options', 'origin', 'refs/tags/v1.0.0']);
     });
 
     it('push tag to specific remote', async () => {
       await gitService.pushTag(mockRepo, 'v1.0.0', 'upstream');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['push', 'upstream', 'refs/tags/v1.0.0']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, [
+        'push',
+        '--end-of-options',
+        'upstream',
+        'refs/tags/v1.0.0',
+      ]);
     });
   });
 
@@ -461,19 +495,20 @@ describe('GitService - Command Argument Correctness', () => {
   // ============================================
   // cherry-pick operations
   // ============================================
-  describe('cherry-pick operations', () => {
+  describe('cherry-pick --end-of-options operations', () => {
     it('cherry-pick single: git cherry-pick <hash>', async () => {
       await gitService.cherryPick(mockRepo, ['abc123']);
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['cherry-pick', 'abc123']);
+      assert.deepStrictEqual(cmd.args, ['cherry-pick', '--end-of-options', 'abc123']);
     });
 
     it('cherry-pick multiple: git cherry-pick <hash1> <hash2>', async () => {
       await gitService.cherryPick(mockRepo, ['abc123', 'def456']);
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['cherry-pick', 'abc123', 'def456']);
+      // Wave I — refs follow `--end-of-options`.
+      assert.deepStrictEqual(cmd.args, ['cherry-pick', '--end-of-options', 'abc123', 'def456']);
     });
 
     it('cherry-pick empty array returns success without executing', async () => {

@@ -99,7 +99,8 @@ describe('T3-08 Push All Tags', () => {
     it('emits `git push --tags <remote> <branch>` with default remote/branch', async () => {
       const { gitService, executed } = installGitService();
       await gitService.push(makeRepo(), { tags: true, remote: 'origin', branch: 'main' });
-      assert.deepStrictEqual(executed[0], ['push', '--tags', 'origin', 'main']);
+      // Wave I — `push` now splices `--end-of-options` between flag args and refs.
+      assert.deepStrictEqual(executed[0], ['push', '--tags', '--end-of-options', 'origin', 'main']);
     });
 
     it('emits `git push --tags` when no remote/branch specified', async () => {

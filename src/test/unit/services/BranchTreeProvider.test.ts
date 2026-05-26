@@ -163,3 +163,67 @@ describe('Wave H — BranchTreeProvider detached HEAD row', () => {
     );
   });
 });
+
+describe('Wave I H-3 — BranchTreeProvider.dispose()', () => {
+  it('branchTree-dispose-1: dispose() unsubscribes from gitService.onDidChangeRepository', () => {
+    const repo = attachedRepo();
+    const gitService = createMockGitService(repo);
+    // Pre-construction sanity: no subscribers yet.
+    assert.strictEqual(gitService.changeRepositorySubscriberCount(), 0);
+
+    const provider = new BranchTreeProvider(gitService);
+    // After construction the provider has registered exactly one listener.
+    assert.strictEqual(
+      gitService.changeRepositorySubscriberCount(),
+      1,
+      'constructor must subscribe to onDidChangeRepository'
+    );
+
+    provider.dispose();
+    // Post-dispose the listener is gone — proves the subscription was
+    // captured AND torn down (pre-Wave-I leaked it).
+    assert.strictEqual(
+      gitService.changeRepositorySubscriberCount(),
+      0,
+      'dispose() must unsubscribe from onDidChangeRepository'
+    );
+  });
+
+  it('branchTree-dispose-2: idempotent — double dispose is a no-op', () => {
+    const repo = attachedRepo();
+    const gitService = createMockGitService(repo);
+    const provider = new BranchTreeProvider(gitService);
+
+    provider.dispose();
+    // Second call must NOT throw and must NOT crash the EventEmitter
+    // (which is already disposed). The `_disposed` flag short-circuits.
+    assert.doesNotThrow(() => provider.dispose());
+    assert.strictEqual(gitService.changeRepositorySubscriberCount(), 0);
+  });
+
+  it('branchTree-dispose-3: post-dispose onDidChangeRepository fire is a no-op', () => {
+    const repo = attachedRepo();
+    const gitService = createMockGitService(repo);
+    const provider = new BranchTreeProvider(gitService);
+
+    let onDidChangeFireCount = 0;
+    const sub = provider.onDidChangeTreeData(() => {
+      onDidChangeFireCount += 1;
+    });
+
+    // Pre-dispose: firing onDidChangeRepository on the gitService should
+    // trigger the provider's refresh() → onDidChangeTreeData fire.
+    gitService.fireChangeRepository(repo);
+    assert.strictEqual(onDidChangeFireCount, 1, 'pre-dispose: refresh fires once');
+
+    provider.dispose();
+
+    // Post-dispose: firing onDidChangeRepository must be a no-op.
+    // Even if the subscription somehow stayed alive, the `_disposed`
+    // guard short-circuits.
+    gitService.fireChangeRepository(repo);
+    assert.strictEqual(onDidChangeFireCount, 1, 'post-dispose: no further refreshes');
+
+    sub.dispose();
+  });
+});

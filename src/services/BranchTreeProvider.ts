@@ -225,22 +225,40 @@ export class BranchTreeItem extends vscode.TreeItem {
  * - 5.8: Context menu for tags
  * - 17.6: Organize menu items in logical groupings
  */
-export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeItem> {
+export class BranchTreeProvider
+  implements vscode.TreeDataProvider<BranchTreeItem>, vscode.Disposable
+{
   private _gitService: IGitService;
   private _currentRepository: IRepository | undefined;
   private _onDidChangeTreeData: vscode.EventEmitter<BranchTreeItem | undefined | null | void>;
   readonly onDidChangeTreeData: vscode.Event<BranchTreeItem | undefined | null | void>;
+  // Wave I H-3 — own the EventEmitter + every event subscription so
+  // `dispose()` (called from the extension's
+  // `context.subscriptions.push(...)` registration) tears down cleanly
+  // on extension deactivation. Pre-Wave-I the constructor leaked the
+  // `onDidChangeRepository` listener and the EventEmitter on dispose.
+  private readonly _disposables: vscode.Disposable[] = [];
+  private _disposed = false;
 
   constructor(gitService: IGitService) {
     this._gitService = gitService;
     this._onDidChangeTreeData = new vscode.EventEmitter<BranchTreeItem | undefined | null | void>();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-    // Listen for repository changes
-    this._gitService.onDidChangeRepository((repo) => {
-      this._currentRepository = repo;
-      this.refresh();
-    });
+    // Listen for repository changes. Wave I — capture the subscription
+    // so dispose() tears it down. Guard the callback against post-dispose
+    // delivery (the event source can outlive us when dispose() races
+    // with an in-flight `onDidChangeRepository` fire — a no-op here is
+    // safer than mutating `_currentRepository` mid-teardown).
+    this._disposables.push(
+      this._gitService.onDidChangeRepository((repo) => {
+        if (this._disposed) {
+          return;
+        }
+        this._currentRepository = repo;
+        this.refresh();
+      })
+    );
 
     // Initialize with first repository. Bucket C: init path;
     // `onDidChangeRepository` above picks up repos discovered later, so a
@@ -249,6 +267,29 @@ export class BranchTreeProvider implements vscode.TreeDataProvider<BranchTreeIte
       this._initializeRepository(),
       'BranchTreeProvider.constructor: initial repository load'
     );
+  }
+
+  /**
+   * Wave I H-3 — Dispose the EventEmitter and every captured
+   * subscription. Idempotent: safe to call twice (the second call is
+   * a no-op). Post-dispose, `refresh()` becomes a no-op because the
+   * event emitter is dead and the `_disposed` flag short-circuits
+   * the `onDidChangeRepository` callback.
+   *
+   * Registered with `context.subscriptions.push(branchTreeProvider)`
+   * in `extension.ts:4178` so the extension lifecycle owns the
+   * teardown.
+   */
+  dispose(): void {
+    if (this._disposed) {
+      return;
+    }
+    this._disposed = true;
+    for (const d of this._disposables) {
+      d.dispose();
+    }
+    this._disposables.length = 0;
+    this._onDidChangeTreeData.dispose();
   }
 
   /**

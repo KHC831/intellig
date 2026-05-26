@@ -13,6 +13,7 @@ import {
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
 import { GitCli, createGitCli, IGitCommandResult } from '../utils/gitCli';
+import { IGitService } from './interfaces/IGitService';
 
 /**
  * Rebase Service implementation.
@@ -34,8 +35,22 @@ import { GitCli, createGitCli, IGitCommandResult } from '../utils/gitCli';
  * same `_unknownTopLevel` / `_unknownItem` round-trip discipline should
  * be applied.
  */
+// Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
+interface IGitServiceWithCli {
+  gitCli: GitCli;
+}
+
 export class RebaseService implements IRebaseService {
   private _gitCli: GitCli;
+  /**
+   * Wave I WI-D — when `true`, this service owns its `_gitCli` and is
+   * responsible for disposing it. When `false`, the cli was reached
+   * through a shared GitService (see ctor docs) and the GitService owns
+   * the lifecycle. Pre-Wave-I every secondary service spun up its own
+   * GitCli, so `gitService.onCommandExecuted` listeners (e.g. the
+   * Console View) never saw `git rebase`/`git stash`/`git blame` calls.
+   */
+  private _ownsGitCli: boolean;
   private _sessions: Map<string, IRebaseSession> = new Map();
   private _onDidChangeRebaseSession: vscode.EventEmitter<IRebaseSession | undefined>;
   private _disposables: vscode.Disposable[] = [];
@@ -45,8 +60,30 @@ export class RebaseService implements IRebaseService {
    */
   readonly onDidChangeRebaseSession: vscode.Event<IRebaseSession | undefined>;
 
-  constructor(gitCli?: GitCli) {
-    this._gitCli = gitCli || createGitCli();
+  /**
+   * Wave I WI-D — accept `gitService` so we can route rebase commands
+   * through the SAME GitCli the GitService owns. When the host wires us
+   * with `new RebaseService(undefined, gitService)`, our `_gitCli`
+   * points at `gitService.gitCli`, the ConsoleService's
+   * `connectToGitCli(gitService.gitCli)` subscription captures every
+   * `git rebase` call, and the back-channel diagnostics surface
+   * end-to-end.
+   *
+   * Legacy callers that pass only `gitCli` (or nothing) still get a
+   * standalone instance with its own ownership flag set so dispose()
+   * tears it down.
+   *
+   * @param gitCli - Optional explicit cli. Ignored when `gitService` is set.
+   * @param gitService - Optional shared GitService whose `gitCli` field we adopt.
+   */
+  constructor(gitCli?: GitCli, gitService?: IGitService) {
+    if (gitService) {
+      this._gitCli = (gitService as unknown as IGitServiceWithCli).gitCli;
+      this._ownsGitCli = false;
+    } else {
+      this._gitCli = gitCli || createGitCli();
+      this._ownsGitCli = true;
+    }
     this._onDidChangeRebaseSession = new vscode.EventEmitter<IRebaseSession | undefined>();
     this.onDidChangeRebaseSession = this._onDidChangeRebaseSession.event;
   }
@@ -880,6 +917,10 @@ ${todoContent}EOF
 
   /**
    * Dispose of resources.
+   *
+   * Wave I WI-D — only dispose `_gitCli` when WE own it. Pre-Wave-I we
+   * unconditionally disposed; the new shared-cli path delegates
+   * lifecycle to the GitService.
    */
   dispose(): void {
     this._onDidChangeRebaseSession.dispose();
@@ -889,6 +930,13 @@ ${todoContent}EOF
       disposable.dispose();
     }
     this._disposables = [];
+
+    if (this._ownsGitCli) {
+      const cli = this._gitCli as unknown as { dispose?: () => void };
+      if (typeof cli.dispose === 'function') {
+        cli.dispose();
+      }
+    }
   }
 }
 
@@ -896,8 +944,9 @@ ${todoContent}EOF
  * Create a new RebaseService instance.
  *
  * @param gitCli - Optional GitCli instance to use
+ * @param gitService - Optional GitService whose gitCli we adopt
  * @returns A new RebaseService instance
  */
-export function createRebaseService(gitCli?: GitCli): RebaseService {
-  return new RebaseService(gitCli);
+export function createRebaseService(gitCli?: GitCli, gitService?: IGitService): RebaseService {
+  return new RebaseService(gitCli, gitService);
 }

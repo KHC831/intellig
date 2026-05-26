@@ -656,23 +656,32 @@ describe('T1-02 GitService.pull — flag arg ordering', () => {
       branch: 'main',
     });
 
+    // Wave I — `pull` now splices `--end-of-options` between flag args
+    // and the remote/branch refs to defend against argv injection.
     assert.deepStrictEqual(executed[0], [
       'pull',
       '--rebase',
       '--squash',
       '--no-commit',
       '--no-verify',
+      '--end-of-options',
       'origin',
       'main',
     ]);
 
     await gitService.pull(repo, { ffOnly: true, remote: 'origin', branch: 'main' });
-    assert.deepStrictEqual(executed[1], ['pull', '--ff-only', 'origin', 'main']);
+    assert.deepStrictEqual(executed[1], [
+      'pull',
+      '--ff-only',
+      '--end-of-options',
+      'origin',
+      'main',
+    ]);
 
     await gitService.pull(repo, { noFf: true, remote: 'origin', branch: 'main' });
-    assert.deepStrictEqual(executed[2], ['pull', '--no-ff', 'origin', 'main']);
+    assert.deepStrictEqual(executed[2], ['pull', '--no-ff', '--end-of-options', 'origin', 'main']);
 
     await gitService.pull(repo, { remote: 'origin', branch: 'main' });
-    assert.deepStrictEqual(executed[3], ['pull', 'origin', 'main']);
+    assert.deepStrictEqual(executed[3], ['pull', '--end-of-options', 'origin', 'main']);
   });
 });

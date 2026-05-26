@@ -313,3 +313,38 @@ export class GitCli {
 export function createGitCli(gitPath?: string): GitCli {
   return new GitCli(gitPath);
 }
+
+/**
+ * Wave I — argv-injection-safe ref splice.
+ *
+ * Composes git argv from `subcommand`, `flags`, and user-controlled
+ * `refs`/`paths`. Inserts `--end-of-options` between flag args and ref
+ * args structurally, so a malicious ref like `--upload-pack=evil`
+ * cannot land as a flag. Pinned by gitArgInjection.property.test.ts.
+ *
+ * Layout:
+ *   `<subcommand> <...flags> [--end-of-options <...refs>] [-- <...paths>]`
+ *
+ * `--end-of-options` is emitted only when `refs.length > 0`. The path
+ * separator `--` is emitted whenever `paths !== undefined`, even when
+ * `paths` is empty — callers that want "no path filter" should pass
+ * `undefined` instead of `[]`.
+ *
+ * Wave D R1 introduced this discipline ad-hoc in `getMergeBase`; Wave I
+ * generalizes it across every ref-consuming GitService method.
+ */
+export function buildGitArgs(
+  subcommand: string,
+  flags: string[],
+  refs: string[],
+  paths?: string[]
+): string[] {
+  const argv: string[] = [subcommand, ...flags];
+  if (refs.length > 0) {
+    argv.push('--end-of-options', ...refs);
+  }
+  if (paths !== undefined) {
+    argv.push('--', ...paths);
+  }
+  return argv;
+}

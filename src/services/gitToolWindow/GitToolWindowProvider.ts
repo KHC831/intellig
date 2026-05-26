@@ -2731,7 +2731,7 @@ ${bodyMarkup}
 
         return `
         <div class="${rowClasses}"
-             data-hash="${commit.hash}"
+             data-hash="${this._escapeHtml(commit.hash)}"
              role="option"
              tabindex="0"
              aria-selected="${isSelected}">

@@ -1127,23 +1127,33 @@ export class CommitDialog {
     const isSelected = this._selectedFilePath === file.path;
     const statusColor = this._getStatusColor(file.status);
 
+    // Wave I H-2 — inline `onclick="X('${path}')"` is replaced by
+    // `data-action="X" data-path="${path}"`. The delegated dispatcher
+    // at the bottom of the inline <script> picks it up via
+    // `addEventListener('click', ...)`, matching the pattern at
+    // GitToolWindowProvider.ts:4523. Pre-Wave-I, escaping a path
+    // containing a `'` would still inject JavaScript through the inline
+    // attribute (`<button onclick="stageFile('foo\'-evil')">` →
+    // CSP-bypassing arbitrary script).
+    const escapedPath = this._escapeHtml(file.path);
     return `
-      <div class="file-item ${isSelected ? 'selected' : ''}" 
-           data-path="${this._escapeHtml(file.path)}"
-           onclick="selectFile('${this._escapeHtml(file.path)}')">
-        <input 
-          type="checkbox" 
-          class="file-checkbox" 
-          ${file.selected ? 'checked' : ''} 
-          onclick="event.stopPropagation(); toggleFile('${this._escapeHtml(file.path)}')"
+      <div class="file-item ${isSelected ? 'selected' : ''}"
+           data-path="${escapedPath}"
+           data-action="selectFile">
+        <input
+          type="checkbox"
+          class="file-checkbox"
+          ${file.selected ? 'checked' : ''}
+          data-action="toggleFile"
+          data-path="${escapedPath}"
         />
         <span class="file-status" style="color: ${statusColor};">${file.status.charAt(0)}</span>
         <span class="file-path">${this._escapeHtml(this._getFileName(file.path))}</span>
         <span class="file-dir">${this._escapeHtml(this._getFileDir(file.path))}</span>
         ${
           file.staged
-            ? `<button class="stage-button unstage" onclick="event.stopPropagation(); unstageFile('${this._escapeHtml(file.path)}')" title="Unstage">−</button>`
-            : `<button class="stage-button stage" onclick="event.stopPropagation(); stageFile('${this._escapeHtml(file.path)}')" title="Stage">+</button>`
+            ? `<button class="stage-button unstage" data-action="unstageFile" data-path="${escapedPath}" title="Unstage">−</button>`
+            : `<button class="stage-button stage" data-action="stageFile" data-path="${escapedPath}" title="Stage">+</button>`
         }
       </div>
     `;
@@ -1270,20 +1280,24 @@ export class CommitDialog {
       })
       .join('');
 
-    // Hunk controls - stage/unstage buttons
+    // Hunk controls - stage/unstage buttons.
+    // Wave I H-2 — inline-onclick → data-action delegation. `hunkIndex`
+    // is a number (caller-controlled), but the data-action pattern
+    // brings the same uniform CSP-safe shape as the path-based handlers
+    // above. Matches GitToolWindowProvider:4523.
     const stageButton = isStaged
-      ? `<button class="hunk-button unstage-hunk" onclick="unstageHunk(${hunkIndex})" title="Unstage this hunk">− Unstage Hunk</button>`
-      : `<button class="hunk-button stage-hunk" onclick="stageHunk(${hunkIndex})" title="Stage this hunk">+ Stage Hunk</button>`;
+      ? `<button class="hunk-button unstage-hunk" data-action="unstageHunk" data-hunk-index="${hunkIndex}" title="Unstage this hunk">− Unstage Hunk</button>`
+      : `<button class="hunk-button stage-hunk" data-action="stageHunk" data-hunk-index="${hunkIndex}" title="Stage this hunk">+ Stage Hunk</button>`;
 
     // Line selection controls (only shown in partial staging mode)
     const lineSelectionControls = this._partialStagingMode
       ? `
         <div class="line-selection-controls">
-          <button class="hunk-button select-all" onclick="selectAllLinesInHunk(${hunkIndex})" title="Select all changed lines">Select All</button>
-          <button class="hunk-button deselect-all" onclick="deselectAllLinesInHunk(${hunkIndex})" title="Deselect all lines">Deselect All</button>
+          <button class="hunk-button select-all" data-action="selectAllLinesInHunk" data-hunk-index="${hunkIndex}" title="Select all changed lines">Select All</button>
+          <button class="hunk-button deselect-all" data-action="deselectAllLinesInHunk" data-hunk-index="${hunkIndex}" title="Deselect all lines">Deselect All</button>
           ${
             hasSelectedLines && !isStaged
-              ? `<button class="hunk-button stage-selected" onclick="stageSelectedLines(${hunkIndex})" title="Stage selected lines">+ Stage ${selectedLines.size} Line${selectedLines.size !== 1 ? 's' : ''}</button>`
+              ? `<button class="hunk-button stage-selected" data-action="stageSelectedLines" data-hunk-index="${hunkIndex}" title="Stage selected lines">+ Stage ${selectedLines.size} Line${selectedLines.size !== 1 ? 's' : ''}</button>`
               : ''
           }
         </div>
@@ -1945,6 +1959,42 @@ export class CommitDialog {
       function cancel() {
         vscode.postMessage({ type: 'cancel' });
       }
+
+      // Wave I H-2 — Delegated event dispatcher.
+      // Replaces inline onclick attributes with data-action + data-path
+      // (and data-hunk-index for the hunk buttons). The dispatcher reads
+      // those attributes from the closest matching ancestor and routes to
+      // the corresponding handler. Mirrors GitToolWindowProvider line 4523.
+      //
+      // Why: an inline-onclick attribute interpolated the user-controlled
+      // path verbatim into a JS string. A path containing a single quote
+      // would have broken out of that string (HTML attribute decoding
+      // turns &apos; back into a single quote inside the JS parser), so a
+      // hostile filename could inject script. Data attributes go through
+      // the DOM property channel, never the JS parser, so a path with any
+      // character is safe.
+      document.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+        const action = target.dataset.action;
+        const path = target.dataset.path;
+        const hunkIndex = target.dataset.hunkIndex;
+        const handlers = {
+          selectFile: () => selectFile(path),
+          toggleFile: () => { e.stopPropagation(); toggleFile(path); },
+          stageFile: () => { e.stopPropagation(); stageFile(path); },
+          unstageFile: () => { e.stopPropagation(); unstageFile(path); },
+          stageHunk: () => stageHunk(Number(hunkIndex)),
+          unstageHunk: () => unstageHunk(Number(hunkIndex)),
+          stageSelectedLines: () => stageSelectedLines(Number(hunkIndex)),
+          selectAllLinesInHunk: () => selectAllLinesInHunk(Number(hunkIndex)),
+          deselectAllLinesInHunk: () => deselectAllLinesInHunk(Number(hunkIndex)),
+        };
+        const handler = handlers[action];
+        if (handler) {
+          handler();
+        }
+      });
 
       // Handle keyboard shortcuts
       document.addEventListener('keydown', (e) => {

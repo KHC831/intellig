@@ -36,7 +36,7 @@ import {
   ResetMode,
   RepositoryState,
 } from './interfaces/IGitService';
-import { GitCli, IGitCommandOptions, createGitCli } from '../utils/gitCli';
+import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from '../utils/gitCli';
 import {
   scanFolderForGitRepos,
   defaultRepoScanFs,
@@ -1077,15 +1077,25 @@ export class GitService implements IGitService, IGitServiceCli {
     // so the branch is created AND switched to in a single atomic command.
     // Using `-B` when force is also set gives us "reset-and-checkout" in one
     // shot — matches IntelliJ's "Overwrite if exists" + "Checkout" combo.
+    // Wave I — branch-name validation above rejects `-`-leading names,
+    // so `name` is safe to land positionally. We splice `--end-of-options`
+    // before the unvalidated `startPoint` ref (the user-controlled
+    // injection point).
+    //
+    // For `git checkout -[B|b] <name> --track <startPoint>` the name
+    // must immediately follow `-b` (see GitServiceCheckout.test.ts).
+    // The startPoint ref ALSO must follow git's positional contract:
+    // either bare `<name> <startPoint>` or `<name> --track <startPoint>`.
+    // We build the argv with the structural separator between flag args
+    // and the user-controlled startPoint while preserving git's
+    // positional constraints.
     if (options.checkout) {
-      const args = ['checkout'];
-      args.push(options.force ? '-B' : '-b');
-      args.push(name);
+      const args = ['checkout', options.force ? '-B' : '-b', name];
       if (options.track) {
         args.push('--track');
       }
       if (options.startPoint) {
-        args.push(options.startPoint);
+        args.push('--end-of-options', options.startPoint);
       }
       await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
       this.invalidateCache(repo.rootUri.fsPath);
@@ -1101,7 +1111,7 @@ export class GitService implements IGitService, IGitServiceCli {
     }
     args.push(name);
     if (options.startPoint) {
-      args.push(options.startPoint);
+      args.push('--end-of-options', options.startPoint);
     }
 
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
@@ -1109,37 +1119,74 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void> {
-    const args = ['checkout'];
-
+    // Wave I — splice `--end-of-options` between flag args and the ref
+    // to reject argv injection via a hostile branch name (e.g.
+    // `--upload-pack=evil`).
+    //
+    // For `createBranch: true` the layout is
+    //   `git checkout -b <name> [-f] [--track <upstream>]`
+    // where `<name>` MUST immediately follow `-b` (a long-standing
+    // regression class — see GitServiceCheckout.test.ts:103). The
+    // `--end-of-options` separator cannot land between `-b` and the
+    // name without breaking git's parser. We keep the createBranch
+    // path's argv unchanged and rely on `validateBranchName` (called
+    // by createBranch upstream) to reject hostile names.
     if (options?.createBranch) {
-      args.push('-b', ref);
-    } else {
+      const args = ['checkout', '-b', ref];
       if (options?.force) {
         args.push('-f');
       }
-      args.push(ref);
+      if (options?.track) {
+        args.push('--track', options.track);
+      }
+      await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+      this.invalidateCache(repo.rootUri.fsPath);
+      return;
     }
 
-    if (options?.createBranch && options?.force) {
-      args.push('-f');
+    // Plain checkout path: the ref is user-controlled, so we splice
+    // `--end-of-options` before it.
+    const flags: string[] = [];
+    if (options?.force) {
+      flags.push('-f');
     }
-
+    const trailing: string[] = [];
     if (options?.track) {
-      args.push('--track', options.track);
+      trailing.push('--track', options.track);
     }
 
+    const args = [...buildGitArgs('checkout', flags, [ref]), ...trailing];
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.invalidateCache(repo.rootUri.fsPath);
   }
 
   async deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
-    const args = ['branch', force ? '-D' : '-d', name];
+    // Wave I R1 — service-boundary reject branch names starting with `-`
+    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
+    // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
+    // `--end-of-options` between the `-d`/`-D` flag and the user-controlled
+    // name as structural defense in depth.
+    if (!name || name.startsWith('-') || name.startsWith('.')) {
+      throw new Error(`Invalid branch name: ${name}`);
+    }
+    const args = buildGitArgs('branch', [force ? '-D' : '-d'], [name]);
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.invalidateCache(repo.rootUri.fsPath);
   }
 
   async renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
-    await this._gitCli.exec(['branch', '-m', oldName, newName], {
+    // Wave I R1 — service-boundary reject either name starting with `-`
+    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
+    // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
+    // `--end-of-options` between the `-m` flag and the user-controlled
+    // names as structural defense in depth.
+    if (!oldName || oldName.startsWith('-') || oldName.startsWith('.')) {
+      throw new Error(`Invalid branch name: ${oldName}`);
+    }
+    if (!newName || newName.startsWith('-') || newName.startsWith('.')) {
+      throw new Error(`Invalid branch name: ${newName}`);
+    }
+    await this._gitCli.exec(buildGitArgs('branch', ['-m'], [oldName, newName]), {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });
@@ -1154,22 +1201,23 @@ export class GitService implements IGitService, IGitServiceCli {
     // Order: git merge [--ff-only|--no-ff] [--squash] [--no-commit] [-m <msg>] <branch>
     // Strategy flags are CLI-mutex. Precedence when the caller sets several:
     // ffOnly > noFf > squash. UI enforces the mutex before we get here.
-    const args = ['merge'];
+    const flags: string[] = [];
     if (options?.ffOnly) {
-      args.push('--ff-only');
+      flags.push('--ff-only');
     } else if (options?.noFf) {
-      args.push('--no-ff');
+      flags.push('--no-ff');
     }
     if (options?.squash) {
-      args.push('--squash');
+      flags.push('--squash');
     }
     if (options?.noCommit) {
-      args.push('--no-commit');
+      flags.push('--no-commit');
     }
     if (options?.message && options.message.length > 0) {
-      args.push('-m', options.message);
+      flags.push('-m', options.message);
     }
-    args.push(branch);
+    // Wave I — `branch` is user-controlled; splice via buildGitArgs.
+    const args = buildGitArgs('merge', flags, [branch]);
 
     const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     this.invalidateCache(repo.rootUri.fsPath);
@@ -1210,7 +1258,9 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns Rebase result with success status and any conflicts
    */
   async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
-    const result = await this._gitCli.exec(['rebase', onto], { cwd: repo.rootUri.fsPath });
+    // Wave I — `onto` is user-controlled; splice via buildGitArgs.
+    const args = buildGitArgs('rebase', [], [onto]);
+    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     this.invalidateCache(repo.rootUri.fsPath);
 
     if (result.exitCode === 0) {
@@ -1291,8 +1341,9 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Get ahead/behind counts using git rev-list --left-right --count
     // This returns: "ahead\tbehind"
+    // Wave I — branch1/branch2 are user-controlled; splice via buildGitArgs.
     const countResult = await this._gitCli.exec(
-      ['rev-list', '--left-right', '--count', `${branch1}...${branch2}`],
+      buildGitArgs('rev-list', ['--left-right', '--count'], [`${branch1}...${branch2}`]),
       { cwd }
     );
 
@@ -1309,10 +1360,11 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Get commits unique to branch1 (ahead commits)
     // git rev-list branch2..branch1 gives commits in branch1 not in branch2
+    // Wave I — both branches splice via buildGitArgs.
     const commitsAhead: ICommit[] = [];
     if (aheadCount > 0) {
       const aheadResult = await this._gitCli.exec(
-        ['log', `--format=${format}`, '-z', `${branch2}..${branch1}`],
+        buildGitArgs('log', [`--format=${format}`, '-z'], [`${branch2}..${branch1}`]),
         { cwd }
       );
       if (aheadResult.exitCode === 0 && aheadResult.stdout.trim()) {
@@ -1325,7 +1377,7 @@ export class GitService implements IGitService, IGitServiceCli {
     const commitsBehind: ICommit[] = [];
     if (behindCount > 0) {
       const behindResult = await this._gitCli.exec(
-        ['log', `--format=${format}`, '-z', `${branch1}..${branch2}`],
+        buildGitArgs('log', [`--format=${format}`, '-z'], [`${branch1}..${branch2}`]),
         { cwd }
       );
       if (behindResult.exitCode === 0 && behindResult.stdout.trim()) {
@@ -1333,19 +1385,22 @@ export class GitService implements IGitService, IGitServiceCli {
       }
     }
 
-    // Get files that differ between branches
-    // git diff --name-only branch1...branch2 shows files changed between the merge base and branch2
-    // We use branch1..branch2 to get all files that differ
-    const diffResult = await this._gitCli.exec(['diff', '--name-only', `${branch1}...${branch2}`], {
-      cwd,
-    });
+    // Get files that differ between branches.
+    // L-4 (Wave I sweep): use `--name-only -z` so paths with whitespace
+    // / non-ASCII characters split unambiguously on `\0` rather than the
+    // old `\n` parse, which lost names containing literal newlines.
+    const diffResult = await this._gitCli.exec(
+      buildGitArgs('diff', ['--name-only', '-z'], [`${branch1}...${branch2}`]),
+      {
+        cwd,
+      }
+    );
 
+    // L-4: `-z` separates entries with `\0`, not `\n`, so paths
+    // containing newlines or whitespace round-trip safely.
     let changedFiles: string[] = [];
-    if (diffResult.exitCode === 0 && diffResult.stdout.trim()) {
-      changedFiles = diffResult.stdout
-        .trim()
-        .split('\n')
-        .filter((f) => f.length > 0);
+    if (diffResult.exitCode === 0 && diffResult.stdout.length > 0) {
+      changedFiles = diffResult.stdout.split('\0').filter((f) => f.length > 0);
     }
 
     return {
@@ -1466,35 +1521,40 @@ export class GitService implements IGitService, IGitServiceCli {
 
   async pull(repo: IRepository, options?: IPullOptions): Promise<void> {
     // Order: git pull [--rebase|--ff-only|--no-ff] [--squash] [--no-commit] [--no-verify] <remote> <branch>
-    const args = ['pull'];
+    // Wave I — split flags vs. refs (remote/branch) so buildGitArgs can
+    // splice `--end-of-options` between them; defends against argv
+    // injection through hostile remote/branch names.
+    const flags: string[] = [];
 
     // Strategy flags are mutually exclusive; first non-empty wins to stay safe
     // even if the caller hasn't resolved the UI mutex.
     if (options?.rebase) {
-      args.push('--rebase');
+      flags.push('--rebase');
     } else if (options?.ffOnly) {
-      args.push('--ff-only');
+      flags.push('--ff-only');
     } else if (options?.noFf) {
-      args.push('--no-ff');
+      flags.push('--no-ff');
     }
 
     if (options?.squash) {
-      args.push('--squash');
+      flags.push('--squash');
     }
     if (options?.noCommit) {
-      args.push('--no-commit');
+      flags.push('--no-commit');
     }
     if (options?.noVerify) {
-      args.push('--no-verify');
+      flags.push('--no-verify');
     }
 
+    const refs: string[] = [];
     if (options?.remote) {
-      args.push(options.remote);
+      refs.push(options.remote);
     }
     if (options?.branch) {
-      args.push(options.branch);
+      refs.push(options.branch);
     }
 
+    const args = buildGitArgs('pull', flags, refs);
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.invalidateCache(repo.rootUri.fsPath);
   }
@@ -1502,40 +1562,46 @@ export class GitService implements IGitService, IGitServiceCli {
   async push(repo: IRepository, options?: IPushOptions): Promise<void> {
     // Order: git push [--force|--force-with-lease] [--set-upstream] [--no-verify]
     //                 [--tags|--follow-tags] <remote> [<refspec>|<branch>]
-    const args = ['push'];
+    // Wave I — split flags vs. refs so buildGitArgs splices
+    // `--end-of-options`; defends against argv injection through hostile
+    // remote / refspec / branch names.
+    const flags: string[] = [];
 
     // Force flags are mutually exclusive; `force` (bare --force) wins if a
     // caller sets both so the command can't silently downgrade the user's
     // explicit request. Safety policy still puts the onus on the UI to
     // prefer `forceWithLease`.
     if (options?.force) {
-      args.push('--force');
+      flags.push('--force');
     } else if (options?.forceWithLease) {
-      args.push('--force-with-lease');
+      flags.push('--force-with-lease');
     }
     if (options?.setUpstream) {
-      args.push('--set-upstream');
+      flags.push('--set-upstream');
     }
     if (options?.noVerify) {
-      args.push('--no-verify');
+      flags.push('--no-verify');
     }
     // Tag flags are mutually exclusive; prefer --follow-tags when both set
     // so we don't accidentally push unrelated tags.
     if (options?.followTags) {
-      args.push('--follow-tags');
+      flags.push('--follow-tags');
     } else if (options?.tags) {
-      args.push('--tags');
+      flags.push('--tags');
     }
+
+    const refs: string[] = [];
     if (options?.remote) {
-      args.push(options.remote);
+      refs.push(options.remote);
     }
     // Explicit refspec (`local:target`) takes precedence over positional branch.
     if (options?.refspec) {
-      args.push(options.refspec);
+      refs.push(options.refspec);
     } else if (options?.branch) {
-      args.push(options.branch);
+      refs.push(options.branch);
     }
 
+    const args = buildGitArgs('push', flags, refs);
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.invalidateCache(repo.rootUri.fsPath);
   }
@@ -1593,7 +1659,28 @@ export class GitService implements IGitService, IGitServiceCli {
     return parseStashList(result.stdout);
   }
 
+  /**
+   * Wave I L-3 — Validate a stash index before interpolating it into the
+   * `stash@{<index>}` ref. Pre-Wave-I, `stashApply` / `stashPop` /
+   * `stashDrop` / `stashShow` interpolated the raw `index` directly,
+   * trusting upstream callers (CommitToolWindow / palette commands) to
+   * pass a valid integer. A non-integer or negative value would
+   * silently produce a malformed git ref like `stash@{NaN}` or
+   * `stash@{undefined}`. The other stash methods (`stashBranch`,
+   * `stashRename`) already validated; this helper reuses the same
+   * predicate so the pattern is uniform across all 6 sites.
+   *
+   * Throws (rather than returns) so the caller can trust `index` is a
+   * non-negative integer for the rest of the call.
+   */
+  private _validateStashIndex(index: number): asserts index is number {
+    if (!Number.isInteger(index) || index < 0) {
+      throw new Error(`Invalid stash index: ${index}`);
+    }
+  }
+
   async stashApply(repo: IRepository, index: number): Promise<void> {
+    this._validateStashIndex(index);
     await this._gitCli.exec(['stash', 'apply', `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -1602,6 +1689,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async stashPop(repo: IRepository, index: number): Promise<void> {
+    this._validateStashIndex(index);
     await this._gitCli.exec(['stash', 'pop', `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -1610,6 +1698,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async stashDrop(repo: IRepository, index: number): Promise<void> {
+    this._validateStashIndex(index);
     await this._gitCli.exec(['stash', 'drop', `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -1625,9 +1714,7 @@ export class GitService implements IGitService, IGitServiceCli {
     if (!branchName || !branchName.trim()) {
       throw new Error('Branch name cannot be empty');
     }
-    if (!Number.isInteger(index) || index < 0) {
-      throw new Error(`Invalid stash index: ${index}`);
-    }
+    this._validateStashIndex(index);
     await this._gitCli.exec(['stash', 'branch', branchName.trim(), `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -1648,9 +1735,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * top-of-stack entry so we don't leave duplicates.
    */
   async stashRename(repo: IRepository, index: number, newMessage: string): Promise<void> {
-    if (!Number.isInteger(index) || index < 0) {
-      throw new Error(`Invalid stash index: ${index}`);
-    }
+    this._validateStashIndex(index);
     if (typeof newMessage !== 'string') {
       throw new Error('New stash message must be a string');
     }
@@ -1705,6 +1790,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns Array of diffs showing the stash contents
    */
   async stashShow(repo: IRepository, index: number): Promise<IDiff[]> {
+    this._validateStashIndex(index);
     const result = await this._gitCli.exec(['stash', 'show', '-p', `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
@@ -1731,24 +1817,43 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void> {
-    const args = ['tag'];
-
+    // Wave I R1 — service-boundary reject tag names starting with `-`
+    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
+    // git-check-ref-format). Mirrors the `createBranch` guard.
+    if (!name || name.startsWith('-') || name.startsWith('.')) {
+      throw new Error(`Invalid tag name: ${name}`);
+    }
+    // Wave I R1 — splice `--end-of-options` between flags and the
+    // user-controlled `name` (and optional `ref`). Layouts:
+    //   lightweight: `tag --end-of-options <name> [<ref>]`
+    //   annotated  : `tag -a -m <msg> --end-of-options <name> [<ref>]`
+    // Verified: `tag -a --end-of-options <name> -m <msg>` FAILS because
+    // `-m` becomes a non-option arg after `--end-of-options`. We therefore
+    // place `-m <msg>` BEFORE the separator.
+    const flags: string[] = [];
     if (message) {
-      args.push('-a', name, '-m', message);
-    } else {
-      args.push(name);
+      flags.push('-a', '-m', message);
     }
-
+    const refs: string[] = [name];
     if (ref) {
-      args.push(ref);
+      refs.push(ref);
     }
+    const args = buildGitArgs('tag', flags, refs);
 
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.invalidateCache(repo.rootUri.fsPath);
   }
 
   async deleteTag(repo: IRepository, name: string): Promise<void> {
-    await this._gitCli.exec(['tag', '-d', name], {
+    // Wave I R1 — service-boundary reject tag names starting with `-`
+    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
+    // git-check-ref-format). Also splice `--end-of-options` between the
+    // `-d` flag and the user-controlled name as structural defense in
+    // depth.
+    if (!name || name.startsWith('-') || name.startsWith('.')) {
+      throw new Error(`Invalid tag name: ${name}`);
+    }
+    await this._gitCli.exec(buildGitArgs('tag', ['-d'], [name]), {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });
@@ -1756,7 +1861,8 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async pushTag(repo: IRepository, name: string, remote?: string): Promise<void> {
-    const args = ['push', remote || 'origin', `refs/tags/${name}`];
+    // Wave I — `name` (and `remote`) are user-controlled; splice via buildGitArgs.
+    const args = buildGitArgs('push', [], [remote || 'origin', `refs/tags/${name}`]);
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
   }
 
@@ -1803,10 +1909,14 @@ export class GitService implements IGitService, IGitServiceCli {
 
   async getCommit(repo: IRepository, hash: string): Promise<ICommit> {
     const format = getLogFormat();
-    const result = await this._gitCli.exec(['show', '-s', `--format=${format}`, '-z', hash], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
+    // Wave I — `hash` is user-controlled; splice via buildGitArgs.
+    const result = await this._gitCli.exec(
+      buildGitArgs('show', ['-s', `--format=${format}`, '-z'], [hash]),
+      {
+        cwd: repo.rootUri.fsPath,
+        throwOnError: true,
+      }
+    );
 
     const commit = parseCommit(result.stdout);
     if (!commit) {
@@ -1824,22 +1934,27 @@ export class GitService implements IGitService, IGitServiceCli {
     // T2-07 — standalone implementation so we can pass `--follow` and a
     // branch ref that the generic `getLog()` doesn't understand. Falls back
     // to the pre-T2-07 behaviour when both flags are absent.
+    // Wave I — `branch` is user-controlled; splice via buildGitArgs so
+    // `--end-of-options` separates flag args from the ref.
     const format = getLogFormat();
-    const args = ['log', `--format=${format}`, '-z'];
+    const flags: string[] = [`--format=${format}`, '-z'];
 
     if (options?.follow) {
-      args.push('--follow');
+      flags.push('--follow');
     }
     if (options?.maxCount !== undefined && options.maxCount > 0) {
-      args.push('-n', String(options.maxCount));
-    }
-    if (options?.branch) {
-      // A branch/ref name — git log understands both local and remote refs.
-      args.push(options.branch);
+      flags.push('-n', String(options.maxCount));
     }
 
-    // `--` separator, then the path.
-    args.push('--', path);
+    const refs: string[] = [];
+    if (options?.branch) {
+      // A branch/ref name — git log understands both local and remote refs.
+      refs.push(options.branch);
+    }
+
+    // buildGitArgs writes the trailing `-- <path>` for us when `paths` is
+    // non-undefined.
+    const args = buildGitArgs('log', flags, refs, [path]);
 
     const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     if (result.exitCode !== 0) {
@@ -1871,8 +1986,13 @@ export class GitService implements IGitService, IGitServiceCli {
 
     try {
       // %m emits one of `<`, `>`, `=`, `+`, `-` per commit per --cherry-mark docs.
+      // Wave I — `baseRef` is user-controlled; splice via buildGitArgs.
       const result = await this._gitCli.exec(
-        ['log', '--cherry-mark', '--left-right', '--pretty=format:%H %m', `HEAD...${baseRef}`],
+        buildGitArgs(
+          'log',
+          ['--cherry-mark', '--left-right', '--pretty=format:%H %m'],
+          [`HEAD...${baseRef}`]
+        ),
         {
           cwd: repo.rootUri.fsPath,
           throwOnError: false,
@@ -1931,7 +2051,9 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
-    const result = await this._gitCli.exec(['show', '--format=', hash], {
+    // Wave I R1 — `hash` is user-controlled; splice via buildGitArgs so a
+    // hostile ref like `--upload-pack=evil` cannot land as a flag.
+    const result = await this._gitCli.exec(buildGitArgs('show', ['--format='], [hash]), {
       cwd: repo.rootUri.fsPath,
     });
 
@@ -1974,7 +2096,11 @@ export class GitService implements IGitService, IGitServiceCli {
     for (const hash of commits) {
       // `%cI` (commit-date ISO-8601) + `%P` (space-separated parent hashes),
       // separated by a tab so we can split unambiguously.
-      const result = await this._gitCli.exec(['show', '-s', '--format=%cI%x09%P', hash], { cwd });
+      // Wave I — `hash` is user-controlled; splice via buildGitArgs.
+      const result = await this._gitCli.exec(
+        buildGitArgs('show', ['-s', '--format=%cI%x09%P'], [hash]),
+        { cwd }
+      );
       if (result.exitCode === 0 && result.stdout.trim()) {
         const [iso, parentsLine = ''] = result.stdout.trim().split('\t');
         const parents = parentsLine.split(/\s+/).filter((p) => p.length > 0);
@@ -2001,7 +2127,11 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Get the parent of the oldest commit to use as the base
     // If the oldest commit has no parent (initial commit), use the empty tree
-    const parentResult = await this._gitCli.exec(['rev-parse', `${oldestCommit}^`], { cwd });
+    // Wave I — `oldestCommit` is user-controlled; splice via buildGitArgs.
+    const parentResult = await this._gitCli.exec(
+      buildGitArgs('rev-parse', [], [`${oldestCommit}^`]),
+      { cwd }
+    );
 
     let baseRef: string;
     if (parentResult.exitCode === 0 && parentResult.stdout.trim()) {
@@ -2011,8 +2141,13 @@ export class GitService implements IGitService, IGitServiceCli {
       baseRef = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
     }
 
-    // Get the diff between the base and the newest commit
-    const diffResult = await this._gitCli.exec(['diff', baseRef, newestCommit], { cwd });
+    // Get the diff between the base and the newest commit.
+    // Wave I — both refs are user-controlled (well, baseRef may be a
+    // computed parent SHA; newestCommit is direct user input). Splice
+    // via buildGitArgs.
+    const diffResult = await this._gitCli.exec(buildGitArgs('diff', [], [baseRef, newestCommit]), {
+      cwd,
+    });
 
     return parseDiff(diffResult.stdout);
   }
@@ -2023,7 +2158,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * so paths with whitespace or non-ASCII characters are handled correctly).
    */
   async getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
-    const result = await this._gitCli.exec(['diff', '--name-status', '-z', ref], {
+    // Wave I — `ref` is user-controlled; splice via buildGitArgs.
+    const result = await this._gitCli.exec(buildGitArgs('diff', ['--name-status', '-z'], [ref]), {
       cwd: repo.rootUri.fsPath,
     });
 
@@ -2118,7 +2254,10 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   async getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
-    const result = await this._gitCli.exec(['blame', '--porcelain', path], {
+    // Wave I — `path` is user-controlled; splice with `--` separator
+    // via buildGitArgs so a path that starts with `-` cannot collapse
+    // into a flag (e.g., `--git-dir=evil`).
+    const result = await this._gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
       cwd: repo.rootUri.fsPath,
     });
 
@@ -2162,11 +2301,12 @@ export class GitService implements IGitService, IGitServiceCli {
     // the index afterwards to narrow to the selected file set.
     const noCommit = options?.noCommit === true || options?.files !== undefined;
 
-    const args = ['cherry-pick'];
+    // Wave I — `commits` are user-controlled; splice via buildGitArgs.
+    const cherryFlags: string[] = [];
     if (noCommit) {
-      args.push('--no-commit');
+      cherryFlags.push('--no-commit');
     }
-    args.push(...commits);
+    const args = buildGitArgs('cherry-pick', cherryFlags, commits);
 
     const result = await this._gitCli.exec(args, {
       cwd: repo.rootUri.fsPath,
@@ -2207,9 +2347,13 @@ export class GitService implements IGitService, IGitServiceCli {
   private async _collectTouchedFiles(repo: IRepository, commits: string[]): Promise<string[]> {
     const touched = new Set<string>();
     for (const commit of commits) {
-      const res = await this._gitCli.exec(['show', '--name-only', '--format=', commit], {
-        cwd: repo.rootUri.fsPath,
-      });
+      // Wave I R1 — `commit` is user-controlled; splice via buildGitArgs.
+      const res = await this._gitCli.exec(
+        buildGitArgs('show', ['--name-only', '--format='], [commit]),
+        {
+          cwd: repo.rootUri.fsPath,
+        }
+      );
       if (res.exitCode !== 0) {
         continue;
       }
@@ -2304,7 +2448,8 @@ export class GitService implements IGitService, IGitServiceCli {
       return { success: true };
     }
 
-    const result = await this._gitCli.exec(['revert', '--no-edit', ...commits], {
+    // Wave I — `commits` are user-controlled; splice via buildGitArgs.
+    const result = await this._gitCli.exec(buildGitArgs('revert', ['--no-edit'], commits), {
       cwd: repo.rootUri.fsPath,
     });
 

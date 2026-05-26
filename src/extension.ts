@@ -4175,7 +4175,9 @@ function registerViews(context: vscode.ExtensionContext): void {
       treeDataProvider: branchTreeProvider,
       showCollapseAll: true,
     });
-    context.subscriptions.push(branchTreeView);
+    // Wave I H-3 — register the provider too so its EventEmitter +
+    // onDidChangeRepository subscription are torn down on deactivation.
+    context.subscriptions.push(branchTreeView, branchTreeProvider);
 
     // Link native BRANCHES tree view selection to the git graph.
     // When the user clicks a branch in the tree view, scroll the graph

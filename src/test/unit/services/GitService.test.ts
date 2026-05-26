@@ -642,7 +642,12 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', 'new-feature', 'develop']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          'new-feature',
+          '--end-of-options',
+          'develop',
+        ]);
       });
 
       it('should create branch from commit hash', async () => {
@@ -650,7 +655,12 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', 'hotfix', 'abc123def456']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          'hotfix',
+          '--end-of-options',
+          'abc123def456',
+        ]);
       });
 
       it('should create branch from tag', async () => {
@@ -658,7 +668,12 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', 'release-branch', 'v1.0.0']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          'release-branch',
+          '--end-of-options',
+          'v1.0.0',
+        ]);
       });
 
       it('should create branch from remote branch', async () => {
@@ -666,7 +681,12 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', 'local-feature', 'origin/feature']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          'local-feature',
+          '--end-of-options',
+          'origin/feature',
+        ]);
       });
     });
   });
@@ -678,7 +698,11 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['checkout', 'feature-branch']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'checkout',
+          '--end-of-options',
+          'feature-branch',
+        ]);
       });
 
       it('should pass the correct working directory', async () => {
@@ -694,7 +718,7 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['checkout', 'abc123def456']);
+        assert.deepStrictEqual(lastCommand.args, ['checkout', '--end-of-options', 'abc123def456']);
       });
 
       it('should checkout tag', async () => {
@@ -702,7 +726,7 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['checkout', 'v1.0.0']);
+        assert.deepStrictEqual(lastCommand.args, ['checkout', '--end-of-options', 'v1.0.0']);
       });
     });
 
@@ -782,7 +806,13 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', '-d', 'old-feature']);
+        // Wave I R1 — name follows `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          '-d',
+          '--end-of-options',
+          'old-feature',
+        ]);
       });
 
       it('should pass the correct working directory', async () => {
@@ -794,7 +824,8 @@ describe('GitService - Branch Operations', () => {
       });
 
       it('should throw error when deleting unmerged branch without force', async () => {
-        mockGitCli.setMockResult('branch -d unmerged-branch', {
+        // Wave I R1 — argv shape now `branch -d --end-of-options unmerged-branch`.
+        mockGitCli.setMockResult('branch -d --end-of-options unmerged-branch', {
           exitCode: 1,
           stdout: '',
           stderr: "error: The branch 'unmerged-branch' is not fully merged.",
@@ -814,7 +845,13 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', '-D', 'unmerged-branch']);
+        // Wave I R1 — name follows `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          '-D',
+          '--end-of-options',
+          'unmerged-branch',
+        ]);
       });
 
       it('should execute git branch -d when force is false', async () => {
@@ -822,7 +859,13 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', '-d', 'merged-branch']);
+        // Wave I R1 — name follows `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          '-d',
+          '--end-of-options',
+          'merged-branch',
+        ]);
       });
 
       it('should execute git branch -d when force is undefined', async () => {
@@ -830,7 +873,13 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', '-d', 'merged-branch']);
+        // Wave I R1 — name follows `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          '-d',
+          '--end-of-options',
+          'merged-branch',
+        ]);
       });
     });
   });
@@ -842,7 +891,14 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['branch', '-m', 'old-name', 'new-name']);
+        // Wave I R1 — names follow `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, [
+          'branch',
+          '-m',
+          '--end-of-options',
+          'old-name',
+          'new-name',
+        ]);
       });
 
       it('should pass the correct working directory', async () => {
@@ -854,7 +910,8 @@ describe('GitService - Branch Operations', () => {
       });
 
       it('should throw error when branch does not exist', async () => {
-        mockGitCli.setMockResult('branch -m nonexistent new-name', {
+        // Wave I R1 — argv shape now `branch -m --end-of-options ...`.
+        mockGitCli.setMockResult('branch -m --end-of-options nonexistent new-name', {
           exitCode: 128,
           stdout: '',
           stderr: 'error: refname refs/heads/nonexistent not found',
@@ -868,7 +925,8 @@ describe('GitService - Branch Operations', () => {
       });
 
       it('should throw error when new name already exists', async () => {
-        mockGitCli.setMockResult('branch -m old-name existing-name', {
+        // Wave I R1 — argv shape now `branch -m --end-of-options ...`.
+        mockGitCli.setMockResult('branch -m --end-of-options old-name existing-name', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: A branch named 'existing-name' already exists.",
@@ -886,9 +944,11 @@ describe('GitService - Branch Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
+        // Wave I R1 — names follow `--end-of-options`.
         assert.deepStrictEqual(lastCommand.args, [
           'branch',
           '-m',
+          '--end-of-options',
           'feature/old-name',
           'feature/new-name',
         ]);
@@ -1291,7 +1351,7 @@ describe('GitService - Merge and Rebase Operations', () => {
   describe('mergeBranch()', () => {
     describe('Successful merge', () => {
       it('should execute git merge with branch name', async () => {
-        mockGitCli.setMockResult('merge feature-branch', {
+        mockGitCli.setMockResult('merge --end-of-options feature-branch', {
           exitCode: 0,
           stdout: "Merge made by the 'ort' strategy.",
           stderr: '',
@@ -1307,11 +1367,11 @@ describe('GitService - Merge and Rebase Operations', () => {
         // Find the merge command in executed commands
         const mergeCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'merge');
         assert.ok(mergeCommand, 'Merge command should have been executed');
-        assert.deepStrictEqual(mergeCommand.args, ['merge', 'feature-branch']);
+        assert.deepStrictEqual(mergeCommand.args, ['merge', '--end-of-options', 'feature-branch']);
       });
 
       it('should pass the correct working directory', async () => {
-        mockGitCli.setMockResult('merge feature-branch', {
+        mockGitCli.setMockResult('merge --end-of-options feature-branch', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1330,7 +1390,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should return success with merge commit hash on successful merge', async () => {
-        mockGitCli.setMockResult('merge feature-branch', {
+        mockGitCli.setMockResult('merge --end-of-options feature-branch', {
           exitCode: 0,
           stdout: "Merge made by the 'ort' strategy.",
           stderr: '',
@@ -1349,7 +1409,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should handle fast-forward merge', async () => {
-        mockGitCli.setMockResult('merge feature-branch', {
+        mockGitCli.setMockResult('merge --end-of-options feature-branch', {
           exitCode: 0,
           stdout: 'Fast-forward',
           stderr: '',
@@ -1369,7 +1429,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
     describe('Merge with conflicts', () => {
       it('should return failure with conflicts when merge fails', async () => {
-        mockGitCli.setMockResult('merge feature-branch', {
+        mockGitCli.setMockResult('merge --end-of-options feature-branch', {
           exitCode: 1,
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
@@ -1389,7 +1449,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should detect conflicts with different status codes', async () => {
-        mockGitCli.setMockResult('merge conflicting-branch', {
+        mockGitCli.setMockResult('merge --end-of-options conflicting-branch', {
           exitCode: 1,
           stdout: '',
           stderr: 'Automatic merge failed',
@@ -1411,7 +1471,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should return empty conflicts array when merge fails but no conflicts', async () => {
-        mockGitCli.setMockResult('merge invalid-branch', {
+        mockGitCli.setMockResult('merge --end-of-options invalid-branch', {
           exitCode: 128,
           stdout: '',
           stderr: 'merge: invalid-branch - not something we can merge',
@@ -1431,7 +1491,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
     describe('Merge with different branch types', () => {
       it('should merge remote branch', async () => {
-        mockGitCli.setMockResult('merge origin/feature', {
+        mockGitCli.setMockResult('merge --end-of-options origin/feature', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1447,11 +1507,11 @@ describe('GitService - Merge and Rebase Operations', () => {
         assert.strictEqual(result.success, true);
         const mergeCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'merge');
         assert.ok(mergeCommand);
-        assert.deepStrictEqual(mergeCommand.args, ['merge', 'origin/feature']);
+        assert.deepStrictEqual(mergeCommand.args, ['merge', '--end-of-options', 'origin/feature']);
       });
 
       it('should merge commit hash', async () => {
-        mockGitCli.setMockResult('merge abc123def456', {
+        mockGitCli.setMockResult('merge --end-of-options abc123def456', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1468,7 +1528,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should merge tag', async () => {
-        mockGitCli.setMockResult('merge v1.0.0', {
+        mockGitCli.setMockResult('merge --end-of-options v1.0.0', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1489,7 +1549,7 @@ describe('GitService - Merge and Rebase Operations', () => {
   describe('rebaseBranch()', () => {
     describe('Successful rebase', () => {
       it('should execute git rebase with onto branch', async () => {
-        mockGitCli.setMockResult('rebase main', {
+        mockGitCli.setMockResult('rebase --end-of-options main', {
           exitCode: 0,
           stdout: 'Successfully rebased and updated refs/heads/feature.',
           stderr: '',
@@ -1499,11 +1559,11 @@ describe('GitService - Merge and Rebase Operations', () => {
 
         const rebaseCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'rebase');
         assert.ok(rebaseCommand, 'Rebase command should have been executed');
-        assert.deepStrictEqual(rebaseCommand.args, ['rebase', 'main']);
+        assert.deepStrictEqual(rebaseCommand.args, ['rebase', '--end-of-options', 'main']);
       });
 
       it('should pass the correct working directory', async () => {
-        mockGitCli.setMockResult('rebase main', {
+        mockGitCli.setMockResult('rebase --end-of-options main', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1517,7 +1577,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should return success on successful rebase', async () => {
-        mockGitCli.setMockResult('rebase main', {
+        mockGitCli.setMockResult('rebase --end-of-options main', {
           exitCode: 0,
           stdout: 'Successfully rebased and updated refs/heads/feature.',
           stderr: '',
@@ -1530,7 +1590,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should handle rebase with no changes needed', async () => {
-        mockGitCli.setMockResult('rebase main', {
+        mockGitCli.setMockResult('rebase --end-of-options main', {
           exitCode: 0,
           stdout: 'Current branch feature is up to date.',
           stderr: '',
@@ -1544,7 +1604,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
     describe('Rebase with conflicts', () => {
       it('should return failure with conflicts when rebase fails', async () => {
-        mockGitCli.setMockResult('rebase main', {
+        mockGitCli.setMockResult('rebase --end-of-options main', {
           exitCode: 1,
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
@@ -1563,7 +1623,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should detect conflicts with different status codes', async () => {
-        mockGitCli.setMockResult('rebase develop', {
+        mockGitCli.setMockResult('rebase --end-of-options develop', {
           exitCode: 1,
           stdout: '',
           stderr: 'Automatic merge failed',
@@ -1583,7 +1643,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should return empty conflicts array when rebase fails but no conflicts', async () => {
-        mockGitCli.setMockResult('rebase invalid-branch', {
+        mockGitCli.setMockResult('rebase --end-of-options invalid-branch', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: invalid upstream 'invalid-branch'",
@@ -1603,7 +1663,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
     describe('Rebase with different branch types', () => {
       it('should rebase onto remote branch', async () => {
-        mockGitCli.setMockResult('rebase origin/main', {
+        mockGitCli.setMockResult('rebase --end-of-options origin/main', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1614,11 +1674,11 @@ describe('GitService - Merge and Rebase Operations', () => {
         assert.strictEqual(result.success, true);
         const rebaseCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'rebase');
         assert.ok(rebaseCommand);
-        assert.deepStrictEqual(rebaseCommand.args, ['rebase', 'origin/main']);
+        assert.deepStrictEqual(rebaseCommand.args, ['rebase', '--end-of-options', 'origin/main']);
       });
 
       it('should rebase onto commit hash', async () => {
-        mockGitCli.setMockResult('rebase abc123def456', {
+        mockGitCli.setMockResult('rebase --end-of-options abc123def456', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1630,7 +1690,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should rebase onto tag', async () => {
-        mockGitCli.setMockResult('rebase v1.0.0', {
+        mockGitCli.setMockResult('rebase --end-of-options v1.0.0', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1690,7 +1750,7 @@ describe('GitService - Branch Comparison Operations', () => {
     describe('Ahead/behind count calculation', () => {
       it('should calculate ahead/behind counts correctly', async () => {
         // Mock the rev-list --left-right --count command
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '3\t2\n',
           stderr: '',
@@ -1698,19 +1758,19 @@ describe('GitService - Branch Comparison Operations', () => {
 
         // Mock the log commands for commits ahead and behind using prefix matching
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'abc123|abc1|Author|author@test.com|2024-01-01T00:00:00Z|Committer|committer@test.com|2024-01-01T00:00:00Z||Commit 1\n\x00' +
-            'def456|def4|Author|author@test.com|2024-01-02T00:00:00Z|Committer|committer@test.com|2024-01-02T00:00:00Z||Commit 2\n\x00' +
-            'ghi789|ghi7|Author|author@test.com|2024-01-03T00:00:00Z|Committer|committer@test.com|2024-01-03T00:00:00Z||Commit 3\n\x00',
+            'abc123abc1Authorauthor@test.com2024-01-01T00:00:00ZCommittercommitter@test.com2024-01-01T00:00:00ZCommit 1\n\x00' +
+            'def456def4Authorauthor@test.com2024-01-02T00:00:00ZCommittercommitter@test.com2024-01-02T00:00:00ZCommit 2\n\x00' +
+            'ghi789ghi7Authorauthor@test.com2024-01-03T00:00:00ZCommittercommitter@test.com2024-01-03T00:00:00ZCommit 3\n\x00',
           stderr: '',
         });
 
-        // Mock the diff command
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        // Mock the diff command — Wave I L-4: `-z` splits on `\0`.
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 0,
-          stdout: 'file1.ts\nfile2.ts\n',
+          stdout: 'file1.ts\0file2.ts\0',
           stderr: '',
         });
 
@@ -1721,13 +1781,13 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should handle zero ahead/behind counts', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...main', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...main', {
           exitCode: 0,
           stdout: '0\t0\n',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...main', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...main', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1742,24 +1802,24 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should handle only ahead commits (no behind)', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count feature...main', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options feature...main', {
           exitCode: 0,
           stdout: '2\t0\n',
           stderr: '',
         });
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'abc123|abc1|Author|author@test.com|2024-01-01T00:00:00Z|Committer|committer@test.com|2024-01-01T00:00:00Z||Feature commit 1\n\x00' +
-            'def456|def4|Author|author@test.com|2024-01-02T00:00:00Z|Committer|committer@test.com|2024-01-02T00:00:00Z||Feature commit 2\n\x00',
+            'abc123abc1Authorauthor@test.com2024-01-01T00:00:00ZCommittercommitter@test.com2024-01-01T00:00:00ZFeature commit 1\n\x00' +
+            'def456def4Authorauthor@test.com2024-01-02T00:00:00ZCommittercommitter@test.com2024-01-02T00:00:00ZFeature commit 2\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only feature...main', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options feature...main', {
           exitCode: 0,
-          stdout: 'feature.ts\n',
+          stdout: 'feature.ts\0',
           stderr: '',
         });
 
@@ -1772,25 +1832,25 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should handle only behind commits (no ahead)', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...feature', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...feature', {
           exitCode: 0,
           stdout: '0\t3\n',
           stderr: '',
         });
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'abc123|abc1|Author|author@test.com|2024-01-01T00:00:00Z|Committer|committer@test.com|2024-01-01T00:00:00Z||Behind commit 1\n\x00' +
-            'def456|def4|Author|author@test.com|2024-01-02T00:00:00Z|Committer|committer@test.com|2024-01-02T00:00:00Z||Behind commit 2\n\x00' +
-            'ghi789|ghi7|Author|author@test.com|2024-01-03T00:00:00Z|Committer|committer@test.com|2024-01-03T00:00:00Z||Behind commit 3\n\x00',
+            'abc123abc1Authorauthor@test.com2024-01-01T00:00:00ZCommittercommitter@test.com2024-01-01T00:00:00ZBehind commit 1\n\x00' +
+            'def456def4Authorauthor@test.com2024-01-02T00:00:00ZCommittercommitter@test.com2024-01-02T00:00:00ZBehind commit 2\n\x00' +
+            'ghi789ghi7Authorauthor@test.com2024-01-03T00:00:00ZCommittercommitter@test.com2024-01-03T00:00:00ZBehind commit 3\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...feature', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...feature', {
           exitCode: 0,
-          stdout: 'file.ts\n',
+          stdout: 'file.ts\0',
           stderr: '',
         });
 
@@ -1805,22 +1865,22 @@ describe('GitService - Branch Comparison Operations', () => {
 
     describe('Commits unique to each branch', () => {
       it('should return commits unique to branch1 (ahead)', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '2\t0\n',
           stderr: '',
         });
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'abc123full|abc1|John Doe|john@test.com|2024-01-01T10:00:00Z|John Doe|john@test.com|2024-01-01T10:00:00Z||First unique commit\n\x00' +
-            'def456full|def4|Jane Doe|jane@test.com|2024-01-02T10:00:00Z|Jane Doe|jane@test.com|2024-01-02T10:00:00Z||Second unique commit\n\x00',
+            'abc123fullabc1John Doejohn@test.com2024-01-01T10:00:00ZJohn Doejohn@test.com2024-01-01T10:00:00ZFirst unique commit\n\x00' +
+            'def456fulldef4Jane Doejane@test.com2024-01-02T10:00:00ZJane Doejane@test.com2024-01-02T10:00:00ZSecond unique commit\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1836,22 +1896,22 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should return commits unique to branch2 (behind)', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '0\t2\n',
           stderr: '',
         });
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'xyz789full|xyz7|Dev Author|dev@test.com|2024-01-03T10:00:00Z|Dev Author|dev@test.com|2024-01-03T10:00:00Z||Develop commit 1\n\x00' +
-            'uvw012full|uvw0|Dev Author|dev@test.com|2024-01-04T10:00:00Z|Dev Author|dev@test.com|2024-01-04T10:00:00Z||Develop commit 2\n\x00',
+            'xyz789fullxyz7Dev Authordev@test.com2024-01-03T10:00:00ZDev Authordev@test.com2024-01-03T10:00:00ZDevelop commit 1\n\x00' +
+            'uvw012fulluvw0Dev Authordev@test.com2024-01-04T10:00:00ZDev Authordev@test.com2024-01-04T10:00:00ZDevelop commit 2\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1867,23 +1927,23 @@ describe('GitService - Branch Comparison Operations', () => {
 
     describe('Files that differ between branches', () => {
       it('should return list of changed files', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '1\t1\n',
           stderr: '',
         });
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'abc123|abc1|Author|a@test.com|2024-01-01T00:00:00Z|Author|a@test.com|2024-01-01T00:00:00Z||Commit\n\x00',
+            'abc123abc1Authora@test.com2024-01-01T00:00:00ZAuthora@test.com2024-01-01T00:00:00ZCommit\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 0,
-          stdout: 'src/file1.ts\nsrc/file2.ts\ntest/file3.test.ts\nREADME.md\n',
+          stdout: 'src/file1.ts\0src/file2.ts\0test/file3.test.ts\0README.md\0',
           stderr: '',
         });
 
@@ -1897,13 +1957,13 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should return empty array when no files differ', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...main', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...main', {
           exitCode: 0,
           stdout: '0\t0\n',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...main', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...main', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1915,15 +1975,15 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should handle files with spaces in names', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '0\t0\n',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 0,
-          stdout: 'path with spaces/file name.ts\nnormal-file.ts\n',
+          stdout: 'path with spaces/file name.ts\0normal-file.ts\0',
           stderr: '',
         });
 
@@ -1937,27 +1997,30 @@ describe('GitService - Branch Comparison Operations', () => {
 
     describe('Comparing with remote branches', () => {
       it('should compare local branch with remote tracking branch', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...origin/main', {
-          exitCode: 0,
-          stdout: '5\t2\n',
-          stderr: '',
-        });
+        mockGitCli.setMockResult(
+          'rev-list --left-right --count --end-of-options main...origin/main',
+          {
+            exitCode: 0,
+            stdout: '5\t2\n',
+            stderr: '',
+          }
+        );
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'local1|loc1|Author|a@test.com|2024-01-01T00:00:00Z|Author|a@test.com|2024-01-01T00:00:00Z||Local commit 1\n\x00' +
-            'local2|loc2|Author|a@test.com|2024-01-02T00:00:00Z|Author|a@test.com|2024-01-02T00:00:00Z||Local commit 2\n\x00' +
-            'local3|loc3|Author|a@test.com|2024-01-03T00:00:00Z|Author|a@test.com|2024-01-03T00:00:00Z||Local commit 3\n\x00' +
-            'local4|loc4|Author|a@test.com|2024-01-04T00:00:00Z|Author|a@test.com|2024-01-04T00:00:00Z||Local commit 4\n\x00' +
-            'local5|loc5|Author|a@test.com|2024-01-05T00:00:00Z|Author|a@test.com|2024-01-05T00:00:00Z||Local commit 5\n\x00',
+            'local1loc1Authora@test.com2024-01-01T00:00:00ZAuthora@test.com2024-01-01T00:00:00ZLocal commit 1\n\x00' +
+            'local2loc2Authora@test.com2024-01-02T00:00:00ZAuthora@test.com2024-01-02T00:00:00ZLocal commit 2\n\x00' +
+            'local3loc3Authora@test.com2024-01-03T00:00:00ZAuthora@test.com2024-01-03T00:00:00ZLocal commit 3\n\x00' +
+            'local4loc4Authora@test.com2024-01-04T00:00:00ZAuthora@test.com2024-01-04T00:00:00ZLocal commit 4\n\x00' +
+            'local5loc5Authora@test.com2024-01-05T00:00:00ZAuthora@test.com2024-01-05T00:00:00ZLocal commit 5\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...origin/main', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...origin/main', {
           exitCode: 0,
-          stdout: 'remote-changes.ts\n',
+          stdout: 'remote-changes.ts\0',
           stderr: '',
         });
 
@@ -1972,13 +2035,16 @@ describe('GitService - Branch Comparison Operations', () => {
 
     describe('Error handling', () => {
       it('should handle rev-list command failure gracefully', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...nonexistent', {
-          exitCode: 128,
-          stdout: '',
-          stderr: "fatal: ambiguous argument 'nonexistent': unknown revision",
-        });
+        mockGitCli.setMockResult(
+          'rev-list --left-right --count --end-of-options main...nonexistent',
+          {
+            exitCode: 128,
+            stdout: '',
+            stderr: "fatal: ambiguous argument 'nonexistent': unknown revision",
+          }
+        );
 
-        mockGitCli.setMockResult('diff --name-only main...nonexistent', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...nonexistent', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: ambiguous argument 'nonexistent': unknown revision",
@@ -1995,21 +2061,21 @@ describe('GitService - Branch Comparison Operations', () => {
       });
 
       it('should handle diff command failure gracefully', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '1\t1\n',
           stderr: '',
         });
 
         // Format: hash|shortHash|authorName|authorEmail|authorDate|committerName|committerEmail|commitDate|parents|subject\nbody
-        mockGitCli.setMockResultByPrefix('log --format=%H|%h|%an|%ae|%aI|%cn|%ce|%cI|%P|%s', {
+        mockGitCli.setMockResultByPrefix('log --format=%H%h%an%ae%aI%cn%ce%cI%P%s', {
           exitCode: 0,
           stdout:
-            'abc123|abc1|Author|a@test.com|2024-01-01T00:00:00Z|Author|a@test.com|2024-01-01T00:00:00Z||Commit\n\x00',
+            'abc123abc1Authora@test.com2024-01-01T00:00:00ZAuthora@test.com2024-01-01T00:00:00ZCommit\n\x00',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 1,
           stdout: '',
           stderr: 'error',
@@ -2026,13 +2092,13 @@ describe('GitService - Branch Comparison Operations', () => {
 
     describe('Working directory', () => {
       it('should pass the correct working directory to all commands', async () => {
-        mockGitCli.setMockResult('rev-list --left-right --count main...develop', {
+        mockGitCli.setMockResult('rev-list --left-right --count --end-of-options main...develop', {
           exitCode: 0,
           stdout: '0\t0\n',
           stderr: '',
         });
 
-        mockGitCli.setMockResult('diff --name-only main...develop', {
+        mockGitCli.setMockResult('diff --name-only -z --end-of-options main...develop', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -3278,7 +3344,12 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['pull', 'upstream', 'develop']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'pull',
+          '--end-of-options',
+          'upstream',
+          'develop',
+        ]);
       });
 
       it('should include rebase, remote, and branch when all specified', async () => {
@@ -3286,7 +3357,13 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['pull', '--rebase', 'upstream', 'develop']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'pull',
+          '--rebase',
+          '--end-of-options',
+          'upstream',
+          'develop',
+        ]);
       });
     });
   });
@@ -3452,7 +3529,12 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['push', 'upstream', 'feature']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'push',
+          '--end-of-options',
+          'upstream',
+          'feature',
+        ]);
       });
     });
 
@@ -3566,7 +3648,13 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
       const lastCommand = mockGitCli.getLastCommand();
       assert.ok(lastCommand, 'Command should have been executed');
-      assert.deepStrictEqual(lastCommand.args, ['pull', '--rebase', 'upstream', 'main']);
+      assert.deepStrictEqual(lastCommand.args, [
+        'pull',
+        '--rebase',
+        '--end-of-options',
+        'upstream',
+        'main',
+      ]);
     });
   });
 });
@@ -3665,9 +3753,11 @@ describe('GitService - Tag Operations', () => {
 
     describe('Tag details', () => {
       it('should parse lightweight tags correctly', async () => {
+        // Wave I R1 — default separator is `\x1f` (matches getTagFormat).
+        const sep = '\x1f';
         mockGitCli.setMockResultByPrefix('tag -l --format', {
           exitCode: 0,
-          stdout: 'refs/tags/v1.0.0|abc123def456|commit||||\n',
+          stdout: `refs/tags/v1.0.0${sep}abc123def456${sep}commit${sep}${sep}${sep}${sep}\n`,
           stderr: '',
         });
 
@@ -3682,10 +3772,11 @@ describe('GitService - Tag Operations', () => {
       });
 
       it('should parse annotated tags with tagger and message', async () => {
+        // Wave I R1 — default separator is `\x1f`.
+        const sep = '\x1f';
         mockGitCli.setMockResultByPrefix('tag -l --format', {
           exitCode: 0,
-          stdout:
-            'refs/tags/v2.0.0|def789abc012|tag|John Doe|john@example.com|2024-01-15T10:30:00+00:00|Release version 2.0.0\n',
+          stdout: `refs/tags/v2.0.0${sep}def789abc012${sep}tag${sep}John Doe${sep}john@example.com${sep}2024-01-15T10:30:00+00:00${sep}Release version 2.0.0\n`,
           stderr: '',
         });
 
@@ -3703,10 +3794,11 @@ describe('GitService - Tag Operations', () => {
       });
 
       it('should parse multiple tags correctly', async () => {
+        // Wave I R1 — default separator is `\x1f`.
+        const sep = '\x1f';
         mockGitCli.setMockResultByPrefix('tag -l --format', {
           exitCode: 0,
-          stdout:
-            'refs/tags/v1.0.0|abc123|commit||||\nrefs/tags/v2.0.0|def456|tag|Jane Doe|jane@example.com|2024-02-20T14:00:00+00:00|Major release\n',
+          stdout: `refs/tags/v1.0.0${sep}abc123${sep}commit${sep}${sep}${sep}${sep}\nrefs/tags/v2.0.0${sep}def456${sep}tag${sep}Jane Doe${sep}jane@example.com${sep}2024-02-20T14:00:00+00:00${sep}Major release\n`,
           stderr: '',
         });
 
@@ -3728,7 +3820,8 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['tag', 'v1.0.0']);
+        // Wave I R1 — tag name follows `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, ['tag', '--end-of-options', 'v1.0.0']);
       });
 
       it('should create lightweight tag at specific ref', async () => {
@@ -3736,7 +3829,8 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['tag', 'v1.0.0', 'abc123']);
+        // Wave I R1 — tag name + ref follow `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, ['tag', '--end-of-options', 'v1.0.0', 'abc123']);
       });
 
       it('should pass the correct working directory', async () => {
@@ -3754,12 +3848,16 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
+        // Wave I R1 — annotated tag layout: `tag -a -m <msg> --end-of-options <name>`.
+        // The `-m` flag must precede `--end-of-options` (verified: git refuses
+        // to parse `-m <msg>` as a flag once the separator is set).
         assert.deepStrictEqual(lastCommand.args, [
           'tag',
           '-a',
-          'v2.0.0',
           '-m',
           'Release version 2.0.0',
+          '--end-of-options',
+          'v2.0.0',
         ]);
       });
 
@@ -3768,12 +3866,14 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
+        // Wave I R1 — annotated tag layout: `tag -a -m <msg> --end-of-options <name> [<ref>]`.
         assert.deepStrictEqual(lastCommand.args, [
           'tag',
           '-a',
-          'v2.0.0',
           '-m',
           'Release version 2.0.0',
+          '--end-of-options',
+          'v2.0.0',
           'def456',
         ]);
       });
@@ -3792,7 +3892,8 @@ describe('GitService - Tag Operations', () => {
 
     describe('Error handling', () => {
       it('should throw error when tag already exists', async () => {
-        mockGitCli.setMockResult('tag v1.0.0', {
+        // Wave I R1 — argv shape now `tag --end-of-options v1.0.0`.
+        mockGitCli.setMockResult('tag --end-of-options v1.0.0', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: tag 'v1.0.0' already exists",
@@ -3806,7 +3907,8 @@ describe('GitService - Tag Operations', () => {
       });
 
       it('should throw error for invalid tag name', async () => {
-        mockGitCli.setMockResult('tag invalid..name', {
+        // Wave I R1 — argv shape now `tag --end-of-options invalid..name`.
+        mockGitCli.setMockResult('tag --end-of-options invalid..name', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: 'invalid..name' is not a valid tag name",
@@ -3828,7 +3930,8 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['tag', '-d', 'v1.0.0']);
+        // Wave I R1 — name follows `--end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, ['tag', '-d', '--end-of-options', 'v1.0.0']);
       });
 
       it('should pass the correct working directory', async () => {
@@ -3840,7 +3943,8 @@ describe('GitService - Tag Operations', () => {
       });
 
       it('should throw error when tag does not exist', async () => {
-        mockGitCli.setMockResult('tag -d nonexistent', {
+        // Wave I R1 — argv shape now `tag -d --end-of-options nonexistent`.
+        mockGitCli.setMockResult('tag -d --end-of-options nonexistent', {
           exitCode: 1,
           stdout: '',
           stderr: "error: tag 'nonexistent' not found.",
@@ -3862,7 +3966,12 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['push', 'origin', 'refs/tags/v1.0.0']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'push',
+          '--end-of-options',
+          'origin',
+          'refs/tags/v1.0.0',
+        ]);
       });
 
       it('should execute git push with tag ref to specified remote', async () => {
@@ -3870,7 +3979,12 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['push', 'upstream', 'refs/tags/v1.0.0']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'push',
+          '--end-of-options',
+          'upstream',
+          'refs/tags/v1.0.0',
+        ]);
       });
 
       it('should pass the correct working directory', async () => {
@@ -3882,7 +3996,7 @@ describe('GitService - Tag Operations', () => {
       });
 
       it('should throw error when push fails', async () => {
-        mockGitCli.setMockResult('push origin refs/tags/v1.0.0', {
+        mockGitCli.setMockResult('push --end-of-options origin refs/tags/v1.0.0', {
           exitCode: 1,
           stdout: '',
           stderr: 'error: failed to push some refs',
@@ -3904,7 +4018,7 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['checkout', 'v1.0.0']);
+        assert.deepStrictEqual(lastCommand.args, ['checkout', '--end-of-options', 'v1.0.0']);
       });
 
       it('should checkout tag resulting in detached HEAD', async () => {
@@ -3914,8 +4028,8 @@ describe('GitService - Tag Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.strictEqual(lastCommand.args[0], 'checkout');
-        assert.strictEqual(lastCommand.args[1], 'v2.0.0');
+        // Wave I — `checkout` now splices `--end-of-options` between flags and refs.
+        assert.deepStrictEqual(lastCommand.args, ['checkout', '--end-of-options', 'v2.0.0']);
       });
 
       it('should pass the correct working directory', async () => {
@@ -3954,8 +4068,9 @@ describe('GitService - Tag Operations', () => {
       await gitService.createTag(mockRepo, 'v1.0.0');
 
       // Verify create command was executed
+      // Wave I R1 — argv shape now `tag --end-of-options v1.0.0`.
       const createCommand = mockGitCli.executedCommands.find(
-        (cmd) => cmd.args[0] === 'tag' && cmd.args[1] === 'v1.0.0'
+        (cmd) => cmd.args[0] === 'tag' && cmd.args.includes('v1.0.0')
       );
       assert.ok(createCommand, 'Create tag command should have been executed');
 
@@ -3982,9 +4097,10 @@ describe('GitService - Tag Operations', () => {
       // Checkout the tag
       await gitService.checkout(mockRepo, 'v1.0.0');
 
-      // Verify checkout command was executed
+      // Verify checkout command was executed.
+      // Wave I — `checkout` splices `--end-of-options`, so the ref is at args[2].
       const checkoutCommand = mockGitCli.executedCommands.find(
-        (cmd) => cmd.args[0] === 'checkout' && cmd.args[1] === 'v1.0.0'
+        (cmd) => cmd.args[0] === 'checkout' && cmd.args.includes('v1.0.0')
       );
       assert.ok(checkoutCommand, 'Checkout command should have been executed');
     });
@@ -4040,7 +4156,11 @@ describe('GitService - Cherry-Pick Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['cherry-pick', 'abc123def456']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'cherry-pick',
+          '--end-of-options',
+          'abc123def456',
+        ]);
         assert.strictEqual(result.success, true);
       });
 
@@ -4053,7 +4173,7 @@ describe('GitService - Cherry-Pick Operations', () => {
       });
 
       it('should return success when cherry-pick succeeds', async () => {
-        mockGitCli.setMockResult('cherry-pick abc123', {
+        mockGitCli.setMockResult('cherry-pick --end-of-options abc123', {
           exitCode: 0,
           stdout: '[main abc123] Cherry-picked commit\n',
           stderr: '',
@@ -4073,7 +4193,13 @@ describe('GitService - Cherry-Pick Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['cherry-pick', 'commit1', 'commit2', 'commit3']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'cherry-pick',
+          '--end-of-options',
+          'commit1',
+          'commit2',
+          'commit3',
+        ]);
       });
 
       it('should preserve commit order when cherry-picking multiple commits', async () => {
@@ -4082,14 +4208,18 @@ describe('GitService - Cherry-Pick Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        // Verify order is preserved
-        assert.strictEqual(lastCommand.args[1], 'first');
-        assert.strictEqual(lastCommand.args[2], 'second');
-        assert.strictEqual(lastCommand.args[3], 'third');
+        // Wave I — refs follow `--end-of-options`. Verify order is preserved.
+        assert.deepStrictEqual(lastCommand.args, [
+          'cherry-pick',
+          '--end-of-options',
+          'first',
+          'second',
+          'third',
+        ]);
       });
 
       it('should return success when all commits are cherry-picked', async () => {
-        mockGitCli.setMockResult('cherry-pick commit1 commit2', {
+        mockGitCli.setMockResult('cherry-pick --end-of-options commit1 commit2', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -4114,7 +4244,7 @@ describe('GitService - Cherry-Pick Operations', () => {
     describe('Cherry-pick conflict handling', () => {
       it('should return conflicts when cherry-pick fails due to conflicts', async () => {
         // Mock cherry-pick failure
-        mockGitCli.setMockResult('cherry-pick conflicting-commit', {
+        mockGitCli.setMockResult('cherry-pick --end-of-options conflicting-commit', {
           exitCode: 1,
           stdout: '',
           stderr:
@@ -4139,7 +4269,7 @@ describe('GitService - Cherry-Pick Operations', () => {
 
       it('should detect conflicts with different conflict markers', async () => {
         // Mock cherry-pick failure
-        mockGitCli.setMockResult('cherry-pick abc123', {
+        mockGitCli.setMockResult('cherry-pick --end-of-options abc123', {
           exitCode: 1,
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
@@ -4161,7 +4291,7 @@ describe('GitService - Cherry-Pick Operations', () => {
 
       it('should return empty conflicts array when failure is not due to conflicts', async () => {
         // Mock cherry-pick failure without conflicts
-        mockGitCli.setMockResult('cherry-pick invalid-commit', {
+        mockGitCli.setMockResult('cherry-pick --end-of-options invalid-commit', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: bad revision 'invalid-commit'",
@@ -4312,7 +4442,7 @@ describe('GitService - Cherry-Pick Operations', () => {
   describe('Cherry-pick workflow integration', () => {
     it('should handle complete cherry-pick workflow: pick -> conflict -> abort', async () => {
       // Step 1: Cherry-pick causes conflict
-      mockGitCli.setMockResult('cherry-pick conflict-commit', {
+      mockGitCli.setMockResult('cherry-pick --end-of-options conflict-commit', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT',
@@ -4343,7 +4473,7 @@ describe('GitService - Cherry-Pick Operations', () => {
 
     it('should handle complete cherry-pick workflow: pick -> conflict -> resolve -> continue', async () => {
       // Step 1: Cherry-pick causes conflict
-      mockGitCli.setMockResult('cherry-pick conflict-commit', {
+      mockGitCli.setMockResult('cherry-pick --end-of-options conflict-commit', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT',
@@ -4373,7 +4503,7 @@ describe('GitService - Cherry-Pick Operations', () => {
 
     it('should handle cherry-picking multiple commits with conflict in middle', async () => {
       // Cherry-pick multiple commits, second one conflicts
-      mockGitCli.setMockResult('cherry-pick commit1 commit2 commit3', {
+      mockGitCli.setMockResult('cherry-pick --end-of-options commit1 commit2 commit3', {
         exitCode: 1,
         stdout: '',
         stderr: 'error: could not apply commit2',
@@ -4441,7 +4571,12 @@ describe('GitService - Revert Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['revert', '--no-edit', 'abc123def456']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'revert',
+          '--no-edit',
+          '--end-of-options',
+          'abc123def456',
+        ]);
         assert.strictEqual(result.success, true);
       });
 
@@ -4454,7 +4589,7 @@ describe('GitService - Revert Operations', () => {
       });
 
       it('should return success when revert succeeds', async () => {
-        mockGitCli.setMockResult('revert --no-edit abc123', {
+        mockGitCli.setMockResult('revert --no-edit --end-of-options abc123', {
           exitCode: 0,
           stdout: '[main def456] Revert "Original commit message"\n',
           stderr: '',
@@ -4483,9 +4618,11 @@ describe('GitService - Revert Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
+        // Wave I — refs follow `--no-edit --end-of-options`.
         assert.deepStrictEqual(lastCommand.args, [
           'revert',
           '--no-edit',
+          '--end-of-options',
           'commit1',
           'commit2',
           'commit3',
@@ -4498,14 +4635,19 @@ describe('GitService - Revert Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        // Verify order is preserved (after 'revert' and '--no-edit')
-        assert.strictEqual(lastCommand.args[2], 'first');
-        assert.strictEqual(lastCommand.args[3], 'second');
-        assert.strictEqual(lastCommand.args[4], 'third');
+        // Wave I — refs follow `--no-edit --end-of-options`.
+        assert.deepStrictEqual(lastCommand.args, [
+          'revert',
+          '--no-edit',
+          '--end-of-options',
+          'first',
+          'second',
+          'third',
+        ]);
       });
 
       it('should return success when all commits are reverted', async () => {
-        mockGitCli.setMockResult('revert --no-edit commit1 commit2', {
+        mockGitCli.setMockResult('revert --no-edit --end-of-options commit1 commit2', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -4530,7 +4672,7 @@ describe('GitService - Revert Operations', () => {
     describe('Revert conflict handling', () => {
       it('should return conflicts when revert fails due to conflicts', async () => {
         // Mock revert failure
-        mockGitCli.setMockResult('revert --no-edit conflicting-commit', {
+        mockGitCli.setMockResult('revert --no-edit --end-of-options conflicting-commit', {
           exitCode: 1,
           stdout: '',
           stderr:
@@ -4555,7 +4697,7 @@ describe('GitService - Revert Operations', () => {
 
       it('should detect conflicts with different conflict markers', async () => {
         // Mock revert failure
-        mockGitCli.setMockResult('revert --no-edit abc123', {
+        mockGitCli.setMockResult('revert --no-edit --end-of-options abc123', {
           exitCode: 1,
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
@@ -4577,7 +4719,7 @@ describe('GitService - Revert Operations', () => {
 
       it('should return empty conflicts array when failure is not due to conflicts', async () => {
         // Mock revert failure without conflicts
-        mockGitCli.setMockResult('revert --no-edit invalid-commit', {
+        mockGitCli.setMockResult('revert --no-edit --end-of-options invalid-commit', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: bad revision 'invalid-commit'",
@@ -4728,7 +4870,7 @@ describe('GitService - Revert Operations', () => {
   describe('Revert workflow integration', () => {
     it('should handle complete revert workflow: revert -> conflict -> abort', async () => {
       // Step 1: Revert causes conflict
-      mockGitCli.setMockResult('revert --no-edit conflict-commit', {
+      mockGitCli.setMockResult('revert --no-edit --end-of-options conflict-commit', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT',
@@ -4759,7 +4901,7 @@ describe('GitService - Revert Operations', () => {
 
     it('should handle complete revert workflow: revert -> conflict -> resolve -> continue', async () => {
       // Step 1: Revert causes conflict
-      mockGitCli.setMockResult('revert --no-edit conflict-commit', {
+      mockGitCli.setMockResult('revert --no-edit --end-of-options conflict-commit', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT',
@@ -4789,7 +4931,7 @@ describe('GitService - Revert Operations', () => {
 
     it('should handle reverting multiple commits with conflict in middle', async () => {
       // Revert multiple commits, second one conflicts
-      mockGitCli.setMockResult('revert --no-edit commit1 commit2 commit3', {
+      mockGitCli.setMockResult('revert --no-edit --end-of-options commit1 commit2 commit3', {
         exitCode: 1,
         stdout: '',
         stderr: 'error: could not revert commit2',
@@ -4824,9 +4966,9 @@ describe('GitService - Log Operations', () => {
 
   // Sample log output in the expected format (multiple commits separated by null character)
   const multipleCommitsOutput = [
-    'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent123|First commit\nFirst body\0',
-    'def456abc789|def456|Jane Smith|jane@example.com|2024-01-14T09:00:00Z|Jane Smith|jane@example.com|2024-01-14T09:00:00Z|parent456|Second commit\nSecond body\0',
-    'ghi789def012|ghi789|Bob Wilson|bob@example.com|2024-01-13T08:00:00Z|Bob Wilson|bob@example.com|2024-01-13T08:00:00Z||Third commit\n\0',
+    'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00Zparent123First commit\nFirst body\0',
+    'def456abc789def456Jane Smithjane@example.com2024-01-14T09:00:00ZJane Smithjane@example.com2024-01-14T09:00:00Zparent456Second commit\nSecond body\0',
+    'ghi789def012ghi789Bob Wilsonbob@example.com2024-01-13T08:00:00ZBob Wilsonbob@example.com2024-01-13T08:00:00ZThird commit\n\0',
   ].join('');
 
   beforeEach(() => {
@@ -5216,7 +5358,7 @@ describe('GitService - Log Operations', () => {
     describe('Single commit retrieval', () => {
       it('should execute git show with commit hash', async () => {
         const commitOutput =
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent123|Test commit\nCommit body\0';
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00Zparent123Test commit\nCommit body\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5237,7 +5379,7 @@ describe('GitService - Log Operations', () => {
 
       it('should pass the correct working directory', async () => {
         const commitOutput =
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent123|Test commit\n\0';
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00Zparent123Test commit\n\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5254,7 +5396,7 @@ describe('GitService - Log Operations', () => {
 
       it('should parse commit details correctly', async () => {
         const commitOutput =
-          'abc123def456789|abc123d|John Doe|john@example.com|2024-01-15T10:30:00Z|Jane Smith|jane@example.com|2024-01-15T11:00:00Z|parent1 parent2|Merge feature branch\nThis is the commit body with details.\0';
+          'abc123def456789abc123dJohn Doejohn@example.com2024-01-15T10:30:00ZJane Smithjane@example.com2024-01-15T11:00:00Zparent1 parent2Merge feature branch\nThis is the commit body with details.\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5291,7 +5433,7 @@ describe('GitService - Log Operations', () => {
 
       it('should handle short commit hash', async () => {
         const commitOutput =
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z||Initial commit\n\0';
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00ZInitial commit\n\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5307,7 +5449,7 @@ describe('GitService - Log Operations', () => {
 
       it('should handle commit with no body', async () => {
         const commitOutput =
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent123|Simple commit\n\0';
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00Zparent123Simple commit\n\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5323,7 +5465,7 @@ describe('GitService - Log Operations', () => {
 
       it('should handle initial commit with no parents', async () => {
         const commitOutput =
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z||Initial commit\n\0';
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00ZInitial commit\n\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5338,7 +5480,7 @@ describe('GitService - Log Operations', () => {
 
       it('should handle merge commit with multiple parents', async () => {
         const commitOutput =
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent1 parent2 parent3|Octopus merge\n\0';
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00Zparent1 parent2 parent3Octopus merge\n\0';
 
         mockGitCli.setMockResultByPrefix('show -s --format=', {
           exitCode: 0,
@@ -5373,8 +5515,8 @@ describe('GitService - Log Operations', () => {
 
       it('should return commits that modified the file', async () => {
         const fileHistoryOutput = [
-          'abc123def456|abc123|John Doe|john@example.com|2024-01-15T10:30:00Z|John Doe|john@example.com|2024-01-15T10:30:00Z|parent123|Updated file.ts\n\0',
-          'def456abc789|def456|Jane Smith|jane@example.com|2024-01-10T09:00:00Z|Jane Smith|jane@example.com|2024-01-10T09:00:00Z|parent456|Created file.ts\n\0',
+          'abc123def456abc123John Doejohn@example.com2024-01-15T10:30:00ZJohn Doejohn@example.com2024-01-15T10:30:00Zparent123Updated file.ts\n\0',
+          'def456abc789def456Jane Smithjane@example.com2024-01-10T09:00:00ZJane Smithjane@example.com2024-01-10T09:00:00Zparent456Created file.ts\n\0',
         ].join('');
 
         mockGitCli.setMockResultByPrefix('log --format=', {
@@ -5511,26 +5653,26 @@ describe('GitService - Multi-Commit Diff Operations', () => {
     describe('Multiple commits combined diff', () => {
       it('should get commit dates to determine range', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit1', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit2', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
 
         // Mock parent lookup
-        mockGitCli.setMockResult('rev-parse commit1^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options commit1^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
         });
 
         // Mock diff result
-        mockGitCli.setMockResult('diff parent123 commit2', {
+        mockGitCli.setMockResult('diff --end-of-options parent123 commit2', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -5548,19 +5690,19 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
       it('should compute diff from oldest commit parent to newest commit', async () => {
         // Mock commit date responses - commit2 is older
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit1', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit2', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
 
         // Mock parent lookup for oldest commit (commit2)
-        mockGitCli.setMockResult('rev-parse commit2^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options commit2^', {
           exitCode: 0,
           stdout: 'parent_of_commit2\n',
           stderr: '',
@@ -5577,7 +5719,7 @@ describe('GitService - Multi-Commit Diff Operations', () => {
  line2
  line3
 `;
-        mockGitCli.setMockResult('diff parent_of_commit2 commit1', {
+        mockGitCli.setMockResult('diff --end-of-options parent_of_commit2 commit1', {
           exitCode: 0,
           stdout: diffOutput,
           stderr: '',
@@ -5585,12 +5727,13 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
         const diffs = await gitService.getMultiCommitDiff(mockRepo, ['commit1', 'commit2']);
 
-        // Verify diff was computed from parent of oldest to newest
+        // Verify diff was computed from parent of oldest to newest.
+        // Wave I — refs follow `--end-of-options`.
         const diffCommand = mockGitCli.executedCommands.find(
-          (cmd) => cmd.args[0] === 'diff' && cmd.args[1] === 'parent_of_commit2'
+          (cmd) => cmd.args[0] === 'diff' && cmd.args.includes('parent_of_commit2')
         );
         assert.ok(diffCommand, 'Should compute diff from parent of oldest commit');
-        assert.strictEqual(diffCommand.args[2], 'commit1', 'Should diff to newest commit');
+        assert.ok(diffCommand.args.includes('commit1'), 'Should diff to newest commit');
 
         assert.strictEqual(diffs.length, 1);
         assert.strictEqual(diffs[0].path, 'file.ts');
@@ -5598,31 +5741,31 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
       it('should handle three or more commits', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit1', {
           exitCode: 0,
           stdout: '2024-01-20T10:00:00Z\n', // newest
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit2', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n', // oldest
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit3', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit3', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n', // middle
           stderr: '',
         });
 
         // Mock parent lookup for oldest commit (commit2)
-        mockGitCli.setMockResult('rev-parse commit2^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options commit2^', {
           exitCode: 0,
           stdout: 'parent_of_commit2\n',
           stderr: '',
         });
 
         // Mock diff result
-        mockGitCli.setMockResult('diff parent_of_commit2 commit1', {
+        mockGitCli.setMockResult('diff --end-of-options parent_of_commit2 commit1', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -5630,37 +5773,39 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
         await gitService.getMultiCommitDiff(mockRepo, ['commit1', 'commit2', 'commit3']);
 
-        // Verify diff was computed from parent of oldest (commit2) to newest (commit1)
+        // Verify diff was computed from parent of oldest (commit2) to newest (commit1).
+        // Wave I — refs follow `--end-of-options`.
         const diffCommand = mockGitCli.executedCommands.find(
-          (cmd) => cmd.args[0] === 'diff' && cmd.args[1] === 'parent_of_commit2'
+          (cmd) => cmd.args[0] === 'diff' && cmd.args.includes('parent_of_commit2')
         );
         assert.ok(diffCommand, 'Should compute diff from parent of oldest commit');
-        assert.strictEqual(diffCommand.args[2], 'commit1', 'Should diff to newest commit');
+        assert.ok(diffCommand.args.includes('commit1'), 'Should diff to newest commit');
       });
 
       it('should handle initial commit with no parent', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P initial_commit', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options initial_commit', {
           exitCode: 0,
           stdout: '2024-01-01T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P later_commit', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options later_commit', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
 
         // Mock parent lookup - initial commit has no parent
-        mockGitCli.setMockResult('rev-parse initial_commit^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options initial_commit^', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: ambiguous argument 'initial_commit^': unknown revision",
         });
 
-        // Mock diff result using empty tree
+        // Mock diff result using empty tree.
+        // Wave I — refs follow `--end-of-options`.
         const emptyTreeSha = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-        mockGitCli.setMockResult(`diff ${emptyTreeSha} later_commit`, {
+        mockGitCli.setMockResult(`diff --end-of-options ${emptyTreeSha} later_commit`, {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -5668,29 +5813,29 @@ describe('GitService - Multi-Commit Diff Operations', () => {
 
         await gitService.getMultiCommitDiff(mockRepo, ['initial_commit', 'later_commit']);
 
-        // Verify diff was computed from empty tree to newest commit
+        // Verify diff was computed from empty tree to newest commit.
         const diffCommand = mockGitCli.executedCommands.find(
-          (cmd) => cmd.args[0] === 'diff' && cmd.args[1] === emptyTreeSha
+          (cmd) => cmd.args[0] === 'diff' && cmd.args.includes(emptyTreeSha)
         );
         assert.ok(diffCommand, 'Should compute diff from empty tree for initial commit');
-        assert.strictEqual(diffCommand.args[2], 'later_commit', 'Should diff to newest commit');
+        assert.ok(diffCommand.args.includes('later_commit'), 'Should diff to newest commit');
       });
 
       it('should return combined diff with multiple files', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit1', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit2', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
 
         // Mock parent lookup
-        mockGitCli.setMockResult('rev-parse commit1^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options commit1^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
@@ -5713,7 +5858,7 @@ diff --git a/file2.ts b/file2.ts
 +new content in file2
  more content
 `;
-        mockGitCli.setMockResult('diff parent123 commit2', {
+        mockGitCli.setMockResult('diff --end-of-options parent123 commit2', {
           exitCode: 0,
           stdout: diffOutput,
           stderr: '',
@@ -5728,26 +5873,26 @@ diff --git a/file2.ts b/file2.ts
 
       it('should pass correct working directory', async () => {
         // Mock commit date responses
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit1', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit2', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
 
         // Mock parent lookup
-        mockGitCli.setMockResult('rev-parse commit1^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options commit1^', {
           exitCode: 0,
           stdout: 'parent123\n',
           stderr: '',
         });
 
         // Mock diff result
-        mockGitCli.setMockResult('diff parent123 commit2', {
+        mockGitCli.setMockResult('diff --end-of-options parent123 commit2', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -5767,31 +5912,31 @@ diff --git a/file2.ts b/file2.ts
 
       it('should handle commits in any order', async () => {
         // Mock commit date responses - provide in reverse chronological order
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P newest', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options newest', {
           exitCode: 0,
           stdout: '2024-01-20T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P middle', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options middle', {
           exitCode: 0,
           stdout: '2024-01-15T10:00:00Z\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P oldest', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options oldest', {
           exitCode: 0,
           stdout: '2024-01-10T10:00:00Z\n',
           stderr: '',
         });
 
         // Mock parent lookup for oldest
-        mockGitCli.setMockResult('rev-parse oldest^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options oldest^', {
           exitCode: 0,
           stdout: 'parent_of_oldest\n',
           stderr: '',
         });
 
         // Mock diff result
-        mockGitCli.setMockResult('diff parent_of_oldest newest', {
+        mockGitCli.setMockResult('diff --end-of-options parent_of_oldest newest', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -5800,22 +5945,23 @@ diff --git a/file2.ts b/file2.ts
         // Pass commits in random order
         await gitService.getMultiCommitDiff(mockRepo, ['middle', 'newest', 'oldest']);
 
-        // Verify diff was computed correctly regardless of input order
+        // Verify diff was computed correctly regardless of input order.
+        // Wave I — refs follow `--end-of-options`.
         const diffCommand = mockGitCli.executedCommands.find(
-          (cmd) => cmd.args[0] === 'diff' && cmd.args[1] === 'parent_of_oldest'
+          (cmd) => cmd.args[0] === 'diff' && cmd.args.includes('parent_of_oldest')
         );
         assert.ok(diffCommand, 'Should compute diff from parent of oldest commit');
-        assert.strictEqual(diffCommand.args[2], 'newest', 'Should diff to newest commit');
+        assert.ok(diffCommand.args.includes('newest'), 'Should diff to newest commit');
       });
 
       it('should return empty array when no valid commit info found', async () => {
         // Mock commit date responses - all fail
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit1', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit1', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: bad object commit1',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P commit2', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options commit2', {
           exitCode: 128,
           stdout: '',
           stderr: 'fatal: bad object commit2',
@@ -5838,22 +5984,22 @@ diff --git a/file2.ts b/file2.ts
         // Two commits with identical timestamps; "child" lists "parent"
         // as its git parent, so the range must be
         //   base = parent^  → diff to child (newest).
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P parent', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options parent', {
           exitCode: 0,
           stdout: '2024-05-01T12:00:00Z\tgrandparent\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('show -s --format=%cI%x09%P child', {
+        mockGitCli.setMockResult('show -s --format=%cI%x09%P --end-of-options child', {
           exitCode: 0,
           stdout: '2024-05-01T12:00:00Z\tparent\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('rev-parse parent^', {
+        mockGitCli.setMockResult('rev-parse --end-of-options parent^', {
           exitCode: 0,
           stdout: 'grandparent\n',
           stderr: '',
         });
-        mockGitCli.setMockResult('diff grandparent child', {
+        mockGitCli.setMockResult('diff --end-of-options grandparent child', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -5867,8 +6013,8 @@ diff --git a/file2.ts b/file2.ts
           .find((cmd) => cmd.args[0] === 'diff');
         assert.ok(forwardDiff, 'forward pass should issue a diff command');
         assert.deepStrictEqual(
-          forwardDiff.args.slice(0, 3),
-          ['diff', 'grandparent', 'child'],
+          forwardDiff.args,
+          ['diff', '--end-of-options', 'grandparent', 'child'],
           'forward pass should diff from parent^ to the child (newest)'
         );
 
@@ -5881,8 +6027,8 @@ diff --git a/file2.ts b/file2.ts
           .find((cmd) => cmd.args[0] === 'diff');
         assert.ok(reverseDiff, 'reverse pass should issue a diff command');
         assert.deepStrictEqual(
-          reverseDiff.args.slice(0, 3),
-          ['diff', 'grandparent', 'child'],
+          reverseDiff.args,
+          ['diff', '--end-of-options', 'grandparent', 'child'],
           'reverse pass must produce the same diff range — input order is irrelevant'
         );
       });

@@ -9,6 +9,8 @@ import {
   parseHunks,
   parseDiff,
   parseBranches,
+  parseLog,
+  parseTags,
   getLogFormat,
   getBranchFormat,
   getTagFormat,
@@ -518,6 +520,82 @@ diff --git a/file2.ts b/file2.ts
       assert.ok(format.includes('%ae')); // Author email
     });
 
+    it('Wave I — getLogFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
+      // Pinned by Wave I: the previous `|` default collided with names
+      // containing `|`. Switching to `\x1f` (an unprintable C0 control
+      // character that never appears in normalised git idents) makes
+      // parseLog round-trip such names safely.
+      const format = getLogFormat();
+      assert.ok(format.includes('\x1f'), `expected \\x1f in default format, got ${format}`);
+      assert.ok(!format.includes('|'), 'default format must not embed pipe separator');
+    });
+
+    it('Wave I — getLogFormat accepts an explicit separator override', () => {
+      // Explicit override path: parseLog/parseCommit forward whatever
+      // separator the caller sets, so legacy callers can still pass `|`.
+      const format = getLogFormat('|');
+      assert.ok(format.includes('|'));
+      assert.ok(!format.includes('\x1f'));
+    });
+  });
+
+  describe('parseLog (Wave I — `\\x1f` separator)', () => {
+    /**
+     * parseLog-separator-1 (Wave I): an author name containing `|`
+     * round-trips correctly under the new `\x1f` separator. Pre-Wave-I
+     * `Alice|Bob` would have split mid-field and corrupted every later
+     * field (email → date → committer name → …).
+     */
+    it('parseLog-separator-1: author with literal `|` in name parses cleanly', () => {
+      const sep = '\x1f';
+      const fields = [
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', // %H
+        'aaaaaaa', // %h
+        'Alice|Bob', // %an  ← contains a pipe
+        'alice@example.com', // %ae
+        '2024-05-01T12:00:00Z', // %aI
+        'Alice|Bob', // %cn
+        'alice@example.com', // %ce
+        '2024-05-01T12:00:00Z', // %cI
+        '', // %P (no parents)
+        'Subject line', // %s
+      ];
+      const output = fields.join(sep) + '\n\0';
+      const commits = parseLog(output);
+      assert.strictEqual(commits.length, 1);
+      assert.strictEqual(commits[0].author.name, 'Alice|Bob');
+      assert.strictEqual(commits[0].committer.name, 'Alice|Bob');
+      assert.strictEqual(commits[0].author.email, 'alice@example.com');
+      assert.strictEqual(commits[0].message, 'Subject line');
+    });
+
+    /**
+     * parseLog-separator-2 (Wave I): multi-commit log round-trips under
+     * the new separator. Confirms the entry split on `\0` and the field
+     * split on `\x1f` are independent.
+     */
+    it('parseLog-separator-2: multi-commit round-trip under `\\x1f`', () => {
+      const sep = '\x1f';
+      const mkEntry = (h: string, msg: string): string =>
+        [
+          h.padEnd(40, '0'),
+          h.substring(0, 7),
+          'Author',
+          'a@x.com',
+          '2024-05-01T12:00:00Z',
+          'Author',
+          'a@x.com',
+          '2024-05-01T12:00:00Z',
+          '',
+          msg,
+        ].join(sep) + '\n';
+      const output = mkEntry('aa', 'first') + '\0' + mkEntry('bb', 'second') + '\0';
+      const commits = parseLog(output);
+      assert.strictEqual(commits.length, 2);
+      assert.strictEqual(commits[0].message, 'first');
+      assert.strictEqual(commits[1].message, 'second');
+    });
+
     it('getBranchFormat should return a valid format string', () => {
       const format = getBranchFormat();
       assert.ok(format.includes('%(refname)'));
@@ -528,6 +606,54 @@ diff --git a/file2.ts b/file2.ts
       const format = getTagFormat();
       assert.ok(format.includes('%(refname)'));
       assert.ok(format.includes('%(objecttype)'));
+    });
+
+    it('Wave I R1 — getTagFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
+      // Pinned by Wave I R1: the previous `|` default collided with
+      // tagger names containing `|`. Switching to `\x1f` (an unprintable
+      // C0 control character that never appears in normalised git
+      // idents) makes parseTags round-trip such names safely.
+      const format = getTagFormat();
+      assert.ok(format.includes('\x1f'), `expected \\x1f in default format, got ${format}`);
+      assert.ok(!format.includes('|'), 'default format must not embed pipe separator');
+    });
+
+    it('Wave I R1 — getTagFormat accepts an explicit separator override', () => {
+      // Explicit override path: parseTags forwards whatever separator
+      // the caller sets, so legacy callers can still pass `|`.
+      const format = getTagFormat('|');
+      assert.ok(format.includes('|'));
+      assert.ok(!format.includes('\x1f'));
+    });
+
+    /**
+     * parseTags-separator-1 (Wave I R1): a tagger name containing `|`
+     * round-trips correctly under the new `\x1f` separator. Pre-Wave-I-R1
+     * the literal `|` in `Alice|Bob` would have split mid-field and
+     * corrupted email → date → subject downstream. Mirrors
+     * `parseLog-separator-1` (Wave I).
+     */
+    it('parseTags-separator-1: tagger with literal `|` in name parses cleanly', () => {
+      const sep = '\x1f';
+      const fields = [
+        'refs/tags/v1.0.0', // %(refname)
+        'abc123def456', // %(*objectname)%(objectname)
+        'tag', // %(objecttype) — annotated
+        'Alice|Bob', // %(taggername)  ← contains a pipe
+        'alice@example.com', // %(taggeremail)
+        '2024-05-01T12:00:00+00:00', // %(taggerdate:iso)
+        'Release | with pipe in subject', // %(subject)
+      ];
+      const output = fields.join(sep) + '\n';
+      const tags = parseTags(output);
+      assert.strictEqual(tags.length, 1);
+      assert.strictEqual(tags[0].name, 'v1.0.0');
+      assert.strictEqual(tags[0].commit, 'abc123def456');
+      assert.strictEqual(tags[0].isAnnotated, true);
+      assert.ok(tags[0].tagger, 'Should have tagger');
+      assert.strictEqual(tags[0].tagger?.name, 'Alice|Bob');
+      assert.strictEqual(tags[0].tagger?.email, 'alice@example.com');
+      assert.strictEqual(tags[0].message, 'Release | with pipe in subject');
     });
   });
 

@@ -420,7 +420,14 @@ export class BranchContextMenuCommands {
         if (!value || !value.trim()) {
           return 'Branch name cannot be empty';
         }
-        if (!/^[\w\-./]+$/.test(value)) {
+        // Wave I L-2 — reject leading `-` (git interprets as a CLI flag)
+        // and leading `.` (git rejects refs starting with `.` per
+        // git-check-ref-format) at the validator level. Pre-Wave-I the
+        // regex `^[\w\-./]+$` accepted `-foo` and `.hidden` because the
+        // character class allowed `-` and `.` anywhere including the
+        // first position; the service-boundary guard in
+        // `GitService.createBranch` was the only line of defense.
+        if (!/^(?![-.])[\w\-./]+$/.test(value)) {
           return 'Branch name contains invalid characters';
         }
         return undefined;
@@ -586,7 +593,14 @@ export class BranchContextMenuCommands {
         if (value === item.branch?.name) {
           return 'New name must be different';
         }
-        if (!/^[\w\-./]+$/.test(value)) {
+        // Wave I L-2 — reject leading `-` (git interprets as a CLI flag)
+        // and leading `.` (git rejects refs starting with `.` per
+        // git-check-ref-format) at the validator level. Pre-Wave-I the
+        // regex `^[\w\-./]+$` accepted `-foo` and `.hidden` because the
+        // character class allowed `-` and `.` anywhere including the
+        // first position; the service-boundary guard in
+        // `GitService.createBranch` was the only line of defense.
+        if (!/^(?![-.])[\w\-./]+$/.test(value)) {
           return 'Branch name contains invalid characters';
         }
         return undefined;
