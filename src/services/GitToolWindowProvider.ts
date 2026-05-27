@@ -15,6 +15,7 @@ export {
   INITIAL_COMMIT_LOAD_COUNT,
   INCREMENTAL_COMMIT_LOAD_COUNT,
   INTELLIJ_FILE_STATUS_COLORS,
+  FILE_STATUS_THEME_VARS,
 } from './gitToolWindow/GitToolWindowProvider';
 
 export type {

@@ -378,3 +378,110 @@ serve the same comparison need without duplicating the surface.
   branchTree-dispose-1..3 (subscription teardown), consoleCapture-1..3
   (back-channel), blameWatcher-1..2 (RelativePattern), and
   commitDialog-csp-1 / -delegation-1..2 (data-action shape).
+- **Wave J (2026-05-26)**: post-Wave-I comprehensive review surfaced
+  5 a11y / theme / cleanup findings (WJ-1..5), all in the chip
+  surface and the last inline-onclick site. Fixes:
+  - **WJ-1** (a11y): branch + HEAD chips emit `role="img"` and a
+    descriptive `aria-label` ("Current HEAD" / "Local branch: …" /
+    "Remote branch: …") so screen readers narrate the chip's
+    meaning, not just the bare text. The user-controlled
+    branch-name half of the aria-label is run through `_escapeHtml`.
+    `aria-pressed` is deferred to Wave K when chips become
+    keyboard-interactive (DJ-2).
+  - **WJ-2** (theme): `CommitDialog._getStatusColor` returns
+    `var(--vscode-gitDecoration-*Foreground, #hex)` for all 7
+    file-status states (Modified, Added, Deleted, Renamed,
+    Copied, Untracked, Unmerged). The hex literals are retained
+    as the CSS-var fallback (defense-in-depth + dev-mode jsdom
+    test surface).
+  - **WJ-3** (theme): chip CSS uses `var(--vscode-gitDecoration-*)`
+    for `.branch-label-local` (stageModified / added) and
+    `.branch-label-remote` (renamed / modified), with the
+    pre-Wave-J hex literals retained as the var() fallback. Local
+    vs remote keep distinct backgrounds so sighted users can still
+    tell them apart at a glance.
+  - **WJ-4** (WCAG 1.4.1): each chip carries a leading codicon
+    glyph (`codicon-check` for HEAD, `codicon-git-branch` for
+    local, `codicon-cloud` for remote). The icon is the
+    non-color affordance — even a user who can't tell the
+    local-green from remote-blue apart sees the branch-vs-cloud
+    icon. Icons are `aria-hidden="true"`; the chip's own
+    `aria-label` (WJ-1) owns AT narration. CSS sizes icons at
+    11px to match chip text height.
+  - **WJ-5** (CSP / consistency): toggleLine inline `onclick=`
+    cleaned up — diff lines now carry `data-action="toggleLine"
+    data-hunk-index="…" data-line-number="…"` and route through
+    the existing CommitDialog dispatcher. Both args are
+    caller-controlled numbers (no user input through the JS
+    string), but consistency wins — every onclick interpolation
+    in CommitDialog is now data-action.
+
+  Layer 1 (snapshot) gained 7 new fixtures (snap-12a..g);
+  Layer 3 (`docs/parity/`) gained §2.6 Accessibility (Wave J)
+  with the per-WCAG-criterion test coverage matrix at §2.6.5.
+  Layer 2 (UX review) and Layer 4 (repo-state) were unchanged.
+  The visible-parity surface gained the codicon prefix on each
+  chip and the theme-aware coloring; the rest of the work was
+  a11y semantics (invisible to sighted users, transformative
+  for screen-reader users). Pinned by snap-12a..g
+  (commitGraphSnapshots.test.ts), chipTheme-1..3 +
+  commitDialog-toggleLine-1..2 (CommitDialog.test.ts), and the
+  Wave-G snap-9a..d / Wave-E snap-7a..c+e literal-HTML co-update.
+
+- **Wave J R1 (2026-05-26)**: post-R0 review surfaced 4 HIGH + 3
+  MED + 1 LOW findings — the chip CSS landed but several locked-plan
+  literals slipped or shipped with semantically-wrong tokens. Fixes:
+  - **HIGH-1 (codicon font loader)**: webview HTML emitted
+    `<i class="codicon codicon-…">` but no `@font-face` declaration
+    pointed at the actual TTF, so every chip rendered as an empty-box
+    "tofu" glyph and the entire WCAG 1.4.1 affordance silently
+    failed. Added `@vscode/codicons` as a runtime dep, copied the
+    TTF to `media/codicon.ttf`, added `_getCodiconFontFaceCss(webview)`
+    that emits the @font-face + `.codicon` utility + per-glyph
+    codepoint rules, and widened the 3-panel CSP with
+    `font-src ${webview.cspSource}` so the same-origin TTF loads.
+    Pinned by `codiconFont-1..3` in commitGraphSnapshots.test.ts.
+  - **HIGH-2 (file-status theme variables)**:
+    `_getFileStatusColor` returned bare IntelliJ hex; rewrote to
+    `var(--vscode-gitDecoration-…ResourceForeground, #hex)` via the
+    new `FILE_STATUS_THEME_VARS` constant so the file-status palette
+    follows the user's theme. Pinned by `fileStatusTheme-1..8` in
+    detailsPanel.test.ts.
+  - **HIGH-3 (cross-cutting parity doc)**: created
+    `docs/parity/accessibility.md` as the cross-cutting a11y
+    reference doc, cross-referencing the per-feature parity docs
+    instead of duplicating their content. Sections: chips, file-status
+    colours, branch-tree detached row, status indicators,
+    cross-references, future Wave-K work.
+  - **HIGH-4 (chip background semantic mismatch)**: swapped chip
+    backgrounds from `gitDecoration-stageModifiedResourceForeground`
+    / `gitDecoration-renamedResourceForeground` (FG-tier file-status
+    semantics — themes use these for the SCM tree, not chip-shaped
+    UI) to `--vscode-badge-background` / `--vscode-badge-foreground`
+    (semantically correct for chip-shaped UI per VS Code 1.85+).
+    Local vs remote distinction now lives in the codicon prefix, not
+    the background colour.
+  - **MED-1 (focused chip non-colour affordance)**: added
+    `font-weight: 700` (bumped from `600`) and `text-decoration:
+    underline` to `.branch-label-focused` so the focused-affordance
+    is visible WITHOUT relying on the theme-defined focus outline
+    alone — WCAG 1.4.1 invariant.
+  - **MED-2 (focused chip aria-describedby)**: added
+    `aria-describedby="focused-branch-help"` on every focused branch
+    chip + a single visually-hidden `#focused-branch-help` span at
+    panel bootstrap explaining the focus state to SR users. Added
+    `.visually-hidden` utility class to inline styles.
+  - **MED-3 (detached HEAD aria)**: added
+    `accessibilityInformation.label = "Detached HEAD at <shortSha> —
+    not on a branch"` to the synthetic detached-head BranchTreeItem
+    so SR users hear the same meaning the visible icon + tooltip
+    convey to sighted users. Pinned by `branchTree-detached-aria-1`
+    in BranchTreeProvider.test.ts.
+  - **LOW-1**: confirmed no `_tmp.wave-j-runtime.test.ts` left in
+    the worktree — already cleaned up by UX-reviewer's pane.
+
+  Layer 3 (`docs/parity/`) gained the cross-cutting `accessibility.md`
+  alongside the per-feature `git-log-graph.md §2.6`. Layer 1
+  (snapshot) gained 12 new tests (8 fileStatusTheme + 1 branchTree-aria
+  + 3 codiconFont) on top of the R0 set. Layer 2 (UX review) and
+  Layer 4 (repo-state) were unchanged. All 8 gates clean post-R1.

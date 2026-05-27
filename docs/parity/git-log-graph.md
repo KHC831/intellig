@@ -275,6 +275,109 @@ Test coverage:
 - Layer 4 (repo-state): `docs/parity/repo-states.md` §1.5 cites snap-9b
   for the detached-state HEAD chip back-reference.
 
+### §2.6 Accessibility (Wave J)
+
+Wave J adds three a11y / theme contracts to every chip variant
+(local, remote, HEAD). The contracts compose: a single chip can be
+themed AND iconed AND aria-labeled simultaneously, and they were
+designed to be enabled together so the IntelliJ-parity surface
+matches the VS Code "everything is a token" contract.
+
+#### §2.6.1 Screen reader narration (WJ-1)
+
+Every chip carries `role="img"` and a descriptive `aria-label`. The
+`role="img"` tells assistive technology this is a single semantic
+unit (not a paragraph of inline text); the `aria-label` overrides
+the inner textContent so the SR user hears a complete phrase
+instead of a class-name-prefixed glyph.
+
+Per-variant labels:
+
+- HEAD chip: `aria-label="Current HEAD"` — the chip text is the
+  literal `HEAD`, but `aria-label` makes the SR say "Current HEAD"
+  so the meaning is unambiguous.
+- Local branch chip: `aria-label="Local branch: <branchName>"` —
+  the user-controlled branch name is escaped via `_escapeHtml` so
+  reflective injection is impossible.
+- Remote branch chip: `aria-label="Remote branch: <branchName>"` —
+  same escape contract as local.
+
+Pinned by `snap-12a..d` in `commitGraphSnapshots.test.ts`.
+
+> **Why not `aria-pressed`?** The chips are NOT yet
+> keyboard-interactive — there's no `tabindex`, no click handler,
+> no role="button". Adding `aria-pressed` today would lie about an
+> interaction that doesn't yet exist. Wave K converts the focused
+> chip to a button (with click + Enter activation); `aria-pressed`
+> lands then. (DJ-2 decision in the locked tech-lead plan.)
+
+#### §2.6.2 Theme-variable colors (WJ-3)
+
+Local + remote chip backgrounds and foregrounds use VS Code's
+`--vscode-gitDecoration-*` family, with the pre-Wave-J hex
+literals retained as the CSS-var fallback. This means a user's
+theme choice flips the chip color automatically; the fallback
+hex is the safety net for themes that don't define the variable.
+
+Per-variant token mapping (background / foreground):
+
+- Local chip: `gitDecoration-stageModifiedResourceForeground` /
+  `gitDecoration-addedResourceForeground` (green-ish on
+  green-ish — matches IntelliJ's local-branch shade).
+- Remote chip: `gitDecoration-renamedResourceForeground` /
+  `gitDecoration-modifiedResourceForeground` (blue-ish on
+  blue-ish — matches IntelliJ's remote-tracking shade).
+- HEAD chip: kept on `statusBarItem-warning*` (Wave G) — the
+  "warning" tone is parity with IntelliJ's yellow/gold HEAD
+  badge.
+
+The `gitDecoration-*` family has been part of VS Code's theme
+contract since 1.46; engines.vscode floor is `^1.85.0` so the
+variables are guaranteed available. Pinned by `snap-12e`.
+
+#### §2.6.3 Non-color affordance (WJ-4 / WCAG 1.4.1)
+
+Every chip carries a leading codicon glyph:
+
+- HEAD chip: `codicon-check`.
+- Local branch chip: `codicon-git-branch`.
+- Remote branch chip: `codicon-cloud`.
+
+The icon is the WCAG 1.4.1 "use of color" affordance — even a user
+who can't tell the local-green from remote-blue background apart
+sees the branch-glyph vs cloud-glyph and can read the meaning. The
+icon's `aria-hidden="true"` lets the chip's own `aria-label` (§2.6.1)
+own the AT narration; the icon is purely decorative for AT.
+
+Pinned by `snap-12f` (chip-emit-stage HTML literal) and `snap-12g`
+(jsdom/CSS-stage 200px-cap invariant + 11px icon sizing).
+
+#### §2.6.4 Cross-references
+
+The three Wave J contracts compose with the Wave E R1 chip-cap
+contract (`max-width: 200px`, `text-overflow: ellipsis`) — adding
+an icon does NOT relax the cap; the icon takes ~15px of the cap
+budget but the chip text still fits inside the remainder with the
+ellipsis. snap-12g re-asserts the cap holds with the icon present.
+
+The Wave G HEAD-chip contracts (snap-9a..f) co-evolve: the
+literal-HTML snap-9a..d strings were updated in commit 1 of Wave J
+to include the new `role="img"` + `aria-label` + codicon-check
+tokens. The class string + DOM-tree shape (snap-9e/9f) are
+unchanged.
+
+#### §2.6.5 Accessibility test coverage matrix (Wave J)
+
+| Layer | Surface | Snap | What it pins |
+| --- | --- | --- | --- |
+| 1 (HTML emit) | HEAD chip | snap-12a | `role="img"`, `aria-label="Current HEAD"`, `codicon-check`, textContent `HEAD` |
+| 1 (HTML emit) | Local chip | snap-12b | `role="img"`, `aria-label="Local branch: …"`, `codicon-git-branch` |
+| 1 (HTML emit) | Remote chip | snap-12c | `role="img"`, `aria-label="Remote branch: …"`, `codicon-cloud` |
+| 1 (HTML emit) | Focused chip | snap-12d | `branch-label-focused` class + `role="img"` BOTH present; `aria-pressed` deliberately absent |
+| 1 (HTML emit) | Codicon prefix | snap-12f | per-variant codicon glyph in HTML |
+| 1 (CSS) | Theme-var contract | snap-12e | local + remote chips use `var(--vscode-gitDecoration-*)` with hex fallback |
+| 1 (CSS) | Cap + icon size | snap-12g | 200px max-width survives icon addition; icon font-size: 11px |
+
 ---
 
 ## §3 Branch focus (Wave D / D2 + D3)

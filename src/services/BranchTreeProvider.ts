@@ -77,6 +77,25 @@ export class BranchTreeItem extends vscode.TreeItem {
 
     // Set tooltip
     this.tooltip = this._getTooltip();
+
+    // Wave J R1 / MED-3 — accessibilityInformation for the synthetic
+    // detached-head row. VS Code's TreeView reads `label + description`
+    // by default; for the detached row we want the SR to hear the
+    // multi-line tooltip's leading phrase ("Detached HEAD — at <sha>")
+    // because the visible label is just `(HEAD detached at <sha>)` and
+    // the description ("detached") doesn't convey "this is your current
+    // commit". Pinned by `branchTree-detached-aria-1` in
+    // BranchTreeProvider.test.ts.
+    if (this.itemType === 'detached-head') {
+      const sha = this._detachedHeadSha ?? '';
+      const shortSha = sha.length >= 7 ? sha.substring(0, 7) : sha;
+      this.accessibilityInformation = {
+        label: shortSha
+          ? `Detached HEAD at ${shortSha} — not on a branch`
+          : 'Detached HEAD — not on a branch',
+        role: 'treeitem',
+      };
+    }
   }
 
   /**

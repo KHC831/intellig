@@ -92,6 +92,30 @@ export const INTELLIJ_FILE_STATUS_COLORS: Record<FileStatus, string> = {
 };
 
 /**
+ * Wave J R1 — VS Code theme-variable mapping for file statuses. Each
+ * status maps to its semantically-correct `gitDecoration-*` token,
+ * which themes (especially high-contrast) use to render their own
+ * file-status colors. {@link GitToolWindowProvider._getFileStatusColor}
+ * wraps this in a `var(...)` expression with
+ * {@link INTELLIJ_FILE_STATUS_COLORS} as the fallback.
+ *
+ * `copied` aliases to `addedResourceForeground` per VS Code's own
+ * convention (their built-in git extension applies the same alias).
+ *
+ * Pinned by `fileStatusTheme-1..8` in detailsPanel.test.ts.
+ */
+export const FILE_STATUS_THEME_VARS: Record<FileStatus, string> = {
+  modified: '--vscode-gitDecoration-modifiedResourceForeground',
+  added: '--vscode-gitDecoration-addedResourceForeground',
+  deleted: '--vscode-gitDecoration-deletedResourceForeground',
+  renamed: '--vscode-gitDecoration-renamedResourceForeground',
+  copied: '--vscode-gitDecoration-addedResourceForeground',
+  untracked: '--vscode-gitDecoration-untrackedResourceForeground',
+  ignored: '--vscode-gitDecoration-ignoredResourceForeground',
+  conflicted: '--vscode-gitDecoration-conflictingResourceForeground',
+};
+
+/**
  * Context menu action types for Local Changes View
  */
 export type LocalChangesContextAction =
@@ -2188,14 +2212,25 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
 
     const extraStyles = flagOn ? `${tabStripStyles()}\n${historyTabStyles()}` : '';
 
+    // Wave J R1 / HIGH-1 — codicon font loader. Without a `@font-face`
+    // declaration that points to the actual TTF, the `<i class="codicon">`
+    // glyphs we emit on every chip render as empty-box "tofu" — the WCAG
+    // 1.4.1 non-color affordance (snap-12f/12g) silently fails. The
+    // shared helper computes the asWebviewUri() form of the bundled
+    // `media/codicon.ttf` and emits the @font-face + .codicon utility
+    // rules. CSP is widened to allow font-src from the webview's
+    // cspSource so the same-origin font URI resolves.
+    const codiconFontCss = this._getCodiconFontFaceCss(webview);
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
   <title>Git Tool Window</title>
   <style>
+    ${codiconFontCss}
     ${this._getThreePanelStyles()}
     ${extraStyles}
   </style>
@@ -2291,6 +2326,75 @@ ${bodyMarkup}
   </script>
 </body>
 </html>`;
+  }
+
+  /**
+   * Wave J R1 / HIGH-1 — emit the `@font-face` declaration that loads
+   * the bundled VS Code codicon TTF, plus the `.codicon` utility rule
+   * that every codicon glyph (`<i class="codicon codicon-…">`) needs to
+   * render as the actual icon instead of a "tofu" empty-box.
+   *
+   * The TTF ships at `media/codicon.ttf` (copied from
+   * `node_modules/@vscode/codicons/dist/codicon.ttf` at install time).
+   * `webview.asWebviewUri()` rewrites the local fs URI into the
+   * `https://…/<extensionId>/media/codicon.ttf` form that the
+   * webview's CSP accepts. The HTML emitter widens CSP to include
+   * `font-src ${webview.cspSource}` so this same-origin URI loads.
+   *
+   * The base `.codicon` utility rule (font-family declaration +
+   * display + text-rendering + smoothing) is copied from the
+   * upstream `codicon.css` so the icon renders crisp at the chip's
+   * 11px size. Per-glyph `::before { content: "\\…" }` rules are
+   * inlined for ONLY the codicons we currently emit — extend the
+   * mapping below whenever a new codicon class is added to a
+   * webview that uses this loader. Codepoints are sourced from
+   * `node_modules/@vscode/codicons/dist/codicon.css` (verbatim).
+   * Pinned by `codiconFont-1..3` in commitGraphSnapshots.test.ts.
+   */
+  private _getCodiconFontFaceCss(webview: vscode.Webview): string {
+    // Defensive: many existing unit-test mock webviews stub
+    // `cspSource` only and omit `asWebviewUri`. The production VS Code
+    // implementation always provides it; for the test surface, fall
+    // back to the local-file URI so tests that don't care about the
+    // codicon-font wiring don't break. The codiconFont-1..3 RED
+    // contract still passes (it asserts the @font-face shape +
+    // codepoint rules + CSP, none of which need a real `asWebviewUri`).
+    const codiconLocalUri = vscode.Uri.joinPath(this._extensionUri, 'media', 'codicon.ttf');
+    const codiconFontUri =
+      typeof webview.asWebviewUri === 'function'
+        ? webview.asWebviewUri(codiconLocalUri)
+        : codiconLocalUri;
+    return `
+      @font-face {
+        font-family: "codicon";
+        font-display: block;
+        src: url("${codiconFontUri.toString()}") format("truetype");
+      }
+
+      .codicon {
+        font: normal normal normal 16px/1 codicon;
+        display: inline-block;
+        text-decoration: none;
+        text-rendering: auto;
+        text-align: center;
+        text-transform: none;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        user-select: none;
+        vertical-align: middle;
+      }
+
+      /* Codicon glyph mapping — upstream codepoints from
+         @vscode/codicons@0.0.45 (dist/codicon.css). Add a new
+         \`.codicon-<name>\` rule here whenever a new codicon class is
+         emitted in the provider's HTML. Both \`::before\` (modern
+         double-colon) and \`:before\` (single-colon, what upstream
+         uses) are accepted by the engine; we keep the upstream
+         single-colon shape for byte-equivalence with codicon.css. */
+      .codicon-check:before { content: "\\eab2"; }
+      .codicon-git-branch:before { content: "\\ec6f"; }
+      .codicon-cloud:before { content: "\\ebaa"; }
+    `;
   }
 
   /**
@@ -2563,10 +2667,17 @@ ${bodyMarkup}
   }
 
   /**
-   * Get IntelliJ-style color for file status
+   * Wave J R1 — return a `var(--vscode-gitDecoration-*, #hex)` expression
+   * for the given file status, so the colour follows the user's theme
+   * (especially high-contrast) instead of the bare IntelliJ hex. The
+   * pre-Wave-J hex literal is retained as the CSS-var fallback (defence
+   * in depth + dev-mode jsdom test surface). Pinned by
+   * `fileStatusTheme-1..8` in detailsPanel.test.ts.
    */
   private _getFileStatusColor(status: FileStatus): string {
-    return INTELLIJ_FILE_STATUS_COLORS[status] || '#FFFFFF';
+    const cssVar = FILE_STATUS_THEME_VARS[status];
+    const fallback = INTELLIJ_FILE_STATUS_COLORS[status] || '#FFFFFF';
+    return cssVar ? `var(${cssVar}, ${fallback})` : fallback;
   }
 
   /**
@@ -2770,8 +2881,19 @@ ${bodyMarkup}
     // again whenever the host posts a `syncSelection` message.
     const anchorAttr = this._extendedLogState.anchorHash ?? '';
 
+    // Wave J R1 / MED-2 — visually-hidden help span referenced by
+    // `aria-describedby="focused-branch-help"` on every focused branch
+    // chip. Rendered ONCE per panel so all focused chips (only one is
+    // ever focused at a time today; loop-safe nonetheless) share the
+    // same description without duplicating it in the DOM. The
+    // `.visually-hidden` utility keeps the text in the AT layer (read
+    // by screen readers, find-in-page, accessibility-tree inspectors)
+    // while removing it from sighted layout.
+    const focusedBranchHelpHtml = `<span id="focused-branch-help" class="visually-hidden">Currently focused branch — graph is filtered to this branch's history</span>`;
+
     return `
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
+        ${focusedBranchHelpHtml}
         ${repositorySelectorHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
@@ -2811,8 +2933,14 @@ ${bodyMarkup}
     // Wave G — HEAD chip is prepended FIRST (leftmost) so it precedes
     // any branch chips on the same commit. Detached HEAD: chip stands
     // alone. Pinned by snap-9a..9f.
+    // Wave J — WJ-1: HEAD chip carries role="img" + descriptive
+    // aria-label so SR users hear "Current HEAD" rather than just the
+    // bare "HEAD" string. WJ-4: codicon-check prefix is the non-color
+    // WCAG 1.4.1 affordance — the icon is decorative for AT (the
+    // aria-label is authoritative), so aria-hidden="true" hides it.
+    // Pinned by snap-12a + snap-12f.
     const headChipHtml = isHeadCommit
-      ? '<span class="branch-label-head" data-head-chip="true">HEAD</span>'
+      ? '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>'
       : '';
 
     const focusedBranchName = this._extendedLogState.focusedBranchName;
@@ -2822,14 +2950,35 @@ ${bodyMarkup}
       // Wave D / D2 — `branch-label-focused` is render-time source of
       // truth for the focus outline; the partial-update message handler
       // is just the optimization for selection-changes-without-rerender.
-      const cssClass =
-        focusedBranchName === branchName ? `${baseClass} branch-label-focused` : baseClass;
+      const isFocused = focusedBranchName === branchName;
+      const cssClass = isFocused ? `${baseClass} branch-label-focused` : baseClass;
       const escapedName = this._escapeHtml(branchName);
+      // Wave J — WJ-1: role="img" + descriptive aria-label tells SRs
+      // this is a branch chip, not just inline text. WJ-4: codicon
+      // prefix gives non-color affordance (WCAG 1.4.1) — codicon-cloud
+      // for remote, codicon-git-branch for local. The icon's
+      // aria-hidden="true" lets the chip's own aria-label own the AT
+      // narration. The aria-label string is run through _escapeHtml
+      // since branch names are user-controlled.
+      // DJ-2: aria-pressed is deferred to Wave K when chips become
+      // keyboard-interactive — adding it now would lie about an
+      // interaction that doesn't yet exist. Pinned by snap-12b..d, 12f.
+      const iconClass = classification === 'remote' ? 'codicon-cloud' : 'codicon-git-branch';
+      const ariaLabelText =
+        classification === 'remote'
+          ? `Remote branch: ${branchName}`
+          : `Local branch: ${branchName}`;
+      const ariaLabel = this._escapeHtml(ariaLabelText);
+      // Wave J R1 / MED-2 — focused chip carries `aria-describedby` to
+      // a visually-hidden help span (rendered once at panel level)
+      // explaining the focus state. Non-focused chips omit the
+      // attribute so SRs don't announce the help text on every chip.
+      const ariaDescribedByAttr = isFocused ? ' aria-describedby="focused-branch-help"' : '';
       // T-10: data-branch-name carries the unescaped name so the inline
       // script's partial-update handler can match by attribute. The
       // attribute value goes through the same _escapeHtml the chip text
       // uses so reflective injection is impossible.
-      return `<span class="${cssClass}" data-branch-name="${escapedName}">${escapedName}</span>`;
+      return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
     return headChipHtml + labels.join('');
@@ -3242,6 +3391,26 @@ ${bodyMarkup}
         font-size: var(--vscode-font-size);
         color: var(--vscode-foreground);
         background-color: var(--vscode-sideBar-background);
+      }
+
+      /* Wave J R1 / MED-2 — visually-hidden utility for AT-only text.
+         Removes the element from sighted layout (clip-path + 1px box +
+         absolute positioning to prevent layout-flow contribution) while
+         keeping it in the DOM for screen readers, find-in-page, and
+         a11y inspectors. The double-clip pattern (clip + clip-path)
+         is the WAI-ARIA-recommended shape — older browsers fall back
+         to "clip" while modern browsers honour "clip-path". */
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
       }
 
       .git-tool-window {
@@ -3929,32 +4098,85 @@ ${bodyMarkup}
         vertical-align: middle;
       }
 
-      .branch-label-local {
-        background: #2d5a1e;
-        color: #a5d6a7;
+      /* Wave J R1 / HIGH-4 — chip backgrounds use VS Code's
+         badge-background / badge-foreground semantic tokens
+         (1.85+, part of the theme contract; engines.vscode floor is
+         ^1.85.0 so guaranteed available). Pre-R1 used
+         gitDecoration-stageModifiedResourceForeground /
+         gitDecoration-renamedResourceForeground which are FG-tier
+         file-status semantics — themes that override those for the
+         SCM tree would unexpectedly recolor branch chips here. The
+         badge-* family is semantically correct for chip-shaped UI;
+         local vs remote distinction now comes from the codicon prefix
+         (WJ-4: cloud vs git-branch) rather than the background colour.
+         Falls back to the pre-Wave-J hex literals when the theme
+         variable is absent. Pinned by snap-12e. */
+      .branch-label-local,
+      .branch-label-remote {
+        background: var(--vscode-badge-background, #2d5a1e);
+        color: var(--vscode-badge-foreground, #a5d6a7);
         font-size: 11px;
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
       }
 
+      /* The remote-chip fallback hex pair is retained as a CSS-var
+         secondary-fallback so a future theme that defines neither
+         badge-* nor the gitDecoration-* family still gets a
+         visually-readable chip. Themes that DO define badge-* see
+         identical local + remote backgrounds — local vs remote is
+         carried by the icon glyph, not the colour. The remote-only
+         hex (#1a3a5c) is retained inline below for snap-12e and
+         human grep, even though no rule consumes it directly. */
       .branch-label-remote {
-        background: #1a3a5c;
-        color: #90caf9;
+        /* Wave J R1 — fallback hex for remote chip when neither
+           --vscode-badge-background nor the legacy
+           --vscode-gitDecoration-renamedResourceForeground is
+           defined. Inline as a secondary fallback in the var()
+           expression. The shared .branch-label-local, .branch-label-remote
+           rule above is the primary; this rule only adds the
+           #1a3a5c retention for snap-12e + future hi-contrast
+           drift detection. */
+        background: var(
+          --vscode-badge-background,
+          var(--vscode-gitDecoration-renamedResourceForeground, #1a3a5c)
+        );
+        color: var(
+          --vscode-badge-foreground,
+          var(--vscode-gitDecoration-modifiedResourceForeground, #90caf9)
+        );
+      }
+
+      /* Wave J / WJ-4 — codicon prefix sizing on chips. The icon is
+         the non-color WCAG 1.4.1 affordance for local vs remote vs
+         HEAD distinction; font-size 11px matches chip text height
+         so the icon does not blow up the chip vertically;
+         vertical-align middle aligns the icon glyph with the chip
+         text baseline; margin-right 4px separates icon from text.
+         Pinned by snap-12g. */
+      .branch-label-local i.codicon,
+      .branch-label-remote i.codicon,
+      .branch-label-head i.codicon,
+      .tag-label i.codicon {
+        margin-right: 4px;
         font-size: 11px;
-        padding: 1px 5px;
-        border-radius: 3px;
-        margin-left: 4px;
+        vertical-align: middle;
       }
 
       /* Wave D / D2 — focused branch chip (IntelliJ-parity outline + bold). */
       /* Wave D R1 / Senior L-2 — use the theme-aware focus border so the
          outline reads correctly under high-contrast themes; fall back to
          currentColor when the variable is unavailable. */
+      /* Wave J R1 / MED-1 — bump font-weight to 700 + add underline so
+         the focused-branch affordance is visible WITHOUT relying on
+         the theme-defined focus outline alone (WCAG 1.4.1 — never use
+         colour as the sole non-text differentiator). */
       .branch-label-focused {
         outline: 1px solid var(--vscode-focusBorder, currentColor);
         outline-offset: 1px;
-        font-weight: 600;
+        font-weight: 700;
+        text-decoration: underline;
       }
 
       .tag-label {

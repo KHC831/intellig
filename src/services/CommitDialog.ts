@@ -1257,9 +1257,19 @@ export class CommitDialog {
         const oldNum = line.oldLineNumber?.toString() ?? '';
         const newNum = line.newLineNumber?.toString() ?? '';
 
+        // Wave J / WJ-5 — toggleLine inline-onclick → data-action
+        // delegation. Pre-J this used `onclick="toggleLine(${hunkIndex},
+        // ${lineNumber})"` interpolated into the row HTML. Although
+        // both args are caller-controlled numbers (no user input
+        // through the JS string here, unlike the file/path onclicks
+        // Wave I cleaned), consistency wins — the dispatcher pattern
+        // is uniform once toggleLine joins it. The dispatcher at
+        // `_getInlineScript()` reads `data-hunk-index` and
+        // `data-line-number` and routes to the global toggleLine().
+        // Pinned by commitDialog-toggleLine-1 + -2.
         const selectableAttr =
           isSelectable && lineNumber !== undefined
-            ? `onclick="toggleLine(${hunkIndex}, ${lineNumber})"`
+            ? `data-action="toggleLine" data-hunk-index="${hunkIndex}" data-line-number="${lineNumber}"`
             : '';
         const selectableClass = isSelectable ? ' selectable' : '';
 
@@ -1989,6 +1999,12 @@ export class CommitDialog {
           stageSelectedLines: () => stageSelectedLines(Number(hunkIndex)),
           selectAllLinesInHunk: () => selectAllLinesInHunk(Number(hunkIndex)),
           deselectAllLinesInHunk: () => deselectAllLinesInHunk(Number(hunkIndex)),
+          // Wave J / WJ-5 — toggleLine joins the dispatcher. The
+          // existing global toggleLine(hunkIndex, lineNumber) function
+          // is unchanged; we just route through it via Number()
+          // coercion of the dataset strings. Pinned by
+          // commitDialog-toggleLine-1.
+          toggleLine: () => toggleLine(Number(hunkIndex), Number(target.dataset.lineNumber)),
         };
         const handler = handlers[action];
         if (handler) {
@@ -2014,18 +2030,32 @@ export class CommitDialog {
 
   /**
    * Get status color for file status.
+   *
+   * Wave J / WJ-2 — return CSS `var()` expressions instead of bare hex
+   * so themes can override file-status colors. Each entry falls back
+   * to the pre-Wave-J hex literal when the theme variable is undefined.
+   *
+   * VS Code's `gitDecoration-*` family covers all 7 file-status states
+   * and has been part of the theme contract since 1.46. Our
+   * engines.vscode floor is `^1.85.0`, so the variables are guaranteed
+   * available; the hex fallback exists for two reasons:
+   *   - belt-and-braces against a theme that explicitly clears the
+   *     variable (rare but legal),
+   *   - dev-mode jsdom test surfaces where no VS Code theme is loaded.
+   *
+   * Pinned by `chipTheme-1..3` in `CommitDialog.test.ts`.
    */
   private _getStatusColor(status: string): string {
     const colors: Record<string, string> = {
-      Modified: '#6897BB',
-      Added: '#629755',
-      Deleted: '#6C6C6C',
-      Renamed: '#6897BB',
-      Copied: '#629755',
-      Untracked: '#CC7832',
-      Unmerged: '#FF0000',
+      Modified: 'var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)',
+      Added: 'var(--vscode-gitDecoration-addedResourceForeground, #629755)',
+      Deleted: 'var(--vscode-gitDecoration-deletedResourceForeground, #6C6C6C)',
+      Renamed: 'var(--vscode-gitDecoration-renamedResourceForeground, #6897BB)',
+      Copied: 'var(--vscode-gitDecoration-addedResourceForeground, #629755)',
+      Untracked: 'var(--vscode-gitDecoration-untrackedResourceForeground, #CC7832)',
+      Unmerged: 'var(--vscode-gitDecoration-conflictingResourceForeground, #FF0000)',
     };
-    return colors[status] || '#FFFFFF';
+    return colors[status] || 'var(--vscode-foreground, #FFFFFF)';
   }
 
   /**

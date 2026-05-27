@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import {
   GitToolWindowProvider,
   INTELLIJ_FILE_STATUS_COLORS,
+  FILE_STATUS_THEME_VARS,
 } from '../../../services/GitToolWindowProvider';
 import { ICommitDetails } from '../../../services/interfaces';
 import { IRepository } from '../../../services/interfaces/IGitService';
@@ -825,5 +826,107 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         `no anchors without a remote; got: ${html}`
       );
     });
+  });
+});
+
+/**
+ * Wave J R1 / HIGH-2 — `_getFileStatusColor` returns a `var(...)`
+ * expression backed by the `gitDecoration-*ResourceForeground` family
+ * with the IntelliJ hex retained as the CSS-var fallback. This block
+ * pins the EXACT string returned for each `FileStatus` so a future
+ * re-mapping of any single status forces a deliberate diff in this
+ * assertion.
+ *
+ * The method is private; we reach it via prototype reflection (same
+ * pattern as the chipTheme-* tests in CommitDialog.test.ts).
+ */
+describe('Wave J R1 / HIGH-2 — _getFileStatusColor returns gitDecoration-* var() expressions', () => {
+  // Cross-check: the existing top-of-file `INTELLIJ_FILE_STATUS_COLORS`
+  // import covers the hex side; `FILE_STATUS_THEME_VARS` (new in R1) is
+  // the theme-token map. The two MUST cover the same FileStatus union.
+
+  interface FileStatusColorStub {
+    _getFileStatusColor(s: string): string;
+  }
+
+  function callFileStatusColor(status: string): string {
+    const proto = (
+      GitToolWindowProvider as unknown as {
+        prototype: { _getFileStatusColor: (this: FileStatusColorStub, s: string) => string };
+      }
+    ).prototype;
+    return proto._getFileStatusColor.call({} as FileStatusColorStub, status);
+  }
+
+  // One test per FileStatus — fileStatusTheme-1..8.
+  it('fileStatusTheme-1: modified → var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)', () => {
+    assert.strictEqual(
+      callFileStatusColor('modified'),
+      'var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)'
+    );
+  });
+
+  it('fileStatusTheme-2: added → var(--vscode-gitDecoration-addedResourceForeground, #629755)', () => {
+    assert.strictEqual(
+      callFileStatusColor('added'),
+      'var(--vscode-gitDecoration-addedResourceForeground, #629755)'
+    );
+  });
+
+  it('fileStatusTheme-3: deleted → var(--vscode-gitDecoration-deletedResourceForeground, #6C6C6C)', () => {
+    assert.strictEqual(
+      callFileStatusColor('deleted'),
+      'var(--vscode-gitDecoration-deletedResourceForeground, #6C6C6C)'
+    );
+  });
+
+  it('fileStatusTheme-4: renamed → var(--vscode-gitDecoration-renamedResourceForeground, #6897BB)', () => {
+    assert.strictEqual(
+      callFileStatusColor('renamed'),
+      'var(--vscode-gitDecoration-renamedResourceForeground, #6897BB)'
+    );
+  });
+
+  it('fileStatusTheme-5: copied → var(--vscode-gitDecoration-addedResourceForeground, #629755) (alias)', () => {
+    // `copied` aliases to `addedResourceForeground` per VS Code's
+    // own convention (their built-in git extension applies the same
+    // alias).
+    assert.strictEqual(
+      callFileStatusColor('copied'),
+      'var(--vscode-gitDecoration-addedResourceForeground, #629755)'
+    );
+  });
+
+  it('fileStatusTheme-6: untracked → var(--vscode-gitDecoration-untrackedResourceForeground, #CC7832)', () => {
+    assert.strictEqual(
+      callFileStatusColor('untracked'),
+      'var(--vscode-gitDecoration-untrackedResourceForeground, #CC7832)'
+    );
+  });
+
+  it('fileStatusTheme-7: ignored → var(--vscode-gitDecoration-ignoredResourceForeground, #848504)', () => {
+    assert.strictEqual(
+      callFileStatusColor('ignored'),
+      'var(--vscode-gitDecoration-ignoredResourceForeground, #848504)'
+    );
+  });
+
+  it('fileStatusTheme-8: conflicted → var(--vscode-gitDecoration-conflictingResourceForeground, #FF0000)', () => {
+    assert.strictEqual(
+      callFileStatusColor('conflicted'),
+      'var(--vscode-gitDecoration-conflictingResourceForeground, #FF0000)'
+    );
+  });
+
+  // Cross-check: the FILE_STATUS_THEME_VARS map and INTELLIJ_FILE_STATUS_COLORS
+  // map both have an entry for every status the function is queried for.
+  it('fileStatusTheme map shape: every theme-var key has a matching hex-fallback key', () => {
+    const themeVarKeys = Object.keys(FILE_STATUS_THEME_VARS).sort();
+    const hexKeys = Object.keys(INTELLIJ_FILE_STATUS_COLORS).sort();
+    assert.deepStrictEqual(
+      themeVarKeys,
+      hexKeys,
+      'FILE_STATUS_THEME_VARS and INTELLIJ_FILE_STATUS_COLORS must cover the same FileStatus union'
+    );
   });
 });

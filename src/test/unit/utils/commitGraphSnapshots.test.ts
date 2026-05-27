@@ -365,9 +365,14 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     // Wave E pins the LITERAL emit: a future refactor that swaps span for
     // div, drops the data-branch-name attribute, or changes the class
     // string forces a deliberate snapshot diff.
+    // Wave J — emit gained `role="img"`, `aria-label="Local branch: …"`,
+    // and a leading `<i class="codicon codicon-git-branch">`. snap-12a..d
+    // / snap-12f pin those new tokens INDEPENDENTLY of this string;
+    // updating snap-7a here is a deliberate co-update of the literal
+    // baseline.
     assert.strictEqual(
       html,
-      '<span class="branch-label-local" data-branch-name="main">main</span>'
+      '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>'
     );
   });
 
@@ -376,7 +381,7 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     const html = provider._getBranchLabelsHtml(node);
     assert.strictEqual(
       html,
-      '<span class="branch-label-remote" data-branch-name="origin/main">origin/main</span>'
+      '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-cloud" aria-hidden="true"></i>origin/main</span>'
     );
   });
 
@@ -390,9 +395,9 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     assert.strictEqual(
       html,
       [
-        '<span class="branch-label-local" data-branch-name="main">main</span>',
-        '<span class="branch-label-local" data-branch-name="develop">develop</span>',
-        '<span class="branch-label-remote" data-branch-name="origin/main">origin/main</span>',
+        '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>',
+        '<span class="branch-label-local" data-branch-name="develop" role="img" aria-label="Local branch: develop"><i class="codicon codicon-git-branch" aria-hidden="true"></i>develop</span>',
+        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-cloud" aria-hidden="true"></i>origin/main</span>',
       ].join('')
     );
   });
@@ -415,9 +420,13 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     const internals = provider as unknown as ProviderInternals;
     internals._extendedLogState.focusedBranchName = 'feature';
     const html = provider._getBranchLabelsHtml(node);
+    // Wave J R1 / MED-2 — focused chip carries
+    // aria-describedby="focused-branch-help" pointing at a panel-level
+    // visually-hidden help span. Non-focused chips omit the attribute
+    // (snap-7a..d still pin the no-attribute shape).
     assert.strictEqual(
       html,
-      '<span class="branch-label-local branch-label-focused" data-branch-name="feature">feature</span>'
+      '<span class="branch-label-local branch-label-focused" data-branch-name="feature" role="img" aria-label="Local branch: feature" aria-describedby="focused-branch-help"><i class="codicon codicon-git-branch" aria-hidden="true"></i>feature</span>'
     );
   });
 });
@@ -945,11 +954,13 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const node = nodeAt(headSha, ['main', 'origin/main']);
     const html = provider._getBranchLabelsHtml(node);
     // HEAD chip first, then branch chips in branchMap order.
+    // Wave J — chips gained `role="img"` + descriptive aria-labels +
+    // leading codicon prefix (snap-12a..d, 12f). Co-updated baseline.
     assert.strictEqual(
       html,
-      '<span class="branch-label-head" data-head-chip="true">HEAD</span>' +
-        '<span class="branch-label-local" data-branch-name="main">main</span>' +
-        '<span class="branch-label-remote" data-branch-name="origin/main">origin/main</span>'
+      '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>' +
+        '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
+        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-cloud" aria-hidden="true"></i>origin/main</span>'
     );
   });
 
@@ -960,7 +971,11 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const html = provider._getBranchLabelsHtml(node);
     // ADR-010 Layer 4 — covers detached-HEAD repo state. Cited from
     // `docs/parity/repo-states.md` §1.5 as the back-reference.
-    assert.strictEqual(html, '<span class="branch-label-head" data-head-chip="true">HEAD</span>');
+    // Wave J — see snap-9a comment.
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>'
+    );
   });
 
   it('snap-9c: headHash undefined → no HEAD chip anywhere; branch chips render unchanged', () => {
@@ -969,9 +984,10 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const node = nodeAt(headSha, ['main']);
     const html = provider._getBranchLabelsHtml(node);
     // The pre-Wave-G output, byte-for-byte. Pins backward compatibility.
+    // Wave J — branch chip emit gained role/aria/codicon (snap-12b/12f).
     assert.strictEqual(
       html,
-      '<span class="branch-label-local" data-branch-name="main">main</span>'
+      '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>'
     );
   });
 
@@ -981,9 +997,10 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const nodeWithBranches = nodeAt(headSha, ['feature']);
     const nodeNoBranches = nodeAt('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', []);
     // Neither node matches headHash → neither emits a HEAD chip.
+    // Wave J — branch chip emit gained role/aria/codicon (snap-12b/12f).
     assert.strictEqual(
       provider._getBranchLabelsHtml(nodeWithBranches),
-      '<span class="branch-label-local" data-branch-name="feature">feature</span>'
+      '<span class="branch-label-local" data-branch-name="feature" role="img" aria-label="Local branch: feature"><i class="codicon codicon-git-branch" aria-hidden="true"></i>feature</span>'
     );
     assert.strictEqual(provider._getBranchLabelsHtml(nodeNoBranches), '');
   });
@@ -1122,5 +1139,431 @@ describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
 
     assert.strictEqual(items[1].itemType, 'local-branch');
     assert.strictEqual(items[1].label, 'main');
+  });
+});
+
+/**
+ * Wave J — chip a11y + non-color affordance + theme-variable snapshots.
+ *
+ * Wave J adds three independent contracts to the chip surface:
+ *   - WJ-1: HEAD chip + branch chips emit `role="img"` + a descriptive
+ *     `aria-label` so screen readers hear "Current HEAD" / "Local
+ *     branch: main" / "Remote branch: origin/main" instead of a bare
+ *     glyph or a class-prefixed string.
+ *   - WJ-3: `.branch-label-local` and `.branch-label-remote` background
+ *     and color use `var(--vscode-gitDecoration-*)` family with the
+ *     pre-Wave-J hex literals as CSS fallbacks. Themes that override
+ *     the gitDecoration family theme through to the chips automatically.
+ *   - WJ-4: each chip carries a leading codicon glyph (`codicon-check`
+ *     for HEAD, `codicon-git-branch` for local, `codicon-cloud` for
+ *     remote). The icon is the non-color WCAG 1.4.1 affordance — even
+ *     a user who can't tell the local-blue background apart from the
+ *     remote-blue background sees the branch-vs-cloud icon.
+ *
+ * snap-12a..d pin chip-emit literals; snap-12e pins the inline CSS
+ * theme-variable rule; snap-12f / snap-12g pin the codicon prefix.
+ *
+ * Per ADR-010 R1 — each visual transformation stage gets its own
+ * snapshot fixture set, so chip-emit (12a..d, 12f), CSS-style (12e),
+ * and DOM layout (12g) are pinned separately.
+ */
+describe('Wave J / WJ-1 — chip a11y semantics (role + aria-label)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+  const headSha = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-12a: HEAD chip emits role="img" + aria-label="Current HEAD" + codicon-check + textContent "HEAD"', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    const node = nodeAt(headSha, []);
+    const html = provider._getBranchLabelsHtml(node);
+    // HEAD chip a11y contract: a screen reader user must hear
+    // "Current HEAD" — not just the bare letters "HEAD" with no
+    // semantic context. role="img" tells AT this is a single semantic
+    // unit; aria-label overrides the inner textContent for AT.
+    assert.ok(/role="img"/.test(html), `HEAD chip must carry role="img"; got: ${html}`);
+    assert.ok(
+      /aria-label="Current HEAD"/.test(html),
+      `HEAD chip must carry aria-label="Current HEAD"; got: ${html}`
+    );
+    assert.ok(
+      /<i class="codicon codicon-check"[^>]*aria-hidden="true"[^>]*><\/i>/.test(html),
+      `HEAD chip must include codicon-check with aria-hidden=true; got: ${html}`
+    );
+    // textContent (per jsdom parse) is "HEAD" — the codicon ligature
+    // resolves to nothing visible-as-text, and the SR overrides via
+    // aria-label.
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const chip = dom.window.document.querySelector('.branch-label-head');
+    assert.ok(chip, 'HEAD chip element parses');
+    assert.strictEqual(
+      chip.textContent,
+      'HEAD',
+      `HEAD chip textContent must be "HEAD"; got "${chip.textContent}"`
+    );
+  });
+
+  it('snap-12b: local branch chip emits role="img" + aria-label="Local branch: main" + codicon-git-branch', () => {
+    const node = nodeWithBranches('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', ['main']);
+    const html = provider._getBranchLabelsHtml(node);
+    assert.ok(
+      /<span class="branch-label-local"[^>]*role="img"[^>]*aria-label="Local branch: main"[^>]*>/.test(
+        html
+      ),
+      `local chip must carry role="img" + aria-label="Local branch: main"; got: ${html}`
+    );
+    assert.ok(
+      /<i class="codicon codicon-git-branch"[^>]*aria-hidden="true"[^>]*><\/i>/.test(html),
+      `local chip must include codicon-git-branch with aria-hidden=true; got: ${html}`
+    );
+  });
+
+  it('snap-12c: remote branch chip emits role="img" + aria-label="Remote branch: origin/main" + codicon-cloud', () => {
+    const node = nodeWithBranches('ccc1234567890cccccccccccccccccccccccccccc', ['origin/main']);
+    const html = provider._getBranchLabelsHtml(node);
+    assert.ok(
+      /<span class="branch-label-remote"[^>]*role="img"[^>]*aria-label="Remote branch: origin\/main"[^>]*>/.test(
+        html
+      ),
+      `remote chip must carry role="img" + aria-label="Remote branch: origin/main"; got: ${html}`
+    );
+    assert.ok(
+      /<i class="codicon codicon-cloud"[^>]*aria-hidden="true"[^>]*><\/i>/.test(html),
+      `remote chip must include codicon-cloud with aria-hidden=true; got: ${html}`
+    );
+  });
+
+  it('snap-12d: focused branch chip carries both `branch-label-local branch-label-focused` AND role="img" (aria-pressed deferred to Wave K)', () => {
+    const node = nodeWithBranches('ddd1234567890dddddddddddddddddddddddddddd', ['feature']);
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.focusedBranchName = 'feature';
+    const html = provider._getBranchLabelsHtml(node);
+    // Wave J / DJ-2 — `aria-pressed` is deferred to Wave K because chips
+    // are NOT yet keyboard-interactive (no tabindex, no click handler).
+    // Today the chip is decorative + selectable-by-focus-row only;
+    // adding `aria-pressed` would lie about an interaction that doesn't
+    // exist. Wave K will make the chip a button; aria-pressed lands then.
+    assert.ok(
+      /class="branch-label-local branch-label-focused"/.test(html),
+      `focused chip must carry both classes; got: ${html}`
+    );
+    assert.ok(/role="img"/.test(html), `focused chip must still carry role="img"; got: ${html}`);
+    assert.ok(
+      !/aria-pressed/.test(html),
+      `focused chip must NOT carry aria-pressed yet (deferred to Wave K); got: ${html}`
+    );
+  });
+});
+
+describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-12e: inline <style> declares `var(--vscode-gitDecoration-*)` for both .branch-label-local and .branch-label-remote with hex fallbacks', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // Wave J R1 / HIGH-4 — chip backgrounds switched to the
+    // semantically-correct `--vscode-badge-*` family. The pre-J hex
+    // literals must STILL ship as the CSS-var fallback (defence in
+    // depth + future hi-contrast drift detection); the legacy
+    // gitDecoration-* tokens are retained as a SECONDARY var() fallback
+    // for the remote chip only (snap-12e historically pinned that token).
+    assert.ok(
+      /\.branch-label-local[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
+      'inline CSS for .branch-label-local must use var(--vscode-badge-background) for theme-aware color'
+    );
+    assert.ok(
+      /\.branch-label-local[\s,{][\s\S]*?#2d5a1e/.test(fullHtml),
+      'inline CSS for .branch-label-local must keep #2d5a1e as the CSS-var fallback'
+    );
+
+    // Remote chip — same primary token (badge-background); legacy
+    // gitDecoration-renamedResourceForeground retained as secondary
+    // fallback so themes that override it still get a sensible chip.
+    assert.ok(
+      /\.branch-label-remote[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
+      'inline CSS for .branch-label-remote must use var(--vscode-badge-background) for theme-aware color'
+    );
+    assert.ok(
+      /\.branch-label-remote[\s,{][\s\S]*?#1a3a5c/.test(fullHtml),
+      'inline CSS for .branch-label-remote must keep #1a3a5c as the CSS-var fallback'
+    );
+  });
+});
+
+describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+  const headSha = 'fff1234567890fffffffffffffffffffffffffff1';
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('snap-12f: chip HTML carries codicon-git-branch (local), codicon-cloud (remote), codicon-check (HEAD)', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    const node = nodeAt(headSha, ['main', 'origin/main']);
+    const html = provider._getBranchLabelsHtml(node);
+    // Three icons must be present, one per chip variant. Order is
+    // HEAD-first (Wave G), then branch chips in branchMap order.
+    assert.ok(
+      /class="branch-label-head"[^>]*>[\s\S]*?codicon-check/.test(html),
+      `HEAD chip must contain codicon-check; got: ${html}`
+    );
+    assert.ok(
+      /class="branch-label-local"[^>]*>[\s\S]*?codicon-git-branch/.test(html),
+      `local chip must contain codicon-git-branch; got: ${html}`
+    );
+    assert.ok(
+      /class="branch-label-remote"[^>]*>[\s\S]*?codicon-cloud/.test(html),
+      `remote chip must contain codicon-cloud; got: ${html}`
+    );
+  });
+
+  it('snap-12g: jsdom layout — chip width contract still ≤ 200px CSS cap with codicon icon present', () => {
+    // The Wave E R1 chip-cap contract was `max-width: 200px` on
+    // .branch-label-local / .branch-label-remote / .branch-label-head.
+    // Wave J adds an inline icon (~11px) inside each chip; the cap
+    // STILL applies — adding an icon must NOT increase the CSS-side
+    // contractual cap.
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // The combined-rule selector or single-rule for each chip class must
+    // still pin max-width: 200px. Wave J added an icon-sizing rule that
+    // declares `i.codicon { font-size: 11px; margin-right: 4px; }` —
+    // this rule does NOT relax the cap.
+    assert.ok(
+      /\.branch-label-local[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
+        /\.branch-label-local\s*,\s*\.branch-label-remote[\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'Wave J must NOT relax the Wave E R1 200px cap on .branch-label-local'
+    );
+    assert.ok(
+      /\.branch-label-remote[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
+        /\.branch-label-local\s*,\s*\.branch-label-remote[\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'Wave J must NOT relax the Wave E R1 200px cap on .branch-label-remote'
+    );
+    assert.ok(
+      /\.branch-label-head[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'Wave J must NOT relax the Wave G 200px cap on .branch-label-head'
+    );
+
+    // The codicon-sizing rule must exist — it pins icon font-size at
+    // 11px (matches chip text font-size) so the icon doesn't blow up
+    // the chip vertically.
+    assert.ok(
+      /\.branch-label-(?:local|remote|head)[\s\S]*?i\.codicon[\s\S]*?font-size:\s*11px/.test(
+        fullHtml
+      ),
+      'inline CSS must size chip codicon at 11px to match chip text height'
+    );
+  });
+});
+
+/**
+ * Wave J R1 / MED-1 — focused-branch chip non-colour affordance.
+ *
+ * Pre-R1 .branch-label-focused only carried `outline + font-weight:
+ * 600`. WCAG 1.4.1 fails when the only differentiator is a colour
+ * (focus outline) — under high-contrast themes the outline often
+ * matches the chip border, making the focus invisible. R1 bumps
+ * `font-weight: 700` and adds `text-decoration: underline` so the
+ * affordance is visible in mono-chrome printout / colour-blind
+ * users / hi-contrast themes alike.
+ */
+describe('Wave J R1 / MED-1 — focused chip carries bold + underline', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('focusedChipMED1-1: .branch-label-focused CSS rule sets font-weight 700 + text-decoration underline', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // The .branch-label-focused rule must declare both the bold-bump
+    // (font-weight: 700) and the underline. Both are non-colour
+    // affordances per WCAG 1.4.1.
+    assert.ok(
+      /\.branch-label-focused\s*\{[^}]*font-weight:\s*700/.test(fullHtml),
+      '.branch-label-focused must set font-weight: 700 (bold-bump non-colour affordance)'
+    );
+    assert.ok(
+      /\.branch-label-focused\s*\{[^}]*text-decoration:\s*underline/.test(fullHtml),
+      '.branch-label-focused must set text-decoration: underline (non-colour affordance)'
+    );
+    // Pre-R1 had font-weight: 600 — ensure that value is gone.
+    assert.ok(
+      !/\.branch-label-focused\s*\{[^}]*font-weight:\s*600/.test(fullHtml),
+      '.branch-label-focused must NOT set font-weight: 600 (pre-R1 weight)'
+    );
+  });
+});
+
+/**
+ * Wave J R1 / HIGH-1 — codicon font loader.
+ *
+ * Pre-R1 the webview HTML emitted `<i class="codicon codicon-…">`
+ * glyphs on every chip but no `@font-face` declaration loaded the
+ * actual TTF — every glyph rendered as an empty-box "tofu" and the
+ * entire WCAG 1.4.1 non-colour affordance silently failed. This block
+ * pins the @font-face + .codicon utility + per-glyph codepoint rules
+ * + the CSP `font-src` widening, so a regression that breaks any of
+ * these layers is caught by RED test rather than an in-extension
+ * visual fail.
+ *
+ * Test coverage:
+ *   codiconFont-1: rendered HTML contains `@font-face { font-family:
+ *     "codicon"` declaration with an `asWebviewUri`-rewritten src.
+ *   codiconFont-2: rendered HTML contains the `.codicon { font: …; }`
+ *     utility rule + per-glyph `::before` content rules for the three
+ *     codicons currently emitted (check, git-branch, cloud).
+ *   codiconFont-3: 3-panel CSP meta tag includes
+ *     `font-src ${webview.cspSource}`.
+ */
+describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  it('codiconFont-1: rendered HTML contains @font-face declaration loading codicon TTF via asWebviewUri', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // The @font-face block must be present with font-family "codicon".
+    assert.ok(
+      /@font-face\s*\{[^}]*font-family:\s*["']codicon["']/.test(fullHtml),
+      'rendered HTML must contain @font-face { font-family: "codicon" } declaration'
+    );
+    // The src must point at the codicon TTF (asWebviewUri pass-through
+    // in the mock returns the local URI; production rewrites to the
+    // webview-acceptable form). Either way the path ends in
+    // `media/codicon.ttf`.
+    assert.ok(
+      /@font-face[\s\S]*?src:\s*url\([^)]*codicon\.ttf[^)]*\)\s+format\(["']truetype["']\)/.test(
+        fullHtml
+      ),
+      'rendered HTML must include src: url(...codicon.ttf) format("truetype") in @font-face'
+    );
+  });
+
+  it('codiconFont-2: rendered HTML contains .codicon utility rule + per-glyph codepoint rules', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // The base utility rule — must include the `font:` shorthand
+    // declaring the `codicon` font-family.
+    assert.ok(
+      /\.codicon\s*\{[^}]*font:[^}]*codicon[^}]*\}/.test(fullHtml),
+      'rendered HTML must contain .codicon { font: ...; } utility rule'
+    );
+    // Per-glyph codepoints — match upstream @vscode/codicons CSS:
+    //   codicon-check       → \eab2
+    //   codicon-git-branch  → \ec6f
+    //   codicon-cloud       → \ebaa
+    assert.ok(
+      /\.codicon-check:before\s*\{\s*content:\s*"\\eab2"/.test(fullHtml),
+      'rendered HTML must map codicon-check to codepoint \\eab2'
+    );
+    assert.ok(
+      /\.codicon-git-branch:before\s*\{\s*content:\s*"\\ec6f"/.test(fullHtml),
+      'rendered HTML must map codicon-git-branch to codepoint \\ec6f'
+    );
+    assert.ok(
+      /\.codicon-cloud:before\s*\{\s*content:\s*"\\ebaa"/.test(fullHtml),
+      'rendered HTML must map codicon-cloud to codepoint \\ebaa'
+    );
+  });
+
+  it('codiconFont-3: CSP meta tag includes font-src ${webview.cspSource}', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // The CSP must allow font-src from the webview's cspSource so the
+    // same-origin TTF URL resolves. Pre-R1 CSP omitted font-src
+    // entirely — fonts fell back to default-src 'none' and the load
+    // was blocked. The new CSP MUST include font-src for the webview's
+    // cspSource (mock returns 'https://mock.csp.source').
+    assert.ok(
+      /Content-Security-Policy[^>]*font-src\s+https:\/\/mock\.csp\.source/.test(fullHtml),
+      'CSP meta tag must allow font-src from the webview cspSource'
+    );
   });
 });

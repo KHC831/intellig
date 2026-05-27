@@ -196,3 +196,220 @@ describe('Wave I H-2 — CommitDialog data-action delegation', () => {
     ]);
   });
 });
+
+/**
+ * Wave J / WJ-2 — file-status colors via theme variables.
+ *
+ * Pre-Wave-J `_getStatusColor` returned bare hex literals
+ * (`#6897BB`, `#629755`, …) that ignored the user's theme. Wave J
+ * switches every entry to `var(--vscode-gitDecoration-*Foreground, #hex)`
+ * so the chip text color flips with the theme; the original hex stays
+ * as the CSS-var fallback for themes that don't define the token.
+ *
+ * The 7 file-status states (Modified, Added, Deleted, Renamed, Copied,
+ * Untracked, Unmerged) all map to the `gitDecoration-*` family, which
+ * has been part of VS Code's theme contract since 1.46. Our engines.vscode
+ * floor is `^1.85.0`, so the variables are guaranteed available.
+ */
+describe('Wave J / WJ-2 — _getStatusColor returns theme-variable expressions', () => {
+  // Reach the private method through prototype reflection. Same pattern
+  // as the WJ-1 H-2 tests above.
+  interface StatusColorStub {
+    _getStatusColor(s: string): string;
+  }
+  function callStatusColor(status: string): string {
+    const proto = (
+      CommitDialog as unknown as {
+        prototype: { _getStatusColor: (this: StatusColorStub, s: string) => string };
+      }
+    ).prototype;
+    // The implementation is pure (only reads its own arg + a static
+    // map), so the bound `this` only needs to be assignable to the
+    // method's contract — an empty object is fine.
+    return proto._getStatusColor.call({} as StatusColorStub, status);
+  }
+
+  it('chipTheme-1: _getStatusColor("Modified") returns var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)', () => {
+    // Pin the exact var() shape — both the CSS variable name AND the
+    // hex fallback must be present, in that order.
+    assert.strictEqual(
+      callStatusColor('Modified'),
+      'var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)'
+    );
+  });
+
+  it('chipTheme-2: every status maps to a `var(--vscode-gitDecoration-*)` expression with a hex fallback', () => {
+    // Pin the COMPLETE map. A future re-coloring of any single status
+    // forces a deliberate diff in this assertion.
+    const expected: Record<string, string> = {
+      Modified: 'var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)',
+      Added: 'var(--vscode-gitDecoration-addedResourceForeground, #629755)',
+      Deleted: 'var(--vscode-gitDecoration-deletedResourceForeground, #6C6C6C)',
+      Renamed: 'var(--vscode-gitDecoration-renamedResourceForeground, #6897BB)',
+      Copied: 'var(--vscode-gitDecoration-addedResourceForeground, #629755)',
+      Untracked: 'var(--vscode-gitDecoration-untrackedResourceForeground, #CC7832)',
+      Unmerged: 'var(--vscode-gitDecoration-conflictingResourceForeground, #FF0000)',
+    };
+    for (const [status, expr] of Object.entries(expected)) {
+      assert.strictEqual(
+        callStatusColor(status),
+        expr,
+        `status "${status}" must return the gitDecoration var() expression`
+      );
+    }
+  });
+
+  it('chipTheme-3: unknown status falls back to var(--vscode-foreground, #FFFFFF)', () => {
+    // The `||` branch in `_getStatusColor` was bare `#FFFFFF` pre-J.
+    // Wave J makes it theme-aware too — text in a webview should read
+    // against the editor's foreground, not a hard white that's invisible
+    // on light themes.
+    assert.strictEqual(callStatusColor('NotAStatus'), 'var(--vscode-foreground, #FFFFFF)');
+  });
+});
+
+/**
+ * Wave J / WJ-5 — toggleLine inline-onclick → data-action delegation.
+ *
+ * Pre-Wave-J each selectable diff line carried
+ * `onclick="toggleLine(${hunkIndex}, ${lineNumber})"` interpolated into
+ * the row HTML. Wave I cleaned the file/hunk-button onclicks but
+ * toggleLine was missed — the only call sites where the args were
+ * caller-controlled numbers (no user input through the JS string),
+ * but consistency wins: the dispatcher pattern is uniform once
+ * toggleLine joins it.
+ *
+ * Test coverage:
+ *   commitDialog-toggleLine-1: jsdom click on
+ *     `[data-action="toggleLine"][data-hunk-index="2"][data-line-number="5"]`
+ *     dispatches with correctly-typed numeric args (Number(hunkIndex),
+ *     Number(lineNumber)).
+ *   commitDialog-toggleLine-2: rendered diff-line HTML for a
+ *     selectable line carries `data-action="toggleLine"` +
+ *     `data-hunk-index` + `data-line-number`, NOT inline `onclick=`.
+ */
+describe('Wave J / WJ-5 — CommitDialog toggleLine data-action delegation', () => {
+  it('commitDialog-toggleLine-1: jsdom click dispatches Number(hunkIndex) + Number(lineNumber)', () => {
+    // Mirror the production dispatcher's toggleLine handler in jsdom and
+    // verify the typed-number contract. The args MUST be coerced via
+    // `Number()` because dataset values are always strings.
+    const dom = new JSDOM(`
+      <html><body>
+        <div id="line"
+             data-action="toggleLine"
+             data-hunk-index="2"
+             data-line-number="5">- removed</div>
+      </body></html>
+    `);
+    const { document } = dom.window;
+    const messages: Array<{ type: string; hunkIndex: unknown; lineNumber: unknown }> = [];
+
+    document.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
+      if (!target) {
+        return;
+      }
+      const action: string | undefined = target.dataset.action;
+      const hunkIndex: string | undefined = target.dataset.hunkIndex;
+      const lineNumber: string | undefined = target.dataset.lineNumber;
+      const handlers: Record<string, () => void> = {
+        toggleLine: () =>
+          messages.push({
+            type: 'toggleLine',
+            hunkIndex: Number(hunkIndex),
+            lineNumber: Number(lineNumber),
+          }),
+      };
+      if (action && handlers[action]) {
+        handlers[action]();
+      }
+    });
+
+    const lineEl = document.getElementById('line');
+    assert.ok(lineEl);
+    lineEl.click();
+
+    assert.deepStrictEqual(messages, [
+      // The contract: BOTH args coerce to NUMBER, not stay as the
+      // string "2" / "5" that the DOM stored.
+      { type: 'toggleLine', hunkIndex: 2, lineNumber: 5 },
+    ]);
+  });
+
+  it('commitDialog-toggleLine-2: rendered selectable-line HTML carries data-action + indexes (NOT inline onclick)', () => {
+    // Render the selectable-line shape that `_renderHunkWithControls`
+    // emits. We construct a minimal `this`-stub matching what the
+    // method reads and verify the literal attribute shape of the
+    // emitted line div.
+    //
+    // The selectable path requires `_partialStagingMode = true` AND a
+    // line that has a defined line-number (the `delete` lines use
+    // `oldLineNumber`, the `add` lines use `newLineNumber`).
+    interface RenderHunkProto {
+      _renderHunkWithControls: (
+        this: {
+          _escapeHtml: (s: string) => string;
+          _selectedLines: Map<number, Set<number>>;
+          _partialStagingMode: boolean;
+        },
+        hunk: {
+          oldStart: number;
+          oldLines: number;
+          newStart: number;
+          newLines: number;
+          header: string;
+          lines: Array<{
+            type: string;
+            content: string;
+            oldLineNumber?: number;
+            newLineNumber?: number;
+          }>;
+        },
+        hunkIndex: number,
+        isStaged: boolean
+      ) => string;
+    }
+    const proto = (CommitDialog as unknown as { prototype: RenderHunkProto }).prototype;
+    const stub = {
+      _escapeHtml: (s: string): string =>
+        s
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;'),
+      _selectedLines: new Map<number, Set<number>>(),
+      _partialStagingMode: true,
+    };
+    const hunk = {
+      oldStart: 1,
+      oldLines: 2,
+      newStart: 1,
+      newLines: 2,
+      header: '@@ -1,2 +1,2 @@',
+      lines: [
+        // A selectable `delete` line — the toggleLine attachment site.
+        { type: 'delete', content: 'old line', oldLineNumber: 5, newLineNumber: undefined },
+      ],
+    };
+    const html = proto._renderHunkWithControls.call(stub, hunk, 2, false);
+
+    // The forbidden inline-onclick form must NOT appear.
+    assert.ok(
+      !/onclick="toggleLine\(/.test(html),
+      `expected no inline onclick="toggleLine("; got: ${html.substring(0, 800)}`
+    );
+    // The data-action shape MUST appear, with the matching indexes.
+    assert.ok(
+      /data-action="toggleLine"/.test(html),
+      `expected data-action="toggleLine"; got: ${html.substring(0, 800)}`
+    );
+    assert.ok(
+      /data-hunk-index="2"/.test(html),
+      `expected data-hunk-index="2"; got: ${html.substring(0, 800)}`
+    );
+    assert.ok(
+      /data-line-number="5"/.test(html),
+      `expected data-line-number="5"; got: ${html.substring(0, 800)}`
+    );
+  });
+});

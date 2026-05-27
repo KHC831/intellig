@@ -1695,8 +1695,21 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      assert.ok(html.includes('background: #2d5a1e'), 'Local label should have green background');
-      assert.ok(html.includes('color: #a5d6a7'), 'Local label should have light green text');
+      // Wave J R1 / HIGH-4 — chip backgrounds switched from FG-tier
+      // gitDecoration-* tokens (which themes use for the SCM tree) to
+      // the semantically-correct badge-* family. Local + remote share
+      // the same background; local-vs-remote distinction lives in the
+      // codicon prefix (cloud vs git-branch). The pre-J hex literal
+      // (#2d5a1e) is retained as the CSS-var fallback for themes that
+      // don't define badge-*.
+      assert.ok(
+        html.includes('background: var(--vscode-badge-background, #2d5a1e)'),
+        'Local label background must use var(--vscode-badge-background) with #2d5a1e fallback'
+      );
+      assert.ok(
+        html.includes('color: var(--vscode-badge-foreground, #a5d6a7)'),
+        'Local label foreground must use var(--vscode-badge-foreground) with #a5d6a7 fallback'
+      );
     });
 
     it('should include .branch-label-remote CSS class with correct styles', () => {
@@ -1718,8 +1731,28 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-remote'),
         'Should include .branch-label-remote CSS class'
       );
-      assert.ok(html.includes('background: #1a3a5c'), 'Remote label should have blue background');
-      assert.ok(html.includes('color: #90caf9'), 'Remote label should have light blue text');
+      // Wave J R1 / HIGH-4 — remote chip uses the same badge-* family
+      // as local; the secondary remote-only override block retains the
+      // pre-J #1a3a5c / #90caf9 hex pair as a fallback when neither
+      // badge-* nor the legacy gitDecoration-* family is defined. The
+      // hex literals MUST ship (CSS var fallback discipline + future
+      // hi-contrast drift detection).
+      assert.ok(
+        html.includes('--vscode-gitDecoration-renamedResourceForeground, #1a3a5c'),
+        'Remote label must retain #1a3a5c hex as legacy fallback'
+      );
+      assert.ok(
+        html.includes('--vscode-gitDecoration-modifiedResourceForeground, #90caf9'),
+        'Remote label must retain #90caf9 hex as legacy fallback'
+      );
+      assert.ok(
+        html.includes('var(--vscode-badge-background'),
+        'Remote label must use var(--vscode-badge-background) as primary'
+      );
+      assert.ok(
+        html.includes('var(--vscode-badge-foreground'),
+        'Remote label must use var(--vscode-badge-foreground) as primary'
+      );
     });
 
     it('should include correct font-size, padding, border-radius, and margin-left for branch labels', () => {

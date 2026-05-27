@@ -227,3 +227,49 @@ describe('Wave I H-3 — BranchTreeProvider.dispose()', () => {
     sub.dispose();
   });
 });
+
+/**
+ * Wave J R1 / MED-3 — accessibilityInformation on the synthetic
+ * detached-head BranchTreeItem so SR users hear the same meaning the
+ * visible icon + tooltip convey to sighted users. VS Code's TreeView
+ * reads `label + description` by default; the detached row's visible
+ * label is `(HEAD detached at <sha>)` and the description is
+ * `'detached'` — neither phrase is meaningful out of context. We
+ * provide an explicit `accessibilityInformation.label` that names
+ * "Detached HEAD" upfront and includes the short SHA.
+ */
+describe('Wave J R1 / MED-3 — detached HEAD row accessibility', () => {
+  it('branchTree-detached-aria-1: detached row exposes accessibilityInformation.label naming "Detached HEAD" + shortSha', async () => {
+    const repo = detachedRepo(FULL_SHA);
+    const gitService = createMockGitService(repo);
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(repo);
+
+    const items = await localBranchesFromTree(provider);
+    assert.strictEqual(items.length, 1, 'one item: the detached row');
+    const row = items[0];
+    assert.strictEqual(
+      row.itemType,
+      'detached-head',
+      'pre-condition: row must be the detached-head row'
+    );
+
+    // The TreeItem MUST carry accessibilityInformation. VS Code reads
+    // `accessibilityInformation.label` (when set) instead of `label +
+    // description`, so this is the SR-narrated phrase.
+    assert.ok(row.accessibilityInformation, 'detached-head row must set accessibilityInformation');
+    const aria = row.accessibilityInformation as { label: string; role?: string };
+    assert.ok(
+      aria.label.includes('Detached HEAD'),
+      `accessibilityInformation.label must name "Detached HEAD"; got: ${aria.label}`
+    );
+    assert.ok(
+      aria.label.includes(SHORT_SHA),
+      `accessibilityInformation.label must include short SHA "${SHORT_SHA}"; got: ${aria.label}`
+    );
+    assert.ok(
+      /not on a branch/i.test(aria.label),
+      `accessibilityInformation.label must mention "not on a branch"; got: ${aria.label}`
+    );
+  });
+});
