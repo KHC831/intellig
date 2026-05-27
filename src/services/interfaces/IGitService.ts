@@ -617,6 +617,24 @@ export interface IGitService {
   deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void>;
   renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void>;
   /**
+   * Wave K — WK-3 (DK-3): set the upstream tracking ref of an existing
+   * local branch. Routes through `git branch --set-upstream-to=<ref>
+   * <localName>`. Used by the Track Remote Branch single-menu-entry
+   * smart-detect path: when a local with the matching simple name
+   * already exists (with no upstream OR with a different upstream),
+   * we adopt the right-clicked remote ref via this API rather than
+   * creating a new local branch.
+   *
+   * Argv layout:
+   *   `git branch --set-upstream-to=<remote>/<branch> <localName>`
+   *
+   * Both `localName` and `upstreamRef` are user-controlled; the
+   * implementation rejects names starting with `-` / `.` (Wave I
+   * leading-dash guard) and splices `--end-of-options` between the
+   * flag(s) and the local name.
+   */
+  setBranchUpstream(repo: IRepository, localName: string, upstreamRef: string): Promise<void>;
+  /**
    * Merge a branch into the current one. Legacy callers pass just
    * `(repo, branch)`; new callers may pass {@link IMergeOptions}.
    */

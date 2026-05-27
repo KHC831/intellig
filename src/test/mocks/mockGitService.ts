@@ -61,6 +61,7 @@ export function createMockGitService(
     checkout: async () => {},
     deleteBranch: async () => {},
     renameBranch: async () => {},
+    setBranchUpstream: async () => {}, // Wave K — WK-3
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async () => ({ success: true }),
     rebaseSkip: async () => ({ success: true }),

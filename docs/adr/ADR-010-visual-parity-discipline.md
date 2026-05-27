@@ -485,3 +485,96 @@ serve the same comparison need without duplicating the surface.
   (snapshot) gained 12 new tests (8 fileStatusTheme + 1 branchTree-aria
   + 3 codiconFont) on top of the R0 set. Layer 2 (UX review) and
   Layer 4 (repo-state) were unchanged. All 8 gates clean post-R1.
+
+- **Wave K (2026-05-26)**: closed 5 IntelliJ-parity findings (WK-1..5)
+  + the Wave J DJ-2 deferral (chip `aria-pressed` deferred further —
+  chips remain non-interactive until the chip-as-button work lands).
+  - **WK-1 (Squash/Fixup with Previous)**: added single-only commit
+    context-menu entries `squashWithPrevious` + `fixupWithPrevious`
+    that synthesise a 2-commit selection [clicked, parent] and
+    delegate to the existing `_handleSquashCommits` pipeline with a
+    `mode: 'squash' | 'fixup'` flag. The fixup mode skips the
+    squash-message editor and reuses the parent's existing message
+    verbatim, matching `git commit --fixup` semantics. Defence-in-
+    depth checks reject root commits (no parent) and merge commits
+    (>=2 parents) with friendlier per-action messages.
+  - **WK-2 (Compare with Branch picker)**: added single-only entry
+    `compareWithBranch` that opens a `vscode.window.showQuickPick`
+    with three sections (`Local Branches` / `Remote Branches` /
+    `Tags`) separated by `QuickPickItemKind.Separator`, then routes
+    the selected ref through `BranchComparisonView`. Mirrors
+    IntelliJ's "Compare with Branch…" dialog.
+  - **WK-3 (Track Remote Branch with smart-detect)**: added the
+    `intellig.remoteBranch.trackBranch` command + its `5_manage`
+    menu entry on `viewItem == intellig.remoteBranch`. Smart-detects
+    whether a matching local branch already exists: if yes, calls
+    `gitService.setBranchUpstream(local, upstream)` (no checkout); if
+    no, calls `git checkout --track <remote>` (creates + checks out).
+    Surfaces a single confirm before changing an existing upstream.
+    New `IGitService.setBranchUpstream` method on the composite +
+    GitService implementation + mockGitService stub.
+  - **WK-4 (Tag chips on log graph rows)**: extended the chip family
+    with `.tag-label`, rendered rightmost on each commit row after
+    the HEAD + branch chips. Per-chip contract follows the Wave J
+    chip-family discipline: `role="img"` + `aria-label="Tag: …"`
+    + leading `codicon-tag` glyph as the WCAG 1.4.1 non-color
+    affordance. Joined the existing `max-width: 200px` + ellipsis
+    rule so long tag names ellipsize. Codicon-tag glyph (`\\ea66`)
+    pinned from `@vscode/codicons@0.0.45` dist/codicon.css.
+  - **WK-5 (DJ-2 deferral closure)**: documented in
+    `docs/parity/accessibility.md` and `git-log-graph.md §2.6` that
+    `aria-pressed` remains deferred — chips are still non-interactive
+    surfaces and `aria-pressed` would lie about their state. No
+    production code changes; pure documentation closure.
+
+  **Architectural rationale — WK-1 thin entry points (TLK-1).**
+  `_handleSquashWithPrevious` and `_handleFixupWithPrevious` exist as
+  thin entry points rather than collapsing into `_handleSquashCommits`
+  for three load-bearing reasons: (a) they preserve the merge-commit +
+  root-commit guards specific to the "with-previous" UX, since a
+  user-selected pair coming from the multi-select dispatcher has
+  different validation needs (a 2-commit multi-select where the user
+  manually picked both is NOT necessarily a parent/child pair, whereas
+  "with previous" guarantees parentage by construction); (b) the
+  synthesis `[hash, parentHash]` is the contract these entries promise
+  to the dispatcher — `_handleSquashCommits` is then free to assume the
+  pair is parentage-ordered without re-deriving it; (c) without these
+  shims, the menu binding would call `_handleSquashCommits` directly
+  with a 1-element array, re-introducing the bug class where merge
+  commits got silently squashed against `HEAD~1` regardless of
+  parentage. *Preservation directive:* do not collapse
+  `_handleSquashWithPrevious` / `_handleFixupWithPrevious` into a single
+  shared entry point or remove them in favour of calling
+  `_handleSquashCommits` directly from the menu binding. Their job is
+  to validate parentage + synthesise the parent SHA before the shared
+  mutation path runs.
+
+  **Architectural rationale — WK-2 late-bound view setter (TLK-3).**
+  `CommitContextMenuCommands.setBranchComparisonView(view)` is a
+  deliberate construction-order trade-off, not an afterthought. *Why:*
+  `extension.ts` constructs both `CommitContextMenuCommands` and
+  `BranchComparisonView`, but `BranchComparisonView` itself depends on
+  `CommitContextMenuCommands` being available — a constructor-injection
+  approach would require either a circular import or a forward
+  declaration that TypeScript's module graph cannot satisfy cleanly.
+  *How:* `extension.ts` constructs `CommitContextMenuCommands` first,
+  constructs `BranchComparisonView` afterwards, then wires the view
+  back via the setter — all synchronous within `activate()`, so there
+  is no race window for user input between the two steps. The handler
+  at `CommitContextMenuCommands.ts:2399` keeps an `undefined` guard as
+  belt-and-suspenders against pre-wiring dispatch (e.g. a future caller
+  that registers the command before `activate()` finishes). *Preservation
+  directive:* do not refactor this into constructor injection without
+  first eliminating the import cycle between `extension.ts` /
+  `BranchComparisonView` / `CommitContextMenuCommands`.
+
+  Layer 1 (snapshot) gained `snap-13a..f` + `codiconFont-4` in
+  `commitGraphSnapshots.test.ts` (tag chip ordering, empty-string
+  return for the HEAD + branches + tags negation, escape, max-width
+  sharing, theme var, codicon glyph). Layer 3 gained
+  `docs/parity/accessibility.md §1.4` (tag chip aria contract) and
+  `docs/parity/git-log-graph.md §2.7` (per-chip detail with §2.7.4
+  test coverage matrix). Layer 2
+  (UX review) and Layer 4 (repo-state) were unchanged — Wave K added
+  no new repo-state fixtures (tags are repo-state-orthogonal: any
+  shape may carry tags). All 8 gates clean post-K.

@@ -68,12 +68,15 @@ contract; this section owns the cross-cutting invariants.
   `font-src ${webview.cspSource}` to permit the same-origin TTF.
   Pinned by `codiconFont-1..3` in `commitGraphSnapshots.test.ts`.
 
-> **Why `aria-pressed` is deferred (DJ-2).** The chips are NOT yet
-> keyboard-interactive — there's no `tabindex`, no click handler,
-> no `role="button"`. Adding `aria-pressed` today would lie about an
-> interaction that doesn't yet exist. Wave K converts the focused
-> chip to a button (with click + Enter activation); `aria-pressed`
-> lands then.
+> **Why `aria-pressed` is deferred FURTHER (DJ-2 → DK-6).** Wave J
+> originally pencilled in `aria-pressed` for Wave K. After re-evaluating
+> the chip semantics during the Wave K design pass we concluded that
+> `aria-pressed` is the wrong attribute for chip-as-button — chips are
+> a popup menu trigger, not a toggle, so `aria-haspopup="menu"` is the
+> semantically-correct attribute when interactivity lands. The
+> re-deferral keeps the bridge `aria-describedby="focused-branch-help"`
+> (Wave J R1 / MED-2) on focused chips so SR users still hear the
+> focus-state explanation; `aria-pressed` is removed from the roadmap.
 
 ## §2 File-status colours (Wave J)
 
@@ -151,34 +154,51 @@ contract.
   detached, conflicted, …). The detached-state row covers the
   branch-tree row in §3.
 
-## §6 Future a11y work (Wave K and beyond)
+## §6 Future a11y work (post-Wave-K)
 
-Items deferred from Wave J to keep the wave's blast radius scoped:
+Items deferred from earlier waves and the current pending list:
 
-- **Wave K — `aria-pressed` on focused branch chips.** Once the
-  chips become keyboard-interactive (tabindex + role="button" +
-  Enter/Space activation), the focused chip gains
-  `aria-pressed="true"` so SRs hear "pressed" / "not pressed" on
-  every focus change. Today's `aria-describedby` (Wave J R1 / MED-2)
-  is the bridge until then.
-- **Wave K — keyboard navigation across chips.** The chips today are
-  navigable only via tab into the parent commit row + the row's
-  own focus management. A future iteration adds left/right arrow
-  navigation across chips within a row, matching IntelliJ's
-  "branches popup" navigation.
-- **High-contrast manual sweep.** Each new feature gets a manual
-  pass under `Default High Contrast` + `Default High Contrast
-  Light` before sign-off. Today's automation covers the theme-var
-  contract (snap-12e, fileStatusTheme-1..8); the visual sweep is
-  irreplaceable for catching contrast-ratio regressions that the
-  theme variable doesn't surface (e.g. a chip foreground that
-  happens to match the chip background under a high-contrast palette).
-- **Tag chip (`tag-label`) parity.** The tag chip today inherits
-  the Wave E R1 cap (`max-width: 200px`) and the Wave J R1 codicon
-  utility CSS (so tag-icons render correctly when added) but does
-  NOT yet carry `role="img"` + `aria-label="Tag: …"`. Wave K extends
-  the WJ-1 contract to tags.
+- **`aria-pressed` removed from the roadmap (DK-6).** Wave J pencilled
+  this in for Wave K; the Wave K design pass concluded `aria-pressed`
+  is the wrong attribute (chips trigger menus, they are not toggles).
+  When chip-as-button interactivity lands, the semantically-correct
+  attribute is `aria-haspopup="menu"` plus the existing
+  `aria-describedby="focused-branch-help"` bridge. No new wave
+  scheduled — chip interactivity is on the next-tier roadmap, not
+  scope-blocking.
+- **Keyboard navigation across chips.** The chips today are navigable
+  only via tab into the parent commit row + the row's own focus
+  management. A future iteration adds left/right arrow navigation
+  across chips within a row, matching IntelliJ's "branches popup"
+  navigation. Independent of `aria-haspopup`.
+- **High-contrast manual sweep.** Each new feature gets a manual pass
+  under `Default High Contrast` + `Default High Contrast Light` before
+  sign-off. Today's automation covers the theme-var contract (snap-12e,
+  snap-13f, fileStatusTheme-1..8); the visual sweep is irreplaceable
+  for catching contrast-ratio regressions that the theme variable
+  doesn't surface (e.g. a chip foreground that happens to match the
+  chip background under a high-contrast palette).
+
+## §1.4 Tag chips (Wave K)
+
+The `.tag-label` chip joined the chip family in Wave K (WK-4).
+Contracts mirror the local + remote chip family; see
+`docs/parity/git-log-graph.md §2.7` for the per-chip details. In
+short:
+
+- `role="img"` + `aria-label="Tag: <tagName>"` (parallel to the
+  Wave J HEAD / local / remote chip aria contract).
+- Leading `<i class="codicon codicon-tag" aria-hidden="true"></i>`
+  prefix as the WCAG 1.4.1 non-color affordance.
+- Same 200px max-width cap as branch chips so a long tag name (e.g.
+  `release/2026-Q1.beta3-rc4`) ellipsizes rather than blowing up the
+  layout.
+- Background uses `var(--vscode-gitDecoration-modifiedResourceForeground,
+  #6897BB)` — identical to the pre-WK value, retained for snap-13f.
+
+Pinned by `snap-13a..f` + `codiconFont-4` in
+`commitGraphSnapshots.test.ts`.
 
 ---
 
-_Last updated: 2026-05-26 (Wave J R1)._
+_Last updated: 2026-05-26 (Wave K)._

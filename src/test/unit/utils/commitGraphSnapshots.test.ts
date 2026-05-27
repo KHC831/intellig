@@ -705,12 +705,21 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
     // The combined block must also pin `overflow: hidden` and
     // `white-space: nowrap` — without them, `text-overflow: ellipsis` is
     // a no-op.
+    //
+    // Wave K — WK-4 extended the combined selector to include `.tag-label`
+    // so the tag chip joins the responsive-cap family. The regex tolerates
+    // the optional `, .tag-label` suffix between the two original selectors
+    // and the opening brace. If a future wave splits the rule into a
+    // dedicated tag-label-only block this test will start failing — that's
+    // intended (snap-13d covers tag-only sharing of these properties).
     assert.ok(
-      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*overflow:\s*hidden/.test(fullHtml),
+      /\.branch-label-local\s*,\s*\.branch-label-remote(?:\s*,\s*\.tag-label)?\s*\{[^}]*overflow:\s*hidden/.test(
+        fullHtml
+      ),
       'combined chip selector must declare overflow: hidden (without it ellipsis is a no-op)'
     );
     assert.ok(
-      /\.branch-label-local\s*,\s*\.branch-label-remote\s*\{[^}]*white-space:\s*nowrap/.test(
+      /\.branch-label-local\s*,\s*\.branch-label-remote(?:\s*,\s*\.tag-label)?\s*\{[^}]*white-space:\s*nowrap/.test(
         fullHtml
       ),
       'combined chip selector must declare white-space: nowrap (without it ellipsis is a no-op)'
@@ -1564,6 +1573,213 @@ describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
     assert.ok(
       /Content-Security-Policy[^>]*font-src\s+https:\/\/mock\.csp\.source/.test(fullHtml),
       'CSP meta tag must allow font-src from the webview cspSource'
+    );
+  });
+
+  it('codiconFont-4: rendered HTML maps codicon-tag to upstream codepoint \\ea66 (Wave K WK-4)', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = new GitToolWindowProvider(
+      Uri.file('/test/extension')
+    )._getThreePanelHtmlContent(mockWebview, []);
+    // Wave K codicon-tag → \ea66 (pinned from @vscode/codicons@0.0.45
+    // dist/codicon.css; verify with `grep codicon-tag node_modules/@vscode/codicons/dist/codicon.css`).
+    assert.ok(
+      /\.codicon-tag:before\s*\{\s*content:\s*"\\ea66"/.test(fullHtml),
+      `rendered HTML must map codicon-tag to codepoint \\ea66; got: ${String(fullHtml.match(/codicon-tag:before[^}]+/) ?? '(no match)')}`
+    );
+  });
+});
+
+/**
+ * Wave K — WK-4 (DK-4): tag chip parity contracts.
+ *
+ * The tag chip joins the existing chip family (HEAD + local + remote)
+ * established in Waves G + J. WK-4 contracts:
+ *   - snap-13a: HEAD + branches + tags collocated, literal HTML order
+ *     (HEAD first, then branch chips in branchMap order, then tag
+ *     chips rightmost — matching IntelliJ's badge ordering).
+ *   - snap-13b: tag-only commit (no branches, no HEAD) → wrapper non-
+ *     empty, single tag chip emitted.
+ *   - snap-13c: multiple tags (semver + alias) render in array order.
+ *   - snap-13d: XSS-shaped tag name escaped in textContent + aria-label
+ *     + data-tag-name (no reflective injection path).
+ *   - snap-13e: jsdom layout — tag chip is sibling AFTER branch chips
+ *     inside .commit-branches; not nested inside .commit-title.
+ *   - snap-13f: CSS contract — chip-cap (200px) + Wave J chip
+ *     gitDecoration-modifiedResourceForeground / #6897BB fallback both
+ *     present for `.tag-label`.
+ */
+describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+  const headSha = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  // Helper: build a commit node carrying both branches AND tags.
+  function nodeWithBranchesAndTags(hash: string, branches: string[], tags: string[]): ICommitNode {
+    return {
+      commit: mkCommit(hash, ['parent1234567890123456789012345678901234']),
+      graphColumn: 0,
+      graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
+      branches,
+      tags,
+      onFocusedBranchPath: false,
+    };
+  }
+
+  it('snap-13a: HEAD + branches + tags collocated → literal HTML order (HEAD, branches, tags rightmost)', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    const node = nodeWithBranchesAndTags(headSha, ['main'], ['v1.0']);
+    const html = provider._getBranchLabelsHtml(node);
+    // Wave K — IntelliJ-parity ordering: HEAD chip leftmost, branches
+    // middle, tags rightmost. Pin the literal full string so a future
+    // re-ordering forces a deliberate snapshot diff.
+    assert.strictEqual(
+      html,
+      '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>' +
+        '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
+        '<span class="tag-label" data-tag-name="v1.0" role="img" aria-label="Tag: v1.0"><i class="codicon codicon-tag" aria-hidden="true"></i>v1.0</span>'
+    );
+  });
+
+  it('snap-13b: tag-only commit (no branches, no HEAD) → wrapper non-empty, single tag chip emitted', () => {
+    const node = nodeWithBranchesAndTags('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', [], ['v0.9']);
+    const html = provider._getBranchLabelsHtml(node);
+    assert.notStrictEqual(html, '', 'tag-only commit must NOT collapse to empty wrapper');
+    assert.strictEqual(
+      html,
+      '<span class="tag-label" data-tag-name="v0.9" role="img" aria-label="Tag: v0.9"><i class="codicon codicon-tag" aria-hidden="true"></i>v0.9</span>'
+    );
+  });
+
+  it('snap-13c: multiple tags (semver + alias) render sequentially in array order', () => {
+    const node = nodeWithBranchesAndTags(
+      'ccc1234567890cccccccccccccccccccccccccccc',
+      [],
+      ['v1.0.0', 'latest']
+    );
+    const html = provider._getBranchLabelsHtml(node);
+    assert.strictEqual(
+      html,
+      '<span class="tag-label" data-tag-name="v1.0.0" role="img" aria-label="Tag: v1.0.0"><i class="codicon codicon-tag" aria-hidden="true"></i>v1.0.0</span>' +
+        '<span class="tag-label" data-tag-name="latest" role="img" aria-label="Tag: latest"><i class="codicon codicon-tag" aria-hidden="true"></i>latest</span>'
+    );
+  });
+
+  it('snap-13d: XSS-shaped tag name escaped in textContent + aria-label + data-tag-name', () => {
+    // A future malicious server returning `<img src=x onerror=…>` as a
+    // tag name must NOT inject script. The chip emit pipes the name
+    // through `_escapeHtml` for all three reflective surfaces (textContent,
+    // aria-label, data-tag-name).
+    const xss = '<img src=x onerror=alert(1)>';
+    const node = nodeWithBranchesAndTags('ddd1234567890dddddddddddddddddddddddddddd', [], [xss]);
+    const html = provider._getBranchLabelsHtml(node);
+    // Raw `<img` MUST NOT appear anywhere in the output.
+    assert.ok(!/<img\s+src=x/i.test(html), `tag emit must escape <img> tags; got: ${html}`);
+    // The escaped form `&lt;img src=x onerror=alert(1)&gt;` should appear
+    // in BOTH the data-tag-name AND aria-label slots.
+    assert.ok(
+      /data-tag-name="&lt;img\s+src=x[^"]*"/.test(html),
+      `data-tag-name must carry the escaped name; got: ${html}`
+    );
+    assert.ok(
+      /aria-label="Tag:\s+&lt;img\s+src=x[^"]*"/.test(html),
+      `aria-label must carry the escaped name; got: ${html}`
+    );
+    // And the inner text content (between the </i> and </span>) must be
+    // the escaped form too.
+    assert.ok(
+      /<\/i>&lt;img\s+src=x[^<]*<\/span>/.test(html),
+      `textContent must be the escaped form; got: ${html}`
+    );
+  });
+
+  it('snap-13e: jsdom layout — tag chip is sibling AFTER branch chips inside .commit-branches', () => {
+    const internals = provider as unknown as HeadStateInternals;
+    internals._extendedLogState.headHash = headSha;
+    // Use the public _getGraphPanelHtml so we get the full DOM tree
+    // including the .commit-branches wrapper.
+    const node = nodeWithBranchesAndTags(headSha, ['main'], ['v1.0']);
+    const html = provider._getGraphPanelHtml([node]);
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const doc = dom.window.document;
+    const tagChip = doc.querySelector('.tag-label');
+    assert.ok(tagChip, 'tag chip must exist in DOM');
+    // Parent must be `.commit-branches` (not `.commit-title`).
+    const parent = tagChip.parentElement;
+    assert.ok(parent, 'tag chip must have a parent');
+    assert.ok(
+      parent.classList.contains('commit-branches'),
+      `tag chip must be inside .commit-branches; got parent class: "${parent.className}"`
+    );
+    // Sibling order: HEAD chip / branch chip / tag chip (tag rightmost).
+    const children = Array.from(parent.children);
+    const tagIdx = children.indexOf(tagChip);
+    const branchIdx = children.findIndex((c) => c.classList.contains('branch-label-local'));
+    assert.ok(branchIdx >= 0, 'branch chip must exist');
+    assert.ok(
+      tagIdx > branchIdx,
+      `tag chip must come AFTER branch chip; tag@${tagIdx} branch@${branchIdx}`
+    );
+  });
+
+  it('snap-13f: CSS contract — .tag-label uses gitDecoration-modifiedResourceForeground + #6897BB fallback', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+    // The Wave J `.tag-label` background-color rule pre-existed
+    // (`var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)`).
+    // Wave K confirms it survives the chip-family widening (snap-13f).
+    assert.ok(
+      /\.tag-label\s*\{[^}]*var\(--vscode-gitDecoration-modifiedResourceForeground/.test(fullHtml),
+      `inline CSS for .tag-label must use var(--vscode-gitDecoration-modifiedResourceForeground)`
+    );
+    assert.ok(
+      /\.tag-label\s*\{[^}]*#6897BB/.test(fullHtml),
+      `inline CSS for .tag-label must keep #6897BB as the fallback hex`
+    );
+    // Chip-family 200px cap now extends to .tag-label.
+    assert.ok(
+      /\.tag-label[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml) ||
+        /\.branch-label-local\s*,\s*\.branch-label-remote\s*,\s*\.tag-label[\s\S]*?max-width:\s*200px/.test(
+          fullHtml
+        ),
+      'Wave K must extend the 200px cap to .tag-label'
+    );
+    // Wave K R1 UX-LOW-1 — chip-family theme symmetry. The .tag-label
+    // foreground colour must use `var(--vscode-badge-foreground, white)`
+    // matching the .branch-label-* family. Pre-R1 used a raw `white`
+    // token which loses theme adherence on light / hi-contrast themes
+    // where the theme overrides badge-foreground. Pinned here so the
+    // colour-token contract for the entire chip family is locked.
+    assert.ok(
+      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground/.test(fullHtml),
+      'inline CSS for .tag-label must use var(--vscode-badge-foreground) for chip-family theme symmetry'
+    );
+    assert.ok(
+      /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground,\s*white\)/.test(fullHtml),
+      'inline CSS for .tag-label must keep `white` as the badge-foreground fallback'
     );
   });
 });

@@ -4311,6 +4311,16 @@ function registerViews(context: vscode.ExtensionContext): void {
     branchComparisonView = createBranchComparisonView(gitService);
     context.subscriptions.push(branchComparisonView);
 
+    // Wave K — WK-2: late-bind the branch comparison view onto the
+    // commit context menu commands so the new "Compare with Branch..."
+    // menu entry can route through it. The comparison view is
+    // constructed AFTER `commitContextMenuCommands` in this activate()
+    // sequence, so the constructor injection isn't possible without
+    // reshuffling the wiring order.
+    if (commitContextMenuCommands) {
+      commitContextMenuCommands.setBranchComparisonView(branchComparisonView);
+    }
+
     // Initialize Gutter Blame Provider
     gutterBlameProvider = createGutterBlameProvider(
       extensionServices.blameService,

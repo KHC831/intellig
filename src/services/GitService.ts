@@ -1174,6 +1174,34 @@ export class GitService implements IGitService, IGitServiceCli {
     this.invalidateCache(repo.rootUri.fsPath);
   }
 
+  /**
+   * Wave K — WK-3 (DK-3): `git branch --set-upstream-to=<upstreamRef>
+   * <localName>`. Used by `Track Remote Branch` when an existing local
+   * branch with no/different upstream needs to adopt the right-clicked
+   * remote ref. Same input-validation discipline as deleteBranch /
+   * renameBranch (Wave I R1): reject names starting with `-` or `.` so a
+   * hostile name can't masquerade as a CLI flag, and splice
+   * `--end-of-options` between the `--set-upstream-to=…` flag and the
+   * positional local-name. The remote part of the upstream ref carries
+   * the same guard — the form is `<remote>/<branch>` and either segment
+   * starting with `-`/`.` is rejected.
+   */
+  async setBranchUpstream(
+    repo: IRepository,
+    localName: string,
+    upstreamRef: string
+  ): Promise<void> {
+    if (!localName || localName.startsWith('-') || localName.startsWith('.')) {
+      throw new Error(`Invalid branch name: ${localName}`);
+    }
+    if (!upstreamRef || upstreamRef.startsWith('-') || upstreamRef.startsWith('.')) {
+      throw new Error(`Invalid upstream ref: ${upstreamRef}`);
+    }
+    const args = buildGitArgs('branch', [`--set-upstream-to=${upstreamRef}`], [localName]);
+    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+    this.invalidateCache(repo.rootUri.fsPath);
+  }
+
   async renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
     // Wave I R1 — service-boundary reject either name starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per

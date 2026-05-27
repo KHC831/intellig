@@ -350,6 +350,11 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.remoteBranch.trackBranch",
+        "title": "Track Branch",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.tag.checkoutDetached",
         "title": "Checkout (Detached)",
         "category": "IntelliG"
@@ -778,6 +783,11 @@
           "command": "intellig.remoteBranch.pullUsingMerge",
           "when": "viewItem == intellig.remoteBranch",
           "group": "4_pull@2"
+        },
+        {
+          "command": "intellig.remoteBranch.trackBranch",
+          "when": "viewItem == intellig.remoteBranch",
+          "group": "1_branchOps@4"
         },
         {
           "command": "intellig.remoteBranch.deleteRemote",

@@ -44,6 +44,7 @@ function createMockGitService(): IGitService {
     checkout: async () => {},
     deleteBranch: async () => {},
     renameBranch: async () => {},
+    setBranchUpstream: async () => {},
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async () => ({ success: true }),
     rebaseSkip: async () => ({ success: true }),

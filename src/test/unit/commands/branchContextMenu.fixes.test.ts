@@ -886,3 +886,266 @@ describe('Wave H — detached row dispatcher safety (Wave F regression class)', 
     );
   });
 });
+
+// ─── Wave K — WK-3: Track Remote Branch (single-entry smart-detect) ─────────
+
+describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
+  interface TrackMockGit {
+    _calls: {
+      checkout: Call<[IRepository, string, unknown?]>[];
+      setBranchUpstream: Call<[IRepository, string, string]>[];
+      getBranches: Call<[IRepository]>[];
+    };
+    onDidChangeRepository: unknown;
+    onDidFetch: unknown;
+    getRepositories: () => IRepository[];
+    getRepository: () => Promise<IRepository | undefined>;
+    getBranches: (repo: IRepository) => Promise<IBranch[]>;
+    checkout: (repo: IRepository, ref: string, options?: unknown) => Promise<void>;
+    setBranchUpstream: (repo: IRepository, local: string, upstream: string) => Promise<void>;
+    reloadRepository: (repo: IRepository) => Promise<IRepository>;
+  }
+
+  function createTrackMockGit(branches: IBranch[]): TrackMockGit {
+    const repoChange = new EventEmitter<IRepository>();
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const calls = {
+      checkout: [] as Call<[IRepository, string, unknown?]>[],
+      setBranchUpstream: [] as Call<[IRepository, string, string]>[],
+      getBranches: [] as Call<[IRepository]>[],
+    };
+    return {
+      _calls: calls,
+      onDidChangeRepository: repoChange.event,
+      onDidFetch: fetchEmitter.event,
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+      getBranches: async (repo: IRepository) => {
+        calls.getBranches.push({ args: [repo] });
+        return branches;
+      },
+      checkout: async (repo: IRepository, ref: string, options?: unknown) => {
+        calls.checkout.push({ args: [repo, ref, options] });
+      },
+      setBranchUpstream: async (repo: IRepository, local: string, upstream: string) => {
+        calls.setBranchUpstream.push({ args: [repo, local, upstream] });
+      },
+      reloadRepository: async (repo: IRepository) => repo,
+    };
+  }
+
+  it('trackRemote-create-1: no local exists → checkout --track called with simple name + upstream', async () => {
+    const gitService = createTrackMockGit([
+      { name: 'origin/feature', type: 'remote', commit: 'abc', isHead: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
+
+    const item = createRemoteBranchTreeItem('origin/feature');
+    await (
+      commands as unknown as {
+        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleTrackRemote(item);
+
+    assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must be called once');
+    assert.strictEqual(gitService._calls.checkout[0].args[1], 'feature');
+    const opts = gitService._calls.checkout[0].args[2] as {
+      createBranch?: boolean;
+      track?: string;
+    };
+    assert.strictEqual(opts.createBranch, true);
+    assert.strictEqual(opts.track, 'origin/feature');
+    // setBranchUpstream is NOT called in the create path.
+    assert.strictEqual(gitService._calls.setBranchUpstream.length, 0);
+  });
+
+  it('trackRemote-existing-1: local exists with no upstream → setBranchUpstream called', async () => {
+    const gitService = createTrackMockGit([
+      { name: 'feature', type: 'local', commit: 'abc', isHead: false }, // no upstream
+      { name: 'origin/feature', type: 'remote', commit: 'abc', isHead: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
+
+    const item = createRemoteBranchTreeItem('origin/feature');
+    await (
+      commands as unknown as {
+        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleTrackRemote(item);
+
+    // No checkout — local already exists.
+    assert.strictEqual(gitService._calls.checkout.length, 0);
+    // setBranchUpstream called once with (repo, 'feature', 'origin/feature').
+    assert.strictEqual(gitService._calls.setBranchUpstream.length, 1);
+    assert.strictEqual(gitService._calls.setBranchUpstream[0].args[1], 'feature');
+    assert.strictEqual(gitService._calls.setBranchUpstream[0].args[2], 'origin/feature');
+  });
+
+  it('trackRemote-cross-1: local exists with different upstream → confirm dialog → setBranchUpstream', async () => {
+    const gitService = createTrackMockGit([
+      {
+        name: 'feature',
+        type: 'local',
+        commit: 'abc',
+        isHead: false,
+        upstream: { remote: 'upstream', name: 'feature' }, // tracks DIFFERENT remote
+      },
+      { name: 'origin/feature', type: 'remote', commit: 'abc', isHead: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
+
+    // Stub showWarningMessage to return 'Re-track' so the smart-detect proceeds.
+    const w = writableWindow();
+    let warningSeen = '';
+    w.showWarningMessage = (message: string, ..._items: unknown[]): Promise<string | undefined> => {
+      warningSeen = message;
+      return Promise.resolve('Re-track');
+    };
+
+    const item = createRemoteBranchTreeItem('origin/feature');
+    await (
+      commands as unknown as {
+        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleTrackRemote(item);
+
+    // Confirm dialog fired with both upstream refs visible.
+    assert.ok(
+      warningSeen.includes('upstream/feature'),
+      `confirm should mention current upstream; got: ${warningSeen}`
+    );
+    assert.ok(
+      warningSeen.includes('origin/feature'),
+      `confirm should mention new upstream; got: ${warningSeen}`
+    );
+    // setBranchUpstream called after user confirmed.
+    assert.strictEqual(gitService._calls.setBranchUpstream.length, 1);
+    assert.strictEqual(gitService._calls.setBranchUpstream[0].args[2], 'origin/feature');
+  });
+
+  it('trackRemote-nested-1: nested branch name (origin/feature/foo) extracts simple name correctly', async () => {
+    const gitService = createTrackMockGit([
+      { name: 'origin/feature/foo', type: 'remote', commit: 'abc', isHead: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
+
+    const item = createRemoteBranchTreeItem('origin/feature/foo');
+    await (
+      commands as unknown as {
+        _handleTrackRemote(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleTrackRemote(item);
+
+    assert.strictEqual(gitService._calls.checkout.length, 1);
+    // Simple name = everything AFTER the first slash → 'feature/foo'.
+    assert.strictEqual(gitService._calls.checkout[0].args[1], 'feature/foo');
+    const opts = gitService._calls.checkout[0].args[2] as { track?: string };
+    assert.strictEqual(opts.track, 'origin/feature/foo');
+  });
+
+  // Wave K R1 SK-2 — defense-in-depth: simpleName sliced from a parsed
+  // remote ref could theoretically begin with `-` or `.`, slipping past
+  // the Wave I service-boundary validateBranchName guard for
+  // checkout({ createBranch }). The handler must reject before we ever
+  // reach the service.
+  it('trackRemote-reject-leading-dash: simpleName starting with `-` shows error and skips checkout', async () => {
+    const gitService = createTrackMockGit([
+      { name: 'origin/-evil', type: 'remote', commit: 'abc', isHead: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const errorCalls: string[] = [];
+    const savedError = writableWindow().showErrorMessage;
+    writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+      errorCalls.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+
+      const item = createRemoteBranchTreeItem('origin/-evil');
+      await (
+        commands as unknown as {
+          _handleTrackRemote(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleTrackRemote(item);
+
+      // Service must not be called — reject at the handler boundary.
+      assert.strictEqual(
+        gitService._calls.checkout.length,
+        0,
+        'checkout MUST NOT run when simpleName starts with `-`'
+      );
+      assert.strictEqual(
+        gitService._calls.setBranchUpstream.length,
+        0,
+        'setBranchUpstream MUST NOT run when simpleName starts with `-`'
+      );
+      assert.strictEqual(errorCalls.length, 1, 'one error message must surface');
+      assert.ok(
+        errorCalls[0].includes('reserved name prefix'),
+        `error message must mention reserved name prefix; got: ${errorCalls[0]}`
+      );
+      assert.ok(
+        errorCalls[0].includes('-evil'),
+        `error message should echo the offending simpleName; got: ${errorCalls[0]}`
+      );
+    } finally {
+      writableWindow().showErrorMessage = savedError;
+    }
+  });
+
+  it('trackRemote-reject-leading-dot: simpleName starting with `.` shows error and skips checkout', async () => {
+    const gitService = createTrackMockGit([
+      { name: 'origin/.hidden', type: 'remote', commit: 'abc', isHead: false },
+    ]);
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const errorCalls: string[] = [];
+    const savedError = writableWindow().showErrorMessage;
+    writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+      errorCalls.push(message);
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+
+      const item = createRemoteBranchTreeItem('origin/.hidden');
+      await (
+        commands as unknown as {
+          _handleTrackRemote(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleTrackRemote(item);
+
+      assert.strictEqual(
+        gitService._calls.checkout.length,
+        0,
+        'checkout MUST NOT run when simpleName starts with `.`'
+      );
+      assert.strictEqual(gitService._calls.setBranchUpstream.length, 0);
+      assert.strictEqual(errorCalls.length, 1);
+      assert.ok(
+        errorCalls[0].includes('.hidden'),
+        `error message should echo the offending simpleName; got: ${errorCalls[0]}`
+      );
+    } finally {
+      writableWindow().showErrorMessage = savedError;
+    }
+  });
+});

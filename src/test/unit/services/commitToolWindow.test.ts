@@ -379,6 +379,7 @@ describe('CommitToolWindow — host behavior', () => {
       checkout: notImplemented('checkout'),
       deleteBranch: notImplemented('deleteBranch'),
       renameBranch: notImplemented('renameBranch'),
+      setBranchUpstream: notImplemented('setBranchUpstream'),
       mergeBranch: notImplemented('mergeBranch'),
       rebaseBranch: notImplemented('rebaseBranch'),
       rebaseSkip: notImplemented('rebaseSkip'),

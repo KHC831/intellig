@@ -304,12 +304,14 @@ Per-variant labels:
 
 Pinned by `snap-12a..d` in `commitGraphSnapshots.test.ts`.
 
-> **Why not `aria-pressed`?** The chips are NOT yet
-> keyboard-interactive — there's no `tabindex`, no click handler,
-> no role="button". Adding `aria-pressed` today would lie about an
-> interaction that doesn't yet exist. Wave K converts the focused
-> chip to a button (with click + Enter activation); `aria-pressed`
-> lands then. (DJ-2 decision in the locked tech-lead plan.)
+> **Why not `aria-pressed` (DJ-2 → DK-6 re-deferral).** Wave J pencilled
+> `aria-pressed` for Wave K; the Wave K design pass concluded
+> `aria-pressed` is the wrong attribute for chips. Chips trigger a
+> popup menu, they are not toggles. When chip-as-button interactivity
+> lands, the semantically-correct attribute is `aria-haspopup="menu"`
+> plus the Wave J R1 `aria-describedby="focused-branch-help"` bridge.
+> `aria-pressed` is removed from the roadmap. (DK-6 decision; documented
+> in `docs/parity/accessibility.md §6`.)
 
 #### §2.6.2 Theme-variable colors (WJ-3)
 
@@ -377,6 +379,96 @@ unchanged.
 | 1 (HTML emit) | Codicon prefix | snap-12f | per-variant codicon glyph in HTML |
 | 1 (CSS) | Theme-var contract | snap-12e | local + remote chips use `var(--vscode-gitDecoration-*)` with hex fallback |
 | 1 (CSS) | Cap + icon size | snap-12g | 200px max-width survives icon addition; icon font-size: 11px |
+
+---
+
+### §2.7 Tag chips (Wave K)
+
+Wave K (WK-4) extended the chip family with `.tag-label`, rendering
+**rightmost** on each commit row (after HEAD + branch chips) and only
+when `node.tags` is non-empty. This matches IntelliJ's badge ordering:
+HEAD first (yellow), then the branch chips in `branchMap` order, then
+the tag chips. Each chip on a tag-bearing commit row joins the
+existing wrapper; tag-only commits (no HEAD, no branches) still get
+the wrapper if `node.tags.length > 0`. Empty wrappers (no chips at
+all) collapse via the `.commit-branches:empty { display: none }` rule
+(snap-7d), so `_getBranchLabelsHtml` returns the literal empty string
+when **all three** of `isHeadCommit`, `hasBranches`, `hasTags` are
+false.
+
+#### §2.7.1 Per-tag-chip emit
+
+Each tag chip is emitted as:
+
+```html
+<span class="tag-label"
+      data-tag-name="<escaped tag name>"
+      role="img"
+      aria-label="Tag: <escaped tag name>">
+  <i class="codicon codicon-tag" aria-hidden="true"></i><escaped tag name>
+</span>
+```
+
+- `role="img"` + `aria-label="Tag: …"` follow the Wave J chip-family
+  contract (parallel to "Current HEAD" / "Local branch: …" / "Remote
+  branch: …"). Screen readers narrate the chip's meaning, not just
+  the bare text.
+- The leading `codicon-tag` glyph is the WCAG 1.4.1 non-color
+  affordance — sighted users see "tag-shaped" prefix even if the
+  background fails to render or the chip palette doesn't visually
+  distinguish from local/remote at a glance. Codepoint `\ea66`
+  (pinned from `@vscode/codicons@0.0.45 dist/codicon.css` — verified
+  by `codiconFont-4`).
+- `aria-hidden="true"` on the icon prevents AT double-narration of
+  the icon glyph; the chip's own `aria-label` owns narration.
+- `data-tag-name` carries the unescaped tag name for any future
+  click-handler partial-update path (mirroring the
+  `data-branch-name` discipline on branch chips).
+- Both the textContent and the aria-label are run through
+  `_escapeHtml` because tag names are user-controlled input.
+
+#### §2.7.2 CSS contract
+
+Tag chips share the responsive-cap rule with branch chips:
+
+```css
+.branch-label-local,
+.branch-label-remote,
+.tag-label {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+```
+
+Long tag names like `release/2026-Q1.beta3-rc4` ellipsize rather than
+blowing up the row layout. The chip background is a dedicated
+`.tag-label` rule (separate from the branch-label-* badge-token rule)
+using `var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)`
+— pinned by snap-13f.
+
+#### §2.7.3 Why no `aria-pressed`
+
+Same reason as branch chips (see §2.6.1). Tags are NOT
+keyboard-interactive yet; adding `aria-pressed` would lie about an
+interaction that doesn't exist. The DK-6 decision — `aria-pressed` is
+permanently removed from the roadmap in favour of `aria-haspopup="menu"`
+when chips become button-shaped — applies equally to tag chips.
+
+#### §2.7.4 Tag chip test coverage matrix (Wave K)
+
+| Layer | Surface | Snap | What it pins |
+| --- | --- | --- | --- |
+| 1 (HTML emit) | Tag chip ordering | snap-13a | HEAD first, then branch chips, then tag chips rightmost (literal HTML) |
+| 1 (HTML emit) | Tag-only commit | snap-13b | wrapper renders even when no HEAD + no branches, only tags |
+| 1 (HTML emit) | Multiple tags | snap-13c | semver + alias render sequentially in array order |
+| 1 (HTML emit) | XSS escape | snap-13d | tag name escaped in textContent + aria-label + data-tag-name |
+| 1 (jsdom layout) | Sibling order | snap-13e | tag chip sibling AFTER branch chips inside `.commit-branches` |
+| 1 (CSS) | Theme var + cap | snap-13f | `var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)` + 200px max-width sharing with branch-label-* |
+| 1 (font face) | codicon-tag glyph | codiconFont-4 | rendered HTML maps `.codicon-tag:before` to `\ea66` |
 
 ---
 

@@ -161,7 +161,16 @@ export type LogContextAction =
   // the real implementations land. Adding them to the union (R1 C-2) makes
   // the cast in `_handleCommitContextMenu` truthful again.
   | 'squashCommits'
-  | 'compareVersions';
+  | 'compareVersions'
+  // Wave K — IntelliJ-parity additions (WK-1, WK-2). Single-only entries
+  // that route through dedicated handlers in CommitContextMenuCommands.
+  // squashWithPrevious / fixupWithPrevious synthesise a 2-commit selection
+  // and reuse `_handleSquashCommits` (DK-1: single source of truth for the
+  // squash plan). compareWithBranch opens a QuickPick listing local +
+  // remote branches + tags and routes through BranchComparisonView.
+  | 'squashWithPrevious'
+  | 'fixupWithPrevious'
+  | 'compareWithBranch';
 
 /**
  * Extended Log state with commit nodes for graph visualization
@@ -2394,6 +2403,10 @@ ${bodyMarkup}
       .codicon-check:before { content: "\\eab2"; }
       .codicon-git-branch:before { content: "\\ec6f"; }
       .codicon-cloud:before { content: "\\ebaa"; }
+      /* Wave K — WK-4: codicon-tag glyph for tag chips. Codepoint pulled
+         from @vscode/codicons@0.0.45 dist/codicon.css (.codicon-tag:before
+         → \\ea66). Pinned by codiconFont-4. */
+      .codicon-tag:before { content: "\\ea66"; }
     `;
   }
 
@@ -2921,8 +2934,12 @@ ${bodyMarkup}
     const headHash = this._extendedLogState.headHash;
     const isHeadCommit = !!headHash && node.commit.hash === headHash;
     const hasBranches = !!node.branches && node.branches.length > 0;
+    // Wave K — WK-4: tag chips render alongside the existing HEAD/branch
+    // chip family. The empty-string return contract (snap-7d) extends to
+    // the no-tag case here so `.commit-branches:empty` still collapses.
+    const hasTags = !!node.tags && node.tags.length > 0;
 
-    if (!isHeadCommit && !hasBranches) {
+    if (!isHeadCommit && !hasBranches && !hasTags) {
       // Wave E — CSS `.commit-branches:empty { display: none }` depends
       // on this returning the LITERAL empty string (not whitespace, not
       // an HTML comment) so the empty wrapper collapses with no margin
@@ -2981,7 +2998,24 @@ ${bodyMarkup}
       return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
-    return headChipHtml + labels.join('');
+    // Wave K — WK-4 (DK-4): tag chips render LAST (rightmost) so HEAD +
+    // branch chips remain in their existing order. Each tag chip carries
+    // the Wave J chip-family contract: role="img" + aria-label="Tag: …"
+    // + leading codicon prefix (codicon-tag for the non-color WCAG 1.4.1
+    // affordance, distinct from codicon-git-branch / codicon-cloud /
+    // codicon-check). aria-pressed is intentionally absent — tags are
+    // not interactive yet (chip-as-button is still future work). The
+    // tag name is run through `_escapeHtml` for both the textContent
+    // and the aria-label since tags are user-controlled. data-tag-name
+    // carries the unescaped name for any future click-handler partial-
+    // update path (mirroring the data-branch-name discipline above).
+    const tagLabels = (node.tags || []).map((tagName) => {
+      const escapedName = this._escapeHtml(tagName);
+      const ariaLabel = this._escapeHtml(`Tag: ${tagName}`);
+      return `<span class="tag-label" data-tag-name="${escapedName}" role="img" aria-label="${ariaLabel}"><i class="codicon codicon-tag" aria-hidden="true"></i>${escapedName}</span>`;
+    });
+
+    return headChipHtml + labels.join('') + tagLabels.join('');
   }
 
   /**
@@ -3065,6 +3099,10 @@ ${bodyMarkup}
         <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
         <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
         <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
+        <div class="context-menu-item" data-action="fixupWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup with Previous</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="compareWithBranch" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Branch\u2026</div>
         <div class="context-menu-item" data-action="mergeIntoCurrent" data-multi-action="single-only" role="menuitem" tabindex="0">Merge into Current Branch</div>
         <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
       </div>`;
@@ -4089,7 +4127,8 @@ ${bodyMarkup}
          with default baseline alignment can shift slightly relative to
          message text on some font-metrics. */
       .branch-label-local,
-      .branch-label-remote {
+      .branch-label-remote,
+      .tag-label {
         display: inline-block;
         max-width: 200px;
         overflow: hidden;
@@ -4179,9 +4218,16 @@ ${bodyMarkup}
         text-decoration: underline;
       }
 
+      /* Wave K R1 UX-LOW-1 — chip-family theme symmetry. The
+         .branch-label-* family uses var(--vscode-badge-foreground, ...)
+         for the chip text colour; .tag-label was the only chip still
+         using a raw white token, which loses theme adherence on light
+         and hi-contrast themes where badge-foreground is overridden.
+         Match the rest of the chip family. snap-13f foreground
+         assertion pins this. */
       .tag-label {
         background-color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);
-        color: white;
+        color: var(--vscode-badge-foreground, white);
       }
 
       /* Commit Details Panel */

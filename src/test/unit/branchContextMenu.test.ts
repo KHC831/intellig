@@ -252,9 +252,11 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.remoteBranch');
     });
 
-    it('should have exactly 11 menu items', () => {
+    it('should have exactly 12 menu items', () => {
       // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group.
-      assert.strictEqual(entries.length, 11, `Expected 11 items, got ${entries.length}`);
+      // Wave K / WK-3 — added intellig.remoteBranch.trackBranch in `5_manage`
+      // (smart-detect: switches to existing local OR creates tracking branch).
+      assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
     });
 
     it('Wave D — should include Focus on Graph in section inline@1', () => {

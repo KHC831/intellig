@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import { IGitService, IRepository } from '../services/interfaces/IGitService';
+import { IBranch, IGitService, IRepository } from '../services/interfaces/IGitService';
 import { IRebaseService } from '../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../services/GitToolWindowProvider';
 import { showResetDialog } from '../services/ResetDialog';
@@ -18,6 +18,7 @@ import { resolveRepo } from '../utils/resolveRepo';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../utils/gitError';
 import { isSelectionContiguous, type IMenuStateNode } from '../services/gitToolWindow/multiSelect';
+import type { BranchComparisonView } from '../services/BranchComparisonView';
 
 /**
  * Wave B R1 Senior M-2 — defence-in-depth hash format check.
@@ -81,6 +82,12 @@ export class CommitContextMenuCommands {
   private _gitToolWindowProvider: GitToolWindowProvider;
   private _gitCli: GitCli;
   private _conflictResolutionService: IConflictResolutionService | undefined;
+  // Wave K — WK-2: late-bound by extension.ts via {@link setBranchComparisonView}
+  // because BranchComparisonView is constructed AFTER this commands class
+  // in the activate() order. The compareWithBranch handler guards on
+  // undefined and surfaces a graceful error toast if the user fires the
+  // action before wiring completes.
+  private _branchComparisonView: BranchComparisonView | undefined;
   private _disposables: vscode.Disposable[] = [];
   private _context: vscode.ExtensionContext | undefined;
   private readonly _resolveRepo: RepoResolver;
@@ -107,6 +114,17 @@ export class CommitContextMenuCommands {
    */
   setConflictResolutionService(service: IConflictResolutionService): void {
     this._conflictResolutionService = service;
+  }
+
+  /**
+   * Wave K — WK-2: late-bind the branch comparison view. extension.ts
+   * constructs `BranchComparisonView` AFTER this class (the panel layer
+   * predates the comparison view), so we accept the dependency through a
+   * setter rather than the constructor. Idempotent — duplicate calls
+   * just rebind the reference.
+   */
+  setBranchComparisonView(view: BranchComparisonView): void {
+    this._branchComparisonView = view;
   }
 
   /**
@@ -260,6 +278,21 @@ export class CommitContextMenuCommands {
         break;
       case 'compareVersions':
         await this._handleCompareVersions(commitHashes, commitNodes);
+        break;
+      // Wave K — WK-1: IntelliJ-parity single-commit Squash/Fixup with
+      // Previous. Both delegate into `_handleSquashCommits` with a
+      // synthesised 2-commit selection (clicked commit + its first
+      // parent). DK-1: single source of truth for the squash plan.
+      case 'squashWithPrevious':
+        await this._handleSquashWithPrevious(commitHashes);
+        break;
+      case 'fixupWithPrevious':
+        await this._handleFixupWithPrevious(commitHashes);
+        break;
+      // Wave K — WK-2: open the Compare-with-Branch picker (local +
+      // remote + tags) and route through BranchComparisonView.
+      case 'compareWithBranch':
+        await this._handleCompareWithBranch(commitHashes);
         break;
       default:
         // Unknown action — no-op
@@ -2047,8 +2080,16 @@ export class CommitContextMenuCommands {
    */
   private async _handleSquashCommits(
     commitHashes: string[],
-    commitNodes: readonly IMenuStateNode[] = []
+    commitNodes: readonly IMenuStateNode[] = [],
+    // Wave K — WK-1 (DK-1): optional mode flag distinguishing the
+    // user-visible squash variant from a `git --fixup` variant. The latter
+    // skips the message-edit dialog and reuses the parent commit's
+    // existing message verbatim, matching git's `--fixup` semantics. The
+    // existing single-source-of-truth squash plan is preserved; only the
+    // pre-rebase prompt + post-rebase squash-message marshalling differ.
+    options?: { mode?: 'squash' | 'fixup' }
   ): Promise<void> {
+    const mode = options?.mode ?? 'squash';
     const repo = await this._getRepository();
     if (!repo || commitHashes.length < 2) {
       return;
@@ -2120,10 +2161,27 @@ export class CommitContextMenuCommands {
     // multi-line editing works naturally and `git-commit` syntax
     // highlighting kicks in. Cancel (close-without-save OR empty save)
     // aborts the flow with NO git side-effects.
-    const userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
-    if (userMessage === undefined) {
-      // D1 cancel — no git command runs.
-      return;
+    //
+    // Wave K (WK-1, DK-1): when `mode === 'fixup'` the editor step is
+    // skipped — fixup semantics reuse the kept commit's message verbatim
+    // (matching `git commit --fixup`). The kept commit is the OLDEST in
+    // display order (the rebase plan keeps it as `pick`); its message
+    // was loaded into the messages[0] slot above.
+    let userMessage: string | undefined;
+    if (mode === 'fixup') {
+      // The oldest selected commit is at the start of `oldestFirst`, so
+      // its message is `messages[0]`. In the WK-1 entry path that is the
+      // PARENT of the right-clicked commit. Falling back to the seed if
+      // for any reason messages[0] is empty (e.g. getCommit failed and
+      // the shortHash sentinel is in messages[0]) keeps the rebase
+      // working rather than landing an empty message.
+      userMessage = messages[0] && messages[0].length > 0 ? messages[0] : seedMessage;
+    } else {
+      userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+      if (userMessage === undefined) {
+        // D1 cancel — no git command runs.
+        return;
+      }
     }
 
     const cwd = repo.rootUri.fsPath;
@@ -2132,8 +2190,9 @@ export class CommitContextMenuCommands {
       // 5. Stash dirty tree.
       const { stashed, blocked } = await this._stashIfDirty(cwd);
       if (blocked) {
+        const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
         void vscode.window.showErrorMessage(
-          'Cannot squash commits while you have unmerged files. Please resolve conflicts first.'
+          `Cannot ${verb} while you have unmerged files. Please resolve conflicts first.`
         );
         return;
       }
@@ -2171,12 +2230,18 @@ export class CommitContextMenuCommands {
         // and route `'paused'` through a "partial" warning so the user
         // knows to resume manually.
         if (result.success && result.status === 'completed') {
+          // Wave K — phrase the toast per mode so the user reads the
+          // semantically correct verb ("Squashed" vs "Fixup'd"). Plurality
+          // matches existing squash semantics: the count is the number of
+          // commits that were combined.
+          const verb = mode === 'fixup' ? "Fixup'd" : 'Squashed';
           void vscode.window.showInformationMessage(
-            `Squashed ${commitHashes.length} commits successfully.`
+            `${verb} ${commitHashes.length} commits successfully.`
           );
         } else if (result.status === 'paused') {
+          const verbCap = mode === 'fixup' ? 'Fixup' : 'Squash';
           void vscode.window.showWarningMessage(
-            `Squash partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
+            `${verbCap} partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
           );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
           // 8. D8 conflict path — abort + unstash + handoff.
@@ -2205,15 +2270,237 @@ export class CommitContextMenuCommands {
       // the drop path. Pre-R2 the silent `_unstash` would leave the user
       // believing the squash had restored their working changes.
       if (stashed) {
-        await this._unstashWithErrorReport(cwd, 'Squash');
+        await this._unstashWithErrorReport(cwd, mode === 'fixup' ? 'Fixup' : 'Squash');
       }
       // Wave G — squash rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const verb = mode === 'fixup' ? 'fixup commits' : 'squash commits';
+      void vscode.window.showErrorMessage(`Failed to ${verb}: ${sanitizeGitError(errorMessage)}`);
+    }
+  }
+
+  /**
+   * Wave K — WK-1 (DK-1): IntelliJ-parity "Squash with Previous". Combines
+   * the right-clicked commit with its first parent into a single commit
+   * via the existing {@link _handleSquashCommits} pipeline. Synthesises
+   * the 2-commit selection [clicked, parent] in newest-first display order
+   * + the matching `IMenuStateNode[]` so the contiguity / merge-commit
+   * guards apply unchanged. The existing squash-message editor still runs
+   * pre-rebase; the user can edit the seeded `clicked\n\nparent` message
+   * before the rebase runs.
+   *
+   * Defence-in-depth checks before delegating:
+   *   - Hash format valid (`HASH_RE`).
+   *   - Commit lookup succeeds (otherwise we can't read parents).
+   *   - Commit has at least one parent (root commit can't be squashed
+   *     into anything).
+   *   - Commit has at most one parent (merge commits are rejected — the
+   *     existing `_handleSquashCommits` rejects them too, but we emit a
+   *     friendlier per-action message here).
+   */
+  private async _handleSquashWithPrevious(commitHashes: string[]): Promise<void> {
+    await this._handleSquashOrFixupWithPrevious(commitHashes, 'squash');
+  }
+
+  /**
+   * Wave K — WK-1 (DK-1): IntelliJ-parity "Fixup with Previous". Same
+   * shape as {@link _handleSquashWithPrevious} but routes through
+   * `_handleSquashCommits` with `mode: 'fixup'` so the squash-message
+   * editor is skipped and the parent's existing message is reused
+   * verbatim — matching `git commit --fixup` semantics.
+   */
+  private async _handleFixupWithPrevious(commitHashes: string[]): Promise<void> {
+    await this._handleSquashOrFixupWithPrevious(commitHashes, 'fixup');
+  }
+
+  /**
+   * Wave K — WK-1: shared body for {@link _handleSquashWithPrevious} and
+   * {@link _handleFixupWithPrevious}. The two entry points differ only in
+   * the mode flag passed to `_handleSquashCommits`.
+   */
+  private async _handleSquashOrFixupWithPrevious(
+    commitHashes: string[],
+    mode: 'squash' | 'fixup'
+  ): Promise<void> {
+    const repo = await this._getRepository();
+    if (!repo || commitHashes.length === 0) {
+      return;
+    }
+
+    const hash = commitHashes[0];
+    if (!allHashesValid([hash])) {
+      return;
+    }
+
+    let commit;
+    try {
+      commit = await this._gitService.getCommit(repo, hash);
+    } catch {
+      void vscode.window.showErrorMessage('Could not load commit information.');
+      return;
+    }
+
+    if (!commit.parents || commit.parents.length === 0) {
+      const verb = mode === 'fixup' ? 'fixup' : 'squash';
       void vscode.window.showErrorMessage(
-        `Failed to squash commits: ${sanitizeGitError(errorMessage)}`
+        `Cannot ${verb} a root commit (no parent to ${verb} into).`
+      );
+      return;
+    }
+    if (commit.parents.length >= 2) {
+      const verb = mode === 'fixup' ? 'fixup' : 'squash';
+      const tail = mode === 'squash' ? ' Use "Drop Commit" to discard the merge.' : '';
+      void vscode.window.showErrorMessage(`Cannot ${verb} a merge commit.${tail}`);
+      return;
+    }
+
+    const parentHash = commit.parents[0];
+    // The synthesised IMenuStateNode list mirrors the newest-first
+    // commitHashes order — `_handleSquashCommits` indexes by hash and
+    // computes `oldestIdx = max(indices)`, so the parent (older) lands
+    // in the trailing slot and is kept as `pick`. Both nodes carry
+    // `parentCount: 1` since the merge-commit guard already rejected
+    // multi-parent inputs.
+    const synthNodes: IMenuStateNode[] = [
+      { hash, parentCount: 1 },
+      { hash: parentHash, parentCount: 1 },
+    ];
+    await this._handleSquashCommits([hash, parentHash], synthNodes, { mode });
+  }
+
+  /**
+   * Wave K — WK-2 (DK-2): IntelliJ-parity "Compare with Branch...". Opens
+   * a single QuickPick listing local branches + remote branches + tags
+   * (each group separated by a `Separator` kind item) and routes the
+   * picked ref through {@link BranchComparisonView.show}. The clicked
+   * commit's full SHA is one side of the comparison; the picked ref is
+   * the other. Git accepts a SHA on either side of `branch1...branch2`
+   * + `branch1..branch2` so we treat the SHA as a "branch" alias for
+   * the diff purposes — no new GitService method needed.
+   */
+  private async _handleCompareWithBranch(commitHashes: string[]): Promise<void> {
+    const repo = await this._getRepository();
+    if (!repo || commitHashes.length === 0) {
+      return;
+    }
+
+    const hash = commitHashes[0];
+    if (!allHashesValid([hash])) {
+      return;
+    }
+
+    // Lazy-import BranchComparisonView via a setter — extension.ts wires
+    // it post-construction (the view is created AFTER this commands
+    // class). When the setter hasn't fired yet, fall back to a
+    // best-effort error toast rather than crashing.
+    if (!this._branchComparisonView) {
+      void vscode.window.showErrorMessage(
+        'Branch comparison view is not available yet — try again after the workspace finishes loading.'
+      );
+      return;
+    }
+
+    let branches;
+    let tags;
+    try {
+      [branches, tags] = await Promise.all([
+        this._gitService.getBranches(repo),
+        this._gitService.getTags(repo),
+      ]);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to load refs for comparison: ${sanitizeGitError(msg)}`
+      );
+      return;
+    }
+
+    interface IComparePickItem extends vscode.QuickPickItem {
+      ref?: string;
+    }
+    const items: IComparePickItem[] = [];
+
+    // Single-pass partition by branch type. `IBranch.type` is the
+    // `BranchType` union (`'local' | 'remote' | 'tag'`); we display
+    // local + remote here and rely on `getTags()` for the Tags section
+    // below. Any future fourth variant added to `BranchType` will land
+    // in `_other` and stay invisible to the picker until explicitly
+    // wired — making the assumption fail loudly via dead code rather
+    // than silently dropping entries inside a chained `.filter()`.
+    const localBranches: IBranch[] = [];
+    const remoteBranches: IBranch[] = [];
+    const _other: IBranch[] = [];
+    for (const b of branches || []) {
+      if (b.type === 'local') {
+        localBranches.push(b);
+      } else if (b.type === 'remote') {
+        remoteBranches.push(b);
+      } else {
+        // 'tag' (or any future variant) — surfaced via getTags() below.
+        _other.push(b);
+      }
+    }
+
+    if (localBranches.length > 0) {
+      items.push({ label: 'Local Branches', kind: vscode.QuickPickItemKind.Separator });
+      for (const b of localBranches) {
+        items.push({
+          label: `$(git-branch) ${b.name}`,
+          description: b.commit ? b.commit.substring(0, 7) : '',
+          ref: b.name,
+        });
+      }
+    }
+
+    if (remoteBranches.length > 0) {
+      items.push({ label: 'Remote Branches', kind: vscode.QuickPickItemKind.Separator });
+      for (const b of remoteBranches) {
+        items.push({
+          label: `$(cloud) ${b.name}`,
+          description: b.commit ? b.commit.substring(0, 7) : '',
+          ref: b.name,
+        });
+      }
+    }
+
+    if (tags && tags.length > 0) {
+      items.push({ label: 'Tags', kind: vscode.QuickPickItemKind.Separator });
+      for (const t of tags) {
+        items.push({
+          label: `$(tag) ${t.name}`,
+          description: t.commit ? t.commit.substring(0, 7) : '',
+          ref: t.name,
+        });
+      }
+    }
+
+    if (items.length === 0) {
+      void vscode.window.showInformationMessage('No branches or tags available for comparison.');
+      return;
+    }
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title: `Compare ${hash.substring(0, 8)} with...`,
+      placeHolder: 'Select a branch or tag to compare with',
+    });
+    if (!picked || !picked.ref) {
+      return;
+    }
+
+    try {
+      // BranchComparisonView.show accepts arbitrary refs in branch1 /
+      // branch2 — the underlying compareBranches splices them through
+      // `git rev-list --left-right --count <a>...<b>` and `git diff
+      // --name-only <a>...<b>` which both accept SHAs as ref aliases.
+      // No new GitService surface needed.
+      await this._branchComparisonView.show(repo, hash, picked.ref);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to compare with ${picked.ref}: ${sanitizeGitError(msg)}`
       );
     }
   }

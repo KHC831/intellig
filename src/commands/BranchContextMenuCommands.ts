@@ -4,7 +4,12 @@
  */
 
 import * as vscode from 'vscode';
-import { IGitService, IRefDiffFile, IRepository } from '../services/interfaces/IGitService';
+import {
+  IBranch,
+  IGitService,
+  IRefDiffFile,
+  IRepository,
+} from '../services/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from '../services/BranchTreeProvider';
 import { IConflictResolutionService } from '../services/interfaces/IConflictResolutionService';
 import type { PullDialog } from '../services/PullDialog';
@@ -194,6 +199,13 @@ export class BranchContextMenuCommands {
       vscode.commands.registerCommand(
         'intellig.remoteBranch.deleteRemote',
         (item: BranchTreeItem) => this._handleDeleteRemote(item)
+      )
+    );
+
+    // Wave K — WK-3: Track Remote Branch single-entry smart-detect.
+    this._disposables.push(
+      vscode.commands.registerCommand('intellig.remoteBranch.trackBranch', (item: BranchTreeItem) =>
+        this._handleTrackRemote(item)
       )
     );
 
@@ -1296,6 +1308,136 @@ export class BranchContextMenuCommands {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to delete remote branch: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * Wave K — WK-3 (DK-3): IntelliJ-parity "Track Branch" — single menu
+   * entry with smart detection of the user's intent based on whether a
+   * matching local branch already exists.
+   *
+   * Behaviour matrix (matching IntelliJ's "Track Branch" semantics):
+   *
+   *   - **No local with the simple name**: create + checkout the local
+   *     branch with the right-clicked remote ref as upstream
+   *     (`git checkout --track <remote>/<branch>` shape via
+   *     `gitService.checkout(createBranch: true, track: …)`).
+   *
+   *   - **Local exists with no upstream**: silently set its upstream
+   *     to the right-clicked remote ref via
+   *     `gitService.setBranchUpstream(local, upstream)`. No checkout
+   *     (the user is already in the local; if they're not, they didn't
+   *     ask to switch).
+   *
+   *   - **Local exists with a different upstream**: confirm dialog,
+   *     then `gitService.setBranchUpstream(local, upstream)` if the
+   *     user agrees. The cross-tracking case is the one footgun in
+   *     this menu — without confirm, the user could accidentally lose
+   *     their existing tracking association on `git pull`.
+   *
+   *   - **Local exists with the SAME upstream**: no-op + info toast
+   *     ("Already tracking …"). Saves the user wondering whether the
+   *     menu fired at all.
+   *
+   * Pre-Wave-K we exposed only `Checkout (as new local)` for remote
+   * branches, which always created a new local — the existing-local
+   * cross-tracking case had no menu surface at all. WK-3 closes that
+   * IntelliJ-parity gap.
+   */
+  private async _handleTrackRemote(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    // Parse remote name from branch name (e.g. "origin/main" -> remote
+    // "origin", branch "main"). The "simple name" extraction matches
+    // the existing checkoutAsLocal path; nested branch names like
+    // `origin/feature/foo` produce simple-name `feature/foo`.
+    const parts = item.branch.name.split('/');
+    if (parts.length < 2) {
+      // Defensive — `IBranch.type === 'remote'` should guarantee a
+      // remote-prefixed name, but if somehow we got a malformed input
+      // surface a clear error rather than crashing on the slice below.
+      void vscode.window.showErrorMessage(
+        `Cannot parse remote branch '${item.branch.name}' — expected format <remote>/<branch>.`
+      );
+      return;
+    }
+    const upstreamRef = item.branch.name; // e.g. "origin/main"
+    const simpleName = parts.slice(1).join('/');
+
+    // Wave K R1 SK-2 — defense-in-depth: Wave I sweep relied on
+    // validateBranchName at the service boundary for checkout({ createBranch }),
+    // but the simpleName here is sliced from a parsed remote branch name
+    // which could theoretically be hostile (e.g. a malformed remote ref like
+    // `origin/-evil` or `origin/.hidden`). Guard explicitly before the
+    // checkout / setBranchUpstream call so the error surface is a friendly
+    // showErrorMessage rather than a service-boundary throw.
+    if (simpleName.startsWith('-') || simpleName.startsWith('.')) {
+      void vscode.window.showErrorMessage(
+        `Cannot create local branch from remote with reserved name prefix: ${simpleName}`
+      );
+      return;
+    }
+
+    let existingLocal: IBranch | undefined;
+    try {
+      const branches = await this._gitService.getBranches(repo);
+      existingLocal = branches.find((b) => b.type === 'local' && b.name === simpleName);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to load branches: ${sanitizeGitError(msg)}`);
+      return;
+    }
+
+    try {
+      if (!existingLocal) {
+        // No local with this name → create + checkout with --track.
+        await this._gitService.checkout(repo, simpleName, {
+          createBranch: true,
+          track: upstreamRef,
+        });
+        await this._gitService.reloadRepository(repo);
+        void vscode.window.showInformationMessage(
+          `Created local branch '${simpleName}' tracking '${upstreamRef}'`
+        );
+        this._branchTreeProvider.refresh();
+        return;
+      }
+
+      // Existing local — examine its upstream.
+      const currentUpstream = existingLocal.upstream
+        ? `${existingLocal.upstream.remote}/${existingLocal.upstream.name}`
+        : undefined;
+
+      if (currentUpstream === upstreamRef) {
+        void vscode.window.showInformationMessage(
+          `'${simpleName}' already tracks '${upstreamRef}'`
+        );
+        return;
+      }
+
+      if (currentUpstream && currentUpstream !== upstreamRef) {
+        const confirm = await vscode.window.showWarningMessage(
+          `'${simpleName}' currently tracks '${currentUpstream}'. Re-track to '${upstreamRef}'?`,
+          { modal: true },
+          'Re-track'
+        );
+        if (confirm !== 'Re-track') {
+          return;
+        }
+      }
+
+      await this._gitService.setBranchUpstream(repo, simpleName, upstreamRef);
+      await this._gitService.reloadRepository(repo);
+      void vscode.window.showInformationMessage(`'${simpleName}' now tracks '${upstreamRef}'`);
+      this._branchTreeProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to track branch: ${sanitizeGitError(errorMessage)}`
       );
     }
   }

@@ -120,9 +120,17 @@ describe('Wave C R2 — structural pins', () => {
       const handlerIdx = src.indexOf('private async _handleSquashCommits');
       const editIdx = src.indexOf('private async _handleEditCommitMessage', handlerIdx);
       const body = src.substring(handlerIdx, editIdx > 0 ? editIdx : handlerIdx + 12000);
+      // Wave K — _handleSquashCommits now also handles the fixup mode (via
+      // squashWithPrevious + fixupWithPrevious). The opName argument is now
+      // `mode === 'fixup' ? 'Fixup' : 'Squash'` rather than the literal
+      // 'Squash'. Either form satisfies the contract that the squash branch
+      // surfaces an unstash failure tagged "Squash".
       assert.ok(
-        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*['"]Squash['"]\s*\)/.test(body),
-        '_handleSquashCommits success path must call _unstashWithErrorReport(cwd, "Squash")'
+        /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*['"]Squash['"]\s*\)/.test(body) ||
+          /this\._unstashWithErrorReport\s*\(\s*cwd\s*,\s*mode\s*===\s*['"]fixup['"]\s*\?\s*['"]Fixup['"]\s*:\s*['"]Squash['"]\s*\)/.test(
+            body
+          ),
+        '_handleSquashCommits success path must call _unstashWithErrorReport(cwd, "Squash") (or the Wave K mode-aware ternary form)'
       );
     });
 

@@ -955,6 +955,60 @@ describe('GitService - Branch Operations', () => {
       });
     });
   });
+
+  // Wave K — WK-3 (DK-3): setBranchUpstream argv structure.
+  describe('setBranchUpstream() — Wave K WK-3', () => {
+    it('setBranchUpstream-1: argv structure (branch + --set-upstream-to=<ref> + --end-of-options + localName)', async () => {
+      await gitService.setBranchUpstream(mockRepo, 'feature', 'origin/feature');
+
+      const lastCommand = mockGitCli.getLastCommand();
+      assert.ok(lastCommand, 'Command should have been executed');
+      // Wave I shape — splice `--end-of-options` between flag and the
+      // user-controlled local-branch name. `--set-upstream-to=…` carries
+      // the upstream ref inline so it remains a single token (matching
+      // git's parser).
+      assert.deepStrictEqual(lastCommand.args, [
+        'branch',
+        '--set-upstream-to=origin/feature',
+        '--end-of-options',
+        'feature',
+      ]);
+    });
+
+    it('rejects local names starting with -', async () => {
+      await assert.rejects(
+        async () => gitService.setBranchUpstream(mockRepo, '-evil', 'origin/main'),
+        /Invalid branch name/,
+        'Should reject leading-dash names (CLI-flag injection guard)'
+      );
+    });
+
+    it('rejects local names starting with .', async () => {
+      await assert.rejects(
+        async () => gitService.setBranchUpstream(mockRepo, '.hidden', 'origin/main'),
+        /Invalid branch name/
+      );
+    });
+
+    it('rejects upstream refs starting with -', async () => {
+      await assert.rejects(
+        async () => gitService.setBranchUpstream(mockRepo, 'feature', '-evil'),
+        /Invalid upstream ref/
+      );
+    });
+
+    // Wave K R1 SK-3 — symmetric leading-`.` guard on upstreamRef. Wave I
+    // R1 createBranch / deleteBranch / renameBranch all reject BOTH `-`
+    // and `.` per validateBranchName; setBranchUpstream's upstreamRef
+    // must match (git-check-ref-format forbids leading `.` segments).
+    it('rejects upstream refs starting with .', async () => {
+      await assert.rejects(
+        async () => gitService.setBranchUpstream(mockRepo, 'feature', '.hidden'),
+        /Invalid upstream ref/,
+        'leading `.` upstream refs must reject (git-check-ref-format parity)'
+      );
+    });
+  });
 });
 
 /**

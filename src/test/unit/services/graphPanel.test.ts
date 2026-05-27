@@ -643,7 +643,9 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
       // Wave A added two multi-select-only items: squashCommits + compareVersions.
-      assert.strictEqual(menuItemCount, 15, 'Should have 15 menu items with role="menuitem"');
+      // Wave K added three single-only items: squashWithPrevious +
+      // fixupWithPrevious (WK-1) and compareWithBranch (WK-2). 15 + 3 = 18.
+      assert.strictEqual(menuItemCount, 18, 'Should have 18 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -686,10 +688,18 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('should have three context-menu-separator dividers between four sections', () => {
+    it('should have four context-menu-separator dividers between five sections', () => {
       const html = provider._getCommitContextMenuHtml();
       const separatorCount = (html.match(/context-menu-separator/g) || []).length;
-      assert.strictEqual(separatorCount, 3, 'Should have 3 separators between 4 sections');
+      // Wave K — WK-1/WK-2: added two new sections.
+      //   Section 4 (was: just rebase ops): squashWithPrevious +
+      //     fixupWithPrevious (DK-1).
+      //   Section 5 (new): compareWithBranch + mergeIntoCurrent +
+      //     interactiveRebase. Pre-K's section 4 (merge + rebase) absorbed
+      //     compareWithBranch as the first entry — IntelliJ groups
+      //     "Compare with Branch" near the rebase/merge actions.
+      // Net: 3 separators → 4, 4 sections → 5.
+      assert.strictEqual(separatorCount, 4, 'Should have 4 separators between 5 sections');
     });
   });
 

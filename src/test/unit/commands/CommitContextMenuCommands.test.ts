@@ -25,6 +25,7 @@ import {
   IRebaseSession,
 } from '../../../services/interfaces/IRebaseService';
 import { GitToolWindowProvider, LogContextAction } from '../../../services/GitToolWindowProvider';
+import type { BranchComparisonView } from '../../../services/BranchComparisonView';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow, writableEnv, writableCommands } from '../../typed/windowStub';
 
@@ -68,6 +69,7 @@ function createMockGitService(
     },
     deleteBranch: async () => {},
     renameBranch: async () => {},
+    setBranchUpstream: async () => {},
     mergeBranch: async (...args: unknown[]) => {
       calls.push({ method: 'mergeBranch', args });
       return { success: true };
@@ -1520,6 +1522,398 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
         !messages.error[0].message.includes('/Users/alice'),
         'toast must not leak home path'
       );
+    });
+  });
+
+  // ─── Wave K — WK-1: Squash with Previous + Fixup with Previous ───────────
+
+  describe('_handleSquashWithPrevious (Wave K WK-1)', () => {
+    const childHash = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const parentHash = 'bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    it('squashWithPrev-1: rejects root commit (parents.length === 0)', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: childHash,
+          shortHash: childHash.substring(0, 7),
+          message: 'root',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('squashWithPrevious' as LogContextAction, [childHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(
+        messages.error[0].message.toLowerCase().includes('root commit'),
+        `expected root-commit error; got: ${messages.error[0].message}`
+      );
+      // No rebase started.
+      assert.strictEqual(
+        rebaseService.calls.filter((c) => c.method === 'startInteractiveRebase').length,
+        0
+      );
+    });
+
+    it('squashWithPrev-2: rejects merge commit (parents.length >= 2)', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: childHash,
+          shortHash: childHash.substring(0, 7),
+          message: 'merge',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [parentHash, 'ccc1234567890cccccccccccccccccccccccccccc'],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('squashWithPrevious' as LogContextAction, [childHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(
+        messages.error[0].message.toLowerCase().includes('merge commit'),
+        `expected merge-commit error; got: ${messages.error[0].message}`
+      );
+      assert.strictEqual(
+        rebaseService.calls.filter((c) => c.method === 'startInteractiveRebase').length,
+        0
+      );
+    });
+
+    it('squashWithPrev-3: happy path delegates to _handleSquashCommits with [hash, parentHash]', async () => {
+      // Force the squash-message editor to fall back to showInputBox by
+      // making `openTextDocument` reject — `_promptForSquashMessage` then
+      // routes to `_squashMessageInputBoxFallback` which uses showInputBox.
+      const ws = (await import('../../mocks/vscode')).workspace as unknown as Record<
+        string,
+        unknown
+      >;
+      const origOpenTextDoc = ws.openTextDocument;
+      ws.openTextDocument = (): Promise<unknown> => Promise.reject(new Error('forced fallback'));
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('combined message');
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(childHash);
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: childHash,
+          shortHash: childHash.substring(0, 7),
+          message: 'child msg',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [parentHash],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+      });
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async (...args: unknown[]) => {
+          rebaseService.calls.push({ method: 'startInteractiveRebase', args });
+          return {
+            onto: 'parent',
+            originalBranch: 'main',
+            commits: [
+              { hash: parentHash, message: 'parent', action: 'pick' as const },
+              { hash: childHash, message: 'child msg', action: 'pick' as const },
+            ],
+            currentStep: 0,
+            status: 'planning' as const,
+          };
+        },
+      });
+      const provider = createMockProvider();
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      try {
+        await commands._handleAction('squashWithPrevious' as LogContextAction, [childHash]);
+
+        // Expect a rebase to have been started — proves the synthesised
+        // 2-commit selection routed through `_handleSquashCommits`.
+        assert.strictEqual(
+          rebaseService.calls.filter((c) => c.method === 'startInteractiveRebase').length,
+          1,
+          `expected startInteractiveRebase to fire once; rebase calls: ${JSON.stringify(rebaseService.calls.map((c) => c.method))}`
+        );
+        // No error toast.
+        assert.strictEqual(
+          messages.error.length,
+          0,
+          `expected no error; got: ${messages.error.map((e) => e.message).join('; ')}`
+        );
+      } finally {
+        ws.openTextDocument = origOpenTextDoc;
+      }
+    });
+  });
+
+  describe('_handleFixupWithPrevious (Wave K WK-1)', () => {
+    const childHash = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const parentHash = 'bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    it('fixupWithPrev-1: rejects root commit (parents.length === 0)', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: childHash,
+          shortHash: childHash.substring(0, 7),
+          message: 'root',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('fixupWithPrevious' as LogContextAction, [childHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(
+        messages.error[0].message.toLowerCase().includes('root commit'),
+        `expected root-commit error; got: ${messages.error[0].message}`
+      );
+    });
+
+    it('fixupWithPrev-2: rejects merge commit', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: childHash,
+          shortHash: childHash.substring(0, 7),
+          message: 'merge',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: [parentHash, 'ccc1234567890cccccccccccccccccccccccccccc'],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('fixupWithPrevious' as LogContextAction, [childHash]);
+
+      assert.strictEqual(messages.error.length, 1);
+      assert.ok(
+        messages.error[0].message.toLowerCase().includes('merge commit'),
+        `expected merge-commit error; got: ${messages.error[0].message}`
+      );
+    });
+
+    it('fixupWithPrev-3: happy path skips message editor and reuses parent message', async () => {
+      // Stub showInputBox to a sentinel — fixup MUST NOT call it. If it
+      // does, the rebase will receive 'editor-was-called' as the squash
+      // message, which we'd see in provideSquashMessage call args.
+      let inputBoxCalled = false;
+      writableWindow().showInputBox = (): Promise<string | undefined> => {
+        inputBoxCalled = true;
+        return Promise.resolve('editor-was-called');
+      };
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(childHash);
+      const gitService = createMockGitService(repo, {
+        getCommit: async (_repo: IRepository, h: string) => {
+          if (h === childHash) {
+            return {
+              hash: childHash,
+              shortHash: childHash.substring(0, 7),
+              message: 'child msg',
+              author: { name: '', email: '' },
+              committer: { name: '', email: '' },
+              parents: [parentHash],
+              authorDate: new Date(),
+              commitDate: new Date(),
+            };
+          }
+          return {
+            hash: parentHash,
+            shortHash: parentHash.substring(0, 7),
+            message: 'parent msg',
+            author: { name: '', email: '' },
+            committer: { name: '', email: '' },
+            parents: [],
+            authorDate: new Date(),
+            commitDate: new Date(),
+          };
+        },
+      });
+      const rebaseService = createMockRebaseService({
+        startInteractiveRebase: async (...args: unknown[]) => {
+          rebaseService.calls.push({ method: 'startInteractiveRebase', args });
+          return {
+            onto: 'parent',
+            originalBranch: 'main',
+            commits: [
+              { hash: parentHash, message: 'parent msg', action: 'pick' as const },
+              { hash: childHash, message: 'child msg', action: 'pick' as const },
+            ],
+            currentStep: 0,
+            status: 'planning' as const,
+          };
+        },
+      });
+      const provider = createMockProvider();
+      const gitCli = createCleanGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('fixupWithPrevious' as LogContextAction, [childHash]);
+
+      assert.strictEqual(inputBoxCalled, false, 'fixup must NOT prompt for a message');
+      // Rebase started (proves the path executed).
+      assert.strictEqual(
+        rebaseService.calls.filter((c) => c.method === 'startInteractiveRebase').length,
+        1
+      );
+      assert.strictEqual(
+        messages.error.length,
+        0,
+        `unexpected error: ${messages.error.map((e) => e.message).join('; ')}`
+      );
+    });
+  });
+
+  // ─── Wave K — WK-2: Compare with Branch ──────────────────────────────────
+
+  describe('_handleCompareWithBranch (Wave K WK-2)', () => {
+    const hash = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    function createMockBranchComparisonView(): {
+      show: (...args: unknown[]) => Promise<{ compared: boolean }>;
+      calls: CallTracker[];
+    } {
+      const calls: CallTracker[] = [];
+      return {
+        calls,
+        show: async (...args: unknown[]): Promise<{ compared: boolean }> => {
+          calls.push({ method: 'show', args });
+          return { compared: true };
+        },
+      };
+    }
+
+    it('compareWithBranch-1: picker shows local + remote branches + tags grouped by Separator', async () => {
+      const seenItems: vscode.QuickPickItem[] = [];
+      writableWindow().showQuickPick = (items: unknown[]): Promise<unknown> => {
+        const arr = Array.isArray(items) ? (items as vscode.QuickPickItem[]) : [];
+        for (const it of arr) {
+          seenItems.push(it);
+        }
+        return Promise.resolve(undefined); // user cancels
+      };
+      createMessageTrackers();
+      const repo = createMockRepo(hash);
+      const gitService = createMockGitService(repo, {
+        getBranches: async () => [
+          { name: 'main', type: 'local', commit: 'aaa', isHead: true },
+          { name: 'origin/main', type: 'remote', commit: 'aaa', isHead: false },
+        ],
+        getTags: async () => [
+          {
+            name: 'v1.0',
+            commit: 'aaa',
+            isAnnotated: true,
+          },
+        ],
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      const view = createMockBranchComparisonView();
+      commands.setBranchComparisonView(view as unknown as BranchComparisonView);
+
+      await commands._handleAction('compareWithBranch' as LogContextAction, [hash]);
+
+      // Three separators: Local Branches / Remote Branches / Tags.
+      const separatorCount = seenItems.filter(
+        (i) => i.kind === (1 as unknown as vscode.QuickPickItemKind) // Separator value
+      ).length;
+      // Use the actual enum value (Separator = -1 in vscode.d.ts).
+      // Just count items whose label is one of the headers.
+      const headerLabels = seenItems
+        .map((i) => i.label)
+        .filter((l) => l === 'Local Branches' || l === 'Remote Branches' || l === 'Tags');
+      assert.deepStrictEqual(headerLabels, ['Local Branches', 'Remote Branches', 'Tags']);
+      // The non-separator items include all three refs.
+      const refLabels = seenItems.map((i) => i.label);
+      assert.ok(refLabels.some((l) => l.includes('main') && l.includes('git-branch')));
+      assert.ok(refLabels.some((l) => l.includes('origin/main') && l.includes('cloud')));
+      assert.ok(refLabels.some((l) => l.includes('v1.0') && l.includes('tag')));
+      // Suppress unused-var lint on separatorCount
+      void separatorCount;
+    });
+
+    it('compareWithBranch-2: selection routes to BranchComparisonView.show with the picked ref', async () => {
+      const view = createMockBranchComparisonView();
+      writableWindow().showQuickPick = (): Promise<unknown> =>
+        Promise.resolve({ ref: 'origin/main', label: '$(cloud) origin/main' });
+      createMessageTrackers();
+      const repo = createMockRepo(hash);
+      const gitService = createMockGitService(repo, {
+        getBranches: async () => [
+          { name: 'origin/main', type: 'remote', commit: 'aaa', isHead: false },
+        ],
+        getTags: async () => [],
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      commands.setBranchComparisonView(view as unknown as BranchComparisonView);
+
+      await commands._handleAction('compareWithBranch' as LogContextAction, [hash]);
+
+      assert.strictEqual(view.calls.length, 1, 'BranchComparisonView.show must be called');
+      const args = view.calls[0].args;
+      // Signature: show(repo, branch1, branch2)
+      assert.strictEqual(args[1], hash);
+      assert.strictEqual(args[2], 'origin/main');
+    });
+
+    it('compareWithBranch-empty-1: empty refs list shows informational toast and skips picker', async () => {
+      let pickerCalled = false;
+      writableWindow().showQuickPick = (): Promise<unknown> => {
+        pickerCalled = true;
+        return Promise.resolve(undefined);
+      };
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(hash);
+      const gitService = createMockGitService(repo, {
+        getBranches: async () => [],
+        getTags: async () => [],
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+      const view = createMockBranchComparisonView();
+      commands.setBranchComparisonView(view as unknown as BranchComparisonView);
+
+      await commands._handleAction('compareWithBranch' as LogContextAction, [hash]);
+
+      assert.strictEqual(pickerCalled, false, 'picker must not show with no refs available');
+      assert.strictEqual(messages.info.length, 1);
+      assert.ok(messages.info[0].message.toLowerCase().includes('no branches'));
     });
   });
 });
