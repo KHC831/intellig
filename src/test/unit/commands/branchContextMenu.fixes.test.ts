@@ -42,6 +42,16 @@ import {
   createMockGitService as createSharedMockGitService,
   detachedRepo,
 } from '../../mocks/mockGitService';
+import {
+  __resetLoggerForTest,
+  initLogger,
+} from '../../../utils/logger';
+import {
+  __resetOutputChannelForTest,
+  getOutputChannel,
+  initOutputChannel,
+} from '../../../utils/outputChannel';
+import { parseRecord } from '../../../utils/logger/render';
 
 // ─── Mock Helpers ────────────────────────────────────────────────────────────
 
@@ -666,13 +676,16 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       return Promise.resolve(undefined);
     };
 
-    // Spy console.error to confirm the probe failure was captured for
-    // debugging without surfacing a second user-facing toast.
-    const consoleErrorCalls: unknown[][] = [];
-    const savedConsoleError = console.error;
-    console.error = (...args: unknown[]): void => {
-      consoleErrorCalls.push(args);
-    };
+    // Wire up the structured Logger so we can verify the probe failure
+    // is captured for debugging through the OutputChannel sink (the
+    // production successor to the legacy `console.error` path).
+    __resetLoggerForTest();
+    __resetOutputChannelForTest();
+    const ctxSubs: { dispose(): void }[] = [];
+    const ctx = { subscriptions: ctxSubs } as unknown as import('vscode').ExtensionContext;
+    initOutputChannel(ctx);
+    initLogger(ctx);
+    const channel = getOutputChannel() as unknown as { _lines: string[] };
 
     try {
       const commands = new BranchContextMenuCommands(
@@ -717,22 +730,31 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
         `error must include original pull failure context, got: "${errorCalls[0]}"`
       );
 
-      // Probe error captured via console.error for debugging.
-      assert.ok(consoleErrorCalls.length >= 1, 'probe failure must be logged via console.error');
-      const probeLogged = consoleErrorCalls.some((args) =>
-        args.some(
-          (a) => a === probeError || (a instanceof Error && a.message === probeError.message)
-        )
+      // Probe error captured via the structured Logger for debugging
+      // (formerly via `console.error`; task 9.10 routed the call through
+      // the BranchContextMenuCommands child logger). Walk the rendered
+      // OutputChannel lines for the probe-error message.
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const probeRecord = records.find(
+        (r) =>
+          r !== null &&
+          r.component === 'BranchContextMenuCommands' &&
+          r.level === 'warn' &&
+          r.message.includes('pull-fallback conflict probe failed')
       );
       assert.ok(
-        probeLogged,
-        `probe error should appear in console.error calls; got: ${JSON.stringify(
-          consoleErrorCalls.map((a) => a.map((x) => (x instanceof Error ? x.message : String(x))))
-        )}`
+        probeRecord,
+        `probe failure must be captured by the BranchContextMenuCommands logger; saw lines: ${JSON.stringify(channel._lines)}`
+      );
+      const renderedProbeError = JSON.stringify(probeRecord);
+      assert.ok(
+        renderedProbeError.includes(probeError.message),
+        `probe error message must appear in the rendered record; got: ${renderedProbeError}`
       );
     } finally {
       writableWindow().showErrorMessage = savedError;
-      console.error = savedConsoleError;
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
     }
   });
 
@@ -750,10 +772,16 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       errorCalls.push(message);
       return Promise.resolve(undefined);
     };
-    const savedConsoleError = console.error;
-    console.error = (): void => {
-      /* silence probe log for this spec */
-    };
+    // Silence the probe-error log for this spec (the structured Logger
+    // routes the probe failure through the OutputChannel sink; we don't
+    // assert on it here but we set up the channel so emissions don't
+    // hit a no-op pre-init path that could surface a side effect).
+    __resetLoggerForTest();
+    __resetOutputChannelForTest();
+    const ctxSubs: { dispose(): void }[] = [];
+    const ctx = { subscriptions: ctxSubs } as unknown as import('vscode').ExtensionContext;
+    initOutputChannel(ctx);
+    initLogger(ctx);
     try {
       const commands = new BranchContextMenuCommands(
         gitService as unknown as IGitService,
@@ -781,7 +809,8 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       );
     } finally {
       writableWindow().showErrorMessage = savedError;
-      console.error = savedConsoleError;
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
     }
   });
 });

@@ -62,6 +62,7 @@ import {
 import { sortCommitsStable } from '../utils/commitSort';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { getLogger, type Logger } from '../utils/logger';
 
 /**
  * Cache entry for repository information
@@ -117,6 +118,16 @@ export class GitService implements IGitService, IGitServiceCli {
    * on objects whose `dispose()` has already run.
    */
   private _disposed = false;
+
+  /**
+   * Component-bound Logger emitted on construction, repository-discovery,
+   * `reloadRepository` entry/exit, watcher teardown, watcher errors,
+   * and transient `index.lock` retries. Routed uniformly through the
+   * IntelliG OutputChannel via the structured Logger module so every
+   * GitService waypoint is correlatable with the rest of the service
+   * graph (task 9.1, Requirements 6.1, 6.2, 6.7).
+   */
+  private readonly _logger: Logger;
 
   /**
    * Filesystem injection seam for {@link scanFolderForGitRepos}. Production
@@ -244,6 +255,9 @@ export class GitService implements IGitService, IGitServiceCli {
     this._onDidFetch = new vscode.EventEmitter<{ repo: IRepository; result: IFetchResult }>();
     this.onDidFetch = this._onDidFetch.event;
 
+    this._logger = getLogger().child({ component: 'GitService' });
+    this._logger.info('GitService constructed', { gitPath });
+
     // TL-91 (#219): register the two known watcher families with the
     // shared cleanup registry. Future families add a single line here
     // and `removeRepositoryWatcher` automatically walks them.
@@ -257,11 +271,12 @@ export class GitService implements IGitService, IGitServiceCli {
     this._watcherMaps.push(this._fileWatchers);
     this._watcherMaps.push(this._newRepoWatchers);
 
-    // Forward Git command events for console logging
+    // Forward Git command events through the structured Logger. Debug
+    // level so the firehose of every git invocation is filtered out by
+    // default but available with `intellig.log.level = 'debug'`.
     this._disposables.push(
       this._gitCli.onCommandExecuted((event) => {
-        // This can be used by the Console View to display command output
-        console.log(`Git: ${event.args.join(' ')}`);
+        this._logger.debug('git command executed', { args: event.args });
       })
     );
 
@@ -394,15 +409,21 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   async reloadRepository(repo: IRepository): Promise<IRepository | undefined> {
     const rootPath = repo.rootUri.fsPath;
+    this._logger.info('reloadRepository entry', { rootPath });
     this.invalidateCache(rootPath);
     try {
       const fresh = await this.loadRepository(rootPath);
       if (!this._disposed) {
         this._onDidChangeRepository.fire(fresh);
       }
+      this._logger.info('reloadRepository exit', { rootPath, ok: true });
       return fresh;
     } catch (err) {
-      console.error(`GitService.reloadRepository: reload for ${rootPath} failed:`, err);
+      this._logger.error(
+        `GitService.reloadRepository: reload for ${rootPath} failed`,
+        err instanceof Error ? err : undefined
+      );
+      this._logger.info('reloadRepository exit', { rootPath, ok: false });
       return undefined;
     }
   }
@@ -465,6 +486,7 @@ export class GitService implements IGitService, IGitServiceCli {
       if (!this._repositories.has(root)) {
         const repo = await this.loadRepository(root);
         this.setupRepositoryWatcher(root);
+        this._logger.info('repository discovered', { rootPath: root });
         // Wave 10 R2 (TL-82 HIGH): fire `onDidChangeRepository` so the 6
         // event-driven subscribers (BranchTreeProvider, StatusBarService,
         // BranchPopup, ChangelistService, ConflictResolutionService,
@@ -753,9 +775,9 @@ export class GitService implements IGitService, IGitServiceCli {
           return;
         }
         // Bucket C: `_performDebouncedRefresh` already catches its
-        // own errors internally (see the try/catch that logs to
-        // console.error around `loadRepository`), but we still route the
-        // outer call through safeFireAndForget so a future unhandled-
+        // own errors internally (see the try/catch that logs via
+        // `this._logger.error` around `loadRepository`), but we still route
+        // the outer call through safeFireAndForget so a future unhandled-
         // rejection path doesn't regress silently.
         safeFireAndForget(
           this._performDebouncedRefresh(rootPath),
@@ -854,7 +876,15 @@ export class GitService implements IGitService, IGitServiceCli {
     try {
       repo = await reload;
     } catch (err) {
-      console.error(`GitService: repository reload for ${rootPath} failed:`, err);
+      // Watcher-driven refresh failure (Requirement 6.2): warn rather
+      // than error because the next watcher event will retry and the
+      // failure is typically transient (mid-clone, momentary lock
+      // contention, etc.).
+      const errMessage = err instanceof Error ? err.message : String(err);
+      this._logger.warn('watcher-driven repository reload failed', {
+        rootPath,
+        errorMessage: errMessage,
+      });
     } finally {
       this._reloading.delete(rootPath);
     }
@@ -2810,6 +2840,22 @@ export class GitService implements IGitService, IGitServiceCli {
     this._onDidRemoveRepository.dispose();
     this._onDidFetch.dispose();
     this._gitCli.dispose();
+
+    // Aggregate watcher counts BEFORE teardown so the emitted record
+    // reflects pre-teardown state (Requirement 6.1: watcher teardown
+    // during dispose()).
+    let watcherCount = 0;
+    for (const map of this._watcherMaps) {
+      for (const disposables of map.values()) {
+        watcherCount += disposables.length;
+      }
+    }
+    this._logger.info('GitService disposing — tearing down watchers', {
+      watcherCount,
+      repositoryCount: this._repositories.size,
+      pendingTimers: this._refreshTimers.size,
+      inFlightReloads: this._reloading.size,
+    });
 
     // TL-91 (#219): dispose every registered watcher family uniformly.
     // Pre-TL-91 this loop hardcoded `_fileWatchers` then `_newRepoWatchers`;

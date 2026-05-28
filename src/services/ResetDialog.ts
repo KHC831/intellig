@@ -18,6 +18,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository, ResetMode } from './interfaces/IGitService';
 import { sanitizeGitError } from '../utils/gitError';
+import { getLogger } from '../utils/logger';
 
 /**
  * Target commit descriptor passed into the dialog.
@@ -398,7 +399,12 @@ ${body}
         try {
           this._onResetComplete();
         } catch (err) {
-          console.error('ResetDialog: onResetComplete callback threw:', err);
+          getLogger()
+            .child({ component: 'ResetDialog' })
+            .error(
+              'onResetComplete callback threw',
+              err instanceof Error ? err : undefined
+            );
         }
       }
       this.dispose();

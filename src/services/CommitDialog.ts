@@ -9,6 +9,7 @@ import { IGitService, IRepository, IDiff, IHunk, ICommitOptions } from './interf
 import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
 import { generateNonce } from '../utils/webviewNonce';
 import { sanitizeGitError } from '../utils/gitError';
+import { getLogger } from '../utils/logger';
 
 /**
  * workspaceState key persisting the gear-menu `--no-verify` toggle so it
@@ -718,7 +719,13 @@ export class CommitDialog {
       this._currentDiff = await this._gitService.getDiff(this._repository, path, staged);
       this._updateWebview();
     } catch (error) {
-      console.error('Failed to get diff:', error);
+      getLogger()
+        .child({ component: 'CommitDialog' })
+        .error(
+          'failed to get diff',
+          { path },
+          error instanceof Error ? error : undefined
+        );
       this._currentDiff = undefined;
       this._updateWebview();
     }

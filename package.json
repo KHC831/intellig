@@ -1278,6 +1278,24 @@
           ],
           "default": "auto",
           "description": "Tag-fetching policy applied to every fetch (manual + auto-fetch). Explicit user-passed --tags / --no-tags options in programmatic callers override this setting."
+        },
+        "intellig.log.level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "off"
+          ],
+          "default": "info",
+          "description": "Minimum severity admitted to the IntelliG logger. Records at lower levels are dropped before allocation."
+        },
+        "intellig.log.console": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, mirror IntelliG log records to the developer console (visible only in the Extension Development Host)."
         }
       }
     },
@@ -1469,6 +1487,7 @@
     "jsdom": "^22.1.0",
     "mocha": "^11.0.0",
     "prettier": "^3.1.0",
+    "ts-morph": "^28.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.2"
   },

@@ -7,12 +7,29 @@
  * disappeared — no console trace, no telemetry, no way to diagnose
  * user-reported "the UI didn't refresh after X" bugs.
  *
- * `safeFireAndForget` routes those rejections through `console.error` with
- * a caller-supplied context string, and optionally mirrors the log into a
- * user-visible `vscode.OutputChannel` so field bug reports can be triaged
- * from `Output → IntelliG` without a reload-to-extension-development host.
- * The context MUST be specific enough to grep for (class + method +
- * trigger), so an extension-host trace pinpoints the offending call site.
+ * `safeFireAndForget` routes those rejections through the structured
+ * IntelliG Logger with a caller-supplied context string. The context
+ * MUST be specific enough to grep for (class + method + trigger), so an
+ * extension-host trace pinpoints the offending call site.
+ *
+ * ### Routing through the Logger (Requirement 5.3, 6.7)
+ *
+ * The rejection is forwarded to `getLogger().error(context, { correlationId }, err)`:
+ *
+ * - The current Correlation_Id is read from the correlation store with
+ *   `getCurrentCorrelationId()` **at call time** and closed over in the
+ *   rejection handler. The `AsyncLocalStorage` frame may have popped by
+ *   the time the rejection settles, so a read inside the `.catch`
+ *   would return `undefined` — capturing eagerly preserves the cid that
+ *   was in scope when the caller fired the promise.
+ * - When called outside any `registerLoggedCommand` frame the captured
+ *   cid is `undefined`; the Logger then omits the `correlationId` field
+ *   (Requirement 5.5) rather than fabricating one.
+ * - The Logger's existing OutputChannel sink renders the rejection into
+ *   the user-visible `Output → IntelliG` channel uniformly with every
+ *   other emission, replacing the bespoke OutputChannel mirror this
+ *   helper used to maintain. See `docs/adr/ADR-011-structured-logger.md`
+ *   for the consolidation rationale.
  *
  * ### Context-string convention
  *
@@ -28,19 +45,6 @@
  * The colon separates the identifier (what) from the trigger (why), which
  * makes grepping by class+method independent of the reason text.
  *
- * ### Routing failures to the shared OutputChannel
- *
- * Init/watcher sites pass the shared channel so a production user can see
- * why a watcher silently failed:
- *
- * ```ts
- * safeFireAndForget(this.discoverRepositories(),
- *   'GitService.constructor: initial repository discovery',
- *   { outputChannel: getOutputChannel() });
- * ```
- *
- * Default remains console-only to keep non-init call sites terse.
- *
  * ### When NOT to use this
  *
  * - For **data-safety** paths where a failure silently corrupts user data
@@ -55,7 +59,7 @@
  *
  * This helper is specifically for the in-between case: the caller must stay
  * synchronous, the failure is not directly user-visible, but dropping the
- * rejection on the floor is still worse than a console log.
+ * rejection on the floor is still worse than a structured log record.
  *
  * ### Explicitly out of scope (documented here so the audit stays honest)
  *
@@ -91,56 +95,74 @@
 
 import type * as vscode from 'vscode';
 
+import { getCurrentCorrelationId, getLogger } from './logger';
+
 /**
- * Options bag for `safeFireAndForget`. Kept separate (and optional) so
- * non-init call sites don't have to thread anything extra through; init
- * call sites opt-in by passing the shared OutputChannel.
+ * Options bag for `safeFireAndForget`. Kept on the public signature for
+ * back-compat with existing call sites; the `outputChannel` field is no
+ * longer read.
+ *
+ * @see docs/adr/ADR-011-structured-logger.md — the OutputChannel sink on
+ *      the Logger is now the single mirror path; this helper no longer
+ *      maintains a parallel one.
  */
 export interface ISafeFireAndForgetOptions {
   /**
-   * Optional OutputChannel to mirror the rejection log into. When set, the
-   * same `[intellig] <context>: <err>` message that goes to `console.error`
-   * is also written via `outputChannel.appendLine(...)`. Intended for
-   * init/watcher paths where a user-visible log is the difference between
-   * a debuggable bug report and a silent failure.
+   * @deprecated Unused since the Logger consolidation in task 7.1
+   *   (see `docs/adr/ADR-011-structured-logger.md`). The Logger's
+   *   OutputChannel sink renders every rejection emitted by this helper
+   *   into the shared `IntelliG` channel uniformly with the rest of the
+   *   structured log stream, so a per-call channel override is no longer
+   *   meaningful. Field is retained on the public signature so existing
+   *   call sites compile without churn; the value is ignored.
    */
   outputChannel?: vscode.OutputChannel;
 }
 
 /**
- * Fire the given promise without awaiting, logging any rejection to
- * `console.error` (and optionally to a caller-supplied OutputChannel)
- * tagged with the caller-supplied `context`.
+ * Fire the given promise without awaiting, routing any rejection through
+ * the IntelliG Logger as an error-level record tagged with
+ * `context` and the current Correlation_Id (Requirement 5.3, 6.7).
+ *
+ * The current Correlation_Id is captured *at call time* — i.e. inside the
+ * caller's synchronous frame, before the promise's microtask queue runs.
+ * That value is closed over in the rejection handler so the emitted
+ * record carries the cid that was active when the work was scheduled,
+ * even if the `AsyncLocalStorage` frame has since popped.
  *
  * @param promise - The promise to observe. VS Code's `Thenable<void>` is
  *   accepted alongside native `Promise<void>`.
  * @param context - A grep-friendly tag identifying the call site. Include
- *   the class name, method name, and trigger — e.g. `'ShelfView.unshelve
+ *   the class name, method name, and trigger — e.g. `'ShelfView.unshelve:
  *   refresh after success'`.
- * @param options - Optional routing bag. When `options.outputChannel` is
- *   set, the rejection is also appended to that channel so a shipped user
- *   can see the failure in `Output → IntelliG` without attaching a
- *   devtools console.
+ * @param _options - Retained for back-compat; the `outputChannel` field
+ *   is ignored. See {@link ISafeFireAndForgetOptions} and
+ *   `docs/adr/ADR-011-structured-logger.md`.
  */
 export function safeFireAndForget(
   promise: Promise<void> | Thenable<void>,
   context: string,
-  options?: ISafeFireAndForgetOptions
+  _options?: ISafeFireAndForgetOptions
 ): void {
+  // Capture the current Correlation_Id eagerly. Reading inside the
+  // `.catch` would observe an empty store once the caller's
+  // synchronous frame has unwound, so the cid we want is the one that
+  // is in scope right now (Requirement 5.3).
+  const cid = getCurrentCorrelationId();
+
   Promise.resolve(promise).catch((err: unknown) => {
-    // Keep the log prefix stable so the extension-host troubleshooting
-    // docs can grep for it. Do NOT sanitize here — raw stacks belong in
-    // the console for debugging; user-facing toasts live at the
-    // internalised-catch pattern documented in the module JSDoc.
-    console.error(`[intellig] ${context}:`, err);
-    if (options?.outputChannel) {
-      const timestamp = new Date().toISOString();
-      // Stringify-then-appendLine so the channel shows the full error
-      // including the stack if available, without relying on VS Code's
-      // console-formatting of a raw Error.
-      const rendered =
-        err instanceof Error ? `${err.message}${err.stack ? `\n${err.stack}` : ''}` : String(err);
-      options.outputChannel.appendLine(`[${timestamp}] [intellig] ${context}: ${rendered}`);
-    }
+    // Route through the Logger's `error` overload. When `err` is a
+    // proper `Error` we forward it as the third positional so the
+    // Logger renders the message + stack into the `err=` block; for
+    // non-Error rejections the third argument is `undefined`, which
+    // matches the Logger's expectation that `error.stack` is only
+    // attached for true `Error` instances.
+    //
+    // The `correlationId` binding is supplied explicitly when present;
+    // when absent we omit the field rather than passing `undefined`,
+    // so the resulting `LogRecord` follows the "omit when no frame"
+    // convention (Requirement 5.5).
+    const bindings = cid !== undefined ? { correlationId: cid } : undefined;
+    getLogger().error(context, bindings, err instanceof Error ? err : undefined);
   });
 }

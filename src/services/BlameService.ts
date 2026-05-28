@@ -3,6 +3,7 @@ import { IBlameService, IBlameInfo, IBlameOptions } from './interfaces/IBlameSer
 import { IBlameLine, IGitService, IRepository } from './interfaces/IGitService';
 import { GitCli, buildGitArgs, createGitCli } from '../utils/gitCli';
 import { parseBlame } from '../utils/gitParser';
+import { getLogger, type Logger } from '../utils/logger';
 
 // Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
 interface IGitServiceWithCli {
@@ -45,6 +46,13 @@ export class BlameService implements IBlameService {
    */
   private _watchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
+  /**
+   * Component-bound Logger emitted on construction and disposal so
+   * operational waypoints land in the IntelliG OutputChannel
+   * uniformly with the rest of the service graph (task 9.3).
+   */
+  private readonly _logger: Logger;
+
   /** Cache TTL in milliseconds (30 seconds) */
   private static readonly CACHE_TTL = 30000;
 
@@ -64,6 +72,8 @@ export class BlameService implements IBlameService {
     this._gitService = gitService;
     this._onDidChangeBlame = new vscode.EventEmitter<{ path: string; blame: IBlameInfo }>();
     this.onDidChangeBlame = this._onDidChangeBlame.event;
+    this._logger = getLogger().child({ component: 'BlameService' });
+    this._logger.info('BlameService constructed', { ownsGitCli: this._ownsGitCli });
 
     // Set up file watcher (per-repo when gitService is available, else
     // legacy `**/*` global glob).
@@ -394,6 +404,10 @@ export class BlameService implements IBlameService {
    * legacy `_disposables` array.
    */
   dispose(): void {
+    this._logger.info('BlameService disposing', {
+      cacheEntries: this._blameCache.size,
+      watchers: this._watchers.size,
+    });
     this._onDidChangeBlame.dispose();
     this._blameCache.clear();
 

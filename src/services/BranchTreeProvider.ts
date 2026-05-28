@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from './interfaces/IGitService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { getLogger, type Logger } from '../utils/logger';
 
 /**
  * Tree item types for the branch tree
@@ -259,10 +260,19 @@ export class BranchTreeProvider
   private readonly _disposables: vscode.Disposable[] = [];
   private _disposed = false;
 
+  /**
+   * Component-bound Logger emitted on each refresh trigger (debug)
+   * and refresh failure (warn) so the BranchTree's lifecycle waypoints
+   * land in the IntelliG OutputChannel uniformly with the rest of the
+   * service graph (task 9.9, Requirements 6.4, 6.7).
+   */
+  private readonly _logger: Logger;
+
   constructor(gitService: IGitService) {
     this._gitService = gitService;
     this._onDidChangeTreeData = new vscode.EventEmitter<BranchTreeItem | undefined | null | void>();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this._logger = getLogger().child({ component: 'BranchTreeProvider' });
 
     // Listen for repository changes. Wave I — capture the subscription
     // so dispose() tears it down. Guard the callback against post-dispose
@@ -340,6 +350,10 @@ export class BranchTreeProvider
    * Refresh the tree view
    */
   refresh(): void {
+    // Task 9.9 — debug-level waypoint on every refresh trigger
+    // (Requirement 6.4). Fires whenever upstream state changes
+    // (repo switch, init, manual `setRepository`, etc.).
+    this._logger.debug('refresh triggered');
     this._onDidChangeTreeData.fire();
   }
 
@@ -382,15 +396,26 @@ export class BranchTreeProvider
 
     // Category level - show items
     if (element.itemType === 'category') {
-      switch (element.label) {
-        case 'Local Branches':
-          return this._getLocalBranches();
-        case 'Remote Branches':
-          return this._getRemoteBranches();
-        case 'Tags':
-          return this._getTags();
-        default:
-          return [];
+      try {
+        switch (element.label) {
+          case 'Local Branches':
+            return await this._getLocalBranches();
+          case 'Remote Branches':
+            return await this._getRemoteBranches();
+          case 'Tags':
+            return await this._getTags();
+          default:
+            return [];
+        }
+      } catch (err) {
+        // Task 9.9 — warn-level waypoint on refresh failure
+        // (Requirement 6.4). Re-throw so VS Code still surfaces the
+        // error to the TreeView host (preserves pre-task observable
+        // behaviour).
+        this._logger.warn('refresh failed', {
+          category: typeof element.label === 'string' ? element.label : '',
+        });
+        throw err;
       }
     }
 

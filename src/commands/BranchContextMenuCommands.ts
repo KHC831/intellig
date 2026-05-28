@@ -17,6 +17,7 @@ import type { PushDialog } from '../services/PushDialog';
 import type { MergeDialog } from '../services/MergeDialog';
 import type { NewBranchDialog } from '../services/NewBranchDialog';
 import { sanitizeGitError } from '../utils/gitError';
+import { getLogger, registerLoggedCommand } from '../utils/logger';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
 export type PullDialogAccessor = () => PullDialog | undefined;
@@ -131,72 +132,72 @@ export class BranchContextMenuCommands {
   register(context: vscode.ExtensionContext): void {
     // Local branch commands
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.checkout', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.checkout', (item: BranchTreeItem) =>
         this._handleCheckout(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.newBranchFrom', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.newBranchFrom', (item: BranchTreeItem) =>
         this._handleNewBranchFrom(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.mergeIntoCurrent', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.mergeIntoCurrent', (item: BranchTreeItem) =>
         this._handleMergeIntoCurrent(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.rebaseCurrentOnto', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.rebaseCurrentOnto', (item: BranchTreeItem) =>
         this._handleRebaseCurrentOnto(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.branch.compareWithCurrent',
         (item: BranchTreeItem) => this._handleCompareWithCurrent(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.rename', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.rename', (item: BranchTreeItem) =>
         this._handleRename(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.delete', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.delete', (item: BranchTreeItem) =>
         this._handleDelete(item)
       )
     );
 
     // Remote branch commands
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.remoteBranch.checkoutAsLocal',
         (item: BranchTreeItem) => this._handleCheckoutAsLocal(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.remoteBranch.cherryPickCommits',
         (item: BranchTreeItem) => this._handleCherryPickCommits(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.remoteBranch.pullIntoCurrent',
         (item: BranchTreeItem) => this._handlePullIntoCurrent(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.remoteBranch.deleteRemote',
         (item: BranchTreeItem) => this._handleDeleteRemote(item)
       )
@@ -204,46 +205,46 @@ export class BranchContextMenuCommands {
 
     // Wave K — WK-3: Track Remote Branch single-entry smart-detect.
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.remoteBranch.trackBranch', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.remoteBranch.trackBranch', (item: BranchTreeItem) =>
         this._handleTrackRemote(item)
       )
     );
 
     // New command handlers
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.update', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.update', (item: BranchTreeItem) =>
         this._handleUpdate(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.push', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.push', (item: BranchTreeItem) =>
         this._handlePush(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.branch.showDiffWithWorkingTree',
         (item: BranchTreeItem) => this._handleShowDiffWithWorkingTree(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branch.checkoutAndRebase', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.branch.checkoutAndRebase', (item: BranchTreeItem) =>
         this._handleCheckoutAndRebase(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.remoteBranch.pullUsingRebase',
         (item: BranchTreeItem) => this._handlePullUsingRebase(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand(
+      registerLoggedCommand(
         'intellig.remoteBranch.pullUsingMerge',
         (item: BranchTreeItem) => this._handlePullUsingMerge(item)
       )
@@ -251,38 +252,38 @@ export class BranchContextMenuCommands {
 
     // Tag commands
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.tag.checkoutDetached', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.checkoutDetached', (item: BranchTreeItem) =>
         this._handleTagCheckoutDetached(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.tag.newBranchFrom', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.newBranchFrom', (item: BranchTreeItem) =>
         this._handleTagNewBranchFrom(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.tag.cherryPick', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.cherryPick', (item: BranchTreeItem) =>
         this._handleTagCherryPick(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.tag.delete', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.delete', (item: BranchTreeItem) =>
         this._handleTagDelete(item)
       )
     );
 
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.tag.push', (item: BranchTreeItem) =>
+      registerLoggedCommand('intellig.tag.push', (item: BranchTreeItem) =>
         this._handleTagPush(item)
       )
     );
 
     // Refresh command
     this._disposables.push(
-      vscode.commands.registerCommand('intellig.branches.refresh', () =>
+      registerLoggedCommand('intellig.branches.refresh', () =>
         this._branchTreeProvider.refresh()
       )
     );
@@ -1072,8 +1073,15 @@ export class BranchContextMenuCommands {
           // Do NOT surface a toast for the probe failure itself — the
           // outer generic error below is the one the user cares about
           // (it names the pull strategy + the original fatal). Keep the
-          // probe error in the console/log for debugging.
-          console.error('[intellig] pull-fallback conflict probe failed:', probeError);
+          // probe error in the log for debugging.
+          getLogger()
+            .child({ component: 'BranchContextMenuCommands' })
+            .warn('pull-fallback conflict probe failed', {
+              probeError:
+                probeError instanceof Error
+                  ? probeError.message
+                  : String(probeError),
+            });
         }
       }
       const strategy = preset === 'rebase' ? 'rebase' : 'merge';

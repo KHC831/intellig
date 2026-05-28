@@ -49,6 +49,7 @@ import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { sortCommitsStable } from '../../utils/commitSort';
+import { getLogger } from '../../utils/logger';
 import {
   computeMenuState,
   computeRangeSelection,
@@ -1430,7 +1431,11 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         }
         break;
       default:
-        console.warn('Unknown webview message type:', message);
+        getLogger()
+          .child({ component: 'GitToolWindowProvider' })
+          .warn('unknown webview message type', {
+            messageType: typeof message.type === 'string' ? message.type : '<non-string>',
+          });
     }
   }
 
@@ -1982,9 +1987,12 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // Clamp to valid range
     let clampedIndex = index;
     if (index < 0 || index >= this._availableRepositories.length) {
-      console.warn(
-        `Repository index ${index} out of bounds (0-${this._availableRepositories.length - 1}). Clamping to valid range.`
-      );
+      getLogger()
+        .child({ component: 'GitToolWindowProvider' })
+        .warn('repository index out of bounds; clamping to valid range', {
+          index,
+          maxIndex: this._availableRepositories.length - 1,
+        });
       clampedIndex = Math.max(0, Math.min(index, this._availableRepositories.length - 1));
     }
 
@@ -4872,8 +4880,12 @@ ${bodyMarkup}
           if (hashValue) {
             const text = hashValue.getAttribute('data-copy-text');
             if (text) {
-              navigator.clipboard.writeText(text).catch(function(err) {
-                console.error('Failed to copy:', err);
+              navigator.clipboard.writeText(text).catch(function(_err) {
+                // Clipboard writes can fail when the document loses focus
+                // mid-call. The hash value remains visible on the chip;
+                // the user can re-click to retry. Failure is intentionally
+                // silent here — host-side logger isn't reachable from the
+                // webview script.
               });
             }
           }

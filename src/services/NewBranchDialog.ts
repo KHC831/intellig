@@ -22,6 +22,7 @@ import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository } from './interfaces/IGitService';
 import { sanitizeGitError } from '../utils/gitError';
+import { getLogger } from '../utils/logger';
 
 /** Options for constructing a {@link NewBranchDialog}. */
 export interface INewBranchDialogOptions {
@@ -362,7 +363,12 @@ ${body}
         try {
           this._onBranchCreated();
         } catch (err) {
-          console.error('NewBranchDialog: onBranchCreated threw:', err);
+          getLogger()
+            .child({ component: 'NewBranchDialog' })
+            .error(
+              'onBranchCreated threw',
+              err instanceof Error ? err : undefined
+            );
         }
       }
       this.dispose();

@@ -34,6 +34,7 @@ import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { sanitizeGitError } from '../utils/gitError';
 import { IGitService, IPushOptions, IRepository } from './interfaces/IGitService';
 import type { PullDialog } from './PullDialog';
+import { getLogger } from '../utils/logger';
 
 // ─── Action + state types ────────────────────────────────────────────────────
 
@@ -965,7 +966,12 @@ ${body}
           try {
             this._onPushComplete();
           } catch (err) {
-            console.error('PushDialog: onPushComplete callback threw:', err);
+            getLogger()
+              .child({ component: 'PushDialog' })
+              .error(
+                'onPushComplete callback threw',
+                err instanceof Error ? err : undefined
+              );
           }
         }
         this.dispose();

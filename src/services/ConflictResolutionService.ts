@@ -13,6 +13,7 @@ import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDi
 import { IMergeView } from './interfaces/IMergeView';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { getLogger, type Logger } from '../utils/logger';
 
 /**
  * Context key flipped `true` whenever a conflict-producing state file exists
@@ -94,6 +95,13 @@ export class ConflictResolutionService implements IConflictResolutionService {
   private _mergeView: IMergeView | undefined;
 
   /**
+   * Component-bound Logger emitted on construction and disposal so
+   * operational waypoints land in the IntelliG OutputChannel
+   * uniformly with the rest of the service graph (task 9.7).
+   */
+  private readonly _logger: Logger;
+
+  /**
    * Event fired when conflicts change
    */
   readonly onDidChangeConflicts: vscode.Event<{ repo: IRepository; conflicts: IConflictedFile[] }>;
@@ -101,6 +109,8 @@ export class ConflictResolutionService implements IConflictResolutionService {
   constructor(private readonly _gitService: IGitService) {
     this._onDidChangeConflicts = new vscode.EventEmitter();
     this.onDidChangeConflicts = this._onDidChangeConflicts.event;
+    this._logger = getLogger().child({ component: 'ConflictResolutionService' });
+    this._logger.info('ConflictResolutionService constructed');
 
     // Listen for repository changes to detect conflict changes. Also
     // piggybacks the state-file watcher check — setupRepositoryWatcher in
@@ -776,6 +786,10 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * Dispose of resources
    */
   dispose(): void {
+    this._logger.info('ConflictResolutionService disposing', {
+      activeDialogs: this._activeDialogs.size,
+      pendingWatchers: this._watcherDebounces.size,
+    });
     this._onDidChangeConflicts.dispose();
 
     // Clear any pending state-file watcher timers.

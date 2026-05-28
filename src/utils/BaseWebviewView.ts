@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
 import { safeFireAndForget } from './safeFireAndForget';
+import { getLogger } from './logger';
 
 /**
  * Abstract base class for IntelliG `WebviewViewProvider`s.
@@ -102,7 +103,12 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
           // Defensive: a synchronously-thrown error from a handler must not
           // take down the host. safeFireAndForget only catches async
           // rejections — sync throws are handled here.
-          console.error('BaseWebviewView: message handler threw', error);
+          getLogger()
+            .child({ component: 'BaseWebviewView' })
+            .error(
+              'message handler threw',
+              error instanceof Error ? error : undefined
+            );
         }
       },
       undefined,

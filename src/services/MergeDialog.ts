@@ -32,6 +32,7 @@ import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IMergeOptions, IRepository } from './interfaces/IGitService';
 import { IConflictResolutionService } from './interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../utils/gitError';
+import { getLogger } from '../utils/logger';
 
 /** Options for constructing a {@link MergeDialog}. */
 export interface IMergeDialogOptions {
@@ -378,7 +379,12 @@ ${body}
           try {
             this._onMergeComplete();
           } catch (err) {
-            console.error('MergeDialog: onMergeComplete threw:', err);
+            getLogger()
+              .child({ component: 'MergeDialog' })
+              .error(
+                'onMergeComplete threw',
+                err instanceof Error ? err : undefined
+              );
           }
         }
         this.dispose();

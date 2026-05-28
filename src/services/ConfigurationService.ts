@@ -7,6 +7,7 @@ import {
   BlameAnnotationStyle,
   KeymapPresetName,
 } from './interfaces/IConfigurationService';
+import { getLogger, type Logger, type LogThreshold } from '../utils/logger';
 
 /**
  * Configuration namespace for the extension settings
@@ -41,6 +42,10 @@ const DEFAULT_CONFIGURATION: IExtensionConfiguration = {
   deletedFileColor: '#6C6C6C',
   ignoredFileColor: '#848504',
   conflictFileColor: '#FF0000',
+
+  // Logging settings (task 5.3)
+  logLevel: 'info',
+  logConsole: false,
 };
 
 /**
@@ -62,6 +67,8 @@ const CONFIG_KEY_MAP: Record<keyof IExtensionConfiguration, string> = {
   deletedFileColor: 'deletedFileColor',
   ignoredFileColor: 'ignoredFileColor',
   conflictFileColor: 'conflictFileColor',
+  logLevel: 'log.level',
+  logConsole: 'log.console',
 };
 
 /**
@@ -72,6 +79,14 @@ export class ConfigurationService implements IConfigurationService {
   private _onDidChangeConfiguration: vscode.EventEmitter<IExtensionConfiguration>;
   private _disposables: vscode.Disposable[] = [];
   private _cachedConfiguration: IExtensionConfiguration | undefined;
+  /**
+   * Component-bound Logger used to emit a debug-level record naming
+   * the changed `intellig.*` keys on every configuration change
+   * (task 5.3). Only key names are logged — never values
+   * (Requirement 14.10) — because user-set values may contain
+   * sensitive content (commit-message templates, file colours, etc.).
+   */
+  private readonly _logger: Logger;
 
   /**
    * Event fired when configuration changes
@@ -81,6 +96,7 @@ export class ConfigurationService implements IConfigurationService {
   constructor() {
     this._onDidChangeConfiguration = new vscode.EventEmitter<IExtensionConfiguration>();
     this.onDidChangeConfiguration = this._onDidChangeConfiguration.event;
+    this._logger = getLogger().child({ component: 'ConfigurationService' });
 
     // Register configuration change listener
     this._disposables.push(
@@ -269,6 +285,22 @@ export class ConfigurationService implements IConfigurationService {
         'conflictFileColor',
         DEFAULT_CONFIGURATION.conflictFileColor
       ),
+
+      // Logging settings (task 5.3). The Logger's own
+      // `LogLevelResolver` reads these settings directly via
+      // `vscode.workspace.getConfiguration` to avoid a bootstrap
+      // circular (the Logger must be ready before
+      // `ConfigurationService` is constructed). This typed
+      // projection exists so other services that consume
+      // `IConfigurationService` see the same schema as everything
+      // else and so the change-event diff in
+      // `handleConfigurationChange` can name the changed log keys.
+      logLevel: this.getConfigValue<LogThreshold>(
+        config,
+        'log.level',
+        DEFAULT_CONFIGURATION.logLevel
+      ),
+      logConsole: this.getConfigValue(config, 'log.console', DEFAULT_CONFIGURATION.logConsole),
     };
   }
 
@@ -292,13 +324,44 @@ export class ConfigurationService implements IConfigurationService {
   /**
    * Handle configuration change events.
    * Invalidates the cache and fires the change event.
+   *
+   * Task 5.3: emit one debug-level Logger record naming the
+   * `intellig.*` keys whose effective values changed in this
+   * snapshot. Values are deliberately omitted (Requirement 14.10) —
+   * settings such as `commitMessageTemplate` may contain user content
+   * and are not safe to log unconditionally. Computing the diff here
+   * (rather than re-deriving it from `e.affectsConfiguration` per
+   * key) ensures the record reflects the *effective* change at the
+   * typed-projection layer, not just the raw section-affects flag.
    */
   private handleConfigurationChange(): void {
     const oldConfig = this._cachedConfiguration;
     this._cachedConfiguration = this.loadConfiguration();
 
+    // Diff old vs new typed snapshots to compute the changed keys.
+    // We iterate `DEFAULT_CONFIGURATION` (rather than `oldConfig` /
+    // `newConfig`) so the key set is fixed and exhaustive even when
+    // `oldConfig` is undefined (first-time path).
+    const changedKeys: (keyof IExtensionConfiguration)[] = [];
+    if (oldConfig === undefined) {
+      // No prior snapshot — treat every key as "changed" so the log
+      // record still names the surface that just became observable.
+      for (const k of Object.keys(DEFAULT_CONFIGURATION) as (keyof IExtensionConfiguration)[]) {
+        changedKeys.push(k);
+      }
+    } else {
+      for (const k of Object.keys(DEFAULT_CONFIGURATION) as (keyof IExtensionConfiguration)[]) {
+        if (oldConfig[k] !== this._cachedConfiguration[k]) {
+          changedKeys.push(k);
+        }
+      }
+    }
+
     // Only fire event if configuration actually changed
     if (!this.configurationEquals(oldConfig, this._cachedConfiguration)) {
+      // Emit a debug record with ONLY the changed key names — never
+      // the values (Requirement 6.5, 14.10).
+      this._logger.debug('intellig configuration changed', { keys: changedKeys });
       this._onDidChangeConfiguration.fire(this._cachedConfiguration);
     }
   }

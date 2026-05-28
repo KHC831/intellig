@@ -12,6 +12,7 @@ import * as vscode from 'vscode';
 import { IAutoFetchService, AutoFetchPauseReason } from './interfaces/IAutoFetchService';
 import { IGitService, IRepository } from './interfaces/IGitService';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { getLogger, type Logger } from '../utils/logger';
 
 /**
  * Minimum polling interval in seconds. Values below this are clamped to
@@ -54,6 +55,14 @@ export class AutoFetchService implements IAutoFetchService {
   private readonly _gitService: IGitService;
   private readonly _readEnabled: () => boolean;
   private readonly _readIntervalSec: () => number;
+
+  /**
+   * Component-bound Logger emitting lifecycle and watcher-style waypoints
+   * (Requirement 6.3, 6.7). Construction and `dispose()` emit info; the
+   * auth-failure suppressed-toast path that previously used `console.log`
+   * now routes through `logger.info`.
+   */
+  private readonly _logger: Logger;
 
   /** Active pending tick; `undefined` when the scheduler is stopped. */
   private _timer: NodeJS.Timeout | undefined;
@@ -98,6 +107,9 @@ export class AutoFetchService implements IAutoFetchService {
       options?.readIntervalSec ??
       ((): number =>
         vscode.workspace.getConfiguration('intellig').get<number>('autoFetchInterval', 180));
+
+    this._logger = getLogger().child({ component: 'AutoFetchService' });
+    this._logger.info('AutoFetchService constructed');
 
     if (!options?.skipWorkspaceListeners) {
       this._subscriptions.push(
@@ -186,6 +198,7 @@ export class AutoFetchService implements IAutoFetchService {
       return;
     }
     this._disposed = true;
+    this._logger.info('AutoFetchService disposing');
     this.stop('user');
     for (const sub of this._subscriptions) {
       try {
@@ -295,9 +308,9 @@ export class AutoFetchService implements IAutoFetchService {
 
     if (this._authFailureToastShownForSession) {
       // Another repo already surfaced a toast this session; log-only.
-      console.log(
-        `[intellig] auto-fetch suppressed duplicate auth-failure toast for "${repoLabel}"`
-      );
+      this._logger.info('auto-fetch suppressed duplicate auth-failure toast', {
+        repo: repoLabel,
+      });
       return;
     }
 

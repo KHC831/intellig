@@ -20,6 +20,7 @@ import { IConflictedFile } from './interfaces/IConflictResolutionService';
 import { GitCli, IGitCommandOptions, IGitCommandResult } from '../utils/gitCli';
 import { sanitizeGitError } from '../utils/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
+import { getLogger, type Logger } from '../utils/logger';
 
 /**
  * Thrown when `createPatchFromLocalChanges` fails writing the patch
@@ -73,7 +74,17 @@ interface IGitServiceWithCli extends IGitService {
  * Concrete Patch Service.
  */
 export class PatchService implements IPatchService {
-  constructor(private readonly _gitService: IGitService) {}
+  /**
+   * Component-bound Logger emitted on construction and disposal so
+   * operational waypoints land in the IntelliG OutputChannel
+   * uniformly with the rest of the service graph (task 9.8).
+   */
+  private readonly _logger: Logger;
+
+  constructor(private readonly _gitService: IGitService) {
+    this._logger = getLogger().child({ component: 'PatchService' });
+    this._logger.info('PatchService constructed');
+  }
 
   /**
    * Apply a patch file (or inline patch content) to the given repository.
@@ -249,7 +260,8 @@ export class PatchService implements IPatchService {
   }
 
   dispose(): void {
-    // No subscriptions held; intentionally empty.
+    this._logger.info('PatchService disposing');
+    // No subscriptions held; intentionally empty otherwise.
   }
 
   // ========================================================================

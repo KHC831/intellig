@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomBytes } from 'node:crypto';
 import { atomicWriteFileSync } from '../utils/atomicWrite';
+import { getLogger, type Logger } from '../utils/logger';
 import { IChangelistService, IChangelist, IFileChange } from './interfaces/IChangelistService';
 import { IGitService, IRepository, FileStatus, IFileStatus } from './interfaces/IGitService';
 
@@ -162,9 +163,11 @@ export function migrateStorageForTest(parsed: Record<string, unknown>): IChangel
   });
 
   if (version > CHANGELIST_STORAGE_VERSION) {
-    console.warn(
-      `Changelist storage version ${version} is newer than expected (${CHANGELIST_STORAGE_VERSION}); reading best-effort`
-    );
+    getLogger()
+      .child({ component: 'ChangelistService' })
+      .warn(
+        `Changelist storage version ${version} is newer than expected (${CHANGELIST_STORAGE_VERSION}); reading best-effort`
+      );
   }
 
   const activeChangelistId =
@@ -257,6 +260,13 @@ export class ChangelistService implements IChangelistService {
   private readonly _gitService: IGitService;
 
   /**
+   * Component-bound Logger for ChangelistService lifecycle events,
+   * git-status reconcile failures, and storage I/O failures (task 9.4 /
+   * Requirements 6.3, 6.7).
+   */
+  private readonly _logger: Logger;
+
+  /**
    * Event fired when changelists change
    */
   readonly onDidChangeChangelists: vscode.Event<IChangelist[]>;
@@ -266,6 +276,8 @@ export class ChangelistService implements IChangelistService {
     this.onDidChangeChangelists = this._onDidChangeChangelists.event;
 
     this._gitService = gitService;
+    this._logger = getLogger().child({ component: 'ChangelistService' });
+    this._logger.info('ChangelistService constructed');
 
     // Subscribe to repository changes so storage stays in sync with
     // external `git add`, file removal, rename, etc.
@@ -672,7 +684,10 @@ export class ChangelistService implements IChangelistService {
     try {
       statuses = await this._gitService.getStatus(repo);
     } catch (error) {
-      console.error('ChangelistService: failed to read git status during reconcile:', error);
+      this._logger.error(
+        'failed to read git status during reconcile',
+        error instanceof Error ? error : undefined
+      );
       return;
     }
 
@@ -737,7 +752,7 @@ export class ChangelistService implements IChangelistService {
     const timer = setTimeout(() => {
       this._reconcileTimers.delete(repoKey);
       void this.reconcileWithGitStatus(repo).catch((err) => {
-        console.error('ChangelistService: reconcile failed:', err);
+        this._logger.error('reconcile failed', err instanceof Error ? err : undefined);
       });
     }, RECONCILE_DEBOUNCE_MS);
     this._reconcileTimers.set(repoKey, timer);
@@ -829,7 +844,10 @@ export class ChangelistService implements IChangelistService {
         return this.migrateStorage(parsed);
       }
     } catch (error) {
-      console.error('Failed to load changelist storage:', error);
+      this._logger.error(
+        'failed to load changelist storage',
+        error instanceof Error ? error : undefined
+      );
       // Graceful fallback — corrupt file shouldn't block the user.
     }
 
@@ -893,7 +911,10 @@ export class ChangelistService implements IChangelistService {
       const content = JSON.stringify(serializeStorageForDisk(storage), null, 2);
       atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {
-      console.error('Failed to save changelist storage:', error);
+      this._logger.error(
+        'failed to save changelist storage',
+        error instanceof Error ? error : undefined
+      );
       throw new Error('Failed to save changelist storage');
     }
   }
@@ -937,6 +958,7 @@ export class ChangelistService implements IChangelistService {
    * Dispose of resources.
    */
   dispose(): void {
+    this._logger.info('ChangelistService disposing');
     this._onDidChangeChangelists.dispose();
     this._changelistCache.clear();
 

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { generateNonce } from './webviewNonce';
 import { safeFireAndForget } from './safeFireAndForget';
+import { getLogger } from './logger';
 
 /**
  * Abstract base class for IntelliG webview panels.
@@ -64,7 +65,13 @@ export abstract class BaseWebviewPanel {
             `BaseWebviewPanel.onDidReceiveMessage: async _onMessage rejection [${viewType}]`
           );
         } catch (error) {
-          console.error(`BaseWebviewPanel [${viewType}]: _onMessage threw synchronously`, error);
+          getLogger()
+            .child({ component: 'BaseWebviewPanel' })
+            .error(
+              '_onMessage threw synchronously',
+              { viewType },
+              error instanceof Error ? error : undefined
+            );
         }
       },
       null,

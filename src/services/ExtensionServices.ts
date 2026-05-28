@@ -23,6 +23,7 @@ import { ConflictResolutionService } from './ConflictResolutionService';
 import { AutoFetchService } from './AutoFetchService';
 import { PatchService } from './PatchService';
 import { BlameOptionsSource } from './BlameOptionsSource';
+import { getLogger } from '../utils/logger';
 
 /**
  * Extension services container interface.
@@ -197,8 +198,10 @@ export class ExtensionServices implements IExtensionServices {
    * @param context - The VS Code extension context
    */
   initialize(context: vscode.ExtensionContext): Promise<void> {
+    const logger = getLogger().child({ component: 'ExtensionServices' });
+
     if (this._initialized) {
-      console.warn('ExtensionServices already initialized');
+      logger.warn('ExtensionServices already initialized');
       return Promise.resolve();
     }
 
@@ -206,7 +209,7 @@ export class ExtensionServices implements IExtensionServices {
       return Promise.reject(new Error('Cannot initialize disposed ExtensionServices'));
     }
 
-    console.log('Initializing IntelliG extension services...');
+    logger.info('initializing IntelliG extension services');
 
     try {
       // Initialize ConfigurationService first as other services may depend on it
@@ -279,10 +282,13 @@ export class ExtensionServices implements IExtensionServices {
       });
 
       this._initialized = true;
-      console.log('IntelliG extension services initialized successfully');
+      logger.info('IntelliG extension services initialized successfully');
       return Promise.resolve();
     } catch (error) {
-      console.error('Failed to initialize extension services:', error);
+      logger.error(
+        'failed to initialize extension services',
+        error instanceof Error ? error : undefined
+      );
       return Promise.reject(error);
     }
   }
@@ -374,7 +380,8 @@ export class ExtensionServices implements IExtensionServices {
       return;
     }
 
-    console.log('Disposing IntelliG extension services...');
+    const logger = getLogger().child({ component: 'ExtensionServices' });
+    logger.info('disposing IntelliG extension services');
 
     // Dispose services in reverse order of dependency
     try {
@@ -390,7 +397,10 @@ export class ExtensionServices implements IExtensionServices {
       this._gitService?.dispose();
       this._configurationService?.dispose();
     } catch (error) {
-      console.error('Error disposing services:', error);
+      logger.error(
+        'error disposing services',
+        error instanceof Error ? error : undefined
+      );
     }
 
     // Clear references
@@ -409,7 +419,7 @@ export class ExtensionServices implements IExtensionServices {
     this._disposed = true;
     this._initialized = false;
 
-    console.log('IntelliG extension services disposed');
+    logger.info('IntelliG extension services disposed');
   }
 
   /**

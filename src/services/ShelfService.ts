@@ -14,6 +14,7 @@ import {
 } from './interfaces/IShelfService';
 import { IRepository, IDiff, IHunk, IGitService } from './interfaces/IGitService';
 import { GitCli, createGitCli } from '../utils/gitCli';
+import { getLogger, type Logger } from '../utils/logger';
 
 // Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
 interface IGitServiceWithCli {
@@ -171,9 +172,12 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
 
   const version = typeof record.version === 'number' ? record.version : 1;
   if (version > SHELF_STORAGE_VERSION) {
-    console.warn(
-      `Shelf storage version ${version} is newer than expected (${SHELF_STORAGE_VERSION}); reading best-effort`
-    );
+    getLogger()
+      .child({ component: 'ShelfService' })
+      .warn('Shelf storage version is newer than expected; reading best-effort', {
+        observedVersion: version,
+        expectedVersion: SHELF_STORAGE_VERSION,
+      });
   }
 
   const rawItems = Array.isArray(record.items) ? record.items : [];
@@ -287,6 +291,11 @@ export class ShelfService implements IShelfService {
   private _shelfCache: Map<string, IShelfItem[]> = new Map();
   private _onDidChangeShelf: vscode.EventEmitter<IShelfItem[]>;
   private _disposables: vscode.Disposable[] = [];
+  /**
+   * Bound child Logger for this service (task 9.5).
+   * Component name `'ShelfService'` appears in every emitted record.
+   */
+  private readonly _logger: Logger;
 
   /**
    * Event fired when shelf changes
@@ -303,6 +312,8 @@ export class ShelfService implements IShelfService {
     }
     this._onDidChangeShelf = new vscode.EventEmitter<IShelfItem[]>();
     this.onDidChangeShelf = this._onDidChangeShelf.event;
+    this._logger = getLogger().child({ component: 'ShelfService' });
+    this._logger.info('ShelfService constructed', { ownsGitCli: this._ownsGitCli });
   }
 
   /**
@@ -859,7 +870,11 @@ export class ShelfService implements IShelfService {
         return migrateShelfStorageForTest(parsed);
       }
     } catch (error) {
-      console.error('Failed to load shelf storage:', error);
+      this._logger.error(
+        'Failed to load shelf storage',
+        { storagePath },
+        error instanceof Error ? error : undefined
+      );
     }
 
     // Return empty storage
@@ -894,7 +909,11 @@ export class ShelfService implements IShelfService {
       const content = JSON.stringify(serializeShelfForDisk(storage), null, 2);
       atomicWriteFileSync(storagePath, content, { encoding: 'utf8' });
     } catch (error) {
-      console.error('Failed to save shelf storage:', error);
+      this._logger.error(
+        'Failed to save shelf storage',
+        { storagePath },
+        error instanceof Error ? error : undefined
+      );
       throw new Error('Failed to save shelf storage');
     }
   }
@@ -961,6 +980,10 @@ export class ShelfService implements IShelfService {
    * Wave I WI-D — only dispose `_gitCli` when WE own it.
    */
   dispose(): void {
+    this._logger.info('ShelfService disposing', {
+      cachedRepos: this._shelfCache.size,
+      ownsGitCli: this._ownsGitCli,
+    });
     this._onDidChangeShelf.dispose();
     this._shelfCache.clear();
 

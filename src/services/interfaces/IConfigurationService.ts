@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import type { LogThreshold } from '../../utils/logger';
+
 /**
  * Git Tool Window tab types
  */
@@ -55,6 +57,22 @@ export interface IExtensionConfiguration {
   deletedFileColor: string;
   ignoredFileColor: string;
   conflictFileColor: string;
+
+  // Logging settings (task 5.3 — typed projection of `intellig.log.*`)
+  /**
+   * Minimum severity admitted to the IntelliG logger; records at
+   * lower levels are dropped before allocation. Backed by the
+   * `intellig.log.level` schema entry. Mirrors the Logger's own
+   * `LogLevelResolver` state (which reads `vscode.workspace`
+   * directly to avoid the bootstrap circular).
+   */
+  logLevel: LogThreshold;
+  /**
+   * When `true`, IntelliG log records are also mirrored to the
+   * developer console (visible only in the Extension Development
+   * Host). Backed by the `intellig.log.console` schema entry.
+   */
+  logConsole: boolean;
 }
 
 /**

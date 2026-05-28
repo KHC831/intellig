@@ -56,6 +56,7 @@ import {
 } from './commands';
 import type { LogContextAction } from './services/GitToolWindowProvider';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
+import { getLogger, initLogger, registerLoggedCommand } from './utils/logger';
 import { runKeymapMigrationSafe } from './utils/keymapMigration';
 import { resolveRepo } from './utils/resolveRepo';
 import { isTabbedGitToolWindowEnabled } from './services/gitToolWindow/config';
@@ -176,8 +177,6 @@ let extensionContext: vscode.ExtensionContext | undefined;
  *                  storage paths, and other extension-specific utilities.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  console.log('IntelliG extension is activating...');
-
   try {
     // Hold a reference to the extension context for non-command call paths
     // that need it later (e.g. the Push dialog constructed from branch menu).
@@ -188,6 +187,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // can see. Registered with context.subscriptions so it disposes on
     // deactivate alongside the rest of the extension's resources.
     initOutputChannel(context);
+
+    // Initialize the structured Logger before service construction so
+    // services calling `getLogger().child({ component: 'X' })` in their
+    // constructors (via `ExtensionServices.initialize` below) emit through
+    // the registered sinks rather than the no-op pre-init path.
+    // (Requirement 6.6, 8.2)
+    initLogger(context);
+
+    getLogger().info('extension activating');
 
     // Wave 135 R3 / C1 — one-time migration from the deprecated
     // `intellig.useIntelliJKeymap` boolean to `intellig.keymapPreset`.
@@ -243,9 +251,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(autoFetchService);
     autoFetchService.start();
 
-    console.log('IntelliG extension is now active');
+    getLogger().info('extension activated');
   } catch (error) {
-    console.error('Failed to activate IntelliG extension:', error);
+    getLogger().error('failed to activate', error instanceof Error ? error : undefined);
     void vscode.window.showErrorMessage(
       formatActionFailureToast('Failed to activate IntelliG extension', error)
     );
@@ -258,7 +266,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
  * Clean up any resources and dispose of services.
  */
 export function deactivate(): void {
-  console.log('IntelliG extension is deactivating...');
+  getLogger().info('extension deactivating');
 
   try {
     // Dispose the Merge View
@@ -360,9 +368,12 @@ export function deactivate(): void {
     extensionServices = undefined;
     extensionContext = undefined;
 
-    console.log('IntelliG extension is now deactivated');
+    getLogger().info('extension deactivated');
   } catch (error) {
-    console.error('Error during extension deactivation:', error);
+    getLogger().error(
+      'error during deactivation',
+      error instanceof Error ? error : undefined
+    );
   }
 }
 
@@ -373,7 +384,7 @@ export function deactivate(): void {
  */
 function registerCommands(context: vscode.ExtensionContext): void {
   // Open Git Tool Window command
-  const openGitToolWindowCommand = vscode.commands.registerCommand(
+  const openGitToolWindowCommand = registerLoggedCommand(
     'intellig.openGitToolWindow',
     () => {
       // Focus the Git Tool Window view
@@ -382,7 +393,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Commit command
-  const commitCommand = vscode.commands.registerCommand('intellig.commit', async () => {
+  const commitCommand = registerLoggedCommand('intellig.commit', async () => {
     // Get the Git service and find a repository
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -428,7 +439,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // T1-04 — focus the Commit tool window (Alt+0).
-  const showCommitToolWindowCommand = vscode.commands.registerCommand(
+  const showCommitToolWindowCommand = registerLoggedCommand(
     'intellig.showCommitToolWindow',
     async () => {
       if (commitToolWindow) {
@@ -444,7 +455,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // every handler routes through `resolveRepo(preferActive)` so
   // changelist ops in multi-root workspaces target the repo owning the
   // active editor, not an arbitrary `repositories[0]`.
-  const changelistNewCommand = vscode.commands.registerCommand(
+  const changelistNewCommand = registerLoggedCommand(
     'intellig.changelist.new',
     async () => {
       if (!extensionServices) {
@@ -474,7 +485,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const changelistSetActiveCommand = vscode.commands.registerCommand(
+  const changelistSetActiveCommand = registerLoggedCommand(
     'intellig.changelist.setActive',
     async (changelistId?: string) => {
       if (!extensionServices) {
@@ -498,7 +509,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const changelistRenameCommand = vscode.commands.registerCommand(
+  const changelistRenameCommand = registerLoggedCommand(
     'intellig.changelist.rename',
     async (changelistId?: string) => {
       if (!extensionServices) {
@@ -534,7 +545,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const changelistDeleteCommand = vscode.commands.registerCommand(
+  const changelistDeleteCommand = registerLoggedCommand(
     'intellig.changelist.delete',
     async (changelistId?: string) => {
       if (!extensionServices) {
@@ -556,7 +567,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const changelistEditDescriptionCommand = vscode.commands.registerCommand(
+  const changelistEditDescriptionCommand = registerLoggedCommand(
     'intellig.changelist.editDescription',
     async (changelistId?: string) => {
       if (!extensionServices) {
@@ -595,7 +606,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const changelistMoveFilesToCommand = vscode.commands.registerCommand(
+  const changelistMoveFilesToCommand = registerLoggedCommand(
     'intellig.changelist.moveFilesTo',
     async (files?: string[]) => {
       if (!extensionServices) {
@@ -629,7 +640,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // "Commit Only This Changelist" and "Shelve Changelist" are MVP stubs that
   // surface a friendly message — the full wiring lands in follow-up work
   // alongside the actual commit/shelve flows consuming the changelist filter.
-  const changelistCommitOnlyCommand = vscode.commands.registerCommand(
+  const changelistCommitOnlyCommand = registerLoggedCommand(
     'intellig.changelist.commitOnly',
     async (changelistId?: string) => {
       if (!changelistId) {
@@ -644,7 +655,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const changelistShelveCommand = vscode.commands.registerCommand(
+  const changelistShelveCommand = registerLoggedCommand(
     'intellig.changelist.shelve',
     async (changelistId?: string) => {
       if (!extensionServices || !changelistId) {
@@ -691,7 +702,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Push command — T1-01 Push dialog (webview table w/ per-row targets,
   // force-with-lease default, protected-branch guard, multi-repo submit).
-  const pushCommand = vscode.commands.registerCommand('intellig.push', () => {
+  const pushCommand = registerLoggedCommand('intellig.push', () => {
     _openPushDialog();
   });
 
@@ -699,7 +710,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // `git push --tags` on the active repo. Lives alongside the main Push
   // dialog (which also surfaces the tag push radio) so IntelliJ users get
   // a one-click entry point.
-  const pushAllTagsCommand = vscode.commands.registerCommand('intellig.pushAllTags', async () => {
+  const pushAllTagsCommand = registerLoggedCommand('intellig.pushAllTags', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -749,7 +760,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Pull command — T1-02 Pull dialog (2-step QuickPick: source then flags).
-  const pullCommand = vscode.commands.registerCommand('intellig.pull', async () => {
+  const pullCommand = registerLoggedCommand('intellig.pull', async () => {
     const dialog = _getPullDialog();
     if (!dialog) {
       return;
@@ -759,7 +770,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Fetch command (T1-03). Fetches all remotes for the selected repository,
   // with a QuickPick when there are multiple repositories in the workspace.
-  const fetchCommand = vscode.commands.registerCommand('intellig.fetch', async () => {
+  const fetchCommand = registerLoggedCommand('intellig.fetch', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -818,7 +829,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Branch popup command
-  const branchPopupCommand = vscode.commands.registerCommand(
+  const branchPopupCommand = registerLoggedCommand(
     'intellig.showBranchPopup',
     async () => {
       // Get the Git service
@@ -848,7 +859,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Stash changes command
-  const stashCommand = vscode.commands.registerCommand('intellig.stash', async () => {
+  const stashCommand = registerLoggedCommand('intellig.stash', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -884,7 +895,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Show stash list command
-  const showStashListCommand = vscode.commands.registerCommand(
+  const showStashListCommand = registerLoggedCommand(
     'intellig.showStashList',
     async () => {
       if (!extensionServices) {
@@ -915,7 +926,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T2-09: Create Branch from Stash — palette entry. Prompts the user to
   // pick a stash (QuickPick) and delegates into `StashView.branchFromStash`
   // which in turn prompts for the branch name.
-  const stashBranchFromStashCommand = vscode.commands.registerCommand(
+  const stashBranchFromStashCommand = registerLoggedCommand(
     'intellig.stash.branchFromStash',
     async () => {
       const picked = await _pickStashForAction('Create branch from stash');
@@ -929,7 +940,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T2-09: Rename Stash — palette entry. Prompts the user to pick a stash,
   // then delegates into `StashView.renameStash` which prompts for the new
   // message.
-  const stashRenameCommand = vscode.commands.registerCommand('intellig.stash.rename', async () => {
+  const stashRenameCommand = registerLoggedCommand('intellig.stash.rename', async () => {
     const picked = await _pickStashForAction('Rename stash');
     if (!picked) {
       return;
@@ -938,7 +949,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Shelve changes command
-  const shelveCommand = vscode.commands.registerCommand('intellig.shelve', async () => {
+  const shelveCommand = registerLoggedCommand('intellig.shelve', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -1021,7 +1032,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // T2-10: Silent Shelve (Ctrl+Shift+H). Shelves the active changelist with
   // no dialog. Fallback name: "WIP <ISO timestamp>".
-  const shelveSilentCommand = vscode.commands.registerCommand(
+  const shelveSilentCommand = registerLoggedCommand(
     'intellig.shelve.silent',
     async () => {
       if (!extensionServices) {
@@ -1087,7 +1098,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T2-10: Silent Unshelve (Ctrl+Alt+U). Applies the most-recent entry
   // without prompting. If multiple entries exist (all non-unshelved), shows
   // a QuickPick.
-  const unshelveSilentCommand = vscode.commands.registerCommand(
+  const unshelveSilentCommand = registerLoggedCommand(
     'intellig.unshelve.silent',
     async () => {
       const ctx = await _getShelfContext();
@@ -1131,7 +1142,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // T2-10: Import patches into the shelf. Reachable via command palette and
   // the shelf list root action.
-  const shelveImportPatchesCommand = vscode.commands.registerCommand(
+  const shelveImportPatchesCommand = registerLoggedCommand(
     'intellig.shelve.importPatches',
     async () => {
       const ctx = await _getShelfContext();
@@ -1143,7 +1154,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show shelf list command
-  const showShelfListCommand = vscode.commands.registerCommand(
+  const showShelfListCommand = registerLoggedCommand(
     'intellig.showShelfList',
     async () => {
       if (!extensionServices) {
@@ -1170,7 +1181,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Toggle blame annotations command
-  const toggleBlameCommand = vscode.commands.registerCommand('intellig.toggleBlame', () => {
+  const toggleBlameCommand = registerLoggedCommand('intellig.toggleBlame', () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -1192,7 +1203,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Toggle gutter blame annotations command
-  const toggleGutterBlameCommand = vscode.commands.registerCommand(
+  const toggleGutterBlameCommand = registerLoggedCommand(
     'intellig.toggleGutterBlame',
     () => {
       if (!extensionServices) {
@@ -1217,7 +1228,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare with branch command
-  const compareWithBranchCommand = vscode.commands.registerCommand(
+  const compareWithBranchCommand = registerLoggedCommand(
     'intellig.compareWithBranch',
     async () => {
       if (!extensionServices) {
@@ -1243,7 +1254,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare with remote command
-  const compareWithRemoteCommand = vscode.commands.registerCommand(
+  const compareWithRemoteCommand = registerLoggedCommand(
     'intellig.compareWithRemote',
     async () => {
       if (!extensionServices) {
@@ -1269,7 +1280,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Refresh command - refreshes all Git views
-  const refreshCommand = vscode.commands.registerCommand('intellig.refresh', () => {
+  const refreshCommand = registerLoggedCommand('intellig.refresh', () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -1287,7 +1298,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T2-12 / T1-05 Phase 1: focus a specific tab in the Git tool window.
   // Declared in package.json; bound here so the StatusBarService incoming
   // badge (and future callers) can jump straight to a tab.
-  const focusTabCommand = vscode.commands.registerCommand(
+  const focusTabCommand = registerLoggedCommand(
     'intellig.toolWindow.focusTab',
     async (tab: string) => {
       if (!gitToolWindowProvider) {
@@ -1310,7 +1321,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // (pure helper, operates only on already-loaded commits per spec), then
   // delegates to `GitToolWindowProvider.scrollToCommit` which posts the
   // webview message + re-renders with the scroll target.
-  const jumpToHashCommand = vscode.commands.registerCommand(
+  const jumpToHashCommand = registerLoggedCommand(
     'intellig.toolWindow.jumpToHash',
     async () => {
       if (!extensionServices || !gitToolWindowProvider) {
@@ -1375,7 +1386,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Stage selected files command
-  const stageSelectedCommand = vscode.commands.registerCommand(
+  const stageSelectedCommand = registerLoggedCommand(
     'intellig.stageSelected',
     async () => {
       if (!extensionServices) {
@@ -1416,7 +1427,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Unstage selected files command
-  const unstageSelectedCommand = vscode.commands.registerCommand(
+  const unstageSelectedCommand = registerLoggedCommand(
     'intellig.unstageSelected',
     async () => {
       if (!extensionServices) {
@@ -1457,7 +1468,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Merge View commands
-  const openMergeViewCommand = vscode.commands.registerCommand(
+  const openMergeViewCommand = registerLoggedCommand(
     'intellig.merge.openMergeView',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -1518,7 +1529,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptCurrentCommand = vscode.commands.registerCommand(
+  const acceptCurrentCommand = registerLoggedCommand(
     'intellig.merge.acceptCurrent',
     () => {
       if (mergeView) {
@@ -1527,7 +1538,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptIncomingCommand = vscode.commands.registerCommand(
+  const acceptIncomingCommand = registerLoggedCommand(
     'intellig.merge.acceptIncoming',
     () => {
       if (mergeView) {
@@ -1536,13 +1547,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptBothCommand = vscode.commands.registerCommand('intellig.merge.acceptBoth', () => {
+  const acceptBothCommand = registerLoggedCommand('intellig.merge.acceptBoth', () => {
     if (mergeView) {
       mergeView.acceptBoth();
     }
   });
 
-  const acceptAllCurrentCommand = vscode.commands.registerCommand(
+  const acceptAllCurrentCommand = registerLoggedCommand(
     'intellig.merge.acceptAllCurrent',
     () => {
       if (mergeView) {
@@ -1551,7 +1562,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptAllIncomingCommand = vscode.commands.registerCommand(
+  const acceptAllIncomingCommand = registerLoggedCommand(
     'intellig.merge.acceptAllIncoming',
     () => {
       if (mergeView) {
@@ -1560,13 +1571,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const nextConflictCommand = vscode.commands.registerCommand('intellig.merge.nextConflict', () => {
+  const nextConflictCommand = registerLoggedCommand('intellig.merge.nextConflict', () => {
     if (mergeView) {
       mergeView.nextConflict();
     }
   });
 
-  const previousConflictCommand = vscode.commands.registerCommand(
+  const previousConflictCommand = registerLoggedCommand(
     'intellig.merge.previousConflict',
     () => {
       if (mergeView) {
@@ -1575,7 +1586,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const markResolvedCommand = vscode.commands.registerCommand(
+  const markResolvedCommand = registerLoggedCommand(
     'intellig.merge.markResolved',
     async () => {
       if (mergeView) {
@@ -1588,7 +1599,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T1-08(a): manual entry point for re-opening the Resolve Conflicts dialog.
   // Used by the status-bar "Unresolved conflicts — click to resolve" prompt
   // and by the VCS menu `Resolve Conflicts…` item (contributed elsewhere).
-  const showResolveConflictsDialogCommand = vscode.commands.registerCommand(
+  const showResolveConflictsDialogCommand = registerLoggedCommand(
     'intellig.showResolveConflictsDialog',
     async () => {
       if (!extensionServices) {
@@ -1633,7 +1644,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // rebase. Gated by the same `intellig.conflicts.active` context key the
   // status-bar prompt uses, so it only appears while a rebase is paused
   // on conflicts. Destructive; single confirm matches the dialog button.
-  const rebaseSkipCommand = vscode.commands.registerCommand('intellig.rebase.skip', async () => {
+  const rebaseSkipCommand = registerLoggedCommand('intellig.rebase.skip', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -1702,7 +1713,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // "Coming soon" toast rather than crashing the keybinding resolver when
   // the underlying feature hasn't shipped yet. The functionality will be
   // filled in by the referenced Tier-2/3 task.
-  const localChangesOpenFileCommand = vscode.commands.registerCommand(
+  const localChangesOpenFileCommand = registerLoggedCommand(
     'intellig.localChanges.openFile',
     () => {
       void vscode.window.showInformationMessage(
@@ -1718,7 +1729,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T1-12: Apply Patch… — opens the ApplyPatchDialog for the active repo.
   // When invoked with a URI (e.g. from an explorer context menu on a .patch
   // file), pre-seeds the dialog with that path.
-  const applyPatchCommand = vscode.commands.registerCommand(
+  const applyPatchCommand = registerLoggedCommand(
     'intellig.patch.apply',
     async (initialUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -1746,7 +1757,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // T1-12: Create Patch from Local Changes… — prompts for target (file /
   // clipboard) and writes the current diff.
-  const createPatchFromLocalCommand = vscode.commands.registerCommand(
+  const createPatchFromLocalCommand = registerLoggedCommand(
     'intellig.patch.createFromLocal',
     async () => {
       if (!extensionServices) {
@@ -1818,7 +1829,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const markFileResolvedCommand = vscode.commands.registerCommand(
+  const markFileResolvedCommand = registerLoggedCommand(
     'intellig.conflict.markResolved',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -1872,7 +1883,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptAllCurrentFilesCommand = vscode.commands.registerCommand(
+  const acceptAllCurrentFilesCommand = registerLoggedCommand(
     'intellig.conflict.acceptAllCurrent',
     async () => {
       if (!extensionServices) {
@@ -1917,7 +1928,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const acceptAllIncomingFilesCommand = vscode.commands.registerCommand(
+  const acceptAllIncomingFilesCommand = registerLoggedCommand(
     'intellig.conflict.acceptAllIncoming',
     async () => {
       if (!extensionServices) {
@@ -1962,7 +1973,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const completeMergeCommand = vscode.commands.registerCommand(
+  const completeMergeCommand = registerLoggedCommand(
     'intellig.conflict.completeMerge',
     async () => {
       if (!extensionServices) {
@@ -2001,7 +2012,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const completeRebaseCommand = vscode.commands.registerCommand(
+  const completeRebaseCommand = registerLoggedCommand(
     'intellig.conflict.completeRebase',
     async () => {
       if (!extensionServices) {
@@ -2044,7 +2055,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const abortMergeCommand = vscode.commands.registerCommand(
+  const abortMergeCommand = registerLoggedCommand(
     'intellig.conflict.abortMerge',
     async () => {
       if (!extensionServices) {
@@ -2081,7 +2092,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  const abortRebaseCommand = vscode.commands.registerCommand(
+  const abortRebaseCommand = registerLoggedCommand(
     'intellig.conflict.abortRebase',
     async () => {
       if (!extensionServices) {
@@ -2119,7 +2130,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Interactive Rebase command
-  const interactiveRebaseCommand = vscode.commands.registerCommand(
+  const interactiveRebaseCommand = registerLoggedCommand(
     'intellig.rebase.interactive',
     async () => {
       if (!extensionServices) {
@@ -2199,7 +2210,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show History command (command palette / keybinding)
-  const showHistoryCommand = vscode.commands.registerCommand('intellig.showHistory', async () => {
+  const showHistoryCommand = registerLoggedCommand('intellig.showHistory', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -2274,7 +2285,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Revert File command (command palette / keybinding)
-  const revertFileCommand = vscode.commands.registerCommand('intellig.revertFile', async () => {
+  const revertFileCommand = registerLoggedCommand('intellig.revertFile', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
@@ -2326,7 +2337,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // File Explorer Context Menu Commands
 
   // Show History command for file explorer
-  const explorerShowHistoryCommand = vscode.commands.registerCommand(
+  const explorerShowHistoryCommand = registerLoggedCommand(
     'intellig.explorer.showHistory',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2399,7 +2410,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare with Branch command for file explorer
-  const explorerCompareWithBranchCommand = vscode.commands.registerCommand(
+  const explorerCompareWithBranchCommand = registerLoggedCommand(
     'intellig.explorer.compareWithBranch',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2468,7 +2479,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Revert command for file explorer
-  const explorerRevertCommand = vscode.commands.registerCommand(
+  const explorerRevertCommand = registerLoggedCommand(
     'intellig.explorer.revert',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2527,7 +2538,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Stage command for file explorer
-  const explorerStageCommand = vscode.commands.registerCommand(
+  const explorerStageCommand = registerLoggedCommand(
     'intellig.explorer.stage',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2575,7 +2586,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Unstage command for file explorer
-  const explorerUnstageCommand = vscode.commands.registerCommand(
+  const explorerUnstageCommand = registerLoggedCommand(
     'intellig.explorer.unstage',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2623,7 +2634,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show Diff command for file explorer
-  const explorerShowDiffCommand = vscode.commands.registerCommand(
+  const explorerShowDiffCommand = registerLoggedCommand(
     'intellig.explorer.showDiff',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2678,7 +2689,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // T2-11 — Add to VCS. Stages the file (equivalent to `git add <path>`), so
   // it becomes tracked. Shown in the IntelliJ-parity explorer submenu.
-  const explorerAddToVcsCommand = vscode.commands.registerCommand(
+  const explorerAddToVcsCommand = registerLoggedCommand(
     'intellig.explorer.addToVcs',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2718,7 +2729,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Opens a diff tab between the working-tree file and its HEAD revision.
   // Reuses the `intellig-git:` URI scheme registered elsewhere in this file,
   // matching the pattern shipped by T2-01 for ref-based diffs.
-  const explorerCompareWithRepoVersionCommand = vscode.commands.registerCommand(
+  const explorerCompareWithRepoVersionCommand = registerLoggedCommand(
     'intellig.explorer.compareWithRepoVersion',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2758,7 +2769,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Delegates to PatchService.createPatchFromLocalChanges with a single-file
   // filter. Matches the behaviour of T1-12's `intellig.patch.createFromLocal`
   // but scoped to one file.
-  const explorerCreatePatchFromFileCommand = vscode.commands.registerCommand(
+  const explorerCreatePatchFromFileCommand = registerLoggedCommand(
     'intellig.explorer.createPatchFromFile',
     async (fileUri?: vscode.Uri) => {
       if (!extensionServices) {
@@ -2842,7 +2853,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // Editor Context Menu Commands
 
   // Toggle Blame Annotations command for editor context menu
-  const editorToggleBlameCommand = vscode.commands.registerCommand(
+  const editorToggleBlameCommand = registerLoggedCommand(
     'intellig.editor.toggleBlame',
     () => {
       if (!extensionServices) {
@@ -2867,7 +2878,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show Line History command for editor context menu
-  const editorShowLineHistoryCommand = vscode.commands.registerCommand(
+  const editorShowLineHistoryCommand = registerLoggedCommand(
     'intellig.editor.showLineHistory',
     async () => {
       if (!extensionServices) {
@@ -2934,7 +2945,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Copy Commit Hash command for editor context menu
-  const editorCopyCommitHashCommand = vscode.commands.registerCommand(
+  const editorCopyCommitHashCommand = registerLoggedCommand(
     'intellig.editor.copyCommitHash',
     async () => {
       if (!extensionServices) {
@@ -2984,7 +2995,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show Commit command for editor context menu
-  const editorShowCommitCommand = vscode.commands.registerCommand(
+  const editorShowCommitCommand = registerLoggedCommand(
     'intellig.editor.showCommit',
     async () => {
       if (!extensionServices) {
@@ -3152,7 +3163,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   }
 
   // Show Commit — delegates to the existing intellig.editor.showCommit.
-  const blameShowCommitCommand = vscode.commands.registerCommand(
+  const blameShowCommitCommand = registerLoggedCommand(
     'intellig.blame.showCommit',
     async () => {
       await vscode.commands.executeCommand('intellig.editor.showCommit');
@@ -3160,7 +3171,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Copy Revision Number — delegates to the existing copy-hash command.
-  const blameCopyRevisionCommand = vscode.commands.registerCommand(
+  const blameCopyRevisionCommand = registerLoggedCommand(
     'intellig.blame.copyRevision',
     async () => {
       await vscode.commands.executeCommand('intellig.editor.copyCommitHash');
@@ -3169,7 +3180,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Annotate Previous Revision — re-blame the file at <sha>^ (parent of the
   // blamed commit). Uses the parent SHA recorded by git blame when available.
-  const blameAnnotatePreviousCommand = vscode.commands.registerCommand(
+  const blameAnnotatePreviousCommand = registerLoggedCommand(
     'intellig.blame.annotatePrevious',
     async () => {
       const ctx = await _resolveBlameContext();
@@ -3214,7 +3225,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Hide Revision — adds the blamed commit to the hidden-revision set so the
   // gutter / inline providers skip it on subsequent renders.
-  const blameHideRevisionCommand = vscode.commands.registerCommand(
+  const blameHideRevisionCommand = registerLoggedCommand(
     'intellig.blame.hideRevision',
     async () => {
       const ctx = await _resolveBlameContext();
@@ -3229,7 +3240,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Options submenu — toggle Ignore Whitespace.
-  const blameToggleIgnoreWhitespaceCommand = vscode.commands.registerCommand(
+  const blameToggleIgnoreWhitespaceCommand = registerLoggedCommand(
     'intellig.blame.toggleIgnoreWhitespace',
     async () => {
       if (!extensionServices) {
@@ -3243,7 +3254,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Options submenu — toggle Detect Movements Within File.
-  const blameToggleDetectWithinCommand = vscode.commands.registerCommand(
+  const blameToggleDetectWithinCommand = registerLoggedCommand(
     'intellig.blame.toggleDetectMovementsWithinFile',
     async () => {
       if (!extensionServices) {
@@ -3259,7 +3270,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Options submenu — toggle Detect Movements Across Files.
-  const blameToggleDetectAcrossCommand = vscode.commands.registerCommand(
+  const blameToggleDetectAcrossCommand = registerLoggedCommand(
     'intellig.blame.toggleDetectMovementsAcrossFiles',
     async () => {
       if (!extensionServices) {
@@ -3275,7 +3286,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Utility — clears the hidden-revision set (surfaced via command palette).
-  const blameClearHiddenRevisionsCommand = vscode.commands.registerCommand(
+  const blameClearHiddenRevisionsCommand = registerLoggedCommand(
     'intellig.blame.clearHiddenRevisions',
     async () => {
       if (!extensionServices) {
@@ -3287,12 +3298,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // T1-09: New Tag — command-palette entry, defaults to HEAD.
-  const newTagCommand = vscode.commands.registerCommand('intellig.tag.new', async () => {
+  const newTagCommand = registerLoggedCommand('intellig.tag.new', async () => {
     await _runNewTagFlow(undefined);
   });
 
   // T1-09: New Tag — invoked from the log commit context menu with a commit arg.
-  const commitNewTagCommand = vscode.commands.registerCommand(
+  const commitNewTagCommand = registerLoggedCommand(
     'intellig.commit.newTag',
     async (commitArg?: unknown) => {
       const ref = _extractCommitHash(commitArg);
@@ -3323,32 +3334,32 @@ function registerCommands(context: vscode.ExtensionContext): void {
     await commitContextMenuCommands._handleAction(action, [hash]);
   }
 
-  const commitCopyHashCommand = vscode.commands.registerCommand(
+  const commitCopyHashCommand = registerLoggedCommand(
     'intellig.commit.copyHash',
     (commitArg?: unknown) => _delegateLogAction('copyHash', commitArg)
   );
 
-  const commitCheckoutRevisionCommand = vscode.commands.registerCommand(
+  const commitCheckoutRevisionCommand = registerLoggedCommand(
     'intellig.commit.checkoutRevision',
     (commitArg?: unknown) => _delegateLogAction('checkoutRevision', commitArg)
   );
 
-  const commitRevertCommand = vscode.commands.registerCommand(
+  const commitRevertCommand = registerLoggedCommand(
     'intellig.commit.revert',
     (commitArg?: unknown) => _delegateLogAction('revert', commitArg)
   );
 
-  const commitCherryPickCommand = vscode.commands.registerCommand(
+  const commitCherryPickCommand = registerLoggedCommand(
     'intellig.commit.cherryPick',
     (commitArg?: unknown) => _delegateLogAction('cherryPick', commitArg)
   );
 
-  const commitCreatePatchCommand = vscode.commands.registerCommand(
+  const commitCreatePatchCommand = registerLoggedCommand(
     'intellig.commit.createPatch',
     (commitArg?: unknown) => _delegateLogAction('createPatch', commitArg)
   );
 
-  const commitResetToHereCommand = vscode.commands.registerCommand(
+  const commitResetToHereCommand = registerLoggedCommand(
     'intellig.commit.resetToHere',
     (commitArg?: unknown) => _delegateLogAction('resetToHere', commitArg)
   );
@@ -3357,7 +3368,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // user-selected files. Refuses on pushed or non-HEAD commits. Single
   // destructive-op confirm modal. Invoked via the palette or the log-commit
   // context menu entry declared in package.json.
-  const commitDropSelectedChangesCommand = vscode.commands.registerCommand(
+  const commitDropSelectedChangesCommand = registerLoggedCommand(
     'intellig.commit.dropSelectedChanges',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3381,7 +3392,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // T3-03: route through the New Branch Dialog webview so the user gets
   // the tracking / overwrite / checkout fields rather than a bare input
   // box.
-  const commitNewBranchCommand = vscode.commands.registerCommand(
+  const commitNewBranchCommand = registerLoggedCommand(
     'intellig.commit.newBranch',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3394,7 +3405,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show diff of this commit vs its first parent.
-  const commitShowDiffCommand = vscode.commands.registerCommand(
+  const commitShowDiffCommand = registerLoggedCommand(
     'intellig.commit.showDiff',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3418,7 +3429,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare this commit with HEAD (whole-commit diff).
-  const commitCompareWithHeadCommand = vscode.commands.registerCommand(
+  const commitCompareWithHeadCommand = registerLoggedCommand(
     'intellig.commit.compareWithHead',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3434,7 +3445,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Compare this commit with a user-chosen ref (branch/tag/recent commit).
-  const commitCompareWithCommand = vscode.commands.registerCommand(
+  const commitCompareWithCommand = registerLoggedCommand(
     'intellig.commit.compareWith',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3455,7 +3466,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Show a file from this commit in a read-only editor.
-  const commitShowFileInRevisionCommand = vscode.commands.registerCommand(
+  const commitShowFileInRevisionCommand = registerLoggedCommand(
     'intellig.commit.showFileInRevision',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3496,7 +3507,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // File history starting at this commit — delegates to `intellig.showHistory`
   // with the commit hash as the starting ref arg.
-  const commitFileHistoryFromHereCommand = vscode.commands.registerCommand(
+  const commitFileHistoryFromHereCommand = registerLoggedCommand(
     'intellig.commit.fileHistoryFromHere',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3509,7 +3520,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Interactively rebase starting at this commit — delegates to the existing
   // interactive-rebase command, pre-selecting the commit as the onto target.
-  const rebaseInteractiveFromHereCommand = vscode.commands.registerCommand(
+  const rebaseInteractiveFromHereCommand = registerLoggedCommand(
     'intellig.rebase.interactiveFromHere',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3522,7 +3533,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // T3-09 — Open this commit on the configured hosting provider (GitHub /
   // GitLab / Bitbucket, auto-detected from the repo's origin remote URL).
-  const commitOpenOnHostCommand = vscode.commands.registerCommand(
+  const commitOpenOnHostCommand = registerLoggedCommand(
     'intellig.commit.openOnHost',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3540,7 +3551,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   // Cherry-Pick Without Commit: applies the commit to the index + worktree
   // with `--no-commit` so the user can inspect / amend before committing.
-  const commitCherryPickWithoutCommitCommand = vscode.commands.registerCommand(
+  const commitCherryPickWithoutCommitCommand = registerLoggedCommand(
     'intellig.commit.cherryPickWithoutCommit',
     async (commitArg?: unknown) => {
       await _runCherryPickVariant(commitArg, { noCommit: true });
@@ -3551,7 +3562,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // selected subset to the index + worktree (cherry-pick-n + revert of
   // non-selected files). Unicode ellipsis on the palette label because
   // the dialog prompts.
-  const commitApplySelectedChangesCommand = vscode.commands.registerCommand(
+  const commitApplySelectedChangesCommand = registerLoggedCommand(
     'intellig.commit.applySelectedChanges',
     async (commitArg?: unknown) => {
       const hash = _extractCommitHash(commitArg);
@@ -3576,7 +3587,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // branch, stash if dirty, switch, cherry-pick-n with file subset onto the
   // target branch, then switch back. User can then commit on the target
   // branch or discard via reset.
-  const commitApplyFilesToBranchCommand = vscode.commands.registerCommand(
+  const commitApplyFilesToBranchCommand = registerLoggedCommand(
     'intellig.commit.applyFilesToBranch',
     async (commitArg?: unknown) => {
       await _runApplyFilesToBranchFlow(commitArg);
@@ -3937,7 +3948,12 @@ function registerViews(context: vscode.ExtensionContext): void {
           void loadCherryMarksForRepo(repo);
         }
       } catch (error) {
-        console.error('Failed to load git log:', error);
+        getLogger()
+          .child({ component: 'extension' })
+          .error(
+            'failed to load git log',
+            error instanceof Error ? error : undefined
+          );
       }
     };
 
@@ -4453,13 +4469,12 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
 function setupEventListeners(context: vscode.ExtensionContext): void {
   // Listen for workspace folder changes and update the repository list
   const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
-    console.log(
-      'Workspace folders changed:',
-      event.added.length,
-      'added,',
-      event.removed.length,
-      'removed'
-    );
+    getLogger()
+      .child({ component: 'extension' })
+      .info('workspace folders changed', {
+        added: event.added.length,
+        removed: event.removed.length,
+      });
 
     // Update the repository list when workspace folders change
     if (extensionServices && gitToolWindowProvider) {
@@ -4479,7 +4494,7 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
   const configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
     if (event.affectsConfiguration('intellig')) {
       // TODO: Handle configuration changes in task 1.3
-      console.log('IntelliG configuration changed');
+      getLogger().child({ component: 'extension' }).debug('intellig configuration changed');
     }
   });
 

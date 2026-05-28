@@ -6,6 +6,7 @@ import {
   BlameAnnotationStyle,
 } from '../../services/interfaces/IConfigurationService';
 import { getDefaultConfiguration } from '../../services/ConfigurationService';
+import type { LogThreshold } from '../../utils/logger';
 
 /**
  * Property-based tests for Configuration Persistence.
@@ -87,6 +88,10 @@ describe('Configuration Persistence Property Tests', () => {
     deletedFileColor: hexColorArb,
     ignoredFileColor: hexColorArb,
     conflictFileColor: hexColorArb,
+
+    // Logging settings
+    logLevel: fc.constantFrom<LogThreshold>('trace', 'debug', 'info', 'warn', 'error', 'off'),
+    logConsole: fc.boolean(),
   });
 
   /**
@@ -172,6 +177,8 @@ describe('Configuration Persistence Property Tests', () => {
         deletedFileColor: this.storage.get('deletedFileColor', this.defaults.deletedFileColor),
         ignoredFileColor: this.storage.get('ignoredFileColor', this.defaults.ignoredFileColor),
         conflictFileColor: this.storage.get('conflictFileColor', this.defaults.conflictFileColor),
+        logLevel: this.storage.get('logLevel', this.defaults.logLevel),
+        logConsole: this.storage.get('logConsole', this.defaults.logConsole),
       };
     }
 
