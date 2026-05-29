@@ -591,6 +591,36 @@ function probeFromKey(candidateAbsPosix, fromSetPosix) {
 }
 
 /**
+ * Probe a candidate absolute POSIX path against a Set of valid
+ * post-migration absolute POSIX paths, trying Node-style extension
+ * permutations. Mirror of `probeFromKey` but checking against the
+ * `to`-side (post-migration) path set used by the post-rewrite
+ * self-check (task 13.2.2 / Requirement 12.5).
+ *
+ * Returns `true` when any extension permutation of
+ * `candidateAbsPosix` is present in `validTargetSet`; `false`
+ * otherwise.
+ *
+ * @param {string} candidateAbsPosix — POSIX-form absolute path of
+ *   the resolved specifier WITHOUT extension probing applied
+ * @param {Set<string>} validTargetSet — Set of POSIX-form absolute
+ *   paths that will exist post-migration (every plan entry's `to`,
+ *   including identity entries where `to === from`)
+ * @returns {boolean}
+ */
+function probeValidTarget(candidateAbsPosix, validTargetSet) {
+  // 1) literal match (specifier already has an extension, e.g. './foo.ts')
+  if (validTargetSet.has(candidateAbsPosix)) return true;
+  // 2) extensionless → try .ts / .tsx
+  if (validTargetSet.has(candidateAbsPosix + '.ts')) return true;
+  if (validTargetSet.has(candidateAbsPosix + '.tsx')) return true;
+  // 3) directory → try /index.ts / /index.tsx
+  if (validTargetSet.has(candidateAbsPosix + '/index.ts')) return true;
+  if (validTargetSet.has(candidateAbsPosix + '/index.tsx')) return true;
+  return false;
+}
+
+/**
  * Compute the rewritten specifier for a matched move, preserving
  * the relative-vs-absolute style of the original specifier and any
  * explicit `.js` / `.ts` / `.tsx` extension.
@@ -705,18 +735,62 @@ function computeNewSpecifier(originalSpecifier, sourceFileDirAbsPosix, toAbsPosi
  */
 function rewriteImports(plan, dryRun, repoRoot) {
   // Build forward map (from→to) and reverse map (to→from) for every
-  // non-identity move. Identity entries are intentionally omitted —
-  // they're a no-op on both axes (same key, same value).
+  // plan entry — INCLUDING identity entries (from === to).
+  //
+  // Why identity entries MUST be in `forwardMap` (Requirement 12.5):
+  // when a source file moves but its import target is an identity
+  // entry (e.g. `src/services/gitToolWindow/GitToolWindowProvider.ts`
+  // moves to `src/git-core/gitToolWindow/` while importing
+  // `'../interfaces'`, which resolves to the unchanged
+  // `src/services/interfaces/index.ts`), the relative specifier
+  // from the source still needs rewriting because the source's
+  // directory changed. `probeFromKey` must match the identity
+  // target so `computeNewSpecifier` can recompute the relative
+  // geometry from the source's *new* directory to the unchanged
+  // target. `computeNewSpecifier` already handles `from === to`
+  // correctly — it relativises against `sourceFileDirAbsPosix`
+  // (which the caller passes as `toDirPosix`, i.e. the source's
+  // post-migration dir), so the math is right; the only thing
+  // missing was getting the probe to match in the first place.
+  //
+  // `reverseMap` is used to detect "file is at its TO path on disk
+  // (real-run after applyMoves)". Identity entries' to-path equals
+  // their from-path, so including them is harmless: the lookup
+  // resolves to the same path either way and the downstream
+  // `fromDirPosix === toDirPosix` makes the rewrite path a no-op
+  // for identity *sources* (only identity *targets* of moving
+  // sources need the new behaviour). Including them keeps the two
+  // maps symmetric.
   /** @type {Map<string, string>} */
   const forwardMap = new Map();
   /** @type {Map<string, string>} */
   const reverseMap = new Map();
   for (const m of plan.moves) {
-    if (m.from === m.to) continue;
     const fromAbsPosix = toPosix(resolve(repoRoot, m.from));
     const toAbsPosix = toPosix(resolve(repoRoot, m.to));
     forwardMap.set(fromAbsPosix, toAbsPosix);
     reverseMap.set(toAbsPosix, fromAbsPosix);
+  }
+
+  // Post-rewrite self-check support (task 13.2.2 / Requirement 12.5).
+  //
+  // Build the set of POSIX-form absolute paths that will exist
+  // post-migration: every plan entry's `to` (which equals `from`
+  // for identity entries). This is the authoritative
+  // "post-migration valid path set" the integration self-check
+  // resolves rewritten / unchanged specifiers against.
+  //
+  // The check is a defensive guardrail: it should never trigger
+  // when the rewriter is correct (which it now is, post-13.2.1).
+  // Its purpose is to surface breakage from a future plan change
+  // or rewriter modification at the migration script's own
+  // boundary — earlier than `tsc --noEmit` would, and with a
+  // per-specifier `file:line:specifier` offender message rather
+  // than a TS diagnostic.
+  /** @type {Set<string>} */
+  const validTargetSet = new Set();
+  for (const m of plan.moves) {
+    validTargetSet.add(toPosix(resolve(repoRoot, m.to)));
   }
 
   // ts-morph project: prefer the existing tsconfig so module
@@ -748,6 +822,33 @@ function rewriteImports(plan, dryRun, repoRoot) {
 
   let rewriteCount = 0;
   let touchedFileCount = 0;
+
+  // Post-rewrite integration self-check (task 13.2.2 / Requirement
+  // 12.5). For every matched specifier, after `computeNewSpecifier`
+  // runs, we verify that the rewritten (or unchanged-because-already-
+  // correct) specifier resolves under the source file's POST-migration
+  // directory to a path that will exist post-migration. This is a
+  // round-trip correctness property of the rewriter — it catches a
+  // bug class the property tests might miss (e.g. a future plan
+  // change or rewriter modification that desynchronises
+  // computeNewSpecifier's emitted relative geometry from the
+  // forwardMap target).
+  //
+  // We only check matched specifiers. probeFromKey-skipped
+  // specifiers either (a) start with bare/external prefixes
+  // (already gated out at the top of tryRewrite), or (b) resolve
+  // outside the plan's `from`-key set — meaning they did NOT
+  // resolve to any in-plan file pre-migration. Per Requirement
+  // 12.4 + the unmapped-path guard below, every regular file under
+  // `src/` IS in the plan, so a probeFromKey miss for a relative
+  // / project-rooted specifier means the specifier targets
+  // something outside `src/` (test fixtures, scripts/, repo-root
+  // files, or a typo). Flagging those would generate false
+  // positives without surfacing real rewriter bugs (the spec asks
+  // for low FP rate). Hence: matched-case-only check.
+  /** @type {Array<{ file: string, line: number, specifier: string, resolved: string }>} */
+  const selfCheckFailures = [];
+  let selfCheckCount = 0;
 
   for (const sourceFile of project.getSourceFiles()) {
     const filePathPosix = toPosix(sourceFile.getFilePath());
@@ -814,6 +915,33 @@ function rewriteImports(plan, dryRun, repoRoot) {
         toDirPosix,
         targetToAbsPosix
       );
+
+      // Post-rewrite self-check (task 13.2.2 / Requirement 12.5):
+      // resolve the EFFECTIVE specifier (whether changed or not)
+      // against the source file's POST-migration directory and
+      // verify it lands on a path in the validTargetSet via
+      // Node-style extension probing. This is the round-trip
+      // correctness property the rewriter must satisfy: every
+      // matched specifier, once rewritten, must point to a real
+      // post-migration file.
+      //
+      // We use `newSpecifier` (which equals `specifier` when no
+      // textual rewrite is needed — e.g. an identity-target import
+      // from a non-moving file) so the check covers both rewritten
+      // and intentionally-preserved specifiers.
+      selfCheckCount++;
+      const checkBaseDir = isRelative ? toDirPosix : toPosix(repoRoot);
+      const resolvedNewAbs = toPosix(resolve(checkBaseDir, newSpecifier));
+      const resolvedNewNoExt = resolvedNewAbs.replace(/\.(js|ts|tsx)$/, '');
+      if (!probeValidTarget(resolvedNewNoExt, validTargetSet)) {
+        selfCheckFailures.push({
+          file: fileRel,
+          line,
+          specifier: newSpecifier,
+          resolved: resolvedNewAbs,
+        });
+      }
+
       if (newSpecifier === specifier) return false;
 
       if (dryRun) {
@@ -899,6 +1027,46 @@ function rewriteImports(plan, dryRun, repoRoot) {
 
     if (fileChanged) touchedFileCount++;
   }
+
+  // Post-rewrite integration self-check (task 13.2.2 / Requirement
+  // 12.5). Report any specifier that — after the rewriter computed
+  // its effective output — does not resolve to a path in the
+  // post-migration valid-target set. The check ran inline above
+  // for every matched specifier; we only report here.
+  //
+  // On any failure we exit 1 with one offender per line so the
+  // operator sees the full picture in a single pass. The error
+  // identifies the offending file:line:specifier and the absolute
+  // path that did not resolve, so the diagnosis path is direct.
+  // This surfaces the breakage earlier and more specifically than
+  // `tsc --noEmit` would (tsc reports module-resolution failures
+  // by import location but without naming the rewriter as the
+  // cause — this self-check makes the proximate cause explicit).
+  //
+  // Runs in BOTH dry-run and real-run. In dry-run no writes have
+  // happened, but the check verifies the rewriter's logical
+  // output, which is independent of disk state. Surfacing the
+  // failure during dry-run lets the operator catch a planning bug
+  // without ever touching the working tree.
+  if (selfCheckFailures.length > 0) {
+    console.error(
+      '[migrate] FAIL: post-rewrite self-check: one or more ' +
+        'rewritten specifiers do not resolve to a path that will ' +
+        'exist post-migration (Requirement 12.5):'
+    );
+    for (const f of selfCheckFailures) {
+      console.error(
+        `  - ${f.file}:${f.line} specifier '${f.specifier}' ` +
+          `resolves to ${f.resolved} which does not exist post-migration`
+      );
+    }
+    process.exit(1);
+  }
+
+  console.log(
+    `[migrate] post-rewrite self-check: OK ` +
+      `(${selfCheckCount} specifier(s) verified).`
+  );
 
   if (dryRun) {
     console.log(

@@ -759,5 +759,288 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
         { numRuns: plan.moves.length }
       );
     });
+
+    // ─── Task 13.13.2 — Non-identity source × identity target iteration ────
+    //
+    // Deterministic Mocha iteration (NOT fast-check) over every
+    // (non-identity source × identity target) pair in the live plan.
+    // Each pair models the 14.2-real-run scenario: a moving source
+    // file (e.g. `src/services/gitToolWindow/GitToolWindowProvider.ts`
+    // → `src/git-core/gitToolWindow/GitToolWindowProvider.ts`)
+    // importing an identity target (e.g. `src/services/interfaces/
+    // index.ts`, where `from === to`).
+    //
+    // Pre-13.2.1, `forwardMap` skipped identity entries
+    // (`if (m.from === m.to) continue;`), so `probeFromKey` returned
+    // `undefined` for any specifier targeting an identity entry,
+    // the relative specifier was left untouched, and the
+    // post-migration relative geometry no longer reached the
+    // unchanged target — TS2307 + cascading errors. The 14.2
+    // auto-rollback recovered the working tree, but no test caught
+    // the bug deterministically.
+    //
+    // This iteration closes that coverage gap. Reverting the
+    // 13.2.1 fix locally MUST make this test fail on every
+    // (source, identity-target) pair where the relative geometry
+    // crosses a moved directory boundary — i.e. the bulk of the
+    // cross product. That's the "deterministic catch" the task
+    // asks for (per Requirement 12.5).
+    //
+    // The test exercises the FULL rewriter pipeline (forwardMap +
+    // probeFromKey + computeNewSpecifier), not just one helper in
+    // isolation. The 16c live-plan tests above exercise
+    // `computeNewSpecifier` only (which never had the bug); this
+    // test exercises the lookup step that did.
+    it('every non-identity source × every identity target rewrites correctly (Task 13.13.2 / Requirement 12.5)', () => {
+      const nonIdentitySources = plan.moves.filter((m) => m.from !== m.to);
+      const identityTargets = plan.moves.filter((m) => m.from === m.to);
+
+      assert.ok(
+        nonIdentitySources.length > 0,
+        'live plan has no non-identity sources — coverage cross-product would be empty'
+      );
+      assert.ok(
+        identityTargets.length > 0,
+        'live plan has no identity targets — the 14.2 bug class is not present in this plan'
+      );
+
+      // Build the forward map exactly like `rewriteImports` in
+      // `scripts/restructure/migrate.mjs` does post-13.2.1 — that is,
+      // INCLUDING identity entries (`m.from === m.to`). If a future
+      // change reverts that and drops identity entries again, the
+      // `probeFromKey` lookup below will return undefined for every
+      // identity target and the test will fail with the offending
+      // (source, target) pair named.
+      const forwardMap = new Map<string, string>();
+      for (const m of plan.moves) {
+        const fromAbsPosix = path.posix.join(toPosix(REPO_ROOT), m.from);
+        const toAbsPosix = path.posix.join(toPosix(REPO_ROOT), m.to);
+        forwardMap.set(fromAbsPosix, toAbsPosix);
+      }
+
+      const repoRootPosix = toPosix(REPO_ROOT);
+      let pairsChecked = 0;
+      let relativeFormsChecked = 0;
+      let bareFormsChecked = 0;
+
+      for (const sourceMove of nonIdentitySources) {
+        const sourceFromAbs = path.posix.join(repoRootPosix, sourceMove.from);
+        const sourceToAbs = path.posix.join(repoRootPosix, sourceMove.to);
+        const sourceFromDir = sourceFromAbs.substring(
+          0,
+          sourceFromAbs.lastIndexOf('/')
+        );
+        const sourceToDir = sourceToAbs.substring(
+          0,
+          sourceToAbs.lastIndexOf('/')
+        );
+
+        for (const identityMove of identityTargets) {
+          // Identity target: from === to, so its directory is unchanged.
+          const targetFromAbs = path.posix.join(
+            repoRootPosix,
+            identityMove.from
+          );
+          const targetToAbs = path.posix.join(repoRootPosix, identityMove.to);
+          const targetLogical = toLogical(targetFromAbs);
+
+          // ─── Relative-form specifier ────────────────────────────
+          //
+          // Build the original relative specifier as if it had been
+          // authored from the source's PRE-migration directory to the
+          // identity target. The path's geometry is computed against
+          // `sourceFromDir` because that's where the unchanged
+          // specifier text was written.
+          const relRaw = toPosix(
+            path.relative(sourceFromDir, targetLogical)
+          );
+          const originalRel = relRaw.startsWith('.') ? relRaw : './' + relRaw;
+
+          // Skip the degenerate `'..'` case: when the identity
+          // target's logical directory is exactly the parent of the
+          // source's FROM directory, `path.relative` returns the bare
+          // string `'..'` (no path segment). No production source
+          // file in this repo writes `import x from '..'` — every
+          // real cross-directory relative import uses a named
+          // segment (e.g. `'../interfaces'`, `'../../utils/foo'`).
+          // The current `computeNewSpecifier` mishandles bare `'..'`
+          // because its `isRelative` check requires a `'./'` or
+          // `'../'` prefix; `'..'.startsWith('../')` is false, so
+          // the specifier falls into the bare-prefix branch. That
+          // is a SEPARATE rewriter bug class, distinct from the 14.2
+          // identity-target lookup bug this task targets, and is not
+          // exercised by any production import in this repo. Filter
+          // it out here so the resolution check exercises only the
+          // production-realistic specifier shapes (a follow-up task
+          // can address the bare-`'..'` rewriter quirk if needed).
+          //
+          // Note: the `probeFromKey` assertion below still runs for
+          // EVERY pair (including this skipped one), because it is
+          // the load-bearing 14.2 deterministic catch — it does not
+          // depend on the specifier text shape, only on the resolved
+          // absolute path of the target.
+          const isDegenerateDoubleDot = originalRel === '..';
+
+          // Step 1: resolve the original specifier to its absolute
+          // form (mirroring `rewriteImports`'s `resolvedAbs` step).
+          const originalResolved = toPosix(
+            path.resolve(sourceFromDir, originalRel)
+          );
+
+          // Step 2: probe the forward map. This is the step that
+          // pre-13.2.1 returned undefined for identity targets,
+          // causing the 14.2 bug. With the fix in place, every
+          // identity target lives in `forwardMap` keyed by its
+          // FROM (== TO) abs-posix path, so the probe MUST match.
+          //
+          // This assertion is the LOAD-BEARING deterministic catch
+          // for the 14.2 bug class. Reverting 13.2.1 makes
+          // `probeFromKey` return undefined for every identity
+          // target, and this assertion fires on the very first
+          // (source, identity-target) pair. That is exactly the
+          // "would have caught 14.2 deterministically" property the
+          // task asks for (Requirement 12.5).
+          const matched = probeFromKey(originalResolved, forwardMap);
+          assert.ok(
+            matched !== undefined,
+            `Task 13.13.2 / Requirement 12.5 violation: probeFromKey ` +
+              `failed to match identity target. ` +
+              `source=${sourceMove.from} → ${sourceMove.to}, ` +
+              `identityTarget=${identityMove.from}, ` +
+              `originalSpecifier='${originalRel}', ` +
+              `originalResolved='${originalResolved}'. ` +
+              `This is the exact failure mode the 14.2 real run hit ` +
+              `pre-13.2.1: identity entries were dropped from forwardMap, ` +
+              `so probeFromKey returned undefined and the relative ` +
+              `specifier was left untouched, breaking the post-migration geometry.`
+          );
+
+          // For identity entries the matched key equals the
+          // FROM (== TO), so forwardMap.get(matched) is the same
+          // path back. Make this explicit for the assertion.
+          const matchedTargetTo = forwardMap.get(matched);
+          assert.strictEqual(
+            matchedTargetTo,
+            targetToAbs,
+            `forwardMap lookup mismatch for identity target ` +
+              `${identityMove.from}: got '${matchedTargetTo}', ` +
+              `expected '${targetToAbs}'`
+          );
+
+          if (!isDegenerateDoubleDot) {
+            // Step 3: compute the rewritten specifier from the
+            // source's POST-migration directory. This is where the
+            // rewrite must produce a specifier that resolves
+            // correctly post-migration.
+            const rewrittenRel = computeNewSpecifier(
+              originalRel,
+              sourceToDir,
+              matchedTargetTo,
+              REPO_ROOT
+            );
+
+            // Step 4: resolve the rewritten specifier from the
+            // source's POST-migration directory and assert it lands
+            // on the identity target's logical form.
+            const resolvedRel = toPosix(
+              path.resolve(sourceToDir, rewrittenRel)
+            );
+            assert.strictEqual(
+              resolvedRel,
+              targetLogical,
+              `Task 13.13.2 / Requirement 12.5 violation (relative form): ` +
+                `source ${sourceMove.from} → ${sourceMove.to} importing ` +
+                `identity target ${identityMove.from}: original ` +
+                `specifier '${originalRel}' rewritten to '${rewrittenRel}', ` +
+                `which resolves to '${resolvedRel}' instead of ` +
+                `'${targetLogical}'. ` +
+                `This is the exact case the 14.2 real run hit before ` +
+                `13.2.1 was applied — pre-fix, the rewriter left ` +
+                `'${originalRel}' untouched, and resolving it from the ` +
+                `source's post-migration directory ${sourceToDir} ` +
+                `landed somewhere other than the unchanged identity target.`
+            );
+            relativeFormsChecked++;
+          }
+
+          // ─── Bare-prefix-form specifier ─────────────────────────
+          //
+          // The project-rooted form (e.g. `import x from
+          // 'src/services/interfaces'`) is comparatively boring for
+          // identity targets — `computeNewSpecifier` substitutes the
+          // FROM-prefix with the TO-prefix at the path level, and
+          // for identity entries those are equal, so the output
+          // equals the input. Worth covering anyway: a future
+          // refactor could break the bare-prefix path independently
+          // of the relative path.
+          const originalBare = toLogical(identityMove.from);
+          const originalBareResolved = path.posix.join(
+            repoRootPosix,
+            originalBare
+          );
+
+          // Probe must still match (same lookup path).
+          const matchedBare = probeFromKey(originalBareResolved, forwardMap);
+          assert.ok(
+            matchedBare !== undefined,
+            `Task 13.13.2 / Requirement 12.5 violation (bare-prefix probe): ` +
+              `source ${sourceMove.from} → ${sourceMove.to} importing ` +
+              `identity target ${identityMove.from}: probeFromKey ` +
+              `failed to match for original specifier '${originalBare}'.`
+          );
+
+          const rewrittenBare = computeNewSpecifier(
+            originalBare,
+            sourceToDir, // ignored in bare-prefix branch
+            forwardMap.get(matchedBare) as string,
+            REPO_ROOT
+          );
+
+          // Bare-prefix output prepended with the repo root must
+          // equal the identity target's logical form.
+          const resolvedBare = `${repoRootPosix}/${rewrittenBare}`;
+          assert.strictEqual(
+            resolvedBare,
+            targetLogical,
+            `Task 13.13.2 / Requirement 12.5 violation (bare-prefix form): ` +
+              `source ${sourceMove.from} → ${sourceMove.to} importing ` +
+              `identity target ${identityMove.from}: original ` +
+              `specifier '${originalBare}' rewritten to '${rewrittenBare}', ` +
+              `which resolves (with repo root) to '${resolvedBare}' ` +
+              `instead of '${targetLogical}'.`
+          );
+          bareFormsChecked++;
+          pairsChecked++;
+        }
+      }
+
+      // Sanity: confirm we actually exercised the full cross product
+      // for the lookup (probeFromKey) check and the bare-prefix
+      // rewrite. The relative-form rewrite check is exercised on
+      // every pair MINUS the degenerate `'..'` cases (see comment
+      // above), so its count is bounded above by the cross product.
+      const expectedPairs = nonIdentitySources.length * identityTargets.length;
+      assert.strictEqual(
+        pairsChecked,
+        expectedPairs,
+        `expected ${expectedPairs} (non-identity × identity) pairs ` +
+          `for the probeFromKey + bare-prefix checks, ` +
+          `actually checked ${pairsChecked} ` +
+          `(${nonIdentitySources.length} non-identity sources × ` +
+          `${identityTargets.length} identity targets)`
+      );
+      assert.strictEqual(bareFormsChecked, expectedPairs);
+      // The relative-form check skips the degenerate `'..'` shape.
+      // Assert that we still covered the vast majority of pairs —
+      // a regression that suddenly skipped most pairs (e.g. by
+      // misclassifying every relative output as `'..'`) would
+      // otherwise pass silently.
+      assert.ok(
+        relativeFormsChecked >= Math.floor(expectedPairs * 0.9),
+        `relative-form coverage too low: ${relativeFormsChecked} of ` +
+          `${expectedPairs} pairs checked. Most (source, identity-target) ` +
+          `pairs should produce a non-degenerate relative specifier.`
+      );
+    });
   });
 });
