@@ -5,7 +5,7 @@ import {
   IRebaseCommit,
   IRebaseSession,
   IRebaseAction,
-} from '../../services/interfaces/IRebaseService';
+} from '../../git-core/interfaces/IRebaseService';
 
 /**
  * Property-based tests for Interactive Rebase Action Support.

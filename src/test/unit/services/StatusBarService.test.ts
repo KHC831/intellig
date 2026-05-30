@@ -24,10 +24,10 @@ import {
   IGitService,
   IRepository,
   IHead,
-} from '../../../services/interfaces/IGitService';
-import { IStatusBarState } from '../../../services/interfaces/IStatusBarService';
+} from '../../../git-core/interfaces/IGitService';
+import { IStatusBarState } from '../../../ui-shell/interfaces/IStatusBarService';
 import * as vscode from 'vscode';
-import { StatusBarService, createStatusBarService } from '../../../services/StatusBarService';
+import { StatusBarService, createStatusBarService } from '../../../ui-shell/StatusBarService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 describe('StatusBarService - Status Bar State', () => {

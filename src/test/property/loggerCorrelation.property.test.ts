@@ -179,12 +179,11 @@ function patchRegisterCommand(): {
 } {
   const registered = new Map<string, (...args: unknown[]) => unknown>();
   const original = vscode.commands.registerCommand;
-  (vscode.commands as unknown as {
-    registerCommand: (
-      id: string,
-      cb: (...args: unknown[]) => unknown
-    ) => { dispose: () => void };
-  }).registerCommand = (id, cb) => {
+  (
+    vscode.commands as unknown as {
+      registerCommand: (id: string, cb: (...args: unknown[]) => unknown) => { dispose: () => void };
+    }
+  ).registerCommand = (id, cb) => {
     registered.set(id, cb);
     return {
       dispose: (): void => {
@@ -212,9 +211,7 @@ function patchRegisterCommand(): {
  */
 const commandIdArb: fc.Arbitrary<string> = fc
   .stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')
-    ),
+    fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')),
     { minLength: 3, maxLength: 12 }
   )
   .chain((ext) =>
@@ -235,9 +232,7 @@ const commandIdArb: fc.Arbitrary<string> = fc
  * confuse `parseRecord`'s lazy-match on the separator).
  */
 const componentArb: fc.Arbitrary<string> = fc.stringOf(
-  fc.constantFrom(
-    ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')
-  ),
+  fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')),
   { minLength: 1, maxLength: 16 }
 );
 
@@ -329,7 +324,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
               assert.strictEqual(
                 r.component,
                 component,
-                "child(...) component binding must propagate to every record emitted inside the frame"
+                'child(...) component binding must propagate to every record emitted inside the frame'
               );
             }
 
@@ -377,8 +372,14 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
           const cidA = records[0].correlationId;
           const cidB = records[1].correlationId;
 
-          assert.ok(cidA !== undefined && HEX16_RE.test(cidA), 'first invocation must produce a valid hex cid');
-          assert.ok(cidB !== undefined && HEX16_RE.test(cidB), 'second invocation must produce a valid hex cid');
+          assert.ok(
+            cidA !== undefined && HEX16_RE.test(cidA),
+            'first invocation must produce a valid hex cid'
+          );
+          assert.ok(
+            cidB !== undefined && HEX16_RE.test(cidB),
+            'second invocation must produce a valid hex cid'
+          );
           assert.notStrictEqual(
             cidA,
             cidB,
@@ -397,58 +398,62 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
 
   it('Property 10.3: a record emitted from outside any command frame has correlationId absent (not fabricated)', () => {
     fc.assert(
-      fc.property(componentArb, fc.array(messageArb, { minLength: 1, maxLength: 5 }), (component, messages) => {
-        freshActivation();
-        try {
-          // Establish no frame at all — every emission below runs on
-          // the bare stack. `getCurrentCorrelationId()` MUST return
-          // `undefined` here (Requirement 5.5 / 14.9: no
-          // fabrication).
-          assert.strictEqual(
-            getCurrentCorrelationId(),
-            undefined,
-            'precondition: no frame on the stack means getCurrentCorrelationId() returns undefined'
-          );
-
-          const childLogger = getLogger().child({ component });
-          for (const m of messages) {
-            childLogger.info(m);
-          }
-
-          const records = getCapturedRecords();
-          assert.strictEqual(
-            records.length,
-            messages.length,
-            `expected ${messages.length} record(s); got ${records.length}`
-          );
-
-          for (const r of records) {
-            // The Logger MUST omit the field rather than emit an
-            // empty string or a fresh id — Property 14.9 explicitly
-            // forbids fabrication. The `parseRecord` inverse mirrors
-            // this: when no `cid=` continuation line is present, the
-            // reconstructed record has no `correlationId` key at all,
-            // so `r.correlationId` is the literal `undefined`.
+      fc.property(
+        componentArb,
+        fc.array(messageArb, { minLength: 1, maxLength: 5 }),
+        (component, messages) => {
+          freshActivation();
+          try {
+            // Establish no frame at all — every emission below runs on
+            // the bare stack. `getCurrentCorrelationId()` MUST return
+            // `undefined` here (Requirement 5.5 / 14.9: no
+            // fabrication).
             assert.strictEqual(
-              r.correlationId,
+              getCurrentCorrelationId(),
               undefined,
-              `record emitted outside any command frame must have correlationId absent; got ${JSON.stringify(r.correlationId)}`
+              'precondition: no frame on the stack means getCurrentCorrelationId() returns undefined'
             );
-            assert.notStrictEqual(
-              r.correlationId,
-              '',
-              'the absent-cid case must be undefined, not the empty string (Requirement 14.9)'
+
+            const childLogger = getLogger().child({ component });
+            for (const m of messages) {
+              childLogger.info(m);
+            }
+
+            const records = getCapturedRecords();
+            assert.strictEqual(
+              records.length,
+              messages.length,
+              `expected ${messages.length} record(s); got ${records.length}`
             );
+
+            for (const r of records) {
+              // The Logger MUST omit the field rather than emit an
+              // empty string or a fresh id — Property 14.9 explicitly
+              // forbids fabrication. The `parseRecord` inverse mirrors
+              // this: when no `cid=` continuation line is present, the
+              // reconstructed record has no `correlationId` key at all,
+              // so `r.correlationId` is the literal `undefined`.
+              assert.strictEqual(
+                r.correlationId,
+                undefined,
+                `record emitted outside any command frame must have correlationId absent; got ${JSON.stringify(r.correlationId)}`
+              );
+              assert.notStrictEqual(
+                r.correlationId,
+                '',
+                'the absent-cid case must be undefined, not the empty string (Requirement 14.9)'
+              );
+            }
+          } finally {
+            resetAll();
           }
-        } finally {
-          resetAll();
         }
-      }),
+      ),
       { numRuns: 50 }
     );
   });
 
-  it('Property 10.5: a child Logger constructed inside one frame and called inside another emits the current frame\'s cid (read at emit time)', () => {
+  it("Property 10.5: a child Logger constructed inside one frame and called inside another emits the current frame's cid (read at emit time)", () => {
     fc.assert(
       fc.property(
         commandIdArb,
@@ -530,12 +535,12 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
             assert.notStrictEqual(
               cidEmitted,
               cidObservedDuringFrameA,
-              'child Logger from frame A called inside frame B must NOT emit frame A\'s cid (cid is read at emit time, not at child(...) time)'
+              "child Logger from frame A called inside frame B must NOT emit frame A's cid (cid is read at emit time, not at child(...) time)"
             );
             assert.strictEqual(
               records[0].component,
               component,
-              "child(...) component binding must still propagate even when called across frames"
+              'child(...) component binding must still propagate even when called across frames'
             );
 
             disposableA.dispose();

@@ -1,7 +1,7 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IHunk, IDiffLine, DiffLineType, FileStatus } from '../../services/interfaces/IGitService';
-import { IFileChange, IChangelist } from '../../services/interfaces/IChangelistService';
+import { IHunk, IDiffLine, DiffLineType, FileStatus } from '../../git-core/interfaces/IGitService';
+import { IFileChange, IChangelist } from '../../changelists/interfaces/IChangelistService';
 
 /**
  * Property-based tests for Partial Staging File Sections.

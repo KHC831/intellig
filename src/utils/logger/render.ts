@@ -90,13 +90,7 @@ const CONTINUATION_INDENT = '  ';
  * token outside the five-record-level enum.
  */
 function isLogLevel(s: string): s is LogLevel {
-  return (
-    s === 'trace' ||
-    s === 'debug' ||
-    s === 'info' ||
-    s === 'warn' ||
-    s === 'error'
-  );
+  return s === 'trace' || s === 'debug' || s === 'info' || s === 'warn' || s === 'error';
 }
 
 /**
@@ -145,9 +139,7 @@ export function formatRecord(record: LogRecord): string {
   const levelToken = record.level.toUpperCase().padEnd(LEVEL_WIDTH, ' ');
   const messageEscaped = escapeInline(record.message);
 
-  lines.push(
-    `[${record.timestamp}] ${levelToken} ${record.component}: ${messageEscaped}`,
-  );
+  lines.push(`[${record.timestamp}] ${levelToken} ${record.component}: ${messageEscaped}`);
 
   if (record.context !== undefined) {
     lines.push(`${CONTINUATION_INDENT}ctx=${JSON.stringify(record.context)}`);
@@ -158,9 +150,7 @@ export function formatRecord(record: LogRecord): string {
   }
 
   if (record.error !== undefined) {
-    lines.push(
-      `${CONTINUATION_INDENT}err=${escapeInline(record.error.message)}`,
-    );
+    lines.push(`${CONTINUATION_INDENT}err=${escapeInline(record.error.message)}`);
     if (record.error.stack !== undefined && record.error.stack !== '') {
       // Split on `\n`; preserve any existing internal whitespace on
       // each stack frame line by only prefixing two more spaces. A
@@ -229,17 +219,13 @@ export function parseRecord(s: string): LogRecord {
 
   const headerMatch = HEADER_REGEX.exec(lines[0]);
   if (!headerMatch) {
-    throw new Error(
-      `parseRecord: header line did not match grammar: ${JSON.stringify(lines[0])}`,
-    );
+    throw new Error(`parseRecord: header line did not match grammar: ${JSON.stringify(lines[0])}`);
   }
   const [, timestamp, levelRaw, component, messageEscaped] = headerMatch;
 
   const levelLower = levelRaw.trim().toLowerCase();
   if (!isLogLevel(levelLower)) {
-    throw new Error(
-      `parseRecord: invalid level token: ${JSON.stringify(levelRaw)}`,
-    );
+    throw new Error(`parseRecord: invalid level token: ${JSON.stringify(levelRaw)}`);
   }
   const level: LogLevel = levelLower;
   const message = unescapeInline(messageEscaped);
@@ -272,16 +258,12 @@ export function parseRecord(s: string): LogRecord {
       correlationId = line.slice(CONTINUATION_INDENT.length + 'cid='.length);
       inErrorBlock = false;
     } else if (line.startsWith(`${CONTINUATION_INDENT}err=`)) {
-      errorMessage = unescapeInline(
-        line.slice(CONTINUATION_INDENT.length + 'err='.length),
-      );
+      errorMessage = unescapeInline(line.slice(CONTINUATION_INDENT.length + 'err='.length));
       inErrorBlock = true;
     } else if (inErrorBlock && line.startsWith(CONTINUATION_INDENT)) {
       stackLines.push(line.slice(CONTINUATION_INDENT.length));
     } else {
-      throw new Error(
-        `parseRecord: unrecognized continuation line: ${JSON.stringify(line)}`,
-      );
+      throw new Error(`parseRecord: unrecognized continuation line: ${JSON.stringify(line)}`);
     }
   }
 

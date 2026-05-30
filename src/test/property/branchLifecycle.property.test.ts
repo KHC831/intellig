@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IBranch, IHead, BranchType } from '../../services/interfaces/IGitService';
+import { IBranch, IHead, BranchType } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Branch Lifecycle Consistency.

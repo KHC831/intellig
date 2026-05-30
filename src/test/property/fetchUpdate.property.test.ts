@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IRemote } from '../../services/interfaces/IGitService';
+import { IRemote } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Fetch Update.

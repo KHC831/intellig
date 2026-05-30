@@ -48,11 +48,7 @@ import {
   getOutputChannel,
   initOutputChannel,
 } from '../../utils/outputChannel';
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-} from '../../utils/logger/logger';
+import { __resetLoggerForTest, getLogger, initLogger } from '../../utils/logger/logger';
 import { LEVEL_RANK, type LogThreshold } from '../../utils/logger/levels';
 import type { LogLevel } from '../../utils/logger/sinks/types';
 
@@ -62,14 +58,7 @@ import type { LogLevel } from '../../utils/logger/sinks/types';
 const RECORD_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error'];
 
 /** All six configurable threshold values, matching `LogThreshold`. */
-const THRESHOLDS: readonly LogThreshold[] = [
-  'trace',
-  'debug',
-  'info',
-  'warn',
-  'error',
-  'off',
-];
+const THRESHOLDS: readonly LogThreshold[] = ['trace', 'debug', 'info', 'warn', 'error', 'off'];
 
 /**
  * Mapping that mirrors `LEVEL_TO_CONSOLE_METHOD` inside
@@ -79,9 +68,7 @@ const THRESHOLDS: readonly LogThreshold[] = [
  * `trace` to a different `console` method would correctly fail this
  * test).
  */
-const LEVEL_TO_CONSOLE_METHOD: Readonly<
-  Record<LogLevel, 'debug' | 'info' | 'warn' | 'error'>
-> = {
+const LEVEL_TO_CONSOLE_METHOD: Readonly<Record<LogLevel, 'debug' | 'info' | 'warn' | 'error'>> = {
   trace: 'debug',
   debug: 'debug',
   info: 'info',
@@ -199,18 +186,8 @@ describe('Logger sink multicast filtered by threshold (Property 4 / Requirement 
           // threshold + console-mirror state. (setMockConfigValue
           // does not fire onDidChangeConfiguration; we lean on
           // pre-init refresh instead.)
-          setMockConfigValue(
-            'intellig',
-            'log.level',
-            threshold,
-            ConfigurationTarget.Global
-          );
-          setMockConfigValue(
-            'intellig',
-            'log.console',
-            consoleEnabled,
-            ConfigurationTarget.Global
-          );
+          setMockConfigValue('intellig', 'log.level', threshold, ConfigurationTarget.Global);
+          setMockConfigValue('intellig', 'log.console', consoleEnabled, ConfigurationTarget.Global);
 
           const ctx = makeFakeContext();
           initOutputChannel(ctx);
@@ -240,11 +217,9 @@ describe('Logger sink multicast filtered by threshold (Property 4 / Requirement 
             getLogger()[recordLevel](message);
 
             // Compute expected admission per Requirement 1.7.
-            const recordAdmittedByThreshold =
-              LEVEL_RANK[recordLevel] >= LEVEL_RANK[threshold];
+            const recordAdmittedByThreshold = LEVEL_RANK[recordLevel] >= LEVEL_RANK[threshold];
             const expectedOutputChannelEmits = recordAdmittedByThreshold ? 1 : 0;
-            const expectedConsoleEmits =
-              recordAdmittedByThreshold && consoleEnabled ? 1 : 0;
+            const expectedConsoleEmits = recordAdmittedByThreshold && consoleEnabled ? 1 : 0;
 
             assert.strictEqual(
               writes.length,
@@ -286,9 +261,7 @@ describe('Logger sink multicast filtered by threshold (Property 4 / Requirement 
                 consoleSpy.counts[expectedMethod],
                 1,
                 `expected console.${expectedMethod} to be called exactly once ` +
-                  `for record level ${recordLevel}; counts=${JSON.stringify(
-                    consoleSpy.counts
-                  )}`
+                  `for record level ${recordLevel}; counts=${JSON.stringify(consoleSpy.counts)}`
               );
               for (const method of ['debug', 'info', 'warn', 'error'] as const) {
                 if (method === expectedMethod) {

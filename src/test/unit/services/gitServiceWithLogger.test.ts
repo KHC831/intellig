@@ -72,7 +72,7 @@ import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import { __resetLoggerForTest, initLogger } from '../../../utils/logger';
 import { parseRecord } from '../../../utils/logger/render';
 import {
@@ -80,10 +80,10 @@ import {
   getOutputChannel,
   initOutputChannel,
 } from '../../../utils/outputChannel';
-import { IRepoScanFs } from '../../../utils/repoScan';
+import { IRepoScanFs } from '../../../git-core/repoScan';
 import { resetMockConfiguration, setMockConfigValue, Uri, workspace } from '../../mocks/vscode';
 
-import type { IRepository } from '../../../services/interfaces/IGitService';
+import type { IRepository } from '../../../git-core/interfaces/IGitService';
 import type { LogRecord } from '../../../utils/logger';
 
 // ─── Test fixtures ─────────────────────────────────────────────────────────

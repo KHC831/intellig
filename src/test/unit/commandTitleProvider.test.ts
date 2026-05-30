@@ -12,7 +12,7 @@
 
 import '../setup';
 import * as assert from 'assert';
-import { resolveLabel, CommandTitleProvider } from '../../commands/CommandTitleProvider';
+import { resolveLabel, CommandTitleProvider } from '../../commits/CommandTitleProvider';
 import { EventEmitter } from '../mocks/vscode';
 import { noopEvent } from '../mocks/noopEvent';
 import {
@@ -20,8 +20,8 @@ import {
   IRepository,
   IBranch,
   IFetchResult,
-} from '../../services/interfaces/IGitService';
-import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
+} from '../../git-core/interfaces/IGitService';
+import { BranchTreeItem, BranchTreeProvider } from '../../branches/BranchTreeProvider';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

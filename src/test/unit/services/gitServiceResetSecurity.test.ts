@@ -9,8 +9,8 @@
  */
 
 import * as assert from 'assert';
-import { GitService } from '../../../services/GitService';
-import { IRepository, ResetMode } from '../../../services/interfaces/IGitService';
+import { GitService } from '../../../git-core/GitService';
+import { IRepository, ResetMode } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 class CountingGitCli {

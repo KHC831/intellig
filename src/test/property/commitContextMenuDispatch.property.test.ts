@@ -16,11 +16,11 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { CommitContextMenuCommands } from '../../commands/CommitContextMenuCommands';
-import { IGitService, IRepository } from '../../services/interfaces/IGitService';
-import { IRebaseService } from '../../services/interfaces/IRebaseService';
-import { GitToolWindowProvider, LogContextAction } from '../../services/GitToolWindowProvider';
-import type { GitCli } from '../../utils/gitCli';
+import { CommitContextMenuCommands } from '../../commits/CommitContextMenuCommands';
+import { IGitService, IRepository } from '../../git-core/interfaces/IGitService';
+import { IRebaseService } from '../../git-core/interfaces/IRebaseService';
+import { GitToolWindowProvider, LogContextAction } from '../../ui-shell/GitToolWindowProvider';
+import type { GitCli } from '../../git-core/gitCli';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow, writableWorkspace, writableCommands } from '../typed/windowStub';
 

@@ -36,18 +36,18 @@ import {
   PatchWriteFailed,
   validateBaseDir,
   validateStripLevel,
-} from '../../../services/PatchService';
-import { ApplyPatchDialog } from '../../../services/ApplyPatchDialog';
+} from '../../../patches/PatchService';
+import { ApplyPatchDialog } from '../../../patches/ApplyPatchDialog';
 import type {
   IGitService,
   IFileStatus,
   IRepository,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import type {
   IConflictResolutionService,
   IConflictOpContext,
   IConflictedFile,
-} from '../../../services/interfaces/IConflictResolutionService';
+} from '../../../conflicts/interfaces/IConflictResolutionService';
 
 interface RecordedExec {
   args: string[];

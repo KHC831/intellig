@@ -70,7 +70,7 @@ import {
 } from '../../utils/outputChannel';
 import { parseRecord } from '../../utils/logger/render';
 import { sanitizeRecord } from '../../utils/logger/sanitize';
-import { sanitizeGitError } from '../../utils/gitError';
+import { sanitizeGitError } from '../../git-core/gitError';
 import type { LogRecord } from '../../utils/logger';
 import { resetMockConfiguration, setMockConfigValue } from '../mocks/vscode';
 
@@ -147,9 +147,7 @@ function setupLoggerWithTraceThreshold(): vscode.ExtensionContext {
  * the `context` field entirely from the emitted record (see
  * `Logger._buildRecord`'s `hasContext` check).
  */
-function expectedContext(
-  inputContext: Record<string, unknown> | undefined,
-): unknown {
+function expectedContext(inputContext: Record<string, unknown> | undefined): unknown {
   if (inputContext === undefined) {
     return undefined;
   }
@@ -192,10 +190,8 @@ const messageArb: fc.Arbitrary<string> = fc.string({ minLength: 0, maxLength: 64
  * being tested — the renderer's grammar is asserted by task 4.7.
  */
 const componentArb: fc.Arbitrary<string> = fc.stringOf(
-  fc.constantFrom(
-    ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.'.split(''),
-  ),
-  { minLength: 1, maxLength: 24 },
+  fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.'.split('')),
+  { minLength: 1, maxLength: 24 }
 );
 
 /**
@@ -221,14 +217,14 @@ const jsonValueArb: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
     fc.integer({ min: -1000, max: 1000 }),
     fc.boolean(),
     fc.constant(null),
-    fc.array(tie('value') as fc.Arbitrary<unknown>, { maxLength: 4 }),
+    fc.array(tie('value'), { maxLength: 4 }),
     fc.dictionary(
       fc
         .string({ minLength: 1, maxLength: 6 })
         .filter((k) => k !== 'component' && k !== 'correlationId'),
-      tie('value') as fc.Arbitrary<unknown>,
-      { maxKeys: 4 },
-    ),
+      tie('value'),
+      { maxKeys: 4 }
+    )
   ),
 })).value;
 
@@ -247,7 +243,7 @@ const nonEmptyContextArb: fc.Arbitrary<Record<string, unknown>> = fc.dictionary(
     .string({ minLength: 1, maxLength: 8 })
     .filter((k) => k !== 'component' && k !== 'correlationId'),
   jsonValueArb,
-  { minKeys: 1, maxKeys: 6 },
+  { minKeys: 1, maxKeys: 6 }
 );
 
 /**
@@ -258,7 +254,7 @@ const nonEmptyContextArb: fc.Arbitrary<Record<string, unknown>> = fc.dictionary(
  */
 const optionalContextArb: fc.Arbitrary<Record<string, unknown> | undefined> = fc.option(
   nonEmptyContextArb,
-  { nil: undefined, freq: 3 },
+  { nil: undefined, freq: 3 }
 );
 
 /**
@@ -339,7 +335,7 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
           assert.strictEqual(
             lines.length,
             1,
-            `expected exactly one rendered block per emission; got ${lines.length}`,
+            `expected exactly one rendered block per emission; got ${lines.length}`
           );
 
           let record: LogRecord;
@@ -349,7 +345,7 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
             throw new Error(
               `parseRecord failed on captured block ${JSON.stringify(lines[0])}: ${
                 cause instanceof Error ? cause.message : String(cause)
-              }`,
+              }`
             );
           }
 
@@ -362,15 +358,15 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
             record.timestamp,
             ISO_UTC_MS_RE,
             `record.timestamp must match ISO-8601 UTC ms pattern; got ${JSON.stringify(
-              record.timestamp,
-            )}`,
+              record.timestamp
+            )}`
           );
 
           // Sub-property 2: level equals the called method's name.
           assert.strictEqual(
             record.level,
             level,
-            `record.level must equal the called method name '${level}'; got '${record.level}'`,
+            `record.level must equal the called method name '${level}'; got '${record.level}'`
           );
 
           // Sub-property 3: component equals the bound child
@@ -379,7 +375,7 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
           assert.strictEqual(
             record.component,
             expectedComponent,
-            `record.component must equal '${expectedComponent}'; got '${record.component}'`,
+            `record.component must equal '${expectedComponent}'; got '${record.component}'`
           );
 
           // Sub-property 4: message equals sanitize(input). The
@@ -393,7 +389,7 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
             expectedMessage,
             `record.message must equal sanitize(input); ` +
               `expected ${JSON.stringify(expectedMessage)}, ` +
-              `got ${JSON.stringify(record.message)}`,
+              `got ${JSON.stringify(record.message)}`
           );
 
           // Sub-property 5: context is present iff supplied (and
@@ -405,8 +401,8 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
               record.context,
               undefined,
               `record.context must be absent when no context (or an empty context) was supplied; got ${JSON.stringify(
-                record.context,
-              )}`,
+                record.context
+              )}`
             );
           } else {
             assert.deepStrictEqual(
@@ -414,7 +410,7 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
               expected,
               `record.context must deep-equal sanitize(input context); ` +
                 `expected ${JSON.stringify(expected)}, ` +
-                `got ${JSON.stringify(record.context)}`,
+                `got ${JSON.stringify(record.context)}`
             );
           }
 
@@ -427,8 +423,8 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
             record.correlationId,
             undefined,
             `record.correlationId must be absent outside a command-handler frame; got ${JSON.stringify(
-              record.correlationId,
-            )}`,
+              record.correlationId
+            )}`
           );
 
           // Belt-and-braces: no `error` field — the generator only
@@ -437,12 +433,12 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
             record.error,
             undefined,
             `record.error must be absent for non-error overloads; got ${JSON.stringify(
-              record.error,
-            )}`,
+              record.error
+            )}`
           );
-        },
+        }
       ),
-      { numRuns: 100 },
+      { numRuns: 100 }
     );
   });
 
@@ -459,26 +455,23 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
         fullReset();
         setupLoggerWithTraceThreshold();
 
-        const methodTable = getLogger() as unknown as Record<
-          Level,
-          (msg: string) => void
-        >;
+        const methodTable = getLogger() as unknown as Record<Level, (msg: string) => void>;
         methodTable[level](message);
 
         const lines = getCapturedLines();
         assert.strictEqual(
           lines.length,
           1,
-          `expected exactly one rendered block; got ${lines.length}`,
+          `expected exactly one rendered block; got ${lines.length}`
         );
         const record = parseRecord(lines[0]);
         assert.strictEqual(
           record.component,
           'root',
-          `unbound Logger emissions must carry component='root'; got '${record.component}'`,
+          `unbound Logger emissions must carry component='root'; got '${record.component}'`
         );
       }),
-      { numRuns: 50 },
+      { numRuns: 50 }
     );
   });
 });

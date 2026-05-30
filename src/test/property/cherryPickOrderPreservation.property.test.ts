@@ -7,7 +7,7 @@ import {
   IHunk,
   IDiffLine,
   ICherryPickResult,
-} from '../../services/interfaces/IGitService';
+} from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Cherry-Pick Order Preservation.

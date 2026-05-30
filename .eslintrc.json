@@ -40,6 +40,25 @@
   },
   "overrides": [
     {
+      // The logger module's public types (Logger, LogRecord, LogSink,
+      // Bindings, JsonValue) are intentionally named WITHOUT the `I`
+      // prefix per design.md (Logging and /src Restructure -> public
+      // Logger API), mirroring conventions like pino. This override
+      // exempts only src/utils/logger/** from the I-prefix interface
+      // rule while keeping PascalCase enforced; the rest of src/ still
+      // requires the I prefix.
+      "files": ["src/utils/logger/**/*.ts"],
+      "rules": {
+        "@typescript-eslint/naming-convention": [
+          "warn",
+          {
+            "selector": "interface",
+            "format": ["PascalCase"]
+          }
+        ]
+      }
+    },
+    {
       "files": ["src/test/**/*.ts"],
       "rules": {
         "@typescript-eslint/require-await": "off",

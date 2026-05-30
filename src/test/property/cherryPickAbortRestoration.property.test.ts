@@ -9,7 +9,7 @@ import {
   ICherryPickResult,
   IFileStatus,
   StatusCode,
-} from '../../services/interfaces/IGitService';
+} from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Cherry-Pick Abort Restoration.

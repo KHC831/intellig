@@ -18,17 +18,17 @@
  * `.reverse()` before invoking git, revert MUST NOT.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import type { IRebaseService } from '../../../services/interfaces/IRebaseService';
-import type { IMenuStateNode } from '../../../services/gitToolWindow/multiSelect';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { IRebaseService } from '../../../git-core/interfaces/IRebaseService';
+import type { IMenuStateNode } from '../../../git-core/gitToolWindow/multiSelect';
 import { Uri } from '../../mocks/vscode';
 import { EventEmitter } from '../../mocks/vscode';
-import type { GitCli } from '../../../utils/gitCli';
+import type { GitCli } from '../../../git-core/gitCli';
 import { writableEnv, writableWindow, writableCommands } from '../../typed/windowStub';
 
 // ─── Test scaffolding ────────────────────────────────────────────────────────

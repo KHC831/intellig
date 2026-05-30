@@ -1,7 +1,7 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IChangelist, IFileChange } from '../../services/interfaces/IChangelistService';
-import { FileStatus } from '../../services/interfaces/IGitService';
+import { IChangelist, IFileChange } from '../../changelists/interfaces/IChangelistService';
+import { FileStatus } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Changelist File Management.

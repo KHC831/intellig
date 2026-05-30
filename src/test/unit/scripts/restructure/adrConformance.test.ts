@@ -124,10 +124,7 @@ function resolveTrackedPath(
  */
 function assertResolves(trackedPath: string, plan: Plan): void {
   const result = resolveTrackedPath(trackedPath, plan);
-  assert.ok(
-    result.ok,
-    result.ok ? '' : `ADR-tracked path failed to resolve: ${result.reason}`
-  );
+  assert.ok(result.ok, result.ok ? '' : `ADR-tracked path failed to resolve: ${result.reason}`);
 }
 
 describe('scripts/restructure — per-ADR path conformance', () => {
@@ -238,10 +235,7 @@ describe('scripts/restructure — per-ADR path conformance', () => {
     });
 
     it('src/services/interfaces/IBranchComparisonView.ts resolves', () => {
-      assertResolves(
-        'src/services/interfaces/IBranchComparisonView.ts',
-        plan
-      );
+      assertResolves('src/services/interfaces/IBranchComparisonView.ts', plan);
     });
   });
 
@@ -286,12 +280,8 @@ describe('scripts/restructure — per-ADR path conformance', () => {
         '(pre-rename: check-output-channel-test-surface.sh, ' +
         'post-rename: check-test-only-surface.sh)',
       () => {
-        const preRename = scriptExists(
-          'scripts/check-output-channel-test-surface.sh'
-        );
-        const postRename = scriptExists(
-          'scripts/check-test-only-surface.sh'
-        );
+        const preRename = scriptExists('scripts/check-output-channel-test-surface.sh');
+        const postRename = scriptExists('scripts/check-test-only-surface.sh');
         assert.ok(
           preRename || postRename,
           'Neither `scripts/check-output-channel-test-surface.sh` nor ' +
@@ -398,9 +388,7 @@ describe('scripts/restructure — per-ADR path conformance', () => {
 
     it('no plan.json move touches anything under docs/parity/', () => {
       const offending = plan.moves.filter(
-        (m) =>
-          m.from.startsWith('docs/parity/') ||
-          m.to.startsWith('docs/parity/')
+        (m) => m.from.startsWith('docs/parity/') || m.to.startsWith('docs/parity/')
       );
       assert.deepStrictEqual(
         offending,

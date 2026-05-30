@@ -14,7 +14,7 @@
  */
 
 import * as assert from 'assert';
-import { sortCommitsStable, ISortableCommit } from '../../../utils/commitSort';
+import { sortCommitsStable, ISortableCommit } from '../../../git-core/commitSort';
 
 describe('sortCommitsStable', () => {
   function c(hash: string, isoDate: string, parents: string[] = []): ISortableCommit {

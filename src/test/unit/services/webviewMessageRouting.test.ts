@@ -14,10 +14,10 @@
  * - loadMoreCommits
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import { ICommit } from '../../../services/interfaces/IGitService';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import { ICommit } from '../../../git-core/interfaces/IGitService';
 import { Uri, Memento } from '../../mocks/vscode';
 
 /**

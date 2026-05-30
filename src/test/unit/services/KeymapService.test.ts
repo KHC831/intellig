@@ -4,9 +4,9 @@ import {
   getDefaultKeymap,
   getIntelliJKeymap,
   getAllKeymaps,
-} from '../../../services/KeymapService';
-import { ConfigurationService } from '../../../services/ConfigurationService';
-import { KeymapPreset, IKeybinding } from '../../../services/interfaces/IKeymapService';
+} from '../../../ui-shell/KeymapService';
+import { ConfigurationService } from '../../../config/ConfigurationService';
+import { KeymapPreset, IKeybinding } from '../../../ui-shell/interfaces/IKeymapService';
 import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 describe('KeymapService', () => {

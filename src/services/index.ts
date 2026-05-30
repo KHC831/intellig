@@ -3,48 +3,69 @@
  */
 
 // Export all interfaces
+
 export * from './interfaces';
-
-// Export the services container
-export {
-  ExtensionServices,
-  IExtensionServices,
-  getExtensionServices,
-  resetExtensionServices,
-} from './ExtensionServices';
-
-// Export service implementations
-export {
-  ConfigurationService,
-  getDefaultConfiguration,
-  getConfigurationSection,
-} from './ConfigurationService';
-
-export { GitService, createGitService } from './GitService';
-
-export { RebaseService, createRebaseService } from './RebaseService';
-
-export { ShelfService, createShelfService } from './ShelfService';
-
-export { ChangelistService, createChangelistService } from './ChangelistService';
-
-export { BlameService, createBlameService } from './BlameService';
-
-export { BlameOptionsSource } from './BlameOptionsSource';
-export type { IBlameOptionsSnapshot } from './BlameOptionsSource';
-
-export { GitToolWindowProvider, GIT_TOOL_WINDOW_VIEW_ID } from './GitToolWindowProvider';
-
-export { ConsoleService, createConsoleService } from './ConsoleService';
-
-export { CommitDialog, createCommitDialog, performCommit } from './CommitDialog';
+export type { BranchAction, IBranchPopupResult } from '../branches/BranchPopup';
+export type { BranchTreeItemType } from '../branches/BranchTreeProvider';
+export type {
+  CommitToolWindowTab,
+  ChangelistAction,
+  FileAction,
+  ShelfTabFilter,
+  IShelfTabEntry,
+  IShelfTabShelfController,
+  IShelfTabStashController,
+  ShelfTabShelfAction,
+  ShelfTabStashAction,
+  ICommitToolWebviewMessage,
+  IRenderInput,
+} from '../commits/CommitToolWindow';
+export type { ConflictFileStatus } from '../conflicts/ResolveConflictsDialog';
+export type { IApplyPatchDialogOptions } from '../patches/ApplyPatchDialog';
+export type { IBlameOptionsSnapshot } from '../blame/BlameOptionsSource';
 export type {
   ICommitDialogOptions,
   ICommitDialogResult,
   IPerformCommitOptions,
   IPerformCommitResult,
-} from './CommitDialog';
-
+} from '../commits/CommitDialog';
+export type {
+  IMergeDialogOptions,
+  IMergeFlagState,
+  MergeStrategyFlag,
+} from '../conflicts/MergeDialog';
+export type { INewBranchDialogOptions } from '../branches/NewBranchDialog';
+export type {
+  IPullSourceChoice,
+  IRunPullDialogDeps,
+  PullDialogOutcome,
+  PullFlagKey,
+} from '../sync/PullDialog';
+export type {
+  IPushDialogOptions,
+  IPushOverflowState,
+  IPushRow,
+  IPushRowError,
+  IPushRowResult,
+  IRunPushRowDeps,
+  PushAction,
+  PushErrorKind,
+} from '../sync/PushDialog';
+export type { IRebaseEditorOptions, IRebaseEditorResult } from '../rebase/RebaseEditor';
+export { ApplyPatchDialog, showApplyPatchDialog } from '../patches/ApplyPatchDialog';
+export { AutoFetchService, createAutoFetchService } from '../sync/AutoFetchService';
+export { BlameOptionsSource } from '../blame/BlameOptionsSource';
+export { BlameService, createBlameService } from '../blame/BlameService';
+export { BranchComparisonView, createBranchComparisonView } from '../branches/BranchComparisonView';
+export { BranchPopup, createBranchPopup } from '../branches/BranchPopup';
+export {
+  BranchTreeProvider,
+  BranchTreeItem,
+  createBranchTreeProvider,
+  CONTEXT_VALUES,
+} from '../branches/BranchTreeProvider';
+export { ChangelistService, createChangelistService } from '../changelists/ChangelistService';
+export { CommitDialog, createCommitDialog, performCommit } from '../commits/CommitDialog';
 export {
   CommitToolWindow,
   createCommitToolWindow,
@@ -67,97 +88,53 @@ export {
   shelfRowContextMenuLabels,
   stashRowContextMenuLabels,
   renderShelfTabPanel,
-} from './CommitToolWindow';
-export type {
-  CommitToolWindowTab,
-  ChangelistAction,
-  FileAction,
-  ShelfTabFilter,
-  IShelfTabEntry,
-  IShelfTabShelfController,
-  IShelfTabStashController,
-  ShelfTabShelfAction,
-  ShelfTabStashAction,
-  ICommitToolWebviewMessage,
-  IRenderInput,
-} from './CommitToolWindow';
-
-export { BranchPopup, createBranchPopup } from './BranchPopup';
-export type { BranchAction, IBranchPopupResult } from './BranchPopup';
-
+} from '../commits/CommitToolWindow';
 export {
-  BranchTreeProvider,
-  BranchTreeItem,
-  createBranchTreeProvider,
-  CONTEXT_VALUES,
-} from './BranchTreeProvider';
-export type { BranchTreeItemType } from './BranchTreeProvider';
-
-export { MergeView, createMergeView } from './MergeView';
-
+  ConfigurationService,
+  getDefaultConfiguration,
+  getConfigurationSection,
+} from '../config/ConfigurationService';
 export {
   ConflictResolutionService,
   createConflictResolutionService,
-} from './ConflictResolutionService';
-
-export { ResolveConflictsDialog, createResolveConflictsDialog } from './ResolveConflictsDialog';
-export type { ConflictFileStatus } from './ResolveConflictsDialog';
-
-export { RebaseEditor, createRebaseEditor } from './RebaseEditor';
-export type { IRebaseEditorOptions, IRebaseEditorResult } from './RebaseEditor';
-
-export { RebaseProgressView, createRebaseProgressView } from './RebaseProgressView';
-
-export { InlineBlameProvider, createInlineBlameProvider } from './InlineBlameProvider';
-
-export { GutterBlameProvider, createGutterBlameProvider } from './GutterBlameProvider';
-
-export { StatusBarService, createStatusBarService } from './StatusBarService';
-
-export { NotificationService, createNotificationService } from './NotificationService';
-
-export { KeymapService, getDefaultKeymap, getIntelliJKeymap, getAllKeymaps } from './KeymapService';
-
-export { StashView, createStashView } from './StashView';
-
-export { ShelfView, createShelfView } from './ShelfView';
-
-export { BranchComparisonView, createBranchComparisonView } from './BranchComparisonView';
-
-export { AutoFetchService, createAutoFetchService } from './AutoFetchService';
-
-export { PullDialog, createPullDialog } from './PullDialog';
-export type {
-  IPullSourceChoice,
-  IRunPullDialogDeps,
-  PullDialogOutcome,
-  PullFlagKey,
-} from './PullDialog';
-
-export { PatchService, createPatchService, PatchWriteFailed } from './PatchService';
-
-export { ApplyPatchDialog, showApplyPatchDialog } from './ApplyPatchDialog';
-export type { IApplyPatchDialogOptions } from './ApplyPatchDialog';
-
-export { PushDialog, showPushDialog } from './PushDialog';
-export type {
-  IPushDialogOptions,
-  IPushOverflowState,
-  IPushRow,
-  IPushRowError,
-  IPushRowResult,
-  IRunPushRowDeps,
-  PushAction,
-  PushErrorKind,
-} from './PushDialog';
-
-export { MergeDialog, showMergeDialog, resolveMergeMutex } from './MergeDialog';
-export type { IMergeDialogOptions, IMergeFlagState, MergeStrategyFlag } from './MergeDialog';
-
+} from '../conflicts/ConflictResolutionService';
+export { ConsoleService, createConsoleService } from '../ui-shell/ConsoleService';
+export {
+  ExtensionServices,
+  IExtensionServices,
+  getExtensionServices,
+  resetExtensionServices,
+} from './ExtensionServices';
+export { GitService, createGitService } from '../git-core/GitService';
+export { GitToolWindowProvider, GIT_TOOL_WINDOW_VIEW_ID } from '../ui-shell/GitToolWindowProvider';
+export { GutterBlameProvider, createGutterBlameProvider } from '../blame/GutterBlameProvider';
+export { InlineBlameProvider, createInlineBlameProvider } from '../blame/InlineBlameProvider';
+export {
+  KeymapService,
+  getDefaultKeymap,
+  getIntelliJKeymap,
+  getAllKeymaps,
+} from '../ui-shell/KeymapService';
+export { MergeDialog, showMergeDialog, resolveMergeMutex } from '../conflicts/MergeDialog';
+export { MergeView, createMergeView } from '../conflicts/MergeView';
 export {
   NewBranchDialog,
   showNewBranchDialog,
   validateNewBranchName,
   looksRemoteStartPoint,
-} from './NewBranchDialog';
-export type { INewBranchDialogOptions } from './NewBranchDialog';
+} from '../branches/NewBranchDialog';
+export { NotificationService, createNotificationService } from '../ui-shell/NotificationService';
+export { PatchService, createPatchService, PatchWriteFailed } from '../patches/PatchService';
+export { PullDialog, createPullDialog } from '../sync/PullDialog';
+export { PushDialog, showPushDialog } from '../sync/PushDialog';
+export { RebaseEditor, createRebaseEditor } from '../rebase/RebaseEditor';
+export { RebaseProgressView, createRebaseProgressView } from '../rebase/RebaseProgressView';
+export { RebaseService, createRebaseService } from '../git-core/RebaseService';
+export {
+  ResolveConflictsDialog,
+  createResolveConflictsDialog,
+} from '../conflicts/ResolveConflictsDialog';
+export { ShelfService, createShelfService } from '../shelf/ShelfService';
+export { ShelfView, createShelfView } from '../shelf/ShelfView';
+export { StashView, createStashView } from '../shelf/StashView';
+export { StatusBarService, createStatusBarService } from '../ui-shell/StatusBarService';

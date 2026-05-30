@@ -12,7 +12,7 @@
  *    "future families add a single line." Without this guard, forgetting
  *    that one line silently leaks watchers across window reloads.
  *
- * 2. Heuristic + how it scales: regex-parse `src/services/GitService.ts`.
+ * 2. Heuristic + how it scales: regex-parse `src/git-core/GitService.ts`.
  *    Find field declarations whose name matches `_<word>Watchers` and
  *    whose type is `Map<string, vscode.Disposable[]>` or
  *    `Map<string, vscode.FileSystemWatcher[]>` (or any structurally-
@@ -45,7 +45,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TARGET_FILE = resolve(__dirname, '..', 'src', 'services', 'GitService.ts');
+const TARGET_FILE = resolve(__dirname, '..', 'src', 'git-core', 'GitService.ts');
 
 const source = readFileSync(TARGET_FILE, 'utf8');
 

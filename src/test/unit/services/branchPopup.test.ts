@@ -21,7 +21,7 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { IBranch, IGitService, IRepository, ITag } from '../../../services/interfaces/IGitService';
+import { IBranch, IGitService, IRepository, ITag } from '../../../git-core/interfaces/IGitService';
 import {
   AUTO_INDENT_MIN_GROUP_SIZE,
   BranchPopup,
@@ -37,7 +37,7 @@ import {
   getFavorites,
   updateFavoritesList,
   updateRecentLru,
-} from '../../../services/BranchPopup';
+} from '../../../branches/BranchPopup';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─────────────────────────────────────────────────────────────────────────────

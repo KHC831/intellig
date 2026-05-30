@@ -23,12 +23,12 @@
  * keep them from drifting silently.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { GitToolWindowProvider } from '../../../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
-import { computeMenuState } from '../../../../services/gitToolWindow/multiSelect';
+import { computeMenuState } from '../../../../git-core/gitToolWindow/multiSelect';
 
 function mkCommit(
   hash: string,
@@ -107,7 +107,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const start = src.indexOf('public updateLogState(');
@@ -182,7 +182,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       // The hidden-at-N=1 branch produced "Squash needs at least 2 commits selected."
@@ -197,7 +197,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       // The unreachable builder `const compareVersionsReason = ...` must
@@ -281,7 +281,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const idx = src.indexOf('function applyMenuEnableMap');
@@ -304,7 +304,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       const matches = src.match(/TODO\(post-locale\)/g) || [];
@@ -319,7 +319,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       const todoIdx = src.indexOf('TODO(post-locale)');
@@ -343,7 +343,7 @@ describe('Wave A R5 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       assert.ok(

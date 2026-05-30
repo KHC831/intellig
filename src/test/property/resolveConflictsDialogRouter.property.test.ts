@@ -18,11 +18,11 @@
 import * as assert from 'assert';
 import * as fc from 'fast-check';
 import * as vscode from 'vscode';
-import { ResolveConflictsDialog } from '../../services/ResolveConflictsDialog';
-import type { IConflictOpContext } from '../../services/interfaces/IConflictResolutionService';
-import type { IMergeView } from '../../services/interfaces/IMergeView';
-import type { IGitService, IRepository } from '../../services/interfaces/IGitService';
-import type { IConflictResolutionService } from '../../services/interfaces/IConflictResolutionService';
+import { ResolveConflictsDialog } from '../../conflicts/ResolveConflictsDialog';
+import type { IConflictOpContext } from '../../conflicts/interfaces/IConflictResolutionService';
+import type { IMergeView } from '../../conflicts/interfaces/IMergeView';
+import type { IGitService, IRepository } from '../../git-core/interfaces/IGitService';
+import type { IConflictResolutionService } from '../../conflicts/interfaces/IConflictResolutionService';
 
 /**
  * Make a context, repo, and dependencies for the property runner. Each fuzz

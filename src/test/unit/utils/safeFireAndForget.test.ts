@@ -26,7 +26,7 @@
  * cannot leak.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
@@ -147,7 +147,9 @@ describe('safeFireAndForget — Logger routing (task 7.1)', () => {
     const commandId = 'intellig.test.cidCapture';
     let registeredHandler: ((...args: unknown[]) => unknown) | undefined;
     const originalRegisterCommand = vscode.commands.registerCommand;
-    (vscode.commands as { registerCommand: typeof vscode.commands.registerCommand }).registerCommand = (
+    (
+      vscode.commands as { registerCommand: typeof vscode.commands.registerCommand }
+    ).registerCommand = (
       _id: string,
       handler: (...args: unknown[]) => unknown
     ): vscode.Disposable => {
@@ -166,8 +168,9 @@ describe('safeFireAndForget — Logger routing (task 7.1)', () => {
       registeredHandler();
       disposable.dispose();
     } finally {
-      (vscode.commands as { registerCommand: typeof vscode.commands.registerCommand }).registerCommand =
-        originalRegisterCommand;
+      (
+        vscode.commands as { registerCommand: typeof vscode.commands.registerCommand }
+      ).registerCommand = originalRegisterCommand;
     }
 
     await flushMicrotasks();

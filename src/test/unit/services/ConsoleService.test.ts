@@ -2,10 +2,10 @@
  * Unit tests for ConsoleService
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { ConsoleService, createConsoleService } from '../../../services/ConsoleService';
-import { GitCli, IGitCommandResult } from '../../../utils/gitCli';
+import { ConsoleService, createConsoleService } from '../../../ui-shell/ConsoleService';
+import { GitCli, IGitCommandResult } from '../../../git-core/gitCli';
 import { IConsoleEntry, IGitToolWindowProvider } from '../../../services/interfaces';
 import { EventEmitter } from '../../mocks/vscode';
 

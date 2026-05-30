@@ -13,12 +13,12 @@
  * signatures return `Promise<T>`; no-await stub bodies are intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { createStashView } from '../../../services/StashView';
-import { IGitService, IRepository, IStash } from '../../../services/interfaces/IGitService';
-import { IConflictResolutionService } from '../../../services/interfaces/IConflictResolutionService';
+import { createStashView } from '../../../shelf/StashView';
+import { IGitService, IRepository, IStash } from '../../../git-core/interfaces/IGitService';
+import { IConflictResolutionService } from '../../../conflicts/interfaces/IConflictResolutionService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

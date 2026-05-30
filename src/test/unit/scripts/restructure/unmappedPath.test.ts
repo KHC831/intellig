@@ -98,7 +98,9 @@ function findUnmappedPaths(plan: Plan, repoRoot: string): string[] {
     for (const ent of entries) {
       const fullAbs = path.join(dirAbs, ent.name);
       if (ent.isDirectory()) {
-        if (SKIP_DIRS.has(ent.name)) continue;
+        if (SKIP_DIRS.has(ent.name)) {
+          continue;
+        }
         walk(fullAbs);
         continue;
       }
@@ -108,10 +110,7 @@ function findUnmappedPaths(plan: Plan, repoRoot: string): string[] {
         // lines 1014-1019).
         continue;
       }
-      const relPosix = path
-        .relative(repoRoot, fullAbs)
-        .split(path.sep)
-        .join('/');
+      const relPosix = path.relative(repoRoot, fullAbs).split(path.sep).join('/');
       if (!validPaths.has(relPosix)) {
         offenders.push(relPosix);
       }
@@ -229,11 +228,7 @@ describe('scripts/restructure/migrate.mjs — unmapped-path guard (Requirement 1
       // exercises the offender-collection (vs. fail-fast) shape:
       // the guard reports the *full set* in one pass.
       fs.mkdirSync(path.join(repoRoot, 'src/extra'), { recursive: true });
-      fs.writeFileSync(
-        path.join(repoRoot, 'src/extra/another.ts'),
-        '// extra stray\n',
-        'utf8'
-      );
+      fs.writeFileSync(path.join(repoRoot, 'src/extra/another.ts'), '// extra stray\n', 'utf8');
 
       const plan: Plan = {
         moves: [
@@ -250,9 +245,7 @@ describe('scripts/restructure/migrate.mjs — unmapped-path guard (Requirement 1
       assert.deepStrictEqual(
         offenders,
         ['src/extra/another.ts', 'src/stray/leftover.ts'],
-        `expected both stray files reported in sorted order; got: ${JSON.stringify(
-          offenders
-        )}`
+        `expected both stray files reported in sorted order; got: ${JSON.stringify(offenders)}`
       );
     });
 
@@ -293,9 +286,7 @@ describe('scripts/restructure/migrate.mjs — unmapped-path guard (Requirement 1
       ]);
       try {
         const plan: Plan = {
-          moves: [
-            { from: 'src/topical/file.ts', to: 'src/topical/file.ts' },
-          ],
+          moves: [{ from: 'src/topical/file.ts', to: 'src/topical/file.ts' }],
         };
 
         const offenders = findUnmappedPaths(plan, fixture.repoRoot);
@@ -306,9 +297,7 @@ describe('scripts/restructure/migrate.mjs — unmapped-path guard (Requirement 1
         assert.deepStrictEqual(
           offenders,
           [],
-          `expected the walker to skip node_modules/out/build; got: ${JSON.stringify(
-            offenders
-          )}`
+          `expected the walker to skip node_modules/out/build; got: ${JSON.stringify(offenders)}`
         );
       } finally {
         fixture.cleanup();
@@ -320,10 +309,7 @@ describe('scripts/restructure/migrate.mjs — unmapped-path guard (Requirement 1
       // (lines 1011-1013 of migrate.mjs) so the lookup matches
       // plan.json's `to` field shape. Verify a deeply-nested path
       // produces forward-slash-only output.
-      const fixture = makeFakeRepo([
-        'src/very/deeply/nested/path/file.ts',
-        'src/another/stray.ts',
-      ]);
+      const fixture = makeFakeRepo(['src/very/deeply/nested/path/file.ts', 'src/another/stray.ts']);
       try {
         const plan: Plan = {
           moves: [

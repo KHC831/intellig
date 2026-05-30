@@ -17,8 +17,8 @@ import {
   computeActiveLanes,
   computeGraphWidth,
 } from '../../utils/graphRenderer';
-import { ICommitNode, getColumnColor, getMaxGraphColumn } from '../../utils/commitGraph';
-import { ICommit } from '../../services/interfaces/IGitService';
+import { ICommitNode, getColumnColor, getMaxGraphColumn } from '../../git-core/commitGraph';
+import { ICommit } from '../../git-core/interfaces/IGitService';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

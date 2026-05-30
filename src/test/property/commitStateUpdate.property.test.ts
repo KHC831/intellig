@@ -1,13 +1,13 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IChangelist, IFileChange } from '../../services/interfaces/IChangelistService';
+import { IChangelist, IFileChange } from '../../changelists/interfaces/IChangelistService';
 import {
   FileStatus,
   ICommit,
   IAuthor,
   ICommitOptions,
-} from '../../services/interfaces/IGitService';
-import { ILogState } from '../../services/interfaces/IGitToolWindowProvider';
+} from '../../git-core/interfaces/IGitService';
+import { ILogState } from '../../git-core/interfaces/IGitToolWindowProvider';
 
 /**
  * Local type for backward compatibility in tests.

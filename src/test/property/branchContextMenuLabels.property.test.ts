@@ -12,7 +12,7 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { resolveLabel } from '../../commands/CommandTitleProvider';
+import { resolveLabel } from '../../commits/CommandTitleProvider';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

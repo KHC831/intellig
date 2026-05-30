@@ -4,15 +4,15 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { RebaseEditor, createRebaseEditor } from '../../../services/RebaseEditor';
+import { RebaseEditor, createRebaseEditor } from '../../../rebase/RebaseEditor';
 import {
   IRebaseService,
   IRebaseSession,
   IRebaseAction,
   IRebaseResult,
   RebaseAction,
-} from '../../../services/interfaces/IRebaseService';
-import { IRepository } from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IRebaseService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
 
 /**
  * Mock RebaseService for testing

@@ -16,10 +16,10 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ShelfService } from '../../../services/ShelfService';
-import { IRepository } from '../../../services/interfaces/IGitService';
+import { ShelfService } from '../../../shelf/ShelfService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
-import { IGitCommandResult } from '../../../utils/gitCli';
+import { IGitCommandResult } from '../../../git-core/gitCli';
 
 /**
  * Minimal mock GitCli capturing args and returning scripted results per test.

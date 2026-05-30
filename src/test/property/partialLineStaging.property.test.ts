@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IHunk, IDiffLine, IDiff, DiffLineType } from '../../services/interfaces/IGitService';
+import { IHunk, IDiffLine, IDiff, DiffLineType } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Partial Line Staging Accuracy.

@@ -21,14 +21,14 @@
  * — enough to reproduce the on-screen lane layout deterministically.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import { generateCommitGraph, type ICommitNode } from '../../../utils/commitGraph';
-import type { ICommit } from '../../../services/interfaces/IGitService';
+import { generateCommitGraph, type ICommitNode } from '../../../git-core/commitGraph';
+import type { ICommit } from '../../../git-core/interfaces/IGitService';
 import { renderGraphSvg, DEFAULT_GRAPH_CONFIG } from '../../../utils/graphRenderer';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { IExtendedLogState } from '../../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { IExtendedLogState } from '../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../mocks/vscode';
 
 function mkCommit(hash: string, parents: string[] = []): ICommit {
@@ -760,7 +760,7 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
  */
 describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the rendering chain', () => {
   it('snap-8a: detached fixture → branch-map empty for HEAD sha → _getBranchLabelsHtml returns ""', async () => {
-    const { parseBranches } = await import('../../../utils/gitParser');
+    const { parseBranches } = await import('../../../git-core/gitParser');
 
     // Reproduce the EXACT line shape `git branch -a --format=...` emits
     // when HEAD is detached at a real commit.
@@ -824,11 +824,11 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
     // parser filters it before BranchTreeProvider ever sees it, so
     // the rendered list contains zero parenthesized entries.
 
-    const { parseBranches } = await import('../../../utils/gitParser');
-    const { BranchTreeProvider } = await import('../../../services/BranchTreeProvider');
+    const { parseBranches } = await import('../../../git-core/gitParser');
+    const { BranchTreeProvider } = await import('../../../branches/BranchTreeProvider');
     const { createMockGitService } = await import('../../mocks/mockGitService');
-    type IRepository = import('../../../services/interfaces/IGitService').IRepository;
-    type IBranch = import('../../../services/interfaces/IGitService').IBranch;
+    type IRepository = import('../../../git-core/interfaces/IGitService').IRepository;
+    type IBranch = import('../../../git-core/interfaces/IGitService').IBranch;
 
     // Fixture: detached pseudo-ref + 2 normal local + 1 remote.
     const detachedSha = 'abc1234567890123456789012345678901234567890';
@@ -1122,7 +1122,7 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
  */
 describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
   it('snap-10a: detached HEAD → "(HEAD detached at <sha>)" appears as FIRST child of Local Branches', async () => {
-    const { BranchTreeProvider } = await import('../../../services/BranchTreeProvider');
+    const { BranchTreeProvider } = await import('../../../branches/BranchTreeProvider');
     const { createMockGitService, detachedRepo } = await import('../../mocks/mockGitService');
 
     const fullSha = 'abc1234567890abcdef1234567890abcdef12345';

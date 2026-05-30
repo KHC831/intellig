@@ -28,10 +28,10 @@
  * here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import { Uri } from '../../mocks/vscode';
-import type { IRepository } from '../../../services/interfaces/IGitService';
+import type { IRepository } from '../../../git-core/interfaces/IGitService';
 import {
   basenameOf,
   findRepoContainingPath,

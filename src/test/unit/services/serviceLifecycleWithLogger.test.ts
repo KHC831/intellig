@@ -62,13 +62,13 @@ import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import { AutoFetchService } from '../../../services/AutoFetchService';
-import { BlameService } from '../../../services/BlameService';
-import { BranchTreeProvider } from '../../../services/BranchTreeProvider';
-import { ChangelistService } from '../../../services/ChangelistService';
-import { ConflictResolutionService } from '../../../services/ConflictResolutionService';
-import { PatchService } from '../../../services/PatchService';
-import { ShelfService } from '../../../services/ShelfService';
+import { AutoFetchService } from '../../../sync/AutoFetchService';
+import { BlameService } from '../../../blame/BlameService';
+import { BranchTreeProvider } from '../../../branches/BranchTreeProvider';
+import { ChangelistService } from '../../../changelists/ChangelistService';
+import { ConflictResolutionService } from '../../../conflicts/ConflictResolutionService';
+import { PatchService } from '../../../patches/PatchService';
+import { ShelfService } from '../../../shelf/ShelfService';
 import { __resetLoggerForTest, initLogger } from '../../../utils/logger';
 import { parseRecord } from '../../../utils/logger/render';
 import {

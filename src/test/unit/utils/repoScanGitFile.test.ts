@@ -22,10 +22,10 @@
  * red-message captures.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as path from 'path';
-import { scanFolderForGitRepos, IRepoScanFs } from '../../../utils/repoScan';
+import { scanFolderForGitRepos, IRepoScanFs } from '../../../git-core/repoScan';
 
 interface IFsState {
   /** path → list of child names (each child is a directory unless listed in `files`). */

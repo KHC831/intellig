@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IStash, IFileStatus, StatusCode } from '../../services/interfaces/IGitService';
+import { IStash, IFileStatus, StatusCode } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Stash Drop Removal.

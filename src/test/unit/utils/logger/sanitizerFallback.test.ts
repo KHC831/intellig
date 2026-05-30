@@ -41,11 +41,7 @@
 import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-} from '../../../../utils/logger';
+import { __resetLoggerForTest, getLogger, initLogger } from '../../../../utils/logger';
 import {
   __resetOutputChannelForTest,
   getOutputChannel,
@@ -155,7 +151,7 @@ describe('logger — sanitizer fallback path (task 3.5 / Requirement 4.5)', () =
     // right-pads the level token to 5 chars, so `WARN ` is the
     // expected literal in the header column.
     assert.ok(
-      / WARN  /.test(block),
+      / WARN {2}/.test(block),
       `fallback record must be at warn level (header must contain ' WARN  '); got:\n${block}`
     );
 

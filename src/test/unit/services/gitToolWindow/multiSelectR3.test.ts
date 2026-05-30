@@ -21,16 +21,16 @@
  * silently.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
   type WaveAInboundMessage,
-} from '../../../../services/GitToolWindowProvider';
+} from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
-import { computeMenuState } from '../../../../services/gitToolWindow/multiSelect';
+import { computeMenuState } from '../../../../git-core/gitToolWindow/multiSelect';
 
 interface InternalsR3 {
   _extendedLogState: IExtendedLogState;
@@ -586,7 +586,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const idx = src.indexOf('export type LogContextAction');
@@ -609,7 +609,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const idx = src.indexOf('export type WaveAInboundMessage');

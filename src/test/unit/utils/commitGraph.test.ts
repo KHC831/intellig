@@ -22,8 +22,8 @@ import {
   isBranchSplit,
   classifyBranchName,
   ICommitNode,
-} from '../../../utils/commitGraph';
-import { ICommit } from '../../../services/interfaces/IGitService';
+} from '../../../git-core/commitGraph';
+import { ICommit } from '../../../git-core/interfaces/IGitService';
 
 /**
  * Helper function to create a mock commit for testing.

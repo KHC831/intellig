@@ -69,11 +69,7 @@ import '../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-} from '../../utils/logger';
+import { __resetLoggerForTest, getLogger, initLogger } from '../../utils/logger';
 import { __resetOutputChannelForTest, initOutputChannel } from '../../utils/outputChannel';
 
 /**

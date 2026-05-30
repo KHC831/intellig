@@ -26,8 +26,8 @@
  */
 
 import * as assert from 'assert';
-import * as keymapModule from '../../../services/KeymapService';
-import { ConfigurationService } from '../../../services/ConfigurationService';
+import * as keymapModule from '../../../ui-shell/KeymapService';
+import { ConfigurationService } from '../../../config/ConfigurationService';
 import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 describe('KeymapService — free-function helpers (TL-97)', () => {

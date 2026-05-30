@@ -17,11 +17,11 @@
  * the verbatim red-message captures.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import * as vscodeMock from '../../mocks/vscode';
-import { IRepoScanFs } from '../../../utils/repoScan';
+import { IRepoScanFs } from '../../../git-core/repoScan';
 
 const { Uri, workspace } = vscodeMock;
 

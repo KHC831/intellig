@@ -51,12 +51,7 @@ import * as fc from 'fast-check';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-  type LogLevel,
-} from '../../utils/logger';
+import { __resetLoggerForTest, getLogger, initLogger, type LogLevel } from '../../utils/logger';
 import {
   __resetOutputChannelForTest,
   getOutputChannel,
@@ -72,9 +67,7 @@ import { resetMockConfiguration, setMockConfigValue } from '../mocks/vscode';
  * the regression on the next run rather than blindly tracking the
  * bug into the assertion.
  */
-const LEVEL_TO_CONSOLE_METHOD: Readonly<
-  Record<LogLevel, 'debug' | 'info' | 'warn' | 'error'>
-> = {
+const LEVEL_TO_CONSOLE_METHOD: Readonly<Record<LogLevel, 'debug' | 'info' | 'warn' | 'error'>> = {
   trace: 'debug',
   debug: 'debug',
   info: 'info',
@@ -219,12 +212,7 @@ const arbContext: fc.Arbitrary<Record<string, unknown> | undefined> = fc.option(
     fc
       .string({ minLength: 1, maxLength: 8 })
       .filter((s) => s !== 'component' && s !== 'correlationId'),
-    fc.oneof(
-      fc.string({ maxLength: 16 }),
-      fc.integer(),
-      fc.boolean(),
-      fc.constant(null)
-    ),
+    fc.oneof(fc.string({ maxLength: 16 }), fc.integer(), fc.boolean(), fc.constant(null)),
     { maxKeys: 4 }
   ),
   { nil: undefined }
@@ -249,93 +237,99 @@ describe('logger console mirror — property test (task 4.13 / Requirement 3.3)'
 
   it('Property: console.<level> receives the same rendered string as the OutputChannel block when intellig.log.console=true', () => {
     fc.assert(
-      fc.property(arbLevel, arbComponent, arbMessage, arbContext, (level, component, message, context) => {
-        // Fresh module-level state per iteration. fast-check runs the
-        // property body many times — without this reset, sink
-        // registrations and channel writes from prior iterations
-        // would pile up and break the per-iteration "exactly one
-        // capture" assertions below.
-        __resetLoggerForTest();
-        __resetOutputChannelForTest();
-        resetMockConfiguration();
+      fc.property(
+        arbLevel,
+        arbComponent,
+        arbMessage,
+        arbContext,
+        (level, component, message, context) => {
+          // Fresh module-level state per iteration. fast-check runs the
+          // property body many times — without this reset, sink
+          // registrations and channel writes from prior iterations
+          // would pile up and break the per-iteration "exactly one
+          // capture" assertions below.
+          __resetLoggerForTest();
+          __resetOutputChannelForTest();
+          resetMockConfiguration();
 
-        // Drive the two settings the resolver reads on
-        // `initLogger(context)`:
-        //   - `log.level = 'trace'` admits every level we generate.
-        //   - `log.console = true` activates the ConsoleSink mirror.
-        // The resolver re-reads via
-        // `vscode.workspace.getConfiguration('intellig').get(...)`,
-        // so the writes must happen BEFORE `initLogger` runs.
-        setMockConfigValue('intellig', 'log.level', 'trace');
-        setMockConfigValue('intellig', 'log.console', true);
+          // Drive the two settings the resolver reads on
+          // `initLogger(context)`:
+          //   - `log.level = 'trace'` admits every level we generate.
+          //   - `log.console = true` activates the ConsoleSink mirror.
+          // The resolver re-reads via
+          // `vscode.workspace.getConfiguration('intellig').get(...)`,
+          // so the writes must happen BEFORE `initLogger` runs.
+          setMockConfigValue('intellig', 'log.level', 'trace');
+          setMockConfigValue('intellig', 'log.console', true);
 
-        const ctx = makeFakeContext();
-        initOutputChannel(ctx);
-        initLogger(ctx);
+          const ctx = makeFakeContext();
+          initOutputChannel(ctx);
+          initLogger(ctx);
 
-        const spy = installConsoleSpy();
-        try {
-          // Emit one record at the generated level via a child
-          // Logger bound to the generated component. The Logger's
-          // `_multicast` then hands the same record to BOTH sinks —
-          // OutputChannelSink and ConsoleSink — each of which
-          // independently calls `formatRecord(record)`. The byte
-          // identity of those two calls is the property we assert.
-          const logger = getLogger().child({ component });
-          // Cast through `unknown` because the per-call `context`
-          // type is `Bindings` (a constrained JSON shape); the
-          // generated dictionary covers a strictly looser space and
-          // is safe at runtime under the sanitizer's walker.
-          logger[level](message, context as unknown as undefined);
+          const spy = installConsoleSpy();
+          try {
+            // Emit one record at the generated level via a child
+            // Logger bound to the generated component. The Logger's
+            // `_multicast` then hands the same record to BOTH sinks —
+            // OutputChannelSink and ConsoleSink — each of which
+            // independently calls `formatRecord(record)`. The byte
+            // identity of those two calls is the property we assert.
+            const logger = getLogger().child({ component });
+            // Cast through `unknown` because the per-call `context`
+            // type is `Bindings` (a constrained JSON shape); the
+            // generated dictionary covers a strictly looser space and
+            // is safe at runtime under the sanitizer's walker.
+            logger[level](message, context as unknown as undefined);
 
-          // ----- OutputChannel side -----
-          const channelLines = getCapturedLines();
-          assert.strictEqual(
-            channelLines.length,
-            1,
-            `expected exactly one OutputChannel block for level=${level}; got ${channelLines.length} (lines=${JSON.stringify(channelLines)})`
-          );
-          const channelBlock = channelLines[0];
-
-          // ----- Console side -----
-          const expectedMethod = LEVEL_TO_CONSOLE_METHOD[level];
-          const expectedCalls = spy.capture[expectedMethod];
-
-          assert.strictEqual(
-            expectedCalls.length,
-            1,
-            `expected exactly one console.${expectedMethod} call for level=${level}; got ${expectedCalls.length}`
-          );
-
-          // No other console method may be invoked for this single
-          // record. This is the "trace→debug mapping" guarantee:
-          // a record at level `trace` MUST land on `console.debug`
-          // and not on `console.trace` (which the production sink
-          // does not use).
-          for (const method of CONSOLE_METHODS) {
-            if (method === expectedMethod) {
-              continue;
-            }
+            // ----- OutputChannel side -----
+            const channelLines = getCapturedLines();
             assert.strictEqual(
-              spy.capture[method].length,
-              0,
-              `console.${method} must not be called for level=${level} (which maps to console.${expectedMethod}); got ${spy.capture[method].length} extra calls`
+              channelLines.length,
+              1,
+              `expected exactly one OutputChannel block for level=${level}; got ${channelLines.length} (lines=${JSON.stringify(channelLines)})`
             );
-          }
+            const channelBlock = channelLines[0];
 
-          // The headline property: byte-identity. Both sinks call
-          // `formatRecord(record)` on the same sanitized record, so
-          // the rendered strings MUST be identical. A diff here
-          // means the rendering pipeline has split between sinks.
-          assert.strictEqual(
-            expectedCalls[0],
-            channelBlock,
-            `console.${expectedMethod} arg must equal OutputChannel block byte-for-byte\n--- console (${expectedCalls[0].length} chars) ---\n${expectedCalls[0]}\n--- channel (${channelBlock.length} chars) ---\n${channelBlock}`
-          );
-        } finally {
-          spy.restore();
+            // ----- Console side -----
+            const expectedMethod = LEVEL_TO_CONSOLE_METHOD[level];
+            const expectedCalls = spy.capture[expectedMethod];
+
+            assert.strictEqual(
+              expectedCalls.length,
+              1,
+              `expected exactly one console.${expectedMethod} call for level=${level}; got ${expectedCalls.length}`
+            );
+
+            // No other console method may be invoked for this single
+            // record. This is the "trace→debug mapping" guarantee:
+            // a record at level `trace` MUST land on `console.debug`
+            // and not on `console.trace` (which the production sink
+            // does not use).
+            for (const method of CONSOLE_METHODS) {
+              if (method === expectedMethod) {
+                continue;
+              }
+              assert.strictEqual(
+                spy.capture[method].length,
+                0,
+                `console.${method} must not be called for level=${level} (which maps to console.${expectedMethod}); got ${spy.capture[method].length} extra calls`
+              );
+            }
+
+            // The headline property: byte-identity. Both sinks call
+            // `formatRecord(record)` on the same sanitized record, so
+            // the rendered strings MUST be identical. A diff here
+            // means the rendering pipeline has split between sinks.
+            assert.strictEqual(
+              expectedCalls[0],
+              channelBlock,
+              `console.${expectedMethod} arg must equal OutputChannel block byte-for-byte\n--- console (${expectedCalls[0].length} chars) ---\n${expectedCalls[0]}\n--- channel (${channelBlock.length} chars) ---\n${channelBlock}`
+            );
+          } finally {
+            spy.restore();
+          }
         }
-      }),
+      ),
       { numRuns: 100 }
     );
   });

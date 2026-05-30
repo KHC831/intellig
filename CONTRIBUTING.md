@@ -513,16 +513,55 @@ otherwise be unable to discover them via grep.
 
 ## Project Structure
 
+Source lives under `src/`, grouped into topical directories by feature
+area rather than one flat `services/` folder. Each topical directory
+owns its services, views, dialogs, and an `interfaces/` subfolder for
+the matching TypeScript interfaces. The `src/services/` folder is kept
+thin on purpose — only the public barrel and the DI composition root
+live there.
+
 ```
 src/
-├── commands/          # Command handlers (branch context menus, etc.)
-├── services/          # Core service implementations
-│   └── interfaces/    # TypeScript interfaces for all services
-├── utils/             # Shared utilities (git CLI, parsers, cache, graphs)
+├── git-core/          # Core git plumbing: GitService, RebaseService,
+│   ├── gitToolWindow/ #   the git tool window UI (tightly bound to IGitService),
+│   │   ├── html/      #   plus git-domain utils that used to live in utils/:
+│   │   └── tabs/      #   gitCli, gitParser, gitError, commitGraph,
+│   └── interfaces/    #   commitSort, optimizedCommitGraph, repoScan
+├── branches/          # Branch list / popup / context menu / comparison view
+│   └── interfaces/
+├── blame/             # Annotate-with-git-blame services + inline/gutter providers
+│   └── interfaces/
+├── commits/           # Commit dialog, commit tool window, commit-row context menu
+├── conflicts/         # Three-way merge view + conflict resolution
+│   └── interfaces/
+├── patches/           # Patch apply / create / shelf-import
+│   └── interfaces/
+├── changelists/       # Changelist storage + ops
+│   └── interfaces/
+├── shelf/             # Shelf and stash UI + services
+│   └── interfaces/
+├── rebase/            # Interactive rebase editor + progress view
+│   └── interfaces/
+├── sync/              # Pull / push / auto-fetch
+│   └── interfaces/
+├── ui-shell/          # Cross-cutting UI services and dialogs:
+│   └── interfaces/    #   GitToolWindowProvider (panel host), StatusBarService,
+│                      #   NotificationService, KeymapService, ConsoleService, ResetDialog
+├── config/            # ConfigurationService + interface
+│   └── interfaces/
+├── services/          # Kept thin: services barrel (index.ts) +
+│   └── interfaces/    #   ExtensionServices.ts (DI composition root);
+│                      #   interfaces/ re-exports from the topical locations above
+├── utils/             # Generic, domain-agnostic utilities (cache, atomic write,
+│   └── logger/        #   webview bases, graph renderer, etc.)
+│       └── sinks/     #   logger/ holds the structured logger subtree
 ├── extension.ts       # Extension entry point
 └── test/
     ├── mocks/         # VS Code API mock for testing outside Extension Host
     ├── unit/          # Unit tests (mocha + assert)
     ├── property/      # Property-based tests (mocha + fast-check)
+    ├── typed/         # Type-level tests
+    ├── ext-host/      # Extension Host smoke tests
+    ├── e2e/           # End-to-end suites
     └── suite/         # VS Code integration tests
 ```

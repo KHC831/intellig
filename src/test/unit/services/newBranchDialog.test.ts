@@ -26,18 +26,18 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import {
   NewBranchDialog,
   INewBranchDialogOptions,
   looksRemoteStartPoint,
   validateNewBranchName,
-} from '../../../services/NewBranchDialog';
+} from '../../../branches/NewBranchDialog';
 import {
   ICreateBranchOptions,
   IGitService,
   IRepository,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

@@ -230,11 +230,7 @@ describe('Logger invalid-threshold fallback (Property 6 / Task 4.6)', () => {
           // Warn for s1 first.
           writeLevel(s1);
           const r1 = resolver.refresh();
-          assert.strictEqual(
-            r1,
-            s1,
-            'precondition: refresh must report the first invalid value'
-          );
+          assert.strictEqual(r1, s1, 'precondition: refresh must report the first invalid value');
 
           // Different invalid value — must report.
           writeLevel(s2);

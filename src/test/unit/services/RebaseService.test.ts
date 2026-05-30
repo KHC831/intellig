@@ -1,12 +1,12 @@
 import * as assert from 'assert';
-import { RebaseService, createRebaseService } from '../../../services/RebaseService';
+import { RebaseService, createRebaseService } from '../../../git-core/RebaseService';
 import {
   IRebaseSession,
   IRebaseAction,
   RebaseAction,
-} from '../../../services/interfaces/IRebaseService';
-import { IRepository } from '../../../services/interfaces/IGitService';
-import { GitCli, IGitCommandResult } from '../../../utils/gitCli';
+} from '../../../git-core/interfaces/IRebaseService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
+import { GitCli, IGitCommandResult } from '../../../git-core/gitCli';
 import * as vscode from 'vscode';
 
 /**
@@ -892,7 +892,7 @@ describe('RebaseService', () => {
         const fs = await import('fs');
         const path = await import('path');
         const src = fs.readFileSync(
-          path.join(process.cwd(), 'src/services/interfaces/IRebaseService.ts'),
+          path.join(process.cwd(), 'src/git-core/interfaces/IRebaseService.ts'),
           'utf8'
         );
         assert.ok(

@@ -25,14 +25,14 @@
 import '../../setup';
 import * as assert from 'assert';
 import { Uri } from '../../mocks/vscode';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import type { IRebaseService } from '../../../services/interfaces/IRebaseService';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { IRebaseService } from '../../../git-core/interfaces/IRebaseService';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
-} from '../../../services/GitToolWindowProvider';
-import type { GitCli } from '../../../utils/gitCli';
+} from '../../../ui-shell/GitToolWindowProvider';
+import type { GitCli } from '../../../git-core/gitCli';
 import { createMockGitService as createSharedMockGitService } from '../../mocks/mockGitService';
 
 interface OrderedCall {

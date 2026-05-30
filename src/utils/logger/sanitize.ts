@@ -53,7 +53,7 @@
  * `LogRecord.error` field (Requirement 4.4).
  */
 
-import { sanitizeGitError } from '../gitError';
+import { sanitizeGitError } from '../../git-core/gitError';
 import type { JsonValue, LogRecord } from './sinks/types';
 
 /**
@@ -170,6 +170,21 @@ export function sanitizeRecord(record: LogRecord): SanitizeResult {
 }
 
 /**
+ * Narrowing guard for the array arm of the `JsonValue` union.
+ *
+ * `Array.isArray` is typed as `(arg: unknown) => arg is any[]`, so it
+ * narrows a `JsonValue` (whose array member is a *readonly* array) down
+ * to `any[]` rather than `readonly JsonValue[]`. That stray `any`
+ * propagates to the loop variable and trips
+ * `@typescript-eslint/no-unsafe-argument` at the recursive call. This
+ * guard re-states the intended narrowing so the array branch stays
+ * fully typed without a cast or an eslint-disable.
+ */
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
+/**
  * Sanitize a single string leaf via the ADR-005-pinned helper.
  *
  * Extracted so the recursive walker has a single seam to delegate
@@ -191,7 +206,7 @@ function sanitizeString(value: string): string {
  */
 function sanitizeContextRoot(
   context: { readonly [key: string]: JsonValue | undefined },
-  visited: WeakSet<object>,
+  visited: WeakSet<object>
 ): { readonly [key: string]: JsonValue | undefined } {
   if (context === null || typeof context !== 'object' || Array.isArray(context)) {
     return {};
@@ -226,7 +241,7 @@ function sanitizeJsonValue(value: JsonValue, visited: WeakSet<object>): JsonValu
   if (value === null || typeof value === 'number' || typeof value === 'boolean') {
     return value;
   }
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     if (visited.has(value)) {
       return CIRCULAR_MARKER;
     }

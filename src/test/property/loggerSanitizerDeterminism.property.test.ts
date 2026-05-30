@@ -151,7 +151,7 @@ const jsonValueArb: fc.Arbitrary<JsonValue> = fc.letrec((tie) => ({
     tie('array') as fc.Arbitrary<JsonValue>,
     tie('object') as fc.Arbitrary<JsonValue>
   ),
-})).value as fc.Arbitrary<JsonValue>;
+})).value;
 
 /**
  * Top-level `context` map: dictionary of string keys to
@@ -426,13 +426,7 @@ describe('Property 9 — Sanitizer determinism / idempotence (task 4.9)', () => 
           win: 'C:\\Users\\carol\\dev\\thing.ts',
           winSlash: 'C:/Users/dave/dev/thing.ts',
         },
-        list: [
-          'https://x:y@example.com',
-          '/Users/alice/x',
-          42,
-          true,
-          null,
-        ] satisfies JsonValue[],
+        list: ['https://x:y@example.com', '/Users/alice/x', 42, true, null] satisfies JsonValue[],
       },
       correlationId: 'abcdef0123456789',
       error: {

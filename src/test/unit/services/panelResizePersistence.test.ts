@@ -9,9 +9,9 @@
  * - _getThreePanelHtmlContent() using persisted widths as defaults
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
 import { Uri, Webview, Memento } from '../../mocks/vscode';
 
 /**

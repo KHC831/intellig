@@ -1,12 +1,12 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit, IAuthor } from '../../services/interfaces/IGitService';
+import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
 import {
   generateCommitGraph,
   ICommitNode,
   isMergeCommit,
   isRootCommit,
-} from '../../utils/commitGraph';
+} from '../../git-core/commitGraph';
 
 /**
  * Property-based tests for Log Graph Accuracy.

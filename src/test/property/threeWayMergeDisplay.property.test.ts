@@ -4,7 +4,7 @@ import {
   IMergeState,
   IConflictRegion,
   ConflictResolution,
-} from '../../services/interfaces/IMergeView';
+} from '../../conflicts/interfaces/IMergeView';
 
 /**
  * Property-based tests for Three-Way Merge Display.

@@ -21,8 +21,8 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { NewBranchDialog } from '../../../services/NewBranchDialog';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import { NewBranchDialog } from '../../../branches/NewBranchDialog';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 
 const EXT_ID = 'intellig-vscode.intellig';
 

@@ -176,7 +176,10 @@ describe('Logger hot-path short-circuit — Property 11 (Task 4.11)', () => {
         });
 
         const logger = getLogger();
-        (logger as unknown as LevelDispatchableLogger)[level]('off-threshold probe', ctx as Bindings);
+        (logger as unknown as LevelDispatchableLogger)[level](
+          'off-threshold probe',
+          ctx as Bindings
+        );
 
         assert.strictEqual(
           getterCalls,

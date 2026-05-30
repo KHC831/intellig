@@ -42,9 +42,9 @@
  */
 
 import * as assert from 'assert';
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import { Uri, getCreatedFileSystemWatchers, RelativePattern } from '../../mocks/vscode';
-import type { IRepository } from '../../../services/interfaces/IGitService';
+import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
 // ============================================================================
 // Fake-timer shim — same shape as gitServiceWatcher.test.ts. Kept local so

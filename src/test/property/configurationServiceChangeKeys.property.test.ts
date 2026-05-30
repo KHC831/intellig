@@ -90,26 +90,16 @@ import * as assert from 'assert';
 import * as fc from 'fast-check';
 import * as vscode from 'vscode';
 
-import {
-  ConfigurationService,
-  getDefaultConfiguration,
-} from '../../services/ConfigurationService';
-import type { IExtensionConfiguration } from '../../services/interfaces/IConfigurationService';
-import {
-  __resetLoggerForTest,
-  initLogger,
-} from '../../utils/logger';
+import { ConfigurationService, getDefaultConfiguration } from '../../config/ConfigurationService';
+import type { IExtensionConfiguration } from '../../config/interfaces/IConfigurationService';
+import { __resetLoggerForTest, initLogger } from '../../utils/logger';
 import { parseRecord } from '../../utils/logger/render';
 import {
   __resetOutputChannelForTest,
   getOutputChannel,
   initOutputChannel,
 } from '../../utils/outputChannel';
-import {
-  ConfigurationTarget,
-  resetMockConfiguration,
-  setMockConfigValue,
-} from '../mocks/vscode';
+import { ConfigurationTarget, resetMockConfiguration, setMockConfigValue } from '../mocks/vscode';
 
 // ─── Test fixtures and helpers ──────────────────────────────────────────────
 
@@ -247,9 +237,7 @@ const defaults = getDefaultConfiguration();
  */
 const safeStringArb: fc.Arbitrary<string> = fc
   .stringOf(
-    fc.constantFrom(
-      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')
-    ),
+    fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('')),
     { minLength: 5, maxLength: 16 }
   )
   .filter((s) => {
@@ -391,11 +379,9 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
     typedKey: 'defaultToolWindowTab',
     settingName: 'defaultToolWindowTab',
     valueArb: fc
-      .constantFrom<IExtensionConfiguration['defaultToolWindowTab']>(
-        'local-changes',
-        'log',
-        'console'
-      )
+      .constantFrom<
+        IExtensionConfiguration['defaultToolWindowTab']
+      >('local-changes', 'log', 'console')
       .filter((v) => v !== defaults.defaultToolWindowTab),
   } as IKnobDescriptor<'defaultToolWindowTab'>,
   {
@@ -483,12 +469,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
         // the production code emits at debug level) is admitted to
         // the OutputChannel sink. Apply BEFORE initLogger so the
         // resolver picks it up on the initial refresh.
-        setMockConfigValue(
-          'intellig',
-          'log.level',
-          'debug',
-          ConfigurationTarget.Global
-        );
+        setMockConfigValue('intellig', 'log.level', 'debug', ConfigurationTarget.Global);
 
         // Wire the production sinks against the mock channel.
         const ctx = makeFakeContext();
@@ -583,8 +564,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
           );
           assert.ok(
             (keys as readonly unknown[]).includes(knob.typedKey),
-            `expected context.keys to contain '${knob.typedKey}'; ` +
-              `got ${JSON.stringify(keys)}`
+            `expected context.keys to contain '${knob.typedKey}'; ` + `got ${JSON.stringify(keys)}`
           );
 
           // Structural pin: the change record's context MUST
@@ -595,9 +575,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
           // visible at the test boundary, even if the regression
           // happens to use a value that wouldn't show up in a
           // substring scan.
-          const ctxKeysActual = Object.keys(
-            record.context as Record<string, unknown>
-          ).sort();
+          const ctxKeysActual = Object.keys(record.context as Record<string, unknown>).sort();
           assert.deepStrictEqual(
             ctxKeysActual,
             ['keys'],

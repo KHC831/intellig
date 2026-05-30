@@ -10,8 +10,8 @@
  */
 
 import * as assert from 'assert';
-import { GitService } from '../../../services/GitService';
-import { IRepository, ICommitOptions } from '../../../services/interfaces/IGitService';
+import { GitService } from '../../../git-core/GitService';
+import { IRepository, ICommitOptions } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 // Mock GitCli for testing

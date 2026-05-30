@@ -25,7 +25,7 @@
  * signatures return `Promise<T>`; no-await stub bodies are intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
@@ -40,9 +40,9 @@ import {
   isProtectedTarget,
   PushDialog,
   runPushRow,
-} from '../../../services/PushDialog';
-import { IGitService, IPushOptions, IRepository } from '../../../services/interfaces/IGitService';
-import type { PullDialog } from '../../../services/PullDialog';
+} from '../../../sync/PushDialog';
+import { IGitService, IPushOptions, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { PullDialog } from '../../../sync/PullDialog';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────

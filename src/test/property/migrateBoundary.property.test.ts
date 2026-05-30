@@ -115,11 +115,7 @@ const ALLOWED_GUARD_SCRIPTS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Allowed directory prefixes (POSIX form, trailing `/`). */
-const ALLOWED_DIR_PREFIXES: readonly string[] = [
-  'src/',
-  'scripts/restructure/',
-  'docs/adr/',
-];
+const ALLOWED_DIR_PREFIXES: readonly string[] = ['src/', 'scripts/restructure/', 'docs/adr/'];
 
 /** Specifically denied exact-match repo-relative paths. */
 const SPECIFICALLY_DENIED_FILES: ReadonlySet<string> = new Set<string>([
@@ -130,13 +126,12 @@ const SPECIFICALLY_DENIED_FILES: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Specifically denied directory prefixes (POSIX form, trailing `/`). */
-const SPECIFICALLY_DENIED_PREFIXES: readonly string[] = [
-  'docs/parity/',
-  'media/',
-];
+const SPECIFICALLY_DENIED_PREFIXES: readonly string[] = ['docs/parity/', 'media/'];
 
 function toPosix(p: string): string {
-  if (path.sep === '/') return p;
+  if (path.sep === '/') {
+    return p;
+  }
   return p.split(path.sep).join('/');
 }
 
@@ -186,11 +181,15 @@ function isWriteAllowed(absPath: string, repoRoot: string): boolean {
 
   // 3) Allowed directory prefixes.
   for (const prefix of ALLOWED_DIR_PREFIXES) {
-    if (relPosix.startsWith(prefix)) return true;
+    if (relPosix.startsWith(prefix)) {
+      return true;
+    }
   }
 
   // 4) Allowed individual guard-script paths.
-  if (ALLOWED_GUARD_SCRIPTS.has(relPosix)) return true;
+  if (ALLOWED_GUARD_SCRIPTS.has(relPosix)) {
+    return true;
+  }
 
   // 5) Fall-through: outside allowed roots.
   return false;
@@ -237,9 +236,7 @@ const relativeSubpathArb: fc.Arbitrary<string> = fc
  */
 const deniedPrefixPathArb: fc.Arbitrary<string> = fc
   .tuple(fc.constantFrom(...SPECIFICALLY_DENIED_PREFIXES), relativeSubpathArb)
-  .chain(([prefix, sub]) =>
-    fc.constantFrom(prefix.slice(0, -1), prefix + sub)
-  );
+  .chain(([prefix, sub]) => fc.constantFrom(prefix.slice(0, -1), prefix + sub));
 
 /**
  * Repo-relative paths that should be rejected because they fall
@@ -262,7 +259,7 @@ const outsideRootsTopArb: fc.Arbitrary<string> = fc.constantFrom(
   'out',
   'build',
   'docs', // bare 'docs' is fine as long as it's not docs/adr/, docs/parity/
-  'scripts', // bare scripts/<other> is fine as long as not the 5 guard names or scripts/restructure/
+  'scripts' // bare scripts/<other> is fine as long as not the 5 guard names or scripts/restructure/
 );
 
 const outsideRootsPathArb: fc.Arbitrary<string> = fc
@@ -274,13 +271,21 @@ const outsideRootsPathArb: fc.Arbitrary<string> = fc
     // denied file. Such a value would still be a correct boundary
     // test but in a different branch — and we want this arbitrary
     // to exercise the fall-through specifically.
-    if (SPECIFICALLY_DENIED_FILES.has(p)) return false;
-    if (ALLOWED_GUARD_SCRIPTS.has(p)) return false;
+    if (SPECIFICALLY_DENIED_FILES.has(p)) {
+      return false;
+    }
+    if (ALLOWED_GUARD_SCRIPTS.has(p)) {
+      return false;
+    }
     for (const a of ALLOWED_DIR_PREFIXES) {
-      if (p.startsWith(a)) return false;
+      if (p.startsWith(a)) {
+        return false;
+      }
     }
     for (const d of SPECIFICALLY_DENIED_PREFIXES) {
-      if (p === d.slice(0, -1) || p.startsWith(d)) return false;
+      if (p === d.slice(0, -1) || p.startsWith(d)) {
+        return false;
+      }
     }
     return true;
   });
@@ -313,10 +318,7 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
     allPlanPaths = [...set].sort();
     // Sanity check on the fixture itself: a non-empty plan is
     // required for the property to be meaningful.
-    assert.ok(
-      allPlanPaths.length > 0,
-      'plan.json contains zero moves — fixture is broken',
-    );
+    assert.ok(allPlanPaths.length > 0, 'plan.json contains zero moves — fixture is broken');
   });
 
   // ─── 17a: allow-list completeness ─────────────────────────────────────────
@@ -333,13 +335,13 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
               `rejected by assertWriteAllowed. Every \`from\` and \`to\` ` +
               `path in scripts/restructure/plan.json must be a permitted ` +
               `write target — otherwise the migration script cannot ` +
-              `execute its own plan.`,
+              `execute its own plan.`
           );
         }),
         // Drive the property across every plan path. The plan has
         // ~200+ entries; numRuns=plan size lets fast-check pick each
         // value at least once with high probability.
-        { numRuns: allPlanPaths.length },
+        { numRuns: allPlanPaths.length }
       );
     });
 
@@ -356,7 +358,7 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
         'Requirement 12.6 violation: src/services/index.ts (the ' +
           'regenerated services barrel) was rejected by ' +
           'assertWriteAllowed. The barrel-regeneration phase in ' +
-          'migrate.mjs would fail to run.',
+          'migrate.mjs would fail to run.'
       );
     });
   });
@@ -376,10 +378,10 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
               `forbidden by Requirement 12.6 but was accepted by ` +
               `assertWriteAllowed. The migration script must never ` +
               `modify package.json, .mocharc.json, tsconfig.json, or ` +
-              `README.md.`,
+              `README.md.`
           );
         }),
-        { numRuns: denied.length },
+        { numRuns: denied.length }
       );
     });
 
@@ -392,10 +394,10 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
             false,
             `Requirement 12.6 violation: '${relPath}' lies under a ` +
               `specifically forbidden directory (docs/parity/ or ` +
-              `media/) but was accepted by assertWriteAllowed.`,
+              `media/) but was accepted by assertWriteAllowed.`
           );
         }),
-        { numRuns: 200 },
+        { numRuns: 200 }
       );
     });
 
@@ -415,7 +417,7 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
           isWriteAllowed(abs, REPO_ROOT),
           false,
           `Requirement 12.6 violation: '${ex}' is one of the named ` +
-            `forbidden files but was accepted by assertWriteAllowed.`,
+            `forbidden files but was accepted by assertWriteAllowed.`
         );
       }
     });
@@ -434,10 +436,10 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
             `Requirement 12.6 violation: '${relPath}' is outside ` +
               `the allowed write roots (src/, scripts/restructure/, ` +
               `docs/adr/, and the 5 permitted guard scripts) but was ` +
-              `accepted by assertWriteAllowed.`,
+              `accepted by assertWriteAllowed.`
           );
         }),
-        { numRuns: 300 },
+        { numRuns: 300 }
       );
     });
 
@@ -451,10 +453,10 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
             `Requirement 12.6 violation: loose repo-root file ` +
               `'${relPath}' was accepted by assertWriteAllowed. ` +
               `Only files under src/, scripts/restructure/, docs/adr/, ` +
-              `or the 5 permitted guard scripts may be written.`,
+              `or the 5 permitted guard scripts may be written.`
           );
         }),
-        { numRuns: 100 },
+        { numRuns: 100 }
       );
     });
 
@@ -477,10 +479,10 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
             false,
             `Requirement 12.6 violation: path '${abs}' lies outside ` +
               `the repo root '${REPO_ROOT}' but was accepted by ` +
-              `assertWriteAllowed.`,
+              `assertWriteAllowed.`
           );
         }),
-        { numRuns: 100 },
+        { numRuns: 100 }
       );
     });
 
@@ -508,7 +510,7 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
           isWriteAllowed(abs, REPO_ROOT),
           false,
           `Requirement 12.6 violation: '${ex}' is outside the allowed ` +
-            `write roots but was accepted by assertWriteAllowed.`,
+            `write roots but was accepted by assertWriteAllowed.`
         );
       }
     });
@@ -523,13 +525,13 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
           assert.ok(
             !guard.startsWith(denied),
             `Allow/deny conflict: guard script '${guard}' lies under ` +
-              `denied prefix '${denied}'.`,
+              `denied prefix '${denied}'.`
           );
         }
         assert.ok(
           !SPECIFICALLY_DENIED_FILES.has(guard),
           `Allow/deny conflict: guard script '${guard}' is also in ` +
-            `the specifically-denied files set.`,
+            `the specifically-denied files set.`
         );
       }
     });
@@ -539,8 +541,7 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
         for (const denied of SPECIFICALLY_DENIED_PREFIXES) {
           assert.ok(
             !allowed.startsWith(denied) && !denied.startsWith(allowed),
-            `Allow/deny conflict: prefixes '${allowed}' and '${denied}' ` +
-              `overlap.`,
+            `Allow/deny conflict: prefixes '${allowed}' and '${denied}' ` + `overlap.`
           );
         }
       }
@@ -549,10 +550,9 @@ describe('Migration boundary discipline (Property 17 / Requirement 12.6)', () =>
     it('every allowed guard-script is a path under scripts/ (sanity)', () => {
       for (const guard of ALLOWED_GUARD_SCRIPTS) {
         assert.ok(
-          guard.startsWith('scripts/') &&
-            !guard.startsWith('scripts/restructure/'),
+          guard.startsWith('scripts/') && !guard.startsWith('scripts/restructure/'),
           `Guard script '${guard}' must live directly under scripts/ ` +
-            `(scripts/restructure/ is covered by ALLOWED_DIR_PREFIXES).`,
+            `(scripts/restructure/ is covered by ALLOWED_DIR_PREFIXES).`
         );
       }
     });

@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ShelfView } from '../../../services/ShelfView';
+import { ShelfView } from '../../../shelf/ShelfView';
 import {
   IShelfService,
   IShelfItem,
@@ -28,8 +28,8 @@ import {
   IUnshelveOptions,
   IUnshelveResult,
   IImportPatchOptions,
-} from '../../../services/interfaces/IShelfService';
-import { IRepository, IDiff } from '../../../services/interfaces/IGitService';
+} from '../../../shelf/interfaces/IShelfService';
+import { IRepository, IDiff } from '../../../git-core/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
 import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
 import { __resetOutputChannelForTest, getOutputChannel } from '../../../utils/outputChannel';

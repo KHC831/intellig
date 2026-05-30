@@ -20,7 +20,7 @@ import {
   computeChildCountMap,
   isBranchSplit,
   getColumnColor,
-} from '../../utils/commitGraph';
+} from '../../git-core/commitGraph';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

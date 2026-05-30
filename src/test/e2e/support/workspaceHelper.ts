@@ -19,7 +19,7 @@
 import * as vscode from 'vscode';
 
 import { getServices } from '../../../extension';
-import type { IRepository } from '../../../services/interfaces/IGitService';
+import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
 const EXT_ID = 'intellig-vscode.intellig';
 

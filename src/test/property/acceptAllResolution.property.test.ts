@@ -1,8 +1,8 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { RepositoryState } from '../../services/interfaces/IGitService';
-import { IConflictResolutionResult } from '../../services/interfaces/IConflictResolutionService';
-import { IConflictRegion, ConflictResolution } from '../../services/interfaces/IMergeView';
+import { RepositoryState } from '../../git-core/interfaces/IGitService';
+import { IConflictResolutionResult } from '../../conflicts/interfaces/IConflictResolutionService';
+import { IConflictRegion, ConflictResolution } from '../../conflicts/interfaces/IMergeView';
 
 /**
  * Property-based tests for Accept All Resolution.

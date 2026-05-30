@@ -80,7 +80,7 @@
  *    "all bindings empty" cases — uninteresting for this property).
  */
 
-import '../../test/setup';
+import '../setup';
 import * as assert from 'assert';
 import * as fc from 'fast-check';
 import * as vscode from 'vscode';

@@ -189,8 +189,7 @@ export class LogLevelResolver {
       this._threshold = DEFAULT_THRESHOLD;
     } else {
       this._threshold = DEFAULT_THRESHOLD;
-      const invalidKey =
-        typeof rawLevel === 'string' ? rawLevel : JSON.stringify(rawLevel);
+      const invalidKey = typeof rawLevel === 'string' ? rawLevel : JSON.stringify(rawLevel);
       if (!this._invalidLevelWarned.has(invalidKey)) {
         this._invalidLevelWarned.add(invalidKey);
         invalidToWarn = invalidKey;

@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit, IAuthor, IBranchComparison } from '../../services/interfaces/IGitService';
+import { ICommit, IAuthor, IBranchComparison } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Branch Comparison Accuracy.

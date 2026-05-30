@@ -21,16 +21,16 @@
  * signatures return `Promise<T>`; no-await stub bodies are intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { createBranchComparisonView } from '../../../services/BranchComparisonView';
+import { createBranchComparisonView } from '../../../branches/BranchComparisonView';
 import {
   IGitService,
   IRepository,
   IBranchComparison,
   ICommit,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 function makeRepo(): IRepository {

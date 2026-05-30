@@ -12,10 +12,10 @@ import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { clampPanelWidths, savePanelWidths, loadPanelWidths } from '../../utils/panelLayout';
-import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../services/interfaces';
-import { FileStatus } from '../../services/interfaces/IGitService';
-import { ICommitNode } from '../../utils/commitGraph';
+import { FileStatus } from '../../git-core/interfaces/IGitService';
+import { ICommitNode } from '../../git-core/commitGraph';
 import { Uri, Webview } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ function arbitraryShortHash(): fc.Arbitrary<string> {
 /**
  * Generate a valid ICommit.
  */
-function arbitraryCommit(): fc.Arbitrary<import('../../services/interfaces/IGitService').ICommit> {
+function arbitraryCommit(): fc.Arbitrary<import('../../git-core/interfaces/IGitService').ICommit> {
   return fc.record({
     hash: arbitraryFullHash(),
     shortHash: arbitraryShortHash(),

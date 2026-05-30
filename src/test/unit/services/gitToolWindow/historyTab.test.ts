@@ -13,7 +13,7 @@
  * signatures return `Promise<T>`; no-await stub bodies are intentional here.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { EventEmitter, Uri } from '../../../mocks/vscode';
@@ -24,7 +24,7 @@ import type {
   IGitService,
   IFileHistoryOptions,
   IRepository,
-} from '../../../../services/interfaces/IGitService';
+} from '../../../../git-core/interfaces/IGitService';
 import {
   HistoryTab,
   NO_FILE_LOADED_MESSAGE,
@@ -34,8 +34,8 @@ import {
   createInitialHistoryTabState,
   reduceHistoryState,
   type IHistoryTabState,
-} from '../../../../services/gitToolWindow/tabs/HistoryTab';
-import type { IWebviewTabMessage } from '../../../../services/gitToolWindow/tabRouter';
+} from '../../../../git-core/gitToolWindow/tabs/HistoryTab';
+import type { IWebviewTabMessage } from '../../../../git-core/gitToolWindow/tabRouter';
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 

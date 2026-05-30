@@ -15,9 +15,9 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../mocks/vscode';
-import { IRepository } from '../../services/interfaces/IGitService';
+import { IRepository } from '../../git-core/interfaces/IGitService';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

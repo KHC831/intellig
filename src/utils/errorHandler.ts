@@ -3,7 +3,7 @@
  * Provides error categorization, user-friendly messages, and recovery suggestions.
  */
 
-import { GitCommandError } from './gitCli';
+import { GitCommandError } from '../git-core/gitCli';
 
 /**
  * Categories of Git errors for appropriate handling

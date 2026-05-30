@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit, IAuthor, IRepository, ILogOptions } from '../../services/interfaces/IGitService';
+import { ICommit, IAuthor, IRepository, ILogOptions } from '../../git-core/interfaces/IGitService';
 import * as vscode from 'vscode';
 
 /**

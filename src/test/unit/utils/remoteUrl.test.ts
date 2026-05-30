@@ -2,7 +2,7 @@
  * Unit tests for T3-09 remote-URL parser + hosting-link builders.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import { parseRemoteUrl, detectProvider, IRemoteUrl } from '../../../utils/remoteUrl';
 import {

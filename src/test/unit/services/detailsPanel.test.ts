@@ -2,15 +2,15 @@
  * Unit tests for _getDetailsPanelHtml() method in GitToolWindowProvider.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import {
   GitToolWindowProvider,
   INTELLIJ_FILE_STATUS_COLORS,
   FILE_STATUS_THEME_VARS,
-} from '../../../services/GitToolWindowProvider';
+} from '../../../ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../../services/interfaces';
-import { IRepository } from '../../../services/interfaces/IGitService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
 import { Uri, setMockConfigValue } from '../../mocks/vscode';
 
 /**

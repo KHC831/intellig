@@ -6,7 +6,7 @@
  * including pass-through lanes and inter-row connections.
  */
 
-import { ICommitNode, getMaxGraphColumn, getColumnColor } from './commitGraph';
+import { ICommitNode, getMaxGraphColumn, getColumnColor } from '../git-core/commitGraph';
 
 /**
  * Configuration for graph rendering dimensions and styling.

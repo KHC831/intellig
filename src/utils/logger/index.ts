@@ -48,11 +48,7 @@
 export { getLogger, initLogger, __resetLoggerForTest } from './logger';
 export type { Logger, Bindings } from './logger';
 
-export {
-  registerLoggedCommand,
-  getCurrentCorrelationId,
-  getCurrentCommandId,
-} from './correlation';
+export { registerLoggedCommand, getCurrentCorrelationId, getCurrentCommandId } from './correlation';
 
 export type { LogLevel, LogThreshold } from './levels';
 

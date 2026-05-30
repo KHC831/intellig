@@ -10,9 +10,9 @@
  *      behavior is symmetric.
  */
 import * as assert from 'assert';
-import { KeymapService, resolveKeymap, validatePreset } from '../../../services/KeymapService';
-import { ConfigurationService } from '../../../services/ConfigurationService';
-import { KeymapPreset } from '../../../services/interfaces/IKeymapService';
+import { KeymapService, resolveKeymap, validatePreset } from '../../../ui-shell/KeymapService';
+import { ConfigurationService } from '../../../config/ConfigurationService';
+import { KeymapPreset } from '../../../ui-shell/interfaces/IKeymapService';
 import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 describe('KeymapService — keymapPreset migration', () => {

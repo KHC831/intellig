@@ -98,7 +98,7 @@ describe('ext-host smoke — 9. logger activation', function () {
     assert.strictEqual(
       typeof channel.appendLine,
       'function',
-      'channel.appendLine is not callable — channel object shape is wrong',
+      'channel.appendLine is not callable — channel object shape is wrong'
     );
 
     // The channel is named `IntelliG` (see `src/utils/outputChannel.ts`).
@@ -108,7 +108,7 @@ describe('ext-host smoke — 9. logger activation', function () {
       assert.strictEqual(
         (channel as { name: string }).name,
         'IntelliG',
-        'OutputChannel name drifted from the documented "IntelliG" singleton',
+        'OutputChannel name drifted from the documented "IntelliG" singleton'
       );
     }
   });
@@ -159,7 +159,7 @@ describe('ext-host smoke — 9. logger activation', function () {
         `Logger marker did not reach the IntelliG OutputChannel — Logger is not registered. ` +
           `Captured ${captured.length} appendLine call(s); none contained the marker "${marker}". ` +
           `Either initLogger(context) was skipped, OutputChannelSink is not in _sinks, or the sink ` +
-          `is attached to a non-singleton channel.`,
+          `is attached to a non-singleton channel.`
       );
 
       // Sanity-check the rendered shape so a future grammar
@@ -168,11 +168,11 @@ describe('ext-host smoke — 9. logger activation', function () {
       const matchedLine = matches[0];
       assert.ok(
         matchedLine.includes('INFO'),
-        `Captured marker line missing 'INFO' level token: ${JSON.stringify(matchedLine)}`,
+        `Captured marker line missing 'INFO' level token: ${JSON.stringify(matchedLine)}`
       );
       assert.ok(
         matchedLine.includes('root'),
-        `Captured marker line missing 'root' component (default for getLogger() with no child): ${JSON.stringify(matchedLine)}`,
+        `Captured marker line missing 'root' component (default for getLogger() with no child): ${JSON.stringify(matchedLine)}`
       );
     } finally {
       // Restore the original method. Skipping this would pollute
@@ -225,7 +225,7 @@ describe('ext-host smoke — 9. logger activation', function () {
     // eslint-disable-next-line no-console
     console.log(
       `[logger activation budget] ${ACTIVATION_BURST_RECORDS} info records emitted in ` +
-        `${elapsedMs.toFixed(3)}ms (budget: ${ACTIVATION_LOGGER_BUDGET_MS}ms)`,
+        `${elapsedMs.toFixed(3)}ms (budget: ${ACTIVATION_LOGGER_BUDGET_MS}ms)`
     );
 
     assert.ok(
@@ -234,7 +234,7 @@ describe('ext-host smoke — 9. logger activation', function () {
         `${elapsedMs.toFixed(3)}ms over ${ACTIVATION_BURST_RECORDS} info records ` +
         `(budget ${ACTIVATION_LOGGER_BUDGET_MS}ms). ` +
         `Requirement 7.5 caps activation overhead at ${ACTIVATION_LOGGER_BUDGET_MS}ms; ` +
-        `something on the hot path is allocating or sanitizing more than expected.`,
+        `something on the hot path is allocating or sanitizing more than expected.`
     );
   });
 });

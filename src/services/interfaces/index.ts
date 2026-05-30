@@ -4,64 +4,64 @@
  */
 
 // Git Service
-export * from './IGitService';
+export * from '../../git-core/interfaces/IGitService';
 
 // Changelist Service
-export * from './IChangelistService';
+export * from '../../changelists/interfaces/IChangelistService';
 
 // Shelf Service
-export * from './IShelfService';
+export * from '../../shelf/interfaces/IShelfService';
 
 // Rebase Service
-export * from './IRebaseService';
+export * from '../../git-core/interfaces/IRebaseService';
 
 // Blame Service
-export * from './IBlameService';
+export * from '../../blame/interfaces/IBlameService';
 
 // Configuration Service
-export * from './IConfigurationService';
+export * from '../../config/interfaces/IConfigurationService';
 
 // Git Tool Window Provider
-export * from './IGitToolWindowProvider';
+export * from '../../git-core/interfaces/IGitToolWindowProvider';
 
 // Console Service
-export * from './IConsoleService';
+export * from '../../ui-shell/interfaces/IConsoleService';
 
 // Merge View
-export * from './IMergeView';
+export * from '../../conflicts/interfaces/IMergeView';
 
 // Conflict Resolution Service
-export * from './IConflictResolutionService';
+export * from '../../conflicts/interfaces/IConflictResolutionService';
 
 // Rebase Editor
-export * from './IRebaseEditor';
+export * from '../../rebase/interfaces/IRebaseEditor';
 
 // Stash View
-export * from './IStashView';
+export * from '../../shelf/interfaces/IStashView';
 
 // Shelf View
-export * from './IShelfView';
+export * from '../../shelf/interfaces/IShelfView';
 
 // Inline Blame Provider
-export * from './IInlineBlameProvider';
+export * from '../../blame/interfaces/IInlineBlameProvider';
 
 // Gutter Blame Provider
-export * from './IGutterBlameProvider';
+export * from '../../blame/interfaces/IGutterBlameProvider';
 
 // Branch Comparison View
-export * from './IBranchComparisonView';
+export * from '../../branches/interfaces/IBranchComparisonView';
 
 // Status Bar Service
-export * from './IStatusBarService';
+export * from '../../ui-shell/interfaces/IStatusBarService';
 
 // Notification Service
-export * from './INotificationService';
+export * from '../../ui-shell/interfaces/INotificationService';
 
 // Keymap Service
-export * from './IKeymapService';
+export * from '../../ui-shell/interfaces/IKeymapService';
 
 // Auto-Fetch Service
-export * from './IAutoFetchService';
+export * from '../../sync/interfaces/IAutoFetchService';
 
 // Patch Service
-export * from './IPatchService';
+export * from '../../patches/interfaces/IPatchService';

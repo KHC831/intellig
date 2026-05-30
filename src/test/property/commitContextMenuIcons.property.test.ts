@@ -13,9 +13,9 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
-import { ICommitNode, IGraphLine } from '../../utils/commitGraph';
-import { ICommit, IAuthor } from '../../services/interfaces/IGitService';
+import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
+import { ICommitNode, IGraphLine } from '../../git-core/commitGraph';
+import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────

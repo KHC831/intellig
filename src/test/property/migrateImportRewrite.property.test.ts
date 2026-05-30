@@ -99,7 +99,9 @@ function loadPlan(): IPlan {
  * Mirrors `toPosix` in migrate.mjs.
  */
 function toPosix(p: string): string {
-  if (path.sep === '/') return p;
+  if (path.sep === '/') {
+    return p;
+  }
   return p.split(path.sep).join('/');
 }
 
@@ -117,17 +119,27 @@ function probeFromKey(
   fromSetPosix: ReadonlyMap<string, string>
 ): string | undefined {
   // 1) literal match (specifier already has an extension, e.g. './foo.ts')
-  if (fromSetPosix.has(candidateAbsPosix)) return candidateAbsPosix;
+  if (fromSetPosix.has(candidateAbsPosix)) {
+    return candidateAbsPosix;
+  }
   // 2) extensionless → try .ts / .tsx
   const withTs = candidateAbsPosix + '.ts';
-  if (fromSetPosix.has(withTs)) return withTs;
+  if (fromSetPosix.has(withTs)) {
+    return withTs;
+  }
   const withTsx = candidateAbsPosix + '.tsx';
-  if (fromSetPosix.has(withTsx)) return withTsx;
+  if (fromSetPosix.has(withTsx)) {
+    return withTsx;
+  }
   // 3) directory → try /index.ts / /index.tsx
   const indexTs = candidateAbsPosix + '/index.ts';
-  if (fromSetPosix.has(indexTs)) return indexTs;
+  if (fromSetPosix.has(indexTs)) {
+    return indexTs;
+  }
   const indexTsx = candidateAbsPosix + '/index.tsx';
-  if (fromSetPosix.has(indexTsx)) return indexTsx;
+  if (fromSetPosix.has(indexTsx)) {
+    return indexTsx;
+  }
   return undefined;
 }
 
@@ -162,8 +174,7 @@ function computeNewSpecifier(
     toLogical = toLogical.slice(0, -'/index'.length);
   }
 
-  const isRelative =
-    originalSpecifier.startsWith('./') || originalSpecifier.startsWith('../');
+  const isRelative = originalSpecifier.startsWith('./') || originalSpecifier.startsWith('../');
 
   let result: string;
   if (isRelative) {
@@ -193,10 +204,7 @@ function computeNewSpecifier(
  * representable as plain strings.
  */
 const tsFileNameArb = fc
-  .tuple(
-    fc.stringMatching(/^[a-z][a-z0-9]{0,7}$/),
-    fc.constantFrom('.ts', '.tsx')
-  )
+  .tuple(fc.stringMatching(/^[a-z][a-z0-9]{0,7}$/), fc.constantFrom('.ts', '.tsx'))
   .map(([base, ext]) => `${base}${ext}`);
 
 /**
@@ -299,12 +307,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
           // had a relative prefix.
           const sourceDirAbs = abs(sourceDirRel);
           const toAbs = abs(move.to);
-          const result = computeNewSpecifier(
-            original,
-            sourceDirAbs,
-            toAbs,
-            SYNTHETIC_REPO_ROOT
-          );
+          const result = computeNewSpecifier(original, sourceDirAbs, toAbs, SYNTHETIC_REPO_ROOT);
 
           assert.ok(
             result.startsWith('./') || result.startsWith('../'),
@@ -342,12 +345,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
 
           const sourceDirAbs = abs(sourceDirRel);
           const toAbs = abs(move.to);
-          const result = computeNewSpecifier(
-            original,
-            sourceDirAbs,
-            toAbs,
-            SYNTHETIC_REPO_ROOT
-          );
+          const result = computeNewSpecifier(original, sourceDirAbs, toAbs, SYNTHETIC_REPO_ROOT);
 
           assert.ok(
             !result.startsWith('./') && !result.startsWith('../'),
@@ -389,12 +387,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
 
           const sourceDirAbs = abs('src/services');
           const toAbs = abs(move.to);
-          const result = computeNewSpecifier(
-            original,
-            sourceDirAbs,
-            toAbs,
-            SYNTHETIC_REPO_ROOT
-          );
+          const result = computeNewSpecifier(original, sourceDirAbs, toAbs, SYNTHETIC_REPO_ROOT);
 
           assert.ok(
             result.endsWith(ext),
@@ -424,12 +417,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
         (move, original) => {
           const sourceDirAbs = abs('src/services');
           const toAbs = abs(move.to);
-          const result = computeNewSpecifier(
-            original,
-            sourceDirAbs,
-            toAbs,
-            SYNTHETIC_REPO_ROOT
-          );
+          const result = computeNewSpecifier(original, sourceDirAbs, toAbs, SYNTHETIC_REPO_ROOT);
 
           assert.ok(
             !/\.(js|ts|tsx)$/.test(result),
@@ -467,97 +455,87 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
    */
   it('Property 16c: rewritten relative specifiers resolve to the new target from the source file post-migration directory', () => {
     fc.assert(
-      fc.property(
-        planMoveArb,
-        planMoveArb,
-        (sourceMove, targetMove) => {
-          // The source file moves along with the plan: its FROM dir
-          // is `dirname(sourceMove.from)` (where the unchanged
-          // specifier was authored), its TO dir is
-          // `dirname(sourceMove.to)` (where the rewritten
-          // specifier must resolve correctly).
-          //
-          // The target is a different plan entry whose `from` we'll
-          // import via a relative specifier from the source FROM dir.
-          if (sourceMove.from === targetMove.from) return; // skip same-entry case
-          if (sourceMove.to === targetMove.to) return;
-
-          const sourceFromAbs = abs(sourceMove.from);
-          const sourceToAbs = abs(sourceMove.to);
-          const targetFromAbs = abs(targetMove.from);
-          const targetToAbs = abs(targetMove.to);
-
-          const sourceFromDir = sourceFromAbs.substring(
-            0,
-            sourceFromAbs.lastIndexOf('/')
-          );
-          const sourceToDir = sourceToAbs.substring(
-            0,
-            sourceToAbs.lastIndexOf('/')
-          );
-
-          // Build the original relative specifier that, joined to
-          // the source's FROM dir, resolves to the target's FROM
-          // (extensionless logical form). This mirrors how a real
-          // import statement in the pre-change tree would be written.
-          const relToTarget = toPosix(
-            path.relative(sourceFromDir, toLogical(targetFromAbs))
-          );
-          const original = relToTarget.startsWith('.')
-            ? relToTarget
-            : './' + relToTarget;
-
-          // Sanity-check the input setup: the original specifier
-          // should resolve back to the target's FROM logical form
-          // when joined to the source's FROM dir (Node module
-          // resolution, extensionless).
-          const originalResolved = toPosix(path.resolve(sourceFromDir, original));
-          assert.strictEqual(
-            originalResolved,
-            toLogical(targetFromAbs),
-            `Test setup error: original specifier '${original}' did ` +
-              `not resolve to target FROM logical form ` +
-              `('${toLogical(targetFromAbs)}')`
-          );
-
-          // Confirm the algorithm would match this resolution
-          // against the plan map. probeFromKey expects an
-          // extensionless absolute path keyed in the forward map.
-          const forwardMap = new Map<string, string>();
-          forwardMap.set(targetFromAbs, targetToAbs);
-          const matched = probeFromKey(originalResolved, forwardMap);
-          assert.strictEqual(
-            matched,
-            targetFromAbs,
-            'probeFromKey did not match the synthetic target FROM key'
-          );
-
-          // Run the rewriter from the source's POST-migration dir
-          // (the algorithm's contract; matches `toDirPosix` in
-          // migrate.mjs's `rewriteImports`).
-          const rewritten = computeNewSpecifier(
-            original,
-            sourceToDir,
-            targetToAbs,
-            SYNTHETIC_REPO_ROOT
-          );
-
-          // Resolve the rewritten specifier against the source's
-          // POST-migration dir. It MUST equal the target's TO
-          // logical form (extensionless + /index-collapsed).
-          const rewrittenResolved = toPosix(path.resolve(sourceToDir, rewritten));
-          assert.strictEqual(
-            rewrittenResolved,
-            toLogical(targetToAbs),
-            `Property 16c violation: rewritten specifier ` +
-              `'${rewritten}' (from original '${original}') ` +
-              `resolved to '${rewrittenResolved}' instead of ` +
-              `'${toLogical(targetToAbs)}'. ` +
-              `sourceMove: ${sourceMove.from} → ${sourceMove.to}, ` +
-              `targetMove: ${targetMove.from} → ${targetMove.to}`
-          );
+      fc.property(planMoveArb, planMoveArb, (sourceMove, targetMove) => {
+        // The source file moves along with the plan: its FROM dir
+        // is `dirname(sourceMove.from)` (where the unchanged
+        // specifier was authored), its TO dir is
+        // `dirname(sourceMove.to)` (where the rewritten
+        // specifier must resolve correctly).
+        //
+        // The target is a different plan entry whose `from` we'll
+        // import via a relative specifier from the source FROM dir.
+        if (sourceMove.from === targetMove.from) {
+          return;
+        } // skip same-entry case
+        if (sourceMove.to === targetMove.to) {
+          return;
         }
-      ),
+
+        const sourceFromAbs = abs(sourceMove.from);
+        const sourceToAbs = abs(sourceMove.to);
+        const targetFromAbs = abs(targetMove.from);
+        const targetToAbs = abs(targetMove.to);
+
+        const sourceFromDir = sourceFromAbs.substring(0, sourceFromAbs.lastIndexOf('/'));
+        const sourceToDir = sourceToAbs.substring(0, sourceToAbs.lastIndexOf('/'));
+
+        // Build the original relative specifier that, joined to
+        // the source's FROM dir, resolves to the target's FROM
+        // (extensionless logical form). This mirrors how a real
+        // import statement in the pre-change tree would be written.
+        const relToTarget = toPosix(path.relative(sourceFromDir, toLogical(targetFromAbs)));
+        const original = relToTarget.startsWith('.') ? relToTarget : './' + relToTarget;
+
+        // Sanity-check the input setup: the original specifier
+        // should resolve back to the target's FROM logical form
+        // when joined to the source's FROM dir (Node module
+        // resolution, extensionless).
+        const originalResolved = toPosix(path.resolve(sourceFromDir, original));
+        assert.strictEqual(
+          originalResolved,
+          toLogical(targetFromAbs),
+          `Test setup error: original specifier '${original}' did ` +
+            `not resolve to target FROM logical form ` +
+            `('${toLogical(targetFromAbs)}')`
+        );
+
+        // Confirm the algorithm would match this resolution
+        // against the plan map. probeFromKey expects an
+        // extensionless absolute path keyed in the forward map.
+        const forwardMap = new Map<string, string>();
+        forwardMap.set(targetFromAbs, targetToAbs);
+        const matched = probeFromKey(originalResolved, forwardMap);
+        assert.strictEqual(
+          matched,
+          targetFromAbs,
+          'probeFromKey did not match the synthetic target FROM key'
+        );
+
+        // Run the rewriter from the source's POST-migration dir
+        // (the algorithm's contract; matches `toDirPosix` in
+        // migrate.mjs's `rewriteImports`).
+        const rewritten = computeNewSpecifier(
+          original,
+          sourceToDir,
+          targetToAbs,
+          SYNTHETIC_REPO_ROOT
+        );
+
+        // Resolve the rewritten specifier against the source's
+        // POST-migration dir. It MUST equal the target's TO
+        // logical form (extensionless + /index-collapsed).
+        const rewrittenResolved = toPosix(path.resolve(sourceToDir, rewritten));
+        assert.strictEqual(
+          rewrittenResolved,
+          toLogical(targetToAbs),
+          `Property 16c violation: rewritten specifier ` +
+            `'${rewritten}' (from original '${original}') ` +
+            `resolved to '${rewrittenResolved}' instead of ` +
+            `'${toLogical(targetToAbs)}'. ` +
+            `sourceMove: ${sourceMove.from} → ${sourceMove.to}, ` +
+            `targetMove: ${targetMove.from} → ${targetMove.to}`
+        );
+      }),
       { numRuns: 300 }
     );
   });
@@ -583,12 +561,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
         // algorithm ignores it); pass any in-tree dir.
         const sourceDirAbs = abs('src/services');
         const toAbs = abs(move.to);
-        const result = computeNewSpecifier(
-          original,
-          sourceDirAbs,
-          toAbs,
-          SYNTHETIC_REPO_ROOT
-        );
+        const result = computeNewSpecifier(original, sourceDirAbs, toAbs, SYNTHETIC_REPO_ROOT);
 
         // Bare-prefix output prepended with `<repoRoot>/` must
         // equal the target's TO logical form.
@@ -635,48 +608,25 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
           fc.constantFrom(...nonIdentity),
           fc.constantFrom(...nonIdentity),
           (sourceMove, targetMove) => {
-            if (sourceMove.from === targetMove.from) return;
-            if (sourceMove.to === targetMove.to) return;
+            if (sourceMove.from === targetMove.from) {
+              return;
+            }
+            if (sourceMove.to === targetMove.to) {
+              return;
+            }
 
-            const sourceFromAbs = path.posix.join(
-              toPosix(REPO_ROOT),
-              sourceMove.from
-            );
-            const sourceToAbs = path.posix.join(
-              toPosix(REPO_ROOT),
-              sourceMove.to
-            );
-            const targetFromAbs = path.posix.join(
-              toPosix(REPO_ROOT),
-              targetMove.from
-            );
-            const targetToAbs = path.posix.join(
-              toPosix(REPO_ROOT),
-              targetMove.to
-            );
+            const sourceFromAbs = path.posix.join(toPosix(REPO_ROOT), sourceMove.from);
+            const sourceToAbs = path.posix.join(toPosix(REPO_ROOT), sourceMove.to);
+            const targetFromAbs = path.posix.join(toPosix(REPO_ROOT), targetMove.from);
+            const targetToAbs = path.posix.join(toPosix(REPO_ROOT), targetMove.to);
 
-            const sourceFromDir = sourceFromAbs.substring(
-              0,
-              sourceFromAbs.lastIndexOf('/')
-            );
-            const sourceToDir = sourceToAbs.substring(
-              0,
-              sourceToAbs.lastIndexOf('/')
-            );
+            const sourceFromDir = sourceFromAbs.substring(0, sourceFromAbs.lastIndexOf('/'));
+            const sourceToDir = sourceToAbs.substring(0, sourceToAbs.lastIndexOf('/'));
 
-            const relToTarget = toPosix(
-              path.relative(sourceFromDir, toLogical(targetFromAbs))
-            );
-            const original = relToTarget.startsWith('.')
-              ? relToTarget
-              : './' + relToTarget;
+            const relToTarget = toPosix(path.relative(sourceFromDir, toLogical(targetFromAbs)));
+            const original = relToTarget.startsWith('.') ? relToTarget : './' + relToTarget;
 
-            const rewritten = computeNewSpecifier(
-              original,
-              sourceToDir,
-              targetToAbs,
-              REPO_ROOT
-            );
+            const rewritten = computeNewSpecifier(original, sourceToDir, targetToAbs, REPO_ROOT);
 
             // 16a — style preserved (relative in, relative out).
             assert.ok(
@@ -696,9 +646,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
             );
 
             // 16c — resolves to the target's TO logical form.
-            const rewrittenResolved = toPosix(
-              path.resolve(sourceToDir, rewritten)
-            );
+            const rewrittenResolved = toPosix(path.resolve(sourceToDir, rewritten));
             assert.strictEqual(
               rewrittenResolved,
               toLogical(targetToAbs),
@@ -717,21 +665,15 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
     it('every non-identity live move yields a project-rooted rewrite that resolves correctly', () => {
       fc.assert(
         fc.property(fc.constantFrom(...plan.moves), (move) => {
-          if (move.from === move.to) return; // identity entries are no-ops
+          if (move.from === move.to) {
+            return;
+          } // identity entries are no-ops
 
           const original = toLogical(move.from); // bare-prefix form
-          const sourceDirAbs = path.posix.join(
-            toPosix(REPO_ROOT),
-            'src/services'
-          );
+          const sourceDirAbs = path.posix.join(toPosix(REPO_ROOT), 'src/services');
           const toAbs = path.posix.join(toPosix(REPO_ROOT), move.to);
 
-          const result = computeNewSpecifier(
-            original,
-            sourceDirAbs,
-            toAbs,
-            REPO_ROOT
-          );
+          const result = computeNewSpecifier(original, sourceDirAbs, toAbs, REPO_ROOT);
 
           // 16a — bare-prefix in, bare-prefix out.
           assert.ok(
@@ -826,21 +768,12 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
       for (const sourceMove of nonIdentitySources) {
         const sourceFromAbs = path.posix.join(repoRootPosix, sourceMove.from);
         const sourceToAbs = path.posix.join(repoRootPosix, sourceMove.to);
-        const sourceFromDir = sourceFromAbs.substring(
-          0,
-          sourceFromAbs.lastIndexOf('/')
-        );
-        const sourceToDir = sourceToAbs.substring(
-          0,
-          sourceToAbs.lastIndexOf('/')
-        );
+        const sourceFromDir = sourceFromAbs.substring(0, sourceFromAbs.lastIndexOf('/'));
+        const sourceToDir = sourceToAbs.substring(0, sourceToAbs.lastIndexOf('/'));
 
         for (const identityMove of identityTargets) {
           // Identity target: from === to, so its directory is unchanged.
-          const targetFromAbs = path.posix.join(
-            repoRootPosix,
-            identityMove.from
-          );
+          const targetFromAbs = path.posix.join(repoRootPosix, identityMove.from);
           const targetToAbs = path.posix.join(repoRootPosix, identityMove.to);
           const targetLogical = toLogical(targetFromAbs);
 
@@ -851,9 +784,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
           // identity target. The path's geometry is computed against
           // `sourceFromDir` because that's where the unchanged
           // specifier text was written.
-          const relRaw = toPosix(
-            path.relative(sourceFromDir, targetLogical)
-          );
+          const relRaw = toPosix(path.relative(sourceFromDir, targetLogical));
           const originalRel = relRaw.startsWith('.') ? relRaw : './' + relRaw;
 
           // Skip the degenerate `'..'` case: when the identity
@@ -883,9 +814,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
 
           // Step 1: resolve the original specifier to its absolute
           // form (mirroring `rewriteImports`'s `resolvedAbs` step).
-          const originalResolved = toPosix(
-            path.resolve(sourceFromDir, originalRel)
-          );
+          const originalResolved = toPosix(path.resolve(sourceFromDir, originalRel));
 
           // Step 2: probe the forward map. This is the step that
           // pre-13.2.1 returned undefined for identity targets,
@@ -942,9 +871,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
             // Step 4: resolve the rewritten specifier from the
             // source's POST-migration directory and assert it lands
             // on the identity target's logical form.
-            const resolvedRel = toPosix(
-              path.resolve(sourceToDir, rewrittenRel)
-            );
+            const resolvedRel = toPosix(path.resolve(sourceToDir, rewrittenRel));
             assert.strictEqual(
               resolvedRel,
               targetLogical,
@@ -974,10 +901,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
           // refactor could break the bare-prefix path independently
           // of the relative path.
           const originalBare = toLogical(identityMove.from);
-          const originalBareResolved = path.posix.join(
-            repoRootPosix,
-            originalBare
-          );
+          const originalBareResolved = path.posix.join(repoRootPosix, originalBare);
 
           // Probe must still match (same lookup path).
           const matchedBare = probeFromKey(originalBareResolved, forwardMap);

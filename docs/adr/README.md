@@ -29,6 +29,12 @@ status block.
 - [ADR-010](ADR-010-visual-parity-discipline.md) — Accepted —
   Visual parity discipline (snapshot tests, parity reference doc,
   UX-review checkpoint)
+- [ADR-011](ADR-011-structured-logger.md) — Accepted —
+  Structured logging facade (Logger, sinks, correlation IDs,
+  sanitization) conforming to ADR-002
+- [ADR-012](ADR-012-topical-source-tree.md) — Accepted —
+  Topical `/src` source tree restructure (move `src/services/**`
+  into topic folders via deterministic migration)
 
 ## Status legend
 

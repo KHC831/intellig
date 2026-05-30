@@ -107,6 +107,47 @@ diagnostics to a dedicated `Output` channel called **IntelliG**.
 If the IntelliG output channel is missing, the extension didn't
 finish activating. Reload the window and check the channel again.
 
+### Structured-record format
+
+Each diagnostic is written as a structured record — one block per
+event — so you can scan, grep, and copy entries reliably. The first
+line always follows this shape:
+
+```
+[<timestamp>] <LEVEL> <component>: <message>
+```
+
+- `<timestamp>` is an ISO-8601 instant (e.g. `2026-05-12T14:03:11.482Z`).
+- `<LEVEL>` is the record's severity, uppercased and padded to five
+  characters (`TRACE`, `DEBUG`, `INFO `, `WARN `, `ERROR`).
+- `<component>` names the subsystem that emitted the record.
+- `<message>` is the sanitized message; embedded newlines are escaped
+  to a literal `\n` so each record stays on one parseable line.
+
+When present, the following detail lines follow the header, each
+indented two spaces:
+
+- `ctx=<json>` — structured context for the event, as a single-line
+  JSON object.
+- `cid=<correlationId>` — correlates every record emitted while
+  handling the same command invocation.
+- `err=<message>` — the error message, followed by its stack trace
+  with each frame on its own indented line.
+
+### Controlling log output
+
+Two settings tune what reaches the channel:
+
+- **`intellig.log.level`** — the minimum severity admitted to the
+  logger (`trace`, `debug`, `info`, `warn`, `error`, or `off`;
+  default `info`). Records below the threshold are dropped before
+  they're built, and `off` silences the logger entirely. Changes
+  apply to subsequent records without a reload.
+- **`intellig.log.console`** — when `true`, mirror each record to the
+  developer console as well as the channel (default `false`). The
+  console output is visible only in the Extension Development Host,
+  so this is aimed at contributors debugging IntelliG itself.
+
 ## Coexistence with VS Code's built-in Git
 
 IntelliG runs `git` directly via `child_process` rather than going
@@ -267,6 +308,13 @@ Enable the IntelliJ preset in settings:
 | `intellig.deletedFileColor`          | `"#6C6C6C"`| Color for deleted files (IntelliJ gray)                  |
 | `intellig.ignoredFileColor`          | `"#848504"`| Color for ignored files                                  |
 | `intellig.conflictFileColor`         | `"#FF0000"`| Color for conflicted files (red)                         |
+
+### Logging
+
+| Setting                  | Default  | Description                                              |
+|--------------------------|----------|----------------------------------------------------------|
+| `intellig.log.level`     | `"info"` | Minimum severity admitted to the logger (`trace`, `debug`, `info`, `warn`, `error`, `off`). Records below the threshold are dropped; `off` silences the logger entirely. |
+| `intellig.log.console`   | `false`  | Mirror log records to the developer console (visible only in the Extension Development Host) |
 
 ## Contributing
 

@@ -2,10 +2,10 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { ShelfService, createShelfService } from '../../../services/ShelfService';
-import { IRepository } from '../../../services/interfaces/IGitService';
-import { IShelveSelection, IShelfItem } from '../../../services/interfaces/IShelfService';
-import { GitCli } from '../../../utils/gitCli';
+import { ShelfService, createShelfService } from '../../../shelf/ShelfService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
+import { IShelveSelection, IShelfItem } from '../../../shelf/interfaces/IShelfService';
+import { GitCli } from '../../../git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
 
 /**

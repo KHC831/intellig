@@ -10,7 +10,7 @@
 import '../setup';
 import * as assert from 'assert';
 import * as fc from 'fast-check';
-import { buildGitArgs } from '../../utils/gitCli';
+import { buildGitArgs } from '../../git-core/gitCli';
 
 describe('Wave I — argv injection property', () => {
   it('any ref containing --flag-shape lands AFTER --end-of-options', () => {

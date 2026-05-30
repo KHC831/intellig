@@ -2,11 +2,7 @@ import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { formatRecord, parseRecord } from '../../utils/logger/render';
 import { sanitizeRecord } from '../../utils/logger/sanitize';
-import type {
-  JsonValue,
-  LogLevel,
-  LogRecord,
-} from '../../utils/logger/sinks/types';
+import type { JsonValue, LogLevel, LogRecord } from '../../utils/logger/sinks/types';
 
 /**
  * Property-based test for the OutputChannel render round-trip.
@@ -72,22 +68,19 @@ describe('Logger Render Round-Trip Property Tests', () => {
     'debug',
     'info',
     'warn',
-    'error',
+    'error'
   );
 
   /**
    * Component names: short identifiers, no `': '` boundary, no newlines.
    * Keeps the header line single-line and round-trippable.
    */
-  const componentArb: fc.Arbitrary<string> = fc
-    .stringOf(
-      fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'.split(
-          '',
-        ),
-      ),
-      { minLength: 1, maxLength: 20 },
-    );
+  const componentArb: fc.Arbitrary<string> = fc.stringOf(
+    fc.constantFrom(
+      ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'.split('')
+    ),
+    { minLength: 1, maxLength: 20 }
+  );
 
   /**
    * Arbitrary message contents. Includes the empty string and
@@ -103,7 +96,7 @@ describe('Logger Render Round-Trip Property Tests', () => {
    */
   const correlationIdArb: fc.Arbitrary<string> = fc.stringOf(
     fc.constantFrom(...'0123456789abcdef'.split('')),
-    { minLength: 16, maxLength: 16 },
+    { minLength: 16, maxLength: 16 }
   );
 
   /**
@@ -121,17 +114,13 @@ describe('Logger Render Round-Trip Property Tests', () => {
       fc.double({ noNaN: true, noDefaultInfinity: true, min: -1e6, max: 1e6 }),
       fc.integer({ min: -1_000_000, max: 1_000_000 }),
       fc.boolean(),
-      fc.constant(null),
+      fc.constant(null)
     ),
     json: fc.oneof(
       { depthSize: 'small', withCrossShrink: true },
       tie('leaf'),
       fc.array(tie('json'), { maxLength: 5 }),
-      fc.dictionary(
-        fc.string({ minLength: 1, maxLength: 12 }),
-        tie('json'),
-        { maxKeys: 5 },
-      ),
+      fc.dictionary(fc.string({ minLength: 1, maxLength: 12 }), tie('json'), { maxKeys: 5 })
     ),
   })).json as fc.Arbitrary<JsonValue>;
 
@@ -141,12 +130,11 @@ describe('Logger Render Round-Trip Property Tests', () => {
    * `undefined` here because `JSON.stringify` drops those keys before
    * `parseRecord` sees them.
    */
-  const contextArb: fc.Arbitrary<{ readonly [k: string]: JsonValue }> =
-    fc.dictionary(
-      fc.string({ minLength: 1, maxLength: 12 }),
-      jsonValueArb,
-      { maxKeys: 6 },
-    );
+  const contextArb: fc.Arbitrary<{ readonly [k: string]: JsonValue }> = fc.dictionary(
+    fc.string({ minLength: 1, maxLength: 12 }),
+    jsonValueArb,
+    { maxKeys: 6 }
+  );
 
   /**
    * Stack frame line generator.
@@ -160,11 +148,9 @@ describe('Logger Render Round-Trip Property Tests', () => {
   const stackFrameArb: fc.Arbitrary<string> = fc
     .stringOf(
       fc.constantFrom(
-        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ./()_-:'.split(
-          '',
-        ),
+        ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ./()_-:'.split('')
       ),
-      { minLength: 1, maxLength: 80 },
+      { minLength: 1, maxLength: 80 }
     )
     .map((body) => `at ${body}`);
 
@@ -188,7 +174,7 @@ describe('Logger Render Round-Trip Property Tests', () => {
       message: fc.string({ minLength: 1, maxLength: 200 }),
       stack: fc.option(stackArb, { nil: undefined }),
     },
-    { requiredKeys: ['message'] },
+    { requiredKeys: ['message'] }
   );
 
   /**
@@ -207,7 +193,7 @@ describe('Logger Render Round-Trip Property Tests', () => {
         correlationId: fc.option(correlationIdArb, { nil: undefined }),
         error: fc.option(errorArb, { nil: undefined }),
       },
-      { requiredKeys: ['timestamp', 'level', 'component', 'message'] },
+      { requiredKeys: ['timestamp', 'level', 'component', 'message'] }
     )
     .map((r) => {
       // Strip explicitly-undefined optional fields so the input record
@@ -220,9 +206,7 @@ describe('Logger Render Round-Trip Property Tests', () => {
         component: r.component,
         message: r.message,
         ...(r.context !== undefined ? { context: r.context } : {}),
-        ...(r.correlationId !== undefined
-          ? { correlationId: r.correlationId }
-          : {}),
+        ...(r.correlationId !== undefined ? { correlationId: r.correlationId } : {}),
         ...(r.error !== undefined ? { error: r.error } : {}),
       };
       return out;
@@ -250,20 +234,20 @@ describe('Logger Render Round-Trip Property Tests', () => {
           // record should trigger it for a well-formed input.
           assert.ok(
             sanitizedOriginal.ok,
-            `sanitizer failed on original record: ${JSON.stringify(record)}`,
+            `sanitizer failed on original record: ${JSON.stringify(record)}`
           );
           assert.ok(
             sanitizedReparsed.ok,
-            `sanitizer failed on reparsed record: ${JSON.stringify(reparsed)}`,
+            `sanitizer failed on reparsed record: ${JSON.stringify(reparsed)}`
           );
 
           assert.deepStrictEqual(
             sanitizedReparsed.record,
             sanitizedOriginal.record,
-            'sanitize(R) must deep-equal sanitize(parseRecord(formatRecord(R)))',
+            'sanitize(R) must deep-equal sanitize(parseRecord(formatRecord(R)))'
           );
         }),
-        { numRuns: 100 },
+        { numRuns: 100 }
       );
     });
 
@@ -283,10 +267,10 @@ describe('Logger Render Round-Trip Property Tests', () => {
           const reparsed = parseRecord(rendered);
           assert.ok(
             reparsed !== null && typeof reparsed === 'object',
-            'parseRecord must return a LogRecord, not null/undefined',
+            'parseRecord must return a LogRecord, not null/undefined'
           );
         }),
-        { numRuns: 100 },
+        { numRuns: 100 }
       );
     });
   });

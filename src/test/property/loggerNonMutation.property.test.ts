@@ -58,15 +58,8 @@ import * as assert from 'assert';
 import * as fc from 'fast-check';
 import * as vscode from 'vscode';
 
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-} from '../../utils/logger';
-import {
-  __resetOutputChannelForTest,
-  initOutputChannel,
-} from '../../utils/outputChannel';
+import { __resetLoggerForTest, getLogger, initLogger } from '../../utils/logger';
+import { __resetOutputChannelForTest, initOutputChannel } from '../../utils/outputChannel';
 import { resetMockConfiguration } from '../mocks/vscode';
 
 /**
@@ -113,12 +106,8 @@ const jsonValueArb: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
     fc.integer({ min: -1000, max: 1000 }),
     fc.boolean(),
     fc.constant(null),
-    fc.array(tie('value') as fc.Arbitrary<unknown>, { maxLength: 4 }),
-    fc.dictionary(
-      fc.string({ minLength: 1, maxLength: 6 }),
-      tie('value') as fc.Arbitrary<unknown>,
-      { maxKeys: 4 }
-    ),
+    fc.array(tie('value'), { maxLength: 4 }),
+    fc.dictionary(fc.string({ minLength: 1, maxLength: 6 }), tie('value'), { maxKeys: 4 })
   ),
 })).value;
 
@@ -148,10 +137,7 @@ const bindingsArb: fc.Arbitrary<Record<string, unknown>> = fc
   .record({
     base: contextArb,
     component: fc.option(fc.string({ minLength: 1, maxLength: 12 }), { nil: undefined }),
-    correlationId: fc.option(
-      fc.hexaString({ minLength: 16, maxLength: 16 }),
-      { nil: undefined }
-    ),
+    correlationId: fc.option(fc.hexaString({ minLength: 16, maxLength: 16 }), { nil: undefined }),
   })
   .map(({ base, component, correlationId }) => {
     const out: Record<string, unknown> = { ...base };
@@ -189,44 +175,36 @@ describe('Logger non-mutation (Property 3 / Task 4.3 / Requirement 1.6)', () => 
   describe('per-call `context` bag is not mutated', () => {
     it('Property: Logger.info(message, context) does not mutate the context bag', () => {
       fc.assert(
-        fc.property(
-          fc.string({ minLength: 0, maxLength: 32 }),
-          contextArb,
-          (message, ctx) => {
-            const snapshot = deepClone(ctx);
+        fc.property(fc.string({ minLength: 0, maxLength: 32 }), contextArb, (message, ctx) => {
+          const snapshot = deepClone(ctx);
 
-            // The bag the caller passes in is the SAME reference
-            // — not the snapshot. If the Logger writes through it
-            // anywhere along the emit path, the post-call
-            // `deepStrictEqual` will catch it.
-            getLogger().info(message, ctx as never);
+          // The bag the caller passes in is the SAME reference
+          // — not the snapshot. If the Logger writes through it
+          // anywhere along the emit path, the post-call
+          // `deepStrictEqual` will catch it.
+          getLogger().info(message, ctx as never);
 
-            assert.deepStrictEqual(
-              ctx,
-              snapshot,
-              'Logger.info must not mutate the context bag passed by the caller'
-            );
-          }
-        ),
+          assert.deepStrictEqual(
+            ctx,
+            snapshot,
+            'Logger.info must not mutate the context bag passed by the caller'
+          );
+        }),
         { numRuns: 100 }
       );
     });
 
     it('Property: Logger.warn(message, context) does not mutate the context bag', () => {
       fc.assert(
-        fc.property(
-          fc.string({ minLength: 0, maxLength: 32 }),
-          contextArb,
-          (message, ctx) => {
-            const snapshot = deepClone(ctx);
-            getLogger().warn(message, ctx as never);
-            assert.deepStrictEqual(
-              ctx,
-              snapshot,
-              'Logger.warn must not mutate the context bag passed by the caller'
-            );
-          }
-        ),
+        fc.property(fc.string({ minLength: 0, maxLength: 32 }), contextArb, (message, ctx) => {
+          const snapshot = deepClone(ctx);
+          getLogger().warn(message, ctx as never);
+          assert.deepStrictEqual(
+            ctx,
+            snapshot,
+            'Logger.warn must not mutate the context bag passed by the caller'
+          );
+        }),
         { numRuns: 100 }
       );
     });

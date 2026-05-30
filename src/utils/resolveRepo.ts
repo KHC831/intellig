@@ -21,7 +21,7 @@
  */
 
 import * as vscode from 'vscode';
-import type { IRepository } from '../services/interfaces/IGitService';
+import type { IRepository } from '../git-core/interfaces/IGitService';
 
 /** Configuration key under `intellig.*` for the default-repo preference. */
 export const DEFAULT_REPO_CONFIG_KEY = 'defaultRepo';

@@ -7,8 +7,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { IGitService, IRepository, IFetchResult } from '../../../services/interfaces/IGitService';
-import { AutoFetchService } from '../../../services/AutoFetchService';
+import { IGitService, IRepository, IFetchResult } from '../../../git-core/interfaces/IGitService';
+import { AutoFetchService } from '../../../sync/AutoFetchService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 /** Create a minimal mock git service whose fetch tracks invocations. */

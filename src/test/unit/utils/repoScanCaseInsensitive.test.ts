@@ -26,9 +26,9 @@
  * split was wired in. See AGENT_WORKSPACE.md for the verbatim red captures.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { scanFolderForGitRepos, IRepoScanFs } from '../../../utils/repoScan';
+import { scanFolderForGitRepos, IRepoScanFs } from '../../../git-core/repoScan';
 
 interface IFsState {
   dirs: Map<string, string[]>;

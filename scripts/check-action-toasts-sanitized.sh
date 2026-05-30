@@ -79,7 +79,7 @@
 # `showInformationMessage` toast leaks the token + username into the
 # user's notification history (and into any user-shared bug-report
 # screenshots). The fix is uniform: route the raw string through
-# `sanitizeGitError(...)` (see `src/utils/gitError.ts`) before the
+# `sanitizeGitError(...)` (see `src/git-core/gitError.ts`) before the
 # toast is rendered.
 #
 # This script awk-checks every `show(Error|Warning|Information)Message(...)`

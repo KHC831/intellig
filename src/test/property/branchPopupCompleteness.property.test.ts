@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IBranch, BranchType } from '../../services/interfaces/IGitService';
+import { IBranch, BranchType } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Branch Popup Completeness.

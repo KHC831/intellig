@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { MergeView } from '../../../services/MergeView';
-import { IGitService, IRepository, IFileStatus } from '../../../services/interfaces/IGitService';
-import type { IMergeState } from '../../../services/interfaces/IMergeView';
+import { MergeView } from '../../../conflicts/MergeView';
+import { IGitService, IRepository, IFileStatus } from '../../../git-core/interfaces/IGitService';
+import type { IMergeState } from '../../../conflicts/interfaces/IMergeView';
 import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
 
 /**

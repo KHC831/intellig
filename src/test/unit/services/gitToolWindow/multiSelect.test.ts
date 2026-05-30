@@ -13,7 +13,7 @@
  * elsewhere in this file tree; here we drive the pure logic directly.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import {
   computeMenuVisibility,
@@ -23,7 +23,7 @@ import {
   isSelectionContiguous,
   type MultiSelectMenuAction,
   type IMenuStateInputs,
-} from '../../../../services/gitToolWindow/multiSelect';
+} from '../../../../git-core/gitToolWindow/multiSelect';
 
 describe('multiSelect — pure helpers', () => {
   // ─── A1: computeRangeSelection ───────────────────────────────────────────

@@ -6,12 +6,12 @@
  * delegate to them, so the end-to-end auto-resolve behaviour follows.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import {
   identifyNonConflictingConflicts,
   identifyNonConflictingHunks,
-} from '../../../services/MergeView';
+} from '../../../conflicts/MergeView';
 
 describe('T3-04 — identifyNonConflictingConflicts', () => {
   // Shape matching IConflictRegion in the production code, but only the

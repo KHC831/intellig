@@ -19,7 +19,7 @@
  */
 
 import * as assert from 'assert';
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import { Uri, getCreatedFileSystemWatchers, RelativePattern } from '../../mocks/vscode';
 
 /**

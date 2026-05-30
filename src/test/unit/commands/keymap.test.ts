@@ -2,20 +2,24 @@
  * R5 C-1 / H-1 regression coverage — package.json / extension.ts coherence.
  *
  * These tests run as pure unit tests (no VS Code host) against the shipped
- * package.json and the TS extension source, so a duplicate `registerCommand`
- * or a dead `focusedView` gate is caught in the same suite as everything else
- * rather than surfacing as an activation crash in the hosted smoke run.
+ * package.json and the TS extension source, so a duplicate command
+ * registration or a dead `focusedView` gate is caught in the same suite as
+ * everything else rather than surfacing as an activation crash in the hosted
+ * smoke run.
  *
  *  - C-1: Every command id declared in `contributes.commands` must be
- *         registered EXACTLY ONCE in `activate()` (`src/extension.ts`). Two
- *         registrations for the same id cause VS Code to throw on activation.
+ *         registered EXACTLY ONCE in production sources. Two registrations
+ *         for the same id cause VS Code to throw on activation.
  *  - H-1: Every `focusedView == 'intellig.<id>'` appearing in a keybinding's
  *         `when` clause must correspond to a view id actually declared in
  *         `contributes.views.<container>[*].id`.
  *
- * The C-1 test walks `registerCommand(<id>, …)` call sites textually rather
- * than loading `activate()` under a VS Code shim. The same traversal catches
- * both the original bug (two literal registrations) and a future
+ * The C-1 test walks command-registration call sites textually rather than
+ * loading `activate()` under a VS Code shim. It recognizes both the
+ * `registerLoggedCommand(<id>, …)` structured-logging wrapper (the dominant
+ * form after the R5.1 adoption sweep) and the direct
+ * `(vscode.|)commands.registerCommand(<id>, …)` API. The same traversal
+ * catches both the original bug (two literal registrations) and a future
  * dynamically-computed string id if one ever appears (the filter uses a
  * string-literal regex).
  */
@@ -73,11 +77,23 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
     const pj = readPackageJson();
     const allSrc = readAllProductionSources();
 
-    // Collect every string-literal argument passed to
-    // `(vscode.|)commands.registerCommand`. Matches both single and
-    // double-quoted literals. Intentionally does NOT match
-    // template-literal ids; the convention in the codebase is literal ids.
-    const registerCallRegex = /commands\.registerCommand\(\s*['"]([^'"]+)['"]/g;
+    // Collect every string-literal argument passed to a command
+    // registration call. Two registration mechanisms exist in production:
+    //   - `registerLoggedCommand(<id>, …)` — the structured-logging wrapper
+    //     (src/utils/logger) adopted across the codebase in the R5.1 sweep;
+    //     this is now the dominant form (extension.ts, the context-menu
+    //     command classes, …).
+    //   - `(vscode.|)commands.registerCommand(<id>, …)` — the direct VS Code
+    //     API, still used in a few call sites (e.g. StatusBarService).
+    // Both forms ultimately register a command id with VS Code, so a
+    // duplicate across EITHER form would crash activation and must be caught.
+    // Matches both single and double-quoted literals. Intentionally does NOT
+    // match template-literal ids; the convention in the codebase is literal
+    // ids. The wrapper's own internal `commands.registerCommand(id, …)` (in
+    // logger/correlation.ts) passes the `id` variable — not a literal — so it
+    // is never miscounted here.
+    const registerCallRegex =
+      /(?:commands\.registerCommand|registerLoggedCommand)\(\s*['"]([^'"]+)['"]/g;
 
     const counts = new Map<string, number>();
     let match: RegExpExecArray | null;

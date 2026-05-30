@@ -37,11 +37,7 @@ import {
   getOutputChannel,
   initOutputChannel,
 } from '../../../../utils/outputChannel';
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-} from '../../../../utils/logger/logger';
+import { __resetLoggerForTest, getLogger, initLogger } from '../../../../utils/logger/logger';
 import { LogLevelResolver } from '../../../../utils/logger/levels';
 import { OutputChannelSink } from '../../../../utils/logger/sinks/OutputChannelSink';
 
@@ -230,7 +226,7 @@ describe('logger — OutputChannel sink lifecycle (task 3.4)', () => {
     assert.strictEqual(
       channelDisposeCount,
       1,
-      'channel disposal happens via initOutputChannel\'s registered subscription, not the sink wrapper'
+      "channel disposal happens via initOutputChannel's registered subscription, not the sink wrapper"
     );
   });
 });

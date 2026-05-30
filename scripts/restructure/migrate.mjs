@@ -850,6 +850,24 @@ function rewriteImports(plan, dryRun, repoRoot) {
   const selfCheckFailures = [];
   let selfCheckCount = 0;
 
+  // Emitted-text self-check support (task 13.2.2 / Requirement 12.5).
+  //
+  // The path-resolution self-check above validates the *computed*
+  // `newSpecifier` string, but it never inspects what the setter
+  // actually emitted into the AST. A setter that mis-quotes — e.g.
+  // manually wrapping a value that ts-morph's API already quotes —
+  // emits text like `import('\'foo\'')`, whose effective module
+  // specifier embeds a quote pair (`'foo'`). `getLiteralValue()`
+  // strips only the OUTER quote pair, so the embedded quotes survive
+  // into the read-back value and tsc reports TS2307 "Cannot find
+  // module ''foo''". A valid module specifier is a bare path
+  // (`./foo`, `../bar`, `src/baz`) and never contains a quote
+  // character, so any `'`, `"`, or backtick in the emitted value is
+  // proof of quote-corruption. This array collects every offender so
+  // the operator sees the full set in one pass.
+  /** @type {Array<{ file: string, line: number, specifier: string, emitted: string }>} */
+  const emittedCheckFailures = [];
+
   for (const sourceFile of project.getSourceFiles()) {
     const filePathPosix = toPosix(sourceFile.getFilePath());
 
@@ -885,9 +903,16 @@ function rewriteImports(plan, dryRun, repoRoot) {
      * @param {string} specifier
      * @param {(newSpecifier: string) => void} setter
      * @param {number} line
+     * @param {() => (string | undefined)} [readBack] — returns the
+     *   module-specifier value the setter actually emitted into the
+     *   AST (quotes stripped, as ts-morph's `getLiteralValue` /
+     *   `getModuleSpecifierValue` report it). Used by the emitted-
+     *   text self-check to detect quote-corruption. Optional only so
+     *   the signature stays backwards-tolerant; every call site
+     *   supplies it.
      * @returns {boolean}
      */
-    const tryRewrite = (specifier, setter, line) => {
+    const tryRewrite = (specifier, setter, line, readBack) => {
       // Only relative or project-rooted (`src/...`) specifiers can
       // possibly reference an in-tree file. Bare package specifiers
       // like `'vscode'` or `'node:fs'` are skipped early.
@@ -944,12 +969,37 @@ function rewriteImports(plan, dryRun, repoRoot) {
 
       if (newSpecifier === specifier) return false;
 
+      // Apply the rewrite to the in-memory AST in BOTH modes. In
+      // dry-run nothing is persisted — `rewriteImports` returns
+      // before `project.saveSync()`, so the working tree is never
+      // touched — but mutating the AST lets us read back the value
+      // the setter actually emitted and run the emitted-text self-
+      // check below. This is what lets `--dry-run` catch quote-
+      // corruption BEFORE the real run ever writes a byte.
+      setter(newSpecifier);
+
+      // Emitted-text self-check (task 13.2.2 / Requirement 12.5):
+      // read back the module specifier the setter produced and
+      // assert it is a clean, quote-free path. A residual quote
+      // character (`'`, `"`, or backtick) means the setter double-
+      // quoted the value (e.g. `import('\'foo\'')`), which tsc
+      // rejects as TS2307. See `emittedCheckFailures` for rationale.
+      if (typeof readBack === 'function') {
+        const emitted = readBack();
+        if (typeof emitted === 'string' && /['"`]/.test(emitted)) {
+          emittedCheckFailures.push({
+            file: fileRel,
+            line,
+            specifier: newSpecifier,
+            emitted,
+          });
+        }
+      }
+
       if (dryRun) {
         console.log(
           `[migrate] would rewrite: ${fileRel}:${line} '${specifier}' -> '${newSpecifier}'`
         );
-      } else {
-        setter(newSpecifier);
       }
       return true;
     };
@@ -960,7 +1010,14 @@ function rewriteImports(plan, dryRun, repoRoot) {
       const specifier = decl.getModuleSpecifierValue();
       if (typeof specifier !== 'string') continue;
       const line = decl.getStartLineNumber();
-      if (tryRewrite(specifier, (s) => decl.setModuleSpecifier(s), line)) {
+      if (
+        tryRewrite(
+          specifier,
+          (s) => decl.setModuleSpecifier(s),
+          line,
+          () => decl.getModuleSpecifierValue()
+        )
+      ) {
         rewriteCount++;
         fileChanged = true;
       }
@@ -971,7 +1028,14 @@ function rewriteImports(plan, dryRun, repoRoot) {
       const specifier = decl.getModuleSpecifierValue();
       if (typeof specifier !== 'string') continue;
       const line = decl.getStartLineNumber();
-      if (tryRewrite(specifier, (s) => decl.setModuleSpecifier(s), line)) {
+      if (
+        tryRewrite(
+          specifier,
+          (s) => decl.setModuleSpecifier(s),
+          line,
+          () => decl.getModuleSpecifierValue()
+        )
+      ) {
         rewriteCount++;
         fileChanged = true;
       }
@@ -992,7 +1056,14 @@ function rewriteImports(plan, dryRun, repoRoot) {
       const lit = /** @type {import('ts-morph').StringLiteral} */ (arg);
       const specifier = lit.getLiteralValue();
       const line = call.getStartLineNumber();
-      if (tryRewrite(specifier, (s) => lit.setLiteralValue(s), line)) {
+      if (
+        tryRewrite(
+          specifier,
+          (s) => lit.setLiteralValue(s),
+          line,
+          () => lit.getLiteralValue()
+        )
+      ) {
         rewriteCount++;
         fileChanged = true;
       }
@@ -1012,12 +1083,25 @@ function rewriteImports(plan, dryRun, repoRoot) {
         tryRewrite(
           specifier,
           (s) => {
-            // setArgument takes type-source text; re-quote with the
-            // original quote kind so the emitted text is `'foo'`.
-            const quote = lit.getQuoteKind();
-            node.setArgument(quote + s + quote);
+            // ts-morph's `setArgument` already wraps the value in
+            // quotes (preserving the node's existing quote kind), so
+            // we pass the BARE specifier. Manually re-quoting here
+            // would double the quotes — `import('\'foo\'')` — which
+            // tsc reports as TS2307 "Cannot find module ''foo''".
+            node.setArgument(s);
           },
-          line
+          line,
+          () => {
+            // `setArgument` replaces the argument node, so the
+            // original `lit` reference is stale — re-query the new
+            // string literal under the (possibly rebuilt) argument
+            // and report its quote-stripped value for the emitted-
+            // text self-check.
+            const newLit = node
+              .getArgument()
+              .getFirstDescendantByKind(SyntaxKind.StringLiteral);
+            return newLit ? newLit.getLiteralValue() : undefined;
+          }
         )
       ) {
         rewriteCount++;
@@ -1048,6 +1132,39 @@ function rewriteImports(plan, dryRun, repoRoot) {
   // output, which is independent of disk state. Surfacing the
   // failure during dry-run lets the operator catch a planning bug
   // without ever touching the working tree.
+  // Emitted-text self-check (task 13.2.2 / Requirement 12.5).
+  // Report any rewritten specifier whose EMITTED module-specifier
+  // text contains a quote character — proof that the setter double-
+  // quoted the value (e.g. `import('\'foo\'')`). This is a distinct
+  // failure mode from the path-resolution check below: the computed
+  // `newSpecifier` string can be perfectly valid while the emitted
+  // AST text is corrupt, because the resolution check never inspects
+  // what the setter produced. tsc reports such corruption as TS2307
+  // "Cannot find module ''foo''"; this check names the proximate
+  // cause (the rewriter's quoting) at the script's own boundary.
+  //
+  // Runs in BOTH dry-run and real-run: the setter mutates the
+  // in-memory AST in dry-run too (nothing is persisted — the dry-run
+  // branch returns before `project.saveSync()`), so the read-back
+  // reflects exactly what a real run would write. This lets the
+  // operator catch quote-corruption during `--dry-run`, before any
+  // byte is written.
+  if (emittedCheckFailures.length > 0) {
+    console.error(
+      '[migrate] FAIL: post-rewrite self-check: one or more ' +
+        'rewritten specifiers emitted corrupt (embedded-quote) ' +
+        'module-specifier text (Requirement 12.5):'
+    );
+    for (const f of emittedCheckFailures) {
+      console.error(
+        `  - ${f.file}:${f.line} specifier '${f.specifier}' ` +
+          `emitted module text with embedded quote(s): ` +
+          `"${f.emitted}" (would produce TS2307 "Cannot find module")`
+      );
+    }
+    process.exit(1);
+  }
+
   if (selfCheckFailures.length > 0) {
     console.error(
       '[migrate] FAIL: post-rewrite self-check: one or more ' +

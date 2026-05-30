@@ -30,7 +30,7 @@ import {
   BranchTreeProvider,
   CONTEXT_VALUES,
   type BranchTreeItem,
-} from '../../../services/BranchTreeProvider';
+} from '../../../branches/BranchTreeProvider';
 import {
   createMockGitService,
   attachedRepo,
@@ -39,7 +39,7 @@ import {
   rebasingRepo,
   corruptRepo,
 } from '../../mocks/mockGitService';
-import type { IBranch } from '../../../services/interfaces/IGitService';
+import type { IBranch } from '../../../git-core/interfaces/IGitService';
 
 const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
 const SHORT_SHA = 'abc1234';

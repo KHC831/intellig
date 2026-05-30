@@ -24,7 +24,7 @@
  *                inline duplicates (structural pin in waveC.test.ts).
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 
 describe('Wave C R1 — review fixes', () => {
@@ -34,7 +34,7 @@ describe('Wave C R1 — review fixes', () => {
     const fs = await import('fs');
     const path = await import('path');
     src = fs.readFileSync(
-      path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+      path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
       'utf8'
     );
   });

@@ -8,15 +8,15 @@
  * input, calls this helper, and posts a webview message.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
-import type { IBranch, ICommit, ITag } from '../../../../services/interfaces/IGitService';
+import type { IBranch, ICommit, ITag } from '../../../../git-core/interfaces/IGitService';
 import {
   MIN_SHA_PREFIX_LENGTH,
   classifyQuery,
   findCommitByQuery,
   isHexString,
-} from '../../../../services/gitToolWindow/jumpToHash';
+} from '../../../../git-core/gitToolWindow/jumpToHash';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

@@ -10,9 +10,9 @@
  */
 
 import * as assert from 'assert';
-import { InlineBlameProvider } from '../../../services/InlineBlameProvider';
-import { IBlameService, IBlameInfo } from '../../../services/interfaces/IBlameService';
-import { IGitService, IRepository, IBlameLine } from '../../../services/interfaces/IGitService';
+import { InlineBlameProvider } from '../../../blame/InlineBlameProvider';
+import { IBlameService, IBlameInfo } from '../../../blame/interfaces/IBlameService';
+import { IGitService, IRepository, IBlameLine } from '../../../git-core/interfaces/IGitService';
 import { Uri, EventEmitter } from '../../mocks/vscode';
 
 // Mock BlameService for testing

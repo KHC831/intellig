@@ -25,7 +25,7 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { parseBranches } from '../../utils/gitParser';
+import { parseBranches } from '../../git-core/gitParser';
 
 /**
  * Inner-content fuzzer for parenthesized pseudo-refs. `\n` is the row

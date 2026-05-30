@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IShelfItem, IShelfFile } from '../../services/interfaces/IShelfService';
+import { IShelfItem, IShelfFile } from '../../shelf/interfaces/IShelfService';
 
 /**
  * Property-based tests for Shelf List Completeness.

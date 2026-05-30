@@ -102,18 +102,9 @@ describe('scripts/restructure/plan.json — shape invariants', () => {
           'string',
           `moves[${i}].rationale is not a string: ${JSON.stringify(m)}`
         );
-        assert.ok(
-          m.from.length > 0,
-          `moves[${i}].from is empty: ${JSON.stringify(m)}`
-        );
-        assert.ok(
-          m.to.length > 0,
-          `moves[${i}].to is empty: ${JSON.stringify(m)}`
-        );
-        assert.ok(
-          m.rationale.length > 0,
-          `moves[${i}].rationale is empty: ${JSON.stringify(m)}`
-        );
+        assert.ok(m.from.length > 0, `moves[${i}].from is empty: ${JSON.stringify(m)}`);
+        assert.ok(m.to.length > 0, `moves[${i}].to is empty: ${JSON.stringify(m)}`);
+        assert.ok(m.rationale.length > 0, `moves[${i}].rationale is empty: ${JSON.stringify(m)}`);
       }
     });
 
@@ -134,18 +125,14 @@ describe('scripts/restructure/plan.json — shape invariants', () => {
 
   describe('barrelShim block', () => {
     it('is present', () => {
-      assert.ok(
-        plan.barrelShim,
-        'plan.barrelShim is missing (design.md §Restructure_Plan)'
-      );
+      assert.ok(plan.barrelShim, 'plan.barrelShim is missing (design.md §Restructure_Plan)');
     });
 
     it('has path === "src/services/index.ts" (Requirement 10.1, 10.2)', () => {
       assert.strictEqual(
         plan.barrelShim.path,
         'src/services/index.ts',
-        `expected barrelShim.path === "src/services/index.ts"; ` +
-          `got "${plan.barrelShim.path}"`
+        `expected barrelShim.path === "src/services/index.ts"; ` + `got "${plan.barrelShim.path}"`
       );
     });
 
@@ -153,13 +140,9 @@ describe('scripts/restructure/plan.json — shape invariants', () => {
       assert.strictEqual(
         typeof plan.barrelShim.strategy,
         'string',
-        `barrelShim.strategy is not a string: ` +
-          `${JSON.stringify(plan.barrelShim.strategy)}`
+        `barrelShim.strategy is not a string: ` + `${JSON.stringify(plan.barrelShim.strategy)}`
       );
-      assert.ok(
-        plan.barrelShim.strategy.length > 0,
-        'barrelShim.strategy is empty'
-      );
+      assert.ok(plan.barrelShim.strategy.length > 0, 'barrelShim.strategy is empty');
     });
   });
 
@@ -175,13 +158,8 @@ describe('scripts/restructure/plan.json — shape invariants', () => {
     });
 
     it('every src/test/** entry is an identity entry (from === to)', () => {
-      const testEntries = plan.moves.filter((m) =>
-        m.from.startsWith('src/test/')
-      );
-      assert.ok(
-        testEntries.length > 0,
-        'plan contains no src/test/** entries (Requirement 9.3)'
-      );
+      const testEntries = plan.moves.filter((m) => m.from.startsWith('src/test/'));
+      assert.ok(testEntries.length > 0, 'plan contains no src/test/** entries (Requirement 9.3)');
       const moved = testEntries.filter((m) => m.from !== m.to);
       assert.deepStrictEqual(
         moved,
@@ -220,8 +198,7 @@ describe('scripts/restructure/plan.json — shape invariants', () => {
       assert.deepStrictEqual(
         dups,
         [],
-        `duplicate \`from\` paths in plan.moves:\n` +
-          dups.map((p) => `  ${p}`).join('\n')
+        `duplicate \`from\` paths in plan.moves:\n` + dups.map((p) => `  ${p}`).join('\n')
       );
     });
 
@@ -239,8 +216,7 @@ describe('scripts/restructure/plan.json — shape invariants', () => {
       assert.deepStrictEqual(
         dups,
         [],
-        `duplicate \`to\` paths in plan.moves:\n` +
-          dups.map((p) => `  ${p}`).join('\n')
+        `duplicate \`to\` paths in plan.moves:\n` + dups.map((p) => `  ${p}`).join('\n')
       );
     });
   });

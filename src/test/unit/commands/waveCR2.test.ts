@@ -26,21 +26,21 @@
  * regress.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import type {
   IRebaseService,
   IRebaseSession,
   IRebaseAction,
   IRebaseResult,
-} from '../../../services/interfaces/IRebaseService';
-import type { IMenuStateNode } from '../../../services/gitToolWindow/multiSelect';
+} from '../../../git-core/interfaces/IRebaseService';
+import type { IMenuStateNode } from '../../../git-core/gitToolWindow/multiSelect';
 import { Uri, EventEmitter, TabInputText } from '../../mocks/vscode';
-import type { GitCli } from '../../../utils/gitCli';
+import type { GitCli } from '../../../git-core/gitCli';
 import { writableWindow, writableWorkspace, writableCommands } from '../../typed/windowStub';
 
 // ─── Source-level structural pins ────────────────────────────────────────────
@@ -52,7 +52,7 @@ describe('Wave C R2 — structural pins', () => {
     const fs = await import('fs');
     const path = await import('path');
     src = fs.readFileSync(
-      path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+      path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
       'utf8'
     );
   });

@@ -17,14 +17,14 @@
  * red-message captures.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as path from 'path';
 import {
   scanFolderForGitRepos,
   IRepoScanFs,
   INTERNAL_IGNORED_FOLDERS,
-} from '../../../utils/repoScan';
+} from '../../../git-core/repoScan';
 
 /**
  * In-memory fs stub. Caller pre-populates a `dirs` map (path → child names)

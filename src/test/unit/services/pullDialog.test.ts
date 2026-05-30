@@ -42,14 +42,14 @@ import {
   PullFlagKey,
   resolveFlagMutex,
   runPullDialog,
-} from '../../../services/PullDialog';
+} from '../../../sync/PullDialog';
 import {
   IBranch,
   IGitService,
   IPullOptions,
   IRepository,
-} from '../../../services/interfaces/IGitService';
-import { IConflictResolutionService } from '../../../services/interfaces/IConflictResolutionService';
+} from '../../../git-core/interfaces/IGitService';
+import { IConflictResolutionService } from '../../../conflicts/interfaces/IConflictResolutionService';
 import { Uri } from '../../mocks/vscode';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -632,7 +632,7 @@ describe('T1-02 GitService.pull — flag arg ordering', () => {
     // of the command args by invoking pull through a minimal stub. We reuse
     // the actual GitService implementation but swap its private _gitCli for
     // a tracking stub (same pattern as the existing GitService.test.ts).
-    const { GitService } = await import('../../../services/GitService');
+    const { GitService } = await import('../../../git-core/GitService');
     const executed: string[][] = [];
     const gitCli = {
       exec: async (args: string[]) => {

@@ -2,10 +2,10 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { ChangelistService, createChangelistService } from '../../../services/ChangelistService';
-import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import { IChangelist } from '../../../services/interfaces/IChangelistService';
-import { GitCli } from '../../../utils/gitCli';
+import { ChangelistService, createChangelistService } from '../../../changelists/ChangelistService';
+import { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import { IChangelist } from '../../../changelists/interfaces/IChangelistService';
+import { GitCli } from '../../../git-core/gitCli';
 import { Uri } from '../../mocks/vscode';
 
 /**

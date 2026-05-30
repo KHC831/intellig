@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { GitCli, GitCommandError, createGitCli } from '../../../utils/gitCli';
+import { GitCli, GitCommandError, createGitCli } from '../../../git-core/gitCli';
 
 describe('Git CLI Utilities', () => {
   let gitCli: GitCli;

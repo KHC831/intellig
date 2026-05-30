@@ -5,8 +5,8 @@ import {
   RepositoryState,
   IFileStatus,
   StatusCode,
-} from '../../services/interfaces/IGitService';
-import { IConflictedFile } from '../../services/interfaces/IConflictResolutionService';
+} from '../../git-core/interfaces/IGitService';
+import { IConflictedFile } from '../../conflicts/interfaces/IConflictResolutionService';
 
 /**
  * Property-based tests for Conflict File Detection.

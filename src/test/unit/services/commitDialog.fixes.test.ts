@@ -19,7 +19,7 @@
  * signatures return `Promise<T>`; no-await stub bodies are intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
@@ -30,17 +30,17 @@ import {
   LAST_NO_VERIFY_STATE_KEY,
   CommitDialog,
   createCommitDialog,
-} from '../../../services/CommitDialog';
+} from '../../../commits/CommitDialog';
 import {
   RECENT_MESSAGES_STATE_KEY,
   RECENT_MESSAGES_MAX,
   updateRecentMessagesLru,
-} from '../../../services/CommitToolWindow';
+} from '../../../commits/CommitToolWindow';
 import type {
   IGitService,
   IRepository,
   ICommitOptions,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

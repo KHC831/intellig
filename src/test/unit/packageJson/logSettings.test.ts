@@ -88,10 +88,7 @@ describe('package.json — intellig.log.* configuration schema', () => {
 
     it('declares the six-value enum trace/debug/info/warn/error/off', () => {
       const prop = properties['intellig.log.level'];
-      assert.ok(
-        Array.isArray(prop.enum),
-        'expected intellig.log.level to declare an enum array'
-      );
+      assert.ok(Array.isArray(prop.enum), 'expected intellig.log.level to declare an enum array');
       assert.deepStrictEqual(
         prop.enum,
         [...EXPECTED_LOG_LEVELS],

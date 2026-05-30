@@ -20,7 +20,7 @@
  * intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
@@ -39,9 +39,9 @@ import type {
   IChangelist,
   IChangelistService,
   IFileChange,
-} from '../../../services/interfaces/IChangelistService';
-import type { IShelfItem, IShelfService } from '../../../services/interfaces/IShelfService';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+} from '../../../changelists/interfaces/IChangelistService';
+import type { IShelfItem, IShelfService } from '../../../shelf/interfaces/IShelfService';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { noopEvent } from '../../mocks/noopEvent';
 import { writableCommands, writableWindow } from '../../typed/windowStub';
@@ -333,7 +333,7 @@ describe('CommitToolWindow — host behavior', () => {
     const repoChange = new EventEmitter<IRepository>();
     const fetchEmitter = new EventEmitter<{
       repo: IRepository;
-      result: import('../../../services/interfaces/IGitService').IFetchResult;
+      result: import('../../../git-core/interfaces/IGitService').IFetchResult;
     }>();
     const clChange = new EventEmitter<IChangelist[]>();
     const shelfChange = new EventEmitter<IShelfItem[]>();

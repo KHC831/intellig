@@ -14,7 +14,7 @@ import {
   getLogFormat,
   getBranchFormat,
   getTagFormat,
-} from '../../../utils/gitParser';
+} from '../../../git-core/gitParser';
 
 describe('Git Parser Utilities', () => {
   describe('parseStatus', () => {

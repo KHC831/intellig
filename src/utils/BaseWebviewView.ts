@@ -105,10 +105,7 @@ export abstract class BaseWebviewView implements vscode.WebviewViewProvider {
           // rejections — sync throws are handled here.
           getLogger()
             .child({ component: 'BaseWebviewView' })
-            .error(
-              'message handler threw',
-              error instanceof Error ? error : undefined
-            );
+            .error('message handler threw', error instanceof Error ? error : undefined);
         }
       },
       undefined,

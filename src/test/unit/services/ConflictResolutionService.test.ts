@@ -1,8 +1,8 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { ConflictResolutionService } from '../../../services/ConflictResolutionService';
-import { IGitService, IRepository, IFileStatus } from '../../../services/interfaces/IGitService';
-import { IGitCommandResult } from '../../../utils/gitCli';
+import { ConflictResolutionService } from '../../../conflicts/ConflictResolutionService';
+import { IGitService, IRepository, IFileStatus } from '../../../git-core/interfaces/IGitService';
+import { IGitCommandResult } from '../../../git-core/gitCli';
 
 /**
  * Unit tests for ConflictResolutionService

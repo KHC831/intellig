@@ -14,9 +14,9 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../mocks/vscode';
-import { ICommitNode, classifyBranchName } from '../../utils/commitGraph';
+import { ICommitNode, classifyBranchName } from '../../git-core/commitGraph';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

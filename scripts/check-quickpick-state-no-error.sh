@@ -63,9 +63,9 @@ set -euo pipefail
 # these three QuickPick views must not carry an error field," not
 # "these three filenames must exist forever."
 TARGETS=(
-  "src/services/interfaces/IShelfView.ts:IShelfViewState"
-  "src/services/interfaces/IStashView.ts:IStashViewState"
-  "src/services/interfaces/IBranchComparisonView.ts:IBranchComparisonViewState"
+  "src/shelf/interfaces/IShelfView.ts:IShelfViewState"
+  "src/shelf/interfaces/IStashView.ts:IStashViewState"
+  "src/branches/interfaces/IBranchComparisonView.ts:IBranchComparisonViewState"
 )
 
 violations=0

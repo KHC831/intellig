@@ -1,9 +1,9 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { ICommitDetails, IChangedFile } from '../../services/interfaces';
 import { Uri } from '../mocks/vscode';
-import { FileStatus } from '../../services/interfaces/IGitService';
+import { FileStatus } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Changed Files Count and Data Attributes.

@@ -14,13 +14,13 @@
  * the user just operated on).
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
   type WaveAInboundMessage,
-} from '../../../../services/GitToolWindowProvider';
+} from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 
 interface InternalsR2 {

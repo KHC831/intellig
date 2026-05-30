@@ -17,7 +17,7 @@
  * Doc-only assertions; no behavioural change.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 
 describe('Wave B R3 — final review fixes', () => {
@@ -77,7 +77,7 @@ describe('Wave B R3 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
     });

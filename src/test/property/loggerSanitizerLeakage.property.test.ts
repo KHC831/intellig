@@ -127,7 +127,7 @@ function walkJson(value: JsonValue | undefined, out: string[]): void {
   if (typeof value === 'number' || typeof value === 'boolean') {
     return;
   }
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     for (const item of value) {
       walkJson(item, out);
     }
@@ -136,11 +136,19 @@ function walkJson(value: JsonValue | undefined, out: string[]): void {
   // Plain object branch — Object.keys returns own enumerable string
   // keys, mirroring the sanitizer's own walker.
   for (const key of Object.keys(value)) {
-    walkJson(
-      (value as { readonly [k: string]: JsonValue | undefined })[key],
-      out
-    );
+    walkJson((value as { readonly [k: string]: JsonValue | undefined })[key], out);
   }
+}
+
+/**
+ * Narrowing guard for the array arm of `JsonValue`. `Array.isArray`
+ * narrows to `any[]` rather than `readonly JsonValue[]`, which would
+ * otherwise leak `any` into the recursive `walkJson` call and trip
+ * `@typescript-eslint/no-unsafe-argument`. Re-stating the narrowing
+ * here keeps the walker fully typed without a cast.
+ */
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
 }
 
 /**
@@ -165,23 +173,56 @@ function sanitizeOrFail(record: LogRecord): LogRecord {
 // ── Arbitraries ────────────────────────────────────────────────────────
 
 /**
+ * Fixed marker prepended to every sentinel token.
+ *
+ * The marker is chosen so it can NEVER appear in the fixed
+ * scaffolding vocabulary this test embeds — the path tails
+ * (`Documents`, `projects`, `intellig`, `repo`, `file`, `ts`),
+ * message words (`cloning`, `outer`, `multi`, `shape`, `error`,
+ * `fatal`, `access`), stack labels (`GitClient`, `fetchWithCreds`,
+ * `fnA`/`fnB`/`fnC`), the URL host (`example.com/repo.git`), and the
+ * redaction markers (`<redacted>`, `~/`, `~\`). Because the marker is
+ * an uppercase-letter + digit run that no scaffolding word matches, a
+ * marker-prefixed sentinel can only appear in the sanitized `leaves`
+ * buffer if the sanitizer actually failed to redact it — never as a
+ * substring collision with fixed text.
+ *
+ * Regression that motivated this (flaked ~1 run in 40k): the bare
+ * username `"ment"` is a substring of the fixed word `"Documents"` in
+ * a sibling Windows path on the SAME record, so the secondary
+ * `!leaves.includes(username)` check fired even though the home
+ * prefix was correctly redacted to `~/`. Prefixing the sentinel makes
+ * every `leaves.includes(token)` assertion a SOUND leak detector
+ * (token present iff the sanitizer leaked it) without weakening any
+ * of the bare-username / credential checks.
+ */
+const SENTINEL_MARKER = 'Zq7x';
+
+/**
  * Generate a non-empty token suitable for embedding as a credential
  * URL user/password segment OR as a home-directory username.
- * Excludes every char the sanitizer's regexes treat as a delimiter
- * so the regex matches the substring we generated rather than a
- * partial fragment. Also excludes `<`, `>`, `~`, and the literal
- * substring `redacted` so the post-redaction marker `<redacted>`
- * and the `~/` home-prefix replacement can't be confused for a
- * leaked sentinel during the assertion.
+ *
+ * Two layers:
+ *  1. The random body excludes every char the sanitizer's regexes
+ *     treat as a delimiter (whitespace, `/`, `\`, `:`, `@`, quotes,
+ *     paren/bracket) plus `<`, `>`, `~` and the literal `redacted`,
+ *     so the token survives in input form, stays a valid username /
+ *     credential segment for all four path shapes, and can't be
+ *     confused with the `<redacted>` / `~/` post-redaction markers.
+ *  2. The {@link SENTINEL_MARKER} prefix guarantees the token can't
+ *     collide with the test's fixed scaffolding vocabulary, so every
+ *     `leaves.includes(token)` assertion is a sound leak detector.
+ *
+ * The marker is itself delimiter-free and `redacted`-free, so it does
+ * NOT change which sanitizer branch fires: `/Users/Zq7x…/` is still a
+ * POSIX home prefix, `Zq7x…:Zq7x…@` is still a credential infix, etc.
  */
 const sentinelTokenArb: fc.Arbitrary<string> = fc
   .string({ minLength: 4, maxLength: 24 })
   .filter(
-    (s) =>
-      s.length >= 4 &&
-      !/[\s/\\:@'"()[\]<>~]/.test(s) &&
-      !s.toLowerCase().includes('redacted')
-  );
+    (s) => s.length >= 4 && !/[\s/\\:@'"()[\]<>~]/.test(s) && !s.toLowerCase().includes('redacted')
+  )
+  .map((s) => `${SENTINEL_MARKER}${s}`);
 
 /**
  * Build a credentialed HTTPS or HTTP URL fragment with sentinel
@@ -193,11 +234,7 @@ const sentinelTokenArb: fc.Arbitrary<string> = fc
  * would surface here.
  */
 const credentialUrlArb = fc
-  .tuple(
-    sentinelTokenArb,
-    sentinelTokenArb,
-    fc.constantFrom<'http' | 'https'>('http', 'https')
-  )
+  .tuple(sentinelTokenArb, sentinelTokenArb, fc.constantFrom<'http' | 'https'>('http', 'https'))
   .map(([user, password, scheme]) => ({
     user,
     password,

@@ -143,9 +143,7 @@ function renderExportLine(entry: IExportEntry): string {
       // declaration itself is NOT type-only (otherwise it would be
       // redundant: `export type { type T }` is invalid TS).
       const typeKw = ne.isTypeOnly && !entry.isTypeOnly ? 'type ' : '';
-      return ne.alias
-        ? `${typeKw}${ne.name} as ${ne.alias}`
-        : `${typeKw}${ne.name}`;
+      return ne.alias ? `${typeKw}${ne.name} as ${ne.alias}` : `${typeKw}${ne.name}`;
     });
     body = `{ ${parts.join(', ')} }`;
   }
@@ -361,7 +359,9 @@ const synthEntryArb: fc.Arbitrary<IExportEntry> = fc.oneof(
       const deduped: IExportEntry['namedExports'][number][] = [];
       for (const ne of e.namedExports) {
         const exportedAs = ne.alias ?? ne.name;
-        if (seen.has(exportedAs)) continue;
+        if (seen.has(exportedAs)) {
+          continue;
+        }
         seen.add(exportedAs);
         deduped.push(ne);
       }
@@ -392,7 +392,9 @@ const synthBarrelArb: fc.Arbitrary<IExportEntry[]> = fc
     const byModule = new Map<string, IExportEntry>();
     for (const e of entries) {
       const key = e.moduleSpecifier ?? '';
-      if (!byModule.has(key)) byModule.set(key, e);
+      if (!byModule.has(key)) {
+        byModule.set(key, e);
+      }
     }
     const uniqEntries = Array.from(byModule.values());
 
@@ -403,8 +405,12 @@ const synthBarrelArb: fc.Arbitrary<IExportEntry[]> = fc
     const result: IExportEntry[] = [];
     for (const e of uniqEntries) {
       if (e.namespaceExportName !== null) {
-        if (seenNs.has(e.namespaceExportName)) continue;
-        if (seenNamedExports.has(e.namespaceExportName)) continue;
+        if (seenNs.has(e.namespaceExportName)) {
+          continue;
+        }
+        if (seenNamedExports.has(e.namespaceExportName)) {
+          continue;
+        }
         seenNs.add(e.namespaceExportName);
         result.push(e);
         continue;
@@ -421,12 +427,18 @@ const synthBarrelArb: fc.Arbitrary<IExportEntry[]> = fc
       // collide with previously-declared barrel-level names.
       const filtered = e.namedExports.filter((ne) => {
         const exportedAs = ne.alias ?? ne.name;
-        if (seenNs.has(exportedAs)) return false;
-        if (seenNamedExports.has(exportedAs)) return false;
+        if (seenNs.has(exportedAs)) {
+          return false;
+        }
+        if (seenNamedExports.has(exportedAs)) {
+          return false;
+        }
         seenNamedExports.add(exportedAs);
         return true;
       });
-      if (filtered.length === 0) continue;
+      if (filtered.length === 0) {
+        continue;
+      }
       result.push({ ...e, namedExports: filtered });
     }
     return result;
@@ -588,9 +600,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
   it('Property 14b.3: regenerate(regenerate(B)) === regenerate(B) (idempotence)', () => {
     fc.assert(
       fc.property(synthBarrelArb, (entries) => {
-        const parsedInput = parseBarrelContent(
-          entries.map(renderExportLine).join('\n') + '\n'
-        );
+        const parsedInput = parseBarrelContent(entries.map(renderExportLine).join('\n') + '\n');
         const once = regenerateBarrelLines(parsedInput);
         const reparsed = parseBarrelContent(once, '/__synth_regen_once__.ts');
         const twice = regenerateBarrelLines(reparsed);

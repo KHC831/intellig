@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit, IAuthor, IBranch, ITag } from '../../services/interfaces/IGitService';
+import { ICommit, IAuthor, IBranch, ITag } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Log Commit Display Completeness.

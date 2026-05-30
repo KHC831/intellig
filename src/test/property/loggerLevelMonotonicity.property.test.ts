@@ -83,14 +83,7 @@ const RECORD_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'warn', 'e
  * The six valid `LogThreshold` strings, matching the
  * `package.json` `intellig.log.level` enum and Requirement 2.1.
  */
-const ALL_THRESHOLDS: readonly LogThreshold[] = [
-  'trace',
-  'debug',
-  'info',
-  'warn',
-  'error',
-  'off',
-];
+const ALL_THRESHOLDS: readonly LogThreshold[] = ['trace', 'debug', 'info', 'warn', 'error', 'off'];
 
 /**
  * Arbitrary over the six valid `LogThreshold` strings.
@@ -277,8 +270,7 @@ describe('Logger level admission monotonicity (Property 5 / Task 4.5)', () => {
           const resolver = new LogLevelResolver();
           applyThreshold(resolver, threshold);
 
-          const expected =
-            threshold !== 'off' && LEVEL_RANK[level] >= LEVEL_RANK[threshold];
+          const expected = threshold !== 'off' && LEVEL_RANK[level] >= LEVEL_RANK[threshold];
 
           assert.strictEqual(
             resolver.admits(level),

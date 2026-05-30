@@ -9,7 +9,7 @@
  *      relies on the script being executable).
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';

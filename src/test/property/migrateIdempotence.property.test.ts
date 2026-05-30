@@ -81,12 +81,7 @@ interface IPlan {
 }
 
 /** Categorization of a single plan entry against a virtual filesystem. */
-type MoveState =
-  | 'pending'
-  | 'applied'
-  | 'identity'
-  | 'partial-applied'
-  | 'missing-source';
+type MoveState = 'pending' | 'applied' | 'identity' | 'partial-applied' | 'missing-source';
 
 // ─── In-test reimplementation of categorize + applyMoves ────────────────────
 
@@ -116,9 +111,15 @@ function categorizeMove(move: IMove, virtualFs: ReadonlySet<string>): MoveState 
   }
   const fromExists = virtualFs.has(move.from);
   const toExists = virtualFs.has(move.to);
-  if (fromExists && !toExists) return 'pending';
-  if (!fromExists && toExists) return 'applied';
-  if (fromExists && toExists) return 'partial-applied';
+  if (fromExists && !toExists) {
+    return 'pending';
+  }
+  if (!fromExists && toExists) {
+    return 'applied';
+  }
+  if (fromExists && toExists) {
+    return 'partial-applied';
+  }
   return 'missing-source';
 }
 
@@ -399,11 +400,7 @@ describe('Migration idempotence (Property 15 / Requirements 12.3, 14.5)', () => 
         const initialFs = new Set<string>();
 
         // Force at least one of each kind to appear.
-        const forced: ('pending' | 'applied' | 'identity')[] = [
-          'pending',
-          'applied',
-          'identity',
-        ];
+        const forced: ('pending' | 'applied' | 'identity')[] = ['pending', 'applied', 'identity'];
         const allKinds = entries.map((e, i) => (i < forced.length ? forced[i] : e.kind));
 
         allKinds.forEach((kind, i) => {

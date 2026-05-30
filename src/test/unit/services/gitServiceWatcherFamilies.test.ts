@@ -22,10 +22,10 @@
  * captures.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import type * as vscode from 'vscode';
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import * as vscodeMock from '../../mocks/vscode';
 
 const { Uri } = vscodeMock;

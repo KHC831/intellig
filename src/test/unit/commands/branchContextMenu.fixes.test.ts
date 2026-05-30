@@ -20,8 +20,8 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { BranchContextMenuCommands } from '../../../commands/BranchContextMenuCommands';
-import { BranchTreeItem, BranchTreeProvider } from '../../../services/BranchTreeProvider';
+import { BranchContextMenuCommands } from '../../../branches/BranchContextMenuCommands';
+import { BranchTreeItem, BranchTreeProvider } from '../../../branches/BranchTreeProvider';
 import {
   IBasicRebaseResult,
   IBranch,
@@ -29,23 +29,20 @@ import {
   IFetchResult,
   IGitService,
   IRepository,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import {
   IConflictedFile,
   IConflictOpContext,
   IConflictResolutionService,
-} from '../../../services/interfaces/IConflictResolutionService';
-import type { PullDialog } from '../../../services/PullDialog';
+} from '../../../conflicts/interfaces/IConflictResolutionService';
+import type { PullDialog } from '../../../sync/PullDialog';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow } from '../../typed/windowStub';
 import {
   createMockGitService as createSharedMockGitService,
   detachedRepo,
 } from '../../mocks/mockGitService';
-import {
-  __resetLoggerForTest,
-  initLogger,
-} from '../../../utils/logger';
+import { __resetLoggerForTest, initLogger } from '../../../utils/logger';
 import {
   __resetOutputChannelForTest,
   getOutputChannel,

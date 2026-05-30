@@ -25,7 +25,7 @@ import type {
   IRepository,
   IFetchResult,
   ICommit,
-} from '../../services/interfaces/IGitService';
+} from '../../git-core/interfaces/IGitService';
 import { EventEmitter } from './vscode';
 import { noopEvent } from './noopEvent';
 

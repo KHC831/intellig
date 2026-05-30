@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit, IPullOptions, IUpstream } from '../../services/interfaces/IGitService';
+import { ICommit, IPullOptions, IUpstream } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Pull Integration.

@@ -28,15 +28,15 @@
  *  14. MEDIUM  — TLB-M-2 — ADR-009 §6 (display-order vs replay-order).
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import type { IRebaseService } from '../../../services/interfaces/IRebaseService';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { IRebaseService } from '../../../git-core/interfaces/IRebaseService';
 import { Uri, EventEmitter } from '../../mocks/vscode';
-import type { GitCli } from '../../../utils/gitCli';
+import type { GitCli } from '../../../git-core/gitCli';
 import { writableEnv, writableWindow, writableCommands } from '../../typed/windowStub';
 
 // ─── Test scaffolding (slim copy of waveB.test.ts shape) ─────────────────────
@@ -240,7 +240,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       assert.ok(
@@ -253,7 +253,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       // The pre-R1 _handleCreatePatchMulti contained:
@@ -274,7 +274,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       assert.ok(
@@ -358,7 +358,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       // R2 (TLBR1-L-1): the EventEmitter declaration carries
@@ -376,7 +376,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       assert.ok(
@@ -391,7 +391,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       // ADR-009 inversion fix: command handlers don't reach into the
@@ -688,7 +688,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       assert.ok(
@@ -704,7 +704,7 @@ describe('Wave B R1 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       assert.ok(

@@ -11,18 +11,18 @@ import {
   IAutoFetchService,
   IPatchService,
 } from './interfaces';
-import { IGitServiceCli } from './interfaces/IGitService';
-import { ConfigurationService } from './ConfigurationService';
-import { GitService } from './GitService';
-import { RebaseService } from './RebaseService';
-import { ShelfService } from './ShelfService';
-import { ChangelistService } from './ChangelistService';
-import { BlameService } from './BlameService';
-import { ConsoleService } from './ConsoleService';
-import { ConflictResolutionService } from './ConflictResolutionService';
-import { AutoFetchService } from './AutoFetchService';
-import { PatchService } from './PatchService';
-import { BlameOptionsSource } from './BlameOptionsSource';
+import { IGitServiceCli } from '../git-core/interfaces/IGitService';
+import { ConfigurationService } from '../config/ConfigurationService';
+import { GitService } from '../git-core/GitService';
+import { RebaseService } from '../git-core/RebaseService';
+import { ShelfService } from '../shelf/ShelfService';
+import { ChangelistService } from '../changelists/ChangelistService';
+import { BlameService } from '../blame/BlameService';
+import { ConsoleService } from '../ui-shell/ConsoleService';
+import { ConflictResolutionService } from '../conflicts/ConflictResolutionService';
+import { AutoFetchService } from '../sync/AutoFetchService';
+import { PatchService } from '../patches/PatchService';
+import { BlameOptionsSource } from '../blame/BlameOptionsSource';
 import { getLogger } from '../utils/logger';
 
 /**
@@ -397,10 +397,7 @@ export class ExtensionServices implements IExtensionServices {
       this._gitService?.dispose();
       this._configurationService?.dispose();
     } catch (error) {
-      logger.error(
-        'error disposing services',
-        error instanceof Error ? error : undefined
-      );
+      logger.error('error disposing services', error instanceof Error ? error : undefined);
     }
 
     // Clear references

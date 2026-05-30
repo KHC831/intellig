@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IShelfItem, IShelfFile, IUnshelveOptions } from '../../services/interfaces/IShelfService';
+import { IShelfItem, IShelfFile, IUnshelveOptions } from '../../shelf/interfaces/IShelfService';
 
 /**
  * Property-based tests for Shelf Round-Trip.

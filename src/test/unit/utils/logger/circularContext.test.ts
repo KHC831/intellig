@@ -33,11 +33,7 @@
 import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import {
-  __resetLoggerForTest,
-  getLogger,
-  initLogger,
-} from '../../../../utils/logger';
+import { __resetLoggerForTest, getLogger, initLogger } from '../../../../utils/logger';
 import {
   __resetOutputChannelForTest,
   getOutputChannel,
@@ -103,11 +99,7 @@ describe('logger — circular reference handling (task 3.6 / Requirement 7.4)', 
     );
 
     const lines = getCapturedLines();
-    assert.strictEqual(
-      lines.length,
-      1,
-      `expected exactly one rendered block, got ${lines.length}`
-    );
+    assert.strictEqual(lines.length, 1, `expected exactly one rendered block, got ${lines.length}`);
 
     const block = lines[0];
 
@@ -156,11 +148,7 @@ describe('logger — circular reference handling (task 3.6 / Requirement 7.4)', 
     );
 
     const lines = getCapturedLines();
-    assert.strictEqual(
-      lines.length,
-      1,
-      `expected exactly one rendered block, got ${lines.length}`
-    );
+    assert.strictEqual(lines.length, 1, `expected exactly one rendered block, got ${lines.length}`);
 
     const block = lines[0];
 
@@ -195,11 +183,7 @@ describe('logger — circular reference handling (task 3.6 / Requirement 7.4)', 
     );
 
     const lines = getCapturedLines();
-    assert.strictEqual(
-      lines.length,
-      1,
-      `expected exactly one rendered block, got ${lines.length}`
-    );
+    assert.strictEqual(lines.length, 1, `expected exactly one rendered block, got ${lines.length}`);
 
     const block = lines[0];
 
@@ -209,13 +193,7 @@ describe('logger — circular reference handling (task 3.6 / Requirement 7.4)', 
     );
     // Both tags survive the walk — neither sub-object collapses
     // wholesale into the marker.
-    assert.ok(
-      block.includes('"tag":"outer"'),
-      `outer tag must be preserved; got:\n${block}`
-    );
-    assert.ok(
-      block.includes('"tag":"inner"'),
-      `inner tag must be preserved; got:\n${block}`
-    );
+    assert.ok(block.includes('"tag":"outer"'), `outer tag must be preserved; got:\n${block}`);
+    assert.ok(block.includes('"tag":"inner"'), `inner tag must be preserved; got:\n${block}`);
   });
 });

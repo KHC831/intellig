@@ -15,14 +15,14 @@
  *    the merge-base hash is enough to verify on-path tagging
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
-} from '../../../../services/GitToolWindowProvider';
-import type { ICommitNode } from '../../../../utils/commitGraph';
+} from '../../../../ui-shell/GitToolWindowProvider';
+import type { ICommitNode } from '../../../../git-core/commitGraph';
 import { Uri } from '../../../mocks/vscode';
 
 interface FocusInternals {

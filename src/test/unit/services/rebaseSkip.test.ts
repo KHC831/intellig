@@ -23,19 +23,19 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { GitService } from '../../../services/GitService';
-import { ResolveConflictsDialog } from '../../../services/ResolveConflictsDialog';
+import { GitService } from '../../../git-core/GitService';
+import { ResolveConflictsDialog } from '../../../conflicts/ResolveConflictsDialog';
 import type {
   IGitService,
   IRepository,
   IBasicRebaseResult,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import type {
   IConflictResolutionService,
   IConflictOpContext,
   IConflictedFile,
-} from '../../../services/interfaces/IConflictResolutionService';
-import type { IMergeView } from '../../../services/interfaces/IMergeView';
+} from '../../../conflicts/interfaces/IConflictResolutionService';
+import type { IMergeView } from '../../../conflicts/interfaces/IMergeView';
 
 /**
  * Test-only surface on GitService for injecting a scripted CLI.

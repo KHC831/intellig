@@ -7,8 +7,8 @@ import {
   IHunk,
   IDiffLine,
   FileStatus,
-} from '../../services/interfaces/IGitService';
-import { sortCommitsStable } from '../../utils/commitSort';
+} from '../../git-core/interfaces/IGitService';
+import { sortCommitsStable } from '../../git-core/commitSort';
 
 /**
  * Property-based tests for Log Multi-Select Diff.

@@ -1,13 +1,13 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { RebaseProgressView, createRebaseProgressView } from '../../../services/RebaseProgressView';
+import { RebaseProgressView, createRebaseProgressView } from '../../../rebase/RebaseProgressView';
 import {
   IRebaseService,
   IRebaseSession,
   IRebaseAction,
   IRebaseResult,
-} from '../../../services/interfaces/IRebaseService';
-import { IRepository } from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IRebaseService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
 
 /**
  * Mock RebaseService for testing

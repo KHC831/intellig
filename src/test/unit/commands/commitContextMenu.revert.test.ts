@@ -18,14 +18,14 @@
  * intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { IGitService, IRepository, IDiff } from '../../../services/interfaces/IGitService';
-import { IRebaseService } from '../../../services/interfaces/IRebaseService';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { GitCli } from '../../../utils/gitCli';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { IGitService, IRepository, IDiff } from '../../../git-core/interfaces/IGitService';
+import { IRebaseService } from '../../../git-core/interfaces/IRebaseService';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { GitCli } from '../../../git-core/gitCli';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow } from '../../typed/windowStub';
 

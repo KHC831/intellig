@@ -17,7 +17,7 @@
  *      a menu contribution or a command declaration.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';

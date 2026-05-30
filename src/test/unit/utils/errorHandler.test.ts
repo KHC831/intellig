@@ -14,7 +14,7 @@ import {
   formatUserFriendlyError,
   getRecoverySuggestions,
 } from '../../../utils/errorHandler';
-import { GitCommandError, IGitCommandResult } from '../../../utils/gitCli';
+import { GitCommandError, IGitCommandResult } from '../../../git-core/gitCli';
 
 describe('Error Handler', () => {
   describe('categorizeGitError', () => {

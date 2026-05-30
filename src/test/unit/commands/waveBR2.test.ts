@@ -16,16 +16,16 @@
  *   8. LOW    — Senior L-3 — diagnostic comment on the R1-2 test.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import type { IRebaseService } from '../../../services/interfaces/IRebaseService';
-import type { IMenuStateNode } from '../../../services/gitToolWindow/multiSelect';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { IRebaseService } from '../../../git-core/interfaces/IRebaseService';
+import type { IMenuStateNode } from '../../../git-core/gitToolWindow/multiSelect';
 import { Uri, EventEmitter } from '../../mocks/vscode';
-import type { GitCli } from '../../../utils/gitCli';
+import type { GitCli } from '../../../git-core/gitCli';
 import { writableEnv, writableWindow, writableCommands } from '../../typed/windowStub';
 
 // ─── Test scaffolding ────────────────────────────────────────────────────────
@@ -332,7 +332,7 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       // The new shape lists `commitNodes:` in the EventEmitter generic.
@@ -368,7 +368,7 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       assert.ok(
@@ -383,7 +383,7 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       assert.ok(
@@ -399,7 +399,7 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       // public getSelectedCommits(): readonly string[]
@@ -416,7 +416,7 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       // We assert the comment includes both "external caller" and the
@@ -437,7 +437,7 @@ describe('Wave B R2 — final review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       const idx = src.indexOf('private async _handleCreatePatchMulti');

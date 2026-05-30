@@ -3,16 +3,16 @@
  */
 
 // Git CLI wrapper
-export * from './gitCli';
+export * from '../git-core/gitCli';
 
 // Git output parsing utilities
-export * from './gitParser';
+export * from '../git-core/gitParser';
 
 // Commit graph generation utilities
-export * from './commitGraph';
+export * from '../git-core/commitGraph';
 
 // Optimized commit graph generation for large repositories
-export * from './optimizedCommitGraph';
+export * from '../git-core/optimizedCommitGraph';
 
 // Error handling utilities
 export * from './errorHandler';

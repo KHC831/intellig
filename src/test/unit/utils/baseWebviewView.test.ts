@@ -15,7 +15,7 @@
  * `WebviewView`-shaped fake (enough to satisfy `resolveWebviewView`).
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { BaseWebviewView } from '../../../utils/BaseWebviewView';

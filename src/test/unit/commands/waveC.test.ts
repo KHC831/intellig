@@ -13,23 +13,23 @@
  * payload uses commitNodes (the slim newest-first IMenuStateNode list).
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import type {
   IRebaseService,
   IRebaseSession,
   IRebaseAction,
   IRebaseResult,
-} from '../../../services/interfaces/IRebaseService';
-import type { IConflictResolutionService } from '../../../services/interfaces/IConflictResolutionService';
-import type { IMenuStateNode } from '../../../services/gitToolWindow/multiSelect';
+} from '../../../git-core/interfaces/IRebaseService';
+import type { IConflictResolutionService } from '../../../conflicts/interfaces/IConflictResolutionService';
+import type { IMenuStateNode } from '../../../git-core/gitToolWindow/multiSelect';
 import { Uri, EventEmitter } from '../../mocks/vscode';
-import type { GitCli } from '../../../utils/gitCli';
+import type { GitCli } from '../../../git-core/gitCli';
 import { writableWindow, writableWorkspace, writableCommands } from '../../typed/windowStub';
 
 // ─── Test scaffolding ────────────────────────────────────────────────────────
@@ -1056,7 +1056,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       assert.ok(
@@ -1069,7 +1069,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       // Look for an inline `indices.every((v, i) => i === 0 || v - indices[i-1] === 1)`
@@ -1090,7 +1090,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       const fs = await import('fs');
       const path = await import('path');
       src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
     });
@@ -1160,7 +1160,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       const fs = await import('fs');
       const path = await import('path');
       const ifaceSrc = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/interfaces/IRebaseService.ts'),
+        path.join(process.cwd(), 'src/git-core/interfaces/IRebaseService.ts'),
         'utf8'
       );
       assert.ok(

@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ITag, IAuthor } from '../../services/interfaces/IGitService';
+import { ITag, IAuthor } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Tag Type Determination.

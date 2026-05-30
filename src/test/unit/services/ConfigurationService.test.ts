@@ -4,8 +4,8 @@ import {
   ConfigurationService,
   getDefaultConfiguration,
   getConfigurationSection,
-} from '../../../services/ConfigurationService';
-import { IExtensionConfiguration } from '../../../services/interfaces/IConfigurationService';
+} from '../../../config/ConfigurationService';
+import { IExtensionConfiguration } from '../../../config/interfaces/IConfigurationService';
 import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 describe('ConfigurationService', () => {

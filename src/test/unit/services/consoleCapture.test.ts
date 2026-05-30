@@ -18,12 +18,12 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { GitService } from '../../../services/GitService';
-import { RebaseService } from '../../../services/RebaseService';
-import { ShelfService } from '../../../services/ShelfService';
-import { BlameService } from '../../../services/BlameService';
-import { ConsoleService } from '../../../services/ConsoleService';
-import { GitCli, IGitCommandResult } from '../../../utils/gitCli';
+import { GitService } from '../../../git-core/GitService';
+import { RebaseService } from '../../../git-core/RebaseService';
+import { ShelfService } from '../../../shelf/ShelfService';
+import { BlameService } from '../../../blame/BlameService';
+import { ConsoleService } from '../../../ui-shell/ConsoleService';
+import { GitCli, IGitCommandResult } from '../../../git-core/gitCli';
 
 /**
  * Stub GitCli that records every exec invocation and forwards through

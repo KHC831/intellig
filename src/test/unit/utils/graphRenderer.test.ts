@@ -18,8 +18,8 @@ import {
   computeGraphWidth,
   renderGraphSvg,
 } from '../../../utils/graphRenderer';
-import { ICommitNode, getColumnColor } from '../../../utils/commitGraph';
-import { ICommit } from '../../../services/interfaces/IGitService';
+import { ICommitNode, getColumnColor } from '../../../git-core/commitGraph';
+import { ICommit } from '../../../git-core/interfaces/IGitService';
 
 describe('Graph Renderer - Core Types and Config', () => {
   describe('DEFAULT_GRAPH_CONFIG', () => {

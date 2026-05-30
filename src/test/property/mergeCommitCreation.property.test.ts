@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IMergeResult } from '../../services/interfaces/IGitService';
+import { IMergeResult } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Merge Commit Creation.

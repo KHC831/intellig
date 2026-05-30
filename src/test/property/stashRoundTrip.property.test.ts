@@ -5,7 +5,7 @@ import {
   IStashOptions,
   IFileStatus,
   StatusCode,
-} from '../../services/interfaces/IGitService';
+} from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Stash Round-Trip.

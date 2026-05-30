@@ -19,7 +19,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import { runNewTagFlow, validateTagName, INewTagFlowDeps } from '../../../extension';
-import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────

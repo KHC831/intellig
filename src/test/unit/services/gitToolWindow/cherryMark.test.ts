@@ -19,10 +19,10 @@
  * intentional here.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
-import type { CherryMark, ICommit, IRepository } from '../../../../services/interfaces/IGitService';
-import { GitService } from '../../../../services/GitService';
+import type { CherryMark, ICommit, IRepository } from '../../../../git-core/interfaces/IGitService';
+import { GitService } from '../../../../git-core/GitService';
 import { Uri } from '../../../mocks/vscode';
 
 // ─── GitService.getCherryMarks ───────────────────────────────────────────────
@@ -182,7 +182,7 @@ describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
   // `resolveWebviewView` is called — setCherryPickedHashes is pure state.
   it('stores the hashes + baseRef and surfaces them via getExtendedLogState', async () => {
     const { GitToolWindowProvider } =
-      await import('../../../../services/gitToolWindow/GitToolWindowProvider');
+      await import('../../../../git-core/gitToolWindow/GitToolWindowProvider');
     const provider = new GitToolWindowProvider(Uri.file('/ext'));
     const set = new Set(['aaa', 'bbb', 'ccc']);
     provider.setCherryPickedHashes(set, 'origin/main');
@@ -195,7 +195,7 @@ describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
 
   it('clears the state when called with an empty Set', async () => {
     const { GitToolWindowProvider } =
-      await import('../../../../services/gitToolWindow/GitToolWindowProvider');
+      await import('../../../../git-core/gitToolWindow/GitToolWindowProvider');
     const provider = new GitToolWindowProvider(Uri.file('/ext'));
     provider.setCherryPickedHashes(new Set(['aaa']), 'origin/main');
     provider.setCherryPickedHashes(new Set(), undefined);
@@ -206,7 +206,7 @@ describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
 
   it('clears the state when called with undefined', async () => {
     const { GitToolWindowProvider } =
-      await import('../../../../services/gitToolWindow/GitToolWindowProvider');
+      await import('../../../../git-core/gitToolWindow/GitToolWindowProvider');
     const provider = new GitToolWindowProvider(Uri.file('/ext'));
     provider.setCherryPickedHashes(new Set(['aaa']), 'origin/main');
     provider.setCherryPickedHashes(undefined);

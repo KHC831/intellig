@@ -17,8 +17,8 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit } from '../../services/interfaces/IGitService';
-import { generateCommitGraph, getMaxGraphColumn } from '../../utils/commitGraph';
+import { ICommit } from '../../git-core/interfaces/IGitService';
+import { generateCommitGraph, getMaxGraphColumn } from '../../git-core/commitGraph';
 
 function mkCommit(hash: string, parents: string[]): ICommit {
   return {
@@ -132,7 +132,7 @@ describe('Wave D R1 / Senior L-4 — focus race property', () => {
     // top of the suite. Provider construction touches `vscode`, so we
     // need the test setup file too.
     await import(path.join(process.cwd(), 'src/test/setup.ts'));
-    const { GitToolWindowProvider } = await import('../../services/GitToolWindowProvider');
+    const { GitToolWindowProvider } = await import('../../ui-shell/GitToolWindowProvider');
     const { Uri } = await import('../mocks/vscode');
 
     function mkBareCommit(hash: string): ICommit {

@@ -17,8 +17,8 @@
 
 import * as assert from 'assert';
 import { provideGitShowContent } from '../../../extension';
-import { GitService } from '../../../services/GitService';
-import { IRepository } from '../../../services/interfaces/IGitService';
+import { GitService } from '../../../git-core/GitService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 /**

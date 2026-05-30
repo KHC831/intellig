@@ -31,11 +31,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ConflictResolutionService } from '../../../services/ConflictResolutionService';
-import { ResolveConflictsDialog } from '../../../services/ResolveConflictsDialog';
-import type { IConflictOpContext } from '../../../services/interfaces/IConflictResolutionService';
-import type { IMergeView, IMergeState } from '../../../services/interfaces/IMergeView';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import { ConflictResolutionService } from '../../../conflicts/ConflictResolutionService';
+import { ResolveConflictsDialog } from '../../../conflicts/ResolveConflictsDialog';
+import type { IConflictOpContext } from '../../../conflicts/interfaces/IConflictResolutionService';
+import type { IMergeView, IMergeState } from '../../../conflicts/interfaces/IMergeView';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
 
 /**

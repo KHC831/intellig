@@ -4,8 +4,8 @@ import {
   IExtensionConfiguration,
   GitToolWindowTab,
   BlameAnnotationStyle,
-} from '../../services/interfaces/IConfigurationService';
-import { getDefaultConfiguration } from '../../services/ConfigurationService';
+} from '../../config/interfaces/IConfigurationService';
+import { getDefaultConfiguration } from '../../config/ConfigurationService';
 import type { LogThreshold } from '../../utils/logger';
 
 /**

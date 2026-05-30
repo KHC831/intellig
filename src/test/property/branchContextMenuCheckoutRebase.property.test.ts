@@ -12,9 +12,9 @@
 import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { BranchContextMenuCommands } from '../../commands/BranchContextMenuCommands';
-import { BranchTreeItem, BranchTreeProvider } from '../../services/BranchTreeProvider';
-import { IGitService, IRepository, IBranch } from '../../services/interfaces/IGitService';
+import { BranchContextMenuCommands } from '../../branches/BranchContextMenuCommands';
+import { BranchTreeItem, BranchTreeProvider } from '../../branches/BranchTreeProvider';
+import { IGitService, IRepository, IBranch } from '../../git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { invokePrivateHandler } from '../typed/privateHandler';
 

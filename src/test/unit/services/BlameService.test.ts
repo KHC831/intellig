@@ -10,8 +10,8 @@
  */
 
 import * as assert from 'assert';
-import { BlameService } from '../../../services/BlameService';
-import { IRepository } from '../../../services/interfaces/IGitService';
+import { BlameService } from '../../../blame/BlameService';
+import { IRepository } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 // Mock GitCli for testing

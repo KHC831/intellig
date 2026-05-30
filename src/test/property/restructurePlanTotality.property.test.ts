@@ -102,46 +102,87 @@ function loadPlan(): IPlan {
 describe('Restructure_Plan plan-coverage totality (Property 13 / Requirements 9.1, 14.6)', () => {
   let plan: IPlan;
   let filesUnderSrc: readonly string[];
-  let planFromSet: ReadonlySet<string>;
-  let fromCounts: ReadonlyMap<string, number>;
+  let planCoverageSet: ReadonlySet<string>;
+  let coverageCounts: ReadonlyMap<string, number>;
+  let coveragePaths: readonly string[];
+  let alreadyApplied: boolean;
+
+  /**
+   * Tree-state duality (post-§14): Requirement 14.6 quantifies over
+   * "every file `f` under `src/` **in the pre-change tree**". The
+   * canonical statement is "the plan's `from` set equals the
+   * pre-migration `src/` file set". Once the §14 migration is
+   * applied, the live tree IS the post-migration tree: the `from`
+   * paths of non-identity moves no longer exist on disk, and the
+   * files that DO exist match the `to` paths (plus identity `from`
+   * paths, which equal their `to`). The equivalent coverage relation
+   * for an applied tree is therefore against the plan's
+   * post-migration coverage set:
+   *
+   *     coverage(move) = move.from === move.to ? move.from : move.to
+   *
+   * which is exactly the union set the migration's own unmapped-path
+   * guard ({ to | from≠to } ∪ { from | from===to }) enforces.
+   *
+   * This suite detects which tree it is running against and asserts
+   * the corresponding coverage relation at full strength — no
+   * assertion is skipped or weakened (Requirement 13.4). Against a
+   * fresh checkout of the pre-§14 commit the `coveragePath` reduces
+   * to `move.from` and the property is byte-for-byte the original
+   * pre-migration check.
+   */
+  function coveragePathFor(move: IMove): string {
+    if (alreadyApplied) {
+      return move.from === move.to ? move.from : move.to;
+    }
+    return move.from;
+  }
 
   before(() => {
     plan = loadPlan();
     filesUnderSrc = walkSrcTree(SRC_DIR);
 
-    // Build the lookup structures once. The property iterations only
-    // read these — no mutation across runs.
+    // Detect tree state the same way migrate.mjs categorizes moves:
+    // a non-identity move is "applied" when its `from` is absent and
+    // its `to` is present on disk. When every non-identity move is
+    // applied, the live tree is the post-migration tree.
+    const exists = (rel: string): boolean => fs.existsSync(path.join(REPO_ROOT, ...rel.split('/')));
+    const nonIdentity = plan.moves.filter((m) => m.from !== m.to);
+    const appliedCount = nonIdentity.filter((m) => !exists(m.from) && exists(m.to)).length;
+    alreadyApplied = nonIdentity.length > 0 && appliedCount === nonIdentity.length;
+
+    // Build the lookup structures once against the state-appropriate
+    // coverage path. The property iterations only read these — no
+    // mutation across runs.
+    coveragePaths = plan.moves.map((m) => coveragePathFor(m));
     const counts = new Map<string, number>();
-    for (const m of plan.moves) {
-      counts.set(m.from, (counts.get(m.from) ?? 0) + 1);
+    for (const cp of coveragePaths) {
+      counts.set(cp, (counts.get(cp) ?? 0) + 1);
     }
-    fromCounts = counts;
-    planFromSet = new Set(plan.moves.map((m) => m.from));
+    coverageCounts = counts;
+    planCoverageSet = new Set(coveragePaths);
   });
 
   /**
    * Property 13 (forward direction):
-   *   ∀ file f ∈ walk(src/) . f ∈ {move.from : move ∈ plan.moves}
+   *   ∀ file f ∈ walk(src/) . f ∈ {coverage(move) : move ∈ plan.moves}
    *
-   * Wrap the discovered file set in `fc.constantFrom` so fast-check
-   * drives the assertion across every file and shrinks to the
-   * single missing one on failure. `numRuns` is set to the size of
-   * the file set so every file is exercised at least once (with
-   * fast-check's deduplication this means each file is tested
-   * exactly once when the seed is exhaustive enough).
+   * Pre-migration `coverage(move) === move.from`; post-migration it
+   * is the move's destination (or its identity path). Wrap the
+   * discovered file set in `fc.constantFrom` so fast-check drives
+   * the assertion across every file and shrinks to the single
+   * missing one on failure.
    */
   it('Property 13 (forward): every file under src/ appears as a `from` entry in plan.moves', () => {
-    assert.ok(
-      filesUnderSrc.length > 0,
-      'walkSrcTree(src/) returned no files — fixture is broken'
-    );
+    assert.ok(filesUnderSrc.length > 0, 'walkSrcTree(src/) returned no files — fixture is broken');
 
     fc.assert(
       fc.property(fc.constantFrom(...filesUnderSrc), (file) => {
         assert.ok(
-          planFromSet.has(file),
+          planCoverageSet.has(file),
           `Requirement 9.1/14.6 violation: file '${file}' exists on ` +
-            `disk under src/ but is not present as a \`from\` entry ` +
+            `disk under src/ but is not present as a ` +
+            `${alreadyApplied ? '`to`/identity coverage' : '`from`'} entry ` +
             `in scripts/restructure/plan.json. Every file under src/ ` +
             `must be covered by exactly one plan entry.`
         );
@@ -155,24 +196,25 @@ describe('Restructure_Plan plan-coverage totality (Property 13 / Requirements 9.
 
   /**
    * Property 13 (uniqueness side):
-   *   ∀ file f ∈ walk(src/) . |{move ∈ plan.moves : move.from === f}| === 1
+   *   ∀ file f ∈ walk(src/) . |{move : coverage(move) === f}| === 1
    *
    * Requirement 9.1's "exactly one entry" pins both presence
    * (forward direction above) AND uniqueness. The plan-shape unit
-   * test in task 12.2 already asserts no duplicate `from` across
-   * the whole plan; this property re-checks the uniqueness-when-
-   * intersected-with-disk slice so the two checks fail with focused
-   * messages on regression.
+   * test in task 12.2 already asserts no duplicate `from`/`to`
+   * across the whole plan; this property re-checks the uniqueness-
+   * when-intersected-with-disk slice so the two checks fail with
+   * focused messages on regression.
    */
   it('Property 13 (uniqueness): every disk file appears exactly once in plan.moves', () => {
     fc.assert(
       fc.property(fc.constantFrom(...filesUnderSrc), (file) => {
-        const count = fromCounts.get(file) ?? 0;
+        const count = coverageCounts.get(file) ?? 0;
         assert.strictEqual(
           count,
           1,
           `Requirement 9.1/14.6 violation: file '${file}' under src/ ` +
-            `appears ${count} times as a \`from\` entry in ` +
+            `appears ${count} times as a ` +
+            `${alreadyApplied ? '`to`/identity coverage' : '`from`'} entry in ` +
             `scripts/restructure/plan.json (expected exactly 1).`
         );
       }),
@@ -182,29 +224,28 @@ describe('Restructure_Plan plan-coverage totality (Property 13 / Requirements 9.
 
   /**
    * Property 13 (reverse direction):
-   *   ∀ move ∈ plan.moves . move.from ∈ walk(src/)
+   *   ∀ move ∈ plan.moves . coverage(move) ∈ walk(src/)
    *
-   * The plan must not refer to phantom files. If a `from` entry
-   * names a path that does not exist on disk, the migration script's
-   * `fs.rename(from, to)` step would fail at runtime; we want that
-   * caught by the property test before the migration ever runs. The
-   * one allowable exception is identity entries (`from === to`) for
-   * which the file existing post-migration counts as the same set —
-   * but pre-migration every `from` (identity or not) must point at a
-   * real file in the current tree, since the plan is authored
-   * against the current pre-migration tree (Requirement 9.1).
+   * The plan must not refer to phantom files. Pre-migration every
+   * `from` must point at a real file (else `fs.rename(from, to)`
+   * would fail); post-migration every coverage path (the `to`, or
+   * the identity `from`) must point at a real file (else the tree
+   * does not match the plan's declared post-migration shape). We
+   * want either gap caught by the property test.
    */
   it('Property 13 (reverse): every `from` entry in plan.moves names a real file on disk', () => {
     const treeSet = new Set(filesUnderSrc);
 
     fc.assert(
       fc.property(fc.constantFrom(...plan.moves), (move) => {
+        const cp = coveragePathFor(move);
         assert.ok(
-          treeSet.has(move.from),
+          treeSet.has(cp),
           `scripts/restructure/plan.json contains an entry whose ` +
-            `\`from\` path '${move.from}' does not exist on disk under ` +
-            `src/. The plan must be authored against the current ` +
-            `pre-migration tree (Requirement 9.1).`
+            `${alreadyApplied ? 'coverage' : '`from`'} path '${cp}' does ` +
+            `not exist on disk under src/. The plan must match the ` +
+            `${alreadyApplied ? 'post-migration' : 'current pre-migration'} ` +
+            `tree (Requirement 9.1).`
         );
       }),
       { numRuns: plan.moves.length }
@@ -213,7 +254,7 @@ describe('Restructure_Plan plan-coverage totality (Property 13 / Requirements 9.
 
   /**
    * Direct exhaustive cross-check: the set of files under `src/` is
-   * equal to the set of `from` paths in `plan.moves`. This is the
+   * equal to the set of coverage paths in `plan.moves`. This is the
    * compact, byte-for-byte version of the three properties above
    * — kept because if it ever fails, the diff between the two sets
    * is the most useful possible failure message (vs. a single-file
@@ -224,12 +265,12 @@ describe('Restructure_Plan plan-coverage totality (Property 13 / Requirements 9.
    * shrunk fast-check witness.
    */
   it('the set of files under src/ equals the set of `from` entries in plan.moves', () => {
-    const fromsSorted = [...new Set(plan.moves.map((m) => m.from))].sort();
+    const coverageSorted = [...new Set(coveragePaths)].sort();
     const treeSorted = [...filesUnderSrc].sort();
     assert.deepStrictEqual(
-      fromsSorted,
+      coverageSorted,
       treeSorted,
-      'plan.moves `from` set does not equal the set of files under ' +
+      'plan.moves coverage set does not equal the set of files under ' +
         'src/. Inspect the diff above for missing or extra entries ' +
         '(Requirement 9.1, 14.6).'
     );

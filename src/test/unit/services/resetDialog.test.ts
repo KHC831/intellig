@@ -17,7 +17,7 @@
  * signatures return `Promise<T>`; no-await stub bodies are intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import type * as vscode from 'vscode';
 import { Uri as MockUri } from '../../mocks/vscode';
@@ -27,8 +27,8 @@ import {
   isValidRef,
   resolveDefaultMode,
   showResetDialog,
-} from '../../../services/ResetDialog';
-import { IGitService, IRepository, ResetMode } from '../../../services/interfaces/IGitService';
+} from '../../../ui-shell/ResetDialog';
+import { IGitService, IRepository, ResetMode } from '../../../git-core/interfaces/IGitService';
 import { writableWindow } from '../../typed/windowStub';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 

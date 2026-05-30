@@ -13,13 +13,13 @@
  *    commit list using the cached `_focusedPathHashes`
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
-} from '../../../../services/GitToolWindowProvider';
+} from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 
 interface FocusedPathInternals {

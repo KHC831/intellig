@@ -7,7 +7,7 @@
  * the existing GitToolWindowProvider tests.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import {
   ACTIVE_TAB_CONTEXT_KEY,
@@ -18,7 +18,7 @@ import {
   isTabId,
   type IWebviewTabMessage,
   type TabId,
-} from '../../../../services/gitToolWindow/tabRouter';
+} from '../../../../git-core/gitToolWindow/tabRouter';
 
 // ─── inferTabForMessage ───────────────────────────────────────────────────────
 

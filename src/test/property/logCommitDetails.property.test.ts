@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { ICommit, IAuthor, IDiff, FileStatus } from '../../services/interfaces/IGitService';
+import { ICommit, IAuthor, IDiff, FileStatus } from '../../git-core/interfaces/IGitService';
 
 /**
  * Property-based tests for Log Commit Details.

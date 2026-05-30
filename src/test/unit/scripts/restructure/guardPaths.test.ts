@@ -225,10 +225,7 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
       );
       for (const p of tracked) {
         const result = resolveGuardTrackedPath(p, plan);
-        assert.ok(
-          result.ok,
-          result.ok ? '' : `${GUARD_REL}: ${result.reason}`
-        );
+        assert.ok(result.ok, result.ok ? '' : `${GUARD_REL}: ${result.reason}`);
       }
     });
   });
@@ -258,10 +255,7 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
       );
       for (const p of tracked) {
         const result = resolveGuardTrackedPath(p, plan);
-        assert.ok(
-          result.ok,
-          result.ok ? '' : `${GUARD_REL}: ${result.reason}`
-        );
+        assert.ok(result.ok, result.ok ? '' : `${GUARD_REL}: ${result.reason}`);
       }
     });
   });
@@ -292,10 +286,7 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
       );
       for (const p of tracked) {
         const result = resolveGuardTrackedPath(p, plan);
-        assert.ok(
-          result.ok,
-          result.ok ? '' : `${GUARD_REL}: ${result.reason}`
-        );
+        assert.ok(result.ok, result.ok ? '' : `${GUARD_REL}: ${result.reason}`);
       }
     });
   });
@@ -334,12 +325,10 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
       });
 
       it('every src/ path-shape the live guard references resolves', () => {
-        const content =
-          readGuardIfExists(POST_RENAME) ?? readGuardIfExists(PRE_RENAME);
+        const content = readGuardIfExists(POST_RENAME) ?? readGuardIfExists(PRE_RENAME);
         assert.ok(
           content !== null,
-          `Neither pre- nor post-rename guard exists; cannot extract ` +
-            `tracked paths`
+          `Neither pre- nor post-rename guard exists; cannot extract ` + `tracked paths`
         );
         const tracked = extractSrcPaths(content);
         // The DEFINITION_FILE constant pins one path; comments
@@ -354,10 +343,7 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
         );
         for (const p of tracked) {
           const result = resolveGuardTrackedPath(p, plan);
-          assert.ok(
-            result.ok,
-            result.ok ? '' : `live test-only-surface guard: ${result.reason}`
-          );
+          assert.ok(result.ok, result.ok ? '' : `live test-only-surface guard: ${result.reason}`);
         }
       });
     }
@@ -371,24 +357,20 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
     // so a future refactor cannot quietly weaken it.
 
     it('extracts a simple path under src/', () => {
-      assert.deepStrictEqual(
-        extractSrcPaths('see src/utils/gitError.ts for details'),
-        ['src/utils/gitError.ts']
-      );
+      assert.deepStrictEqual(extractSrcPaths('see src/utils/gitError.ts for details'), [
+        'src/utils/gitError.ts',
+      ]);
     });
 
     it('extracts a deeply-nested path with hyphens and underscores', () => {
-      assert.deepStrictEqual(
-        extractSrcPaths('TARGET = "src/services/interfaces/IShelfView.ts"'),
-        ['src/services/interfaces/IShelfView.ts']
-      );
+      assert.deepStrictEqual(extractSrcPaths('TARGET = "src/services/interfaces/IShelfView.ts"'), [
+        'src/services/interfaces/IShelfView.ts',
+      ]);
     });
 
     it('extracts multiple distinct paths from one input', () => {
       assert.deepStrictEqual(
-        extractSrcPaths(
-          'a:src/foo/Bar.ts; b:src/baz/Qux.ts; c:src/foo/Bar.ts'
-        ),
+        extractSrcPaths('a:src/foo/Bar.ts; b:src/baz/Qux.ts; c:src/foo/Bar.ts'),
         // Deduped + sorted; the duplicate `src/foo/Bar.ts` collapses.
         ['src/baz/Qux.ts', 'src/foo/Bar.ts']
       );
@@ -409,19 +391,13 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
     });
 
     it('extracts .mjs paths (script extension)', () => {
-      assert.deepStrictEqual(
-        extractSrcPaths('see src/scripts/foo.mjs'),
-        ['src/scripts/foo.mjs']
-      );
+      assert.deepStrictEqual(extractSrcPaths('see src/scripts/foo.mjs'), ['src/scripts/foo.mjs']);
     });
 
     it('does not extract path-like text without a recognised extension', () => {
       // The terminating `.(ts|tsx|mjs|js)` group is mandatory; bare
       // directory references should not be captured.
-      assert.deepStrictEqual(
-        extractSrcPaths('the src/services/ directory holds…'),
-        []
-      );
+      assert.deepStrictEqual(extractSrcPaths('the src/services/ directory holds…'), []);
     });
   });
 });

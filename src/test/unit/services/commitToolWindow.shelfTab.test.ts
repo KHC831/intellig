@@ -21,7 +21,7 @@
  * intentional here.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
@@ -39,9 +39,9 @@ import type {
   IShelfTabShelfController,
   IShelfTabStashController,
 } from '../../../services';
-import type { IShelfItem } from '../../../services/interfaces/IShelfService';
-import type { IStash, IGitService, IRepository } from '../../../services/interfaces/IGitService';
-import type { IChangelistService } from '../../../services/interfaces/IChangelistService';
+import type { IShelfItem } from '../../../shelf/interfaces/IShelfService';
+import type { IStash, IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { IChangelistService } from '../../../changelists/interfaces/IChangelistService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── pure helpers ────────────────────────────────────────────────────────────
@@ -338,7 +338,7 @@ function makeShelfServiceImpl(items: IShelfItem[]) {
       return Promise.resolve([]);
     },
     dispose(): void {},
-  } as unknown as import('../../../services/interfaces/IShelfService').IShelfService;
+  } as unknown as import('../../../shelf/interfaces/IShelfService').IShelfService;
 }
 
 describe('T3-10 — CommitToolWindow filter persistence', () => {

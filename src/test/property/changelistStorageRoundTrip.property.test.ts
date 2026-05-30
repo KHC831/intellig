@@ -15,7 +15,10 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { migrateStorageForTest, serializeStorageForDisk } from '../../services/ChangelistService';
+import {
+  migrateStorageForTest,
+  serializeStorageForDisk,
+} from '../../changelists/ChangelistService';
 
 describe('ChangelistService storage round-trip — TL-10', () => {
   // ── Arbitraries ────────────────────────────────────────────────────────

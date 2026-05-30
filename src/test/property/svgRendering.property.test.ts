@@ -17,8 +17,8 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { renderGraphSvg, getColumnX, IGraphRenderConfig } from '../../utils/graphRenderer';
-import { ICommitNode, getColumnColor } from '../../utils/commitGraph';
-import { ICommit } from '../../services/interfaces/IGitService';
+import { ICommitNode, getColumnColor } from '../../git-core/commitGraph';
+import { ICommit } from '../../git-core/interfaces/IGitService';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 

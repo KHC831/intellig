@@ -7,7 +7,7 @@
  */
 
 import * as assert from 'assert';
-import { sanitizeGitError, formatActionFailureToast } from '../../../utils/gitError';
+import { sanitizeGitError, formatActionFailureToast } from '../../../git-core/gitError';
 
 describe('sanitizeGitError', () => {
   it('passes clean messages through unchanged', () => {

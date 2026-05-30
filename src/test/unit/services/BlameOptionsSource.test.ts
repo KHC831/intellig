@@ -10,7 +10,7 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { BlameOptionsSource } from '../../../services/BlameOptionsSource';
+import { BlameOptionsSource } from '../../../blame/BlameOptionsSource';
 import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 /**

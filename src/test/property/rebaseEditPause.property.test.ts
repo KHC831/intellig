@@ -6,7 +6,7 @@ import {
   IRebaseSession,
   IRebaseAction,
   IRebaseResult,
-} from '../../services/interfaces/IRebaseService';
+} from '../../git-core/interfaces/IRebaseService';
 
 /**
  * Property-based tests for Rebase Edit Pause.

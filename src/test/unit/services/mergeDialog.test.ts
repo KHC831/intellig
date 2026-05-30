@@ -28,24 +28,24 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { GitService } from '../../../services/GitService';
+import { GitService } from '../../../git-core/GitService';
 import {
   MergeDialog,
   IMergeDialogOptions,
   IMergeFlagState,
   resolveMergeMutex,
-} from '../../../services/MergeDialog';
+} from '../../../conflicts/MergeDialog';
 import {
   IGitService,
   IMergeOptions,
   IMergeResult,
   IRepository,
-} from '../../../services/interfaces/IGitService';
+} from '../../../git-core/interfaces/IGitService';
 import {
   IConflictResolutionService,
   IConflictedFile,
   IConflictOpContext,
-} from '../../../services/interfaces/IConflictResolutionService';
+} from '../../../conflicts/interfaces/IConflictResolutionService';
 import { Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

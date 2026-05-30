@@ -23,12 +23,12 @@
  * keep the docs from drifting silently.
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { GitToolWindowProvider } from '../../../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
-import { computeMenuState } from '../../../../services/gitToolWindow/multiSelect';
+import { computeMenuState } from '../../../../git-core/gitToolWindow/multiSelect';
 
 function mkCommit(
   hash: string,
@@ -236,7 +236,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const idx = src.indexOf('public getSelectedCommits()');
@@ -264,7 +264,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       const idx = src.indexOf('export interface IMenuItemState');
@@ -283,7 +283,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       const idx = src.indexOf('reason?: string');
@@ -302,7 +302,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       // Count comments matching the canonical phrase. Brief asks for the
@@ -384,7 +384,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const { firePos, firstPostPos } = findInBody(
@@ -403,7 +403,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const { firePos, firstPostPos } = findInBody(
@@ -417,7 +417,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const { firePos, firstPostPos } = findInBody(
@@ -453,7 +453,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const start = src.indexOf('public addRangeSelectCommit(hash: string): void');
@@ -476,7 +476,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/GitToolWindowProvider.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
       const { firePos, firstPostPos } = findInBody(src, 'public selectCommit(hash: string): void');
@@ -547,7 +547,7 @@ describe('Wave A R4 — review fixes', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/services/gitToolWindow/multiSelect.ts'),
+        path.join(process.cwd(), 'src/git-core/gitToolWindow/multiSelect.ts'),
         'utf8'
       );
       const idx = src.indexOf('reason?: string');

@@ -21,10 +21,10 @@
  *     button posts a `stageFile` message after the dispatcher fires.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import { CommitDialog } from '../../../services/CommitDialog';
+import { CommitDialog } from '../../../commits/CommitDialog';
 
 // CommitDialog's _getFileItemHtml is a private method. We invoke it
 // through prototype-level reflection: bind it to a minimal `this`

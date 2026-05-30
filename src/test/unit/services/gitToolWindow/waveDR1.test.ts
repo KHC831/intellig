@@ -11,13 +11,13 @@
  *    focusBranch.test.ts; mirrored here in the snap-6 renderer suite)
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
-} from '../../../../services/GitToolWindowProvider';
+} from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 
 interface R1Internals {
@@ -338,7 +338,7 @@ describe('Wave D R1 — review-round fixes', () => {
     it('GitService.getMergeBase passes --end-of-options before the refs', async () => {
       // Defer-load to avoid a top-level import cycle with the mocha
       // setup file when this file is run alone.
-      const { GitService } = await import('../../../../services/GitService');
+      const { GitService } = await import('../../../../git-core/GitService');
       const gitService = new GitService();
 
       const executedArgs: string[][] = [];

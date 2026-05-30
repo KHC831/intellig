@@ -24,7 +24,7 @@ import {
   AUTO_INDENT_MIN_GROUP_SIZE,
   detectIndentablePrefixes,
   formatBranchLabel,
-} from '../../services/BranchPopup';
+} from '../../branches/BranchPopup';
 
 // ─── Arbitraries ─────────────────────────────────────────────────────────────
 

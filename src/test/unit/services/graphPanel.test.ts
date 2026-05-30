@@ -2,12 +2,12 @@
  * Unit tests for _getGraphPanelHtml() method in GitToolWindowProvider.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
-import * as gitToolWindowProvider from '../../../services/GitToolWindowProvider';
-import { ICommitNode } from '../../../utils/commitGraph';
-import { ICommit } from '../../../services/interfaces/IGitService';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
+import * as gitToolWindowProvider from '../../../ui-shell/GitToolWindowProvider';
+import { ICommitNode } from '../../../git-core/commitGraph';
+import { ICommit } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 /**

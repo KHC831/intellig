@@ -1,7 +1,7 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IBlameLine } from '../../services/interfaces/IGitService';
-import { IBlameInfo } from '../../services/interfaces/IBlameService';
+import { IBlameLine } from '../../git-core/interfaces/IGitService';
+import { IBlameInfo } from '../../blame/interfaces/IBlameService';
 
 /**
  * Property-based tests for Blame Previous Revision.

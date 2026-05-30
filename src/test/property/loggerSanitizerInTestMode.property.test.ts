@@ -70,7 +70,7 @@ function walkJson(value: JsonValue | undefined, out: string[]): void {
   if (typeof value === 'number' || typeof value === 'boolean') {
     return;
   }
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     for (const item of value) {
       walkJson(item, out);
     }
@@ -78,23 +78,58 @@ function walkJson(value: JsonValue | undefined, out: string[]): void {
   }
   // Plain object branch.
   for (const key of Object.keys(value)) {
-    walkJson(
-      (value as { readonly [k: string]: JsonValue | undefined })[key],
-      out
-    );
+    walkJson((value as { readonly [k: string]: JsonValue | undefined })[key], out);
   }
 }
 
 /**
+ * Narrowing guard for the array arm of `JsonValue`. `Array.isArray`
+ * narrows to `any[]` rather than `readonly JsonValue[]`, which would
+ * otherwise leak `any` into the recursive `walkJson` call and trip
+ * `@typescript-eslint/no-unsafe-argument`. Re-stating the narrowing
+ * here keeps the walker fully typed without a cast.
+ */
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
+}
+
+/**
+ * Fixed marker prepended to every sentinel token.
+ *
+ * Mirrors the marker in `loggerSanitizerLeakage.property.test.ts`.
+ * Chosen so it can NEVER appear in this file's fixed scaffolding
+ * vocabulary — the path tails (`Documents`, `projects`, `intellig`,
+ * `repo`, `file`, `ts`), message words (`cloning`, `outer`, `fatal`,
+ * `access`, `failed`), stack labels (`GitClient`, `fetchWithCreds`),
+ * the URL host (`example.com/repo.git`), and the redaction markers
+ * (`<redacted>`, `~/`, `~\`). The marker is an uppercase-letter +
+ * digit run that no scaffolding word matches, so a marker-prefixed
+ * sentinel can only appear in the sanitized `leaves` buffer if the
+ * sanitizer actually leaked it — never via a substring collision
+ * with fixed text. This keeps the bare-token `leaves.includes(...)`
+ * checks (e.g. the bare-`password` assertion) sound leak detectors
+ * without weakening them.
+ */
+const SENTINEL_MARKER = 'Zq7x';
+
+/**
  * Generate a non-empty token suitable for embedding as a credential
- * URL user/password segment OR as a home-directory username. Excludes
- * every char the sanitizer's regexes treat as a delimiter
- * (whitespace, `/`, `\`, `:`, `@`, single/double quotes,
- * paren/bracket) so the regex matches the substring we generated
- * rather than a partial fragment. Also excludes `<`, `>`, `~`, and
- * the literal substring `redacted` so the post-redaction marker
- * `<redacted>` and the `~/` home-prefix replacement can't be confused
- * for a leaked sentinel during the assertion.
+ * URL user/password segment OR as a home-directory username.
+ *
+ * Two layers:
+ *  1. The random body excludes every char the sanitizer's regexes
+ *     treat as a delimiter (whitespace, `/`, `\`, `:`, `@`,
+ *     single/double quotes, paren/bracket) plus `<`, `>`, `~` and the
+ *     literal `redacted`, so the token survives in input form, stays
+ *     a valid username / credential segment, and can't be confused
+ *     with the `<redacted>` / `~/` post-redaction markers.
+ *  2. The {@link SENTINEL_MARKER} prefix guarantees the token can't
+ *     collide with the test's fixed scaffolding vocabulary, so every
+ *     `leaves.includes(token)` assertion is a sound leak detector.
+ *
+ * The marker is itself delimiter-free and `redacted`-free, so it does
+ * NOT change which sanitizer branch fires: `/Users/Zq7x…/` is still a
+ * POSIX home prefix, `Zq7x…:Zq7x…@` is still a credential infix, etc.
  */
 const sentinelTokenArb: fc.Arbitrary<string> = fc
   .string({ minLength: 4, maxLength: 24 })
@@ -106,20 +141,19 @@ const sentinelTokenArb: fc.Arbitrary<string> = fc
       // identifiable in the output.
       !/[\s/\\:@'"()[\]<>~]/.test(s) &&
       !s.toLowerCase().includes('redacted')
-  );
+  )
+  .map((s) => `${SENTINEL_MARKER}${s}`);
 
 /**
  * Build a credentialed HTTPS URL fragment: `https://<user>:<password>@host/path`.
  * Returns the URL plus the user and password substrings so the test
  * can assert each one is absent from the sanitized output.
  */
-const credentialUrlArb = fc
-  .tuple(sentinelTokenArb, sentinelTokenArb)
-  .map(([user, password]) => ({
-    user,
-    password,
-    url: `https://${user}:${password}@example.com/repo.git`,
-  }));
+const credentialUrlArb = fc.tuple(sentinelTokenArb, sentinelTokenArb).map(([user, password]) => ({
+  user,
+  password,
+  url: `https://${user}:${password}@example.com/repo.git`,
+}));
 
 /**
  * Build a POSIX home-path fragment with a sentinel username:
@@ -202,11 +236,7 @@ describe('logger sanitizer — test-mode redaction (Requirement 4.7)', () => {
           };
 
           const result = sanitizeRecord(record);
-          assert.strictEqual(
-            result.ok,
-            true,
-            'sanitizer must succeed on a credentialed URL input'
-          );
+          assert.strictEqual(result.ok, true, 'sanitizer must succeed on a credentialed URL input');
           if (!result.ok) {
             return;
           }

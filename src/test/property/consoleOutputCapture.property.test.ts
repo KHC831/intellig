@@ -1,6 +1,6 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IConsoleEntry } from '../../services/interfaces/IGitToolWindowProvider';
+import { IConsoleEntry } from '../../git-core/interfaces/IGitToolWindowProvider';
 
 /**
  * Local type for backward compatibility in tests.
@@ -14,7 +14,7 @@ interface IConsoleState {
 import {
   IConsoleService,
   IStreamingOutputHandler,
-} from '../../services/interfaces/IConsoleService';
+} from '../../ui-shell/interfaces/IConsoleService';
 
 /**
  * Property-based tests for Console Output Capture.

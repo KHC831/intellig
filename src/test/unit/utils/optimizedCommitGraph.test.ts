@@ -9,13 +9,13 @@
  */
 
 import * as assert from 'assert';
-import { ICommit } from '../../../services/interfaces/IGitService';
+import { ICommit } from '../../../git-core/interfaces/IGitService';
 import {
   generateOptimizedCommitGraph,
   processCommitsInBatches,
   calculateGraphStats,
   shouldUseSimplifiedGraph,
-} from '../../../utils/optimizedCommitGraph';
+} from '../../../git-core/optimizedCommitGraph';
 
 /**
  * Helper to create a mock commit.

@@ -27,19 +27,19 @@
  *   - Keyboard range-select (H-2, user decision).
  */
 
-import '../../../../test/setup';
+import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
   GitToolWindowProvider,
   type IExtendedLogState,
   type LogContextAction,
-} from '../../../../services/GitToolWindowProvider';
+} from '../../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
 import {
   computeMenuState,
   type MultiSelectMenuAction,
-} from '../../../../services/gitToolWindow/multiSelect';
+} from '../../../../git-core/gitToolWindow/multiSelect';
 
 /** Narrow surface into provider internals for state assertions. */
 interface MultiSelectInternalsR1 {
@@ -607,7 +607,7 @@ describe('Wave A R1 — provider integration', () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/commands/CommitContextMenuCommands.ts'),
+        path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
       for (const action of renderedActions) {

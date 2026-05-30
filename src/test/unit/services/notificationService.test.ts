@@ -20,10 +20,10 @@
  * `'IntelliG'` appears at most once among the spy's call names.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { NotificationService } from '../../../services/NotificationService';
+import { NotificationService } from '../../../ui-shell/NotificationService';
 import { __resetOutputChannelForTest, getOutputChannel } from '../../../utils/outputChannel';
 
 /**

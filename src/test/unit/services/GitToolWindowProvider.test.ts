@@ -2,11 +2,11 @@
  * Unit tests for GitToolWindowProvider
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
-import { GitToolWindowProvider } from '../../../services/GitToolWindowProvider';
+import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
 import { EventEmitter, Uri, Webview } from '../../mocks/vscode';
-import type { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
 
 /**

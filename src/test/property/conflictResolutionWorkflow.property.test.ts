@@ -1,11 +1,11 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import { IRepository, RepositoryState } from '../../services/interfaces/IGitService';
+import { IRepository, RepositoryState } from '../../git-core/interfaces/IGitService';
 import {
   IConflictedFile,
   IConflictResolutionResult,
   IOperationCompletionResult,
-} from '../../services/interfaces/IConflictResolutionService';
+} from '../../conflicts/interfaces/IConflictResolutionService';
 
 /**
  * Property-based tests for Conflict Resolution Workflow.

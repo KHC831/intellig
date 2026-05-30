@@ -11,21 +11,21 @@
  * intentional stub behaviour.
  */
 
-import '../../../test/setup';
+import '../../setup';
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type * as vscode from 'vscode';
-import { CommitContextMenuCommands } from '../../../commands/CommitContextMenuCommands';
-import { IGitService, IRepository } from '../../../services/interfaces/IGitService';
+import { CommitContextMenuCommands } from '../../../commits/CommitContextMenuCommands';
+import { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import {
   IRebaseAction,
   IRebaseService,
   IRebaseSession,
-} from '../../../services/interfaces/IRebaseService';
-import { GitToolWindowProvider, LogContextAction } from '../../../services/GitToolWindowProvider';
-import type { BranchComparisonView } from '../../../services/BranchComparisonView';
+} from '../../../git-core/interfaces/IRebaseService';
+import { GitToolWindowProvider, LogContextAction } from '../../../ui-shell/GitToolWindowProvider';
+import type { BranchComparisonView } from '../../../branches/BranchComparisonView';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 import { writableWindow, writableEnv, writableCommands } from '../../typed/windowStub';
 
@@ -196,7 +196,7 @@ function createMockProvider(): GitToolWindowProvider & { refreshCallCount: numbe
 }
 
 /** Mock GitCli surface used by the test suite. */
-type MockGitCli = import('../../../utils/gitCli').GitCli & { calls: CallTracker[] };
+type MockGitCli = import('../../../git-core/gitCli').GitCli & { calls: CallTracker[] };
 
 function createMockGitCli(overrides?: Record<string, unknown>): MockGitCli {
   const calls: CallTracker[] = [];
