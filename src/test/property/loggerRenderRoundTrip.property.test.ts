@@ -100,6 +100,23 @@ describe('Logger Render Round-Trip Property Tests', () => {
   );
 
   /**
+   * Object-key generator that excludes JavaScript's runtime-special
+   * names. `JSON.parse` treats `__proto__` as a setter-style assignment
+   * rather than a regular own-property write, so a context like
+   * `{"__proto__": []}` round-trips through stringify→parse to an
+   * object whose `__proto__` lives on the prototype chain rather than
+   * as an own key — the round-trip property would then fail on a
+   * latent JS-engine quirk that has nothing to do with the production
+   * code under test. `constructor`, `toString`, and `hasOwnProperty`
+   * are filtered defensively for the same class of surprise.
+   */
+  const safeKeyArb: fc.Arbitrary<string> = fc
+    .string({ minLength: 1, maxLength: 12 })
+    .filter(
+      (k) => k !== '__proto__' && k !== 'constructor' && k !== 'toString' && k !== 'hasOwnProperty'
+    );
+
+  /**
    * Recursive JSON-value generator for `context` leaves. Depth-bounded
    * (fast-check's `letrec` budget defaults are tightened via
    * `withCrossShrink`-friendly `maxDepth`) and avoids the corner cases
@@ -110,8 +127,15 @@ describe('Logger Render Round-Trip Property Tests', () => {
       fc.string({ maxLength: 80 }),
       // Finite numbers only — JSON.stringify emits `null` for
       // NaN/±Infinity, which sanitize() would not recognise as the
-      // original number.
-      fc.double({ noNaN: true, noDefaultInfinity: true, min: -1e6, max: 1e6 }),
+      // original number. Negative zero is normalised to positive
+      // zero because `JSON.stringify(-0)` emits `"0"` and parsing
+      // back yields `+0`; `Object.is` (and therefore
+      // `deepStrictEqual`) distinguishes the two, so the round-trip
+      // would fail on a JSON-spec quirk that has nothing to do with
+      // the production code under test.
+      fc
+        .double({ noNaN: true, noDefaultInfinity: true, min: -1e6, max: 1e6 })
+        .map((n) => (Object.is(n, -0) ? 0 : n)),
       fc.integer({ min: -1_000_000, max: 1_000_000 }),
       fc.boolean(),
       fc.constant(null)
@@ -120,7 +144,7 @@ describe('Logger Render Round-Trip Property Tests', () => {
       { depthSize: 'small', withCrossShrink: true },
       tie('leaf'),
       fc.array(tie('json'), { maxLength: 5 }),
-      fc.dictionary(fc.string({ minLength: 1, maxLength: 12 }), tie('json'), { maxKeys: 5 })
+      fc.dictionary(safeKeyArb, tie('json'), { maxKeys: 5 })
     ),
   })).json as fc.Arbitrary<JsonValue>;
 
@@ -131,7 +155,7 @@ describe('Logger Render Round-Trip Property Tests', () => {
    * `parseRecord` sees them.
    */
   const contextArb: fc.Arbitrary<{ readonly [k: string]: JsonValue }> = fc.dictionary(
-    fc.string({ minLength: 1, maxLength: 12 }),
+    safeKeyArb,
     jsonValueArb,
     { maxKeys: 6 }
   );
