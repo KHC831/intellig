@@ -2411,8 +2411,8 @@ ${bodyMarkup}
       .codicon-check:before { content: "\\eab2"; }
       .codicon-git-branch:before { content: "\\ec6f"; }
       .codicon-cloud:before { content: "\\ebaa"; }
-      /* Wave K — WK-4: codicon-tag glyph for tag chips. Codepoint pulled
-         from @vscode/codicons@0.0.45 dist/codicon.css (.codicon-tag:before
+      /* codicon-tag glyph for tag chips. Codepoint pulled from
+         @vscode/codicons@0.0.45 dist/codicon.css (.codicon-tag:before
          → \\ea66). Pinned by codiconFont-4. */
       .codicon-tag:before { content: "\\ea66"; }
     `;
@@ -3439,13 +3439,11 @@ ${bodyMarkup}
         background-color: var(--vscode-sideBar-background);
       }
 
-      /* Visually-hidden utility for AT-only text.
-         Removes the element from sighted layout (clip-path + 1px box +
-         absolute positioning to prevent layout-flow contribution) while
-         keeping it in the DOM for screen readers, find-in-page, and
-         a11y inspectors. The double-clip pattern (clip + clip-path)
-         is the WAI-ARIA-recommended shape — older browsers fall back
-         to "clip" while modern browsers honour "clip-path". */
+      /* Visually-hidden utility for assistive-tech-only text. Removes the
+         element from sighted layout while keeping it in the DOM for screen
+         readers, find-in-page, and a11y inspectors. The double-clip pattern
+         (clip + clip-path) is the WAI-ARIA-recommended shape: older browsers
+         fall back to "clip", modern browsers honour "clip-path". */
       .visually-hidden {
         position: absolute;
         width: 1px;
@@ -3691,11 +3689,10 @@ ${bodyMarkup}
         pointer-events: none;
       }
 
-      /* Visibility flag for multi-select menu items.
-         Keeps single-only items hidden when N>=2 and multi-only items
-         hidden when their N constraint isn't met. The display: none
-         rule takes the row out of the flow so the menu collapses
-         naturally. */
+      /* Visibility flag for multi-select menu items. Keeps single-only
+         items hidden when N>=2 and multi-only items hidden when their N
+         constraint isn't met. display: none takes the row out of the flow
+         so the menu collapses naturally. */
       .context-menu-item.menu-multi-hidden {
         display: none;
       }
@@ -3953,7 +3950,7 @@ ${bodyMarkup}
         background-color: var(--vscode-list-inactiveSelectionBackground);
       }
 
-      /* T3-07 — already-cherry-picked rows are dimmed with a ✓ badge. */
+      /* Already-cherry-picked rows are dimmed with a ✓ badge. */
       .commit-row-cherry-picked {
         opacity: 0.6;
       }
@@ -4093,14 +4090,13 @@ ${bodyMarkup}
         color: white;
       }
 
-      /* Distinct from
-         branch chips so the user reads "this is HEAD" at a glance even
-         when HEAD is on a commit that ALSO has branch-tip chips. The
-         chip lives in the same .commit-branches flex slot Wave E set up
-         for branch chips, prepended FIRST (leftmost) so it precedes
-         any branch chips. Theme variable falls back to the IntelliJ
-         shade #d4a017 when --vscode-statusBarItem-warningBackground is
-         absent (older themes). */
+      /* The HEAD chip is distinct from branch chips so the user reads
+         "this is HEAD" at a glance even when HEAD is on a commit that ALSO
+         has branch-tip chips. It lives in the same .commit-branches flex
+         slot as branch chips, prepended FIRST (leftmost) so it precedes any
+         branch chips. Theme variable falls back to the IntelliJ shade
+         #d4a017 when --vscode-statusBarItem-warningBackground is absent
+         (older themes). */
       .branch-label-head {
         display: inline-block;
         background: var(--vscode-statusBarItem-warningBackground, #d4a017);
@@ -4117,20 +4113,18 @@ ${bodyMarkup}
         vertical-align: middle;
       }
 
-      /* Wave E R1 / Senior M-1 — cap chip width with CSS ellipsis.
-         Pre-R1 chips rendered at their natural width (no max-width, no
-         ellipsis). A 70-char branch name like
+      /* Cap chip width with CSS ellipsis. Without a cap, a 70-char branch
+         name like
          feature/JIRA-12345-very-long-descriptive-feature-name-with-context
-         consumed ~350px in the non-shrinking .commit-branches slot,
-         squeezing .commit-title (flex:1, min-width:0) to a few
-         characters at typical panel widths. IntelliJ caps at ~200px;
-         we match that with text-overflow: ellipsis. The chip's
-         underlying text is still the full branch name (the
-         data-branch-name attribute and textContent remain complete for
-         screen readers + find-in-page), only visual rendering is
-         clipped. vertical-align: middle is defensive — inline-block
-         with default baseline alignment can shift slightly relative to
-         message text on some font-metrics. */
+         consumes ~350px in the non-shrinking .commit-branches slot,
+         squeezing .commit-title (flex:1, min-width:0) to a few characters
+         at typical panel widths. IntelliJ caps at ~200px; we match that with
+         text-overflow: ellipsis. The chip's underlying text stays the full
+         branch name (the data-branch-name attribute and textContent remain
+         complete for screen readers + find-in-page), only visual rendering
+         is clipped. vertical-align: middle is defensive — inline-block with
+         default baseline alignment can shift slightly relative to message
+         text on some font-metrics. */
       .branch-label-local,
       .branch-label-remote,
       .tag-label {
@@ -4142,19 +4136,16 @@ ${bodyMarkup}
         vertical-align: middle;
       }
 
-      /* Wave J R1 / HIGH-4 — chip backgrounds use VS Code's
-         badge-background / badge-foreground semantic tokens
-         (1.85+, part of the theme contract; engines.vscode floor is
-         ^1.85.0 so guaranteed available). Pre-R1 used
-         gitDecoration-stageModifiedResourceForeground /
-         gitDecoration-renamedResourceForeground which are FG-tier
-         file-status semantics — themes that override those for the
-         SCM tree would unexpectedly recolor branch chips here. The
-         badge-* family is semantically correct for chip-shaped UI;
-         local vs remote distinction now comes from the codicon prefix
-         (WJ-4: cloud vs git-branch) rather than the background colour.
-         Falls back to the pre-Wave-J hex literals when the theme
-         variable is absent. Pinned by snap-12e. */
+      /* Chip backgrounds use VS Code's badge-background / badge-foreground
+         semantic tokens (guaranteed available: engines.vscode floor is
+         ^1.85.0). The earlier gitDecoration-stageModifiedResourceForeground /
+         gitDecoration-renamedResourceForeground tokens are FG-tier
+         file-status semantics — themes that override those for the SCM tree
+         would unexpectedly recolor branch chips here. The badge-* family is
+         semantically correct for chip-shaped UI; local vs remote distinction
+         comes from the codicon prefix (cloud vs git-branch) rather than the
+         background colour. Falls back to hex literals when the theme variable
+         is absent. Pinned by snap-12e. */
       .branch-label-local,
       .branch-label-remote {
         background: var(--vscode-badge-background, #2d5a1e);
@@ -4166,22 +4157,19 @@ ${bodyMarkup}
       }
 
       /* The remote-chip fallback hex pair is retained as a CSS-var
-         secondary-fallback so a future theme that defines neither
-         badge-* nor the gitDecoration-* family still gets a
-         visually-readable chip. Themes that DO define badge-* see
-         identical local + remote backgrounds — local vs remote is
-         carried by the icon glyph, not the colour. The remote-only
-         hex (#1a3a5c) is retained inline below for snap-12e and
-         human grep, even though no rule consumes it directly. */
+         secondary-fallback so a future theme that defines neither badge-*
+         nor the gitDecoration-* family still gets a visually-readable chip.
+         Themes that DO define badge-* see identical local + remote
+         backgrounds — local vs remote is carried by the icon glyph, not the
+         colour. The remote-only hex (#1a3a5c) is retained inline below for
+         snap-12e and human grep, even though no rule consumes it directly. */
       .branch-label-remote {
-        /* Wave J R1 — fallback hex for remote chip when neither
+        /* Fallback hex for the remote chip when neither
            --vscode-badge-background nor the legacy
-           --vscode-gitDecoration-renamedResourceForeground is
-           defined. Inline as a secondary fallback in the var()
-           expression. The shared .branch-label-local, .branch-label-remote
-           rule above is the primary; this rule only adds the
-           #1a3a5c retention for snap-12e + future hi-contrast
-           drift detection. */
+           --vscode-gitDecoration-renamedResourceForeground is defined.
+           The shared .branch-label-local, .branch-label-remote rule above is
+           the primary; this rule only adds the #1a3a5c retention for snap-12e
+           + future hi-contrast drift detection. */
         background: var(
           --vscode-badge-background,
           var(--vscode-gitDecoration-renamedResourceForeground, #1a3a5c)
@@ -4192,13 +4180,12 @@ ${bodyMarkup}
         );
       }
 
-      /* Wave J / WJ-4 — codicon prefix sizing on chips. The icon is
-         the non-color WCAG 1.4.1 affordance for local vs remote vs
-         HEAD distinction; font-size 11px matches chip text height
-         so the icon does not blow up the chip vertically;
-         vertical-align middle aligns the icon glyph with the chip
-         text baseline; margin-right 4px separates icon from text.
-         Pinned by snap-12g. */
+      /* Codicon prefix sizing on chips. The icon is the non-color WCAG 1.4.1
+         affordance for local vs remote vs HEAD distinction; font-size 11px
+         matches chip text height so the icon does not blow up the chip
+         vertically; vertical-align middle aligns the icon glyph with the chip
+         text baseline; margin-right 4px separates icon from text. Pinned by
+         snap-12g. */
       .branch-label-local i.codicon,
       .branch-label-remote i.codicon,
       .branch-label-head i.codicon,
@@ -4208,14 +4195,12 @@ ${bodyMarkup}
         vertical-align: middle;
       }
 
-      /* Wave D / D2 — focused branch chip (IntelliJ-parity outline + bold). */
-      /* Wave D R1 / Senior L-2 — use the theme-aware focus border so the
-         outline reads correctly under high-contrast themes; fall back to
-         currentColor when the variable is unavailable. */
-      /* Wave J R1 / MED-1 — bump font-weight to 700 + add underline so
-         the focused-branch affordance is visible WITHOUT relying on
-         the theme-defined focus outline alone (WCAG 1.4.1 — never use
-         colour as the sole non-text differentiator). */
+      /* Focused branch chip (IntelliJ-parity outline + bold). Uses the
+         theme-aware focus border so the outline reads correctly under
+         high-contrast themes, falling back to currentColor when the variable
+         is unavailable. font-weight 700 + underline keep the focused-branch
+         affordance visible WITHOUT relying on the focus outline colour alone
+         (WCAG 1.4.1 — never use colour as the sole non-text differentiator). */
       .branch-label-focused {
         outline: 1px solid var(--vscode-focusBorder, currentColor);
         outline-offset: 1px;
@@ -4223,13 +4208,12 @@ ${bodyMarkup}
         text-decoration: underline;
       }
 
-      /* Wave K R1 UX-LOW-1 — chip-family theme symmetry. The
-         .branch-label-* family uses var(--vscode-badge-foreground, ...)
-         for the chip text colour; .tag-label was the only chip still
-         using a raw white token, which loses theme adherence on light
-         and hi-contrast themes where badge-foreground is overridden.
-         Match the rest of the chip family. snap-13f foreground
-         assertion pins this. */
+      /* Chip-family theme symmetry. The .branch-label-* family uses
+         var(--vscode-badge-foreground, ...) for the chip text colour;
+         .tag-label was the only chip still using a raw white token, which
+         loses theme adherence on light and hi-contrast themes where
+         badge-foreground is overridden. Match the rest of the chip family.
+         snap-13f foreground assertion pins this. */
       .tag-label {
         background-color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);
         color: var(--vscode-badge-foreground, white);
@@ -4590,7 +4574,7 @@ ${bodyMarkup}
         let draggedFiles = [];
         let contextMenuTarget = null;
 
-        // Wave A R1 — multi-select webview state.
+        // Multi-select webview state.
         //
         // The HOST is the source of truth for menu visibility/enable
         // state (ADR-009). The webview keeps a tiny mirror of:
@@ -4614,14 +4598,14 @@ ${bodyMarkup}
         // \`applyMenuEnableMap\` when the menu opens.
         let menuEnableMap = null;
 
-        // Wave D / D2 — most-recent branch-focus payload from the host.
+        // Most-recent branch-focus payload from the host.
         // focusedBranchName toggles the branch-label-focused class on
         // chips matching data-branch-name. null means no focus.
         let branchFocus = null;
 
         // Reflect \`selectedCommits.size\` onto the graph-panel root's
         // \`data-selected-count\` attribute AND the multi-commit details
-        // panel's data-selected-count (R1 L-1). Cheap enough to call on
+        // panel's data-selected-count. Cheap enough to call on
         // every selection change since the graph panel is bounded by the
         // virtualization window.
         function refreshSelectedCount() {
@@ -4631,7 +4615,7 @@ ${bodyMarkup}
             graphPanel.setAttribute('data-selected-count', String(selected.length));
             // Mirror onto the details panel root so CSS / test hooks that
             // bind to .multi-commit-details[data-selected-count] also stay
-            // in sync (R1 L-1).
+            // in sync.
             const multiDetails = document.querySelector('.multi-commit-details');
             if (multiDetails) {
               multiDetails.setAttribute('data-selected-count', String(selected.length));
@@ -4707,7 +4691,7 @@ ${bodyMarkup}
             }
             refreshSelectedCount();
           }
-          // Wave A R1 — host pushes the precomputed menu state (visibility +
+          // Host pushes the precomputed menu state (visibility +
           // enable per action) so the JS just stores it. The apply happens
           // when the menu opens, against the cached map. Source of truth is
           // the host; ADR-009.
@@ -4721,7 +4705,7 @@ ${bodyMarkup}
               applyMenuEnableMap(openMenu);
             }
           }
-          // Wave A R1 — host re-syncs the JS anchor mirror after a
+          // Host re-syncs the JS anchor mirror after a
           // selection or commit-list change that may have invalidated it.
           if (message.type === 'syncSelection') {
             anchorHash = typeof message.anchorHash === 'string' && message.anchorHash.length > 0
@@ -4743,7 +4727,7 @@ ${bodyMarkup}
             });
             refreshSelectedCount();
           }
-          // Wave D / D2 — partial-update path for branch focus. The
+          // Partial-update path for branch focus. The
           // render-time \`_getBranchLabelsHtml\` is the source of truth;
           // this handler exists so the chip outline lands without a full
           // DOM rebuild. Toggles \`branch-label-focused\` on every chip
@@ -4815,13 +4799,13 @@ ${bodyMarkup}
             }
             const hash = commitRow.getAttribute('data-hash');
             if (hash) {
-              // Wave A — selection key combos:
+              // Selection key combos:
               //   Ctrl/Cmd        → toggle (existing) + move anchor
               //   Shift           → range-replace
               //   Shift+Ctrl/Cmd  → range-add
               //   plain           → single-select + set anchor
               if (e.shiftKey && (e.ctrlKey || e.metaKey)) {
-                // R2 (TL-M-2) — message anchor wins; the host treats the
+                // Message anchor wins; the host treats the
                 // JS-side anchor as authoritative for THIS click.
                 vscode.postMessage({
                   type: 'addRangeSelectCommit',
@@ -5107,7 +5091,7 @@ ${bodyMarkup}
                 refreshSelectedCount();
               }
               break;
-            // Wave A R1 (H-2) — keyboard range-select.
+            // Keyboard range-select.
             //
             //   ArrowUp/Down            : single-select prev/next row
             //   Shift+ArrowUp/Down      : range-replace prev/next row
@@ -5133,7 +5117,7 @@ ${bodyMarkup}
               const targetHash = allHashes[targetIdx];
               if (!targetHash) break;
               if (event.shiftKey && (event.ctrlKey || event.metaKey)) {
-                // R2 (TL-M-2) — message anchor wins.
+                // Message anchor wins.
                 vscode.postMessage({
                   type: 'addRangeSelectCommit',
                   commitHash: targetHash,
@@ -5194,7 +5178,7 @@ ${bodyMarkup}
             return row.getAttribute('data-hash');
           });
 
-          // R1 M-1: right-click on a non-selected commit moves the
+          // Right-click on a non-selected commit moves the
           // selection to ONLY that commit. Mirrors IntelliJ — the action
           // can never silently target a different set than the user sees
           // highlighted. The host gets the same news via
@@ -5243,7 +5227,7 @@ ${bodyMarkup}
           }
         };
 
-        // Wave A R1 — apply-loop for the host-precomputed menu state.
+        // Apply-loop for the host-precomputed menu state.
         //
         // ADR-009: the host computes visibility + enabled per action via
         // \`multiSelect.ts:computeMenuState\` and posts the map as
@@ -5251,7 +5235,7 @@ ${bodyMarkup}
         // it just toggles classes per the cached \`menuEnableMap\`. If the
         // map is missing (extremely early page load, before the first
         // host post arrives), we fall back to "enable everything" so the
-        // menu remains usable; the host's TL-M-4 validation rejects any
+        // menu remains usable; the host's validation rejects any
         // stale invocation downstream so nothing destructive can slip
         // through that window.
         function applyMenuEnableMap(contextMenu) {
@@ -5272,18 +5256,17 @@ ${bodyMarkup}
             } else {
               item.classList.add('disabled');
             }
-            // Wave A R4-1 (TL3-H-1, Senior M-1) — surface entry.reason as
-            // a title= tooltip on visible-disabled rows. Defense-in-depth
-            // typeof check keeps a malformed payload from rendering
-            // "[object Object]" or "undefined" into the user's tooltip.
+            // Surface entry.reason as a title= tooltip on visible-disabled
+            // rows. Defense-in-depth typeof check keeps a malformed payload
+            // from rendering "[object Object]" or "undefined" into the
+            // user's tooltip.
             //
             // INVARIANT (with multiSelect.ts:computeMenuState): the host
             // sets reason ONLY when visible && !enabled. This gate
             // mirrors that on the wire side. If a future host bug sets
             // reason on a hidden row, the title write would silently
             // emit on a .menu-multi-hidden element — invisible to the
-            // user, but a sign that the host invariant has drifted. R5-3
-            // (TL4-L-1) closes the symmetry-by-documentation loop.
+            // user, but a sign that the host invariant has drifted.
             const titleAttr =
               entry && !entry.enabled && typeof entry.reason === 'string'
                 ? entry.reason
@@ -5326,7 +5309,7 @@ ${bodyMarkup}
           }
         });
 
-        // Wave A R1 (H-2) — delegate keyboard handling to focused commit
+        // Delegate keyboard handling to focused commit
         // rows so the arrow-key range-select works without per-row
         // \`onkeydown\` attributes (which would inflate the rendered HTML).
         document.addEventListener('keydown', function(e) {
