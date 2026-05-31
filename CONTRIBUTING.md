@@ -55,7 +55,7 @@ suppression is reviewable on its own.
   ```
 
   The `--` form is readable in diffs, greppable by rule name, and
-  explicit about *why* the rule doesn't apply here.
+  explicit about _why_ the rule doesn't apply here.
 
 - **File-level `/* eslint-disable <rule> */`** — reserved for files
   where the rule genuinely doesn't apply at all (generated code, test
@@ -142,13 +142,13 @@ the bump goes through a triage pass:
 4. **Process (single rule / small bump).** Open a task per rule
    decision (must-adopt, opt-in, or skip-with-rationale). Adopt each
    must-adopt / opt-in rule in a focused phase — the Phase 1-4 lint
-   cleanups (no-floating-promises, require-await, no-unsafe-*,
+   cleanups (no-floating-promises, require-await, no-unsafe-\*,
    residuals) are the exemplar. Each phase lands with a senior +
    tech-lead review; the CI gate moves to zero-warnings once all
    must-adopt rules are clean.
 
 5. **Process (bulk bump, 5+ new rules).** One task per rule is noise.
-   Instead open one *parent* triage task with a must-adopt / opt-in /
+   Instead open one _parent_ triage task with a must-adopt / opt-in /
    skip table covering every new rule in the bump. Spawn sub-tasks
    only for the must-adopt and opt-in rows — each of those still gets
    its own focused phase + review. Skip-with-rationale entries land
@@ -161,7 +161,7 @@ the bump goes through a triage pass:
    `.eslintrc.json` skip list — re-checking each rationale against the
    current codebase shape — is cheap and keeps the skip list from
    calcifying. No rule is permanently skipped; the comment explains
-   *why today* it's skipped, not *why forever*.
+   _why today_ it's skipped, not _why forever_.
 
 ## Tests
 
@@ -320,7 +320,7 @@ publisher entry, and an Azure DevOps Personal Access Token (PAT).
 
 1. Sign in at <https://marketplace.visualstudio.com/manage> with the
    Microsoft account that will own the extension.
-2. Confirm the publisher ID `intellig-vscode` exists and you own it,
+2. Confirm the publisher ID `KaHoChan` exists and you own it,
    or create it.
 3. Generate a PAT at <https://dev.azure.com/> → top-right avatar →
    **Personal Access Tokens** → **New Token**:
@@ -332,7 +332,7 @@ publisher entry, and an Azure DevOps Personal Access Token (PAT).
 4. Authenticate `vsce` with the PAT:
 
    ```bash
-   npx --yes @vscode/vsce@2.24.0 login intellig-vscode
+   npx --yes @vscode/vsce@2.24.0 login KaHoChan
    # Paste the PAT when prompted.
    ```
 
@@ -360,7 +360,7 @@ code --install-extension intellig-<version>.vsix
 # Use the extension for a few minutes against a real repo.
 
 # 4. (optional) Roll back when done.
-code --uninstall-extension intellig-vscode.intellig
+code --uninstall-extension KaHoChan.intellig
 ```
 
 If `code` is not on your `PATH`: open VS Code, Cmd-Shift-P,
@@ -387,7 +387,7 @@ npx --yes @vscode/vsce@2.24.0 publish \
 ```
 
 The listing typically appears at
-<https://marketplace.visualstudio.com/items?itemName=intellig-vscode.intellig>
+<https://marketplace.visualstudio.com/items?itemName=KaHoChan.intellig>
 within five to ten minutes. The Marketplace runs an automated virus
 scan; if it flags, you get an email.
 
@@ -514,7 +514,7 @@ Before running `npm run release`, manually verify:
 - [ ] CHANGELOG.md has a dated entry for the version (no
       `[Unreleased]` content unless it belongs there).
 - [ ] Lint, unit tests, property tests pass (`npm run lint &&
-      npm run test:unit && npm run test:property`).
+    npm run test:unit && npm run test:property`).
 - [ ] You've installed the rebuilt `.vsix` locally and dogfooded
       it briefly. The gallery upload is what users will get; F5
       doesn't exercise it. (Use `--dry-run` to produce the
@@ -526,8 +526,9 @@ Before running `npm run release`, manually verify:
 ### Tag-triggered GitHub Action (recommended for routine releases)
 
 `.github/workflows/publish.yml` runs `scripts/publish.sh`'s build
-+ dual-publish flow on GitHub's runners whenever you push a semver
-tag (e.g. `v0.1.2`, `v0.2.0`). The Action:
+
+- dual-publish flow on GitHub's runners whenever you push a semver
+  tag (e.g. `v0.1.2`, `v0.2.0`). The Action:
 
 1. Checks out the tagged commit.
 2. Runs lint, unit tests, and property tests as gates — a tag
@@ -575,13 +576,13 @@ Watch the run at **repo → Actions → Publish**. End-to-end takes
 
 #### Failure modes and fixes
 
-| Symptom | Cause | Fix |
-|---|---|---|
+| Symptom                                   | Cause                                                           | Fix                                                                                                                               |
+| ----------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `tag version does not match package.json` | Tagged a commit where `package.json` is at a different version. | Delete the tag locally + on origin (`git tag -d`, `git push origin :refs/tags/<tag>`), bump `package.json`, commit, push, re-tag. |
-| `VSCE_PAT secret is not set` | Secret missing or renamed. | Add it at repo → Settings → Secrets → Actions. |
-| `vsce publish ... 401` | PAT expired. | Generate a new PAT at <https://dev.azure.com/>, update the `VSCE_PAT` secret. |
-| `ovsx publish ... 403` | Open VSX token revoked or namespace mismatch. | Confirm the token's owner has the `KaHoChan` namespace; regenerate the token if needed. |
-| `version 0.1.X already exists` | You re-tagged an already-published version. | Bump to `0.1.X+1` (Marketplace will not let you overwrite). |
+| `VSCE_PAT secret is not set`              | Secret missing or renamed.                                      | Add it at repo → Settings → Secrets → Actions.                                                                                    |
+| `vsce publish ... 401`                    | PAT expired.                                                    | Generate a new PAT at <https://dev.azure.com/>, update the `VSCE_PAT` secret.                                                     |
+| `ovsx publish ... 403`                    | Open VSX token revoked or namespace mismatch.                   | Confirm the token's owner has the `KaHoChan` namespace; regenerate the token if needed.                                           |
+| `version 0.1.X already exists`            | You re-tagged an already-published version.                     | Bump to `0.1.X+1` (Marketplace will not let you overwrite).                                                                       |
 
 #### Local script vs. Action
 
@@ -605,15 +606,15 @@ Each guard has its own npm-script alias under `check:*`; CI runs
 them as named steps so a regression points at the offending
 class. Run a single guard locally as `npm run check:<name>`:
 
-| `check:` script | Guard |
-|---|---|
-| `check:quickpick-state` | `IShelf/Stash/BranchComparisonViewState` carry no `error` field (TL-74) |
-| `check:action-toasts` | `vscode.window.show*Message` calls don't leak unsanitized git stderr (TL-72/78/79) |
-| `check:config-coherence` | README config tables match `package.json` schema defaults |
-| `check:vsix-clean` | `vsce ls` output excludes every forbidden file class |
-| `check:100-gate` | 1.0.0 gate checklist + structural gate (2) (TL-96) |
-| `check:publish-vsix` | Refuses any `*-dogfood.vsix` filename (TL-95) |
-| `check:output-channel-test-surface` | OutputChannel test seam not used in production (Cluster C, TL-58) |
+| `check:` script                     | Guard                                                                              |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `check:quickpick-state`             | `IShelf/Stash/BranchComparisonViewState` carry no `error` field (TL-74)            |
+| `check:action-toasts`               | `vscode.window.show*Message` calls don't leak unsanitized git stderr (TL-72/78/79) |
+| `check:config-coherence`            | README config tables match `package.json` schema defaults                          |
+| `check:vsix-clean`                  | `vsce ls` output excludes every forbidden file class                               |
+| `check:100-gate`                    | 1.0.0 gate checklist + structural gate (2) (TL-96)                                 |
+| `check:publish-vsix`                | Refuses any `*-dogfood.vsix` filename (TL-95)                                      |
+| `check:output-channel-test-surface` | OutputChannel test seam not used in production (Cluster C, TL-58)                  |
 
 `npm run check:all` runs every structural guard in sequence — the
 recommended pre-push smoke. CI keeps the steps named individually
@@ -651,9 +652,11 @@ Example before release:
 ## [Unreleased]
 
 ### Added
+
 - New `intellig.foo` config knob that does foo.
 
 ## [0.1.0] - 2026-05-XX
+
 …
 ```
 
@@ -665,9 +668,11 @@ Example after `0.2.0` release:
 ## [0.2.0] - 2026-06-12
 
 ### Added
+
 - New `intellig.foo` config knob that does foo.
 
 ## [0.1.0] - 2026-05-XX
+
 …
 ```
 
@@ -695,6 +700,7 @@ IntelliG follows [semver](https://semver.org/), with the following
   be removed from the schema in v0.3.0. Subsequent deprecations
   follow the same N → N+2 retirement window unless the
   CHANGELOG entry explicitly states otherwise.
+
 - **1.0.0** — gates on **all** of:
   1. `LICENSE` finalized (real terms, not placeholder).
   2. Experimental flags (`useCommitToolWindow`,
@@ -747,7 +753,7 @@ Track the four conditions inline as the project approaches 1.0.0.
   - [ ] Supported, OR
   - [ ] Documented out-of-scope in README.
 - [ ] (4) Quarterly feedback cycle complete with conditions 1-3
-  met. Cycle start date: …. Cycle end date: ….
+      met. Cycle start date: …. Cycle end date: ….
 
 **Gates (1) and (2) are structurally enforced.** Marking the
 checkbox does not bypass either check.
@@ -758,7 +764,7 @@ checkbox does not bypass either check.
   `vsce package` regardless of checkbox state. The fingerprint
   flags any LICENSE that contains ≥2 of the configured placeholder
   markers (`License pending`, `PLACEHOLDER`, `evaluation purposes
-  only`); a real EULA can legitimately contain one phrase in
+only`); a real EULA can legitimately contain one phrase in
   isolation, two together is the trip threshold.
 - **Gate (2) — Experimental flags graduated.** Enforced by
   `scripts/check-100-gate.sh` running parse logic against

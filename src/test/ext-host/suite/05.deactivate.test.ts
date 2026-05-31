@@ -19,7 +19,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as extensionModule from '../../../extension';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 describe('ext-host smoke — 5. deactivate', function () {
   this.timeout(30_000);

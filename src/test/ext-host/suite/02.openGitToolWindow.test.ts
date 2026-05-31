@@ -17,7 +17,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 const VIEW_ID = 'intellig.toolWindow';
 
 describe('ext-host smoke — 2. open Git tool window', function () {

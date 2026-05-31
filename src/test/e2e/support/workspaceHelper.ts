@@ -21,7 +21,7 @@ import * as vscode from 'vscode';
 import { getServices } from '../../../extension';
 import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 /**
  * Narrow test-only surface on GitService for the E2E workspace-helper flow.

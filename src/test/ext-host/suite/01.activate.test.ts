@@ -28,7 +28,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 describe('ext-host smoke — 1. activate', function () {
   this.timeout(30_000);

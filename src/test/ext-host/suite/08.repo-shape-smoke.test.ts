@@ -62,7 +62,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

@@ -47,7 +47,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 /**
  * Regex that harvests every `registerTextDocumentContentProvider('<scheme>',

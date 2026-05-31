@@ -20,7 +20,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 const FLAGS = ['useCommitToolWindow', 'useTabbedGitToolWindow'] as const;
 
 describe('ext-host smoke — 4. toggle feature flag', function () {

@@ -56,7 +56,7 @@ import * as vscode from 'vscode';
 import { getLogger } from '../../../utils/logger';
 import { getOutputChannel } from '../../../utils/outputChannel';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 /**
  * Per-activation budget for Logger emissions (Requirement 7.5).

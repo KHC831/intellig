@@ -24,7 +24,7 @@ import * as vscode from 'vscode';
 import { NewBranchDialog } from '../../../branches/NewBranchDialog';
 import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 
-const EXT_ID = 'intellig-vscode.intellig';
+const EXT_ID = 'KaHoChan.intellig';
 
 /**
  * Minimal `IGitService` stub. The dialog only calls these methods on the
