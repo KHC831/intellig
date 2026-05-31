@@ -1,5 +1,5 @@
 /**
- * Task 4.10 — Property 10: correlation-id propagation and non-fabrication.
+ * Property 10: correlation-id propagation and non-fabrication.
  *
  * Pins the operational contract of the structured Logger's
  * `AsyncLocalStorage`-backed correlation store

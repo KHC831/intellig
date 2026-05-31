@@ -1,5 +1,5 @@
 /**
- * Task 3.7 — unit tests for the structured Logger's lifecycle accessors.
+ * Unit tests for the structured Logger's lifecycle accessors.
  *
  * Pins the three lifecycle invariants required by Requirement 8.1, 8.2,
  * and 8.3 (and design.md → "Logger module location" → ADR-002 conformance

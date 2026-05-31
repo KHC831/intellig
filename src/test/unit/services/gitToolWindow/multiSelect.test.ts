@@ -1,12 +1,12 @@
 /**
- * Wave A — Multi-select selection UX tests.
+ * Multi-select selection UX tests.
  *
  * Covers the pure helpers in `services/gitToolWindow/multiSelect.ts`:
  *   - computeMenuVisibility   (A2 — single-only / multi-also / multi-only)
  *   - computeMenuEnableState  (A3 — per-action enable rules)
  *   - computeRangeSelection   (A1 — anchor → click range)
  *   - isSelectionContiguous   (A3 supporting predicate)
- *   - computeMenuState        (R1 — composite host-precomputed wire payload)
+ * - computeMenuState (composite host-precomputed wire payload)
  *
  * The DOM-coupled bits (A0 menu disable wiring, A4 details-header text,
  * `_extendedLogState.anchorHash`) are tested via the provider-level specs
@@ -110,7 +110,7 @@ describe('multiSelect — pure helpers', () => {
         'compareWithLocal',
         'mergeIntoCurrent',
         'interactiveRebase',
-        // R1 — H-1: resetToHere is now single-only too.
+        // resetToHere is now single-only too.
         'resetToHere',
       ];
       for (const a of singleOnly) {
@@ -136,7 +136,7 @@ describe('multiSelect — pure helpers', () => {
     });
 
     it('shows multi-also items at any N≥1', () => {
-      // R1 — H-1: resetToHere moved out; multi-also is now the cross-N actions only.
+      // resetToHere moved out; multi-also is now the cross-N actions only.
       const multiAlso: MultiSelectMenuAction[] = [
         'cherryPick',
         'revert',
@@ -236,7 +236,7 @@ describe('multiSelect — pure helpers', () => {
       assert.strictEqual(e.createPatch, false);
     });
 
-    // Wave C D3 — drop must reject merge commits. Silent history-flattening
+    // Drop must reject merge commits. Silent history-flattening
     // (a multi-parent commit dropped via interactive rebase loses one
     // parent's reachable history without warning) is a footgun, so the UI
     // disables the action entirely. Tooltip surfaces the reason via
@@ -328,7 +328,7 @@ describe('multiSelect — pure helpers', () => {
     });
 
     it('enables N=1-only actions only when N=1', () => {
-      // R1 — resetToHere reclassified single-only (H-1).
+      // resetToHere reclassified single-only.
       const singleOnly: MultiSelectMenuAction[] = [
         'checkoutRevision',
         'showRepoAtRevision',
@@ -373,7 +373,7 @@ describe('multiSelect — pure helpers', () => {
     });
   });
 
-  // ─── R1: computeMenuState — composite wire payload ───────────────────────
+  // ───: computeMenuState — composite wire payload ───────────────────────
   describe('computeMenuState (R1 — host-precomputed visibility+enable map)', () => {
     function mkNode(hash: string, parentCount = 1): { hash: string; parentCount: number } {
       return { hash, parentCount };
@@ -500,7 +500,7 @@ describe('multiSelect — pure helpers', () => {
       assert.strictEqual(state.resetToHere.visible, false);
     });
 
-    // Wave C D3 — visible+disabled dropCommit gets a reason tooltip
+    // visible+disabled dropCommit gets a reason tooltip
     // explaining why merge commits are rejected. Hidden rows leave reason
     // undefined (the apply-loop never reads reason for them).
     it('Wave C D3 — populates dropCommit reason when a merge commit is in selection', () => {

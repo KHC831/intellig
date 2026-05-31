@@ -1,16 +1,16 @@
 /**
- * Wave I WI-D — back-channel diagnostics: rebase / shelf / blame must
+ * back-channel diagnostics: rebase / shelf / blame must
  * route through the GitService's GitCli so the ConsoleService captures
  * their output.
  *
- * Pre-Wave-I, RebaseService / ShelfService / BlameService each
+ * RebaseService / ShelfService / BlameService each
  * constructed their own private GitCli. The ConsoleService subscribed
  * to `gitService.gitCli.onCommandExecuted`, but never to the secondary
  * services' clis, so `git rebase`, `git stash`, and `git blame`
  * commands never appeared in the Console View — the user couldn't see
  * what those operations did.
  *
- * Wave I WI-D adds a `gitService` parameter to each secondary service
+ * Adds a `gitService` parameter to each secondary service
  * constructor; when set, the service adopts `gitService.gitCli` instead
  * of spawning its own. ConsoleService's existing `connectToGitCli`
  * subscription then captures every command end-to-end.
@@ -71,7 +71,7 @@ describe('Wave I WI-D — back-channel: secondary services route through gitServ
     consoleService.connectToGitCli(fakeCli);
 
     // Construct RebaseService with the GITSERVICE — this is the
-    // Wave I WI-D path. Pre-Wave-I the constructor took only `gitCli`
+    // Path. The constructor took only `gitCli`
     // and would have spawned its own internal cli (escaping the
     // ConsoleService's subscription).
     const rebaseService = new RebaseService(undefined, gitService);

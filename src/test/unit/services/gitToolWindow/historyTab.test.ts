@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T2-07 History tab.
+ * Unit tests for the History tab.
  *
  * Covers:
  *   - Pure helpers (`buildFileAtRevisionUri`, `buildDiffAnyTwoTitle`,
@@ -353,7 +353,7 @@ describe('HistoryTab — class behaviour', () => {
     assert.strictEqual(diffCalls.length, 0);
   });
 
-  // ── M-4: user feedback on empty-state fall-through ─────────────────────
+  // ──: user feedback on empty-state fall-through ─────────────────────
 
   it('openAtRevision, compareWith, compareWithLocal show an info toast when filePath is unset', async () => {
     const repo = mkRepo();
@@ -378,7 +378,7 @@ describe('HistoryTab — class behaviour', () => {
     }
   });
 
-  // ── L-1: compareWithLocal joins repo root via Uri.joinPath ─────────────
+  // ──: compareWithLocal joins repo root via Uri.joinPath ─────────────
 
   it('compareWithLocal joins the repo rootUri via Uri.joinPath (no ad-hoc / separator)', async () => {
     const repo = mkRepo();

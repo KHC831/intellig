@@ -1,5 +1,5 @@
 /**
- * Task 9.2 — `GitService` Logger waypoint integration tests.
+ * `GitService` Logger waypoint integration tests.
  *
  * Pins each Logger waypoint installed by task 9.1 in
  * `src/services/GitService.ts` to its expected level and key context

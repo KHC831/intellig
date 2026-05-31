@@ -17,7 +17,7 @@ import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
 
 describe('KeymapService — keymapPreset migration', () => {
   describe('resolveKeymap (pure decision — policy A: preset wins when set)', () => {
-    // Policy A (Wave 135 R4 / M3): when `keymapPreset` is set at any
+    // Policy A: when `keymapPreset` is set at any
     // scope (i.e. not `undefined`), it is authoritative. Legacy
     // `useIntelliJKeymap` is read ONLY when preset is the schema
     // default (undefined). This matches the deprecation narrative —
@@ -45,7 +45,7 @@ describe('KeymapService — keymapPreset migration', () => {
     });
 
     it("returns 'default' when preset='default' (explicit user opt-out, even if legacy=true)", () => {
-      // Wave 135 R4 / M3 policy-A regression spec: a user who
+      // policy-A regression spec: a user who
       // explicitly types `keymapPreset: 'default'` while leaving a
       // stale `useIntelliJKeymap: true` MUST get 'default'. The
       // legacy fallback is read ONLY when preset is undefined.
@@ -132,7 +132,7 @@ describe('KeymapService — keymapPreset migration', () => {
     });
 
     it("reports 'default' when keymapPreset='default' AND useIntelliJKeymap=true (policy A — preset wins)", () => {
-      // Wave 135 R4 / M3 policy A regression spec: an explicit
+      // Policy A regression spec: an explicit
       // `keymapPreset: 'default'` choice MUST NOT be overridden by a
       // stale legacy boolean. The runtime migration in extension.ts
       // does not touch this case (because preset is set), so the

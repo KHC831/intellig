@@ -172,7 +172,7 @@ function createProvider(): GitToolWindowProvider {
 /**
  * Compute the expected message summary for the row HTML.
  *
- * Wave E (E2-bonus): the row template no longer pre-truncates the
+ * (E2-bonus): the row template no longer pre-truncates the
  * message — `.commit-title { overflow:hidden; text-overflow:ellipsis }`
  * does the responsive ellipsis, and the host emits the full first
  * line so screen readers and find-in-page see complete text. Property

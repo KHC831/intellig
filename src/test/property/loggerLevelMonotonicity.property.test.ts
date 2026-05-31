@@ -1,12 +1,12 @@
 /**
- * Task 4.5 — property test for Logger level-admission monotonicity.
+ * Property test for Logger level-admission monotonicity.
  *
  * **Property 5: Level admission monotonicity**
  *
  * From requirements.md → Requirement 14.8:
  *
  * > WHEN `intellig.log.level` transitions from level L1 to a stricter
- * > level L2 (L2 > L1), THE Logger SHALL admit a strict subset of the
+ * > level L2 (>), THE Logger SHALL admit a strict subset of the
  * > records it admitted at L1; THE Logger SHALL NOT admit a record at
  * > level L < L2 after the transition.
  *
@@ -25,11 +25,11 @@
  * `setMockConfigValue('intellig', 'log.level', T)` and calling
  * `resolver.refresh()` — exactly the path
  * `initLogger`'s configuration listener takes in production. For each
- * generated `(L1, L2)` pair with `L2` strictly stricter than `L1`, we
+ * generated `` pair with `L2` strictly stricter than `L1`, we
  * compute the admit set at each threshold across all five record
  * levels and assert:
  *
- *   1. **Strict subset**: `admit(L2) ⊊ admit(L1)`.
+ * 1. **Strict subset**: `admit ⊊ admit`.
  *   2. **Floor by L2**: every record level `L < L2` (i.e.
  *      `LEVEL_RANK[L] < LEVEL_RANK[L2]`) is rejected after the
  *      transition.
@@ -42,7 +42,7 @@
  * ### Generators
  *
  * - `thresholdArb`: one of the six valid `LogThreshold` strings.
- * - `pairArb`: a pair `(L1, L2)` with `LEVEL_RANK[L2] > LEVEL_RANK[L1]`,
+ * - `pairArb`: a pair `` with `LEVEL_RANK[L2] > LEVEL_RANK[L1]`,
  *   constructed via `fc.tuple` + `filter` so fast-check shrinks toward
  *   adjacent pairs (e.g. `('info', 'warn')`) when a counterexample
  *   exists.
@@ -91,8 +91,8 @@ const ALL_THRESHOLDS: readonly LogThreshold[] = ['trace', 'debug', 'info', 'warn
 const thresholdArb: fc.Arbitrary<LogThreshold> = fc.constantFrom(...ALL_THRESHOLDS);
 
 /**
- * Arbitrary over `(L1, L2)` pairs where `L2` is strictly stricter
- * than `L1` (`LEVEL_RANK[L2] > LEVEL_RANK[L1]`). Constrained by
+ * Arbitrary over `` pairs where `L2` is strictly stricter
+ * than `L1` (`LEVEL_RANK[] > LEVEL_RANK[]`). Constrained by
  * `filter` rather than constructed-by-index so fast-check's shrinker
  * can walk both axes independently and home in on minimal
  * counterexamples (e.g. `('info', 'warn')`).

@@ -634,7 +634,7 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
             const gitService = new MockGitService(initialBranches);
             const initialBranchCount = gitService.getBranches().length;
 
-            // Step 1: Create branch
+            // Create branch
             gitService.createBranch(branchName);
             assert.strictEqual(
               gitService.branchExists(branchName),
@@ -647,7 +647,7 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
               'Branch count should increase after creation'
             );
 
-            // Step 2: Checkout the new branch
+            // Checkout the new branch
             gitService.checkout(branchName);
             assert.strictEqual(
               gitService.getHead().name,
@@ -655,13 +655,13 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
               'HEAD should be on new branch after checkout'
             );
 
-            // Step 3: Checkout back to original branch (so we can rename)
+            // Checkout back to original branch (so we can rename)
             const originalHead = initialBranches.find((b) => b.isHead);
             if (originalHead) {
               gitService.checkout(originalHead.name);
             }
 
-            // Step 4: Rename the branch
+            // Rename the branch
             const commitBeforeRename = gitService.getBranch(branchName)?.commit;
             gitService.renameBranch(branchName, renamedName);
             assert.strictEqual(
@@ -680,7 +680,7 @@ describe('Branch Lifecycle Consistency Property Tests', () => {
               'Commit should be preserved after rename'
             );
 
-            // Step 5: Delete the renamed branch
+            // Delete the renamed branch
             gitService.deleteBranch(renamedName);
             assert.strictEqual(
               gitService.branchExists(renamedName),

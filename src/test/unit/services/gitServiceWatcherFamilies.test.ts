@@ -1,21 +1,21 @@
 /**
  * Tests for the watcher-families registry pattern in
- * `GitService.removeRepositoryWatcher` (TL-91 / #219).
+ * `GitService.removeRepositoryWatcher` (#219).
  *
- * Bug: pre-TL-91, `removeRepositoryWatcher` walked two specific Maps —
- * `_fileWatchers` (per-repo `.git/<entry>` watchers from Wave 1) and
- * `_newRepoWatchers` (mid-session `**\/.git` watchers from Wave 10) —
+ * Bug: originally, `removeRepositoryWatcher` walked two specific Maps
+ * `_fileWatchers` (per-repo `.git/<entry>` watchers from) and
+ * `_newRepoWatchers` (mid-session `**\/.git` watchers from)
  * by direct reference. Each new "watcher family" added to the service
  * (e.g. a hypothetical "submodule init watcher" or "worktree-add
  * watcher") would silently leak unless a future contributor also
  * remembered to add that map to the cleanup loop.
  *
- * Fix: introduce a `_watcherMaps` registry — `Array<Map<string,
+ * Introduce a `_watcherMaps` registry — `Array<Map<string,
  * vscode.Disposable[]>>` — that every watcher family registers itself
  * in at construction time. `removeRepositoryWatcher(rootPath)` then
  * walks the union of all registered maps, disposing entries whose key
  * is `rootPath` itself OR a path-child of `rootPath` (matching the
- * existing nested-repo cleanup contract from Wave 10 R2 / TL-83).
+ * existing nested-repo cleanup contract from / ).
  *
  * Each spec was authored RED-first and confirmed failing before the
  * registry refactor. See AGENT_WORKSPACE.md for the verbatim red-message
@@ -32,10 +32,10 @@ const { Uri } = vscodeMock;
 
 interface FamilySurface {
   _fileWatchers: Map<string, vscode.Disposable[]>;
-  // R1 / L1: aligned to production type. ADR-008 §1 documents that the
+  // Aligned to production type. ADR-008 §1 documents that the
   // new-repo family was widened from singular `vscode.FileSystemWatcher`
   // to `vscode.FileSystemWatcher[]` (single-element array) so the map
-  // fits the uniform `_watcherMaps` registry walker. Pre-R1 this
+  // fits the uniform `_watcherMaps` registry walker. Earlier this
   // TestSurface declared the field as `Map<string, vscode.Disposable>`
   // (singular), which was masked from compile by the `as unknown as`
   // cast and would have caused a runtime mismatch if a test reached

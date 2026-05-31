@@ -1,5 +1,5 @@
 /**
- * Task 4.8 — Property 8: Sanitizer non-leakage.
+ * Property 8: Sanitizer non-leakage.
  *
  * **Validates: Requirements 4.1, 4.2, 4.4, 14.3, 14.4**
  *

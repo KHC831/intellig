@@ -1,8 +1,8 @@
 /**
- * Unit tests for T2-05 Cherry-Pick variants in GitService.
+ * Unit tests for Cherry-Pick variants in GitService.
  *
  * Covers:
- *  - Plain `cherryPick(repo, [hash])` (pre-T2-05 behaviour) — no --no-commit.
+ * - Plain `cherryPick(repo, [hash])` (original behaviour) — no --no-commit.
  *  - `{ noCommit: true }` → `git cherry-pick --no-commit <hash>`.
  *  - `{ files: [...] }` → `cherry-pick --no-commit`, then `git show --name-only`
  *    for each commit to collect touched files, then
@@ -207,7 +207,7 @@ describe('GitService.cherryPick — T2-05 variants', () => {
       // The diff discovery.
       const show = mockGitCli.findCommand(['show', '--name-only']);
       assert.ok(show);
-      // Wave I R1 — `commit` follows `--end-of-options` (buildGitArgs).
+      // `commit` follows `--end-of-options` (buildGitArgs).
       assert.deepStrictEqual(show.args, [
         'show',
         '--name-only',

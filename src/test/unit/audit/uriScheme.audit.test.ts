@@ -7,7 +7,7 @@
  * callsites constructed URIs with an unregistered `git-show:` scheme, which
  * caused VS Code to throw `Unable to resolve resource git-show:...` the
  * moment the user invoked "Compare with Local" / "Show File at Revision" /
- * "Compare Branches → file diff". Senior review R5 flagged this as L-3; it
+ * "Compare Branches → file diff". Flagged this as; it
  * was mis-triaged and shipped.
  *
  * To catch this class of bug at PR time, this audit scans the production

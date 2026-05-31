@@ -1,5 +1,5 @@
 /**
- * TL-97 (Cluster C) — `KeymapService` static-helper conversion to free
+ * (Cluster C) — `KeymapService` static-helper conversion to free
  * functions at module scope.
  *
  * Pre-refactor, the three pure helpers `_resolveKeymap`, `_validatePreset`
@@ -49,7 +49,7 @@ describe('KeymapService — free-function helpers (TL-97)', () => {
 
     it('does not expose the legacy static class members KeymapService._resolveKeymap / _validatePreset', () => {
       // Behavioural pin: a future revival of the static surface would
-      // re-introduce the drift TL-97 closed. The new surface is the free
+      // re-introduce the drift closed. The new surface is the free
       // functions; the old statics must not silently coexist.
       const klass = keymapModule.KeymapService as unknown as Record<string, unknown>;
       assert.strictEqual(
@@ -73,7 +73,7 @@ describe('KeymapService — free-function helpers (TL-97)', () => {
     });
 
     it("returns 'default' when preset='default' even if legacy=true (policy A)", () => {
-      // Regression spec from Wave 135 R4 / M3 — the explicit user choice
+      // Regression spec from / M3 — the explicit user choice
       // on the new knob MUST NOT be overridden by a stale legacy boolean.
       assert.strictEqual(keymapModule.resolveKeymap('default', true), 'default');
       assert.strictEqual(keymapModule.resolveKeymap('default', false), 'default');

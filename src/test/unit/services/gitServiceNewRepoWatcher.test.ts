@@ -1,5 +1,5 @@
 /**
- * Tests for the mid-session new-repo watcher (Wave 10 / task #204).
+ * Tests for the mid-session new-repo watcher (task #204).
  *
  * Contract: when the user runs `git init` in a workspace subfolder
  * mid-session, IntelliG should detect the new `.git/` directory and
@@ -7,7 +7,7 @@
  *
  * Implementation lives in `GitService.setupNewRepoWatcher`. The watcher
  * uses `**\/.git` glob with `ignoreChangeEvents: true` +
- * `ignoreDeleteEvents: true` so it does NOT contribute to the Wave 1
+ * `ignoreDeleteEvents: true` so it does NOT contribute to the
  * `.git/objects/**` modification storm that caused the original infinite
  * refresh loop (#78).
  *
@@ -78,7 +78,7 @@ function makeFsStub(tree: Record<string, string[]>): IRepoScanFs {
           return false;
         },
         isFile(): boolean {
-          // TL-87 (#212): IRepoScanFs.Dirent requires isFile(); the
+          // (#212): IRepoScanFs.Dirent requires isFile(); the
           // discovery scenarios in this file only model directories.
           return false;
         },
@@ -212,7 +212,7 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
     // own `.git/` (which happens on every git operation) we'd re-enter the
     // refresh path. Verified at the FileSystemWatcher constructor call.
     //
-    // Wave 10 R2 senior LOW (test-ordering fragility fix): use a path
+    // (test-ordering fragility fix): use a path
     // (`/r2-fresh-path`) the GitService constructor's async
     // `discoverRepositories()` cannot have visited (workspace folders are
     // explicitly cleared in the afterEach of the prior test, and beforeEach
@@ -289,7 +289,7 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
   });
 
   // ============================================
-  // Wave 10 R2 senior addendum — MEDIUM:
+  // Senior addendum — MEDIUM:
   //   Path-prefix string match in ignored-folder filter.
   //
   //   Pre-fix: `repoParentDir.startsWith(folderPath)` is a STRING prefix
@@ -338,7 +338,7 @@ describe('GitService — mid-session new-repo watcher (Wave 10)', () => {
 });
 
 // ============================================
-// Wave 10 R2 senior addendum — NEW HIGH:
+// Senior addendum — NEW HIGH:
 //   Lifecycle leak on workspace-folder removal.
 //
 //   When the user removes `~/work` from the workspace mid-session and

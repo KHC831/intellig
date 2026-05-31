@@ -44,7 +44,7 @@
  *
  *   - The behavioural side of each guard (its bug-class detection
  *     logic) is covered by the per-guard regression specs
- *     (`outputChannelTestSurface.test.ts`, the per-site TL-72 specs,
+ * (`outputChannelTestSurface.test.ts`, the per-site specs,
  *     etc.). This test only pins path conformance.
  *   - The migration script's actual rewriting of these guards (when
  *     task 14.2 lands) is covered by `migrateBoundary.property.test.ts`
@@ -295,7 +295,7 @@ describe('scripts/check-*.{sh,mjs} — tracked-path conformance with plan.json',
     'check-output-channel-test-surface.sh / check-test-only-surface.sh ' +
       '(Requirement 9.6, task 15.1)',
     () => {
-      // Task 15.1 renames `check-output-channel-test-surface.sh` to
+      // Renames `check-output-channel-test-surface.sh` to
       // `check-test-only-surface.sh` and broadens it to also forbid
       // production references to `__resetLoggerForTest`. Pre-rename the
       // first name is on disk; post-rename the second is. The test

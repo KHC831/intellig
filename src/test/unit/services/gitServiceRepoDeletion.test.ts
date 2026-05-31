@@ -1,7 +1,7 @@
 /**
- * Tests for mid-session repository deletion (TL-88 / #213).
+ * Tests for mid-session repository deletion (#213).
  *
- * Bug: pre-TL-88, running `rm -rf .git` inside a discovered repo left
+ * Bug: originally, running `rm -rf .git` inside a discovered repo left
  * orphan watchers + a stale `_repositories` entry until window reload.
  * Subsequent commands against the (now-non-)repo would either fail with
  * confusing "fatal: not a git repository" toasts or, worse, the
@@ -9,7 +9,7 @@
  * The repo also stayed visible in tool-window pickers despite no longer
  * existing.
  *
- * Fix: extend the per-repo watcher to detect deletion of `.git/HEAD`
+ * Extend the per-repo watcher to detect deletion of `.git/HEAD`
  * (which is the strongest "this repo was destroyed" signal — a repo
  * cannot exist without HEAD), and route that to the new
  * `removeRepositoryWatcher(rootPath)` cleanup PLUS a new public
@@ -320,9 +320,9 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
   });
 
   // ============================================
-  // R1 / C1 (tech-lead): JSDoc on `onDidRemoveRepository` promises the
+  // JSDoc on `onDidRemoveRepository` promises the
   // event fires "either because the user removed its workspace folder, OR
-  // because the repo's `.git/HEAD` was deleted." Pre-R1 only the latter
+  // because the repo's `.git/HEAD` was deleted." Earlier only the latter
   // path fired the emitter — the workspace-folder listener at line ~263
   // called `removeRepositoryWatcher(folderPath)` directly without
   // touching the emitter. Six future subscribers (BranchTreeProvider,
@@ -372,7 +372,7 @@ describe('GitService — mid-session repo deletion (TL-88 / #213)', () => {
   });
 
   it('fires onDidRemoveRepository for EVERY nested repo when the parent workspace folder is removed (R1/C1)', async () => {
-    // Wave 10 nested-repo discovery: opening `~/work/` registers
+    // Nested-repo discovery: opening `~/work/` registers
     // `~/work/projectA` AND `~/work/projectB` as separate repos. When
     // the user removes `~/work` from the workspace, BOTH must fire the
     // remove event so subscribers drop both repos.

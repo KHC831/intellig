@@ -477,7 +477,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
   describe('_handleResetToHere', () => {
     /**
-     * After T1-11 landed, `resetToHere` opens a ResetDialog (webview)
+     * After landed, `resetToHere` opens a ResetDialog (webview)
      * instead of a QuickPick. The dialog requires `this._context` to be
      * set by `register()`. Tests below exercise the dispatcher-level
      * behaviour (invalid/missing commit, missing context); ResetDialog's
@@ -522,7 +522,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
   describe('_handleCreatePatch', () => {
     it('runs git format-patch, atomic-writes the result to the user-picked path', async () => {
-      // TL-38: the write side now goes through `atomicWriteFile` (Node
+      // The write side now goes through `atomicWriteFile` (Node
       // fs promises, not vscode.workspace.fs). Point the save dialog at
       // a real tmp path, let the real atomic helper run, and assert the
       // file lands with the expected content + no temp debris.
@@ -562,7 +562,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('surfaces sanitised toast when atomic write fails; no success toast', async () => {
-      // TL-38 fault injection: pick a non-existent sub-directory so
+      // Fault injection: pick a non-existent sub-directory so
       // atomicWriteFile's sibling-tmp write rejects with ENOENT. Exercises
       // the inner try/catch added in _handleCreatePatch — write-only
       // failure must surface as "Failed to write patch:" and suppress
@@ -699,7 +699,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(messages.error[0].message.includes('diff failed'));
     });
 
-    // Regression for senior-R5 L-3 / task #82 (user-reported crash):
+    // Regression for senior- / task #82 (user-reported crash):
     // Compare-with-Local constructed its left-hand URI with the unregistered
     // `git-show:` scheme and a JSON-encoded query. VS Code has no provider
     // for that scheme, so it threw `Unable to resolve resource git-show:...`
@@ -836,7 +836,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(messages.error[0].message.includes('ls-tree failed'));
     });
 
-    // Regression for senior-R5 L-3 / task #82 (see compareWithLocal note above).
+    // Regression for senior- / task #82 (see compareWithLocal note above).
     // Show-Repo-at-Revision's QuickPick path had the same URI-scheme drift;
     // picking a file would throw "Unable to resolve resource git-show:...".
     it('opens the selected file with an `intellig-git:` URI and URL-encoded ref', async () => {
@@ -1488,7 +1488,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
-  // TL-72 (Wave 9) — every CommitContextMenuCommands action-path catch
+  // Every CommitContextMenuCommands action-path catch
   // block must run the raw git stderr through `sanitizeGitError`. This
   // file has 12 such sites (cherryPick / revert / undo / drop / edit
   // commit message / etc.) — instead of a per-site spec we pin the bug
@@ -1525,7 +1525,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
-  // ─── Wave K — WK-1: Squash with Previous + Fixup with Previous ───────────
+  // ─── Squash with Previous + Fixup with Previous ───────────
 
   describe('_handleSquashWithPrevious (Wave K WK-1)', () => {
     const childHash = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -1795,7 +1795,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
-  // ─── Wave K — WK-2: Compare with Branch ──────────────────────────────────
+  // ─── Compare with Branch ──────────────────────────────────
 
   describe('_handleCompareWithBranch (Wave K WK-2)', () => {
     const hash = 'aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa';

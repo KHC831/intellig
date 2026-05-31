@@ -839,11 +839,11 @@ describe('RebaseService', () => {
       });
     });
 
-    // Wave C — `provideSquashMessage` is the symmetric companion to
+    // `provideSquashMessage` is the symmetric companion to
     // `provideRewordMessage`. The git mechanics are identical (the rebase
     // pauses, asks for a commit message, and resumes on `--continue`); the
     // separate name carries intent at the call site for the squash multi-
-    // commit flow added in Wave C.
+    // commit flow added in.
     describe('Squash Action — provideSquashMessage', () => {
       it('should provide squash message via provideSquashMessage', async () => {
         mockGitCli.setExecResult('commit --amend', createMockResult(0, ''));

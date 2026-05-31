@@ -1,5 +1,5 @@
 /**
- * Task 5.4 — Property 12: ConfigurationService change records carry only keys.
+ * Property 12: ConfigurationService change records carry only keys.
  *
  * **Validates: Requirements 6.5, 14.10**
  *

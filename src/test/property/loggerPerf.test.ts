@@ -1,5 +1,5 @@
 /**
- * Task 4.14 — Logger emission-path microbenchmark.
+ * Logger emission-path microbenchmark.
  *
  * Pins the performance budget from Requirement 7.2:
  *

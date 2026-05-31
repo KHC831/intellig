@@ -1,24 +1,24 @@
 /**
- * Wave C R2 — final review-round fixes.
+ * Final review-round fixes.
  *
  * Covers:
- *   1. MEDIUM — Senior R1-M-1 — squash editor close uses the tab API
+ * 1. MEDIUM — Senior - — squash editor close uses the tab API
  *               (not closeActiveEditor) so it doesn't kill an unrelated
  *               editor when focus has shifted.
- *   2. MEDIUM — Senior R1-M-2 — Save-As silent abort: detect a save to
+ * 2. MEDIUM — Senior - — Save-As silent abort: detect a save to
  *               a different URI, surface a clarifying toast, treat as
  *               cancel.
- *   3. MEDIUM — Senior R1-M-3 — squash success path uses the shared
+ * 3. MEDIUM — Senior - — squash success path uses the shared
  *               `_unstashWithErrorReport` helper (mirrors drop multi).
- *   4. LOW    — Senior R1-L-1 — tempfile name includes `crypto.randomBytes`
+ * 4. LOW — Senior - — tempfile name includes `crypto.randomBytes`
  *               so two squashes in the same millisecond can't collide.
- *   5. LOW    — Senior R1-L-2 — fallback to showInputBox surfaces a
+ * 5. LOW — Senior - — fallback to showInputBox surfaces a
  *               heads-up info toast.
- *   6. LOW    — Senior R1-L-3 — squash editor opens in `viewColumn:
+ * 6. LOW — Senior - — squash editor opens in `viewColumn:
  *               Beside` so it doesn't cover the log.
- *   7. LOW    — Senior R1-L-4 — getCommit preview lookups race against
+ * 7. LOW — Senior - — getCommit preview lookups race against
  *               a 500ms timeout so a slow git can't stall the modal.
- *   8. LOW    — Senior R1-L-5 — plan-coverage check uses
+ * 8. LOW — Senior - — plan-coverage check uses
  *               `selectedSet.size`, not `commitHashes.length`.
  *
  * Most checks are structural pins on the source; the Save-As + squash
@@ -57,7 +57,7 @@ describe('Wave C R2 — structural pins', () => {
     );
   });
 
-  // R2-1 (Senior R1-M-1) — tab API close
+  // Tab API close
   describe('R2-1 (Senior R1-M-1) — squash close uses tab API, not closeActiveEditor', () => {
     it('_promptForSquashMessage no longer calls workbench.action.closeActiveEditor', () => {
       const helperIdx = src.indexOf('private async _promptForSquashMessage');
@@ -79,13 +79,13 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-2 (Senior R1-M-2) — Save-As detection
+  // Save-As detection
   describe('R2-2 (Senior R1-M-2) — Save-As detection in onDidSaveTextDocument', () => {
     it('_promptForSquashMessage compares saved.uri.fsPath against the original', () => {
       const helperIdx = src.indexOf('private async _promptForSquashMessage');
       const helperEnd = src.indexOf('\n  }', helperIdx + 200);
       const body = src.substring(helperIdx, helperEnd > 0 ? helperEnd : helperIdx + 8000);
-      // R2-M-2: the listener must compare the saved URI's fsPath
+      // The listener must compare the saved URI's fsPath
       // against the original tempfile's fsPath to detect Save-As.
       assert.ok(
         /saved\.uri\.fsPath\s*!==\s*expectedFsPath/.test(body) ||
@@ -105,7 +105,7 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-3 (Senior R1-M-3) — shared unstash-error helper
+  // Shared unstash-error helper
   describe('R2-3 (Senior R1-M-3) — squash success uses _unstashWithErrorReport helper', () => {
     it('a private _unstashWithErrorReport(cwd, opName) helper is declared once', () => {
       const matches = src.match(/private\s+async\s+_unstashWithErrorReport\s*\(/g) || [];
@@ -120,7 +120,7 @@ describe('Wave C R2 — structural pins', () => {
       const handlerIdx = src.indexOf('private async _handleSquashCommits');
       const editIdx = src.indexOf('private async _handleEditCommitMessage', handlerIdx);
       const body = src.substring(handlerIdx, editIdx > 0 ? editIdx : handlerIdx + 12000);
-      // Wave K — _handleSquashCommits now also handles the fixup mode (via
+      // _handleSquashCommits now also handles the fixup mode (via
       // squashWithPrevious + fixupWithPrevious). The opName argument is now
       // `mode === 'fixup' ? 'Fixup' : 'Squash'` rather than the literal
       // 'Squash'. Either form satisfies the contract that the squash branch
@@ -145,7 +145,7 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-4 (Senior R1-L-1) — random suffix in tempfile path
+  // Random suffix in tempfile path
   describe('R2-4 (Senior R1-L-1) — tempfile path includes a random suffix', () => {
     it('tempfile path uses crypto.randomBytes for a per-invocation suffix', () => {
       assert.ok(
@@ -167,7 +167,7 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-5 (Senior R1-L-2) — fallback heads-up toast
+  // Fallback heads-up toast
   describe('R2-5 (Senior R1-L-2) — fallback to showInputBox surfaces a toast', () => {
     it('the helper surfaces an info toast before falling back to showInputBox', () => {
       const helperIdx = src.indexOf('private async _promptForSquashMessage');
@@ -180,7 +180,7 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-6 (Senior R1-L-3) — viewColumn: Beside
+  // viewColumn: Beside
   describe('R2-6 (Senior R1-L-3) — squash editor opens beside the active column', () => {
     it('showTextDocument is called with viewColumn: vscode.ViewColumn.Beside', () => {
       const helperIdx = src.indexOf('private async _promptForSquashMessage');
@@ -193,7 +193,7 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-7 (Senior R1-L-4) — getCommit timeout
+  // getCommit timeout
   describe('R2-7 (Senior R1-L-4) — modal preview wraps getCommit in a 500ms timeout', () => {
     it('_handleDropCommitMulti races getCommit against a 500ms setTimeout', () => {
       const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
@@ -211,7 +211,7 @@ describe('Wave C R2 — structural pins', () => {
     });
   });
 
-  // R2-8 (Senior R1-L-5) — plan-coverage compares against selectedSet.size
+  // plan-coverage compares against selectedSet.size
   describe('R2-8 (Senior R1-L-5) — plan-coverage check uses selectedSet.size', () => {
     it('the partial-coverage guard compares against selectedSet.size, not commitHashes.length', () => {
       const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
@@ -232,10 +232,10 @@ describe('Wave C R2 — structural pins', () => {
 // ─── Behavioural specs ──────────────────────────────────────────────────────
 //
 // Two flows have non-trivial behaviour worth pinning:
-//   - R2-2 Save-As: simulate a save to a DIFFERENT URI; assert the
+// - Save-As: simulate a save to a DIFFERENT URI; assert the
 //     handler surfaces the clarifying toast and aborts (no rebase
 //     started).
-//   - R2-3 squash unstash error: drive a successful squash whose
+// - squash unstash error: drive a successful squash whose
 //     post-success stash pop fails; assert "Squash succeeded but failed
 //     to restore stash" warning toast.
 
@@ -457,7 +457,7 @@ function blankRebaseTracker(): MockRebaseTracker {
 /**
  * Install editor stubs that capture the save / close listeners so tests
  * can drive the squash dialog. `simulateSaveAs` fires onDidSave with a
- * DIFFERENT URI to drive the R2-M-2 Save-As branch.
+ * DIFFERENT URI to drive the - Save-As branch.
  */
 interface EditorTracker {
   openCalls: number;
@@ -605,7 +605,7 @@ describe('Wave C R2 — behavioural specs', () => {
     return editor;
   }
 
-  // R2-2 — Save-As silent abort fix
+  // Save-As silent abort fix
   describe('R2-2 (Senior R1-M-2) — Save-As silent abort', () => {
     it('treats Save-As as cancel and surfaces a clarifying toast', async () => {
       const tracker = blankRebaseTracker();
@@ -648,7 +648,7 @@ describe('Wave C R2 — behavioural specs', () => {
     });
   });
 
-  // R2-3 — squash success unstash error surfaces distinct toast
+  // Squash success unstash error surfaces distinct toast
   describe('R2-3 (Senior R1-M-3) — squash success path reports unstash failures', () => {
     it('surfaces "Squash succeeded but failed to restore stash" when stash pop fails', async () => {
       const tracker = blankRebaseTracker();
@@ -709,7 +709,7 @@ describe('Wave C R2 — behavioural specs', () => {
     });
   });
 
-  // R2-1 — tab-API close (behavioural spec to complement the
+  // tab-API close (behavioural spec to complement the
   // structural pin)
   describe('R2-1 (Senior R1-M-1) — squash close targets the squash tab via tabGroups.close', () => {
     it('calls tabGroups.close with the squash tab after the user saves', async () => {

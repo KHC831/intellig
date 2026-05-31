@@ -1,5 +1,5 @@
 /**
- * Unit tests for T2-02 — finished checkoutAndRebase / pullUsingRebase /
+ * Unit tests for — finished checkoutAndRebase / pullUsingRebase /
  * pullUsingMerge handlers.
  *
  * Complements the existing property tests (which cover the fallback /
@@ -449,10 +449,10 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
   });
 });
 
-// ─── Tests: TL-33 pull-fallback conflict-service probe ────────────────────────
+// ─── Tests: pull-fallback conflict-service probe ────────────────────────
 
 /**
- * TL-33 coverage: the pull-fallback path (no PullDialog accessor wired)
+ * Coverage: the pull-fallback path (no PullDialog accessor wired)
  * previously stringified a conflict count out of the error message via
  * `_parseConflictCount`. That helper was deleted once we confirmed
  * `_conflictResolutionService` is always wired in production
@@ -602,10 +602,10 @@ describe('TL-33 BranchContextMenuCommands — pull fallback probes conflict serv
   });
 });
 
-// ─── Tests: Wave-3-R2 Finding #2 probe swallows pull error ───────────────────
+// ─── Tests: Wave-3- Finding #2 probe swallows pull error ───────────────────
 
 /**
- * Wave-3-R2 Finding #2 coverage: the pull-fallback path's `getConflictedFiles`
+ * Wave-3- Finding #2 coverage: the pull-fallback path's `getConflictedFiles`
  * probe lives inside the outer `catch(error)` block. If the probe itself
  * throws (git process crash, transient fs/access issue, conflict-service
  * bug), control used to escape the outer catch before the generic
@@ -813,17 +813,17 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
 });
 
 /**
- * Wave H — detached row dispatcher safety pins (Wave F regression class).
+ * Detached row dispatcher safety pins (regression class).
  *
  * The synthetic detached-head row presents the user with a parenthesized
- * label `(HEAD detached at <sha>)`. Pre-Wave-H, `_handleNewBranchFrom`
+ * label `(HEAD detached at <sha>)`., `_handleNewBranchFrom`
  * read `item.branch?.name || item.tag?.name` as the git start-point —
  * if a future refactor accidentally constructed a fake-IBranch with the
- * parenthesized label as `.name` (the original Wave F bug shape), git's
+ * parenthesized label as `.name` (the original bug shape), git's
  * checkout-b would fail with `fatal: '(HEAD detached at <sha>)' is not
  * a commit`.
  *
- * Wave H's type extension routes the SHA via `item.getDetachedHeadSha()`
+ * 's type extension routes the SHA via `item.getDetachedHeadSha()`
  * — never the parenthesized label. These two pins assert the SHA flows
  * to gitService correctly AND that the parenthesized label never reaches
  * the gitService boundary.
@@ -913,7 +913,7 @@ describe('Wave H — detached row dispatcher safety (Wave F regression class)', 
   });
 });
 
-// ─── Wave K — WK-3: Track Remote Branch (single-entry smart-detect) ─────────
+// ─── Track Remote Branch (single-entry smart-detect) ─────────
 
 describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
   interface TrackMockGit {
@@ -1077,9 +1077,9 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
     assert.strictEqual(opts.track, 'origin/feature/foo');
   });
 
-  // Wave K R1 SK-2 — defense-in-depth: simpleName sliced from a parsed
+  // SK-2 — defense-in-depth: simpleName sliced from a parsed
   // remote ref could theoretically begin with `-` or `.`, slipping past
-  // the Wave I service-boundary validateBranchName guard for
+  // the service-boundary validateBranchName guard for
   // checkout({ createBranch }). The handler must reject before we ever
   // reach the service.
   it('trackRemote-reject-leading-dash: simpleName starting with `-` shows error and skips checkout', async () => {

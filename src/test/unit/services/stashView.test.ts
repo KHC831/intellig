@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T2-09 StashView additions:
+ * Unit tests for the StashView additions:
  *  - branchFromStash(): prompts for branch name, delegates to
  *    GitService.stashBranch, refreshes the list on success, routes conflict
  *    errors to the Resolve Conflicts dialog.
@@ -530,9 +530,9 @@ describe('StashView T2-09 — branch from stash + rename', () => {
   });
 });
 
-// TL-68 (Wave 8 A) — refresh() canonical-channel contract.
+// refresh() canonical-channel contract.
 //
-// Before Wave 8 StashView used the pre-Wave-7 `_state.error` sideband:
+// Before StashView used the `_state.error` sideband:
 // refresh() resolved to `void`, errors were stashed into `_state.error`, and
 // _showShelfList read the latent value back. That mirrored the
 // (now-removed) ShelfView pattern. Per ADR-006 the rule is now that
@@ -646,9 +646,9 @@ describe('StashView TL-68 — refresh() returns { error? } (no _state.error side
   });
 });
 
-// Wave 8 R2 (senior re-review HIGH) — every post-action caller in
+// (senior re-review HIGH) — every post-action caller in
 // StashView must surface refresh failures as a warning toast prefixed
-// with `Stash list refresh failed:`. This mirrors ShelfView's Wave 7
+// with `Stash list refresh failed:`. This mirrors ShelfView's
 // policy (see `Shelf list refresh failed:` specs in shelfView.test.ts):
 // the action itself succeeded, so a refresh failure is a *secondary*
 // signal — `showWarningMessage`, not `showErrorMessage`.
@@ -844,7 +844,7 @@ describe('StashView post-action refresh — warning toast on refresh failure', (
   });
 });
 
-// TL-72 (Wave 9) — every StashView action-path catch block must route the
+// Every StashView action-path catch block must route the
 // raw git stderr through `sanitizeGitError` before pushing it into the
 // `showErrorMessage` toast. Pre-fix, six of these sites concatenated
 // `error.message` directly into the toast template, so a credentialed

@@ -85,14 +85,14 @@ export enum ProgressLocation {
   Notification = 15,
 }
 
-// Wave C R2 (Senior R1-M-1) — mock `vscode.TabInputText` class so the
+// Mock `vscode.TabInputText` class so the
 // squash dialog's tab-API close path can do `instanceof TabInputText`
 // checks against tab inputs constructed by tests.
 export class TabInputText {
   constructor(public readonly uri: Uri) {}
 }
 
-// Mock configuration storage (Wave 135 R5 / M2 — per-scope tracker).
+// Mock configuration storage (per-scope tracker).
 //
 // Real VS Code distinguishes three scopes through `inspect()`:
 //   - `defaultValue` — schema default (declared in package.json
@@ -101,12 +101,12 @@ export class TabInputText {
 //   - `workspaceValue` — user wrote it at workspace-settings scope.
 // And `get()` resolves with workspace > global > default precedence.
 //
-// Pre-R5 the mock collapsed all three into one map, so tests
+// Earlier the mock collapsed all three into one map, so tests
 // couldn't distinguish "user explicitly wrote 'default'" from
-// "schema default returned 'default'." That hole let H1 in R5
+// "schema default returned 'default'." That hole let the migration
 // land mostly correctly but tests had to bypass the mock through
 // `IKeymapMigrationConfigSeam` to drive the per-scope shape.
-// M2 rebuilds the mock so production code can use
+// The rebuilt mock lets production code use
 // `IConfigurationService.inspect()` uniformly without bypass.
 interface ScopeStore {
   global: Map<string, unknown>;
@@ -185,7 +185,7 @@ export interface WorkspaceConfiguration {
 const configChangeListeners: ((e: ConfigurationChangeEvent) => void)[] = [];
 
 /**
- * Workspace-folder change event listeners. R1/C1 (TL-88 follow-up): pre-R1
+ * Workspace-folder change event listeners. Earlier
  * the mock had a no-op `onDidChangeWorkspaceFolders` that returned a stub
  * disposable, which made it impossible for tests to drive the real
  * production listener path (`vscode.workspace.onDidChangeWorkspaceFolders`)
@@ -258,7 +258,7 @@ export const workspace = {
         return store.workspace.has(key) || store.global.has(key) || store.schemaDefaults.has(key);
       },
       inspect<T>(key: string) {
-        // Wave 135 R5 / M2: per-scope tracker now lets `inspect()`
+        // per-scope tracker now lets `inspect()`
         // distinguish "user wrote at user scope" (globalValue)
         // from "user wrote at workspace scope" (workspaceValue)
         // from "schema default returned" (defaultValue) — matching
@@ -295,8 +295,8 @@ export const workspace = {
         if (!section) {
           return;
         }
-        // Wave 135 R6 / L4: explicitly reject WorkspaceFolder target.
-        // Pre-R6 the mock silently coerced WorkspaceFolder writes to
+        // Explicitly reject WorkspaceFolder target.
+        // Earlier the mock silently coerced WorkspaceFolder writes to
         // Global, which would have given a future test author writing
         // a WorkspaceFolder-scope spec a green run that was actually
         // testing global-scope semantics. Better to fail fast with a
@@ -399,14 +399,14 @@ export const workspace = {
     return { dispose: () => {} };
   },
 
-  // Wave C R1 — mock for `vscode.workspace.onDidCloseTextDocument`.
+  // Mock for `vscode.workspace.onDidCloseTextDocument`.
   // Tests override on the writable `workspace` to drive the squash-
   // editor save/close listener flow.
   onDidCloseTextDocument(_listener: (e: unknown) => void): { dispose: () => void } {
     return { dispose: () => {} };
   },
 
-  // Wave C R1 — mock for `vscode.workspace.openTextDocument`. Default
+  // Mock for `vscode.workspace.openTextDocument`. Default
   // returns a minimal text-document stub; tests override on the
   // writable `workspace` to drive the squash-editor flow.
   openTextDocument: async (
@@ -574,7 +574,7 @@ export const window = {
   showSaveDialog: async (_options?: unknown): Promise<Uri | undefined> => {
     return undefined;
   },
-  // Wave C R1 — mock for `vscode.window.showTextDocument`. Default
+  // Mock for `vscode.window.showTextDocument`. Default
   // returns a minimal stub editor; tests override on the writable
   // `window` to drive the squash-editor flow without a real editor.
   showTextDocument: async (
@@ -584,7 +584,7 @@ export const window = {
     return { document };
   },
 
-  // Wave C R2 (Senior R1-M-1) — `_promptForSquashMessage` now uses the
+  // `_promptForSquashMessage` now uses the
   // tab API (`vscode.window.tabGroups`) to close the squash editor
   // specifically rather than `workbench.action.closeActiveEditor`
   // (which would close whatever was active when focus shifted). The
@@ -1100,7 +1100,7 @@ export function resetMockConfiguration(): void {
  * be exercised in unit tests. Pass `removed` and/or `added` arrays of
  * `{ uri, name, index }` workspace-folder shapes.
  *
- * R1/C1 (TL-88 follow-up): pre-R1 the mock's `onDidChangeWorkspaceFolders`
+ * Earlier the mock's `onDidChangeWorkspaceFolders`
  * was a stub that didn't deliver events, so tests couldn't verify the
  * `onDidRemoveRepository` event fires on the COMMON folder-removal path
  * (only the EXOTIC `.git/HEAD`-deletion path was reachable).
@@ -1123,8 +1123,8 @@ export function fireWorkspaceFoldersChange(event: {
 /**
  * Set a mock configuration value at a specific scope.
  *
- * Wave 135 R5 / M2: writes default to `ConfigurationTarget.Global`
- * (matching pre-R5 mock semantics), but tests that need to assert
+ * Writes default to `ConfigurationTarget.Global`
+ * But tests that need to assert
  * the user-set vs schema-default distinction can pass an explicit
  * target. Setting `value === undefined` clears the user value at
  * that scope (mirrors `vscode.workspace.getConfiguration().update(key, undefined, target)`).
@@ -1153,7 +1153,7 @@ export function setMockConfigValue(
 }
 
 /**
- * Wave 135 R5 / M2: set a schema-default value for a key. Tests
+ * Set a schema-default value for a key. Tests
  * rarely need this — `initializeDefaultConfig` populates the
  * standard set — but a few schema-evolution tests want to drive
  * the default directly.

@@ -1,5 +1,5 @@
 /**
- * Task 13.13 — Property 16: Migration import-rewrite correctness.
+ * Property 16: Migration import-rewrite correctness.
  *
  * **Validates: Requirement 12.5**
  *
@@ -702,7 +702,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
       );
     });
 
-    // ─── Task 13.13.2 — Non-identity source × identity target iteration ────
+    // ───.2 — Non-identity source × identity target iteration ────
     //
     // Deterministic Mocha iteration (NOT fast-check) over every
     // (non-identity source × identity target) pair in the live plan.
@@ -812,11 +812,11 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
           // absolute path of the target.
           const isDegenerateDoubleDot = originalRel === '..';
 
-          // Step 1: resolve the original specifier to its absolute
+          // Resolve the original specifier to its absolute
           // form (mirroring `rewriteImports`'s `resolvedAbs` step).
           const originalResolved = toPosix(path.resolve(sourceFromDir, originalRel));
 
-          // Step 2: probe the forward map. This is the step that
+          // Probe the forward map. This is the step that
           // pre-13.2.1 returned undefined for identity targets,
           // causing the 14.2 bug. With the fix in place, every
           // identity target lives in `forwardMap` keyed by its
@@ -857,7 +857,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
           );
 
           if (!isDegenerateDoubleDot) {
-            // Step 3: compute the rewritten specifier from the
+            // Compute the rewritten specifier from the
             // source's POST-migration directory. This is where the
             // rewrite must produce a specifier that resolves
             // correctly post-migration.
@@ -868,7 +868,7 @@ describe('Migration import-rewrite correctness (Property 16 / Requirement 12.5)'
               REPO_ROOT
             );
 
-            // Step 4: resolve the rewritten specifier from the
+            // Resolve the rewritten specifier from the
             // source's POST-migration directory and assert it lands
             // on the identity target's logical form.
             const resolvedRel = toPosix(path.resolve(sourceToDir, rewrittenRel));

@@ -1,30 +1,30 @@
 /**
- * Wave A R1 — review-round provider integration tests.
+ * Provider integration tests for multi-select.
  *
- * Drives the post-R1 provider behaviors:
- *   - Step 1/3 — host posts `updateMenuEnableState` on every selection
- *     change. Webview just applies. (TL-H-2/H-3/H-4, Senior M-3)
- *   - Step 2 — anchor lifecycle: pruned to `null` when the anchor is
+ * Drives the provider behaviors:
+ *   - Host posts `updateMenuEnableState` on every selection
+ *     change. Webview just applies.
+ *   - Anchor lifecycle: pruned to `null` when the anchor is
  *     no longer in the rendered list after `updateLogState`; selection
- *     intersected with the new commit set. (TL-C-1, Senior M-2)
- *   - Step 3 — anchor embedded in graph-panel HTML so a full re-render
- *     keeps the JS `let anchorHash` mirror in sync. (TL-H-1, TL-M-2)
- *   - Step 4 — C-1: `.menu-multi-hidden` CSS rule is present.
- *   - Step 4 — C-2: `squashCommits`/`compareVersions` are members of
+ *     intersected with the new commit set.
+ *   - Anchor embedded in graph-panel HTML so a full re-render
+ *     keeps the JS `let anchorHash` mirror in sync.
+ *   - `.menu-multi-hidden` CSS rule is present.
+ *   - `squashCommits`/`compareVersions` are members of
  *     `LogContextAction` so the menu-handler dispatch is type-safe;
  *     every menu `data-action` has a matching `case` in
  *     `CommitContextMenuCommands._handleAction`.
- *   - Step 5 — H-1: `resetToHere` is now single-only at the HTML level.
- *   - Step 6 — M-1: right-click on a non-selected commit clears the
+ *   - `resetToHere` is now single-only at the HTML level.
+ *   - Right-click on a non-selected commit clears the
  *     selection and selects only that commit (host-side state mirrors
  *     the JS-side mutation).
- *   - Step 6 — M-4: `data-head-hash` is HTML-escaped.
- *   - Step 6 — TL-M-1: `selectCommits(hashes, anchor?)` public API.
- *   - Step 6 — TL-M-4: `_handleCommitContextMenu` validates each hash
+ *   - `data-head-hash` is HTML-escaped.
+ *   - `selectCommits(hashes, anchor?)` public API.
+ *   - `_handleCommitContextMenu` validates each hash
  *     against `commitNodes` and aborts with a toast on drift.
- *   - Step 7 — L-1: details panel `data-selected-count` updated alongside
+ *   - Details panel `data-selected-count` updated alongside
  *     graph panel.
- *   - Keyboard range-select (H-2, user decision).
+ *   - Keyboard range-select (user decision).
  */
 
 import '../../../setup';
@@ -121,7 +121,7 @@ describe('Wave A R1 — provider integration', () => {
     provider.dispose();
   });
 
-  // ─── Step 1: host posts updateMenuEnableState ───────────────────────────
+  // ───: host posts updateMenuEnableState ───────────────────────────
   describe('R1 Step 1 — host posts updateMenuEnableState on selection changes', () => {
     it('selectCommit posts updateMenuEnableState with N=1 enable map', () => {
       const { messages } = stubWebview(provider);
@@ -252,7 +252,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 2: anchor lifecycle on updateLogState ─────────────────────────
+  // ───: anchor lifecycle on updateLogState ─────────────────────────
   describe('R1 Step 2 — anchor lifecycle hardening', () => {
     it('updateLogState clears anchorHash when the anchor is no longer in the new commit list', () => {
       const internals = provider as unknown as MultiSelectInternalsR1;
@@ -337,7 +337,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 3: anchor embedded in HTML ────────────────────────────────────
+  // ───: anchor embedded in HTML ────────────────────────────────────
   describe('R1 Step 3 — anchor embedded in graph-panel HTML', () => {
     it('graph panel root carries data-anchor-hash attribute (empty when null)', () => {
       provider.updateLogState([mkCommit('aaa')]);
@@ -362,7 +362,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 4 C-1: menu-multi-hidden CSS rule present ─────────────────────
+  // ─── C-1: menu-multi-hidden CSS rule present ─────────────────────
   describe('R1 Step 4 C-1 — .menu-multi-hidden CSS rule present', () => {
     it('inline <style> block contains a display:none rule for .menu-multi-hidden', () => {
       const html = provider._getThreePanelHtmlContent(
@@ -376,7 +376,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 4 C-2: type-safe action union ─────────────────────────────────
+  // ─── C-2: type-safe action union ─────────────────────────────────
   describe('R1 Step 4 C-2 — squashCommits + compareVersions are LogContextAction members', () => {
     it('squashCommits is assignable to LogContextAction (compile-time check)', () => {
       // If this fails to compile, the LogContextAction union is missing
@@ -391,7 +391,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 5 H-1: resetToHere single-only at HTML level ──────────────────
+  // ───: resetToHere single-only at HTML level ──────────────────
   describe('R1 Step 5 H-1 — resetToHere is now single-only', () => {
     it('the resetToHere context-menu item carries data-multi-action="single-only"', () => {
       const html = provider._getCommitContextMenuHtml();
@@ -405,7 +405,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 6 M-1: right-click on non-selected commit moves selection ─────
+  // ───: right-click on non-selected commit moves selection ─────
   describe('R1 Step 6 M-1 — right-click on a non-selected commit single-selects it (host-side mirror)', () => {
     it('exposes selectIfNotSelected(hash) that single-selects when the hash is not currently selected', () => {
       const internals = provider as unknown as MultiSelectInternalsR1;
@@ -443,7 +443,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 6 M-4: data-head-hash escaped ─────────────────────────────────
+  // ───: data-head-hash escaped ─────────────────────────────────
   describe('R1 Step 6 M-4 — data-head-hash is HTML-escaped', () => {
     it('does not pass raw quotes through the data-head-hash interpolation', () => {
       // Inject a malicious-looking hash via updateLogState. Real git
@@ -464,7 +464,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 6 TL-M-1: public selectCommits API ────────────────────────────
+  // ───: public selectCommits API ────────────────────────────
   describe('R1 Step 6 TL-M-1 — selectCommits public API', () => {
     it('selectCommits([h1, h2]) sets the selection and an anchor', () => {
       const internals = provider as unknown as MultiSelectInternalsR1;
@@ -504,7 +504,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 6 TL-M-4: validate selection at action-fire time ──────────────
+  // ───: validate selection at action-fire time ──────────────
   describe('R1 Step 6 TL-M-4 — _handleCommitContextMenu validates hashes', () => {
     it('_handleCommitContextMenu does NOT fire onDidRequestLogContextAction when a hash is no longer in commitNodes', (done) => {
       const internals = provider as unknown as MultiSelectInternalsR1;
@@ -550,7 +550,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Keyboard range-select (H-2) ────────────────────────────────────────
+  // ─── Keyboard range-select ────────────────────────────────────────
   describe('R1 H-2 — keyboard range-select inline-script', () => {
     it('inline script handles ArrowDown for next-row single-select', () => {
       const html = provider._getThreePanelHtmlContent(
@@ -578,7 +578,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 7 L-1: details panel data-selected-count ──────────────────────
+  // ───: details panel data-selected-count ──────────────────────
   describe('R1 Step 7 L-1 — refreshSelectedCount touches the details panel too', () => {
     it('inline script updates data-selected-count on .multi-commit-details when present', () => {
       const html = provider._getThreePanelHtmlContent(
@@ -593,7 +593,7 @@ describe('Wave A R1 — provider integration', () => {
     });
   });
 
-  // ─── Step 4 C-2 structural: every data-action has a CommitContextMenuCommands case
+  // ─── C-2 structural: every data-action has a CommitContextMenuCommands case
   describe('R1 Step 4 C-2 — every menu data-action has a matching case in CommitContextMenuCommands', () => {
     it('renders only data-action values that the action handler recognises', async () => {
       const html = provider._getCommitContextMenuHtml();

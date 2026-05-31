@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T3-03 New Branch Dialog.
+ * Unit tests for the New Branch Dialog.
  *
  * Covers:
  *  - `validateNewBranchName` — empty / whitespace / valid shapes / invalid chars.
@@ -188,7 +188,7 @@ describe('T3-03 validateNewBranchName', () => {
     assert.ok(validateNewBranchName('foo"bar'));
   });
 
-  // R5 C-2: SR-3 ref-dash parity. Git parses `-foo` as a CLI flag,
+  // C-2: SR-3 ref-dash parity. Git parses `-foo` as a CLI flag,
   // bypassing argv-spawn defense. `.hidden` is invalid per
   // git-check-ref-format. Both must be rejected at the dialog boundary.
   it('rejects leading dash (R5 C-2)', () => {
@@ -263,7 +263,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
   it('legacy string startPoint → `git branch <name> <startPoint>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.createBranch(makeRepo(), 'feature/x', 'main');
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], ['branch', 'feature/x', '--end-of-options', 'main']);
   });
 
@@ -276,14 +276,14 @@ describe('T3-03 GitService.createBranch — arg order', () => {
   it('options.startPoint → `git branch <name> <startPoint>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.createBranch(makeRepo(), 'feature/x', { startPoint: 'main' });
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], ['branch', 'feature/x', '--end-of-options', 'main']);
   });
 
   it('options.force → `git branch -f <name> <startPoint>`', async () => {
     const { gitService, executed } = installGitService();
     await gitService.createBranch(makeRepo(), 'feature/x', { startPoint: 'main', force: true });
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], ['branch', '-f', 'feature/x', '--end-of-options', 'main']);
   });
 
@@ -293,7 +293,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       startPoint: 'origin/main',
       track: true,
     });
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], [
       'branch',
       '--track',
@@ -309,7 +309,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       startPoint: 'main',
       checkout: true,
     });
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], [
       'checkout',
       '-b',
@@ -326,7 +326,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       checkout: true,
       force: true,
     });
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], [
       'checkout',
       '-B',
@@ -343,7 +343,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
       checkout: true,
       track: true,
     });
-    // Wave I — startPoint follows `--end-of-options`.
+    // startPoint follows `--end-of-options`.
     assert.deepStrictEqual(executed[0], [
       'checkout',
       '-b',
@@ -354,7 +354,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
     ]);
   });
 
-  // R5 C-2: service-boundary defense. Even if an upstream caller
+  // C-2: service-boundary defense. Even if an upstream caller
   // skips validateNewBranchName, createBranch must reject names that
   // git would parse as CLI flags (`-foo`) or invalid ref shapes (`.hidden`).
   it('rejects leading dash at the service boundary (R5 C-2)', async () => {

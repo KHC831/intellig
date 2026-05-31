@@ -1,5 +1,5 @@
 /**
- * Task 3.8 — ADR-002 conformance for the structured Logger
+ * ADR-002 conformance for the structured Logger
  * (`src/utils/logger/`).
  *
  * ADR-002 (`docs/adr/ADR-002-module-level-singletons-in-utils.md`)

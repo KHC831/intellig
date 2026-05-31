@@ -1,5 +1,5 @@
 /**
- * Task 3.4 — Logger OutputChannel sink lifecycle.
+ * Logger OutputChannel sink lifecycle.
  *
  * Pins two boundary properties of the structured Logger's
  * `OutputChannelSink` (see `src/utils/logger/sinks/OutputChannelSink.ts`)

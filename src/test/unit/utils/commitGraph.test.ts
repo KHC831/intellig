@@ -905,7 +905,7 @@ describe('classifyBranchName()', () => {
 });
 
 /**
- * Wave D — D1 Lane algorithm: divergent branch correctness.
+ * Lane algorithm: divergent branch correctness.
  *
  * The pre-rewrite single-pass algorithm collapses divergent branches that
  * share an unseen parent: the SECOND child of a parent inherits the first

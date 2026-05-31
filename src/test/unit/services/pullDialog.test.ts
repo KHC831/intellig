@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T1-02 Pull Dialog.
+ * Unit tests for the Pull Dialog.
  *
  * Covers:
  *  - Pure flag-mutex resolution (`resolveFlagMutex`, `applyFlagSelection`).
@@ -13,7 +13,7 @@
  *      * preset "merge" clears --rebase even when pullRebase config is true
  *      * mutex: turning on --rebase clears --ff-only / --no-ff
  *      * success → info toast, no warnings
- *      * CONFLICT on stderr → warning fallback (T1-08(b) TODO stays)
+ * * CONFLICT on stderr → warning fallback ((b) TODO stays)
  *      * generic failure → error toast
  *      * cancel at source step → no pull
  *      * cancel at flags step → no pull
@@ -603,7 +603,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
     assert.deepStrictEqual(h.openResolveConflictsDialogCalls, []);
   });
 
-  // TL-72 (Wave 9) — non-conflict pull failure must run through
+  // non-conflict pull failure must run through
   // sanitizeGitError before the toast is rendered. Pre-fix the catch
   // block at PullDialog.ts:407 concatenated raw `error.message` into
   // the showErrorMessage template, leaking credentialed remote URLs
@@ -656,7 +656,7 @@ describe('T1-02 GitService.pull — flag arg ordering', () => {
       branch: 'main',
     });
 
-    // Wave I — `pull` now splices `--end-of-options` between flag args
+    // `pull` now splices `--end-of-options` between flag args
     // and the remote/branch refs to defend against argv injection.
     assert.deepStrictEqual(executed[0], [
       'pull',

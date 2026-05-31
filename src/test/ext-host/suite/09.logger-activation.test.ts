@@ -1,5 +1,5 @@
 /**
- * Smoke test 9 — Logger activation invariants (Task 6.3).
+ * Smoke test 9 — Logger activation invariants.
  *
  * Pins three contracts about the structured Logger's behaviour at
  * `activate()` time, observed inside the real Extension Host:

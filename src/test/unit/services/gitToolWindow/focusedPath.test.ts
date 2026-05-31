@@ -1,13 +1,13 @@
 /**
- * Wave D / D3 — focused-path BFS + traps T-1 / T-8 against
+ * Focused-path BFS + trap cases against
  * GitToolWindowProvider.
  *
  * These tests exercise `_bfsPathToMergeBase`-driven behaviors via the
  * public `setFocusedBranch` API. They specifically verify:
  *  - on-path tagging stops at the merge-base (inclusive)
- *  - T-1: BFS depth cap defends against corrupt parent chains
- *  - T-8: getMergeBase returning undefined → empty path, but the focus
- *    name still survives so the chip outlines (D2) still apply
+ *  - the BFS depth cap defends against corrupt parent chains
+ *  - getMergeBase returning undefined → empty path, but the focus
+ *    name still survives so the chip outlines still apply
  *  - on subsequent updateLogState that keeps the focus, the
  *    onFocusedBranchPath flag is recomputed against the (re-loaded)
  *    commit list using the cached `_focusedPathHashes`
@@ -165,7 +165,7 @@ describe('Wave D — focused path BFS and traps (D3)', () => {
 
     await provider.setFocusedBranch('feature');
 
-    // T-8 — when there's no merge-base, the BFS still walks the loaded
+    // When there's no merge-base, the BFS still walks the loaded
     // ancestry from the tip (gives the user *something* visual). What
     // matters is that the focus name survives so the chip still
     // outlines per D2.

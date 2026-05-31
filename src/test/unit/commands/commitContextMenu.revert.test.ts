@@ -1,5 +1,5 @@
 /**
- * Unit tests for T2-04 selective revert + Drop Selected Changes.
+ * Unit tests for selective revert + Drop Selected Changes.
  *
  * Covers:
  *  - Selective revert: when the user deselects files, `git revert -n`
@@ -677,7 +677,7 @@ describe('CommitContextMenuCommands — T2-04 Drop Selected Changes', () => {
   });
 });
 
-// ─── R5 H-3 — multi-root repo resolution ────────────────────────────────────
+// ─── — multi-root repo resolution ────────────────────────────────────
 
 describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () => {
   const testHash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80123';
@@ -813,7 +813,7 @@ describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () =
       await commands.dropSelectedChangesFromCommit(testHash);
 
       // Every destructive CLI op must have been invoked with repoB's cwd,
-      // not repoA's. Before the H-3 fix this would have been repoA.
+      // not repoA's. Before the fix this would have been repoA.
       const cwds = new Set(cli.executed.map((e) => e.options.cwd));
       assert.ok(
         cwds.has(repoB.rootUri.fsPath),

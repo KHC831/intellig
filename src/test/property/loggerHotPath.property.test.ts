@@ -1,5 +1,5 @@
 /**
- * Task 4.11 — property test for the Logger's below-threshold short-circuit.
+ * Property test for the Logger's below-threshold short-circuit.
  *
  * **Property 11: Below-threshold short-circuit**
  *

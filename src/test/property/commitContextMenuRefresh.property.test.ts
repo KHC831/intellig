@@ -31,7 +31,7 @@ import { writableWindow } from '../typed/windowStub';
  * Excludes copyHash and showRepoAtRevision per the property definition.
  * Only includes currently implemented actions.
  *
- * `resetToHere` is intentionally excluded: since T1-11 it routes through
+ * `resetToHere` is intentionally excluded: since it routes through
  * the webview-based ResetDialog, which fires `onResetComplete` (and thus
  * the downstream refresh) only after the dialog's own reset flow runs.
  * That flow is covered by the dedicated ResetDialog suites.
@@ -178,7 +178,7 @@ function createMockRebaseService(
     startInteractiveRebase: async () => ({
       onto: '',
       originalBranch: '',
-      // Wave C R1 (Senior M-3): the drop-multi handler now asserts that
+      // The drop-multi handler now asserts that
       // the rebase window covers every selected commit (an empty /
       // partial plan is treated as a stale selection). Feed the mock
       // session every commit the test selected so the success branch
@@ -252,7 +252,7 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
     // Mock showInputBox to return a value (for editCommitMessage)
     writableWindow().showInputBox = (): Promise<string | undefined> =>
       Promise.resolve('new message');
-    // Wave C — _handleDropCommitMulti uses a modal showWarningMessage to
+    // _handleDropCommitMulti uses a modal showWarningMessage to
     // confirm destructive ops on N>=2 selections. Auto-confirm so the
     // success-path property still exercises the refresh code path.
     writableWindow().showWarningMessage = ((): Promise<string | undefined> =>
@@ -296,7 +296,7 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
 
             provider.refreshCallCount = 0;
 
-            // Wave C — multi-commit handlers (drop N>=2, squash) gate on
+            // multi-commit handlers (drop N>=2, squash) gate on
             // an in-order guard against the dispatched commitNodes. Pass
             // a synthesised list (parentCount=1 for every hash) so the
             // refresh-path property exercises the success branch.

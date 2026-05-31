@@ -1,5 +1,5 @@
 /**
- * Task 12.3 — Property 13: Plan-coverage totality.
+ * Property 13: Plan-coverage totality.
  *
  * **Validates: Requirements 9.1, 14.6**
  *

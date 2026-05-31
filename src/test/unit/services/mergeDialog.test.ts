@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T3-02 Merge Dialog.
+ * Unit tests for the Merge Dialog.
  *
  * Covers:
  *  - Pure `resolveMergeMutex` — all six strategy-flag combinations plus
@@ -321,7 +321,7 @@ describe('T3-02 GitService.mergeBranch — arg order', () => {
       noCommit: true,
       message: 'X',
     });
-    // Wave I — refs follow `--end-of-options`.
+    // Refs follow `--end-of-options`.
     assert.deepStrictEqual(executed[0], [
       'merge',
       '--no-ff',
@@ -425,7 +425,7 @@ describe('T3-02 MergeDialog — lifecycle', () => {
     assert.strictEqual(opts?.noFf, undefined);
   });
 
-  // TL-72 (Wave 9) — `_executeMerge` catch block must run the raw
+  // `_executeMerge` catch block must run the raw
   // git stderr through `sanitizeGitError` before pushing it into the
   // showErrorMessage toast template. Pre-fix, MergeDialog.ts:407
   // concatenated `error.message` directly, so credentialed remote URLs

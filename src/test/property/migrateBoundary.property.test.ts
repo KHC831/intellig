@@ -1,5 +1,5 @@
 /**
- * Task 13.14 — Property 17: Migration boundary discipline.
+ * Property 17: Migration boundary discipline.
  *
  * **Validates: Requirement 12.6**
  *

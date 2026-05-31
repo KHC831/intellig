@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-08 "Push All Tags" command.
+ * Unit tests for "Push All Tags" command.
  *
  * The command itself lives inside `activate()` in extension.ts and needs
  * full workspace services to run. Rather than activate the extension in
@@ -99,7 +99,7 @@ describe('T3-08 Push All Tags', () => {
     it('emits `git push --tags <remote> <branch>` with default remote/branch', async () => {
       const { gitService, executed } = installGitService();
       await gitService.push(makeRepo(), { tags: true, remote: 'origin', branch: 'main' });
-      // Wave I — `push` now splices `--end-of-options` between flag args and refs.
+      // `push` now splices `--end-of-options` between flag args and refs.
       assert.deepStrictEqual(executed[0], ['push', '--tags', '--end-of-options', 'origin', 'main']);
     });
 

@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-07 — Highlight already-cherry-picked commits.
+ * Unit tests for — Highlight already-cherry-picked commits.
  *
  * Two test surfaces:
  *
@@ -60,7 +60,7 @@ describe('GitService.getCherryMarks (T3-07)', () => {
     const cli: GitCliLike = {
       exec: async (args) => {
         // Verify we built the expected argv.
-        // Wave I — refs follow `--end-of-options`.
+        // Refs follow `--end-of-options`.
         assert.deepStrictEqual(args, [
           'log',
           '--cherry-mark',

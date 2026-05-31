@@ -1,19 +1,20 @@
 /**
- * Tests for split-case ignored-folder matching (TL-89 / #214 + R1 / H2).
+ * Tests for split-case ignored-folder matching (#214).
  *
- * **Background (TL-89 / #214):** pre-TL-89 the basename comparison was
+ * **Background (#214):** the basename comparison was originally
  * uniformly case-sensitive, so on Windows a `.GIT` folder slipped past
  * the filter and the scanner spawned `git rev-parse --show-toplevel`
  * against it (or worse, descended into `NODE_MODULES`).
  *
- * **R1 / H2 refinement:** TL-89's blanket case-insensitive policy
+ * **Case-sensitivity refinement:** the blanket case-insensitive policy
  * silently regressed Linux. A user with `Build/projectA/.git` had the
- * repo discovered pre-TL-89 (Linux fs is case-sensitive; `Build` ≠
- * `build` so not filtered) but post-TL-89 `Build` matched `build` in
+ * repo discovered under the original case-sensitive compare (Linux fs is
+ * case-sensitive; `Build` ≠ `build` so not filtered) but the
+ * case-insensitive policy made `Build` match `build` in
  * the lowercased ignored set. Same for `Out/`, `Target/`, `Vendor/`,
  * `Dist/` — common Pascal-case directories in C#/.NET, Rust, Java.
  *
- * **R1 contract:** split case policy.
+ * **Contract:** split case policy.
  *   - `.git`, `.vscode`, `node_modules`, `.next`: filtered case-INsensitively
  *     because they're filesystem-canonicalized on Windows + case-insensitive
  *     macOS anyway.
@@ -22,7 +23,7 @@
  *   - User-supplied `ignoredFolders`: filtered case-INsensitively so
  *     Windows users don't have to guess on-disk casing.
  *
- * Each R1/H2 spec was authored RED-first and confirmed failing before the
+ * Each split-case spec was authored RED-first and confirmed failing before the
  * split was wired in. See AGENT_WORKSPACE.md for the verbatim red captures.
  */
 
@@ -70,16 +71,16 @@ function makeFs(state: IFsState): IRepoScanFs {
 
 describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R1 / H2)', () => {
   // ============================================
-  // R1 / H2: case-SENSITIVE matching for build directories so
+  // Case-SENSITIVE matching for build directories so
   // case-sensitive Linux filesystems keep working with Pascal-case
   // directory names.
   // ============================================
 
   it('discovers nested `Build/projectA/.git` on case-sensitive disk (R1/H2 — `Build` ≠ `build`)', async () => {
     // The bug-this-finding-fixes case: a Linux user with `/work/Build/projectA/.git`.
-    // Pre-TL-89 this worked (case-sensitive compare; `Build` ≠ `build`).
-    // Post-TL-89, lowercase compare wrongly filtered `Build` as a child entry.
-    // R1/H2: `build` is in the case-SENSITIVE set, so `Build` (a CHILD entry
+    // The original case-sensitive compare worked here (`Build` ≠ `build`).
+    // A lowercase compare wrongly filtered `Build` as a child entry.
+    // `build` is in the case-SENSITIVE set, so `Build` (a CHILD entry
     // of /work) is NOT filtered, the scan recurses into it, and finds the
     // nested repo.
     const fs = makeFs({
@@ -135,8 +136,8 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
 
   it('still filters lowercase `build/` exactly (R1/H2 — case-sensitive set retains exact match)', async () => {
     // Sanity check the negative side: a `build/` (lowercase) folder is
-    // still filtered. Otherwise R1/H2 would have over-corrected and
-    // dropped TL-89's protection entirely.
+    // still filtered. Otherwise the case-sensitive set would have over-corrected and
+    // dropped the case-insensitive protection entirely.
     const fs = makeFs({
       dirs: new Map([['/work', ['projectA', 'build']]]),
       symlinks: new Set(),
@@ -161,7 +162,7 @@ describe('scanFolderForGitRepos — split-case ignored folders (TL-89 / #214 + R
   });
 
   // ============================================
-  // TL-89 / #214: case-INsensitive matching retained for the
+  // #214: case-INsensitive matching retained for the
   // filesystem-canonicalized names (`.git`, `.vscode`, `node_modules`,
   // `.next`).
   // ============================================

@@ -1,14 +1,14 @@
 /**
- * Wave I H-2 — CommitDialog data-action delegation tests.
+ * CommitDialog data-action delegation tests.
  *
- * Pre-Wave-I, CommitDialog rendered seven inline `onclick="X('${path}')"`
+ * CommitDialog rendered seven inline `onclick="X('${path}')"`
  * attributes (selectFile/toggleFile/stageFile/unstageFile/stageHunk/
  * unstageHunk/stageSelectedLines). A path containing a literal `'`
  * could break out of the JS string and inject script — even after
  * `_escapeHtml` because the browser DECODES `&apos;` back inside
  * attribute parsing.
  *
- * Wave I switches to `data-action` + `data-path` / `data-hunk-index`
+ * Switches to `data-action` + `data-path` / `data-hunk-index`
  * with a single delegated dispatcher. Mirrors GitToolWindowProvider's
  * pattern at line 4523.
  *
@@ -16,7 +16,7 @@
  *   commitDialog-csp-1: rendered HTML for the 7 site-specific functions
  *     contains zero inline `onclick="<fn>('...')"` attributes. Gear/
  *     refresh/cancel/commit/togglePartialStagingMode that don't take
- *     user-controlled args MAY stay (per the Wave I plan).
+ * user-controlled args MAY stay (per the plan).
  *   commitDialog-delegation-1: jsdom click on a `[data-action="stageFile"]`
  *     button posts a `stageFile` message after the dispatcher fires.
  */
@@ -198,10 +198,10 @@ describe('Wave I H-2 — CommitDialog data-action delegation', () => {
 });
 
 /**
- * Wave J / WJ-2 — file-status colors via theme variables.
+ * File-status colors via theme variables.
  *
- * Pre-Wave-J `_getStatusColor` returned bare hex literals
- * (`#6897BB`, `#629755`, …) that ignored the user's theme. Wave J
+ * `_getStatusColor` previously returned bare hex literals
+ * (`#6897BB`, `#629755`, …) that ignored the user's theme. It now
  * switches every entry to `var(--vscode-gitDecoration-*Foreground, #hex)`
  * so the chip text color flips with the theme; the original hex stays
  * as the CSS-var fallback for themes that don't define the token.
@@ -213,7 +213,7 @@ describe('Wave I H-2 — CommitDialog data-action delegation', () => {
  */
 describe('Wave J / WJ-2 — _getStatusColor returns theme-variable expressions', () => {
   // Reach the private method through prototype reflection. Same pattern
-  // as the WJ-1 H-2 tests above.
+  // as the WJ-1 tests above.
   interface StatusColorStub {
     _getStatusColor(s: string): string;
   }
@@ -261,7 +261,7 @@ describe('Wave J / WJ-2 — _getStatusColor returns theme-variable expressions',
 
   it('chipTheme-3: unknown status falls back to var(--vscode-foreground, #FFFFFF)', () => {
     // The `||` branch in `_getStatusColor` was bare `#FFFFFF` pre-J.
-    // Wave J makes it theme-aware too — text in a webview should read
+    // Makes it theme-aware too — text in a webview should read
     // against the editor's foreground, not a hard white that's invisible
     // on light themes.
     assert.strictEqual(callStatusColor('NotAStatus'), 'var(--vscode-foreground, #FFFFFF)');
@@ -269,11 +269,11 @@ describe('Wave J / WJ-2 — _getStatusColor returns theme-variable expressions',
 });
 
 /**
- * Wave J / WJ-5 — toggleLine inline-onclick → data-action delegation.
+ * toggleLine inline-onclick → data-action delegation.
  *
- * Pre-Wave-J each selectable diff line carried
+ * Each selectable diff line previously carried
  * `onclick="toggleLine(${hunkIndex}, ${lineNumber})"` interpolated into
- * the row HTML. Wave I cleaned the file/hunk-button onclicks but
+ * the row HTML. An earlier pass cleaned the file/hunk-button onclicks but
  * toggleLine was missed — the only call sites where the args were
  * caller-controlled numbers (no user input through the JS string),
  * but consistency wins: the dispatcher pattern is uniform once

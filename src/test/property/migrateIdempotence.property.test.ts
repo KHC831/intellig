@@ -1,5 +1,5 @@
 /**
- * Task 13.12 — Property 15: Migration idempotence.
+ * Property 15: Migration idempotence.
  *
  * **Validates: Requirements 12.3, 14.5**
  *

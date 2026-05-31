@@ -1,7 +1,7 @@
 /**
- * Smoke test 8 — repo shape coverage (R1 / H1).
+ * Smoke test 8 — repo shape coverage.
  *
- * R1 / H1 (TL-87 + TL-88 follow-up): the prior round removed two
+ * The prior round removed two
  * "Known limitations" bullets from README:
  *   1. `.git`-as-FILE workspace root (linked worktrees, submodules with
  *      detached gitdir) was claimed FIXED.
@@ -9,7 +9,7 @@
  *      `onDidRemoveRepository` event.
  *
  * Both claims were backed only by unit-level mocks — the contract was
- * not exercised against a real workspace + real fs. Senior R1 flagged
+ * not exercised against a real workspace + real fs. Senior flagged
  * this as HIGH because:
  *   - `.git`-file is handled by `git rev-parse --show-toplevel` (the
  *     production `resolveRepoRoot` callback), but no test pinned it
@@ -181,7 +181,7 @@ describe('ext-host smoke — 8. repo shape coverage (R1 / H1)', function () {
     });
 
     it('production CLI resolves a linked worktree (`.git`-as-FILE) to its own root', async () => {
-      // R1 / H1 simplified: the original spec drove the production
+      // Simplified: the original spec drove the production
       // GitService discovery via `vscode.workspace.updateWorkspaceFolders`,
       // but that API updates `workspaceFolders` async AND the
       // ext-host suite has no public accessor to the GitService instance
@@ -240,13 +240,13 @@ describe('ext-host smoke — 8. repo shape coverage (R1 / H1)', function () {
     });
 
     it('the watcher contract under .git directory deletion is documented (R1 / H1)', async () => {
-      // R1 / H1 fix-path A: this test SHOULD assert that
+      // fix-path A: this test SHOULD assert that
       // `onDidRemoveRepository` fires within 2 sec when the entire
       // `.git/` directory is deleted in one syscall. However, reaching
       // the production GitService instance from inside the ext-host
       // suite requires the extension to expose a public test-only
       // accessor — which it doesn't today, and adding one is out of
-      // scope for R1.
+      // scope for.
       //
       // Instead we verify the OBSERVABLE proxy: the watcher's HEAD
       // pattern (the trigger for `handleHeadDelete`) IS in fact

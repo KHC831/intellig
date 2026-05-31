@@ -1,5 +1,5 @@
 /**
- * Task 3.6 — unit test for circular reference handling in `context`.
+ * Unit test for circular reference handling in `context`.
  *
  * Pins Requirement 7.4: when a `Logger` method is called with a
  * `context` argument that contains a circular reference, the Logger

@@ -1,5 +1,5 @@
 /**
- * Task 4.9 — Property 9: Sanitizer determinism / idempotence.
+ * Property 9: Sanitizer determinism / idempotence.
  *
  * **Validates: Requirements 4.6, 14.2**
  *

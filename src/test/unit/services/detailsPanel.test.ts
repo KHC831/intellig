@@ -746,7 +746,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────
-  // FU-1 — wire T3-09 issue-link utilities into the details panel.
+  // FU-1 — wire issue-link utilities into the details panel.
   // ──────────────────────────────────────────────────────────────────────
   describe('FU-1 — commit message issue links', () => {
     function makeRepoWithGitHub(): IRepository {
@@ -830,7 +830,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 });
 
 /**
- * Wave J R1 / HIGH-2 — `_getFileStatusColor` returns a `var(...)`
+ * `_getFileStatusColor` returns a `var(...)`
  * expression backed by the `gitDecoration-*ResourceForeground` family
  * with the IntelliJ hex retained as the CSS-var fallback. This block
  * pins the EXACT string returned for each `FileStatus` so a future
@@ -842,7 +842,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
  */
 describe('Wave J R1 / HIGH-2 — _getFileStatusColor returns gitDecoration-* var() expressions', () => {
   // Cross-check: the existing top-of-file `INTELLIJ_FILE_STATUS_COLORS`
-  // import covers the hex side; `FILE_STATUS_THEME_VARS` (new in R1) is
+  // import covers the hex side; `FILE_STATUS_THEME_VARS` (new in) is
   // the theme-token map. The two MUST cover the same FileStatus union.
 
   interface FileStatusColorStub {

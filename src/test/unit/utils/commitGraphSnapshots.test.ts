@@ -1,11 +1,11 @@
 /**
- * Wave D / D4-snap — visual-snapshot tests for `generateCommitGraph`.
+ * Visual-snapshot tests for `generateCommitGraph`.
  *
  * These tests freeze the lane assignments + graph-line topology for five
  * canonical fixtures so any algorithm change that *visually* alters the
  * graph triggers a deliberate snapshot update.
  *
- * The pre-Wave-D bug (Gap 1: divergent branches collapsing onto a single
+ * The original divergent-branch bug (Gap 1: divergent branches collapsing onto a single
  * lane) shipped past the existing behavioural tests because no fixture
  * pinned the divergent-branch lane numbers — only counts. snap-2
  * specifically pins lane numbers for the two-children-of-unseen-parent
@@ -119,7 +119,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
       {
         hash: 'tipB',
         // Gap 1 GUARD — tipB MUST NOT collapse onto lane 0. The
-        // pre-Wave-D single-pass algorithm produced graphColumn: 0 here.
+        // original single-pass algorithm produced graphColumn: 0 here.
         graphColumn: 1,
         parents: ['base'],
         graphLines: [{ fromColumn: 1, toColumn: 0, type: 'commit' }],
@@ -231,7 +231,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
 });
 
 /**
- * Wave D R1 / Tech-lead TLD-L-1+L-2 — renderer-stage snapshots.
+ * Renderer-stage snapshots.
  *
  * snap-1..5 above pin algorithm output (lane assignments + onFocusedBranchPath
  * flags). snap-6 closes the multi-stage discipline gap by pinning the
@@ -315,9 +315,9 @@ describe('Wave D R1 / D4-snap — renderer-stage SVG snapshots', () => {
 });
 
 /**
- * Wave E / E3 — chip-renderer-stage HTML snapshots.
+ * Chip-renderer-stage HTML snapshots.
  *
- * snap-1..6 above pin algorithm output and SVG renderer output. The Wave E
+ * snap-1..6 above pin algorithm output and SVG renderer output. The
  * production bug — chips disappearing in narrow panels — lived in the
  * chip-emit + CSS layout layers, both of which were untested. snap-3 only
  * pinned `node.branches: ['feature']` (algorithm input), not the actual
@@ -326,9 +326,9 @@ describe('Wave D R1 / D4-snap — renderer-stage SVG snapshots', () => {
  * snap-7a..7e pin the LITERAL HTML `_getBranchLabelsHtml(node)` returns.
  * snap-7f uses jsdom to assert that the chip is parsed as a sibling of
  * `.commit-title`, NOT a child — pinning the layout-stage shape that the
- * Wave E fix introduced.
+ * narrow-panel chip repair introduced.
  *
- * ADR-010 Wave-E discipline: each visual transformation stage gets its
+ * ADR-010 multi-stage discipline: each visual transformation stage gets its
  * own snapshot fixture set (algorithm → renderer (per-element) → renderer
  * (layout) → final HTML emit).
  */
@@ -362,10 +362,10 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
   it('snap-7a: single local branch → literal <span class="branch-label-local"> HTML', () => {
     const node = nodeWithBranches('aaa1234567890aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ['main']);
     const html = provider._getBranchLabelsHtml(node);
-    // Wave E pins the LITERAL emit: a future refactor that swaps span for
+    // Pins the LITERAL emit: a future refactor that swaps span for
     // div, drops the data-branch-name attribute, or changes the class
     // string forces a deliberate snapshot diff.
-    // Wave J — emit gained `role="img"`, `aria-label="Local branch: …"`,
+    // Emit gained `role="img"`, `aria-label="Local branch: …"`,
     // and a leading `<i class="codicon codicon-git-branch">`. snap-12a..d
     // / snap-12f pin those new tokens INDEPENDENTLY of this string;
     // updating snap-7a here is a deliberate co-update of the literal
@@ -420,7 +420,7 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     const internals = provider as unknown as ProviderInternals;
     internals._extendedLogState.focusedBranchName = 'feature';
     const html = provider._getBranchLabelsHtml(node);
-    // Wave J R1 / MED-2 — focused chip carries
+    // Focused chip carries
     // aria-describedby="focused-branch-help" pointing at a panel-level
     // visually-hidden help span. Non-focused chips omit the attribute
     // (snap-7a..d still pin the no-attribute shape).
@@ -432,19 +432,19 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
 });
 
 /**
- * Wave E / E3-layout — jsdom layout-stage snapshot.
+ * jsdom layout-stage snapshot.
  *
- * The Wave D test surface only pinned per-element output (algorithm
- * snap-1..5, SVG renderer snap-6). The Wave E bug lived in DOM nesting:
+ * The algorithm/renderer surface only pinned per-element output (algorithm
+ * snap-1..5, SVG renderer snap-6). The narrow-panel bug lived in DOM nesting:
  * the chip span was a CHILD of `.commit-title` (which has overflow:hidden
  * + white-space:nowrap), so chips clipped in narrow panels. snap-7f
  * parses the rendered graph-panel HTML through jsdom and asserts the
  * chip's parentElement is `.commit-branches`, NOT `.commit-title`. This
  * is the layout-stage analog of snap-6a/6b/6c — pinning the DOM tree
- * shape that the Wave E CSS fix relies on.
+ * shape that the CSS fix relies on.
  *
- * ADR-010 R1's "each visual transformation stage gets its own snapshot
- * fixture set" — Wave E adds the layout stage.
+ * ADR-010's "each visual transformation stage gets its own snapshot
+ * fixture set" — this adds the layout stage.
  */
 describe('Wave E / E3-layout — jsdom DOM-tree snapshot', () => {
   let provider: GitToolWindowProvider;
@@ -469,7 +469,7 @@ describe('Wave E / E3-layout — jsdom DOM-tree snapshot', () => {
     assert.ok(chip, 'chip element exists in DOM after parse');
 
     // The chip MUST NOT be nested inside `.commit-title` — that's the
-    // pre-Wave-E layout that caused chips to clip when the panel was
+    // layout that caused chips to clip when the panel was
     // narrow (overflow:hidden + white-space:nowrap on `.commit-title`).
     const parent = chip.parentElement;
     assert.ok(parent, 'chip must have a parent element');
@@ -487,7 +487,7 @@ describe('Wave E / E3-layout — jsdom DOM-tree snapshot', () => {
     );
 
     // And `.commit-branches` is itself a sibling of `.commit-title`, not
-    // a descendant — the Wave E fix is structural, not just CSS.
+    // a descendant — the fix is structural, not just CSS.
     const commitInfo = parent.parentElement;
     assert.ok(commitInfo, '.commit-branches must have a parent .commit-info');
     assert.ok(
@@ -509,9 +509,9 @@ describe('Wave E / E3-layout — jsdom DOM-tree snapshot', () => {
 });
 
 /**
- * Wave E / E2-bonus — JS message truncation removed.
+ * JS message truncation removed.
  *
- * Pre-Wave-E the row template hard-capped the rendered message at 60
+ * The row template previously hard-capped the rendered message at 60
  * characters via `_truncateMessage(commit.message, 60)`, appending JS
  * `...` regardless of panel width. The fix passes the full first line
  * to the row template and lets `.commit-title { overflow:hidden;
@@ -536,7 +536,7 @@ describe('Wave E / E2-bonus — row template emits full first line, CSS handles 
   });
 
   it('snap-7g: 200-char first line lands in .commit-title text content with NO embedded "..." (CSS does the ellipsis)', () => {
-    // 200 chars — well past the pre-Wave-E 60-char cap.
+    // 200 chars — well past the 60-char cap.
     const longFirstLine =
       'feat(scope): a deliberately verbose commit subject that nobody would actually write but exists here precisely to exceed the 60-character pre-Wave-E hard truncation by a comfortable safety margin to pin the new behaviour';
     assert.ok(longFirstLine.length >= 200, 'fixture sanity: first line is at least 200 chars');
@@ -569,7 +569,7 @@ describe('Wave E / E2-bonus — row template emits full first line, CSS handles 
     );
 
     // The row text content must NOT contain a literal "..." — the
-    // pre-Wave-E truncation appended one. CSS ellipsis is a visual
+    // earlier truncation appended one. CSS ellipsis is a visual
     // treatment, not text content; jsdom does NOT layout, so any
     // "..." here would mean JS truncation came back.
     assert.ok(
@@ -598,14 +598,14 @@ describe('Wave E / E2-bonus — row template emits full first line, CSS handles 
 });
 
 /**
- * Wave E R1 / Senior M-1 — chip max-width contract.
+ * Chip max-width contract.
  *
- * Pre-R1 `.branch-label-local` and `.branch-label-remote` had no
+ * Previously `.branch-label-local` and `.branch-label-remote` had no
  * `max-width` and no ellipsis. A 70-char branch name like
  * `feature/JIRA-12345-very-long-descriptive-feature-name-with-context`
  * rendered at its natural ~350px width inside the non-shrinking
  * `.commit-branches` slot, squeezing `.commit-title` (`flex:1,
- * min-width:0`) to a few characters at typical panel widths. The R1 fix
+ * min-width:0`) to a few characters at typical panel widths. The fix
  * caps chips at 200px with `text-overflow: ellipsis` (IntelliJ parity).
  *
  * snap-7h pins TWO contracts:
@@ -706,7 +706,7 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
     // `white-space: nowrap` — without them, `text-overflow: ellipsis` is
     // a no-op.
     //
-    // Wave K — WK-4 extended the combined selector to include `.tag-label`
+    // Extended the combined selector to include `.tag-label`
     // so the tag chip joins the responsive-cap family. The regex tolerates
     // the optional `, .tag-label` suffix between the two original selectors
     // and the opening brace. If a future wave splits the rule into a
@@ -728,9 +728,9 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
 });
 
 /**
- * Wave F / F3 — detached-HEAD pseudo-ref filtering, end-to-end.
+ * Detached-HEAD pseudo-ref filtering, end-to-end.
  *
- * Pre-Wave-F, when HEAD was detached, `parseBranches` returned an
+ * When HEAD was detached, `parseBranches` previously returned an
  * `IBranch` with `name = '(HEAD detached at <sha>)'` and `type='local'`.
  * That fake branch propagated into:
  *   - the branch-map keyed by commit hash (extension.ts:3870-3879),
@@ -741,7 +741,7 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
  *     which got passed verbatim to `git checkout -b`, failing with
  *     `fatal: '(HEAD detached at 5eed84b)' is not a commit`
  *
- * Wave F / F1 filters parenthesized refnames at the parser. The two
+ * The parser filters parenthesized refnames. The two
  * snapshots below pin the post-fix downstream contract — the chip
  * for a detached commit is the EMPTY string, and the local-branches
  * list contains NO parenthesized entries — so a future regression
@@ -752,7 +752,7 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
  *   on the detached fixture, locate the detached commit's node, assert
  *   `_getBranchLabelsHtml(node)` returns `''`. This is the same
  *   chip-stage contract as snap-7d (no branches → empty string), but
- *   reached via the Wave F filter rather than an empty input.
+ *   reached via the parser filter rather than an empty input.
  *
  * snap-8b: branch-tree-stage. Render the BranchTreeProvider local
  *   branches list for the detached fixture and assert no item label
@@ -767,7 +767,7 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
     const detachedSha = 'abc1234567890123456789012345678901234567890';
     const fixture = `(HEAD detached at abc1234)|${detachedSha}||*`;
 
-    // Step 1: parseBranches must filter the parenthesized line out.
+    // parseBranches must filter the parenthesized line out.
     const branches = parseBranches(fixture);
     assert.strictEqual(
       branches.length,
@@ -775,7 +775,7 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       'Wave F: parenthesized pseudo-ref must be filtered before reaching branch-map'
     );
 
-    // Step 2: the production path (extension.ts:3870-3879) builds a
+    // The production path (extension.ts:3870-3879) builds a
     // commit-hash → branch-name map from `branches`. With the parser
     // filtering the pseudo-ref, the detached SHA has NO entry.
     const branchMap = new Map<string, string[]>();
@@ -790,11 +790,11 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       'Wave F: branch-map must NOT contain the detached SHA (no branch points there)'
     );
 
-    // Step 3: the chip emit for a node whose branches array is empty
+    // The chip emit for a node whose branches array is empty
     // (because the branch-map didn't surface any) is the empty string.
     // This is the contract `.commit-branches:empty { display: none }`
     // relies on (covered by snap-7d), here re-exercised via the
-    // Wave F filter chain to pin the end-to-end behavior.
+    // parser filter chain to pin the end-to-end behavior.
     const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
     try {
       const node: ICommitNode = {
@@ -819,8 +819,8 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
   it('snap-8b: branch-tree local-branches list contains NO parenthesized entry for a detached fixture', async () => {
     // The BranchTreeProvider's `_getLocalBranches` filters by
     // `b.type === 'local'` and maps each remaining branch onto a
-    // BranchTreeItem. Pre-Wave-F, the parenthesized pseudo-ref was
-    // typed `'local'` and rendered as a tree item. Post-Wave-F, the
+    // BranchTreeItem. Previously the parenthesized pseudo-ref was
+    // typed `'local'` and rendered as a tree item; now the
     // parser filters it before BranchTreeProvider ever sees it, so
     // the rendered list contains zero parenthesized entries.
 
@@ -849,9 +849,9 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       `Wave F: parsed branches must contain no parenthesized name; got ${JSON.stringify(parsed.map((b) => b.name))}`
     );
 
-    // Wave H — repo with `head.name = detachedSha` (literal SHA-as-name)
-    // is intentionally non-detached for THIS Wave F test: it pins
-    // parser-stage filtering, NOT Wave H's `head.name === undefined`
+    // Repo with `head.name = detachedSha` (literal SHA-as-name)
+    // is intentionally non-detached for THIS test: it pins
+    // parser-stage filtering, NOT the `head.name === undefined`
     // tree-prepend logic. Setting `name` here keeps the synthetic
     // detached row out of `_getLocalBranches`, so the assertion
     // `localItems.length === 2` (main + feature) still holds.
@@ -870,7 +870,7 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       submodules: [],
     };
 
-    // Wave H — extracted shared mock; pre-Wave-H this site duplicated
+    // Extracted shared mock; this site duplicated
     // the entire IGitService stub (~85 LoC). See `mockGitService.ts`.
     const mockGitService = createMockGitService(mockRepo, {
       getBranches: async () => parsed,
@@ -912,14 +912,14 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
 });
 
 /**
- * Wave G / G1 — HEAD chip rendering snapshots.
+ * HEAD chip rendering snapshots.
  *
- * Wave A introduced the chip-emit infrastructure; Wave D added the
- * focused-branch class; Wave E pinned the literal HTML output (snap-7a..e)
- * and the layout-stage DOM tree (snap-7f). Wave G adds a NEW chip variant:
+ * Earlier stages introduced the chip-emit infrastructure, added the
+ * focused-branch class, pinned the literal HTML output (snap-7a..e)
+ * and the layout-stage DOM tree (snap-7f). This adds a NEW chip variant:
  * the HEAD chip (yellow/gold, prepended FIRST, IntelliJ parity).
  *
- * Per ADR-010 R1 multi-stage discipline:
+ * Per ADR-010 multi-stage discipline:
  *   - snap-9a..d pin the chip-emit-stage HTML literal (algorithm output)
  *   - snap-9e pins the DOM-tree layout via jsdom (renderer-layout stage)
  *   - snap-9f pins the inline CSS contract (renderer-styling stage)
@@ -963,7 +963,7 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const node = nodeAt(headSha, ['main', 'origin/main']);
     const html = provider._getBranchLabelsHtml(node);
     // HEAD chip first, then branch chips in branchMap order.
-    // Wave J — chips gained `role="img"` + descriptive aria-labels +
+    // Chips gained `role="img"` + descriptive aria-labels and a
     // leading codicon prefix (snap-12a..d, 12f). Co-updated baseline.
     assert.strictEqual(
       html,
@@ -980,7 +980,7 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const html = provider._getBranchLabelsHtml(node);
     // ADR-010 Layer 4 — covers detached-HEAD repo state. Cited from
     // `docs/parity/repo-states.md` §1.5 as the back-reference.
-    // Wave J — see snap-9a comment.
+    // See snap-9a comment.
     assert.strictEqual(
       html,
       '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>'
@@ -992,8 +992,8 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     internals._extendedLogState.headHash = undefined;
     const node = nodeAt(headSha, ['main']);
     const html = provider._getBranchLabelsHtml(node);
-    // The pre-Wave-G output, byte-for-byte. Pins backward compatibility.
-    // Wave J — branch chip emit gained role/aria/codicon (snap-12b/12f).
+    // The HEAD-less output, byte-for-byte. Pins backward compatibility.
+    // Branch chip emit gained role/aria/codicon (snap-12b/12f).
     assert.strictEqual(
       html,
       '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>'
@@ -1006,7 +1006,7 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     const nodeWithBranches = nodeAt(headSha, ['feature']);
     const nodeNoBranches = nodeAt('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', []);
     // Neither node matches headHash → neither emits a HEAD chip.
-    // Wave J — branch chip emit gained role/aria/codicon (snap-12b/12f).
+    // Branch chip emit gained role/aria/codicon (snap-12b/12f).
     assert.strictEqual(
       provider._getBranchLabelsHtml(nodeWithBranches),
       '<span class="branch-label-local" data-branch-name="feature" role="img" aria-label="Local branch: feature"><i class="codicon codicon-git-branch" aria-hidden="true"></i>feature</span>'
@@ -1039,7 +1039,7 @@ describe('Wave G / G1 — HEAD chip layout snapshot (jsdom)', () => {
     const headChip = doc.querySelector('.branch-label-head');
     assert.ok(headChip, 'HEAD chip element exists');
 
-    // HEAD chip must NOT be inside .commit-title (Wave E layout
+    // HEAD chip must NOT be inside .commit-title (layout
     // invariant — chips live in the .commit-branches flex slot).
     const parent = headChip.parentElement;
     assert.ok(parent, 'HEAD chip has parent');
@@ -1085,8 +1085,8 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Theme variable + fallback color. Regex-alternation form per Wave E
-    // R1 snap-7h pattern — tolerates either single-rule or combined-rule
+    // Theme variable + fallback color. Regex-alternation form per the
+    // snap-7h pattern — tolerates either single-rule or combined-rule
     // declaration as long as the contract holds.
     assert.ok(
       /\.branch-label-head[\s,{][\s\S]*?--vscode-statusBarItem-warningBackground/.test(fullHtml),
@@ -1104,9 +1104,9 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
 });
 
 /**
- * Wave H — branch-tree-stage layout snapshot (jsdom-style end-to-end).
+ * Branch-tree-stage layout snapshot (jsdom-style end-to-end).
  *
- * Wave G's snap-9a..9f pinned the HEAD chip on the COMMIT graph. Wave H
+ * The HEAD-chip snapshots (snap-9a..9f) pinned the HEAD chip on the COMMIT graph. This
  * adds the matching parity surface: the synthetic detached-row in the
  * BRANCHES tree sidebar. snap-10a drives `BranchTreeProvider.getChildren`
  * end-to-end and asserts:
@@ -1152,16 +1152,16 @@ describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
 });
 
 /**
- * Wave J — chip a11y + non-color affordance + theme-variable snapshots.
+ * Chip a11y + non-color affordance + theme-variable snapshots.
  *
- * Wave J adds three independent contracts to the chip surface:
+ * Adds three independent contracts to the chip surface:
  *   - WJ-1: HEAD chip + branch chips emit `role="img"` + a descriptive
  *     `aria-label` so screen readers hear "Current HEAD" / "Local
  *     branch: main" / "Remote branch: origin/main" instead of a bare
  *     glyph or a class-prefixed string.
  *   - WJ-3: `.branch-label-local` and `.branch-label-remote` background
  *     and color use `var(--vscode-gitDecoration-*)` family with the
- *     pre-Wave-J hex literals as CSS fallbacks. Themes that override
+ *     hex literals as CSS fallbacks. Themes that override
  *     the gitDecoration family theme through to the chips automatically.
  *   - WJ-4: each chip carries a leading codicon glyph (`codicon-check`
  *     for HEAD, `codicon-git-branch` for local, `codicon-cloud` for
@@ -1172,7 +1172,7 @@ describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
  * snap-12a..d pin chip-emit literals; snap-12e pins the inline CSS
  * theme-variable rule; snap-12f / snap-12g pin the codicon prefix.
  *
- * Per ADR-010 R1 — each visual transformation stage gets its own
+ * Per ADR-010 — each visual transformation stage gets its own
  * snapshot fixture set, so chip-emit (12a..d, 12f), CSS-style (12e),
  * and DOM layout (12g) are pinned separately.
  */
@@ -1255,11 +1255,11 @@ describe('Wave J / WJ-1 — chip a11y semantics (role + aria-label)', () => {
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.focusedBranchName = 'feature';
     const html = provider._getBranchLabelsHtml(node);
-    // Wave J / DJ-2 — `aria-pressed` is deferred to Wave K because chips
+    // `aria-pressed` is deferred because chips
     // are NOT yet keyboard-interactive (no tabindex, no click handler).
     // Today the chip is decorative + selectable-by-focus-row only;
     // adding `aria-pressed` would lie about an interaction that doesn't
-    // exist. Wave K will make the chip a button; aria-pressed lands then.
+    // exist. A later change will make the chip a button; aria-pressed lands then.
     assert.ok(
       /class="branch-label-local branch-label-focused"/.test(html),
       `focused chip must carry both classes; got: ${html}`
@@ -1295,8 +1295,8 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Wave J R1 / HIGH-4 — chip backgrounds switched to the
-    // semantically-correct `--vscode-badge-*` family. The pre-J hex
+    // Chip backgrounds switched to the
+    // semantically-correct `--vscode-badge-*` family. The earlier hex
     // literals must STILL ship as the CSS-var fallback (defence in
     // depth + future hi-contrast drift detection); the legacy
     // gitDecoration-* tokens are retained as a SECONDARY var() fallback
@@ -1343,7 +1343,7 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
     const node = nodeAt(headSha, ['main', 'origin/main']);
     const html = provider._getBranchLabelsHtml(node);
     // Three icons must be present, one per chip variant. Order is
-    // HEAD-first (Wave G), then branch chips in branchMap order.
+    // HEAD-first, then branch chips in branchMap order.
     assert.ok(
       /class="branch-label-head"[^>]*>[\s\S]*?codicon-check/.test(html),
       `HEAD chip must contain codicon-check; got: ${html}`
@@ -1359,9 +1359,9 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
   });
 
   it('snap-12g: jsdom layout — chip width contract still ≤ 200px CSS cap with codicon icon present', () => {
-    // The Wave E R1 chip-cap contract was `max-width: 200px` on
+    // The chip-cap contract was `max-width: 200px` on
     // .branch-label-local / .branch-label-remote / .branch-label-head.
-    // Wave J adds an inline icon (~11px) inside each chip; the cap
+    // The codicon adds an inline icon (~11px) inside each chip; the cap
     // STILL applies — adding an icon must NOT increase the CSS-side
     // contractual cap.
     const mockWebview = {
@@ -1375,7 +1375,7 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
     // The combined-rule selector or single-rule for each chip class must
-    // still pin max-width: 200px. Wave J added an icon-sizing rule that
+    // still pin max-width: 200px. The icon-sizing rule that
     // declares `i.codicon { font-size: 11px; margin-right: 4px; }` —
     // this rule does NOT relax the cap.
     assert.ok(
@@ -1406,12 +1406,12 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
 });
 
 /**
- * Wave J R1 / MED-1 — focused-branch chip non-colour affordance.
+ * Focused-branch chip non-colour affordance.
  *
- * Pre-R1 .branch-label-focused only carried `outline + font-weight:
+ * Previously `.branch-label-focused` only carried `outline + font-weight:
  * 600`. WCAG 1.4.1 fails when the only differentiator is a colour
  * (focus outline) — under high-contrast themes the outline often
- * matches the chip border, making the focus invisible. R1 bumps
+ * matches the chip border, making the focus invisible. The fix bumps
  * `font-weight: 700` and adds `text-decoration: underline` so the
  * affordance is visible in mono-chrome printout / colour-blind
  * users / hi-contrast themes alike.
@@ -1450,7 +1450,7 @@ describe('Wave J R1 / MED-1 — focused chip carries bold + underline', () => {
       /\.branch-label-focused\s*\{[^}]*text-decoration:\s*underline/.test(fullHtml),
       '.branch-label-focused must set text-decoration: underline (non-colour affordance)'
     );
-    // Pre-R1 had font-weight: 600 — ensure that value is gone.
+    // The earlier rule had font-weight: 600 — ensure that value is gone.
     assert.ok(
       !/\.branch-label-focused\s*\{[^}]*font-weight:\s*600/.test(fullHtml),
       '.branch-label-focused must NOT set font-weight: 600 (pre-R1 weight)'
@@ -1459,9 +1459,9 @@ describe('Wave J R1 / MED-1 — focused chip carries bold + underline', () => {
 });
 
 /**
- * Wave J R1 / HIGH-1 — codicon font loader.
+ * Codicon font loader.
  *
- * Pre-R1 the webview HTML emitted `<i class="codicon codicon-…">`
+ * Previously the webview HTML emitted `<i class="codicon codicon-…">`
  * glyphs on every chip but no `@font-face` declaration loaded the
  * actual TTF — every glyph rendered as an empty-box "tofu" and the
  * entire WCAG 1.4.1 non-colour affordance silently failed. This block
@@ -1566,7 +1566,7 @@ describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
     // The CSP must allow font-src from the webview's cspSource so the
-    // same-origin TTF URL resolves. Pre-R1 CSP omitted font-src
+    // same-origin TTF URL resolves. Earlier the CSP omitted font-src
     // entirely — fonts fell back to default-src 'none' and the load
     // was blocked. The new CSP MUST include font-src for the webview's
     // cspSource (mock returns 'https://mock.csp.source').
@@ -1588,7 +1588,7 @@ describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
     const fullHtml = new GitToolWindowProvider(
       Uri.file('/test/extension')
     )._getThreePanelHtmlContent(mockWebview, []);
-    // Wave K codicon-tag → \ea66 (pinned from @vscode/codicons@0.0.45
+    // codicon-tag → \ea66 (pinned from @vscode/codicons@0.0.45
     // dist/codicon.css; verify with `grep codicon-tag node_modules/@vscode/codicons/dist/codicon.css`).
     assert.ok(
       /\.codicon-tag:before\s*\{\s*content:\s*"\\ea66"/.test(fullHtml),
@@ -1598,10 +1598,10 @@ describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
 });
 
 /**
- * Wave K — WK-4 (DK-4): tag chip parity contracts.
+ * Tag chip parity contracts.
  *
- * The tag chip joins the existing chip family (HEAD + local + remote)
- * established in Waves G + J. WK-4 contracts:
+ * The tag chip joins the existing chip family (HEAD + local + remote).
+ * Contracts:
  *   - snap-13a: HEAD + branches + tags collocated, literal HTML order
  *     (HEAD first, then branch chips in branchMap order, then tag
  *     chips rightmost — matching IntelliJ's badge ordering).
@@ -1612,7 +1612,7 @@ describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
  *     + data-tag-name (no reflective injection path).
  *   - snap-13e: jsdom layout — tag chip is sibling AFTER branch chips
  *     inside .commit-branches; not nested inside .commit-title.
- *   - snap-13f: CSS contract — chip-cap (200px) + Wave J chip
+ *   - snap-13f: CSS contract — chip-cap (200px) + chip
  *     gitDecoration-modifiedResourceForeground / #6897BB fallback both
  *     present for `.tag-label`.
  */
@@ -1646,7 +1646,7 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     internals._extendedLogState.headHash = headSha;
     const node = nodeWithBranchesAndTags(headSha, ['main'], ['v1.0']);
     const html = provider._getBranchLabelsHtml(node);
-    // Wave K — IntelliJ-parity ordering: HEAD chip leftmost, branches
+    // IntelliJ-parity ordering: HEAD chip leftmost, branches
     // middle, tags rightmost. Pin the literal full string so a future
     // re-ordering forces a deliberate snapshot diff.
     assert.strictEqual(
@@ -1748,9 +1748,9 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
       asWebviewUri: (uri: import('vscode').Uri) => uri,
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
-    // The Wave J `.tag-label` background-color rule pre-existed
+    // The `.tag-label` background-color rule pre-existed
     // (`var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)`).
-    // Wave K confirms it survives the chip-family widening (snap-13f).
+    // It survives the chip-family widening (snap-13f).
     assert.ok(
       /\.tag-label\s*\{[^}]*var\(--vscode-gitDecoration-modifiedResourceForeground/.test(fullHtml),
       `inline CSS for .tag-label must use var(--vscode-gitDecoration-modifiedResourceForeground)`
@@ -1767,9 +1767,9 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
         ),
       'Wave K must extend the 200px cap to .tag-label'
     );
-    // Wave K R1 UX-LOW-1 — chip-family theme symmetry. The .tag-label
+    // Chip-family theme symmetry. The `.tag-label`
     // foreground colour must use `var(--vscode-badge-foreground, white)`
-    // matching the .branch-label-* family. Pre-R1 used a raw `white`
+    // matching the `.branch-label-*` family. Earlier it used a raw `white`
     // token which loses theme adherence on light / hi-contrast themes
     // where the theme overrides badge-foreground. Pinned here so the
     // colour-token contract for the entire chip family is locked.

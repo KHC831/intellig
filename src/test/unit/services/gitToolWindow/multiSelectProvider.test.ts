@@ -1,5 +1,5 @@
 /**
- * Wave A — provider-level multi-select integration tests.
+ * provider-level multi-select integration tests.
  *
  * Pure helpers are tested in `multiSelect.test.ts`; this file drives
  * `GitToolWindowProvider` directly to verify:
@@ -79,8 +79,8 @@ describe('Wave A — provider integration', () => {
   // ─── A0: inline script no longer hard-disables editCommitMessage ─────────
   describe('A0 — editCommitMessage no longer unconditionally disabled', () => {
     it('inline script does NOT contain a hard-disable line for editCommitMessage', () => {
-      // The pre-Wave-A bug at line 3650-3652 was an unconditional
-      // `editMsgItem.classList.add('disabled')`. After Wave A the disable
+      // The bug at line 3650-3652 was an unconditional
+      // `editMsgItem.classList.add('disabled')`. After the disable
       // call must be guarded by `!isSingleCommit` (or equivalent), so it
       // is conditional, not free-standing.
       const html = provider._getThreePanelHtmlContent(
@@ -113,7 +113,7 @@ describe('Wave A — provider integration', () => {
         { cspSource: 'test:' } as unknown as import('vscode').Webview,
         []
       );
-      // Wave A R1: the inline-script no longer mirrors the rules; it applies
+      // The inline-script no longer mirrors the rules; it applies
       // the host-precomputed `menuEnableMap` per-action via `applyMenuEnableMap`.
       // Direct check: the apply-loop function exists and references `menuEnableMap`.
       assert.ok(
@@ -137,8 +137,8 @@ describe('Wave A — provider integration', () => {
         { cspSource: 'test:' } as unknown as import('vscode').Webview,
         []
       );
-      // The pre-Wave-A bug was a single statement
-      // `editMsgItem.classList.add('disabled');` on its own line. After Wave A
+      // The bug was a single statement
+      // `editMsgItem.classList.add('disabled');` on its own line. After
       // the legacy `editMsgItem` reference must be gone — the loop body
       // operates on `item`, not a per-action variable.
       assert.ok(
@@ -351,7 +351,7 @@ describe('Wave A — provider integration', () => {
     });
 
     it('multi-commit details header still uses "N commits selected" style copy (regression guard)', () => {
-      // The pre-Wave-A header was already "N commits selected" — A4 only
+      // The header was already "N commits selected" — A4 only
       // adds a data-selected-count attribute. Keep this regression guard so
       // we notice if a careless edit drops the established copy.
       const commits = [

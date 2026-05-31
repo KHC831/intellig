@@ -1,7 +1,7 @@
 /**
  * Smoke test 1 — activate.
  *
- * Catches R5 C-1 (duplicate `registerCommand` → activation crash).
+ * Catches C-1 (duplicate `registerCommand` → activation crash).
  *
  * Why existing unit tests cannot catch C-1:
  *   The unit suite mocks `vscode.commands.registerCommand` as a simple

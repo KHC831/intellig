@@ -1,5 +1,5 @@
 /**
- * Task 3.5 — unit test for the sanitizer fallback path.
+ * Unit test for the sanitizer fallback path.
  *
  * Pins Requirement 4.5: when the `Log_Sanitizer` throws while
  * processing a `Log_Record`, the Logger SHALL emit a fallback

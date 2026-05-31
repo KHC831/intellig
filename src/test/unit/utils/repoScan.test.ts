@@ -1,11 +1,11 @@
 /**
- * Unit tests for `scanFolderForGitRepos` (Wave 10 — task #204).
+ * Unit tests for `scanFolderForGitRepos` (task #204).
  *
  * The scan helper backs `GitService.discoverRepository` and is responsible
  * for finding all git repositories under a workspace root, including nested
  * ones (e.g. `~/work/{a,b}/.git` when the workspace folder is `~/work/`).
  *
- * The pre-Wave-10 implementation only checked the workspace root for
+ * The implementation only checked the workspace root for
  * `.git/`, so a folder containing only nested repos showed zero repos in
  * IntelliG. This test suite captures the contract IntelliG mirrors from VS
  * Code's git extension (`git.repositoryScanMaxDepth` + ignored folders),
@@ -72,7 +72,7 @@ function makeFs(state: IFsState): IRepoScanFs {
             return isSymlink;
           },
           isFile(): boolean {
-            // TL-87 (#212): IRepoScanFs.Dirent now requires isFile(); none
+            // (#212): IRepoScanFs.Dirent now requires isFile(); none
             // of the entries in this suite are files (everything is a dir),
             // so the helper just returns false uniformly.
             return false;

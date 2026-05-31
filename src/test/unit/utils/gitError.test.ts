@@ -261,7 +261,7 @@ describe('sanitizeGitError', () => {
 
       it('still strips "C:/Users/alice/x" when it starts the message (drive letter at SOS)', () => {
         // Sanity: the left-anchor must still fire on a drive letter
-        // that sits at start-of-string. Without this, the R3 fix would
+        // that sits at start-of-string. Without this, the fix would
         // have broken the legitimate Windows forward-slash case.
         const raw = 'C:/Users/alice/x.ts';
         const scrubbed = sanitizeGitError(raw);
@@ -282,7 +282,7 @@ describe('sanitizeGitError', () => {
   });
 });
 
-// Wave 9 R4 — TL-72 follow-up. Senior-wave9 found 18 reachable command
+// follow-up. Senior-wave9 found 18 reachable command
 // handlers in extension.ts that bypass the structural guard's allowlist
 // regex by inlining the err-derived ternary directly into the toast
 // template:
@@ -298,7 +298,7 @@ describe('sanitizeGitError', () => {
 // catch block calls. It MUST:
 //   1. Accept the action prefix as plain text (rendered verbatim).
 //   2. Coerce Error / non-Error / string to a message string with the
-//      `'Unknown error'` fallback the codebase has used since Wave 4.
+// `'Unknown error'` fallback the codebase has used since.
 //   3. Run the message through `sanitizeGitError` before returning.
 //   4. Format as `${prefix}: ${sanitized}` so it drops directly into
 //      a `showErrorMessage(...)` call without further interpolation.

@@ -1,5 +1,5 @@
 /**
- * Tier-2 E2E — Logger correlation-id smoke (Task 10.1).
+ * Tier-2 E2E — Logger correlation-id smoke.
  *
  * Pins three contracts about the structured Logger's correlation-id
  * propagation, observed inside the real Extension Host against a real

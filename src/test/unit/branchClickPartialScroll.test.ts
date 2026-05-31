@@ -1,7 +1,7 @@
 /**
  * Unit test: branch click uses the partial-update path and preserves scroll.
  *
- * Feature: git-graph-branch-click-scroll, Task 3.1
+ * Feature: git-graph-branch-click-scroll,
  *
  * D1 of the design replaces the full re-render that `_handleBranchClick`
  * previously performed (`_updateWebview()`, which reassigns the webview HTML

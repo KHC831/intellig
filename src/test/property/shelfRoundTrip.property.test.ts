@@ -497,7 +497,7 @@ describe('Shelf Round-Trip Property Tests', () => {
     /**
      * Property: Multiple shelf and unshelve operations maintain consistency.
      *
-     * TR-9 regression (R6 Gap-D 10× stress, seed -836909896): the original
+     * TR-9 regression (Gap-D 10× stress, seed -836909896): the original
      * implementation keyed `originalChangesMap` by `namesArray[i]`, which
      * collapsed duplicate names into a single entry. When the fast-check
      * generator produced two entries with the same name (e.g.
@@ -506,7 +506,7 @@ describe('Shelf Round-Trip Property Tests', () => {
      * `originalChangesMap.get(namesArray[i])` used the wrong expected
      * contents — same map-key-collision class as TR-6/TR-7.
      *
-     * Fix: track original changes by array index, not by name. This is
+     * Track original changes by array index, not by name. This is
      * seed-independent; no synthetic block needed because the change is
      * purely in the bookkeeping, not the SUT.
      */
@@ -563,7 +563,7 @@ describe('Shelf Round-Trip Property Tests', () => {
     });
 
     /**
-     * TR-9 regression: seed -836909896 (R6 Gap-D 10× stress) shrank to
+     * TR-9 regression: seed -836909896 (Gap-D 10× stress) shrank to
      * `namesArray = ['!','! ','_','_']` — two duplicated shelf names
      * collapsing the earlier entries in the map-keyed bookkeeping. The
      * fix above keys by index, not name; this pinned block catches any

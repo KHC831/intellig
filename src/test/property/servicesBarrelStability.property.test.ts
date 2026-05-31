@@ -1,5 +1,5 @@
 /**
- * Task 13.15 — Property 14: Public_Service_API import stability.
+ * Property 14: Public_Service_API import stability.
  *
  * **Validates: Requirements 10.1, 10.3, 10.5, 14.7**
  *

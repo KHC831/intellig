@@ -1,5 +1,5 @@
 /**
- * Property-based tests for Wave D / D1 — divergent-branch lane correctness.
+ * Property-based tests for divergent-branch lane correctness.
  *
  * The pre-rewrite single-pass algorithm collapsed divergent branches that
  * shared an unseen parent: the SECOND child of a parent inherited the
@@ -108,7 +108,7 @@ describe('Wave D / D1 — lane allocation for divergent branches (property)', ()
 });
 
 /**
- * Wave D R1 / Senior L-4 — race property test.
+ * Race property test.
  *
  * Verifies that for any sequence of K interleaved
  *   - setFocusedBranch(name) calls
@@ -117,7 +117,7 @@ describe('Wave D / D1 — lane allocation for divergent branches (property)', ()
  * input that survives the live `branchMap` validation at its
  * post-await checkpoint.
  *
- * The host generation counter (Senior H-1) is the mechanism under
+ * The host generation counter is the mechanism under
  * test: any earlier setFocusedBranch whose continuation runs after a
  * later op must see the bumped counter and bail.
  */
@@ -254,7 +254,7 @@ describe('Wave D R1 / Senior L-4 — focus race property', () => {
           // instead we just verify the eventual final state is
           // SOMETHING in the union of (a) one of the focus names
           // submitted, (b) null. The detailed correctness comes from
-          // the unit tests in waveDR1.test.ts; this property test
+          // the unit tests in waveD.test.ts; this property test
           // just ensures the system never lands a final value
           // outside the legal alphabet (no garbage state).
           lastSurvivingFocusIntent = null; // placeholder; see below
@@ -283,7 +283,7 @@ describe('Wave D R1 / Senior L-4 — focus race property', () => {
           //      that some setFocusedBranch(name) call submitted —
           //      not a name from updateLogState alone.
           //
-          // The unit-level race tests in waveDR1.test.ts pin the
+          // The unit-level race tests in waveD.test.ts pin the
           // specific A → B winning behavior; this property test
           // catches any input sequence that produces an invalid
           // final state.

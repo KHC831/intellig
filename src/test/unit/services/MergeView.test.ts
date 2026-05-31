@@ -135,7 +135,7 @@ describe('MergeView', () => {
       assert.ok(true);
     });
 
-    // TL-37 — markResolved must write the resolved content atomically (via
+    // markResolved must write the resolved content atomically (via
     // atomicWriteFile), not through a direct workspace.fs.writeFile. The
     // invariant we care about: during a simulated mid-flight write, a
     // concurrent reader sees either the full OLD content or the full NEW
@@ -148,7 +148,7 @@ describe('MergeView', () => {
     //
     // This also guards the Phase 4 regression where vscode.workspace.fs
     // was substituted for a non-atomic direct write.
-    // Wave-3-R2 Finding #1 — markResolved must surface atomic-write failures
+    // Wave-3- Finding #1 — markResolved must surface atomic-write failures
     // as a toast and leave the pane + merge state intact. Before the fix,
     // the webview dispatcher invoked `void this.markResolved()` (fire-and-
     // forget) and a rejected promise from atomicWriteFile silently closed

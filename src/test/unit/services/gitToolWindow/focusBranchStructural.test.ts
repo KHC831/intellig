@@ -1,5 +1,5 @@
 /**
- * Wave D / D4-spec — structural guards for the branch-focus feature.
+ * Spec — structural guards for the branch-focus feature.
  *
  * Per ADR-007, structural guards are TS-level pattern matches against
  * source files that catch wiring drift (e.g. someone deletes the message

@@ -1,5 +1,5 @@
 /**
- * Wave B — Multi-commit safe ops (revert, cherry-pick, patch, copy).
+ * Multi-commit safe ops (revert, cherry-pick, patch, copy).
  *
  * Subsections:
  *   B1 — Cherry-pick N (oldest-first)
@@ -13,7 +13,7 @@
  * The webview hands `commitHashes` to the host in NEWEST-FIRST display
  * order (the `commitContextMenuHashes` array is built from
  * `Array.from(querySelectorAll('.commit-row.selected'))`, which is DOM
- * order). The Wave A R4-3 chronological-direction WARNING applies to
+ * order). The chronological-direction WARNING applies to
  * any consumer that replays commits onto a branch — cherry-pick MUST
  * `.reverse()` before invoking git, revert MUST NOT.
  */
@@ -142,12 +142,12 @@ function createMockRebaseService(): IRebaseService & { calls: CallTracker[] } {
 interface MockProvider extends GitToolWindowProvider {
   refreshCallCount: number;
   /**
-   * Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): handlers no longer call
+   * Handlers no longer call
    * `getExtendedLogState`. The test sets the rendered order via
    * `setCommitOrder([...])` and the helper materialises a
    * `IMenuStateNode[]` (with parentCount=1 by default) for the third
    * arg of `_handleAction(action, hashes, commitNodes)`. Tests that
-   * need parent-count = 0 (Senior H-2 initial-commit) construct the
+   * need parent-count = 0 (initial-commit) construct the
    * commitNodes array inline.
    */
   setCommitOrder(hashes: string[]): void;
@@ -243,7 +243,7 @@ function restoreMocks(): void {
 interface CommandsInternal {
   _gitCli: GitCli;
   /**
-   * Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): commitNodes (the slim
+   * commitNodes (the slim
    * `IMenuStateNode[]` newest-first projection) is threaded through
    * the dispatch event. Tests pass it as the third positional;
    * defaults to `[]` on the production signature so legacy single-
@@ -414,10 +414,10 @@ describe('Wave B — Multi-commit safe ops', () => {
       captureMessages();
 
       // Pick NEWEST + MIDDLE + OLDEST → contiguous (indices 0, 1, 2).
-      // Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): commitNodes threaded
+      // commitNodes threaded
       // through the dispatch event, not read from the provider. The
       // helper materialises parentCount=1 for every entry so the range
-      // form (`<oldest>^..<newest>`) is taken (Senior H-2 only switches
+      // form (`<oldest>^..<newest>`) is taken (only switches
       // to positional when oldest has parentCount=0).
       await (commands as unknown as CommandsInternal)._handleAction(
         'createPatch',
@@ -610,7 +610,7 @@ describe('Wave B — Multi-commit safe ops', () => {
         return Promise.resolve(undefined);
       };
       try {
-        // Wave B R1 (TLB-M-1): compareVersions now uses
+        // compareVersions now uses
         // `git diff --name-only oldHash..newHash` directly, not
         // `getCommitDiff`/`getMultiCommitDiff`. Mock the gitCli so the
         // diff call returns a path on stdout.

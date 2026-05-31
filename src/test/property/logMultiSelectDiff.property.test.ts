@@ -587,7 +587,7 @@ describe('Log Multi-Select Diff Property Tests', () => {
      *
      * The Round-3 fix introduces `sortCommitsStable` with a topological
      * tie-breaker (parent-before-child) inside each date-tied group. This
-     * seed is the minimal reproduction reported by the R3 test runner.
+     * seed is the minimal reproduction reported by the test runner.
      *
      * See .agent/reviews/TEST_RUN_REPORT_ROUND3.md TR-5.
      */

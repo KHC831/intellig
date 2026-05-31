@@ -1,15 +1,15 @@
 /**
- * Tests for `GitService` configuration-change rediscovery (TL-86 / #211).
+ * Tests for `GitService` configuration-change rediscovery (#211).
  *
- * Bug: pre-TL-86, `intellig.repositoryScanMaxDepth` and
+ * Bug: originally, `intellig.repositoryScanMaxDepth` and
  * `intellig.repositoryScanIgnoredFolders` were read once at workspace-folder-add
  * time (or initial extension activation). Mid-session config changes had no
  * effect until window reload.
  *
- * Fix: register `vscode.workspace.onDidChangeConfiguration` on the GitService
+ * Register `vscode.workspace.onDidChangeConfiguration` on the GitService
  * and, when either of the two scan-related keys change, re-run discovery on
  * every workspace folder. New repos discovered after a depth-increase fire
- * `onDidChangeRepository` per repo (per existing TL-82 contract); already-known
+ * `onDidChangeRepository` per repo (per existing contract); already-known
  * repos do NOT re-fire.
  *
  * Each spec was authored RED-first and confirmed failing before the
@@ -82,7 +82,7 @@ function makeFsStub(tree: Record<string, string[]>): IRepoScanFs {
           return false;
         },
         isFile(): boolean {
-          // TL-87 (#212): IRepoScanFs.Dirent requires isFile(); the
+          // (#212): IRepoScanFs.Dirent requires isFile(); the
           // discovery scenarios in this file only model directories.
           return false;
         },
@@ -256,7 +256,7 @@ describe('GitService — config-change rediscovery (TL-86 / #211)', () => {
 
   it('fires onDidChangeRepository exactly once for newly-discovered repos on config change', async () => {
     // Inverse of the test above: config change discovers a NEW repo. The
-    // existing TL-82 contract requires firing onDidChangeRepository per new repo.
+    // existing contract requires firing onDidChangeRepository per new repo.
     stubCli.setRoot('/work', undefined);
     stubCli.setRoot('/work/a', '/work/a');
     stubCli.setRoot('/work/b', '/work/b');

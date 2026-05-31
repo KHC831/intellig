@@ -498,7 +498,7 @@ function extractLines(svg: string) {
 }
 
 // ============================================================
-// Unit tests for known graph topologies (Task 2.4)
+// Unit tests for known graph topologies
 // ============================================================
 
 describe('Graph Renderer - Known Graph Topologies', () => {
@@ -759,7 +759,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
 });
 
 // ============================================================
-// Unit tests for branch split icon rendering (Task 2.3)
+// Unit tests for branch split icon rendering
 // ============================================================
 
 describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
@@ -957,7 +957,7 @@ describe('Graph Renderer - Branch Split Icon (Req 3.2, 3.4, 3.5, 3.6)', () => {
 });
 
 // ============================================================
-// Unit tests for terminal node icon rendering (Task 2.4)
+// Unit tests for terminal node icon rendering
 // ============================================================
 
 describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
@@ -1236,7 +1236,7 @@ describe('Graph Renderer - Terminal Node Icon (Req 2.1, 2.2)', () => {
 });
 
 // ============================================================
-// Unit tests for bezier curve connectivity (Task 2.5)
+// Unit tests for bezier curve connectivity
 // ============================================================
 
 describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {

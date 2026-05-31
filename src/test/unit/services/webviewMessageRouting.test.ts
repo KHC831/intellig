@@ -221,7 +221,7 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
   });
 
   describe('commitContextMenu message', () => {
-    // Wave A R1 (TL-M-4) — `_handleCommitContextMenu` now validates that
+    // `_handleCommitContextMenu` now validates that
     // every commitHash in the message is present in the rendered
     // `commitNodes`. Pre-populate the commits these tests reference so
     // the validation is exercised positively rather than rejecting every

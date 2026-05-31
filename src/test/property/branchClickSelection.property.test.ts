@@ -216,7 +216,7 @@ function arbitraryBranchClickScenario(): fc.Arbitrary<{
 
     // Collect all branch names with their associated hashes.
     //
-    // TL-81 fix (post-Wave-135): cross-entry dedup of branch names by FIRST
+    // Cross-entry dedup of branch names by FIRST
     // appearance. The generator originally pushed every (name, hash) pair
     // including cross-entry duplicates, so when two distinct entries shared a
     // branch name (e.g. hashA → ["a"], hashB → ["a"]) and the random index
@@ -413,7 +413,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
 
   // ─── Pinned regressions ─────────────────────────────────────────────────────
   //
-  // TL-81 stress-flake investigation (post-Wave-135). The original Property 3
+  // stress-flake investigation. The original Property 3
   // generator can emit a scenario where TWO distinct commits share the SAME
   // branch name string in the branch map (e.g. hashA → ["a"], hashB → ["a"]).
   // The generator's `arbitraryBranchClickScenario` builds a flat

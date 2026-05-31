@@ -1,12 +1,12 @@
 /**
- * Tests for `GitService.discoverRepository` nested-repo discovery (Wave 10
- * — task #204).
+ * Tests for `GitService.discoverRepository` nested-repo discovery
+ * (task #204).
  *
- * Pre-Wave-10 behavior: `discoverRepository(folder)` only checked the
+ * Earlier behavior: `discoverRepository(folder)` only checked the
  * folder root for `.git/`, so opening `~/work/` with `~/work/projectA/.git`
  * + `~/work/projectB/.git` showed ZERO repos in IntelliG.
  *
- * Post-Wave-10: `discoverRepository` delegates to `scanFolderForGitRepos`
+ * Now: `discoverRepository` delegates to `scanFolderForGitRepos`
  * which mirrors VS Code's `git.repositoryScanMaxDepth` algorithm. The
  * settings exposed are `intellig.repositoryScanMaxDepth` (default 1) and
  * `intellig.repositoryScanIgnoredFolders` (default []).
@@ -94,7 +94,7 @@ function makeFsStub(
           return symlinks.has(`${p}/${name}`);
         },
         isFile(): boolean {
-          // TL-87 (#212): IRepoScanFs.Dirent requires isFile(); the
+          // (#212): IRepoScanFs.Dirent requires isFile(); the
           // discovery scenarios in this file only model directories.
           return false;
         },
@@ -220,10 +220,10 @@ describe('GitService — nested-repo discovery (Wave 10 / task #204)', () => {
   });
 
   // ============================================
-  // Wave 10 R2 — TL-82 HIGH: fire onDidChangeRepository on initial repo-add
+  // Fire onDidChangeRepository on initial repo-add
   // so subscribers (BranchTreeProvider, StatusBarService, BranchPopup,
   // ChangelistService, ConflictResolutionService, GitToolWindowProvider)
-  // see freshly-discovered repos. Pre-Wave-10-R2, only the debounced
+  // see freshly-discovered repos. Earlier, only the debounced
   // refresh path fired the emitter — meaning a `git init` in a new
   // workspace folder produced an entry in `_repositories` but no event,
   // so the 6 subscribers stayed stale until the user manually triggered
@@ -310,7 +310,7 @@ describe('GitService — nested-repo discovery (Wave 10 / task #204)', () => {
 });
 
 // ============================================
-// Wave 10 R2 — TL-83 MEDIUM: setupRepositoryWatcher idempotency
+// MEDIUM: setupRepositoryWatcher idempotency
 // regression guard.
 //
 // The existing `_fileWatchers.has(rootPath)` short-circuit at the top of
@@ -339,14 +339,14 @@ describe('GitService — setupRepositoryWatcher idempotency (Wave 10 R2 / TL-83)
   });
 
   it('a second call for the same rootPath preserves the original watcher array (short-circuit fired)', () => {
-    // Wave 10 R3 (senior-r2 finding): the prior count-based assertion
+    // (senior-r2 finding): the prior count-based assertion
     // (`secondCount === firstCount`) was a TAUTOLOGY. Without the short-
     // circuit, `_fileWatchers.set(rootPath, watchers)` would overwrite the
     // first array with a new array of the same length N — so both branches
     // (short-circuit fires vs. doesn't) would yield secondCount===N and
     // the spec would pass either way, catching no regression.
     //
-    // Fix: assert by ARRAY IDENTITY. With the short-circuit, the second
+    // Assert by ARRAY IDENTITY. With the short-circuit, the second
     // call returns early and `_fileWatchers.get(rootPath)` keeps the
     // SAME array reference. Without the short-circuit, the `.set` call
     // installs a fresh array (different reference) and identity fails.

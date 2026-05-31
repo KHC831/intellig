@@ -2,7 +2,7 @@
  * URI-scheme allowlist audit (invariant A-static, broader form).
  *
  * Complements `uriScheme.audit.test.ts` — that test blocks the specific
- * `git-show:` scheme that caused senior-R5 L-3 (user-observed crash). This
+ * `git-show:` scheme that caused senior- (user-observed crash). This
  * test takes the inverse tack: it enumerates EVERY URI scheme used in
  * production code and asserts each one is either a VS Code built-in or was
  * registered via `registerTextDocumentContentProvider(...)` in this repo.

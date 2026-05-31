@@ -1,14 +1,14 @@
 /**
- * Wave G — post-mutation refresh ordering tests.
+ * post-mutation refresh ordering tests.
  *
- * Pre-Wave-G: every CLI mutation site called `provider.refresh()` directly
+ * Every CLI mutation site called `provider.refresh()` directly
  * after `await this._gitService.<mutator>(...)`. The mutator's internal
  * cache invalidation deleted the `_repositories` cache entry; the
  * subsequent `provider.refresh()` ran against the empty/stale map until
  * the watcher's debounced reload (~250 ms later) repopulated it. UI
  * stayed stale for the entire window.
  *
- * Wave G adds `gitService.reloadRepository(repo)` between the mutation
+ * Adds `gitService.reloadRepository(repo)` between the mutation
  * and the refresh:
  *
  *     await this._gitService.checkout(repo, hash);
@@ -55,15 +55,15 @@ function createMockRepo(): IRepository {
 }
 
 /**
- * Wave H — wraps the shared `createMockGitService` factory with the
- * Wave-G-specific call-tracking spy. The shared factory provides the
+ * Wraps the shared `createMockGitService` factory with the
+ * HEAD-chip call-tracking spy. The shared factory provides the
  * default no-op stub for ~50 IGitService methods; this wrapper layers
  * `overrides` for the 4 methods we care about (checkout / revert /
  * cherryPick / reloadRepository) and exposes `_calls` + `_reloadShouldFail`
  * via getter/setter for the ordering invariants.
  *
- * Pre-Wave-H this re-implemented the entire IGitService stub inline
- * (~115 LoC). Post-Wave-H the shared factory carries the boilerplate
+ * This re-implemented the entire IGitService stub inline
+ * (~115 LoC). The shared factory carries the boilerplate
  * and only the spy semantics live here.
  */
 function createMockGitService(repo: IRepository): MockGitService {
@@ -231,10 +231,10 @@ describe('Wave G — post-mutation refresh ordering invariants', () => {
     assert.strictEqual(reloadCount, 1, 'reloadRepository must be invoked even when it would fail');
   });
 
-  // Wave G R1 / SG-L-1 — parametrize the ordering invariant across
+  // Parametrize the ordering invariant across
   // multiple mutation paths so a regression at any of them surfaces
-  // as a deliberate test failure. Pre-R1 only `checkoutRevision` was
-  // pinned; the senior LOW flagged that the other 41 sweep sites had
+  // as a deliberate test failure. Earlier only `checkoutRevision` was
+  // pinned; review flagged that the other 41 sweep sites had
   // no ordering test. Adding 3 more paths via parametrization is the
   // pragmatic close (cleaner than adding 41 individual tests).
   //

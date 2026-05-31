@@ -1,11 +1,10 @@
 /**
- * Wave 135 R3 / C1 + R4 / H1 + R5 / H1: tests for the keymap-preset
- * runtime migration.
+ * Tests for the keymap-preset runtime migration.
  *
- * Wave 135 R5 / H1 split the decision into independent
+ * The migration splits the decision into independent
  * `shouldWritePreset` / `shouldClearLegacy` flags so mixed-scope
  * cases (workspace legacy + global preset) are handled correctly.
- * Pre-R5 the migration short-circuited on "preset already set
+ * Earlier the migration short-circuited on "preset already set
  * somewhere" and the workspace legacy was never cleared, leaving
  * deprecation chrome in `.vscode/settings.json` permanently.
  */
@@ -87,7 +86,7 @@ describe('keymapMigration — runtime migration (Wave 135 R3 + R4 + R5)', () => 
     });
 
     it('both-scope-legacy: clears BOTH scopes; preset goes to workspace (Wave 135 R6 / L3)', () => {
-      // Wave 135 R6 / L3 regression spec: pre-R6 only the workspace
+      // Regression spec: earlier only the workspace
       // legacy was cleared; the global one persisted with deprecation
       // chrome. The new contract clears every scope where the legacy
       // was set, so a single activation completely purges the
@@ -111,10 +110,10 @@ describe('keymapMigration — runtime migration (Wave 135 R3 + R4 + R5)', () => 
       );
     });
 
-    // ---- Wave 135 R5 / H1 mixed-scope cases (THE HOLE) ----
+    // ---- Mixed-scope cases (THE HOLE) ----
 
     it("mixed-scope: workspace legacy + global preset='default' → CLEAR workspace legacy, do NOT write preset", () => {
-      // The R5 H1 regression spec. Pre-R5 this returned no-op; the
+      // The mixed-scope regression spec. Earlier this returned no-op; the
       // workspace boolean was permanently leaked.
       const r = decideKeymapMigration({
         legacyGlobalValue: undefined,
@@ -330,7 +329,7 @@ describe('keymapMigration — runtime migration (Wave 135 R3 + R4 + R5)', () => 
     }
 
     it('routes failure to logger when seam.update rejects', async () => {
-      // Wave 135 R6 / L2: assert via the logger spy's appendLine
+      // Assert via the logger spy's appendLine
       // call list, not via a return value (the function is now
       // Promise<void>).
       const seam = makeRejectingSeam();

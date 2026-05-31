@@ -1,7 +1,7 @@
 /**
  * Smoke test 6 — URI-scheme coherence runtime probe (invariant A-runtime).
  *
- * Background — today's crash (L-3 senior-R5):
+ * Background — today's crash:
  *   `Compare with Local` / `Show Repo at Revision` / `Branch Comparison View`
  *   constructed URIs with the `git-show:` scheme, but only `intellig-git:` has
  *   a content provider registered (`src/extension.ts:4209`). At runtime the

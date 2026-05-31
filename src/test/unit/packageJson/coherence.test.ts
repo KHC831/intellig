@@ -3,16 +3,16 @@
  * VS Code extension.
  *
  * These are pure static checks — no VS Code host required. They catch
- * the class of bugs that slipped through Round-5 senior review:
+ * the class of bugs that slipped through review:
  *
- *   - H-1: keybinding `when` clause referenced a non-existent view id
+ *   - keybinding `when` clause referenced a non-existent view id
  *          (`focusedView == 'intellig.gitToolWindow'`, whose real id is
  *          `intellig.toolWindow`).
  *   - C-1: duplicate `contributes.commands[].command` entries shadowing
  *          each other silently.
  *
  * The invariants below are minimal but load-bearing: any regression that
- * re-introduces an H-1 / C-1 class bug will surface immediately at PR
+ * re-introduces an / C-1 class bug will surface immediately at PR
  * time rather than at first keystroke in the Extension Host.
  *
  * Design notes:
@@ -116,7 +116,7 @@ describe('package.json coherence', () => {
   // -------------------------------------------------------------------------
   // Invariant 1: every `focusedView == '<id>'` resolves to a declared view.
   //
-  // This is the direct regression guard for R5-senior H-1: a keybinding
+  // This is the direct regression guard for -senior: a keybinding
   // targeted `focusedView == 'intellig.gitToolWindow'`, but the real
   // declared view id is `intellig.toolWindow`. The typo silently made the
   // `when` clause false forever, so the keybinding was dead weight.
@@ -184,7 +184,7 @@ describe('package.json coherence', () => {
   // -------------------------------------------------------------------------
   // Invariant 3: no duplicate command ids in contributes.commands.
   //
-  // Direct regression guard for R5-senior C-1: the same command id was
+  // Direct regression guard for -senior C-1: the same command id was
   // listed twice in `contributes.commands`. VS Code silently uses the
   // last one, so whichever title/category came first was shadowed with
   // no warning at package time.
@@ -293,7 +293,7 @@ describe('package.json coherence', () => {
   // -------------------------------------------------------------------------
   // Invariant 7 (stretch): no ASCII "..." in any command title.
   //
-  // Revives the R1-HIGH SR-2 fix: Unicode horizontal ellipsis (…) is the
+  // Revives the -HIGH SR-2 fix: Unicode horizontal ellipsis (…) is the
   // VS Code convention for commands that prompt for input; three ASCII
   // dots are a regression.
   // -------------------------------------------------------------------------

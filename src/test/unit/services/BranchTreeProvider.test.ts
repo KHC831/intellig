@@ -1,14 +1,14 @@
 /**
- * Wave H — `BranchTreeProvider` detached-HEAD synthetic row.
+ * `BranchTreeProvider` detached-HEAD synthetic row.
  *
- * Wave G shipped a yellow/gold HEAD chip on the commit graph for
+ * Shipped a yellow/gold HEAD chip on the commit graph for
  * detached state. The Branches tree sidebar (this widget) was the
- * matching gap: pre-Wave-H, detached HEAD rendered no row in the tree
+ * matching gap:, detached HEAD rendered no row in the tree
  * at all, so the user couldn't see WHERE HEAD lived from the
  * sidebar. IntelliJ shows a `(HEAD detached at <sha>)` row at the top
  * of Local Branches.
  *
- * Wave H adds:
+ * Adds:
  *   - New `BranchTreeItemType: 'detached-head'`
  *   - New `CONTEXT_VALUES.DETACHED_HEAD: 'intellig.detachedHead'`
  *   - 7th constructor arg `detachedHeadSha` + `getDetachedHeadSha()` accessor
@@ -17,11 +17,11 @@
  *
  * The 5 fixtures below pin: canonical detached, detached + branches,
  * attached, empty repo, mid-rebase. Each guards a specific edge case
- * called out in the tech-lead's risk analysis (TH-R1..TH-R11).
+ * from the detached-HEAD risk analysis.
  *
  * Type extension (NOT fake-IBranch) is deliberate — the dispatcher
  * reads the SHA via `item.getDetachedHeadSha()`, never the
- * parenthesized label. Wave F regression class can't be resurrected.
+ * parenthesized label. Regression class can't be resurrected.
  */
 
 import '../../setup';
@@ -142,11 +142,11 @@ describe('Wave H — BranchTreeProvider detached HEAD row', () => {
   });
 
   it('branchTree-detached-6: corrupt repo (head.name undefined + head.commit empty string) → NO detached row', async () => {
-    // Wave H R1 / SHL-1 — pre-R1 the guard `head.commit !== undefined`
+    // Earlier the guard `head.commit !== undefined`
     // was trivially true once `head` was set, because `parseHead` always
     // sets `head.commit = commitOutput.trim()` (an empty string when git
     // returned nothing). That produced a `(HEAD detached at )` row with
-    // an empty 7-char SHA in the tree. R1 tightens the guard to require
+    // an empty 7-char SHA in the tree. Tightens the guard to require
     // `head.commit.length > 0`.
     const repo = corruptRepo();
     const gitService = createMockGitService(repo);
@@ -181,7 +181,7 @@ describe('Wave I H-3 — BranchTreeProvider.dispose()', () => {
 
     provider.dispose();
     // Post-dispose the listener is gone — proves the subscription was
-    // captured AND torn down (pre-Wave-I leaked it).
+    // captured AND torn down (leaked it).
     assert.strictEqual(
       gitService.changeRepositorySubscriberCount(),
       0,
@@ -229,7 +229,7 @@ describe('Wave I H-3 — BranchTreeProvider.dispose()', () => {
 });
 
 /**
- * Wave J R1 / MED-3 — accessibilityInformation on the synthetic
+ * accessibilityInformation on the synthetic
  * detached-head BranchTreeItem so SR users hear the same meaning the
  * visible icon + tooltip convey to sighted users. VS Code's TreeView
  * reads `label + description` by default; the detached row's visible

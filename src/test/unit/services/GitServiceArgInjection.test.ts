@@ -1,5 +1,5 @@
 /**
- * Wave I — Pin every ref-consuming GitService method to argv-injection
+ * Pin every ref-consuming GitService method to argv-injection
  * safety. Each test passes a `--upload-pack=evil`-shaped ref and asserts
  * the recorded argv carries `--end-of-options` BEFORE that ref.
  *
@@ -9,7 +9,7 @@
  * flag args and ref args.
  *
  * The ~15 methods covered here are the ones the comprehensive review
- * (CRIT-1) flagged as ref-consumers. Methods that take ONLY paths
+ * Flagged as ref-consumers. Methods that take ONLY paths
  * (e.g. `stage`, `unstage`) or ONLY a remote name (`fetch`) are
  * out-of-scope; their args don't touch the user-controlled-ref path.
  */
@@ -341,7 +341,7 @@ describe('Wave I — GitService argv-injection safety', () => {
   });
 
   // =====================================================================
-  // Wave I R1 — service-boundary leading-dash/dot guards on the 6 ref-
+  // service-boundary leading-dash/dot guards on the 6 ref-
   // consuming sites missed in R0. Each method now mirrors `createBranch`'s
   // guard and (where structurally feasible) splices `--end-of-options`.
   // =====================================================================

@@ -521,7 +521,7 @@ diff --git a/file2.ts b/file2.ts
     });
 
     it('Wave I — getLogFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
-      // Pinned by Wave I: the previous `|` default collided with names
+      // Pinned by: the previous `|` default collided with names
       // containing `|`. Switching to `\x1f` (an unprintable C0 control
       // character that never appears in normalised git idents) makes
       // parseLog round-trip such names safely.
@@ -541,8 +541,8 @@ diff --git a/file2.ts b/file2.ts
 
   describe('parseLog (Wave I — `\\x1f` separator)', () => {
     /**
-     * parseLog-separator-1 (Wave I): an author name containing `|`
-     * round-trips correctly under the new `\x1f` separator. Pre-Wave-I
+     * parseLog-separator-1: an author name containing `|`
+     * round-trips correctly under the new `\x1f` separator.
      * `Alice|Bob` would have split mid-field and corrupted every later
      * field (email → date → committer name → …).
      */
@@ -570,7 +570,7 @@ diff --git a/file2.ts b/file2.ts
     });
 
     /**
-     * parseLog-separator-2 (Wave I): multi-commit log round-trips under
+     * parseLog-separator-2: multi-commit log round-trips under
      * the new separator. Confirms the entry split on `\0` and the field
      * split on `\x1f` are independent.
      */
@@ -609,7 +609,7 @@ diff --git a/file2.ts b/file2.ts
     });
 
     it('Wave I R1 — getTagFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
-      // Pinned by Wave I R1: the previous `|` default collided with
+      // Pinned by: the previous `|` default collided with
       // tagger names containing `|`. Switching to `\x1f` (an unprintable
       // C0 control character that never appears in normalised git
       // idents) makes parseTags round-trip such names safely.
@@ -627,11 +627,11 @@ diff --git a/file2.ts b/file2.ts
     });
 
     /**
-     * parseTags-separator-1 (Wave I R1): a tagger name containing `|`
-     * round-trips correctly under the new `\x1f` separator. Pre-Wave-I-R1
+     * parseTags-separator-1: a tagger name containing `|`
+     * round-trips correctly under the new `\x1f` separator. -
      * the literal `|` in `Alice|Bob` would have split mid-field and
      * corrupted email → date → subject downstream. Mirrors
-     * `parseLog-separator-1` (Wave I).
+     * `parseLog-separator-1`.
      */
     it('parseTags-separator-1: tagger with literal `|` in name parses cleanly', () => {
       const sep = '\x1f';
@@ -658,9 +658,9 @@ diff --git a/file2.ts b/file2.ts
   });
 
   /**
-   * Wave F / F3 — `parseBranches` filters git's parenthesized pseudo-refs.
+   * / F3 — `parseBranches` filters git's parenthesized pseudo-refs.
    *
-   * Pre-Wave-F, `git branch -a --format` lines like
+   * `git branch -a --format` lines like
    * `(HEAD detached at 5eed84b)|<sha>||*` leaked through `parseBranches`
    * as `type='local'` branches with the parenthesized name as `.name`.
    * That fake branch then propagated into the branch tree, log graph

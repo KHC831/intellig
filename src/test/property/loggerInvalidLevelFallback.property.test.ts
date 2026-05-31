@@ -1,5 +1,5 @@
 /**
- * Task 4.6 — property test for the Logger's invalid-threshold fallback.
+ * Property test for the Logger's invalid-threshold fallback.
  *
  * **Property 6: Invalid threshold fallback**
  *

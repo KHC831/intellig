@@ -1,5 +1,5 @@
 /**
- * Task 3.3 — unit test for the Logger surface (Requirement 1.1).
+ * Unit test for the Logger surface (Requirement 1.1).
  *
  * Pins the public method shape exposed by `getLogger()` and by
  * `child(bindings)`:

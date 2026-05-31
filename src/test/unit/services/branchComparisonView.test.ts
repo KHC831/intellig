@@ -1,8 +1,8 @@
 /**
- * TL-68 (Wave 8 B) — BranchComparisonView refresh() canonical-channel
+ * BranchComparisonView refresh() canonical-channel
  * contract. Mirrors the StashView migration in the same wave.
  *
- * Before Wave 8 BranchComparisonView used the pre-Wave-7 `_state.error`
+ * Before BranchComparisonView used the `_state.error`
  * sideband: `_performComparison()` stashed the error message into
  * `_state.error`, and `show()` read it back at line 127. Per ADR-006
  * (`docs/adr/ADR-006-error-state-binding-by-view-type.md`), QuickPick
@@ -271,11 +271,11 @@ describe('BranchComparisonView TL-68 — refresh() returns { error? } (no _state
   });
 });
 
-// TL-75 (Wave 8 R2) — `_showComparisonResults` early-return after a
+// `_showComparisonResults` early-return after a
 // failed comparison.
 //
-// Background: pre-Wave-8 the action handler used a non-null assertion
-// (`this._state.comparison!`) when rebuilding QuickPick items. Wave 8
+// Background: the action handler used a non-null assertion
+// (`this._state.comparison!`) when rebuilding QuickPick items.
 // dropped the bang in favour of an explicit nullable guard, but the
 // guard was a code-only change with no spec pinning the contract.
 // This test seals the early-return so future maintainers can't strip
@@ -415,12 +415,12 @@ describe('BranchComparisonView TL-75 — _showComparisonResults early-return aft
   });
 });
 
-// TL-72 (Wave 9) — action-path catch-block toasts must run through
+// action-path catch-block toasts must run through
 // `sanitizeGitError`. Pre-fix, `viewCommit` and `_showFileDiffContent`
 // concatenated raw `error.message` into the toast template, so a
 // credentialed remote URL or absolute home path in stderr leaked
 // straight into the user's notification history. The refresh-path
-// (`_performComparison` line 412 area) was already sanitised in Wave 8;
+// (`_performComparison` line 412 area) was already sanitised in;
 // these two action paths are the residual sites.
 describe('BranchComparisonView TL-72 — action-path toasts route through sanitizeGitError', () => {
   const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';

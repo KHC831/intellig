@@ -1,14 +1,14 @@
 /**
- * Wave A R2 — fix for TL-M-2 follow-up.
+ * Click anchor travels with the range-select messages.
  *
- * The R1 brief required the click anchor to travel WITH the
+ * The brief required the click anchor to travel WITH the
  * `rangeSelectCommit` / `addRangeSelectCommit` messages so the host
  * uses the user's actual click anchor for that single operation,
  * instead of consulting whatever `_extendedLogState.anchorHash` happens
  * to hold (which can drift mid-frame when a re-render fires between
  * the user's prior click and the current shift-click).
  *
- * R2 adds the field to the wire payload + makes the host treat it as
+ * Adds the field to the wire payload + makes the host treat it as
  * authoritative for the single message it carries (and persists it as
  * the new anchor of record so subsequent operations see the same view
  * the user just operated on).

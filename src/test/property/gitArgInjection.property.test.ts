@@ -1,10 +1,10 @@
 /**
- * Wave I — Property: any string passed as a ref MUST land in argv
+ * Property: any string passed as a ref MUST land in argv
  * positionally, never as a flag, regardless of leading characters.
  *
  * Bug class: a malicious branch name like `--upload-pack=evil` would
- * inject as a git flag without `--end-of-options`. Wave D R1 hardened
- * `getMergeBase` ad-hoc; Wave I generalizes via `buildGitArgs`.
+ * inject as a git flag without `--end-of-options`. Hardened
+ * `getMergeBase` ad-hoc; generalizes via `buildGitArgs`.
  */
 
 import '../setup';

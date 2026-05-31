@@ -1,5 +1,5 @@
 /**
- * Task 4.1 — property test for Logger record construction shape and content.
+ * Property test for Logger record construction shape and content.
  *
  * **Property 1: Record construction shape and content**
  *

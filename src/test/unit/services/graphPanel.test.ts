@@ -84,10 +84,10 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     });
 
     it('emits the FULL first line of long messages and lets CSS handle ellipsis (Wave E E2-bonus)', () => {
-      // Pre-Wave-E this test asserted the row HTML included literal "..."
+      // This test asserted the row HTML included literal "..."
       // (JS hard-truncated to 60 chars). The truncation was a bug at
       // wide panel widths — the message was capped even when there was
-      // plenty of room. Wave E removes the JS truncation and relies on
+      // plenty of room. Removes the JS truncation and relies on
       // CSS `.commit-title { overflow:hidden; text-overflow:ellipsis;
       // white-space:nowrap }` to truncate responsively.
       const longMessage =
@@ -106,7 +106,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         longMessage,
         'commit-title text content should be the full first line, not JS-truncated with "..."'
       );
-      // Tooltip carries the full message too (unchanged from pre-Wave-E).
+      // Tooltip carries the full message too (unchanged from).
       assert.ok(
         html.includes(`title="${longMessage}"`),
         'Should still carry the full message in the title= tooltip attribute'
@@ -642,9 +642,9 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have role="menuitem" on each menu item', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuItemCount = (html.match(/role="menuitem"/g) || []).length;
-      // Wave A added two multi-select-only items: squashCommits + compareVersions.
-      // Wave K added three single-only items: squashWithPrevious +
-      // fixupWithPrevious (WK-1) and compareWithBranch (WK-2). 15 + 3 = 18.
+      // Added two multi-select-only items: squashCommits + compareVersions.
+      // Added three single-only items: squashWithPrevious
+      // fixupWithPrevious and compareWithBranch. 15 + 3 = 18.
       assert.strictEqual(menuItemCount, 18, 'Should have 18 menu items with role="menuitem"');
     });
 
@@ -691,9 +691,9 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
     it('should have four context-menu-separator dividers between five sections', () => {
       const html = provider._getCommitContextMenuHtml();
       const separatorCount = (html.match(/context-menu-separator/g) || []).length;
-      // Wave K — WK-1/WK-2: added two new sections.
+      // Added two new sections.
       //   Section 4 (was: just rebase ops): squashWithPrevious +
-      //     fixupWithPrevious (DK-1).
+      // fixupWithPrevious.
       //   Section 5 (new): compareWithBranch + mergeIntoCurrent +
       //     interactiveRebase. Pre-K's section 4 (merge + rebase) absorbed
       //     compareWithBranch as the first entry — IntelliJ groups
@@ -759,8 +759,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Extension host: selectCommit clears previous selection', () => {
-    // Wave A R3-9 — `getSelectedCommits` now projects through `commitNodes`
-    // (display-order contract for Wave B/C consumers). These tests need a
+    // `getSelectedCommits` now projects through `commitNodes`
+    // (display-order contract for consumers). These tests need a
     // populated commit list so the selection actually has somewhere to be
     // visible from the projection.
     beforeEach(() => {
@@ -809,7 +809,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Extension host: toggleCommitSelection adds/removes from multi-select set', () => {
-    // Same R3-9 fixture as above.
+    // Same fixture as above.
     beforeEach(() => {
       provider.updateLogState([
         makeCommit({ hash: 'aaa1111111111111111111111111111111111111111', parents: [] }),

@@ -1,5 +1,5 @@
 /**
- * Task 4.13 — property test for the developer-only console mirror.
+ * Property test for the developer-only console mirror.
  *
  * Pins **Requirement 3.3**: when `intellig.log.console` is `true`, the
  * `ConsoleSink` invokes the matching `console.<level>` method (with

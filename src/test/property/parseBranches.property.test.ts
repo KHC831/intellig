@@ -1,7 +1,7 @@
 /**
- * Wave F / F3 — `parseBranches` parenthesized-pseudo-ref filter property test.
+ * / F3 — `parseBranches` parenthesized-pseudo-ref filter property test.
  *
- * The Wave F filter rule is `/^\(.*\)$/.test(refname.trim()) → continue`.
+ * The filter rule is `/^\(.*\)$/.test(refname.trim()) → continue`.
  * This property test fuzzes the parenthesized segment with arbitrary
  * strings (UTF-8, ASCII, whitespace, multi-byte) and asserts the
  * invariant: NO IBranch returned by `parseBranches` ever has a `.name`
@@ -37,8 +37,8 @@ import { parseBranches } from '../../git-core/gitParser';
  * accepts both characters in refnames — `git check-ref-format
  * 'refs/heads/foo|bar'` exits 0 — so a real branch with `|` in its
  * name is a pre-existing parser fragility, tracked in
- * `docs/parity/repo-states.md` §1.4 as a Wave G follow-up. It's
- * orthogonal to the Wave F pseudo-ref filter under test here.)
+ * `docs/parity/repo-states.md` §1.4 as a follow-up. It's
+ * orthogonal to the pseudo-ref filter under test here.)
  *
  * The remaining char-set is broad enough to cover ASCII + multi-byte
  * UTF-8 + whitespace + punctuation, which is what git actually emits

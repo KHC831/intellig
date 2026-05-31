@@ -1,7 +1,7 @@
 /**
  * jsdom wiring test for the rendered graph panel scroll affordance.
  *
- * Feature: git-graph-branch-click-scroll (Task 5.2).
+ * Feature: git-graph-branch-click-scroll.
  *
  * Purpose: document the DOM wiring that connects the rendered graph panel to
  * the inline `scrollToCommit` routine and the extracted pure predicate
@@ -20,7 +20,7 @@
  * `scrollToCommit` gathers those four numbers at runtime in the real webview;
  * here we SEED them explicitly to mirror the geometry that inline script
  * computes, and we assert against the pure predicate directly. The predicate
- * itself is exhaustively covered by Task 1's property tests — this test only
+ * itself is exhaustively covered by 's property tests — this test only
  * documents the wiring, it does not re-test the predicate.
  *
  * _Requirements: 1.1, 2.1_

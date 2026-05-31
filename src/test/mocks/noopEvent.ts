@@ -1,9 +1,9 @@
 /**
  * No-op `vscode.Event<T>` helper for narrow mocks.
  *
- * Pre-R1 some `IGitService` events were declared optional on the
- * interface so that minimal test mocks didn't have to stub them. R1 / M1
- * (TL-88 follow-up) made `onDidRemoveRepository` required to spare
+ * Earlier some `IGitService` events were declared optional on the
+ * interface so that minimal test mocks didn't have to stub them.
+ * Making `onDidRemoveRepository` required spares
  * production code from `?.()` guards across six future subscribers; this
  * helper is the one-line stub mocks reach for instead of building a
  * full `vscode.EventEmitter` per spec.

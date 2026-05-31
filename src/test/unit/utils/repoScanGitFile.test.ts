@@ -1,15 +1,15 @@
 /**
  * Tests for `.git` as a FILE — linked worktrees & submodule worktrees
- * (TL-87 / #212).
+ * (#212).
  *
- * Bug: pre-TL-87, the scanner only treated `.git` as a directory, and the
+ * Originally the scanner only treated `.git` as a directory, and the
  * `IRepoScanFs.Dirent` interface didn't even expose `isFile()`. The scanner
  * happened to work for the worktree case via the `resolveRepoRoot` CLI path
  * (git's `rev-parse --show-toplevel` resolves both shapes correctly), but
  * any future scan-layer enhancement that wanted to fast-path on a `.git`
  * file would have been blocked by the missing isFile() seam.
  *
- * Fix:
+ * The change:
  *   1. Extend `IRepoScanFs.Dirent` with `isFile(): boolean`.
  *   2. Honor `.git` as a FILE entry as a repo signal in the scanner —
  *      specifically, when scanning a root, the `resolveRepoRoot` callback
@@ -38,7 +38,7 @@ interface IFsState {
 
 /**
  * In-memory fs stub that exposes `isDirectory()`, `isSymbolicLink()`, AND
- * `isFile()` per the TL-87 contract. The pre-TL-87 stub omitted `isFile()`,
+ * `isFile()` per the contract. The earlier stub omitted `isFile()`,
  * which is what made this test originally RED at type-check time.
  */
 function makeFsWithFiles(state: IFsState): IRepoScanFs {

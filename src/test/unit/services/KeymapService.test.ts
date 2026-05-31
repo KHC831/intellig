@@ -38,7 +38,7 @@ describe('KeymapService', () => {
     });
 
     it('should initialize with intellij keymap when useIntelliJKeymap is true (legacy fallback)', () => {
-      // Set up configuration before creating service. Wave 135 R4 / M3
+      // Set up configuration before creating service. / M3
       // policy A: legacy boolean only takes effect when keymapPreset is
       // undefined (schema default never explicitly set). The mock
       // initialiser persists 'default' as an explicit value, so clear
@@ -181,7 +181,7 @@ describe('KeymapService', () => {
     });
 
     it('should return true when intellij keymap is active (legacy fallback)', () => {
-      // Wave 135 R4 / M3 policy A: clear keymapPreset to exercise
+      // Policy A: clear keymapPreset to exercise
       // the legacy-fallback path; otherwise the mock's explicit
       // 'default' wins over the legacy boolean.
       setMockConfigValue('intellig', 'keymapPreset', undefined);

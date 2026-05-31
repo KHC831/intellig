@@ -11,7 +11,7 @@ import type { IRemoteUrl } from '../../../utils/remoteUrl';
 
 /**
  * Test-surface reaching into {@link GitToolWindowProvider}'s private
- * parsed-remote cache state. The TL-17 cache-invalidation contract is not
+ * parsed-remote cache state. The cache-invalidation contract is not
  * observable through the public API (no getter exposes cache membership
  * without also mutating it), so the tests below assert it via a narrow
  * cast through this surface.
@@ -220,7 +220,7 @@ describe('Log View', () => {
 
   describe('updateLogState', () => {
     it('should update log state with commits', () => {
-      // TL-99: `updateLogState` now stably sorts via `sortCommitsStable`
+      // `updateLogState` now stably sorts via `sortCommitsStable`
       // (oldest-first by date, with topological tie-break on parents)
       // and reverses for newest-first display order. With identical
       // `commitDate` timestamps and `def` listing `abc` as parent,
@@ -1695,11 +1695,11 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      // Wave J R1 / HIGH-4 — chip backgrounds switched from FG-tier
+      // Chip backgrounds switched from FG-tier
       // gitDecoration-* tokens (which themes use for the SCM tree) to
       // the semantically-correct badge-* family. Local + remote share
       // the same background; local-vs-remote distinction lives in the
-      // codicon prefix (cloud vs git-branch). The pre-J hex literal
+      // codicon prefix (cloud vs git-branch). The earlier hex literal
       // (#2d5a1e) is retained as the CSS-var fallback for themes that
       // don't define badge-*.
       assert.ok(
@@ -1731,9 +1731,9 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-remote'),
         'Should include .branch-label-remote CSS class'
       );
-      // Wave J R1 / HIGH-4 — remote chip uses the same badge-* family
+      // Remote chip uses the same badge-* family
       // as local; the secondary remote-only override block retains the
-      // pre-J #1a3a5c / #90caf9 hex pair as a fallback when neither
+      // earlier #1a3a5c / #90caf9 hex pair as a fallback when neither
       // badge-* nor the legacy gitDecoration-* family is defined. The
       // hex literals MUST ship (CSS var fallback discipline + future
       // hi-contrast drift detection).
@@ -1778,7 +1778,7 @@ describe('_getBranchLabelsHtml', () => {
     });
   });
 
-  // ─── TL-17: parsed-remote cache invalidation on repo change ────────────────
+  // ───: parsed-remote cache invalidation on repo change ────────────────
   describe('_parsedRemoteCache — TL-17 invalidation', () => {
     function mkRepo(rootPath: string, remoteUrl: string | undefined): IRepository {
       return {

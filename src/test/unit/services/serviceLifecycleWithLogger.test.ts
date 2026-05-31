@@ -1,5 +1,5 @@
 /**
- * Task 9.11 — Service-lifecycle Logger waypoints (§6.3, §6.4 not
+ * Service-lifecycle Logger waypoints (§6.3, §6.4 not
  * covered elsewhere).
  *
  * Pins the Logger waypoints required by Requirements 6.3 and 6.4 for

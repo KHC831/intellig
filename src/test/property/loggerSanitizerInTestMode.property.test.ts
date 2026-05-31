@@ -1,5 +1,5 @@
 /**
- * Task 4.12 — property test for sanitizer redaction under test mode.
+ * Property test for sanitizer redaction under test mode.
  *
  * Pins Requirement 4.7: "WHERE the test suite is running (NODE_ENV is
  * `'test'` or the `MOCHA_WORKER_ID` environment variable is set), THE

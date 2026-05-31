@@ -1,5 +1,5 @@
 /**
- * Task 4.2 — Property test for Logger bindings inheritance and override.
+ * Property test for Logger bindings inheritance and override.
  *
  * Feature: logging-and-src-restructure, Property 2: Bindings inheritance
  *   and override

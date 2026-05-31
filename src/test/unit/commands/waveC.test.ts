@@ -1,5 +1,5 @@
 /**
- * Wave C — Rebase-driven multi-commit ops (drop N, squash N).
+ * Rebase-driven multi-commit ops (drop N, squash N).
  *
  * Subsections:
  *   C1 — Drop N (≥2 contiguous-or-not, dropCommit gated to non-merge)
@@ -8,7 +8,7 @@
  *   C3 — Contiguity helper reuse (no inline reimpl in handlers)
  *   C4 — Conflict handoff (both → _openResolveConflictsDialog)
  *
- * Patterns mirror waveBR2.test.ts: hash-validation, in-order guard,
+ * Patterns mirror waveB.test.ts: hash-validation, in-order guard,
  * stale-toast phrasing, no `getExtendedLogState()` reach-back, dispatch
  * payload uses commitNodes (the slim newest-first IMenuStateNode list).
  */
@@ -253,7 +253,7 @@ function restoreMocks(): void {
 }
 
 /**
- * Wave C R1 (Senior H-1) — squash dialog uses an untitled-style editor
+ * Squash dialog uses an untitled-style editor
  * (openTextDocument → showTextDocument → save / close listener) instead
  * of `showInputBox`. This helper installs stubs at the
  * `vscode.workspace` / `vscode.window` boundary that drive the flow:
@@ -300,7 +300,7 @@ function installSquashEditorStubs(): SquashEditorTracker {
 
   let docUri: vscode.Uri | undefined;
   let savedText: string | undefined;
-  // Wave C R1 — handler now opens via Uri.file(tmpPath); intercept
+  // Handler now opens via Uri.file(tmpPath); intercept
   // both the object-literal (with `content`) shape AND the `Uri.file`
   // shape so either implementation strategy is testable here.
   const ws = writableWorkspace();
@@ -696,7 +696,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
   });
 
   // ─── C2 — Squash N ─────────────────────────────────────────────────────────
-  // Wave C R1 (Senior H-1) — squash dialog now uses an untitled-style
+  // Squash dialog now uses an untitled-style
   // editor (openTextDocument + save listener) instead of `showInputBox`.
   // Tests drive the flow via `installSquashEditorStubs()` + `simulateSave`
   // / `simulateClose`. The handler returns once one of those listeners
@@ -1006,7 +1006,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       );
     });
 
-    // R1 (Senior M-2) — false-success edge.
+    // false-success edge.
     it('surfaces a "partial complete" warning when rebase stays paused after squash message', async () => {
       const tracker = blankRebaseTracker();
       tracker.sessionCommits = [
@@ -1016,7 +1016,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       // Emulate the edge: executeRebase returns `paused`, the handler
       // calls provideSquashMessage, but THAT result is also paused (e.g.
       // amendEditCommit succeeded but rebase still has more steps to
-      // run after the amend). Pre-R1 we surfaced "Squashed N commits
+      // run after the amend). Earlier we surfaced "Squashed N commits
       // successfully", which is misleading.
       tracker.executeResult = { success: true, status: 'paused' };
       tracker.provideSquashResult = { success: true, status: 'paused' };
@@ -1073,7 +1073,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
         'utf8'
       );
       // Look for an inline `indices.every((v, i) => i === 0 || v - indices[i-1] === 1)`
-      // pattern — the pre-Wave-A reimpl that the helper exists to replace.
+      // pattern — the reimpl that the helper exists to replace.
       assert.ok(
         !/indices\.every\(\s*\(v,\s*i\)\s*=>\s*i\s*===\s*0\s*\|\|\s*v\s*-\s*indices\[i\s*-\s*1\]\s*===\s*1/.test(
           src
@@ -1098,10 +1098,10 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
     it('uses HASH_RE / allHashesValid in both wave-C handlers', () => {
       // Both handlers should sit beneath the existing `allHashesValid`
       // helper. We assert presence of the helper + at least 2 occurrences
-      // beyond the Wave B usages.
+      // beyond the usages.
       assert.ok(/allHashesValid/.test(src), 'allHashesValid helper must be present');
       const occurrences = src.match(/allHashesValid\(/g) || [];
-      // Wave B uses it in createPatch + compareVersions; Wave C in
+      // Uses it in createPatch + compareVersions; in
       // dropMulti + squash → expect ≥ 4 call sites.
       assert.ok(
         occurrences.length >= 4,
@@ -1110,10 +1110,10 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
     });
 
     it('routes the canonical stale-selection toast through the STALE_SELECTION_TOAST const', () => {
-      // R1 (Senior L-3) — the toast literal lives once at the top of
+      // The toast literal lives once at the top of
       // the file in a `STALE_SELECTION_TOAST` const; handler bodies
       // reference the const so future copy edits land in one place.
-      // Find the Wave C handlers' definitions and confirm each
+      // Find the handlers' definitions and confirm each
       // references the const.
       const dropIdx = src.indexOf('private async _handleDropCommitMulti');
       const squashIdx = src.indexOf('private async _handleSquashCommits');
@@ -1135,8 +1135,8 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
         /const STALE_SELECTION_TOAST\s*=\s*['"]Commit selection changed/.test(src),
         'STALE_SELECTION_TOAST const must be declared with the canonical phrasing'
       );
-      // Pre-R1 there were 4 inline literal duplicates of the toast.
-      // R1: the literal appears EXACTLY once — at the const declaration.
+      // Earlier there were 4 inline literal duplicates of the toast.
+      // The literal appears EXACTLY once — at the const declaration.
       const literalMatches = src.match(
         /['"]Commit selection changed since the menu opened — please retry\.['"]/g
       );

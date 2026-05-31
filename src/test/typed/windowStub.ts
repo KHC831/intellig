@@ -26,7 +26,7 @@ export interface MessageCall {
 /**
  * Mutable slice of `vscode.window` whose functions we override in tests.
  *
- * TL-28 tightening: VS Code option bags are modelled as their real types
+ * Tightening: VS Code option bags are modelled as their real types
  * where that doesn't break the existing call shape, so IntelliSense shows
  * real fields instead of `unknown`. The variadic `items: unknown[]` shape
  * on `showWarningMessage` / `showQuickPick` is intentional — call sites
@@ -42,7 +42,7 @@ export interface WritableWindow {
   showSaveDialog: (options?: vscode.SaveDialogOptions) => Promise<vscode.Uri | undefined>;
   showOpenDialog: (options?: vscode.OpenDialogOptions) => Promise<vscode.Uri[] | undefined>;
   /**
-   * Wave C R1 — used by the squash dialog editor flow. Tests stub this
+   * Used by the squash dialog editor flow. Tests stub this
    * to capture the document opened for the squash message and return a
    * minimal editor object.
    */
@@ -79,7 +79,7 @@ export interface WritableWorkspace {
     [k: string]: unknown;
   };
   /**
-   * Wave C R1 — used by the squash dialog editor flow. Tests stub
+   * Used by the squash dialog editor flow. Tests stub
    * `openTextDocument` to inspect the seed content and return a minimal
    * doc; `onDidSaveTextDocument` / `onDidCloseTextDocument` to drive the
    * save / cancel branches.

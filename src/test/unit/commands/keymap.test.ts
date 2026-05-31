@@ -1,5 +1,5 @@
 /**
- * R5 C-1 / H-1 regression coverage — package.json / extension.ts coherence.
+ * C-1 / regression coverage — package.json / extension.ts coherence.
  *
  * These tests run as pure unit tests (no VS Code host) against the shipped
  * package.json and the TS extension source, so a duplicate command
@@ -10,14 +10,14 @@
  *  - C-1: Every command id declared in `contributes.commands` must be
  *         registered EXACTLY ONCE in production sources. Two registrations
  *         for the same id cause VS Code to throw on activation.
- *  - H-1: Every `focusedView == 'intellig.<id>'` appearing in a keybinding's
+ *  - Every `focusedView == 'intellig.<id>'` appearing in a keybinding's
  *         `when` clause must correspond to a view id actually declared in
  *         `contributes.views.<container>[*].id`.
  *
  * The C-1 test walks command-registration call sites textually rather than
  * loading `activate()` under a VS Code shim. It recognizes both the
  * `registerLoggedCommand(<id>, …)` structured-logging wrapper (the dominant
- * form after the R5.1 adoption sweep) and the direct
+ * form after the.1 adoption sweep) and the direct
  * `(vscode.|)commands.registerCommand(<id>, …)` API. The same traversal
  * catches both the original bug (two literal registrations) and a future
  * dynamically-computed string id if one ever appears (the filter uses a
@@ -80,7 +80,7 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
     // Collect every string-literal argument passed to a command
     // registration call. Two registration mechanisms exist in production:
     //   - `registerLoggedCommand(<id>, …)` — the structured-logging wrapper
-    //     (src/utils/logger) adopted across the codebase in the R5.1 sweep;
+    // (src/utils/logger) adopted across the codebase in the.1 sweep;
     //     this is now the dominant form (extension.ts, the context-menu
     //     command classes, …).
     //   - `(vscode.|)commands.registerCommand(<id>, …)` — the direct VS Code
@@ -103,7 +103,7 @@ describe('R5 C-1 — activation cannot register the same command id twice', () =
     }
 
     // Every id that appears at all must appear exactly once. Duplicates crash
-    // activation (VS Code throws). The original R5 C-1 bug registered
+    // activation (VS Code throws). The original C-1 bug registered
     // `intellig.toolWindow.jumpToHash` twice.
     const duplicates: Array<[string, number]> = [];
     for (const [id, count] of counts) {
@@ -175,14 +175,14 @@ describe('R5 H-1 — keybinding focusedView gates must reference real view ids',
 });
 
 /**
- * R5 bonus — every `contributes.keybindings[*].command` that targets an
+ * Bonus — every `contributes.keybindings[*].command` that targets an
  * `intellig.*` id must ALSO be present in `contributes.commands`. Otherwise
  * the key combo fires but the command never surfaces in the palette (title
  * missing → palette hides it), which is silent half-functionality.
  *
  * Real-world shape that motivated this test: `intellig.showShelfList` was
  * `registerCommand`-ed in `extension.ts` AND keybound in `package.json`, but
- * had no palette entry. Latent since T3-13 until R6 package.json-coherence
+ * had no palette entry. It stayed latent until the package.json-coherence
  * audit surfaced it.
  */
 describe('R5 — every intellig.* keybinding command has a contributes.commands entry', () => {

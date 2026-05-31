@@ -1,5 +1,5 @@
 /**
- * Task 4.3 — property test for Logger non-mutation of caller bags.
+ * Property test for Logger non-mutation of caller bags.
  *
  * **Property 3: Logger does not mutate caller bags**
  *

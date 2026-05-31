@@ -1,13 +1,13 @@
 /**
- * Wave H — shared `IGitService` mock for tests that need to drive the
+ * Shared `IGitService` mock for tests that need to drive the
  * BranchTreeProvider, snapshot tests, or post-mutation refresh
  * invariants without spinning up a real GitService.
  *
- * Pre-Wave-H this mock was duplicated across:
+ * This mock was duplicated across:
  *   - `src/test/unit/utils/commitGraphSnapshots.test.ts:801-960` (snap-8b)
- *   - `src/test/unit/services/headChipRefresh.test.ts:57-120` (Wave G)
+ * - `src/test/unit/services/headChipRefresh.test.ts:57-120`
  *
- * Wave H's `BranchTreeProvider.test.ts` + `snap-10a` would have been
+ * 's `BranchTreeProvider.test.ts` + `snap-10a` would have been
  * the 3rd and 4th sites. Rule-of-three crossed; the extraction
  * consolidates them.
  *
@@ -30,7 +30,7 @@ import { EventEmitter } from './vscode';
 import { noopEvent } from './noopEvent';
 
 /**
- * Wave I H-3 — TestSurface for the dispose-test path. When tests need
+ * TestSurface for the dispose-test path. When tests need
  * to verify subscription teardown they need to fire the change event
  * AFTER setup; expose a hook to do that without violating the IGitService
  * encapsulation.
@@ -61,7 +61,7 @@ export function createMockGitService(
     checkout: async () => {},
     deleteBranch: async () => {},
     renameBranch: async () => {},
-    setBranchUpstream: async () => {}, // Wave K — WK-3
+    setBranchUpstream: async () => {},
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async () => ({ success: true }),
     rebaseSkip: async () => ({ success: true }),
@@ -129,7 +129,7 @@ export function createMockGitService(
     dispose: () => {},
   } as IGitService;
 
-  // Wave I H-3 — wrap with TestSurface helpers that expose the
+  // Wrap with TestSurface helpers that expose the
   // EventEmitter without leaking it onto the public IGitService.
   const testSurface: IGitServiceMockTestSurface = {
     fireChangeRepository: (repo) => repoChange.fire(repo),
@@ -141,7 +141,7 @@ export function createMockGitService(
 }
 
 /**
- * Wave H — convenience constructor for the canonical "attached HEAD"
+ * Convenience constructor for the canonical "attached HEAD"
  * repo state. `head.name` set, `head.commit` set.
  */
 export function attachedRepo(branchName = 'main', commit = 'a'.repeat(40)): IRepository {
@@ -155,8 +155,8 @@ export function attachedRepo(branchName = 'main', commit = 'a'.repeat(40)): IRep
 }
 
 /**
- * Wave H — convenience constructor for the canonical "detached HEAD"
- * repo state. `head.name` undefined (per Wave F: `git symbolic-ref HEAD`
+ * Convenience constructor for the canonical "detached HEAD"
+ * repo state. `head.name` undefined (per: `git symbolic-ref HEAD`
  * exits non-zero in detached state), `head.commit` set.
  */
 export function detachedRepo(commit = 'a'.repeat(40)): IRepository {
@@ -170,7 +170,7 @@ export function detachedRepo(commit = 'a'.repeat(40)): IRepository {
 }
 
 /**
- * Wave H — convenience constructor for the canonical "empty repo"
+ * Convenience constructor for the canonical "empty repo"
  * state. `head` undefined entirely (no commits yet).
  */
 export function emptyRepo(): IRepository {
@@ -183,7 +183,7 @@ export function emptyRepo(): IRepository {
 }
 
 /**
- * Wave H — convenience constructor for the canonical "rebasing" state.
+ * Convenience constructor for the canonical "rebasing" state.
  * `head.name` STILL set (mid-rebase keeps the original branch ref);
  * `state: 'rebasing'`. The detached-row guard must NOT fire here.
  */
@@ -198,7 +198,7 @@ export function rebasingRepo(branchName = 'main', commit = 'a'.repeat(40)): IRep
 }
 
 /**
- * Wave H R1 / SHL-1 — corrupt-repo state. `head` is set (so the empty-repo
+ * Corrupt-repo state. `head` is set (so the empty-repo
  * fallback path in `_getLocalBranches` does NOT trigger), but `head.name`
  * is undefined AND `head.commit` is the empty string. This shape arises
  * when `parseHead` runs against a repo where both `git symbolic-ref HEAD`
@@ -206,9 +206,9 @@ export function rebasingRepo(branchName = 'main', commit = 'a'.repeat(40)): IRep
  * after a partial corruption, or a unit test fixture passing empty git
  * outputs through the parser).
  *
- * Pre-Wave-H-R1, the detached-row guard `head.commit !== undefined` was
+ * The detached-row guard `head.commit !== undefined` was
  * trivially true and produced a `(HEAD detached at )` row with empty
- * SHA. R1 tightens the guard to require a non-empty `head.commit`;
+ * SHA. Tightens the guard to require a non-empty `head.commit`;
  * `branchTree-detached-6` pins this state to ensure the row is NOT
  * rendered.
  */

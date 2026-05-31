@@ -74,7 +74,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
     });
 
     it('should have exactly 5 menu items', () => {
-      // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group
+      // Added intellig.branch.focusOnGraph in `inline` group
       // for current-branch tree items.
       assert.strictEqual(entries.length, 5, `Expected 5 items, got ${entries.length}`);
     });
@@ -142,7 +142,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
     });
 
     it('should have exactly 12 menu items', () => {
-      // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group.
+      // Added intellig.branch.focusOnGraph in `inline` group.
       assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
     });
 
@@ -253,8 +253,8 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
     });
 
     it('should have exactly 12 menu items', () => {
-      // Wave D / D2 — added intellig.branch.focusOnGraph in `inline` group.
-      // Wave K / WK-3 — added intellig.remoteBranch.trackBranch in `5_manage`
+      // Added intellig.branch.focusOnGraph in `inline` group.
+      // Added intellig.remoteBranch.trackBranch in `5_manage`
       // (smart-detect: switches to existing local OR creates tracking branch).
       assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
     });

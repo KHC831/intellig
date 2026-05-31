@@ -126,7 +126,7 @@ describe('ConfigurationService', () => {
   });
 
   describe('inspect (Wave 135 R5 / M1; coverage added in Wave 135 R6 / L1)', () => {
-    // The mock's per-scope tracker (Wave 135 R5 / M2) is exercised
+    // The mock's per-scope tracker is exercised
     // here directly. These specs pin the contract that other
     // services (KeymapService) and migrations (runKeymapMigration)
     // depend on for distinguishing user-set from schema-default.

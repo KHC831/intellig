@@ -15,7 +15,7 @@
  *   - the `scrollIntoView` call is GUARDED by `if (!fullyVisible)` rather than
  *     firing unconditionally.
  *
- * The smooth animation itself is intentionally retained (D5), so the guard
+ * The smooth animation itself is intentionally retained, so the guard
  * checks for the visibility gate, NOT for the absence of `behavior: 'smooth'`.
  *
  * _Validates: Requirements 1.2, 2.3, 5.1, 5.2_
@@ -170,7 +170,7 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
 }
 
 /**
- * Structural contract test for the "highlight always applies" behavior (D4).
+ * Structural contract test for the "highlight always applies" behavior.
  *
  * Decision D4 of the design ("Keep the highlight-scroll emphasis in all cases,
  * including when no scroll happens") requires that the `highlight-scroll`
@@ -264,13 +264,13 @@ describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', 
 });
 
 /**
- * Structural guard test for the `autoScrollOnLoad` delegation (Task 5.1).
+ * Structural guard test for the `autoScrollOnLoad` delegation.
  *
  * The jump-to-hash full-re-render path embeds `data-scroll-to-commit` on the
  * `.graph-panel`, and the inline IIFE `autoScrollOnLoad` reads that attribute
  * after the re-render and calls the shared `scrollToCommit(targetHash)`. Because
  * it DELEGATES to the shared function rather than duplicating scroll logic, it
- * inherits the visibility gate added in Task 2 for free.
+ * inherits the visibility gate added in for free.
  *
  * This guard pins that delegation so a future refactor cannot reintroduce a
  * separate/unconditional `scrollIntoView` inside `autoScrollOnLoad` (which would
