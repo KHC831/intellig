@@ -32,11 +32,12 @@ caught by the Layer 1–3 snapshot suite alone.
 | State                       | Shape (one-line)                                                              | Coverage                                          | Section |
 | --------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------- | ------- |
 | Default                     | Attached HEAD on a branch; clean working tree                                 | Covered by all existing tests                     | —       |
-| Detached HEAD               | `HEAD` is a raw SHA, no symbolic ref; `git branch` shows `(HEAD detached at <sha>)` | **Wave F covers** (snap-8a/8b + parseBranches-detached-1..5 + property) | §1      |
-| In-progress merge           | `MERGE_HEAD` exists; `git status` reports `You have unmerged paths`           | NOT covered — Wave G candidate                    | §2      |
-| In-progress rebase          | `.git/rebase-merge/` or `.git/rebase-apply/` exists; `git branch` shows `(no branch, rebasing <onto>)` | NOT covered — Wave G candidate                    | §3      |
-| In-progress cherry-pick     | `.git/CHERRY_PICK_HEAD` exists; `git branch` shows `(no branch, cherry-pick of <sha>)` while paused | NOT covered — Wave G candidate                    | §4      |
-| Empty repo                  | `HEAD` exists but no objects; `git log` returns nothing; `git branch` empty   | Partially covered — Wave G audit candidate        | §5      |
+| Detached HEAD               | `HEAD` is a raw SHA, no symbolic ref; `git branch` shows `(HEAD detached at <sha>)` | Covered (snap-8a/8b + parseBranches-detached-1..5 + property) | §1      |
+| In-progress merge           | `MERGE_HEAD` exists; `git status` reports `You have unmerged paths`           | Covered (status-bar verb-form label)              | §2      |
+| In-progress rebase          | `.git/rebase-merge/` or `.git/rebase-apply/` exists; `git branch` shows `(no branch, rebasing <onto>)` | Covered (status-bar verb-form label + property test) | §3      |
+| In-progress cherry-pick     | `.git/CHERRY_PICK_HEAD` exists; `git branch` shows `(no branch, cherry-pick of <sha>)` while paused | Covered (status-bar verb-form label + SHA abbreviation property) | §4      |
+| In-progress revert          | `.git/REVERT_HEAD` exists; revert paused on conflict                          | Covered (status-bar verb-form label)              | §4.5    |
+| Empty repo                  | `HEAD` exists but no objects; `git log` returns nothing; `git branch` empty   | Covered (initial-branch surfacing in status bar)  | §5      |
 
 Notes on the table:
 
@@ -327,62 +328,171 @@ Test coverage:
 
 ---
 
-## §2 In-progress merge — NOT covered (Wave G candidate)
+## §2 In-progress merge — Covered
 
 `MERGE_HEAD` exists; `git status` reports unmerged paths. The
-parser-level classification is covered (`parseRepositoryState
-('merge in progress') → 'merging'`), but the downstream rendering
-+ interaction chain has not been audited end-to-end against this
-state. Open questions for Wave G:
+status-bar Git widget renders a verb-form label
+"**Merging \<target\>**" (or just "Merging" when the target name
+isn't surfaceable from `MERGE_HEAD` alone — the file contains a
+SHA, not a name).
 
-- Does "Branches → New Branch From here" pick the right start-point
-  during a paused merge?
-- Are the branch chips rendered correctly when the active commit is
-  the merge commit-in-progress (which has no SHA yet)?
-- What does the log graph show for the in-progress merge node?
+Coverage:
+
+- **Layer 1 (unit)**: `src/test/unit/services/StatusBarService.test.ts`
+  → "in-progress labels" suite, "Merging feature/foo" + "falls back
+  to verb-only label when target is unknown" cases.
+- **Layer 1 (unit)**: `src/test/unit/utils/gitInProgress.test.ts`
+  → "classifies merge — MERGE_HEAD only, no target name" exercises
+  the on-disk reader directly against a tmpdir-scoped fake `.git/`.
+- **Layer 2 (property)**: `src/test/property/inProgressTargetParse.property.test.ts`
+  → invariant "target never starts with refs/heads/" + "never
+  contains a newline" — covers the merge path indirectly when the
+  reader's precedence rules fall through to `MERGE_HEAD`.
+
+Open questions deferred to a future wave: branch-chip rendering on
+the merge commit-in-progress (no SHA yet) and "Branches → New Branch
+From here" start-point selection during a paused merge.
 
 ---
 
-## §3 In-progress rebase — NOT covered (Wave G candidate)
+## §3 In-progress rebase — Covered
 
 `.git/rebase-merge/` or `.git/rebase-apply/` exists. `git branch`
-emits `(no branch, rebasing <onto>)` — already covered by the Wave F
-parenthesized-pseudo-ref filter, so the parser-level shield holds in
-this state too. The end-to-end rendering chain (status bar text,
-"Continue / Abort" buttons, partial-commit display) is unaudited.
-Open questions for Wave G:
+emits `(no branch, rebasing <onto>)` — already filtered at the
+`parseBranches` parenthesized-pseudo-ref guard, so the parser-level
+shield holds in this state. The status-bar Git widget renders
+"**Rebasing onto \<target\>**" with the target sourced from
+`rebase-merge/head-name` (interactive) or `rebase-apply/head-name`
+(legacy am-style), with `refs/heads/` stripped.
 
-- Are the rebase action buttons (`Continue`, `Skip`, `Abort`)
-  surfaced consistently with IntelliJ's UI?
-- Does the "Branches" popup correctly show the rebase target as the
-  contextual branch label rather than the parenthesized pseudo-ref?
-- What happens to the log graph when the user is mid-rebase and the
-  todo list has been partially applied?
+Coverage:
+
+- **Layer 1 (unit)**: `src/test/unit/services/StatusBarService.test.ts`
+  → "renders 'Rebasing onto main' prefix when state=rebasing with target".
+- **Layer 1 (unit)**: `src/test/unit/utils/gitInProgress.test.ts`
+  → "classifies rebase via rebase-merge/" + "classifies rebase via
+  rebase-apply/" + "prefers rebase over merge when both rebase-merge/
+  and MERGE_HEAD exist" (precedence rule).
+- **Layer 2 (property)**: `src/test/property/inProgressTargetParse.property.test.ts`
+  → "target never surfaces a parenthesized pseudo-ref" — generated
+  inputs include `(no branch, rebasing <foo>)` shapes git emits
+  during transient states.
+
+Open questions deferred: rebase action-button surfacing
+(`Continue` / `Skip` / `Abort`) and partial-commit log-graph
+treatment during a paused interactive rebase.
 
 ---
 
-## §4 In-progress cherry-pick — NOT covered (Wave G candidate)
+## §4 In-progress cherry-pick — Covered
 
 `.git/CHERRY_PICK_HEAD` exists. `git branch` emits `(no branch,
-cherry-pick of <sha>)` while paused — same parser shield as §3.
-End-to-end rendering chain unaudited. Open questions for Wave G:
+cherry-pick of <sha>)` while paused — same parser shield as §3. The
+status-bar Git widget renders "**Cherry-picking \<short-sha\>**" with
+the SHA abbreviated through `git rev-parse --short` (one git CLI
+invocation per non-idle reload, gated through `buildGitArgs`).
 
-- Is the cherry-pick paused state visible from the status bar?
-- Does the conflict-resolution flow surface the right "current"
-  commit (the one being cherry-picked, not HEAD)?
-- Are the `Continue` / `Abort` actions wired to
-  `cherryPickContinue` / `cherryPickAbort` consistently?
+Coverage:
+
+- **Layer 1 (unit)**: `src/test/unit/services/StatusBarService.test.ts`
+  → "renders 'Cherry-picking abc1234' prefix when state=cherry-picking with sha".
+- **Layer 1 (unit)**: `src/test/unit/utils/gitInProgress.test.ts`
+  → "classifies cherry-pick — CHERRY_PICK_HEAD, abbreviates SHA via
+  callback".
+- **Layer 2 (property)**: `src/test/property/inProgressTargetParse.property.test.ts`
+  → "SHA marker target is always abbreviated to 7 chars" — generates
+  arbitrary 40-char hex SHAs and verifies `target === sha.slice(0, 7)`.
+
+Open questions deferred: conflict-resolution flow exposes the
+"current" commit (not HEAD) and `Continue` / `Abort` action wiring.
 
 ---
 
-## §5 Empty repo — Partially covered (Wave G audit candidate)
+## §4.5 In-progress revert — Covered
+
+`.git/REVERT_HEAD` exists during a paused revert. The status-bar
+Git widget renders "**Reverting \<short-sha\>**" with the SHA
+abbreviated through the same callback as §4.
+
+Coverage:
+
+- **Layer 1 (unit)**: `src/test/unit/services/StatusBarService.test.ts`
+  → "renders 'Reverting abc1234' prefix when state=reverting with sha".
+- **Layer 1 (unit)**: `src/test/unit/utils/gitInProgress.test.ts`
+  → "classifies revert — REVERT_HEAD, abbreviates SHA via callback".
+
+The revert state was not flagged in earlier landmaps because there
+was no parser handling for it; both the parser-level classification
+(`reverting`) and the downstream rendering land together.
+
+---
+
+## §5 Empty repo — Covered
 
 `HEAD` exists (initialised by `git init`) but no objects yet. `git
 log` returns nothing; `git branch` returns nothing; `git symbolic-ref
 HEAD` returns the initial-branch ref (`refs/heads/main` or
 `refs/heads/master` depending on git config) but the ref itself
-does not yet point at any object. Some parser-level paths are
-covered (e.g. `parseLog('')` returns `[]`), but the downstream
-rendering chain — what does the log graph show? what does the
-branches popup show? what does the status bar show? — has not been
-audited as a single state. Wave G's audit candidate.
+does not yet point at any object.
+
+`GitService.loadRepository` splits the HEAD-resolution path so an
+empty repo (`symbolic-ref` succeeds, `rev-parse HEAD` exits 128)
+still surfaces the initial-branch name. Without the split, the
+catch-block swallowed both calls and left `head` undefined, which
+fell back to a bare "No commits yet" status-bar label. The status
+bar now reads "**\<initial-branch\> (no commits yet)**" — useful
+signal that the user's `init.defaultBranch` is configured and where
+their first commit will land.
+
+**Decision (locked)**: SKIP `git config --get init.defaultBranch`.
+`git symbolic-ref HEAD` already returns the configured initial
+branch in any empty repo (git resolves `init.defaultBranch` at
+`git init` time). One git-CLI call covers both default ("main") and
+overridden ("trunk", "master") configurations.
+
+Coverage:
+
+- **Layer 1 (unit)**: `src/test/unit/services/GitService.test.ts`
+  → "GitService — empty-repo HEAD surfacing" suite, exercising both
+  `main` and `trunk` initial-branch shapes plus the corrupt-HEAD,
+  detached, and truly-headless guard cases.
+- **Layer 1 (unit)**: `src/test/unit/services/StatusBarService.test.ts`
+  → "empty-repo label" suite, asserting the `(no commits yet)`
+  rendering, `isEmptyRepo` state field, and tooltip narration.
+
+Open questions deferred: log-graph treatment of an empty repo
+(currently shows nothing; visually fine) and branches-popup state
+when no branches exist beyond the unborn initial.
+
+---
+
+## §6 Parity-debt — repo-state lifecycle enum
+
+`IStatusBarState` carries a growing flag-set of mutually-exclusive
+lifecycle bits — `isDetached`, `isEmptyRepo`, and likely future flags
+for bisecting / worktree-locked / submodule-uninitialised. Three
+flags is the size where a discriminated-union enum stops being
+premature and starts paying for itself: `repoLifecycle: 'normal' |
+'detached' | 'empty' | 'bisecting' | …`.
+
+The refactor was scoped out of the in-progress-label work because:
+
+1. It would touch every `_buildState` / `_statesEqual` / `_updateDisplay`
+   path and every snapshot test that asserts on the flag-set shape.
+2. The replacement type would need to extend across the parallel
+   surface in `BranchPopup._updateStatusBar` (the empty-repo parity
+   fix), so the change is wider than just `StatusBarService`.
+
+A dedicated state-shape refactor wave should:
+
+- Introduce a `RepoLifecycle` discriminated union beside the current
+  flag-set.
+- Migrate `_buildState` to compute it once, pass through
+  `_updateDisplay` as the single source of truth.
+- Drop the flag fields; tests follow.
+- Add an exhaustiveness assert (analogous to `assertNeverInProgressKind`
+  in `StatusBarService`) so the next lifecycle bit fails to compile
+  rather than being silently swallowed.
+
+This entry exists so future readers don't reach the same finding and
+re-open the discussion. The trade-off is locked.

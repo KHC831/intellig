@@ -8,6 +8,34 @@ import type { GitCli } from '../gitCli';
 export type RepositoryState = 'idle' | 'merging' | 'rebasing' | 'cherry-picking' | 'reverting';
 
 /**
+ * Payload describing an in-progress merge / rebase / cherry-pick / revert.
+ * Surfaced as the verb-form prefix on the StatusBar git widget
+ * (e.g. "Merging feature/foo", "Rebasing onto main",
+ * "Cherry-picking abc1234", "Reverting abc1234").
+ */
+export interface IInProgressOperation {
+  /**
+   * Operation kind. Invariant: must equal `IRepository.state` when both are
+   * set; the duplication exists so consumers reading `inProgress` don't have
+   * to also read `state`. The two fields move in lockstep through
+   * `loadRepository`.
+   */
+  kind: Exclude<RepositoryState, 'idle'>;
+  /**
+   * Target ref/branch name when known (e.g. "main", "feature/foo"); falls
+   * back to the short SHA for cherry-pick / revert. Undefined for plain
+   * merges where neither a name nor a SHA-based label is available.
+   */
+  target?: string;
+  /**
+   * Abbreviated SHA, set only when the underlying marker carries a 40-char
+   * hash (cherry-pick / revert). For rebase/merge `target` already holds
+   * a friendly name so this stays undefined.
+   */
+  targetSha?: string;
+}
+
+/**
  * File status codes
  */
 export type StatusCode = 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?' | '!' | ' ';
@@ -89,6 +117,11 @@ export interface IRepository {
   head?: IHead;
   remotes: IRemote[];
   submodules: ISubmodule[];
+  /**
+   * Payload for an in-progress merge/rebase/cherry-pick/revert. Undefined
+   * when `state === 'idle'`. Drives the StatusBar verb-form prefix.
+   */
+  inProgress?: IInProgressOperation;
 }
 
 /**

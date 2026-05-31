@@ -684,10 +684,27 @@ export class BranchPopup {
     }
   }
 
-  /** Update the status bar with current branch information. */
+  /**
+   * Update the status bar with current branch information.
+   *
+   * Cross-surface parity with `StatusBarService`: when `head.name` is set
+   * but `head.commit` is empty (the empty-repo shape — `GitService.loadRepository`
+   * surfaces the configured initial branch even before the first commit),
+   * render the same `$(git-branch) <name> (no commits yet)` label and
+   * tooltip. Without this, BranchPopup's own status-bar item silently
+   * drops the "no commits yet" treatment and the two surfaces disagree
+   * for the same repo state.
+   */
   private _updateStatusBar(repo: IRepository): void {
     if (repo.head?.name) {
       const branchName = repo.head.name.replace('refs/heads/', '');
+      // Empty-repo path: head.name set, head.commit empty.
+      if (!repo.head.commit) {
+        this._statusBarItem.text = `$(git-branch) ${branchName} (no commits yet)`;
+        this._statusBarItem.tooltip = `On branch ${branchName} — no commits yet. Your first commit will create this branch.`;
+        this._statusBarItem.show();
+        return;
+      }
       let statusText = `$(git-branch) ${branchName}`;
       if (repo.head.ahead > 0 || repo.head.behind > 0) {
         const indicators: string[] = [];

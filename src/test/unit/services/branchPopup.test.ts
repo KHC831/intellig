@@ -957,3 +957,113 @@ describe('BranchPopup TL-72 — action-path toast routes through sanitizeGitErro
     }
   });
 });
+
+// BranchPopup runs its own status-bar item parallel to StatusBarService.
+// When the empty-repo shape from GitService.loadRepository is
+// `{ name: 'main', commit: '' }`, branch on `name && !commit` first and
+// render the same `(no commits yet)` label as StatusBarService — without
+// this guard the two surfaces silently disagree.
+describe('BranchPopup — empty-repo status-bar parity', () => {
+  it('renders "$(git-branch) <name> (no commits yet)" for an empty repo', async () => {
+    const repoChangeEmitter = new EventEmitter<IRepository>();
+    const emptyRepo: IRepository = {
+      rootUri: Uri.file('/test/empty-repo'),
+      state: 'idle',
+      head: { name: 'main', commit: '', ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    };
+    const gitService = {
+      getRepositories: () => [emptyRepo],
+      getRepository: async () => emptyRepo,
+      onDidChangeRepository: repoChangeEmitter.event,
+    } as unknown as IGitService;
+
+    const originalCreate = vscode.window.createStatusBarItem;
+    let capturedItem:
+      | {
+          text: string;
+          tooltip: string | undefined;
+          command: unknown;
+          show: () => void;
+          hide: () => void;
+          dispose: () => void;
+        }
+      | undefined;
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = () => {
+      capturedItem = {
+        text: '',
+        tooltip: undefined,
+        command: undefined,
+        show: () => {},
+        hide: () => {},
+        dispose: () => {},
+      };
+      return capturedItem;
+    };
+
+    try {
+      const popup = new BranchPopup(gitService);
+      await new Promise((r) => setTimeout(r, 10));
+      assert.ok(capturedItem, 'expected status-bar item');
+      assert.ok(
+        capturedItem.text.includes('$(git-branch) main (no commits yet)'),
+        `expected empty-repo label, got "${capturedItem.text}"`
+      );
+      assert.ok(
+        typeof capturedItem.tooltip === 'string' && capturedItem.tooltip.includes('no commits yet'),
+        `expected empty-repo tooltip, got ${JSON.stringify(capturedItem.tooltip)}`
+      );
+      popup.dispose();
+    } finally {
+      (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
+        originalCreate;
+    }
+  });
+
+  it('renders the configured initial branch (e.g. "trunk"), not always "main"', async () => {
+    const repoChangeEmitter = new EventEmitter<IRepository>();
+    const trunkRepo: IRepository = {
+      rootUri: Uri.file('/test/trunk-repo'),
+      state: 'idle',
+      head: { name: 'trunk', commit: '', ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    };
+    const gitService = {
+      getRepositories: () => [trunkRepo],
+      getRepository: async () => trunkRepo,
+      onDidChangeRepository: repoChangeEmitter.event,
+    } as unknown as IGitService;
+
+    const originalCreate = vscode.window.createStatusBarItem;
+    let capturedItem: { text: string; tooltip: string | undefined } | undefined;
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = () => {
+      capturedItem = {
+        text: '',
+        tooltip: undefined,
+      };
+      Object.assign(capturedItem, {
+        command: undefined,
+        show: () => {},
+        hide: () => {},
+        dispose: () => {},
+      });
+      return capturedItem;
+    };
+
+    try {
+      const popup = new BranchPopup(gitService);
+      await new Promise((r) => setTimeout(r, 10));
+      assert.ok(capturedItem);
+      assert.ok(
+        capturedItem.text.includes('trunk (no commits yet)'),
+        `expected trunk in label, got "${capturedItem.text}"`
+      );
+      popup.dispose();
+    } finally {
+      (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
+        originalCreate;
+    }
+  });
+});

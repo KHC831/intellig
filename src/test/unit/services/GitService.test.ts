@@ -6089,3 +6089,190 @@ diff --git a/file2.ts b/file2.ts
     });
   });
 });
+
+// ─── empty-repo HEAD surfacing + corrupt/detached/headless guards ────────────
+
+describe('GitService — empty-repo HEAD surfacing', () => {
+  let gitService: GitService;
+  let mockGitCli: MockGitCli;
+
+  beforeEach(() => {
+    gitService = new GitService();
+    mockGitCli = new MockGitCli();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    (gitService as any)._gitCli = mockGitCli;
+  });
+
+  afterEach(() => {
+    gitService.dispose();
+  });
+
+  it('surfaces head.name from symbolic-ref when rev-parse HEAD fails (empty repo)', async () => {
+    // Empty-repo shape:
+    //   `git symbolic-ref HEAD` → `refs/heads/main` (exit 0)
+    //   `git rev-parse HEAD`    → `fatal: ambiguous argument 'HEAD'` (exit 128)
+    mockGitCli.setMockResult('symbolic-ref HEAD', {
+      exitCode: 0,
+      stdout: 'refs/heads/main\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('rev-parse HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr:
+        "fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.\n",
+    });
+    mockGitCli.setMockResult('status', { exitCode: 0, stdout: 'On branch main\n', stderr: '' });
+    mockGitCli.setMockResult('remote -v', { exitCode: 0, stdout: '', stderr: '' });
+
+    const repo = await (
+      gitService as unknown as { loadRepository(rootPath: string): Promise<IRepository> }
+    ).loadRepository('/test/repo');
+
+    assert.ok(repo, 'expected a repository result');
+    assert.ok(repo.head, 'expected repo.head to be set even when rev-parse HEAD failed');
+    assert.strictEqual(repo.head.name, 'main', 'expected branch name from symbolic-ref');
+    assert.strictEqual(repo.head.commit, '', 'expected empty commit for empty repo');
+  });
+
+  it('surfaces head.name for a non-default initial branch (e.g. trunk)', async () => {
+    mockGitCli.setMockResult('symbolic-ref HEAD', {
+      exitCode: 0,
+      stdout: 'refs/heads/trunk\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('rev-parse HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr:
+        "fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree.\n",
+    });
+    mockGitCli.setMockResult('status', { exitCode: 0, stdout: 'On branch trunk\n', stderr: '' });
+    mockGitCli.setMockResult('remote -v', { exitCode: 0, stdout: '', stderr: '' });
+
+    const repo = await (
+      gitService as unknown as { loadRepository(rootPath: string): Promise<IRepository> }
+    ).loadRepository('/test/repo');
+
+    assert.ok(repo.head);
+    assert.strictEqual(repo.head.name, 'trunk');
+    assert.strictEqual(repo.head.commit, '');
+  });
+
+  // When rev-parse fails with NON-empty-repo stderr (corrupt HEAD, missing
+  // object, permission error), do NOT promote the symbolic-ref-only path
+  // to "empty repo". Leave head undefined so the UI falls back to its
+  // indeterminate-state treatment instead of pretending the repo is
+  // freshly initialised.
+  it('corrupt HEAD stderr leaves head undefined (NOT empty-repo)', async () => {
+    mockGitCli.setMockResult('symbolic-ref HEAD', {
+      exitCode: 0,
+      stdout: 'refs/heads/main\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('rev-parse HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr: 'fatal: bad object HEAD\nerror: refs/heads/main does not point to a valid object!\n',
+    });
+    mockGitCli.setMockResult('status', { exitCode: 0, stdout: '', stderr: '' });
+    mockGitCli.setMockResult('remote -v', { exitCode: 0, stdout: '', stderr: '' });
+
+    const repo = await (
+      gitService as unknown as { loadRepository(rootPath: string): Promise<IRepository> }
+    ).loadRepository('/test/repo');
+
+    assert.ok(repo, 'expected repository');
+    assert.strictEqual(
+      repo.head,
+      undefined,
+      'expected head undefined for corrupt-HEAD stderr (NOT empty-repo)'
+    );
+  });
+
+  it('older "fatal: bad default revision" stderr still recognised as empty', async () => {
+    mockGitCli.setMockResult('symbolic-ref HEAD', {
+      exitCode: 0,
+      stdout: 'refs/heads/master\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('rev-parse HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr: "fatal: bad default revision 'HEAD'\n",
+    });
+    mockGitCli.setMockResult('status', {
+      exitCode: 0,
+      stdout: 'On branch master\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('remote -v', { exitCode: 0, stdout: '', stderr: '' });
+
+    const repo = await (
+      gitService as unknown as { loadRepository(rootPath: string): Promise<IRepository> }
+    ).loadRepository('/test/repo');
+
+    assert.ok(repo.head, 'expected head set for older-git empty-repo signature');
+    assert.strictEqual(repo.head.name, 'master');
+    assert.strictEqual(repo.head.commit, '');
+  });
+
+  // Detached HEAD regression: symbolic-ref throws, rev-parse returns a
+  // SHA. Pre-split this path returned head with `name: undefined,
+  // commit: <sha>`; the new try/catch split must not break it.
+  it('detached HEAD: symbolic-ref fails, rev-parse returns SHA → head.commit set, name undefined', async () => {
+    mockGitCli.setMockResult('symbolic-ref HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr: 'fatal: ref HEAD is not a symbolic ref\n',
+    });
+    mockGitCli.setMockResult('rev-parse HEAD', {
+      exitCode: 0,
+      stdout: 'deadbeefcafebabe0000000000000000deadbeef\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('status', {
+      exitCode: 0,
+      stdout: 'HEAD detached at deadbeef\n',
+      stderr: '',
+    });
+    mockGitCli.setMockResult('remote -v', { exitCode: 0, stdout: '', stderr: '' });
+
+    const repo = await (
+      gitService as unknown as { loadRepository(rootPath: string): Promise<IRepository> }
+    ).loadRepository('/test/repo');
+
+    assert.ok(repo.head, 'expected head set for detached-HEAD path');
+    assert.strictEqual(repo.head.name, undefined, 'expected name undefined for detached HEAD');
+    assert.strictEqual(
+      repo.head.commit,
+      'deadbeefcafebabe0000000000000000deadbeef',
+      'expected commit SHA from rev-parse'
+    );
+  });
+
+  // Truly-headless: BOTH symbolic-ref and rev-parse exit 128. Pre-split
+  // this was the only failure path; post-split it's a corner. Pin the
+  // contract that head stays undefined.
+  it('both symbolic-ref AND rev-parse fail → head undefined', async () => {
+    mockGitCli.setMockResult('symbolic-ref HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr: 'fatal: ref HEAD is not a symbolic ref\n',
+    });
+    mockGitCli.setMockResult('rev-parse HEAD', {
+      exitCode: 128,
+      stdout: '',
+      stderr: 'fatal: not a git repository\n',
+    });
+    mockGitCli.setMockResult('status', { exitCode: 128, stdout: '', stderr: '' });
+    mockGitCli.setMockResult('remote -v', { exitCode: 0, stdout: '', stderr: '' });
+
+    const repo = await (
+      gitService as unknown as { loadRepository(rootPath: string): Promise<IRepository> }
+    ).loadRepository('/test/repo');
+
+    assert.ok(repo, 'expected repository result even when both HEAD probes fail');
+    assert.strictEqual(repo.head, undefined, 'expected head undefined when fully headless');
+  });
+});

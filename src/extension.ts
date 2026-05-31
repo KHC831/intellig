@@ -1649,16 +1649,25 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   });
 
-  // T3-13: stub commands for IntelliJ keymap parity. Each surfaces a
-  // "Coming soon" toast rather than crashing the keybinding resolver when
-  // the underlying feature hasn't shipped yet. The functionality will be
-  // filled in by the referenced Tier-2/3 task.
+  // F4 / Local-Changes "Jump to Source".
+  //
+  // Argument shapes (see `resolveLocalChangesOpenFileTarget`):
+  //   - explicit `vscode.Uri`  (CommitToolWindow when path is already a URI)
+  //   - explicit string path   (CommitToolWindow's normal `message.path`)
+  //   - no argument            (F4 keybinding from a focused context)
+  //
+  // The IChangelistService doesn't yet expose a `getSelection()` API, so
+  // the no-argument case currently falls back to a hint toast rather
+  // than plumbing new selection state through.
   const localChangesOpenFileCommand = registerLoggedCommand(
     'intellig.localChanges.openFile',
-    () => {
-      void vscode.window.showInformationMessage(
-        'Jump to Source from Local Changes is coming in a later release.'
-      );
+    async (arg?: vscode.Uri | string) => {
+      const target = resolveLocalChangesOpenFileTarget(arg, undefined);
+      if (target) {
+        await vscode.commands.executeCommand('vscode.open', target);
+        return;
+      }
+      void vscode.window.showInformationMessage('Select a file in Local Changes first.');
     }
   );
   // NOTE: `intellig.toolWindow.jumpToHash` is the real T3-06 implementation
@@ -5352,6 +5361,51 @@ export function resolveExplorerFileUri(
   }
   if (activeEditorUri && activeEditorUri.scheme === 'file') {
     return activeEditorUri;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the target URI for `intellig.localChanges.openFile` (F4 /
+ * "Jump to Source" from Local Changes).
+ *
+ * The command is invoked from three sources:
+ *   - CommitToolWindow's webview postMessage (path passed as `string`).
+ *   - Future explorer-context entries (URI passed directly).
+ *   - The F4 keybinding from a focused Local-Changes view (no argument;
+ *     the caller is expected to wire `currentSelection` from whatever
+ *     selection state is reachable — until that exists, this case
+ *     returns `undefined` and the command handler falls back to a toast
+ *     hinting the user to select a file first).
+ *
+ * Centralised so unit tests can verify the resolution rules without
+ * spinning up the full extension host.
+ *
+ * @param arg - The argument forwarded by VS Code to the command handler.
+ *   `vscode.Uri` or string from explicit invocations; `undefined` for
+ *   bare keybinding presses.
+ * @param currentSelection - The path of the currently-selected
+ *   Local-Changes row, when known. Empty strings are treated the same as
+ *   `undefined` so an unset selection accessor does not produce a bogus
+ *   `Uri.file('')`.
+ * @returns The URI to pass to `vscode.open`, or `undefined` when no
+ *   target is reachable (caller surfaces a toast).
+ */
+export function resolveLocalChangesOpenFileTarget(
+  arg: vscode.Uri | string | undefined,
+  currentSelection: string | undefined
+): vscode.Uri | undefined {
+  if (arg !== undefined) {
+    if (typeof arg === 'string') {
+      if (arg.length === 0) {
+        return undefined;
+      }
+      return vscode.Uri.file(arg);
+    }
+    return arg;
+  }
+  if (currentSelection !== undefined && currentSelection.length > 0) {
+    return vscode.Uri.file(currentSelection);
   }
   return undefined;
 }

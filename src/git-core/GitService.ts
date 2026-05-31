@@ -60,6 +60,7 @@ import {
   getTagFormat,
 } from './gitParser';
 import { sortCommitsStable } from './commitSort';
+import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
@@ -624,15 +625,46 @@ export class GitService implements IGitService, IGitServiceCli {
   private async loadRepository(rootPath: string): Promise<IRepository> {
     const options: IGitCommandOptions = { cwd: rootPath };
 
-    // Get HEAD information
+    // Get HEAD information.
+    //
+    // Split the symbolic-ref / rev-parse paths so an empty repo
+    // (`symbolic-ref` succeeds with `refs/heads/<initial>`, `rev-parse HEAD`
+    // fails because no commit exists yet) still surfaces the initial
+    // branch name as `(no commits yet)`.
+    //
+    // Distinguish empty-repo from corrupt-HEAD via the rev-parse stderr:
+    //   - Empty repo: stderr contains `fatal: ambiguous argument 'HEAD'`
+    //     or `fatal: bad default revision`. Surface the symbolic branch
+    //     with empty commit.
+    //   - Corrupt HEAD / FS error / packed-refs mismatch: stderr does NOT
+    //     match the empty-repo signature. Leave head undefined so the UI
+    //     falls back to its indeterminate-state treatment instead of
+    //     promising the user a phantom "first commit will land here".
     let head;
+    let branchResult;
     try {
-      const branchResult = await this._gitCli.exec(['symbolic-ref', 'HEAD'], options);
-      const commitResult = await this._gitCli.exec(['rev-parse', 'HEAD'], options);
+      branchResult = await this._gitCli.exec(['symbolic-ref', 'HEAD'], options);
+    } catch {
+      // symbolic-ref itself fails on detached HEAD (typically exit 128).
+      branchResult = undefined;
+    }
+    let commitResult;
+    try {
+      commitResult = await this._gitCli.exec(['rev-parse', 'HEAD'], options);
+    } catch {
+      // rev-parse HEAD fails on empty repos and (rarely) on corrupted
+      // refs. Recovery is gated below by the empty-repo stderr check.
+      commitResult = undefined;
+    }
 
+    const branchSucceeded = branchResult?.exitCode === 0;
+    const commitSucceeded = commitResult?.exitCode === 0;
+    const isEmptyRepoSignature =
+      branchSucceeded && !commitSucceeded && isEmptyRepoStderr(commitResult?.stderr);
+
+    if (commitSucceeded || isEmptyRepoSignature) {
       let upstreamResult;
       let aheadBehindResult;
-
       try {
         upstreamResult = await this._gitCli.exec(
           ['rev-parse', '--abbrev-ref', '@{upstream}'],
@@ -649,14 +681,14 @@ export class GitService implements IGitService, IGitServiceCli {
       }
 
       head = parseHead(
-        branchResult.stdout,
-        commitResult.stdout,
+        branchSucceeded && branchResult ? branchResult.stdout : '',
+        commitSucceeded && commitResult ? commitResult.stdout : '',
         upstreamResult?.exitCode === 0 ? upstreamResult.stdout : undefined,
         aheadBehindResult?.exitCode === 0 ? aheadBehindResult.stdout : undefined
       );
-    } catch {
-      // Repository might be empty or in detached HEAD state
     }
+    // When BOTH probes fail OR rev-parse fails with a non-empty-repo
+    // stderr, leave head undefined.
 
     // Get repository state
     let state: RepositoryState = 'idle';
@@ -665,6 +697,49 @@ export class GitService implements IGitService, IGitServiceCli {
       state = parseRepositoryState(statusResult.stdout);
     } catch {
       // Ignore errors
+    }
+
+    // When state is non-idle, read on-disk in-progress markers
+    // (`MERGE_HEAD` / `rebase-merge/head-name` / `CHERRY_PICK_HEAD` /
+    // `REVERT_HEAD`) so the StatusBar can render verb-form labels with
+    // the operation's target ("Rebasing onto main", "Cherry-picking
+    // abc1234"). Cherry-pick + revert markers carry a 40-char SHA;
+    // abbreviate via `git rev-parse --short` (single git invocation per
+    // non-idle reload, skipped entirely for idle repos).
+    let inProgress;
+    if (state !== 'idle') {
+      const gitDir = path.join(rootPath, '.git');
+      try {
+        inProgress = await readInProgressOperation(gitDir, async (sha) => {
+          const result = await this._gitCli.exec(
+            buildGitArgs('rev-parse', ['--short'], [sha]),
+            options
+          );
+          return result.exitCode === 0 ? result.stdout.trim() : sha.substring(0, 7);
+        });
+      } catch {
+        // Read failures fall through; the verb-only fallback in
+        // StatusBarService still renders a useful label without the target.
+      }
+    }
+
+    // Invariant: when both `state` and `inProgress` are populated, their
+    // classifications must agree. `state` is parsed from `git status` text;
+    // `inProgress.kind` is derived from on-disk marker files. They can
+    // drift if the parsers diverge or if a future repo-state gets added
+    // to one source but not the other. Surface the drift in dev/test
+    // without crashing production. The duplication of the kind enum is
+    // intentional and locked: see `IInProgressOperation.kind` JSDoc.
+    if (
+      inProgress !== undefined &&
+      inProgress.kind !== state &&
+      process.env.NODE_ENV !== 'production'
+    ) {
+      this._logger.warn('inProgress.kind out of sync with repository state', {
+        rootPath,
+        state,
+        inProgressKind: inProgress.kind,
+      });
     }
 
     // Get remotes
@@ -684,6 +759,7 @@ export class GitService implements IGitService, IGitServiceCli {
       head,
       remotes,
       submodules: [], // TODO: Parse submodules if needed
+      ...(inProgress ? { inProgress } : {}),
     };
 
     // Cache the repository
@@ -2897,7 +2973,30 @@ export function createGitService(gitPath?: string): GitService {
   return new GitService(gitPath);
 }
 
-/** T3-07 — Type guard for a single-char `git log --cherry-mark` output. */
+/** Type guard for a single-char `git log --cherry-mark` output. */
 function isCherryMark(value: string): value is import('./interfaces/IGitService').CherryMark {
   return value === '=' || value === '+' || value === '-' || value === '<' || value === '>';
+}
+
+/**
+ * Recognise the canonical "empty repo" stderr emitted by `git rev-parse
+ * HEAD` when the symbolic ref points at an unborn branch. Any other stderr
+ * (corrupt HEAD, missing object, permission error, packed-refs mismatch)
+ * must NOT be treated as empty-repo — `loadRepository` leaves `head`
+ * undefined in that case so the UI does not promise the user a phantom
+ * "first commit will land here" prompt.
+ *
+ * Two canonical signatures across git versions:
+ *   - `fatal: ambiguous argument 'HEAD': unknown revision or path not
+ *     in the working tree.` — git ≥ 2.0
+ *   - `fatal: bad default revision 'HEAD'` — older git releases
+ */
+function isEmptyRepoStderr(stderr: string | undefined): boolean {
+  if (!stderr) {
+    return false;
+  }
+  return (
+    stderr.includes("fatal: ambiguous argument 'HEAD'") ||
+    stderr.includes("fatal: bad default revision 'HEAD'")
+  );
 }

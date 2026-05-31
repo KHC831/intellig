@@ -4,7 +4,7 @@
  */
 
 import * as vscode from 'vscode';
-import { IRepository } from '../../git-core/interfaces/IGitService';
+import { IRepository, RepositoryState } from '../../git-core/interfaces/IGitService';
 
 /**
  * Status bar item click action types
@@ -43,6 +43,22 @@ export interface IStatusBarState {
   hasUpstream: boolean;
   /** Repository state (idle, merging, rebasing, etc.) */
   repositoryState: string;
+  /**
+   * True when the repository has a symbolic HEAD (`head.name` set) but no
+   * commits yet. Surfaced as `(no commits yet)` suffix in the status-bar
+   * label so the user knows the initial branch is configured but their
+   * first commit has not landed. Mirrors the existing `isDetached`
+   * precedent.
+   */
+  isEmptyRepo: boolean;
+  /**
+   * When the repo is mid-merge / mid-rebase / mid-cherry-pick / mid-revert,
+   * the verb-form prefix and target name to render. Sourced from
+   * `IRepository.inProgress`. Undefined when the repo is idle. `kind` is
+   * typed as `Exclude<RepositoryState, 'idle'>` so the StatusBar's verb
+   * switch can be exhaustively checked at compile time.
+   */
+  inProgress?: { kind: Exclude<RepositoryState, 'idle'>; target?: string };
 }
 
 /**

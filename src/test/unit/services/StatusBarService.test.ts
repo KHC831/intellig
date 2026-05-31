@@ -22,6 +22,7 @@ import * as assert from 'assert';
 import {
   IFetchResult,
   IGitService,
+  IInProgressOperation,
   IRepository,
   IHead,
 } from '../../../git-core/interfaces/IGitService';
@@ -128,6 +129,7 @@ describe('StatusBarService - Repository State Building', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: false,
       repositoryState: repository.state,
     };
@@ -306,6 +308,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -320,6 +323,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 2,
       behind: 1,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -334,6 +338,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 3,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -348,6 +353,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 0,
       behind: 5,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -361,6 +367,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 0,
       behind: 0,
       isDetached: true,
+      isEmptyRepo: false,
       commitHash: 'abc123d',
       hasUpstream: false,
       repositoryState: 'idle',
@@ -375,6 +382,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: false,
       repositoryState: 'idle',
     };
@@ -389,6 +397,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: false,
       repositoryState: 'idle',
     };
@@ -403,6 +412,7 @@ describe('StatusBarService - Display Text Building', () => {
       ahead: 2,
       behind: 1,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -455,6 +465,10 @@ describe('StatusBarService - Repository State Indicators', () => {
 });
 
 describe('StatusBarService - State Equality', () => {
+  // Mirror of the production `_statesEqual` (StatusBarService.ts).
+  // Compares the new `isEmptyRepo` and structured `inProgress.kind` /
+  // `inProgress.target` fields. Drift between this helper and the
+  // production implementation triggers the regression tests below.
   function statesEqual(a: IStatusBarState, b: IStatusBarState): boolean {
     return (
       a.branchName === b.branchName &&
@@ -463,9 +477,87 @@ describe('StatusBarService - State Equality', () => {
       a.isDetached === b.isDetached &&
       a.commitHash === b.commitHash &&
       a.hasUpstream === b.hasUpstream &&
-      a.repositoryState === b.repositoryState
+      a.repositoryState === b.repositoryState &&
+      a.isEmptyRepo === b.isEmptyRepo &&
+      a.inProgress?.kind === b.inProgress?.kind &&
+      a.inProgress?.target === b.inProgress?.target
     );
   }
+
+  it('detects different isEmptyRepo (only field changed)', () => {
+    const base: IStatusBarState = {
+      branchName: 'main',
+      ahead: 0,
+      behind: 0,
+      isDetached: false,
+      hasUpstream: false,
+      repositoryState: 'idle',
+      isEmptyRepo: false,
+    };
+    const empty: IStatusBarState = { ...base, isEmptyRepo: true };
+    assert.strictEqual(statesEqual(base, empty), false);
+  });
+
+  it('detects different inProgress.kind (only field changed)', () => {
+    const base: IStatusBarState = {
+      branchName: 'main',
+      ahead: 0,
+      behind: 0,
+      isDetached: false,
+      hasUpstream: false,
+      repositoryState: 'merging',
+      isEmptyRepo: false,
+      inProgress: { kind: 'merging', target: 'topic' },
+    };
+    const rebased: IStatusBarState = {
+      ...base,
+      repositoryState: 'rebasing',
+      inProgress: { kind: 'rebasing', target: 'topic' },
+    };
+    assert.strictEqual(statesEqual(base, rebased), false);
+  });
+
+  it('detects different inProgress.target (only field changed)', () => {
+    const base: IStatusBarState = {
+      branchName: 'main',
+      ahead: 0,
+      behind: 0,
+      isDetached: false,
+      hasUpstream: false,
+      repositoryState: 'rebasing',
+      isEmptyRepo: false,
+      inProgress: { kind: 'rebasing', target: 'topic-A' },
+    };
+    const switched: IStatusBarState = {
+      ...base,
+      inProgress: { kind: 'rebasing', target: 'topic-B' },
+    };
+    assert.strictEqual(statesEqual(base, switched), false);
+  });
+
+  it('equal inProgress payloads compare equal', () => {
+    const a: IStatusBarState = {
+      branchName: 'main',
+      ahead: 0,
+      behind: 0,
+      isDetached: false,
+      hasUpstream: false,
+      repositoryState: 'rebasing',
+      isEmptyRepo: false,
+      inProgress: { kind: 'rebasing', target: 'topic' },
+    };
+    const b: IStatusBarState = {
+      branchName: 'main',
+      ahead: 0,
+      behind: 0,
+      isDetached: false,
+      hasUpstream: false,
+      repositoryState: 'rebasing',
+      isEmptyRepo: false,
+      inProgress: { kind: 'rebasing', target: 'topic' },
+    };
+    assert.strictEqual(statesEqual(a, b), true);
+  });
 
   it('should detect equal states', () => {
     const state1: IStatusBarState = {
@@ -473,6 +565,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 2,
       behind: 1,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -482,6 +575,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 2,
       behind: 1,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -495,6 +589,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -504,6 +599,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -517,6 +613,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 2,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -526,6 +623,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 3,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -539,6 +637,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'idle',
     };
@@ -548,6 +647,7 @@ describe('StatusBarService - State Equality', () => {
       ahead: 0,
       behind: 0,
       isDetached: false,
+      isEmptyRepo: false,
       hasUpstream: true,
       repositoryState: 'merging',
     };
@@ -1049,5 +1149,343 @@ describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
           originalExecute;
       }
     });
+  });
+});
+
+// ─── UX-18: in-progress operation target labels ──────────────────────────────
+
+describe('StatusBarService — in-progress labels', () => {
+  interface StubStatusBarItem {
+    text: string;
+    tooltip: string | vscode.MarkdownString | undefined;
+    command: string | vscode.Command | undefined;
+    _shown: boolean;
+    _disposed: boolean;
+  }
+
+  function makeService(): { service: StatusBarService; item: StubStatusBarItem } {
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const repoEmitter = new EventEmitter<IRepository>();
+    const gitService = {
+      onDidFetch: fetchEmitter.event,
+      onDidChangeRepository: repoEmitter.event,
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+    } as unknown as IGitService;
+
+    let capturedItem: StubStatusBarItem | undefined;
+    const originalCreate = (
+      vscode.window as unknown as {
+        createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
+      }
+    ).createStatusBarItem;
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = (
+      a?: unknown,
+      p?: number
+    ): StubStatusBarItem => {
+      capturedItem = originalCreate(a, p);
+      return capturedItem;
+    };
+    const originalRegister = vscode.commands.registerCommand;
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = (
+      _command: string,
+      _callback: (...args: unknown[]) => unknown
+    ) => ({ dispose: () => {} });
+
+    const service = new StatusBarService(gitService, undefined, 0);
+
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
+      originalCreate;
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = originalRegister;
+
+    if (!capturedItem) {
+      throw new Error('StatusBarService did not create a status bar item');
+    }
+    return { service, item: capturedItem };
+  }
+
+  function makeRepoWithInProgress(
+    state: IRepository['state'],
+    inProgress?: IInProgressOperation
+  ): IRepository {
+    return {
+      rootUri: vscode.Uri.file('/test/repo'),
+      state,
+      head: {
+        name: 'refs/heads/main',
+        commit: 'deadbeefcafebabe0000000000000000deadbeef',
+        ahead: 0,
+        behind: 0,
+        upstream: { remote: 'origin', name: 'main' },
+      },
+      remotes: [],
+      submodules: [],
+      ...(inProgress ? { inProgress } : {}),
+    };
+  }
+
+  it('renders "Merging feature/foo" prefix when state=merging with target', () => {
+    const { service, item } = makeService();
+    try {
+      const repo = makeRepoWithInProgress('merging', { kind: 'merging', target: 'feature/foo' });
+      service.update(repo);
+      assert.ok(
+        item.text.includes('Merging feature/foo'),
+        `expected "Merging feature/foo" verb-prefix in "${item.text}"`
+      );
+      assert.ok(item.text.includes('$(git-merge)'), `expected merge icon in "${item.text}"`);
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('renders "Rebasing onto main" prefix when state=rebasing with target', () => {
+    const { service, item } = makeService();
+    try {
+      const repo = makeRepoWithInProgress('rebasing', { kind: 'rebasing', target: 'main' });
+      service.update(repo);
+      assert.ok(
+        item.text.includes('Rebasing onto main'),
+        `expected "Rebasing onto main" verb-prefix in "${item.text}"`
+      );
+      assert.ok(
+        item.text.includes('$(git-pull-request)'),
+        `expected rebase icon in "${item.text}"`
+      );
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('renders "Cherry-picking abc1234" prefix when state=cherry-picking with sha', () => {
+    const { service, item } = makeService();
+    try {
+      const repo = makeRepoWithInProgress('cherry-picking', {
+        kind: 'cherry-picking',
+        target: 'abc1234',
+      });
+      service.update(repo);
+      assert.ok(
+        item.text.includes('Cherry-picking abc1234'),
+        `expected "Cherry-picking abc1234" verb-prefix in "${item.text}"`
+      );
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('renders "Reverting abc1234" prefix when state=reverting with sha', () => {
+    const { service, item } = makeService();
+    try {
+      const repo = makeRepoWithInProgress('reverting', {
+        kind: 'reverting',
+        target: 'abc1234',
+      });
+      service.update(repo);
+      assert.ok(
+        item.text.includes('Reverting abc1234'),
+        `expected "Reverting abc1234" verb-prefix in "${item.text}"`
+      );
+      assert.ok(item.text.includes('$(discard)'), `expected revert icon in "${item.text}"`);
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('still appends branch chip + ahead/behind suffix after the verb prefix', () => {
+    const { service, item } = makeService();
+    try {
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file('/test/repo'),
+        state: 'merging',
+        head: {
+          name: 'refs/heads/feature',
+          commit: 'deadbeefcafebabe0000000000000000deadbeef',
+          ahead: 2,
+          behind: 1,
+          upstream: { remote: 'origin', name: 'feature' },
+        },
+        remotes: [],
+        submodules: [],
+        inProgress: { kind: 'merging', target: 'topic' },
+      };
+      service.update(repo);
+      assert.ok(item.text.includes('Merging topic'), `expected verb prefix in "${item.text}"`);
+      assert.ok(item.text.includes('feature'), `expected branch chip in "${item.text}"`);
+      assert.ok(item.text.includes('↑2'), `expected ahead in "${item.text}"`);
+      assert.ok(item.text.includes('↓1'), `expected behind in "${item.text}"`);
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('falls back to verb-only label when target is unknown (plain merge)', () => {
+    const { service, item } = makeService();
+    try {
+      const repo = makeRepoWithInProgress('merging', { kind: 'merging' });
+      service.update(repo);
+      assert.ok(item.text.includes('Merging'), `expected "Merging" verb in "${item.text}"`);
+      assert.ok(!item.text.includes('Merging refs/'));
+    } finally {
+      service.dispose();
+    }
+  });
+});
+
+// ─── UX-19: empty-repo "(no commits yet)" surfacing ──────────────────────────
+
+describe('StatusBarService — empty-repo label', () => {
+  interface StubStatusBarItem {
+    text: string;
+    tooltip: string | vscode.MarkdownString | undefined;
+    command: string | vscode.Command | undefined;
+    _shown: boolean;
+    _disposed: boolean;
+  }
+
+  function makeService(): { service: StatusBarService; item: StubStatusBarItem } {
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const repoEmitter = new EventEmitter<IRepository>();
+    const gitService = {
+      onDidFetch: fetchEmitter.event,
+      onDidChangeRepository: repoEmitter.event,
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+    } as unknown as IGitService;
+
+    let capturedItem: StubStatusBarItem | undefined;
+    const originalCreate = (
+      vscode.window as unknown as {
+        createStatusBarItem: (a?: unknown, p?: number) => StubStatusBarItem;
+      }
+    ).createStatusBarItem;
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem = (
+      a?: unknown,
+      p?: number
+    ): StubStatusBarItem => {
+      capturedItem = originalCreate(a, p);
+      return capturedItem;
+    };
+    const originalRegister = vscode.commands.registerCommand;
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = (
+      _command: string,
+      _callback: (...args: unknown[]) => unknown
+    ) => ({ dispose: () => {} });
+
+    const service = new StatusBarService(gitService, undefined, 0);
+
+    (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
+      originalCreate;
+    (vscode.commands as unknown as { registerCommand: unknown }).registerCommand = originalRegister;
+
+    if (!capturedItem) {
+      throw new Error('StatusBarService did not create a status bar item');
+    }
+    return { service, item: capturedItem };
+  }
+
+  it('renders "$(git-branch) main (no commits yet)" for an empty repo', () => {
+    const { service, item } = makeService();
+    try {
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file('/test/repo'),
+        state: 'idle',
+        // Empty repo: symbolic-ref returns refs/heads/main, rev-parse HEAD fails
+        // → head.name set, head.commit empty.
+        head: { name: 'main', commit: '', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      service.update(repo);
+      assert.ok(
+        item.text.includes('$(git-branch) main (no commits yet)'),
+        `expected empty-repo label, got: "${item.text}"`
+      );
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('renders the configured initial branch (not always "main")', () => {
+    const { service, item } = makeService();
+    try {
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'trunk', commit: '', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      service.update(repo);
+      assert.ok(
+        item.text.includes('$(git-branch) trunk (no commits yet)'),
+        `expected "trunk" empty-repo label, got: "${item.text}"`
+      );
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('exposes isEmptyRepo=true on getState() for an empty repo', () => {
+    const { service } = makeService();
+    try {
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: '', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      service.update(repo);
+      const state = service.getState();
+      assert.strictEqual(state.isEmptyRepo, true);
+      assert.strictEqual(state.branchName, 'main');
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('isEmptyRepo=false when commit is set (normal branch)', () => {
+    const { service } = makeService();
+    try {
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file('/test/repo'),
+        state: 'idle',
+        head: {
+          name: 'refs/heads/main',
+          commit: 'deadbeefcafebabe0000000000000000deadbeef',
+          ahead: 0,
+          behind: 0,
+        },
+        remotes: [],
+        submodules: [],
+      };
+      service.update(repo);
+      const state = service.getState();
+      assert.strictEqual(state.isEmptyRepo, false);
+    } finally {
+      service.dispose();
+    }
+  });
+
+  it('tooltip explains the empty-repo state', () => {
+    const { service, item } = makeService();
+    try {
+      const repo: IRepository = {
+        rootUri: vscode.Uri.file('/test/repo'),
+        state: 'idle',
+        head: { name: 'main', commit: '', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      service.update(repo);
+      const tooltip = typeof item.tooltip === 'string' ? item.tooltip : '';
+      assert.ok(
+        tooltip.includes('main') && tooltip.includes('no commits yet'),
+        `expected empty-repo tooltip, got: "${tooltip}"`
+      );
+    } finally {
+      service.dispose();
+    }
   });
 });

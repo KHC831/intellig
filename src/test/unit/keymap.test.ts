@@ -41,7 +41,12 @@ describe('T3-13 IntelliJ keymap parity', () => {
       assert.ok(cmds.find((c) => c.command === 'intellig.rebase.skip'));
     });
 
-    it('declares stub intellig.localChanges.openFile', () => {
+    // `intellig.localChanges.openFile` is no longer a "Coming soon" stub;
+    // the handler resolves the target via `resolveLocalChangesOpenFileTarget`
+    // and dispatches to `vscode.open`. The `package.json` contract here
+    // is unchanged — the command id must still be declared so the F4
+    // keybinding resolves.
+    it('declares real intellig.localChanges.openFile handler', () => {
       const cmds = pkg.contributes?.commands ?? [];
       assert.ok(cmds.find((c) => c.command === 'intellig.localChanges.openFile'));
     });

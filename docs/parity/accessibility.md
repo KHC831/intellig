@@ -201,4 +201,46 @@ Pinned by `snap-13a..f` + `codiconFont-4` in
 
 ---
 
-_Last updated: 2026-05-26 (Wave K)._
+## §1.5 Status-bar in-progress label
+
+The status-bar Git widget renders a verb-form prefix when the
+working tree is mid-merge / mid-rebase / mid-cherry-pick / mid-revert.
+Without it the label shows only an icon (`$(git-merge)`, etc.) and
+the branch name — no narratable verb, no target. Screen-reader users
+hear only the codicon glyph (which reads as "git merge" without
+context — ambiguous between "the merge command" and "currently
+merging") and the branch chip, with no signal that the working tree
+is non-idle.
+
+A11y contract for the in-progress label:
+
+1. **Visible verb form** in the status-bar `text` field (rendered by
+   VS Code's status-bar — the codicon + the verb literal):
+
+   - `$(git-merge) Merging <target>`
+   - `$(git-pull-request) Rebasing onto <target>`
+   - `$(git-commit) Cherry-picking <short-sha>`
+   - `$(discard) Reverting <short-sha>`
+
+2. **Tooltip carries the verb-form label as the screen-reader
+   fallback.** The tooltip is what VS Code surfaces to the
+   `aria-label` of the status-bar item; for screen readers that do
+   not interpret the codicon glyphs, the verb-form line is the
+   primary narration. (The tooltip starts with the verb-form line,
+   followed by the existing branch / sync narration on subsequent
+   lines.)
+
+3. **Verb-only fallback**: when a marker file exists but the target
+   is unreachable (plain `MERGE_HEAD` with no name available, or a
+   marker file race), the verb alone is surfaced. No `<unknown>`
+   placeholder — the verb on its own is sufficient signal that the
+   working tree is non-idle.
+
+Pinned by `StatusBarService — in-progress labels` in
+`src/test/unit/services/StatusBarService.test.ts`. The ASCII
+connectors in the verb form ("onto") match IntelliJ's status-bar
+wording for parity.
+
+---
+
+_Last updated: 2026-05-31._

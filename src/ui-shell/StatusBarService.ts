@@ -10,7 +10,7 @@ import {
   IStatusBarDisplayOptions,
   StatusBarClickAction,
 } from './interfaces/IStatusBarService';
-import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import { IGitService, IRepository, RepositoryState } from '../git-core/interfaces/IGitService';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 
@@ -85,6 +85,7 @@ export class StatusBarService implements IStatusBarService {
       isDetached: false,
       hasUpstream: false,
       repositoryState: 'idle',
+      isEmptyRepo: false,
     };
 
     // Create event emitter
@@ -263,6 +264,7 @@ export class StatusBarService implements IStatusBarService {
       isDetached: false,
       hasUpstream: false,
       repositoryState: repository.state,
+      isEmptyRepo: false,
     };
 
     if (repository.head) {
@@ -270,6 +272,13 @@ export class StatusBarService implements IStatusBarService {
         // Normal branch state
         state.branchName = repository.head.name.replace('refs/heads/', '');
         state.isDetached = false;
+        // Symbolic HEAD with no commit means the repo is freshly
+        // `git init`-ed (or otherwise has no objects yet). Surface the
+        // branch name with a `(no commits yet)` suffix instead of the
+        // bare "No commits yet" treatment.
+        if (!repository.head.commit) {
+          state.isEmptyRepo = true;
+        }
       } else if (repository.head.commit) {
         // Detached HEAD state
         state.isDetached = true;
@@ -280,6 +289,17 @@ export class StatusBarService implements IStatusBarService {
       state.ahead = repository.head.ahead || 0;
       state.behind = repository.head.behind || 0;
       state.hasUpstream = repository.head.upstream !== undefined;
+    }
+
+    // Copy the verb-form payload from the repository so the status bar
+    // can render "Rebasing onto main" rather than the bare verb.
+    if (repository.inProgress) {
+      state.inProgress = {
+        kind: repository.inProgress.kind,
+        ...(repository.inProgress.target !== undefined
+          ? { target: repository.inProgress.target }
+          : {}),
+      };
     }
 
     return state;
@@ -296,7 +316,13 @@ export class StatusBarService implements IStatusBarService {
       a.isDetached === b.isDetached &&
       a.commitHash === b.commitHash &&
       a.hasUpstream === b.hasUpstream &&
-      a.repositoryState === b.repositoryState
+      a.repositoryState === b.repositoryState &&
+      a.isEmptyRepo === b.isEmptyRepo &&
+      // Compare the verb-form payload by structural shape: two
+      // consecutive reloads carrying the same kind+target should
+      // coalesce, but a kind/target change must trigger a refresh.
+      a.inProgress?.kind === b.inProgress?.kind &&
+      a.inProgress?.target === b.inProgress?.target
     );
   }
 
@@ -306,24 +332,53 @@ export class StatusBarService implements IStatusBarService {
    * - Show ahead/behind counts if the branch has an upstream (e.g., "main ↑2 ↓1")
    */
   private _updateDisplay(): void {
-    const { branchName, ahead, behind, isDetached, commitHash, hasUpstream, repositoryState } =
-      this._state;
+    const {
+      branchName,
+      ahead,
+      behind,
+      isDetached,
+      commitHash,
+      hasUpstream,
+      repositoryState,
+      isEmptyRepo,
+      inProgress,
+    } = this._state;
 
     // Build status text
     let statusText = '';
     let tooltip = '';
+
+    // Verb-form prefix for in-progress operations. Built first so the
+    // icon + verb anchors the status bar; the branch chip + ahead/behind
+    // counters still trail to keep the existing information visible.
+    let verbPrefix = '';
+    let verbLabel = '';
+    if (inProgress) {
+      const verb = this._getInProgressVerb(inProgress.kind, inProgress.target);
+      const icon = this._getRepositoryStateIndicator(inProgress.kind);
+      if (verb) {
+        verbLabel = verb;
+        verbPrefix = icon ? `${icon} ${verb}` : verb;
+      }
+    }
 
     if (isDetached) {
       // Detached HEAD state
       statusText = `$(git-commit) ${commitHash || 'HEAD'}`;
       tooltip = 'Detached HEAD - Click to manage branches';
     } else if (branchName) {
-      // Normal branch state with git branch icon
-      statusText = `$(git-branch) ${branchName}`;
-      tooltip = `Branch: ${branchName}`;
+      if (isEmptyRepo) {
+        // Empty repo: surface the configured initial branch with
+        // `(no commits yet)` so the user knows where the first commit
+        // will land.
+        statusText = `$(git-branch) ${branchName} (no commits yet)`;
+        tooltip = `On branch ${branchName} — no commits yet. Your first commit will create this branch.`;
+      } else {
+        statusText = `$(git-branch) ${branchName}`;
+        tooltip = `Branch: ${branchName}`;
+      }
 
       // Add ahead/behind indicators if upstream is configured
-      // Requirement: Show ahead/behind counts if the branch has an upstream
       if (this._options.showSyncStatus && hasUpstream) {
         const indicators: string[] = [];
         if (ahead > 0) {
@@ -336,23 +391,36 @@ export class StatusBarService implements IStatusBarService {
           statusText += ` ${indicators.join(' ')}`;
         }
 
-        // Update tooltip with sync info
         if (ahead > 0 || behind > 0) {
           tooltip += `\n${ahead} commit(s) ahead, ${behind} commit(s) behind`;
         } else {
           tooltip += '\nUp to date with upstream';
         }
-      } else if (!hasUpstream) {
+      } else if (!hasUpstream && !isEmptyRepo) {
         tooltip += '\nNo upstream configured';
       }
     } else {
-      // No commits yet
+      // Fallback: symbolic-ref also failed (rare — mid-clone / corrupt).
+      // The common empty-repo case is handled in the `branchName` branch.
       statusText = '$(git-branch) No commits yet';
       tooltip = 'No commits yet - Click to manage branches';
     }
 
-    // Add repository state indicator if not idle
-    if (repositoryState !== 'idle') {
+    // Verb-prefix path: rich `inProgress` payload leads the status-bar
+    // text (e.g. "$(git-merge) Merging topic $(git-branch) feature ↑2 ↓1").
+    // Branch chip + ahead/behind counters tail the verb form so the
+    // existing information stays visible at a glance.
+    //
+    // Degraded fallback (non-idle state but no rich payload): icon
+    // TRAILS the branch label (e.g. "$(git-branch) feature $(git-merge)").
+    // Exists only to preserve the pre-verb-prefix signal that the
+    // working tree is non-idle.
+    if (verbPrefix) {
+      statusText = statusText ? `${verbPrefix} ${statusText}` : verbPrefix;
+      // Tooltip carries the verb-form label as the narratable fallback
+      // for screen readers that may not interpret the codicon glyphs.
+      tooltip = `${verbLabel}\n${tooltip}`;
+    } else if (repositoryState !== 'idle') {
       const stateIndicator = this._getRepositoryStateIndicator(repositoryState);
       if (stateIndicator) {
         statusText += ` ${stateIndicator}`;
@@ -366,6 +434,40 @@ export class StatusBarService implements IStatusBarService {
 
     // Show the status bar item
     this.show();
+  }
+
+  /**
+   * Verb-form text for an in-progress operation. The verb is the leading
+   * word of the status-bar prefix; the target (when known) is glued in
+   * with the connector that matches IntelliJ's wording:
+   *
+   *   - merging:        "Merging <target>"          (no connector)
+   *   - rebasing:       "Rebasing onto <target>"    (preposition)
+   *   - cherry-picking: "Cherry-picking <target>"   (no connector)
+   *   - reverting:      "Reverting <target>"        (no connector)
+   *
+   * When `target` is undefined (plain merge, marker file race) the verb
+   * alone is surfaced — sufficient signal on its own without a misleading
+   * "<unknown>" placeholder. `kind` is typed as
+   * `Exclude<RepositoryState, 'idle'>` to surface a TS exhaustiveness
+   * check on every new in-progress state.
+   */
+  private _getInProgressVerb(
+    kind: Exclude<RepositoryState, 'idle'>,
+    target: string | undefined
+  ): string {
+    switch (kind) {
+      case 'merging':
+        return target ? `Merging ${target}` : 'Merging';
+      case 'rebasing':
+        return target ? `Rebasing onto ${target}` : 'Rebasing';
+      case 'cherry-picking':
+        return target ? `Cherry-picking ${target}` : 'Cherry-picking';
+      case 'reverting':
+        return target ? `Reverting ${target}` : 'Reverting';
+      default:
+        return assertNeverInProgressKind(kind);
+    }
   }
 
   /**
@@ -463,4 +565,16 @@ export function createStatusBarService(
   refreshDebounceMs?: number
 ): StatusBarService {
   return new StatusBarService(gitService, options, refreshDebounceMs);
+}
+
+/**
+ * Exhaustiveness sentinel for the {@link StatusBarService._getInProgressVerb}
+ * switch. Adding a new value to `RepositoryState` (e.g. `'bisecting'`)
+ * without extending the switch triggers a compile-time error here; at
+ * runtime, an unreachable arm downgrades to an empty verb (status-bar
+ * falls back to the bare icon) rather than throwing — failures here are
+ * cosmetic, not correctness.
+ */
+function assertNeverInProgressKind(_kind: never): string {
+  return '';
 }
