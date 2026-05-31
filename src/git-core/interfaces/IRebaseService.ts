@@ -97,7 +97,7 @@ export interface IRebaseService {
   /**
    * Provide a combined message for a squash action.
    *
-   * Wave C — symmetric companion to {@link provideRewordMessage}. The git
+   * Symmetric companion to {@link provideRewordMessage}. The git
    * mechanics are identical (the rebase pauses, asks for the new
    * message, and resumes on `--continue`); the separate name carries
    * intent at the call site for the squash N-commit flow. Should be

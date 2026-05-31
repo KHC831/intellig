@@ -76,8 +76,8 @@ export interface IHistoryTabState {
    * does not apply.
    *
    * Do **not** "consolidate" this field into a refresh return value
-   * without first refactoring the render shape — that was the trap
-   * Wave 8 R2 added the cross-reference to prevent.
+   * without first refactoring the render shape — that is the trap this
+   * cross-reference exists to prevent.
    */
   error: string | undefined;
   /** True while a load is in-flight (for a simple spinner / disabled UI). */

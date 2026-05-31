@@ -334,7 +334,7 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
     source = { remote: picked.remote, branch: picked.branch };
   }
 
-  // Step 2: flags. canPickMany loop-free: we let VS Code show all toggles at
+  // Flags step. canPickMany loop-free: we let VS Code show all toggles at
   // once; the user's selection set is the final flag state after mutex.
   const flags = defaultPullFlags(deps.defaultRebase, deps.preset);
   const flagItems = buildFlagItems(flags);

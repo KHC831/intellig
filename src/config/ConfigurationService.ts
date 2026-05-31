@@ -43,7 +43,7 @@ const DEFAULT_CONFIGURATION: IExtensionConfiguration = {
   ignoredFileColor: '#848504',
   conflictFileColor: '#FF0000',
 
-  // Logging settings (task 5.3)
+  // Logging settings
   logLevel: 'info',
   logConsole: false,
 };
@@ -81,8 +81,8 @@ export class ConfigurationService implements IConfigurationService {
   private _cachedConfiguration: IExtensionConfiguration | undefined;
   /**
    * Component-bound Logger used to emit a debug-level record naming
-   * the changed `intellig.*` keys on every configuration change
-   * (task 5.3). Only key names are logged — never values
+   * the changed `intellig.*` keys on every configuration change.
+   * Only key names are logged — never values
    * (Requirement 14.10) — because user-set values may contain
    * sensitive content (commit-message templates, file colours, etc.).
    */
@@ -137,7 +137,7 @@ export class ConfigurationService implements IConfigurationService {
   }
 
   /**
-   * Wave 135 R5 / M1: typed delegate to
+   * Typed delegate to
    * `vscode.workspace.getConfiguration('intellig').inspect<T>(key)`.
    * Lets migrations and services distinguish "user wrote at user
    * scope" / "user wrote at workspace scope" / "schema default"
@@ -286,7 +286,7 @@ export class ConfigurationService implements IConfigurationService {
         DEFAULT_CONFIGURATION.conflictFileColor
       ),
 
-      // Logging settings (task 5.3). The Logger's own
+      // Logging settings. The Logger's own
       // `LogLevelResolver` reads these settings directly via
       // `vscode.workspace.getConfiguration` to avoid a bootstrap
       // circular (the Logger must be ready before
@@ -325,7 +325,7 @@ export class ConfigurationService implements IConfigurationService {
    * Handle configuration change events.
    * Invalidates the cache and fires the change event.
    *
-   * Task 5.3: emit one debug-level Logger record naming the
+   * Emit one debug-level Logger record naming the
    * `intellig.*` keys whose effective values changed in this
    * snapshot. Values are deliberately omitted (Requirement 14.10) —
    * settings such as `commitMessageTemplate` may contain user content

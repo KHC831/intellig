@@ -937,9 +937,9 @@ export class ChangelistService implements IChangelistService {
   /**
    * Generate a unique changelist ID.
    *
-   * Wave I L-5 — switched from `Math.random()` (predictable; collides
-   * for rapid creates in the same millisecond) to `randomBytes(4)` for
-   * 32 bits of CSPRNG entropy. Mirrors `src/utils/webviewNonce.ts`.
+   * Uses `randomBytes(4)` for 32 bits of CSPRNG entropy rather than
+   * `Math.random()`, which is predictable and collides for rapid
+   * creates in the same millisecond. Mirrors `src/utils/webviewNonce.ts`.
    *
    * @returns A unique ID string
    */

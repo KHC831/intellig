@@ -33,10 +33,10 @@
  * This file is the home of the `LogSink` interface and the two sink
  * `name` constants. The supporting `LogRecord`, `LogLevel`, and
  * `JsonValue` types are co-located here so the `LogSink` interface
- * compiles standalone before later tasks land. Task 3.1
- * (`src/utils/logger/logger.ts`) and task 3.2 (`index.ts` public
- * barrel) own the final canonical export surface; this file is the
- * source of truth for the sink-side types until then.
+ * compiles standalone before later tasks land. The logger module
+ * (`src/utils/logger/logger.ts`) and the `index.ts` public barrel own
+ * the final canonical export surface; this file is the source of truth
+ * for the sink-side types until then.
  */
 
 /**
@@ -45,7 +45,7 @@
  *
  * The configured *threshold* may also be `'off'` (drop everything),
  * but a record itself can never be at level `'off'`. The full
- * `LogThreshold` type lives in `../levels.ts` (task 1.2).
+ * `LogThreshold` type lives in `../levels.ts`.
  */
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 
@@ -97,8 +97,8 @@ export interface LogRecord {
  * `true` (Requirement 1.7).
  *
  * Implementations:
- * - `OutputChannelSink` (task 2.1) — the shared `IntelliG` channel.
- * - `ConsoleSink` (task 2.2) — opt-in developer console mirror.
+ * - `OutputChannelSink` — the shared `IntelliG` channel.
+ * - `ConsoleSink` — opt-in developer console mirror.
  * - test-only sinks may use any `name` value distinct from the two
  *   shipped names; the Logger never inspects sink names beyond
  *   identifying duplicates.
@@ -121,7 +121,7 @@ export interface LogSink {
   /**
    * Emit one already-sanitized record. Implementations MUST NOT throw
    * for non-fatal rendering issues; the Logger catches and reports
-   * sink emit errors via a separate fallback record (see task 3.1).
+   * sink emit errors via a separate fallback record.
    */
   emit(record: LogRecord): void;
 

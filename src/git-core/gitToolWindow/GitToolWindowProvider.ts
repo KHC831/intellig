@@ -1857,9 +1857,12 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   /**
    * Handle branch click to scroll the Graph Panel to the branch's HEAD commit.
    * Finds the branch's HEAD commit hash from the loaded commit nodes and branch map,
-   * then selects that commit to scroll to it in the graph.
+   * then selects that commit and asks the webview to scroll to it.
    *
-   * and highlights the latest commit of that branch.
+   * D1: Uses the partial-update path (selectCommit + _scrollWebviewToCommit) rather
+   * than a full re-render, so the graph panel's scroll position is preserved. The
+   * visibility-aware inline scrollToCommit then only scrolls when the target row is
+   * not already fully visible, and highlights the latest commit of that branch.
    */
   private _handleBranchClick(branchName: string): void {
     // Look up the commit hash for this branch from the branch map
@@ -1886,17 +1889,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     }
 
     if (targetCommitHash) {
-      // Store the scroll target so the re-rendered HTML will include it.
-      // We need a full re-render for branch clicks to embed the scroll target
-      // in the HTML via data-scroll-to-commit, since the inline script
-      // auto-scrolls on page load.
-      this._scrollToCommitHash = targetCommitHash;
-
-      // Select the commit (updates state + sends details panel via postMessage)
+      // D1: Use the partial-update path (no full re-render) so the graph panel's
+      // scroll position is preserved. selectCommit posts selectGraphRow +
+      // updateDetailsPanel; _scrollWebviewToCommit posts { type: 'scrollToCommit',
+      // commitHash } which the now visibility-aware inline scrollToCommit gates.
+      // Avoiding _updateWebview() means scrollTop is never reset to the top, so
+      // the inline visibility check runs against the user's real scroll position.
       this.selectCommit(targetCommitHash);
-
-      // Force a full re-render to embed the scroll-to-commit target in the HTML
-      this._updateWebview();
+      this._scrollWebviewToCommit(targetCommitHash);
     }
   }
 
@@ -4770,14 +4770,27 @@ ${bodyMarkup}
 
         function scrollToCommit(commitHash) {
           const commitRow = document.querySelector('[data-hash="' + commitHash + '"]');
-          if (commitRow) {
+          if (!commitRow) { return; }                       // Req 2.3 — not in DOM: no action
+
+          const panel = commitRow.closest('.graph-panel');
+          if (panel) {
+            const rowTop = commitRow.offsetTop;
+            const rowBottom = rowTop + commitRow.offsetHeight;
+            const viewportTop = panel.scrollTop;
+            const viewportBottom = viewportTop + panel.clientHeight;
+            // Mirror of shouldScrollToRow (scrollVisibility.ts) — ephemeral UI affordance (ADR-009 §2).
+            const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
+            if (!fullyVisible) {
+              // Off-screen: smooth-glide from the CURRENT scroll position to the target.
+              commitRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          } else {
             commitRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            // Add a brief highlight effect
-            commitRow.classList.add('highlight-scroll');
-            setTimeout(function() {
-              commitRow.classList.remove('highlight-scroll');
-            }, 2000);
           }
+
+          // Highlight always applies (D4) — visual confirmation regardless of scroll.
+          commitRow.classList.add('highlight-scroll');
+          setTimeout(function () { commitRow.classList.remove('highlight-scroll'); }, 2000);
         }
 
         // Auto-scroll to commit on page load when data-scroll-to-commit is set.

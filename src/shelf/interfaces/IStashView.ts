@@ -108,8 +108,8 @@ export interface IStashView {
    *
    * Per ADR-006 (`docs/adr/ADR-006-error-state-binding-by-view-type.md`),
    * this QuickPick view binds errors through the refresh return value
-   * rather than a `_state.error` sideband. Pre-Wave-8 the sideband was the
-   * canonical channel and only `_showStashList` read it; downstream
+   * rather than a `_state.error` sideband. When the sideband was the
+   * canonical channel, only `_showStashList` read it; downstream
    * callers (post-pop, post-drop, post-rename, post-create-branch refresh
    * paths) silently swallowed the error. The `{ error? }` shape fixes
    * that by making the outcome explicit at every call site.

@@ -93,11 +93,11 @@ export interface IConfigurationService {
   get<K extends keyof IExtensionConfiguration>(key: K): IExtensionConfiguration[K];
 
   /**
-   * Inspect a configuration value across scopes. Wave 135 R5 / M1
-   * formalisation — previously two production sites bypassed this
-   * service to call `vscode.workspace.getConfiguration().inspect()`
-   * directly because the typed `get()` substitutes schema default
-   * and the user-set vs default distinction was lost.
+   * Inspect a configuration value across scopes. Previously two
+   * production sites bypassed this service to call
+   * `vscode.workspace.getConfiguration().inspect()` directly because
+   * the typed `get()` substitutes schema default and the user-set vs
+   * default distinction was lost.
    *
    * Each field is undefined if the user has not explicitly written
    * at that scope. The schema default lives in `defaultValue`. To

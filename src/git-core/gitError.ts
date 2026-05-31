@@ -1,7 +1,7 @@
 /**
  * Git error-message sanitization utilities.
  *
- * Motivation (senior review LOW finding): `git` often embeds credentials in
+ * Motivation: `git` often embeds credentials in
  * remote URLs that appear in stderr — e.g.
  *
  *   remote: Support for password authentication was removed…
@@ -13,7 +13,7 @@
  * helper that redacts the `user:token@host` portion before the message is
  * rendered.
  *
- * Senior-wave4 LOW #4 expanded the helper to also strip absolute home-dir
+ * The helper also strips absolute home-dir
  * paths that leak through `fs` errnos (`ENOENT: no such file or directory,
  * open '/Users/alice/Documents/secret-project/README.md'`). Screen
  * recordings of demos and user-submitted bug reports otherwise leak the
@@ -148,9 +148,9 @@ export function sanitizeGitError(message: string): string {
  * Format an action-failure toast body that's safe to drop directly
  * into `vscode.window.showErrorMessage(...)`.
  *
- * Wave 9 R4 (TL-72 follow-up). Senior-wave9 found 18 command handlers
- * in `extension.ts` that bypassed the structural sanitisation guard
- * by inlining the err-derived ternary directly into the toast template:
+ * Some command handlers in `extension.ts` bypassed the structural
+ * sanitisation guard by inlining the err-derived ternary directly
+ * into the toast template:
  *
  * ```ts
  * void vscode.window.showErrorMessage(
@@ -161,7 +161,7 @@ export function sanitizeGitError(message: string): string {
  * The guard's `${VAR}` allowlist rule expects a single allowlisted
  * variable name; ternary expressions silently slipped through.
  * Hoisting each ternary into a local `const` would require touching
- * 18 closures and was deemed bug-prone (one missed site = leak).
+ * every closure and was deemed bug-prone (one missed site = leak).
  * Instead, every catch block calls this single seam:
  *
  * ```ts
@@ -172,10 +172,10 @@ export function sanitizeGitError(message: string): string {
  *
  * The returned string is `${prefix}: ${sanitizeGitError(message)}`
  * with `'Unknown error'` substituted when the thrown value isn't
- * an `Error` instance. The 18 swept sites in extension.ts plus
+ * an `Error` instance. The swept sites in extension.ts plus
  * future inline-ternary callers all funnel through this helper, so
  * the structural guard's `.message` rule + the per-site specs in
- * `gitError.test.ts` (Wave 9 R4 describe block) provide
+ * `gitError.test.ts` provide
  * defense-in-depth.
  *
  * @param prefix — the user-facing action label (e.g. `'Failed to

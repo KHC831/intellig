@@ -5,7 +5,7 @@ import { GitCli, buildGitArgs, createGitCli } from '../git-core/gitCli';
 import { parseBlame } from '../git-core/gitParser';
 import { getLogger, type Logger } from '../utils/logger';
 
-// Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
+// Typeguard for GitService's @internal cli escape hatch.
 interface IGitServiceWithCli {
   gitCli: GitCli;
 }
@@ -36,20 +36,19 @@ export class BlameService implements IBlameService {
   private _disposables: vscode.Disposable[] = [];
   private _blameCache: Map<string, IBlameCacheEntry> = new Map();
   /**
-   * Wave I WI-C — per-repo file watcher map. Pre-Wave-I we registered a
-   * single `**\/*` glob across the entire workspace, which (a) triggered
-   * cache invalidation on every irrelevant `.vscode/` / `node_modules/`
-   * write, and (b) couldn't tell which repo a path belonged to. We now
-   * scope each watcher to a `RelativePattern` rooted at the repo root
-   * and re-create the map on `gitService.onDidChangeRepository` /
-   * `onDidRemoveRepository`.
+   * Per-repo file watcher map. A single `**\/*` glob across the entire
+   * workspace (a) triggered cache invalidation on every irrelevant
+   * `.vscode/` / `node_modules/` write, and (b) couldn't tell which repo
+   * a path belonged to. We now scope each watcher to a `RelativePattern`
+   * rooted at the repo root and re-create the map on
+   * `gitService.onDidChangeRepository` / `onDidRemoveRepository`.
    */
   private _watchers: Map<string, vscode.FileSystemWatcher> = new Map();
 
   /**
    * Component-bound Logger emitted on construction and disposal so
    * operational waypoints land in the IntelliG OutputChannel
-   * uniformly with the rest of the service graph (task 9.3).
+   * uniformly with the rest of the service graph.
    */
   private readonly _logger: Logger;
 
