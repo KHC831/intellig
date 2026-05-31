@@ -1470,6 +1470,8 @@
     "check:watcher-families": "node scripts/check-watcher-families-registered.mjs",
     "check:all": "npm run check:quickpick-state && npm run check:action-toasts && npm run check:config-coherence && npm run check:vsix-clean && npm run check:100-gate && npm run check:publish-vsix && npm run check:watcher-families && npm run check:test-only-surface && npm run check:no-bare-console",
     "package:dogfood": "INTELLIG_ALLOW_PLACEHOLDERS=1 INTELLIG_DOGFOOD_BUILD=1 INTELLIG_DOGFOOD_INVOCATION=1 npx --yes @vscode/vsce@2.24.0 package --out intellig-${npm_package_version}-dogfood.vsix",
+    "release": "bash scripts/publish.sh",
+    "release:dry": "bash scripts/publish.sh --dry-run",
     "test:ext-host": "npm run compile && node ./out/test/ext-host/runTests.js",
     "test:e2e": "npm run compile && node ./out/test/e2e/runTests.js"
   },

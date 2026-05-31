@@ -418,6 +418,184 @@ used separately.
   is published as preview, that flag stays for that version; the
   next version can drop it.
 
+### Publishing to Open VSX
+
+The VS Code Marketplace is Microsoft's gallery and is not used by
+non-Microsoft Code-OSS forks (Kiro, VSCodium, Cursor, Theia-based
+IDEs). Those IDEs read from [Open VSX](https://open-vsx.org), an
+Eclipse-Foundation-run alternative gallery. Publishing to both
+makes IntelliG installable across the entire VS Code-derived
+ecosystem with a single artifact (the same `.vsix` works in both).
+
+#### One-time Open VSX setup
+
+1. Sign in at <https://open-vsx.org/login> with GitHub.
+2. Create a namespace matching your `package.json` `"publisher"`
+   field — visit <https://open-vsx.org/user-settings/namespaces>,
+   click **Create namespace**, use the same publisher ID as
+   the Marketplace setup (e.g., `KaHoChan`).
+3. Generate an Open VSX token at
+   <https://open-vsx.org/user-settings/tokens> → **Generate new
+   token**. Copy it immediately; the value is shown only once.
+4. Export the token in the shell that will run the publish:
+
+   ```bash
+   export OPEN_VSX_TOKEN='<token>'
+   ```
+
+   Add it to your shell profile (`~/.zshrc`, `~/.bashrc`) or store
+   in a gitignored `.env.publish` you source before publishing.
+   **Never commit the token.**
+
+#### Publishing the artifact
+
+The `.vsix` you built for the Marketplace works on Open VSX without
+modification. Upload via `ovsx`:
+
+```bash
+npx --yes ovsx@latest publish intellig-<version>.vsix \
+  -p "$OPEN_VSX_TOKEN"
+```
+
+Open VSX runs an automated check and the listing typically appears
+within a few minutes at:
+
+```
+https://open-vsx.org/extension/<publisher>/<name>
+```
+
+### `npm run release` (combined publish flow)
+
+`scripts/publish.sh` automates the build + dual-gallery publish so
+shipping a release is one command. The script:
+
+1. Refuses to run if the working tree is dirty, the current branch
+   isn't `main`, or local `main` is out of sync with `origin/main`.
+2. Cleans `out/` and rebuilds the `.vsix` from scratch (avoids the
+   stale-`out/` class of bug that ships duplicate compiled JS when
+   files have moved).
+3. Runs the same `check:publish-vsix` filename guard as the manual
+   flow.
+4. Prints the manifest's identity / description / gallery flags so
+   you can spot-check before bytes leave your machine.
+5. Publishes to the Marketplace via `vsce publish --packagePath`,
+   then publishes the same artifact to Open VSX via `ovsx publish`.
+6. Prints the listing URLs.
+
+#### Common invocations
+
+```bash
+# Dry-run: build + inspect, do not publish.
+npm run release:dry
+
+# Publish whatever is in package.json today (no version bump).
+npm run release
+
+# Bump version then exit (you commit + push, then re-run plain `release`).
+bash scripts/publish.sh patch       # 0.1.1 → 0.1.2
+bash scripts/publish.sh minor       # 0.1.2 → 0.2.0
+bash scripts/publish.sh 0.3.0       # explicit
+
+# Publish to only one gallery (useful when one is down).
+bash scripts/publish.sh --skip-ovsx
+bash scripts/publish.sh --skip-vsce
+```
+
+The version-bump path **deliberately exits without publishing** so
+you have a chance to commit + push the bump before the artifact
+goes out. Mismatched source-tree-vs-published-artifact state is
+the #1 source of confusion when chasing a release bug; the script
+refuses to enable it.
+
+#### Pre-flight checklist
+
+Before running `npm run release`, manually verify:
+
+- [ ] CHANGELOG.md has a dated entry for the version (no
+      `[Unreleased]` content unless it belongs there).
+- [ ] Lint, unit tests, property tests pass (`npm run lint &&
+      npm run test:unit && npm run test:property`).
+- [ ] You've installed the rebuilt `.vsix` locally and dogfooded
+      it briefly. The gallery upload is what users will get; F5
+      doesn't exercise it. (Use `--dry-run` to produce the
+      `.vsix`, install via `code --install-extension`, then
+      re-run without `--dry-run` once you're satisfied.)
+- [ ] `OPEN_VSX_TOKEN` is exported (or you're passing
+      `--skip-ovsx`).
+
+### Tag-triggered GitHub Action (recommended for routine releases)
+
+`.github/workflows/publish.yml` runs `scripts/publish.sh`'s build
++ dual-publish flow on GitHub's runners whenever you push a semver
+tag (e.g. `v0.1.2`, `v0.2.0`). The Action:
+
+1. Checks out the tagged commit.
+2. Runs lint, unit tests, and property tests as gates — a tag
+   pushed against a broken commit refuses to publish.
+3. Verifies the tag's numeric portion matches `package.json`'s
+   `version` field on that commit (so `git tag v0.2.0` on a commit
+   where `package.json` says `0.1.5` fails fast).
+4. Builds the `.vsix`, refuses dogfood-suffixed artifacts, and
+   prints the manifest for the run log.
+5. Publishes to the Marketplace via `vsce publish --pat`.
+6. Publishes the same `.vsix` to Open VSX via `ovsx publish`.
+7. Uploads the `.vsix` as a workflow artifact (90-day retention)
+   so you can audit what shipped against the tagged source.
+
+#### One-time GitHub setup
+
+The Action needs two secrets. Add them at:
+**repo → Settings → Secrets and variables → Actions → New
+repository secret.**
+
+- `VSCE_PAT` — Azure DevOps PAT under publisher `KaHoChan` with
+  the **Marketplace → Manage** scope and "All accessible
+  organizations" set as the org. (Same PAT used for local
+  `vsce login`; you can reuse it.)
+- `OPEN_VSX_TOKEN` — Open VSX token from
+  <https://open-vsx.org/user-settings/tokens>.
+
+Both tokens are write-only secrets — once stored, you cannot read
+them back through the GitHub UI. Re-create them when they expire
+(Azure PATs typically expire after 90 days).
+
+#### Triggering a release
+
+Once `package.json` is bumped, CHANGELOG entry is dated, and the
+commit is on `main`:
+
+```bash
+# From a clean main with the bump committed + pushed.
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+Watch the run at **repo → Actions → Publish**. End-to-end takes
+~3 minutes on a clean run.
+
+#### Failure modes and fixes
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `tag version does not match package.json` | Tagged a commit where `package.json` is at a different version. | Delete the tag locally + on origin (`git tag -d`, `git push origin :refs/tags/<tag>`), bump `package.json`, commit, push, re-tag. |
+| `VSCE_PAT secret is not set` | Secret missing or renamed. | Add it at repo → Settings → Secrets → Actions. |
+| `vsce publish ... 401` | PAT expired. | Generate a new PAT at <https://dev.azure.com/>, update the `VSCE_PAT` secret. |
+| `ovsx publish ... 403` | Open VSX token revoked or namespace mismatch. | Confirm the token's owner has the `KaHoChan` namespace; regenerate the token if needed. |
+| `version 0.1.X already exists` | You re-tagged an already-published version. | Bump to `0.1.X+1` (Marketplace will not let you overwrite). |
+
+#### Local script vs. Action
+
+The local `scripts/publish.sh` and the Action publish the same way
+and produce identical artifacts. Use whichever is more convenient
+for the moment:
+
+- Local script: faster feedback loop while you're iterating on
+  release tooling itself, or when the Action is misconfigured and
+  you want to ship anyway. Tokens stay on your laptop.
+- Action: hands-off, no local setup needed, audit log is the
+  workflow run, secrets live in GitHub. Best for routine releases
+  once the pipeline is stable.
+
 ### Structural guards
 
 The repo ships a set of CI-time structural guards as a complement
