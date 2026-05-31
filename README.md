@@ -316,15 +316,13 @@ Enable the IntelliJ preset in settings:
 | `intellig.log.level`     | `"info"` | Minimum severity admitted to the logger (`trace`, `debug`, `info`, `warn`, `error`, `off`). Records below the threshold are dropped; `off` silences the logger entirely. |
 | `intellig.log.console`   | `false`  | Mirror log records to the developer console (visible only in the Extension Development Host) |
 
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, build commands, and project structure.
-
 ## Feedback & Issues
 
-Found a bug or have a question? [Open an issue](https://github.com/KHC831/intellig/issues) on GitHub.
+Found a bug, have a question, or want to request a feature? [Open an issue](https://github.com/KHC831/intellig-issues/issues) on the public issue tracker.
+
+For security vulnerabilities, please email **kachan831@gmail.com** directly rather than filing a public issue.
 
 ## License
 
-Proprietary — all rights reserved. See [LICENSE](LICENSE) for the
-full terms. For licensing inquiries, contact kachan831@gmail.com.
+Proprietary — all rights reserved. The full LICENSE file is included
+in the extension package. For licensing inquiries, contact kachan831@gmail.com.

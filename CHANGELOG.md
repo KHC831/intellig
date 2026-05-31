@@ -6,37 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Wave-squashes between releases land here. At release time, this section
-is renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
-fresh empty `[Unreleased]` block is added on top. See
-[`CONTRIBUTING.md` → "Changelog cadence"](CONTRIBUTING.md#changelog-cadence)
-for the workflow.
+Changes between releases land here. At release time, this section is
+renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
+fresh empty `[Unreleased]` block is added on top.
 
-> **1.0.0 release tracking:** the four gate conditions for 1.0.0 are
-> tracked inline in
-> [`CONTRIBUTING.md` → "1.0.0 gate checklist"](CONTRIBUTING.md#100-gate-checklist).
-> The `npm run check:100-gate` script enforces that every checkbox is
-> ticked before any 1.0.0 release packages.
+## [0.1.0] - 2026-05-31
 
-### Deprecated
-
-- `intellig.useIntelliJKeymap` — superseded by
-  `intellig.keymapPreset`. All five keybindings that previously
-  gated on the legacy boolean now gate on
-  `intellig.keymapPreset == 'intellij'`, matching the three that
-  already did. The setting remains in the schema with a
-  `deprecationMessage` so existing user settings show the warning
-  in VS Code's settings UI. **Existing users with
-  `intellig.useIntelliJKeymap: true` are migrated automatically
-  on first activation** — IntelliG sets `keymapPreset` to
-  `"intellij"`, clears the legacy boolean, and shows a one-time
-  info notification. Users who explicitly chose
-  `keymapPreset` already (at any scope) are not touched. The
-  setting will be removed in a future minor release.
-
-## [0.1.0] - 2026-05-22
-
-Initial Marketplace release.
+Initial Marketplace release. Marked as `preview` while the project
+gathers real-world feedback.
 
 ### Highlights
 
@@ -75,9 +52,23 @@ shortlist for v0:
 - One stress-only graph tie-break flake is pinned but not yet
   root-caused (tracked internally).
 
+### Deprecated
+
+- `intellig.useIntelliJKeymap` — superseded by
+  `intellig.keymapPreset`. All five keybindings that previously
+  gated on the legacy boolean now gate on
+  `intellig.keymapPreset == 'intellij'`. The setting remains in
+  the schema with a `deprecationMessage` so existing user settings
+  show the warning in VS Code's settings UI. **Existing users with
+  `intellig.useIntelliJKeymap: true` are migrated automatically
+  on first activation** — IntelliG sets `keymapPreset` to
+  `"intellij"`, clears the legacy boolean, and shows a one-time
+  info notification. Users who explicitly chose `keymapPreset`
+  already (at any scope) are not touched. The setting will be
+  removed in a future minor release.
+
 ### Architecture decisions
 
 This release ships with seven Architecture Decision Records (ADRs)
-documenting the key engineering decisions taken during the
-parity effort. See [`docs/adr/README.md`](docs/adr/README.md) for
-the index.
+in the bundled `docs/adr/` directory documenting the key engineering
+decisions taken during the parity effort.

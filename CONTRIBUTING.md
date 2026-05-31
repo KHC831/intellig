@@ -313,6 +313,111 @@ npm run check:publish-vsix -- "$vsix"          # refuses if *-dogfood.vsix
 npx --yes @vscode/vsce@2.24.0 publish -i "$vsix"
 ```
 
+#### One-time publisher setup
+
+Before the first publish you need a Microsoft account, a Marketplace
+publisher entry, and an Azure DevOps Personal Access Token (PAT).
+
+1. Sign in at <https://marketplace.visualstudio.com/manage> with the
+   Microsoft account that will own the extension.
+2. Confirm the publisher ID `intellig-vscode` exists and you own it,
+   or create it.
+3. Generate a PAT at <https://dev.azure.com/> → top-right avatar →
+   **Personal Access Tokens** → **New Token**:
+   - **Organization**: "All accessible organizations" (Marketplace
+     tokens require this — a single-org PAT will be rejected by
+     `vsce login`).
+   - **Scopes**: Custom defined → check **Marketplace → Manage**.
+   - Copy the token immediately; it cannot be viewed again.
+4. Authenticate `vsce` with the PAT:
+
+   ```bash
+   npx --yes @vscode/vsce@2.24.0 login intellig-vscode
+   # Paste the PAT when prompted.
+   ```
+
+   The credential is cached under `~/.vsce/` for subsequent
+   `publish` runs; you do not need to re-login on every release.
+
+#### First-release dogfood checklist
+
+Before running `vsce publish`, confirm the artifact actually works
+when installed (F5 / Extension Development Host runs source, not the
+packaged `.vsix`, so it bypasses `.vscodeignore`, the manifest, and
+the icon path — none of which F5 exercises):
+
+```bash
+# 1. Inspect the manifest as the Marketplace will render it.
+unzip -p intellig-<version>.vsix extension.vsixmanifest | grep -E \
+  "Identity|Description|GalleryFlags|Source|Support|Learn"
+
+# 2. Confirm the file list (no .kiro/, no src/, no internal docs).
+npx --yes @vscode/vsce@2.24.0 ls
+
+# 3. Install into your real VS Code (not the Dev Host).
+code --install-extension intellig-<version>.vsix
+# In VS Code: Cmd-Shift-P → 'Developer: Reload Window'.
+# Use the extension for a few minutes against a real repo.
+
+# 4. (optional) Roll back when done.
+code --uninstall-extension intellig-vscode.intellig
+```
+
+If `code` is not on your `PATH`: open VS Code, Cmd-Shift-P,
+`Shell Command: Install 'code' command in PATH`. Or use the GUI:
+Cmd-Shift-P, `Extensions: Install from VSIX...`, browse to the
+`.vsix`.
+
+#### Publishing the artifact
+
+Run from a clean tree with the version-bumped `package.json` already
+committed and pushed. The Marketplace ingests whatever is in the
+uploaded `.vsix` — the source repo state at publish time is not
+checked, but matching the two avoids drift between the published
+artifact and tagged history.
+
+```bash
+# Build the .vsix (placeholder guard runs automatically).
+npx --yes @vscode/vsce@2.24.0 package
+
+# Publish the EXACT .vsix you just inspected, not a re-built one
+# (--packagePath bypasses vsce's implicit re-package).
+npx --yes @vscode/vsce@2.24.0 publish \
+  --packagePath intellig-<version>.vsix
+```
+
+The listing typically appears at
+<https://marketplace.visualstudio.com/items?itemName=intellig-vscode.intellig>
+within five to ten minutes. The Marketplace runs an automated virus
+scan; if it flags, you get an email.
+
+#### Pre-release channel (optional)
+
+If you want a wider but opt-in test audience before promoting to the
+stable channel, publish with `--pre-release`. Users have to toggle
+"Pre-Release Version" in the VS Code Extensions UI to see it.
+
+```bash
+npx --yes @vscode/vsce@2.24.0 publish \
+  --pre-release \
+  --packagePath intellig-<version>.vsix
+```
+
+This is independent of `"preview": true` in `package.json`, which
+controls the listing's PREVIEW badge. The two can be combined or
+used separately.
+
+#### What you cannot undo
+
+- A specific version cannot be deleted from the Marketplace. To fix
+  a bad release, ship `<version>+1` with the fix and rely on auto-
+  update; users on the bad version migrate forward.
+- The entire extension can be unpublished, but reusing the same
+  publisher + extension ID later is restricted by Microsoft.
+- Removing `"preview": true` is one-way per version. Once a version
+  is published as preview, that flag stays for that version; the
+  next version can drop it.
+
 ### Structural guards
 
 The repo ships a set of CI-time structural guards as a complement

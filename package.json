@@ -1,9 +1,10 @@
 {
   "name": "intellig",
   "displayName": "IntelliG",
-  "description": "IntelliJ IDEA-style Git workflows for VS Code: changelists, branch popup, interactive rebase, shelf, and a custom three-way merge view.",
+  "description": "IntelliJ IDEA-style Git workflows for VS Code",
   "version": "0.1.0",
-  "publisher": "intellig-vscode",
+  "publisher": "KaHoChan",
+  "preview": true,
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -30,12 +31,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/KHC831/intellig"
+    "url": "https://github.com/KHC831/intellig-issues"
   },
   "bugs": {
-    "url": "https://github.com/KHC831/intellig/issues"
+    "url": "https://github.com/KHC831/intellig-issues/issues"
   },
-  "homepage": "https://github.com/KHC831/intellig#readme",
+  "homepage": "https://github.com/KHC831/intellig-issues#readme",
   "license": "SEE LICENSE IN LICENSE",
   "activationEvents": [
     "onStartupFinished"

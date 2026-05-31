@@ -1162,7 +1162,6 @@ export class CommitDialog {
         ${
           file.staged
             ? `<button class="stage-button unstage" data-action="unstageFile" data-path="${escapedPath}" title="Unstage">−</button>`
-
             : `<button class="stage-button stage" data-action="stageFile" data-path="${escapedPath}" title="Stage">+</button>`
         }
       </div>
@@ -1330,7 +1329,6 @@ export class CommitDialog {
           ${
             hasSelectedLines && !isStaged
               ? `<button class="hunk-button stage-selected" data-action="stageSelectedLines" data-hunk-index="${hunkIndex}" title="Stage selected lines">+ Stage ${selectedLines.size} Line${selectedLines.size !== 1 ? 's' : ''}</button>`
-
               : ''
           }
         </div>
