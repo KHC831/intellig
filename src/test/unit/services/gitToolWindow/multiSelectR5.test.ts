@@ -1,23 +1,21 @@
 /**
- * Wave A R5 — final review-round fixes.
+ * Final review fixes for the multi-select menu.
  *
  * Covers:
- *   1. MEDIUM — TL4-M-1 = Senior L-2 — `updateLogState` fire-before-post
- *               alignment. The 5 setters fire `onDidChangeState` BEFORE
- *               the post sequence (R4-7). `updateLogState` was the
- *               outlier — fire AFTER. R5-1 aligns it.
- *   2. LOW    — Senior L-1 — dead-code cleanup in reason builders. The
- *               R4-2 visibility narrowing made
- *               `squashReason(selectedCount<2)` and ALL of
- *               `compareVersionsReason` unreachable. R5-2 deletes them.
- *   3. LOW    — TL4-L-1 — invariant comment on apply-loop gate.
- *   4. LOW    — Senior L-4 — duplicate TODO(post-locale) cleanup.
- *   5. FU     — TL4-L-2 — inline-script extraction trigger comment.
- *   6. FU     — TL4-L-3 — recordingWebview extraction comment in both
- *               R3 and R4 test files.
- *   7. FU     — TL4-L-4 — ADR-009 §3 bifurcation FU note.
- *   8. FU     — Senior L-3 — jsdom behavioural witness FU note in R4
- *               test file.
+ *   1. `updateLogState` fire-before-post alignment. The 5 setters fire
+ *      `onDidChangeState` BEFORE the post sequence; `updateLogState` was
+ *      the outlier (fired AFTER) and is aligned to fire first.
+ *   2. Dead-code cleanup in the reason builders. The visibility narrowing
+ *      made `squashReason(selectedCount<2)` and ALL of
+ *      `compareVersionsReason` unreachable, so both are deleted.
+ *   3. Invariant comment on the apply-loop gate.
+ *   4. Collapsing the duplicate TODO(post-locale) note down to one.
+ *   5. Follow-up: inline-script extraction trigger comment.
+ *   6. Follow-up: recordingWebview extraction comment in both the
+ *      `multiSelectR3.test.ts` and `multiSelectR4.test.ts` files.
+ *   7. Follow-up: ADR-009 §3 bifurcation note.
+ *   8. Follow-up: jsdom behavioural-witness note in the
+ *      `multiSelectR4.test.ts` file.
  *
  * Doc-only items (3, 5, 6, 7, 8) carry small structural assertions to
  * keep them from drifting silently.
@@ -56,7 +54,7 @@ function mkCommit(
   };
 }
 
-/** Same recording-webview pattern as R3/R4. */
+/** Same recording-webview pattern as the multiSelectR3 / multiSelectR4 test files. */
 function recordingWebview(provider: GitToolWindowProvider): {
   events: Array<{ kind: 'html' | 'post'; type?: string }>;
 } {
@@ -101,7 +99,7 @@ describe('Wave A R5 — final review fixes', () => {
     provider.dispose();
   });
 
-  // ─── R5-1 MEDIUM: updateLogState fires BEFORE the post sequence ─────────
+  // ─── updateLogState fires onDidChangeState BEFORE the post sequence ────
   describe('R5-1 (MEDIUM) — updateLogState fires onDidChangeState BEFORE the post sequence (TL4-M-1)', () => {
     it('source order: fire precedes both _post* helpers', async () => {
       const fs = await import('fs');
@@ -165,8 +163,8 @@ describe('Wave A R5 — final review fixes', () => {
         path.join(process.cwd(), 'docs/adr/ADR-009-webview-state-ownership.md'),
         'utf8'
       );
-      // R4 wording was "Selection mutators fire …"; R5-1 generalizes to
-      // any host method calling _post* helpers.
+      // The earlier wording was "Selection mutators fire …"; this
+      // generalizes to any host method calling _post* helpers.
       assert.ok(
         /any host method|methods?\s+that\s+call(?:s)?\s+`?_post|every\s+method|generalizes/i.test(
           adr
@@ -176,7 +174,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-2 LOW: dead-code cleanup in reason builders ─────────────────────
+  // ─── dead-code cleanup in reason builders ──────────────────────────────
   describe('R5-2 (LOW) — dead-code cleanup in reason builders (Senior L-1)', () => {
     it('multiSelect.ts no longer carries the unreachable squashReason(selectedCount<2) branch', async () => {
       const fs = await import('fs');
@@ -186,7 +184,7 @@ describe('Wave A R5 — final review fixes', () => {
         'utf8'
       );
       // The hidden-at-N=1 branch produced "Squash needs at least 2 commits selected."
-      // R5-2 deletes it because the visible-and-disabled gate excludes that case.
+      // It is deleted because the visible-and-disabled gate excludes that case.
       assert.ok(
         !/Squash needs at least 2 commits selected/.test(src),
         'unreachable squashReason(N<2) branch must be deleted'
@@ -275,7 +273,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-3 LOW: invariant comment on apply-loop gate ─────────────────────
+  // ─── invariant comment on apply-loop gate ──────────────────────────────
   describe('R5-3 (LOW) — invariant comment on applyMenuEnableMap title gate (TL4-L-1)', () => {
     it('inline script applyMenuEnableMap carries an INVARIANT comment near the title gate', async () => {
       const fs = await import('fs');
@@ -298,7 +296,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-4 LOW: duplicate TODO(post-locale) cleanup ──────────────────────
+  // ─── duplicate TODO(post-locale) cleanup ───────────────────────────────
   describe('R5-4 (LOW) — TODO(post-locale) appears once, on the field (Senior L-4)', () => {
     it('multiSelect.ts has exactly one TODO(post-locale) marker', async () => {
       const fs = await import('fs');
@@ -337,7 +335,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-5 FU: inline-script extraction trigger ──────────────────────────
+  // ─── follow-up: inline-script extraction trigger ───────────────────────
   describe('R5-5 (FU) — inline-script extraction trigger comment (TL4-L-2)', () => {
     it('GitToolWindowProvider.ts contains an FU comment naming the extraction trigger', async () => {
       const fs = await import('fs');
@@ -353,7 +351,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-6 FU: recordingWebview extraction in R3 + R4 ────────────────────
+  // ─── follow-up: recordingWebview extraction in the multiSelectR3 and multiSelectR4 tests ───
   describe('R5-6 (FU) — recordingWebview extraction comment in both R3 and R4 test files (TL4-L-3)', () => {
     async function readTestFile(name: string): Promise<string> {
       const fs = await import('fs');
@@ -381,7 +379,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-7 FU: ADR-009 §3 bifurcation note ───────────────────────────────
+  // ─── follow-up: ADR-009 §3 bifurcation note ────────────────────────────
   describe('R5-7 (FU) — ADR-009 §3 bifurcation FU (TL4-L-4)', () => {
     it('ADR-009 contains an FU note about §3 bifurcation when Wave C lands', async () => {
       const fs = await import('fs');
@@ -397,7 +395,7 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── R5-8 FU: jsdom behavioural witness deferral note ───────────────────
+  // ─── follow-up: jsdom behavioural-witness deferral note ─────────────────
   describe('R5-8 (FU) — jsdom behavioural-witness FU note in multiSelectR4.test.ts (Senior L-3)', () => {
     it('R4-1 test block carries an FU note about deferring full DOM coverage', async () => {
       const fs = await import('fs');
@@ -408,9 +406,9 @@ describe('Wave A R5 — final review fixes', () => {
       );
       const idx = src.indexOf('R4-1 (HIGH)');
       assert.ok(idx > 0);
-      // Look BOTH 800 chars before (the FU note may sit immediately
-      // above the `describe(...)` block) and 2000 chars after (in case
-      // a future edit moves it inside the block).
+      // Look BOTH 800 chars before (the follow-up note may sit
+      // immediately above the `describe(...)` block) and 2000 chars
+      // after (in case a future edit moves it inside the block).
       const window = src.substring(Math.max(0, idx - 800), idx + 2000);
       assert.ok(
         /FU\b[\s\S]{0,200}structural-only|FU\b[\s\S]{0,200}jsdom|FU\b[\s\S]{0,200}runtime witness/i.test(

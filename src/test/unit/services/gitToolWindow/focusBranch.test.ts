@@ -1,6 +1,5 @@
 /**
- * Wave D / D2 + D3 — branch-focus integration tests against the
- * GitToolWindowProvider.
+ * Branch-focus integration tests against the GitToolWindowProvider.
  *
  * Covers:
  *  - setFocusedBranch mutates _extendedLogState.focusedBranchName
@@ -8,7 +7,7 @@
  *  - the rendered branch labels carry .branch-label-focused on the
  *    matching chip + a data-branch-name attribute escaped via _escapeHtml
  *  - updateLogState clears focus when the focused branch is no longer
- *    in the new branch list (mirrors anchorHash lifecycle, Wave A R1)
+ *    in the new branch list (mirrors the anchorHash lifecycle)
  *  - the webview message handler routes focusBranchOnGraph through to
  *    setFocusedBranch
  *  - getMergeBase result drives _focusedPathHashes; a stub that returns
@@ -128,9 +127,8 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
     };
     assert.strictEqual(update.focusedBranchName, 'feature');
     assert.strictEqual(update.focusedHash, 'aaa');
-    // Wave D R1 / Senior M-3 — focusedPathHashes was dropped from the
-    // payload (path data flows host-side only); make sure it's NOT
-    // present.
+    // focusedPathHashes was dropped from the payload (path data flows
+    // host-side only); make sure it's NOT present.
     assert.strictEqual(
       Object.prototype.hasOwnProperty.call(update, 'focusedPathHashes'),
       false,

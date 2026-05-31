@@ -1,26 +1,21 @@
 /**
- * Wave A R4 — review-round fixes.
+ * Multi-select menu review-round fixes.
  *
- * Covers the 9 R4 findings:
- *   1. HIGH    — TL3-H-1 = Senior M-1 — applyMenuEnableMap must surface
- *                `entry.reason` as a `title=` tooltip on disabled rows.
- *   2. MEDIUM  — Senior M-2 — narrow `reason` population to
- *                `!enabled && visible` host-side.
- *   3. MEDIUM  — TL3-M-2 — chronological-direction WARNING in
- *                `getSelectedCommits` JSDoc.
- *   4. LOW     — TL3-L-2 — `IMenuItemState` JSDoc cleanup.
- *   5. LOW     — TL3-L-1 — belt-and-suspenders comment on each
- *                `_postSyncSelection()` call site.
- *   6. LOW     — Senior L-1 — comment clarifying the recordingWebview
- *                fixture.
- *   7. LOW     — Senior L-2 — `_onDidChangeState.fire()` ordering
- *                aligned across all 5 setters (BEFORE the post sequence).
- *   8. LOW     — Senior L-4 — comment on the property-test fixture
- *                seeding requirement.
- *   9. FU      — TL3-M-1 — TODO(post-locale) comment on `reason`.
+ * Covers nine findings:
+ *   1. applyMenuEnableMap must surface `entry.reason` as a `title=`
+ *      tooltip on disabled rows.
+ *   2. Narrow `reason` population to `!enabled && visible` host-side.
+ *   3. Chronological-direction WARNING in `getSelectedCommits` JSDoc.
+ *   4. `IMenuItemState` JSDoc cleanup.
+ *   5. belt-and-suspenders comment on each `_postSyncSelection()` call site.
+ *   6. Comment clarifying the recordingWebview fixture.
+ *   7. `_onDidChangeState.fire()` ordering aligned across all 5 setters
+ *      (BEFORE the post sequence).
+ *   8. Comment on the property-test fixture seeding requirement.
+ *   9. TODO(post-locale) comment on `reason`.
  *
- * Doc-only items (5, 6, 8, 9) carry small structural assertions to
- * keep the docs from drifting silently.
+ * Doc-only items (5, 6, 8, 9) carry small structural assertions to keep
+ * the docs from drifting silently.
  */
 
 import '../../../setup';
@@ -57,10 +52,11 @@ function mkCommit(
 }
 
 /**
- * Order-recording webview stub identical to the R3 one. Defined here too
- * so each spec is self-contained.
+ * Order-recording webview stub identical to the one in
+ * `multiSelectR3.test.ts`. Defined here too so each spec is
+ * self-contained.
  *
- * FU (R5-6, TL4-L-3): extract to `src/test/helpers/recordingWebview.ts`
+ * FU: extract to `src/test/helpers/recordingWebview.ts`
  * when a third test file needs this fixture. Currently 2 consumers
  * (this file and `multiSelectR3.test.ts`).
  */
@@ -108,10 +104,10 @@ describe('Wave A R4 — review fixes', () => {
     provider.dispose();
   });
 
-  // ─── R4-1 HIGH: applyMenuEnableMap surfaces reason as title ─────────────
-  // FU (R5-8, Senior L-3): structural-only coverage; the runtime witness
+  // ─── applyMenuEnableMap surfaces reason as title ─────────────
+  // FU: structural-only coverage; the runtime witness
   // lives in the ext-host smoke. When the inline-script extraction lands
-  // (TL4-L-2 trigger in `_getInlineScript`'s JSDoc), add a jsdom-driven
+  // in `_getInlineScript`, add a jsdom-driven
   // behavioural test that synthesizes a `message` event with a `reason`
   // payload and asserts the `title` attribute lands on the row.
   describe('R4-1 (HIGH) — applyMenuEnableMap pipes entry.reason → title attribute', () => {
@@ -173,7 +169,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-2 MEDIUM: reason narrowed to !enabled && visible ────────────────
+  // ─── reason narrowed to !enabled && visible ────────────────
   describe('R4-2 (MEDIUM) — reason populated only when !enabled && visible (Senior M-2)', () => {
     function nodes(): { hash: string; parentCount: number }[] {
       return [
@@ -230,7 +226,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-3 MEDIUM: getSelectedCommits chronological warning ──────────────
+  // ─── getSelectedCommits chronological warning ──────────────
   describe('R4-3 (MEDIUM) — getSelectedCommits JSDoc carries chronological-direction WARNING', () => {
     it('source contains a WARNING block on getSelectedCommits about reverse-chronological replay', async () => {
       const fs = await import('fs');
@@ -258,7 +254,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-4 LOW: IMenuItemState JSDoc updated ─────────────────────────────
+  // ─── IMenuItemState JSDoc updated ─────────────────────────────
   describe('R4-4 (LOW) — IMenuItemState JSDoc reflects R4 reality (TL3-L-2)', () => {
     it('multiSelect.ts JSDoc says reason is populated when visible && !enabled', async () => {
       const fs = await import('fs');
@@ -296,7 +292,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-5 LOW: belt-and-suspenders comment ──────────────────────────────
+  // ─── belt-and-suspenders comment ──────────────────────────────
   describe('R4-5 (LOW) — belt-and-suspenders comment on _postSyncSelection call sites', () => {
     it('each of the 4 setters carries a belt-and-suspenders comment', async () => {
       const fs = await import('fs');
@@ -316,7 +312,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-6 LOW: recordingWebview fixture comment ─────────────────────────
+  // ─── recordingWebview fixture comment ─────────────────────────
   describe('R4-6 (LOW) — recordingWebview fixture carries call-site-vs-delivery clarification', () => {
     it('multiSelectR3.test.ts has a NOTE block on recordingWebview', async () => {
       const fs = await import('fs');
@@ -339,7 +335,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-7 LOW: _onDidChangeState.fire() ordering aligned ────────────────
+  // ─── _onDidChangeState.fire() ordering aligned ────────────────
   describe('R4-7 (LOW) — _onDidChangeState.fire() fires BEFORE the post sequence in all 5 setters (Senior L-2)', () => {
     function indexOfPostSequenceFire(source: string): number {
       // Helper used to locate "fire BEFORE post" callers — N/A here, kept
@@ -518,7 +514,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-8 LOW: property-test fixture coupling comment ───────────────────
+  // ─── property-test fixture coupling comment ───────────────────
   describe('R4-8 (LOW) — property-test fixture comment about commitNodes seeding', () => {
     it('graphPanel.property.test.ts Property 8 carries a comment about R3-9 fixture coupling', async () => {
       const fs = await import('fs');
@@ -541,7 +537,7 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── R4-9 FU: TODO(post-locale) on reason ───────────────────────────────
+  // ─── TODO(post-locale) on reason ───────────────────────────────
   describe('R4-9 (FU) — TODO(post-locale) marker near reason field', () => {
     it('multiSelect.ts contains TODO(post-locale) within 600 chars of the reason field', async () => {
       const fs = await import('fs');

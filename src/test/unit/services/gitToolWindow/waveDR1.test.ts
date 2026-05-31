@@ -1,14 +1,14 @@
 /**
- * Wave D R1 — review-round consolidated tests.
+ * Branch-focus review-round consolidated tests.
  *
  * Covers:
- *  - Senior H-2 / R1-1: webview branchName injection guard + argv hardening
- *  - Senior H-1 / TLD-M-2 / R1-2: async race generation guard
- *  - TLD-M-1 / R1-3: post-then-render ordering (ADR-009 §3)
- *  - Senior M-1 / R1-4: focus toggle semantics
- *  - Senior M-2 / R1-5: setFocusedBranch preserves selection
- *  - Senior M-3 / R1-6: drop focusedPathHashes from wire (covered in
- *    focusBranch.test.ts; mirrored here in the snap-6 renderer suite)
+ *  - webview branchName injection guard + argv hardening
+ *  - async race generation guard
+ *  - post-then-render ordering (ADR-009 §3)
+ *  - focus toggle semantics
+ *  - setFocusedBranch preserves selection
+ *  - drop focusedPathHashes from wire (covered in focusBranch.test.ts;
+ *    mirrored here in the snap-6 renderer suite)
  */
 
 import '../../../setup';
@@ -135,7 +135,7 @@ describe('Wave D R1 — review-round fixes', () => {
     provider.dispose();
   });
 
-  // ─── R1-1: webview branchName injection guard ───────────────────────
+  // ─── webview branchName injection guard ───────────────────────
   describe('R1-1 — webview branchName injection (Senior H-2)', () => {
     it('drops focusBranchOnGraph for branchName not in branchMap', () => {
       const internals = provider as unknown as R1Internals;
@@ -192,7 +192,7 @@ describe('Wave D R1 — review-round fixes', () => {
     });
   });
 
-  // ─── R1-2: async race generation guard ──────────────────────────────
+  // ─── async race generation guard ──────────────────────────────
   describe('R1-2 — async race generation guard (Senior H-1, TLD-M-2)', () => {
     it('rapid focus(A) → focus(B) lands B as the final state even when A resolves last', async () => {
       const internals = provider as unknown as R1Internals;
@@ -267,7 +267,7 @@ describe('Wave D R1 — review-round fixes', () => {
     });
   });
 
-  // ─── R1-3: post-then-render ordering (ADR-009 §3) ────────────────────
+  // ─── post-then-render ordering (ADR-009 §3) ────────────────────
   describe('R1-3 — post-then-render ordering (TLD-M-1, ADR-009 §3)', () => {
     it('setFocusedBranch posts updateBranchFocus AFTER the html reassignment', async () => {
       const recorded = stubWebview(provider);
@@ -310,7 +310,7 @@ describe('Wave D R1 — review-round fixes', () => {
     });
   });
 
-  // ─── R1-4: focus toggle semantics ────────────────────────────────────
+  // ─── focus toggle semantics ────────────────────────────────────
   describe('R1-4 — focus toggle (Senior M-1)', () => {
     it('getFocusedBranchName returns null initially', () => {
       assert.strictEqual(provider.getFocusedBranchName(), null);
@@ -333,7 +333,7 @@ describe('Wave D R1 — review-round fixes', () => {
     });
   });
 
-  // ─── R1-1 part 2: argv hardening for getMergeBase ───────────────────
+  // ─── argv hardening for getMergeBase ───────────────────────
   describe('R1-1 — getMergeBase argv hardening (Senior H-2)', () => {
     it('GitService.getMergeBase passes --end-of-options before the refs', async () => {
       // Defer-load to avoid a top-level import cycle with the mocha
@@ -393,7 +393,7 @@ describe('Wave D R1 — review-round fixes', () => {
     });
   });
 
-  // ─── R1-5: selection preservation ────────────────────────────────────
+  // ─── selection preservation ────────────────────────────────────
   describe('R1-5 — setFocusedBranch preserves selection (Senior M-2)', () => {
     it('does not clear selectedCommits / anchorHash / expandedCommit', async () => {
       const internals = provider as unknown as R1Internals;

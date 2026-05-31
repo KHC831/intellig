@@ -1,20 +1,20 @@
 /**
- * Wave A R3 — consolidated review-round fixes.
+ * Consolidated review-round fixes for the multi-select log view.
  *
- * Covers the 11 R3 findings (HIGH + MEDIUM + LOW), each with a behavioural
- * or structural witness. Reviewer cross-references in the brief:
+ * Covers the 11 findings (HIGH + MEDIUM + LOW), each with a behavioural
+ * or structural witness:
  *
- *   1. HIGH    — TL2-H-1 = Senior L-2/L-4 — post→re-render race
- *   2. MEDIUM  — Senior M-1 — selectCommits doesn't clear pending changed files
- *   3. MEDIUM  — Senior M-2 — weak runtime guard on JS-supplied anchorHash
- *   4. MEDIUM  — TL2-M-3   — IMenuItemState.reason for disabled tooltips
- *   5. MEDIUM  — TL2-M-1   — ADR-009 §3 post-ordering rule (doc, separate test)
- *   6. MEDIUM  — TL2-M-2   — ADR-009 §2.1 counter-example (doc-only)
- *   7. MEDIUM  — TL2-M-4   — ADR-009 §5 partial-vs-full (doc-only)
- *   8. LOW     — Senior L-1 — selectCommits expandedCommit fallback
- *   9. LOW     — Senior L-3 — getSelectedCommits returns display order
- *  10. LOW     — TL2-L-1   — LogContextAction superset comment (structural)
- *  11. LOW     — TL2-L-2   — typed-message FU TODO (structural)
+ *   1. HIGH    — post→re-render race
+ *   2. MEDIUM  — selectCommits doesn't clear pending changed files
+ *   3. MEDIUM  — weak runtime guard on JS-supplied anchorHash
+ *   4. MEDIUM  — IMenuItemState.reason for disabled tooltips
+ *   5. MEDIUM  — ADR-009 §3 post-ordering rule (doc, separate test)
+ *   6. MEDIUM  — ADR-009 §2.1 counter-example (doc-only)
+ *   7. MEDIUM  — ADR-009 §5 partial-vs-full (doc-only)
+ *   8. LOW     — selectCommits expandedCommit fallback
+ *   9. LOW     — getSelectedCommits returns display order
+ *  10. LOW     — LogContextAction superset comment (structural)
+ *  11. LOW     — typed-message follow-up TODO (structural)
  *
  * Doc-only items (5, 6, 7) carry a small structural assertion against
  * `docs/adr/ADR-009-webview-state-ownership.md` so the docs can't drift
@@ -70,21 +70,22 @@ function mkCommit(
 
 /**
  * Stub the webview such that we can record the ORDER of `set webview.html`
- * vs `webview.postMessage` calls. The R3 HIGH fix is exactly about this
- * ordering: post must happen AFTER the html reassignment, not before.
+ * vs `webview.postMessage` calls. This ordering is the crux of the
+ * highest-priority fix: post must happen AFTER the html reassignment,
+ * not before.
  *
- * NOTE (R4-6, Senior L-1): This fixture pins CALL-SITE order (the host
- * calls `postMessage` AFTER assigning `webview.html`), not message
- * DELIVERY order (which document handles the message). In production,
- * VS Code's `postMessage` semantics guarantee that messages enqueued
- * after `webview.html` reassignment land on the new document — the
- * webview reload completes synchronously before subsequent posts are
- * delivered. The test asserts the host-side property; the runtime
- * delivery guarantee follows from VS Code's webview API contract.
+ * NOTE: This fixture pins CALL-SITE order (the host calls `postMessage`
+ * AFTER assigning `webview.html`), not message DELIVERY order (which
+ * document handles the message). In production, VS Code's `postMessage`
+ * semantics guarantee that messages enqueued after `webview.html`
+ * reassignment land on the new document — the webview reload completes
+ * synchronously before subsequent posts are delivered. The test asserts
+ * the host-side property; the runtime delivery guarantee follows from
+ * VS Code's webview API contract.
  *
- * FU (R5-6, TL4-L-3): extract to `src/test/helpers/recordingWebview.ts`
- * when a third test file needs this fixture. Currently 2 consumers
- * (this file and `multiSelectR4.test.ts`).
+ * FU — extract to `src/test/helpers/recordingWebview.ts` when a third
+ * test file needs this fixture. Currently 2 consumers (this file and
+ * `multiSelectR4.test.ts`).
  */
 function recordingWebview(provider: GitToolWindowProvider): {
   events: Array<{ kind: 'html' | 'post'; type?: string }>;
@@ -130,7 +131,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     provider.dispose();
   });
 
-  // ─── R3-1 HIGH: post→re-render race ─────────────────────────────────────
+  // ─── post→re-render race ────────────────────────────────────────────────
   describe('R3-1 (HIGH) — postMessage MUST happen after the most recent webview.html reassignment', () => {
     function assertPostsAfterHtml(
       events: Array<{ kind: 'html' | 'post'; type?: string }>,
@@ -267,7 +268,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-2 MEDIUM: selectCommits clears pending changed files ────────────
+  // ─── selectCommits clears pending changed files ─────────────────────────
   describe('R3-2 (MEDIUM) — selectCommits clears _pendingChangedFiles (Senior M-1)', () => {
     it('clears _pendingChangedFiles on entry', () => {
       const internals = provider as unknown as InternalsR3;
@@ -286,7 +287,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-3 MEDIUM: type narrow on JS-supplied anchorHash ─────────────────
+  // ─── type narrow on JS-supplied anchorHash ──────────────────────────────
   describe('R3-3 (MEDIUM) — _handleWebviewMessage rejects non-string non-null anchorHash (Senior M-2)', () => {
     it('does not throw when anchorHash is a number (rogue webview)', () => {
       const internals = provider as unknown as InternalsR3;
@@ -375,7 +376,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-4 MEDIUM: IMenuItemState.reason ─────────────────────────────────
+  // ─── IMenuItemState.reason ──────────────────────────────────────────────
   describe('R3-4 (MEDIUM) — IMenuItemState.reason populated for disabled actions (TL2-M-3)', () => {
     function nodes(merged = false): { hash: string; parentCount: number }[] {
       return [
@@ -401,8 +402,8 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
 
     it('squashCommits.reason at N=1 is undefined (hidden — R4-2 contract narrowing)', () => {
-      // Pre-R4 this populated reason="Squash needs at least 2 commits";
-      // R4-2 narrowed the gate to `visible && !enabled`, and squashCommits
+      // This action populated reason="Squash needs at least 2 commits"
+      // before the gate was narrowed to `visible && !enabled`. squashCommits
       // is hidden at N=1 (visibility flag), so reason is now undefined.
       // The N>=2 requirement is conveyed by the row simply not rendering.
       const state = computeMenuState({
@@ -447,8 +448,8 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
 
     it('compareVersions.reason is undefined when N!=2 (hidden — R4-2 contract narrowing)', () => {
-      // Pre-R4 this populated reason="Compare Versions needs exactly 2";
-      // R4-2 narrowed the gate to `visible && !enabled`, and
+      // This action populated reason="Compare Versions needs exactly 2"
+      // before the gate was narrowed to `visible && !enabled`.
       // compareVersions is hidden whenever it's disabled (visibility
       // and enable rules both `=== 2`), so the reason is never set in
       // practice. The exactly-2 requirement is conveyed by the row not
@@ -468,7 +469,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-5/6/7 MEDIUM: ADR-009 doc sections ──────────────────────────────
+  // ─── ADR-009 doc sections ───────────────────────────────────────────────
   describe('R3-5/6/7 (MEDIUM) — ADR-009 sections updated', () => {
     let adr: string;
     before(async () => {
@@ -515,7 +516,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-8 LOW: selectCommits expandedCommit fallback ────────────────────
+  // ─── selectCommits expandedCommit fallback ──────────────────────────────
   describe('R3-8 (LOW) — selectCommits sets expandedCommit to first surviving hash for N>=2 (Senior L-1)', () => {
     it('selectCommits([h1, h2]) sets expandedCommit = h1 (first in the new selection)', () => {
       const internals = provider as unknown as InternalsR3;
@@ -543,15 +544,15 @@ describe('Wave A R3 — consolidated review fixes', () => {
 
       internals.selectCommits([]);
 
-      // Either undefined (cleared) or 'aaa' (preserved) is acceptable; the
-      // R3 spec only requires the N>=2 case to behave. We assert it stays
+      // Either undefined (cleared) or 'aaa' (preserved) is acceptable; only
+      // the N>=2 case is required to behave. We assert it stays
       // a string|undefined for type safety.
       const v = internals._extendedLogState.expandedCommit;
       assert.ok(v === undefined || typeof v === 'string');
     });
   });
 
-  // ─── R3-9 LOW: getSelectedCommits display order ─────────────────────────
+  // ─── getSelectedCommits display order ───────────────────────────────────
   describe('R3-9 (LOW) — getSelectedCommits returns display order (Senior L-3)', () => {
     it('returns hashes in commitNodes display order, not Set insertion order', () => {
       provider.updateLogState([
@@ -580,7 +581,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-10 LOW: LogContextAction structural comment ─────────────────────
+  // ─── LogContextAction structural comment ────────────────────────────────
   describe('R3-10 (LOW) — LogContextAction declares its superset relationship (TL2-L-1)', () => {
     it('GitToolWindowProvider.ts contains a "superset" comment on the LogContextAction declaration', async () => {
       const fs = await import('fs');
@@ -603,7 +604,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
     });
   });
 
-  // ─── R3-11 LOW: typed-message FU TODO ───────────────────────────────────
+  // ─── typed-message follow-up TODO ───────────────────────────────────────
   describe('R3-11 (LOW) — post-Wave-C TODO for unified WebviewInboundMessage (TL2-L-2)', () => {
     it('GitToolWindowProvider.ts contains a TODO near WaveAInboundMessage referencing the unification plan', async () => {
       const fs = await import('fs');
