@@ -5,7 +5,7 @@
  * as input and returns the body-level HTML the provider splices into the
  * tabbed wrapper.
  *
- * Phase-1 callers still pass zero arguments; we render an empty-state
+ * Current callers still pass zero arguments; we render an empty-state
  * placeholder in that case so behaviour is unchanged until the provider
  * starts feeding real state in.
  */

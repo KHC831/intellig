@@ -306,8 +306,8 @@ export function changelistContextMenuLabels(input: {
 }
 
 /**
- * Gear-menu placeholder items for the composer. Content ships in T2-06 —
- * Phase 1 just renders them as disabled with a "coming soon" tooltip.
+ * Gear-menu placeholder items for the composer. Content ships in T2-06; these
+ * render as disabled with a "coming soon" tooltip until then.
  */
 export function gearMenuItems(): Array<{ label: string; tooltip: string }> {
   const tooltip = 'Coming soon (T2-06)';

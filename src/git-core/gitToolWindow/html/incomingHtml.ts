@@ -1,7 +1,7 @@
 /**
- * Phase 1 stub for the Incoming tab body.
+ * Placeholder for the Incoming tab body.
  *
- * Full implementation ships in Phase 2 (design §3.6 staging).
+ * Full implementation is still to come (design §3.6 staging).
  */
 
 export function renderIncomingTabBody(): string {

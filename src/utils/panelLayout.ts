@@ -50,14 +50,14 @@ export function clampPanelWidths(
   // Work with a mutable copy
   const result: [number, number] = [...widths];
 
-  // Phase 1: Clamp all panels to at least the minimum
+  // First pass: clamp all panels to at least the minimum
   for (let i = 0; i < PANEL_COUNT; i++) {
     if (!Number.isFinite(result[i]) || result[i] < MIN_PANEL_WIDTH) {
       result[i] = MIN_PANEL_WIDTH;
     }
   }
 
-  // Phase 2: Adjust so the sum equals containerWidth
+  // Second pass: adjust so the sum equals containerWidth
   const currentSum = result[0] + result[1];
   const diff = containerWidth - currentSum;
 

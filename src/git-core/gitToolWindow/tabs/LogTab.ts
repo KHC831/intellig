@@ -1,14 +1,13 @@
 /**
- * LogTab handler — Phase 1.
+ * LogTab handler.
  *
  * For the Log tab, all business logic continues to live inside the monolithic
- * `GitToolWindowProvider.onDidReceiveMessage` switch. Phase 1 leaves that
- * switch intact (see design §3.6: extract log HTML intact first, layer tab
- * strip later). This module is therefore a thin identity handler — the
- * TabRouter returns early for `log` messages and the provider handles them as
- * before.
+ * `GitToolWindowProvider.onDidReceiveMessage` switch, which is left intact (see
+ * design §3.6: extract log HTML intact first, layer tab strip later). This
+ * module is therefore a thin identity handler — the TabRouter returns early for
+ * `log` messages and the provider handles them as before.
  *
- * When Phase 2/3 gradually migrates log-specific handlers out of the switch,
+ * As log-specific handlers are gradually migrated out of the switch,
  * they will move here.
  */
 

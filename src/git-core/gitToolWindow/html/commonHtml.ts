@@ -1,7 +1,7 @@
 /**
  * Shared chrome for the tabbed Git tool window.
  *
- * Phase 1 only ships the tab strip + wrapper. The repository selector and gear
+ * Only the tab strip + wrapper ship here. The repository selector and gear
  * menu continue to be rendered by the monolithic Log-tab HTML (extracting them
  * would risk breaking the embedded `acquireVsCodeApi` script handling called
  * out as a hotspot in REVIEW §7 / design §3.6 line 1571).

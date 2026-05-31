@@ -185,7 +185,7 @@ export class StashView implements IStashView {
   async showCreateDialog(repository: IRepository): Promise<IStashCreationResult> {
     this._repository = repository;
 
-    // Step 1: Get stash message
+    // Get stash message
     const message = await vscode.window.showInputBox({
       prompt: 'Enter stash message (optional)',
       placeHolder: 'WIP: My work in progress',
@@ -197,13 +197,13 @@ export class StashView implements IStashView {
       return { created: false };
     }
 
-    // Step 2: Show options
+    // Show options
     const options = await this._showStashOptionsDialog();
     if (options === undefined) {
       return { created: false };
     }
 
-    // Step 3: Create the stash
+    // Create the stash
     try {
       await this._gitService.stash(repository, message || undefined, options);
       // sanitize-exempt: user-input: message is the user-typed stash label from showInputBox above, not git stderr

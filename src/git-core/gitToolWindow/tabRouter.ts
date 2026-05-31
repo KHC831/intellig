@@ -1,7 +1,7 @@
 /**
  * Tab router for the Git Tool Window webview.
  *
- * T1-05 Phase 1 introduces a tabbed layout (Log / Console / Incoming /
+ * The `T1-05` change introduced a tabbed layout (Log / Console / Incoming /
  * Update Info / History) behind the `intellig.useTabbedGitToolWindow`
  * configuration flag. This module owns:
  *
@@ -18,7 +18,7 @@
  * routing — the existing monolithic `onDidReceiveMessage` switch continues to
  * own per-case business logic. The router prepends tab discrimination and
  * dispatches non-log messages to stub handlers that display "Coming soon"
- * placeholders (Phase 1).
+ * placeholders.
  */
 
 import * as vscode from 'vscode';
@@ -46,7 +46,8 @@ export interface IWebviewTabMessage {
 }
 
 /**
- * Per-tab handler signature. Phase 1 only wires up a Log handler + four stubs.
+ * Per-tab handler signature. Only the Log handler is wired up today; the other
+ * four tabs use stub handlers.
  */
 export type TabMessageHandler = (message: IWebviewTabMessage) => Promise<void> | void;
 
@@ -57,7 +58,7 @@ export type TabMessageHandler = (message: IWebviewTabMessage) => Promise<void> |
 export interface ITabRouterHooks {
   /**
    * Called whenever the active tab changes. The provider uses this to
-   * re-render the webview HTML (Phase 1) and, in future phases, to lazy-load
+   * re-render the webview HTML and, in future, to lazy-load
    * tab-specific state.
    */
   onActiveTabChanged?(tab: TabId): void;
@@ -157,7 +158,7 @@ export class TabRouter {
    * Returns `true` if the message was a router-owned `tabChange` message, so
    * the caller can skip its own switch. Returns `false` for everything else.
    * The caller is expected to continue its own per-type processing for the
-   * `log` tab (since Phase 1 keeps the existing provider switch intact).
+   * `log` tab (the existing provider switch still handles it).
    */
   public async dispatch(message: IWebviewTabMessage): Promise<boolean> {
     // Defensive: malformed messages (non-object / missing type) are dropped.

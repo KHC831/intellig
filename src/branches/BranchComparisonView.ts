@@ -389,7 +389,7 @@ export class BranchComparisonView implements IBranchComparisonView {
    * Resolves to `{ error?: string }`. On success `error` is undefined; on
    * failure `error` holds a sanitised, human-readable message. Never
    * rejects. The error toast is still emitted from this method (for
-   * UX continuity with the pre-Wave-8 behaviour) but the canonical
+   * UX continuity with the previous behaviour) but the canonical
    * channel for downstream callers is the return value, not a sideband.
    */
   private async _performComparison(): Promise<{ error?: string }> {
