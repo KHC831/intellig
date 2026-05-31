@@ -8,9 +8,15 @@ later) before reporting a vulnerability.
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities privately to kachan831@gmail.com.
-Do not file public GitHub issues for security bugs — public disclosure
-of an unpatched vulnerability puts every IntelliG user at risk.
+Please report security vulnerabilities privately via GitHub's private
+vulnerability reporting:
+
+<https://github.com/KHC831/intellig-issues/security/advisories/new>
+
+Reports filed through that flow are visible only to the repository
+maintainers. Do not file public GitHub issues for security bugs —
+public disclosure of an unpatched vulnerability puts every IntelliG
+user at risk.
 
 We aim to acknowledge a private report within 7 days. Once a report
 is verified, we aim to ship a fix within 14 days of acknowledgment

@@ -320,9 +320,9 @@ Enable the IntelliJ preset in settings:
 
 Found a bug, have a question, or want to request a feature? [Open an issue](https://github.com/KHC831/intellig-issues/issues) on the public issue tracker.
 
-For security vulnerabilities, please email **kachan831@gmail.com** directly rather than filing a public issue.
+For security vulnerabilities, please use [GitHub's private vulnerability reporting](https://github.com/KHC831/intellig-issues/security/advisories/new) — your report stays private to repo maintainers and isn't disclosed publicly until a fix ships.
 
 ## License
 
 Proprietary — all rights reserved. The full LICENSE file is included
-in the extension package. For licensing inquiries, contact kachan831@gmail.com.
+in the extension package. For licensing inquiries, [open an issue](https://github.com/KHC831/intellig-issues/issues) tagged `licensing`.

@@ -10,6 +10,20 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.1.1] - 2026-05-31
+
+### Changed
+
+- Removed direct email contact from public-facing docs. Bug reports,
+  feature requests, and security vulnerabilities now route through
+  the `intellig-issues` repo (security via GitHub's private
+  vulnerability reporting flow).
+
+### Fixed
+
+- Stray blank lines in two `CommitDialog.ts` template-literal
+  expressions that triggered prettier warnings on CI.
+
 ## [0.1.0] - 2026-05-31
 
 Initial Marketplace release. Marked as `preview` while the project
