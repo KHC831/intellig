@@ -82,7 +82,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
-   * TL-88 (#213): fired when a previously-discovered repository is removed
+   * (#213): fired when a previously-discovered repository is removed
    * from `_repositories` — either because the user removed its workspace
    * folder, or because its `.git/HEAD` was deleted mid-session
    * (`rm -rf .git`). Subscribers (BranchTreeProvider, StatusBarService,
@@ -148,7 +148,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * watchers) — those activate after a repo is discovered. These fire
    * BEFORE discovery so we can pick up brand-new repos.
    *
-   * **TL-91 (#219) shape note:** stored as `Disposable[]` (single-element
+   * ** (#219) shape note:** stored as `Disposable[]` (single-element
    * arrays in practice) so this map fits the shared `_watcherMaps`
    * registry signature. The previous shape was `Map<string,
    * vscode.FileSystemWatcher>` (single value); the registry walker
@@ -158,14 +158,14 @@ export class GitService implements IGitService, IGitServiceCli {
   private _newRepoWatchers: Map<string, vscode.FileSystemWatcher[]> = new Map();
 
   /**
-   * **TL-91 (#219) — watcher families registry.**
+   * ** (#219) — watcher families registry.**
    *
    * Each watcher family (per-repo `.git/<entry>` watchers, mid-session
    * `**\/.git` new-repo watchers, hypothetical future families like
    * submodule-init or worktree-add watchers) registers the Map that owns
    * its lifecycle here. `removeRepositoryWatcher(rootPath)` walks every
    * registered Map uniformly, disposing entries whose key is `rootPath`
-   * itself OR a path-child of `rootPath` per the Wave 10 R2 / TL-83
+   * itself OR a path-child of `rootPath` per the /
    * cleanup contract.
    *
    * Without the registry, every new family would silently leak unless the
@@ -238,7 +238,7 @@ export class GitService implements IGitService, IGitServiceCli {
   /**
    * Event fired when a previously-discovered repository is removed from
    * tracking (workspace folder removed OR `.git/HEAD` deleted mid-session
-   * per TL-88 / #213). Fires exactly once per repo per removal cause.
+   * per issue #213). Fires exactly once per repo per removal cause.
    */
   readonly onDidRemoveRepository: vscode.Event<IRepository>;
 
@@ -259,11 +259,11 @@ export class GitService implements IGitService, IGitServiceCli {
     this._logger = getLogger().child({ component: 'GitService' });
     this._logger.info('GitService constructed', { gitPath });
 
-    // TL-91 (#219): register the two known watcher families with the
+    // (#219): register the two known watcher families with the
     // shared cleanup registry. Future families add a single line here
     // and `removeRepositoryWatcher` automatically walks them.
     //
-    // R1 / M2 (TL-91 follow-up): the structural guard
+    // The structural guard
     // `scripts/check-watcher-families-registered.mjs` enforces that
     // EVERY field matching the watcher-family declaration shape
     // (`Map<string, vscode.Disposable[] | vscode.FileSystemWatcher[]>`)
@@ -303,8 +303,8 @@ export class GitService implements IGitService, IGitServiceCli {
       })
     );
 
-    // TL-86 (#211): re-run discovery on all workspace folders when the
-    // repository-scan-related settings change. Pre-TL-86 the two settings
+    // Issue #211: re-run discovery on all workspace folders when the
+    // repository-scan-related settings change. Previously the two settings
     // (`intellig.repositoryScanMaxDepth` + `intellig.repositoryScanIgnoredFolders`)
     // were read once at workspace-folder-add time; mid-session edits had no
     // effect until window reload, with no signal to the user.
@@ -313,7 +313,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // for repos already tracked, so a re-scan after a no-op config tweak does
     // not re-fire `onDidChangeRepository` for known repos. Newly-discovered
     // repos (e.g. after a depth increase) fire the emitter per repo per the
-    // existing TL-82 contract.
+    // existing contract.
     this._disposables.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (
@@ -400,7 +400,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Wave G — synchronously invalidate + reload a repository's cache entry.
+   * Synchronously invalidate + reload a repository's cache entry.
    *
    * Mirrors the internal {@link _performDebouncedRefresh} flow minus the
    * debounce + in-flight-guard scaffolding (callers `await` directly).
@@ -447,7 +447,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Discover a repository — or a set of nested repositories — at the given
    * path.
    *
-   * Wave 10 (task #204) — previously this only checked `path` itself for
+   * (task #204) — previously this only checked `path` itself for
    * `.git/`, which missed the common workspace-with-nested-repos shape
    * (e.g. opening `~/work/` with `~/work/projectA/.git` +
    * `~/work/projectB/.git`). Now it delegates to {@link scanFolderForGitRepos}
@@ -488,7 +488,7 @@ export class GitService implements IGitService, IGitServiceCli {
         const repo = await this.loadRepository(root);
         this.setupRepositoryWatcher(root);
         this._logger.info('repository discovered', { rootPath: root });
-        // Wave 10 R2 (TL-82 HIGH): fire `onDidChangeRepository` so the 6
+        // Fire `onDidChangeRepository` so the 6
         // event-driven subscribers (BranchTreeProvider, StatusBarService,
         // BranchPopup, ChangelistService, ConflictResolutionService,
         // GitToolWindowProvider) see the freshly-discovered repo. Without
@@ -514,7 +514,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * a workspace folder. Fires when the user runs `git init` in a subfolder
    * mid-session so IntelliG picks up the new repo without a window reload.
    *
-   * **Submodule auto-load behavior (OBS-2 from Wave 10 R2 senior review):**
+   * **Submodule auto-load behavior:**
    * The `**\/.git` glob fires on EVERY `.git/` directory created under the
    * watched folder, including `.git/` directories that belong to submodules
    * (or, more rarely, nested non-submodule sibling repos). When a
@@ -528,9 +528,9 @@ export class GitService implements IGitService, IGitServiceCli {
    * still prevents auto-loading of `node_modules/<pkg>/.git` style
    * npm-packaged repos.
    *
-   * **Why this is safe vs. the Wave 1 infinite-loop guards:**
+   * **Why this is safe vs. the infinite-loop guards:**
    *   - Listens to creation events ONLY (`ignoreChangeEvents: true`,
-   *     `ignoreDeleteEvents: true`). The Wave 1 loop was caused by
+   * `ignoreDeleteEvents: true`). The loop was caused by
    *     `**\/*` watching every modify of `.git/objects/**`; we don't watch
    *     modifies and we restrict to `.git` basename.
    *   - The handler re-runs `discoverRepository` on the parent dir, which
@@ -573,7 +573,7 @@ export class GitService implements IGitService, IGitServiceCli {
       // between the workspace folder and the parent dir matching an
       // ignored name disqualifies this `.git/`.
       //
-      // Wave 10 R2 senior MEDIUM (path-prefix string match): use
+      // (path-prefix string match): use
       // `path.relative` rather than `repoParentDir.startsWith(folderPath)`.
       // The string-prefix check incorrectly matched `/workspace/foo` as
       // inside `/work` because `'/workspace/foo'.startsWith('/work')` is
@@ -599,7 +599,7 @@ export class GitService implements IGitService, IGitServiceCli {
         return;
       }
       // Dispatch through the same discovery entry point so the new repo
-      // gets a `.git/` watcher installed (Wave 1 guards apply) and the
+      // gets a `.git/` watcher installed (guards apply) and the
       // change-emitter fires. Bucket C: discovery failures here are the
       // same flavor as the constructor path (mid-init races, permission
       // denied), so we route through `safeFireAndForget` with the shared
@@ -611,7 +611,7 @@ export class GitService implements IGitService, IGitServiceCli {
       );
     });
 
-    // TL-91 (#219): single-element-array shape so the map fits the shared
+    // (#219): single-element-array shape so the map fits the shared
     // `_watcherMaps` registry walker uniformly with `_fileWatchers`.
     this._newRepoWatchers.set(folderPath, [watcher]);
   }
@@ -864,7 +864,7 @@ export class GitService implements IGitService, IGitServiceCli {
       this._refreshTimers.set(rootPath, timer);
     };
 
-    // TL-88 (#213): a deletion of `.git/HEAD` is the strongest signal that
+    // (#213): a deletion of `.git/HEAD` is the strongest signal that
     // the repo was destroyed (`rm -rf .git`, an aggressive `git worktree
     // remove`, etc.). HEAD is required for any working repo, so its
     // disappearance is unambiguous. We treat it specially: instead of the
@@ -882,7 +882,7 @@ export class GitService implements IGitService, IGitServiceCli {
       if (this._disposed) {
         return;
       }
-      // R1 / C1 (TL-88 follow-up): `removeRepositoryWatcher` now fires
+      // `removeRepositoryWatcher` now fires
       // `onDidRemoveRepository` for every removed repo internally (the
       // shared cleanup path used by both `.git/HEAD` deletion AND
       // workspace-folder removal). We just delegate. Idempotency:
@@ -909,7 +909,7 @@ export class GitService implements IGitService, IGitServiceCli {
       );
       watcher.onDidChange(handleChange);
       watcher.onDidCreate(handleChange);
-      // TL-88: only the HEAD watcher routes deletes to handleHeadDelete;
+      // Only the HEAD watcher routes deletes to handleHeadDelete;
       // all other patterns continue to go through the debounced refresh
       // path (whose `_performDebouncedRefresh` already tolerates transient
       // delete-then-recreate sequences via the cache invalidation +
@@ -975,9 +975,9 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param rootPath - The repository root path
    */
   private removeRepositoryWatcher(rootPath: string): void {
-    // Wave 10 R2 senior HIGH (lifecycle leak): pre-Wave-10 the workspace
+    // (lifecycle leak): the workspace
     // folder path was always identical to the repo root path, so a single
-    // exact-match cleanup sufficed. Post-Wave-10 with nested-repo
+    // exact-match cleanup sufficed. With nested-repo
     // discovery, opening `~/work/` may register `~/work/projectA` and
     // `~/work/projectB` as separate repos — so when the user removes
     // `~/work` from the workspace mid-session, we must dispose every
@@ -1006,8 +1006,8 @@ export class GitService implements IGitService, IGitServiceCli {
       return true;
     };
 
-    // TL-91 (#219): walk EVERY registered watcher-family map uniformly.
-    // Pre-TL-91 this method hardcoded `_fileWatchers` and a separate
+    // Issue #219: walk EVERY registered watcher-family map uniformly.
+    // This method previously hardcoded `_fileWatchers` and a separate
     // `_newRepoWatchers.get(rootPath)` exact-match cleanup; new families
     // would silently leak unless contributors remembered to extend the
     // function. The `_watcherMaps` registry makes "register the new map"
@@ -1059,8 +1059,8 @@ export class GitService implements IGitService, IGitServiceCli {
       this._reloading.delete(key);
     }
 
-    // R1 / C1 (TL-88 follow-up): fire `onDidRemoveRepository` for EVERY
-    // matched repo BEFORE deleting from `_repositories`. Pre-R1 only the
+    // Fire `onDidRemoveRepository` for EVERY
+    // matched repo BEFORE deleting from `_repositories`. Previously only the
     // `.git/HEAD`-deletion path (`handleHeadDelete`) fired the emitter,
     // which violated the JSDoc contract that promises both removal causes
     // (workspace-folder removal AND `.git/HEAD` deletion) trigger the
@@ -1183,7 +1183,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // so the branch is created AND switched to in a single atomic command.
     // Using `-B` when force is also set gives us "reset-and-checkout" in one
     // shot — matches IntelliJ's "Overwrite if exists" + "Checkout" combo.
-    // Wave I — branch-name validation above rejects `-`-leading names,
+    // branch-name validation above rejects `-`-leading names,
     // so `name` is safe to land positionally. We splice `--end-of-options`
     // before the unvalidated `startPoint` ref (the user-controlled
     // injection point).
@@ -1225,7 +1225,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void> {
-    // Wave I — splice `--end-of-options` between flag args and the ref
+    // Splice `--end-of-options` between flag args and the ref
     // to reject argv injection via a hostile branch name (e.g.
     // `--upload-pack=evil`).
     //
@@ -1267,7 +1267,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
-    // Wave I R1 — service-boundary reject branch names starting with `-`
+    // service-boundary reject branch names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
     // `--end-of-options` between the `-d`/`-D` flag and the user-controlled
@@ -1281,11 +1281,11 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Wave K — WK-3 (DK-3): `git branch --set-upstream-to=<upstreamRef>
+   * `git branch --set-upstream-to=<upstreamRef>
    * <localName>`. Used by `Track Remote Branch` when an existing local
    * branch with no/different upstream needs to adopt the right-clicked
    * remote ref. Same input-validation discipline as deleteBranch /
-   * renameBranch (Wave I R1): reject names starting with `-` or `.` so a
+   * renameBranch: reject names starting with `-` or `.` so a
    * hostile name can't masquerade as a CLI flag, and splice
    * `--end-of-options` between the `--set-upstream-to=…` flag and the
    * positional local-name. The remote part of the upstream ref carries
@@ -1309,7 +1309,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
-    // Wave I R1 — service-boundary reject either name starting with `-`
+    // service-boundary reject either name starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
     // `--end-of-options` between the `-m` flag and the user-controlled
@@ -1350,7 +1350,7 @@ export class GitService implements IGitService, IGitServiceCli {
     if (options?.message && options.message.length > 0) {
       flags.push('-m', options.message);
     }
-    // Wave I — `branch` is user-controlled; splice via buildGitArgs.
+    // `branch` is user-controlled; splice via buildGitArgs.
     const args = buildGitArgs('merge', flags, [branch]);
 
     const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
@@ -1392,7 +1392,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * @returns Rebase result with success status and any conflicts
    */
   async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
-    // Wave I — `onto` is user-controlled; splice via buildGitArgs.
+    // `onto` is user-controlled; splice via buildGitArgs.
     const args = buildGitArgs('rebase', [], [onto]);
     const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     this.invalidateCache(repo.rootUri.fsPath);
@@ -1475,7 +1475,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Get ahead/behind counts using git rev-list --left-right --count
     // This returns: "ahead\tbehind"
-    // Wave I — branch1/branch2 are user-controlled; splice via buildGitArgs.
+    // branch1/branch2 are user-controlled; splice via buildGitArgs.
     const countResult = await this._gitCli.exec(
       buildGitArgs('rev-list', ['--left-right', '--count'], [`${branch1}...${branch2}`]),
       { cwd }
@@ -1494,7 +1494,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Get commits unique to branch1 (ahead commits)
     // git rev-list branch2..branch1 gives commits in branch1 not in branch2
-    // Wave I — both branches splice via buildGitArgs.
+    // Both branches splice via buildGitArgs.
     const commitsAhead: ICommit[] = [];
     if (aheadCount > 0) {
       const aheadResult = await this._gitCli.exec(
@@ -1520,7 +1520,7 @@ export class GitService implements IGitService, IGitServiceCli {
     }
 
     // Get files that differ between branches.
-    // L-4 (Wave I sweep): use `--name-only -z` so paths with whitespace
+    // Use `--name-only -z` so paths with whitespace
     // / non-ASCII characters split unambiguously on `\0` rather than the
     // old `\n` parse, which lost names containing literal newlines.
     const diffResult = await this._gitCli.exec(
@@ -1530,7 +1530,7 @@ export class GitService implements IGitService, IGitServiceCli {
       }
     );
 
-    // L-4: `-z` separates entries with `\0`, not `\n`, so paths
+    // `-z` separates entries with `\0`, not `\n`, so paths
     // containing newlines or whitespace round-trip safely.
     let changedFiles: string[] = [];
     if (diffResult.exitCode === 0 && diffResult.stdout.length > 0) {
@@ -1655,7 +1655,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
   async pull(repo: IRepository, options?: IPullOptions): Promise<void> {
     // Order: git pull [--rebase|--ff-only|--no-ff] [--squash] [--no-commit] [--no-verify] <remote> <branch>
-    // Wave I — split flags vs. refs (remote/branch) so buildGitArgs can
+    // Split flags vs. refs (remote/branch) so buildGitArgs can
     // splice `--end-of-options` between them; defends against argv
     // injection through hostile remote/branch names.
     const flags: string[] = [];
@@ -1696,7 +1696,7 @@ export class GitService implements IGitService, IGitServiceCli {
   async push(repo: IRepository, options?: IPushOptions): Promise<void> {
     // Order: git push [--force|--force-with-lease] [--set-upstream] [--no-verify]
     //                 [--tags|--follow-tags] <remote> [<refspec>|<branch>]
-    // Wave I — split flags vs. refs so buildGitArgs splices
+    // Split flags vs. refs so buildGitArgs splices
     // `--end-of-options`; defends against argv injection through hostile
     // remote / refspec / branch names.
     const flags: string[] = [];
@@ -1794,8 +1794,8 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Wave I L-3 — Validate a stash index before interpolating it into the
-   * `stash@{<index>}` ref. Pre-Wave-I, `stashApply` / `stashPop` /
+   * Validate a stash index before interpolating it into the
+   * `stash@{<index>}` ref., `stashApply` / `stashPop` /
    * `stashDrop` / `stashShow` interpolated the raw `index` directly,
    * trusting upstream callers (CommitToolWindow / palette commands) to
    * pass a valid integer. A non-integer or negative value would
@@ -1876,7 +1876,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
     const cwd = repo.rootUri.fsPath;
 
-    // Step 1: resolve the stash ref to a commit hash. Fails if the index
+    // Resolve the stash ref to a commit hash. Fails if the index
     // doesn't exist.
     const revParse = await this._gitCli.exec(['rev-parse', `stash@{${index}}`], {
       cwd,
@@ -1887,7 +1887,7 @@ export class GitService implements IGitService, IGitServiceCli {
       throw new Error(`Could not resolve stash@{${index}} to a commit`);
     }
 
-    // Step 2: store the commit back onto the stash stack with the new
+    // Store the commit back onto the stash stack with the new
     // message. This creates a duplicate entry at stash@{0}; the original
     // shifts to stash@{index+1}.
     await this._gitCli.exec(['stash', 'store', '-m', newMessage, commitHash], {
@@ -1895,7 +1895,7 @@ export class GitService implements IGitService, IGitServiceCli {
       throwOnError: true,
     });
 
-    // Step 3: drop the original (now at index+1). If this fails we try to
+    // Drop the original (now at index+1). If this fails we try to
     // undo step 2 so the user doesn't end up with a duplicate.
     try {
       await this._gitCli.exec(['stash', 'drop', `stash@{${index + 1}}`], {
@@ -1951,13 +1951,13 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void> {
-    // Wave I R1 — service-boundary reject tag names starting with `-`
+    // service-boundary reject tag names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard.
     if (!name || name.startsWith('-') || name.startsWith('.')) {
       throw new Error(`Invalid tag name: ${name}`);
     }
-    // Wave I R1 — splice `--end-of-options` between flags and the
+    // Splice `--end-of-options` between flags and the
     // user-controlled `name` (and optional `ref`). Layouts:
     //   lightweight: `tag --end-of-options <name> [<ref>]`
     //   annotated  : `tag -a -m <msg> --end-of-options <name> [<ref>]`
@@ -1979,7 +1979,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async deleteTag(repo: IRepository, name: string): Promise<void> {
-    // Wave I R1 — service-boundary reject tag names starting with `-`
+    // service-boundary reject tag names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Also splice `--end-of-options` between the
     // `-d` flag and the user-controlled name as structural defense in
@@ -1995,7 +1995,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async pushTag(repo: IRepository, name: string, remote?: string): Promise<void> {
-    // Wave I — `name` (and `remote`) are user-controlled; splice via buildGitArgs.
+    // `name` (and `remote`) are user-controlled; splice via buildGitArgs.
     const args = buildGitArgs('push', [], [remote || 'origin', `refs/tags/${name}`]);
     await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
   }
@@ -2043,7 +2043,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
   async getCommit(repo: IRepository, hash: string): Promise<ICommit> {
     const format = getLogFormat();
-    // Wave I — `hash` is user-controlled; splice via buildGitArgs.
+    // `hash` is user-controlled; splice via buildGitArgs.
     const result = await this._gitCli.exec(
       buildGitArgs('show', ['-s', `--format=${format}`, '-z'], [hash]),
       {
@@ -2068,7 +2068,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // T2-07 — standalone implementation so we can pass `--follow` and a
     // branch ref that the generic `getLog()` doesn't understand. Falls back
     // to the pre-T2-07 behaviour when both flags are absent.
-    // Wave I — `branch` is user-controlled; splice via buildGitArgs so
+    // `branch` is user-controlled; splice via buildGitArgs so
     // `--end-of-options` separates flag args from the ref.
     const format = getLogFormat();
     const flags: string[] = [`--format=${format}`, '-z'];
@@ -2120,7 +2120,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
     try {
       // %m emits one of `<`, `>`, `=`, `+`, `-` per commit per --cherry-mark docs.
-      // Wave I — `baseRef` is user-controlled; splice via buildGitArgs.
+      // `baseRef` is user-controlled; splice via buildGitArgs.
       const result = await this._gitCli.exec(
         buildGitArgs(
           'log',
@@ -2185,7 +2185,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   async getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
-    // Wave I R1 — `hash` is user-controlled; splice via buildGitArgs so a
+    // `hash` is user-controlled; splice via buildGitArgs so a
     // hostile ref like `--upload-pack=evil` cannot land as a flag.
     const result = await this._gitCli.exec(buildGitArgs('show', ['--format='], [hash]), {
       cwd: repo.rootUri.fsPath,
@@ -2230,7 +2230,7 @@ export class GitService implements IGitService, IGitServiceCli {
     for (const hash of commits) {
       // `%cI` (commit-date ISO-8601) + `%P` (space-separated parent hashes),
       // separated by a tab so we can split unambiguously.
-      // Wave I — `hash` is user-controlled; splice via buildGitArgs.
+      // `hash` is user-controlled; splice via buildGitArgs.
       const result = await this._gitCli.exec(
         buildGitArgs('show', ['-s', '--format=%cI%x09%P'], [hash]),
         { cwd }
@@ -2261,7 +2261,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // Get the parent of the oldest commit to use as the base
     // If the oldest commit has no parent (initial commit), use the empty tree
-    // Wave I — `oldestCommit` is user-controlled; splice via buildGitArgs.
+    // `oldestCommit` is user-controlled; splice via buildGitArgs.
     const parentResult = await this._gitCli.exec(
       buildGitArgs('rev-parse', [], [`${oldestCommit}^`]),
       { cwd }
@@ -2276,7 +2276,7 @@ export class GitService implements IGitService, IGitServiceCli {
     }
 
     // Get the diff between the base and the newest commit.
-    // Wave I — both refs are user-controlled (well, baseRef may be a
+    // Both refs are user-controlled (well, baseRef may be a
     // computed parent SHA; newestCommit is direct user input). Splice
     // via buildGitArgs.
     const diffResult = await this._gitCli.exec(buildGitArgs('diff', [], [baseRef, newestCommit]), {
@@ -2292,7 +2292,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * so paths with whitespace or non-ASCII characters are handled correctly).
    */
   async getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
-    // Wave I — `ref` is user-controlled; splice via buildGitArgs.
+    // `ref` is user-controlled; splice via buildGitArgs.
     const result = await this._gitCli.exec(buildGitArgs('diff', ['--name-status', '-z'], [ref]), {
       cwd: repo.rootUri.fsPath,
     });
@@ -2303,7 +2303,7 @@ export class GitService implements IGitService, IGitServiceCli {
 
     // `git diff --name-status -z` output format:
     //   <status>\0<path>\0                  for M/A/D/T/U entries
-    //   <status>\0<oldPath>\0<newPath>\0    for R/C entries (status can be `R100`, `C75`, …)
+    // <status>\0<oldPath>\0<newPath>\0 for R/C entries (status can be `R100`, ``, …)
     const tokens = result.stdout.split('\0').filter((t) => t.length > 0);
     const files: IRefDiffFile[] = [];
     let i = 0;
@@ -2348,7 +2348,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Wave D / D3 — compute the merge-base of two refs.
+   * Compute the merge-base of two refs.
    *
    * Wraps `git merge-base --end-of-options <refA> <refB>`. Returns the
    * common-ancestor SHA on success, or `undefined` when:
@@ -2357,7 +2357,7 @@ export class GitService implements IGitService, IGitServiceCli {
    *     "fatal: ..." line to stderr), or
    *   - any other non-zero exit (defensive — caller treats as no path).
    *
-   * Wave D R1 / Senior H-2 — `--end-of-options` separates options from
+   * `--end-of-options` separates options from
    * positional refs, so a hostile ref string like `--upload-pack=evil`
    * can never be interpreted by git as an option flag. The host-side
    * caller in {@link GitToolWindowProvider.setFocusedBranch} also
@@ -2377,7 +2377,7 @@ export class GitService implements IGitService, IGitServiceCli {
       const sha = result.stdout.trim();
       return sha.length > 0 ? sha : undefined;
     } catch {
-      // Defensive: GitCli throws on spawn errors / disposed repos. Wave D
+      // Defensive: GitCli throws on spawn errors / disposed repos.
       // Trap T-8 — caller treats undefined as "no path-to-merge-base".
       return undefined;
     }
@@ -2388,7 +2388,7 @@ export class GitService implements IGitService, IGitServiceCli {
   // ============================================
 
   async getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
-    // Wave I — `path` is user-controlled; splice with `--` separator
+    // `path` is user-controlled; splice with `--` separator
     // via buildGitArgs so a path that starts with `-` cannot collapse
     // into a flag (e.g., `--git-dir=evil`).
     const result = await this._gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
@@ -2435,7 +2435,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // the index afterwards to narrow to the selected file set.
     const noCommit = options?.noCommit === true || options?.files !== undefined;
 
-    // Wave I — `commits` are user-controlled; splice via buildGitArgs.
+    // `commits` are user-controlled; splice via buildGitArgs.
     const cherryFlags: string[] = [];
     if (noCommit) {
       cherryFlags.push('--no-commit');
@@ -2481,7 +2481,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private async _collectTouchedFiles(repo: IRepository, commits: string[]): Promise<string[]> {
     const touched = new Set<string>();
     for (const commit of commits) {
-      // Wave I R1 — `commit` is user-controlled; splice via buildGitArgs.
+      // `commit` is user-controlled; splice via buildGitArgs.
       const res = await this._gitCli.exec(
         buildGitArgs('show', ['--name-only', '--format='], [commit]),
         {
@@ -2582,7 +2582,7 @@ export class GitService implements IGitService, IGitServiceCli {
       return { success: true };
     }
 
-    // Wave I — `commits` are user-controlled; splice via buildGitArgs.
+    // `commits` are user-controlled; splice via buildGitArgs.
     const result = await this._gitCli.exec(buildGitArgs('revert', ['--no-edit'], commits), {
       cwd: repo.rootUri.fsPath,
     });
@@ -2933,8 +2933,8 @@ export class GitService implements IGitService, IGitServiceCli {
       inFlightReloads: this._reloading.size,
     });
 
-    // TL-91 (#219): dispose every registered watcher family uniformly.
-    // Pre-TL-91 this loop hardcoded `_fileWatchers` then `_newRepoWatchers`;
+    // Issue #219: dispose every registered watcher family uniformly.
+    // This loop previously hardcoded `_fileWatchers` then `_newRepoWatchers`;
     // a future family added without remembering this site would leak its
     // watchers across window reloads. The registry walker is the single
     // touchpoint so adding a new family means only `this._watcherMaps.push(...)`

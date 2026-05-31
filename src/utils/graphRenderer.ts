@@ -261,12 +261,12 @@ function isValidLane(lane: number): boolean {
  * The SVG is sized to accommodate all active lanes and graph line columns.
  * Invalid lane indices (negative or > 1000) are skipped gracefully.
  *
- * Wave D / D3 — when `hasFocusedBranch` is true, the row is rendered with
+ * When `hasFocusedBranch` is true, the row is rendered with
  * focus-aware emphasis: an on-path commit (`node.onFocusedBranchPath ===
  * true`) renders at boosted opacity (1.0) and stroke-width × 1.5; an
  * off-path commit renders at reduced opacity (0.6) and baseline stroke.
  * When `hasFocusedBranch` is false, both treatments are no-ops and the
- * row matches its pre-Wave-D appearance.
+ * row matches its unfocused appearance.
  *
  * @param node - The commit node to render
  * @param rowIndex - The row index of this commit (0-based)
@@ -275,7 +275,7 @@ function isValidLane(lane: number): boolean {
  * @param isTerminal - Whether this commit is a terminal node (branch tip with no children)
  * @param isBranchSplitPoint - Whether this commit is a branch split point (has multiple children)
  * @param childLanes - Set of lane indices where child commits of this node live (for drawing split curves from top)
- * @param hasFocusedBranch - Wave D / D3 — true when ANY commit in the
+ * @param hasFocusedBranch - true when ANY commit in the
  *   render set is on the focused-branch path. Drives the brighten / dim
  *   pair: true + onFocusedBranchPath = brighten; true + !onFocusedBranchPath
  *   = dim; false = no change.
@@ -296,10 +296,10 @@ export function renderGraphSvg(
   const bottomY = rowHeight;
   const elements: string[] = [];
 
-  // Wave D / D3 — focus-aware stroke + opacity overrides. When no branch
+  // Focus-aware stroke + opacity overrides. When no branch
   // is focused (hasFocusedBranch=false), `effectiveStroke` is just the
   // baseline `lineWidth` and `effectiveOpacity` is 1.0 — every existing
-  // visual matches its pre-Wave-D appearance.
+  // visual matches its unfocused appearance.
   const onPath = !!node.onFocusedBranchPath;
   const effectiveStroke = hasFocusedBranch && onPath ? lineWidth * 1.5 : lineWidth;
   const effectiveOpacity = hasFocusedBranch ? (onPath ? 1.0 : 0.6) : 1.0;
@@ -331,7 +331,7 @@ export function renderGraphSvg(
   const maxCol = allColumns.length > 0 ? Math.max(...allColumns) : 0;
   const svgWidth = (maxCol + 1) * config.columnWidth + config.padding * 2;
 
-  // --- Step 1: Draw vertical pass-through lines for all active lanes ---
+  // --- Draw vertical pass-through lines for all active lanes ---
   // Pass-through lanes are lanes that are active but NOT the commit's own lane.
   // These are drawn as full-height vertical lines (y=0 to y=rowHeight).
 
@@ -379,7 +379,7 @@ export function renderGraphSvg(
     }
   }
 
-  // --- Step 2: Draw the commit node's own vertical line segments ---
+  // --- Draw the commit node's own vertical line segments ---
   // The commit's own lane is split into two segments around the commit node:
   // - Top segment: from y=0 to y=centerY (if the lane continues above)
   // - Bottom segment: from y=centerY to y=rowHeight (if the lane continues below)
@@ -408,7 +408,7 @@ export function renderGraphSvg(
     }
   }
 
-  // --- Step 3: Draw merge/branch cubic bezier curves ---
+  // --- Draw merge/branch cubic bezier curves ---
   // For each graph line where fromColumn !== toColumn, draw a bezier curve
   // from the commit node to the target lane.
   // Bezier: M fromX,centerY C fromX,bottomY toX,centerY toX,bottomY
@@ -428,7 +428,7 @@ export function renderGraphSvg(
     );
   }
 
-  // --- Step 4: Draw the commit node icon (on top of everything) ---
+  // --- Draw the commit node icon (on top of everything) ---
   if (isValidLane(node.graphColumn)) {
     const cx = getColumnX(node.graphColumn, config);
     const cy = centerY;

@@ -96,7 +96,7 @@ export async function selectRepo(
 ): Promise<IRepository | undefined> {
   const { repositories } = deps;
 
-  // Step 0 — nothing open.
+  // Nothing open.
   if (repositories.length === 0) {
     if (!context.silent) {
       deps.showErrorMessage('No Git repository found');
@@ -104,12 +104,12 @@ export async function selectRepo(
     return undefined;
   }
 
-  // Step 1 — explicit repo hint.
+  // Explicit repo hint.
   if (context.hintRepo && repositories.includes(context.hintRepo)) {
     return context.hintRepo;
   }
 
-  // Step 2 — path hint.
+  // Path hint.
   if (context.hintRepoPath) {
     const match = findRepoContainingPath(repositories, context.hintRepoPath);
     if (match) {
@@ -117,7 +117,7 @@ export async function selectRepo(
     }
   }
 
-  // Step 3 — defaultRepo config (basename OR absolute path match).
+  // defaultRepo config (basename OR absolute path match).
   if (deps.defaultRepo && deps.defaultRepo.trim().length > 0) {
     const cfg = deps.defaultRepo.trim();
     const byPath = repositories.find((r) => normalizePath(r.rootUri.fsPath) === normalizePath(cfg));
@@ -130,7 +130,7 @@ export async function selectRepo(
     }
   }
 
-  // Step 4 — preferActive: use the active editor's repo when unambiguous.
+  // preferActive: use the active editor's repo when unambiguous.
   if (context.preferActive && deps.activeEditorFsPath) {
     const match = findRepoContainingPath(repositories, deps.activeEditorFsPath);
     if (match) {
@@ -138,14 +138,14 @@ export async function selectRepo(
     }
   }
 
-  // Step 5 — single open repo.
+  // Single open repo.
   if (repositories.length === 1) {
     // ALLOWED: explicit single-repo-guaranteed branch (the `.length === 1`
     // guard above); `repositories[0]` is literally the only repo.
     return repositories[0];
   }
 
-  // Step 6 — multi-repo: prompt.
+  // multi-repo: prompt.
   const items: IRepoPickItem[] = repositories.map((r) => ({
     label: basenameOf(r.rootUri.fsPath),
     description: r.rootUri.fsPath,

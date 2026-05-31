@@ -82,7 +82,7 @@ export class BlameService implements IBlameService {
   /**
    * Set up file watchers to invalidate blame cache when files change.
    *
-   * Wave I WI-C — when a `gitService` was passed at construction time we
+   * When a `gitService` was passed at construction time we
    * register one watcher per repo using a `RelativePattern` rooted at
    * the repo's `rootUri.fsPath`. This:
    *   - skips `.vscode/`, `node_modules/`, and other workspace noise
@@ -119,7 +119,7 @@ export class BlameService implements IBlameService {
   }
 
   /**
-   * Wave I WI-C — sync the per-repo watcher map to the current
+   * Sync the per-repo watcher map to the current
    * gitService.getRepositories() snapshot. Adds watchers for new repos
    * and removes watchers for repos that disappeared.
    */
@@ -256,7 +256,7 @@ export class BlameService implements IBlameService {
 
     // Build git blame command. Flag order matters for readability only — git
     // accepts them in any order. The order here mirrors IntelliJ's menu.
-    // Wave I — splice via buildGitArgs so a hostile revision/path can't
+    // Splice via buildGitArgs so a hostile revision/path can't
     // collapse into a flag.
     const flags: string[] = ['--porcelain'];
 
@@ -358,7 +358,7 @@ export class BlameService implements IBlameService {
     const repoRoot = repo.rootUri.fsPath;
 
     // Get the parent commit of the specified commit.
-    // Wave I — `commit` is user-controlled; splice via buildGitArgs.
+    // `commit` is user-controlled; splice via buildGitArgs.
     const parentResult = await this._gitCli.exec(buildGitArgs('rev-parse', [], [`${commit}^`]), {
       cwd: repoRoot,
     });
@@ -371,7 +371,7 @@ export class BlameService implements IBlameService {
     const parentCommit = parentResult.stdout.trim();
 
     // Check if the file existed at the parent commit.
-    // Wave I — `parentCommit` is computed, but `path` is user-controlled
+    // `parentCommit` is computed, but `path` is user-controlled
     // and the combined `<sha>:<path>` token is also gated through buildGitArgs.
     const fileExistsResult = await this._gitCli.exec(
       buildGitArgs('cat-file', ['-e'], [`${parentCommit}:${path}`]),
@@ -398,8 +398,8 @@ export class BlameService implements IBlameService {
   /**
    * Dispose of resources.
    *
-   * Wave I WI-D — only dispose `_gitCli` when WE own it.
-   * Wave I WI-C — dispose every per-repo watcher in addition to the
+   * Only dispose `_gitCli` when WE own it.
+   * Dispose every per-repo watcher in addition to the
    * legacy `_disposables` array.
    */
   dispose(): void {

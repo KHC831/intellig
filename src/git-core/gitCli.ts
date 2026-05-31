@@ -46,7 +46,7 @@ export interface IGitCommandOptions {
  * (or the higher-level `formatActionFailureToast(prefix, error)`
  * helper, both in `src/utils/gitError.ts`) before surfacing the
  * message in any user-visible channel — toasts, OutputChannel,
- * structured error responses, etc. The Wave 9 R4 structural guard
+ * structured error responses, etc. The structural guard
  * (`scripts/check-action-toasts-sanitized.sh`) enforces this for
  * `vscode.window.show*Message(...)` calls; other surfaces are
  * caller-responsibility.
@@ -315,7 +315,7 @@ export function createGitCli(gitPath?: string): GitCli {
 }
 
 /**
- * Wave I — argv-injection-safe ref splice.
+ * argv-injection-safe ref splice.
  *
  * Composes git argv from `subcommand`, `flags`, and user-controlled
  * `refs`/`paths`. Inserts `--end-of-options` between flag args and ref
@@ -330,7 +330,7 @@ export function createGitCli(gitPath?: string): GitCli {
  * `paths` is empty — callers that want "no path filter" should pass
  * `undefined` instead of `[]`.
  *
- * Wave D R1 introduced this discipline ad-hoc in `getMergeBase`; Wave I
+ * Introduced this discipline ad-hoc in `getMergeBase`;
  * generalizes it across every ref-consuming GitService method.
  */
 export function buildGitArgs(

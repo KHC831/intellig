@@ -102,7 +102,7 @@ export class PatchService implements IPatchService {
   async applyPatch(repo: IRepository, options: IApplyPatchOptions): Promise<IApplyPatchResult> {
     const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
 
-    // Step 1: validate input.
+    // Validate input.
     if (!options.patchPath && !options.patchContent) {
       return {
         success: false,
@@ -129,7 +129,7 @@ export class PatchService implements IPatchService {
       return { success: false, appliedFiles: [], stderr: `Apply Patch: ${stripErr}` };
     }
 
-    // Step 2: materialize inline content to a temp file. Track it so we can
+    // Materialize inline content to a temp file. Track it so we can
     // unlink unconditionally in the `finally` block.
     let tempPath: string | undefined;
     let patchPath = options.patchPath;
@@ -139,18 +139,18 @@ export class PatchService implements IPatchService {
     }
 
     try {
-      // Step 3: build argv. We keep the two sub-commands split for clarity.
+      // Build argv. We keep the two sub-commands split for clarity.
       const args = this._buildApplyArgs(options, patchPath!);
       const execOptions: IGitCommandOptions = {
         cwd: repo.rootUri.fsPath,
         throwOnError: false,
       };
 
-      // Step 4: execute. `throwOnError: false` so we can distinguish conflict
+      // Execute. `throwOnError: false` so we can distinguish conflict
       // from hard error based on the exit code + stderr shape.
       const result: IGitCommandResult = await gitCli.exec(args, execOptions);
 
-      // Step 5/6: classify. In check mode we never produce conflicts.
+      // 6: classify. In check mode we never produce conflicts.
       if (result.exitCode === 0) {
         return {
           success: true,

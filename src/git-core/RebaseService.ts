@@ -35,7 +35,7 @@ import { IGitService } from './interfaces/IGitService';
  * same `_unknownTopLevel` / `_unknownItem` round-trip discipline should
  * be applied.
  */
-// Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
+// Typeguard for GitService's @internal cli escape hatch.
 interface IGitServiceWithCli {
   gitCli: GitCli;
 }
@@ -43,10 +43,10 @@ interface IGitServiceWithCli {
 export class RebaseService implements IRebaseService {
   private _gitCli: GitCli;
   /**
-   * Wave I WI-D — when `true`, this service owns its `_gitCli` and is
+   * When `true`, this service owns its `_gitCli` and is
    * responsible for disposing it. When `false`, the cli was reached
    * through a shared GitService (see ctor docs) and the GitService owns
-   * the lifecycle. Pre-Wave-I every secondary service spun up its own
+   * the lifecycle. Every secondary service spun up its own
    * GitCli, so `gitService.onCommandExecuted` listeners (e.g. the
    * Console View) never saw `git rebase`/`git stash`/`git blame` calls.
    */
@@ -61,7 +61,7 @@ export class RebaseService implements IRebaseService {
   readonly onDidChangeRebaseSession: vscode.Event<IRebaseSession | undefined>;
 
   /**
-   * Wave I WI-D — accept `gitService` so we can route rebase commands
+   * Accept `gitService` so we can route rebase commands
    * through the SAME GitCli the GitService owns. When the host wires us
    * with `new RebaseService(undefined, gitService)`, our `_gitCli`
    * points at `gitService.gitCli`, the ConsoleService's
@@ -578,12 +578,12 @@ ${todoContent}EOF
   /**
    * Provide a combined message for a squash action.
    *
-   * Wave C — symmetric companion to {@link provideRewordMessage}. The git
+   * Symmetric companion to {@link provideRewordMessage}. The git
    * mechanics are identical: when the rebase pauses after a `squash`
    * step, git wants a single combined commit message; we feed it through
    * `git commit --amend -m <message>` and resume on `--continue`. The
    * separate method name (vs. reusing `provideRewordMessage`) carries
-   * intent at the call site of the new Wave C squash N-commit flow.
+   * intent at the call site of the new squash N-commit flow.
    *
    * @param repo - The repository
    * @param message - The combined commit message
@@ -918,7 +918,7 @@ ${todoContent}EOF
   /**
    * Dispose of resources.
    *
-   * Wave I WI-D — only dispose `_gitCli` when WE own it. Pre-Wave-I we
+   * Only dispose `_gitCli` when WE own it. We
    * unconditionally disposed; the new shared-cli path delegates
    * lifecycle to the GitService.
    */

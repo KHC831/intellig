@@ -37,7 +37,7 @@ export interface ICommitNode {
   /** Tag names pointing to this commit */
   tags: string[];
   /**
-   * Wave D / D3 — true when this commit lies on the BFS path from the
+   * True when this commit lies on the BFS path from the
    * currently-focused branch tip back to its merge-base with HEAD. The
    * renderer brightens on-path lines / commit circles and dims off-path
    * ones (full IntelliJ parity). When no branch is focused, every node has
@@ -103,7 +103,7 @@ function findNextAvailableLane(state: ILaneState): number {
 }
 
 /**
- * Wave D / D1 — children pre-pass.
+ * Children pre-pass.
  *
  * Build a map of `parentHash → array of child hashes in display order` so
  * the main pass can ask "is THIS commit the first-seen child of `parent`?"
@@ -125,7 +125,7 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
     for (const parent of commit.parents) {
       const arr = childrenMap.get(parent);
       if (arr) {
-        // Wave D R1 / Senior L-3 — defensive dedupe. A corrupt object
+        // Defensive dedupe. A corrupt object
         // store can produce a commit listing the same parent twice; if
         // we let it slip through, the same child appears twice in the
         // children list and the first-seen check is a no-op for the
@@ -150,14 +150,14 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * each commit to a lane (column). It generates graph lines showing the connections
  * between commits and their parents.
  *
- * Wave D / D1 — children-map two-pass algorithm. The pre-pass records each
+ * children-map two-pass algorithm. The pre-pass records each
  * parent's children in display order; the main pass uses that to decide
  * whether the current commit's parent inherits the current lane (only when
  * THIS commit is the parent's first-seen child AND it is the parent's
  * first parent slot, i.e. straight-down inheritance) or claims a brand
  * new lane (any other case — divergent fork).
  *
- * Wave D / D3 — `focusedPathHashes` is the optional set of commit hashes
+ * `focusedPathHashes` is the optional set of commit hashes
  * on the BFS path from the focused branch tip to its merge-base with
  * HEAD. Each `ICommitNode` is annotated with `onFocusedBranchPath` (true
  * when its hash is in the set, false otherwise — including when the set
@@ -175,7 +175,7 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * @param branchMap - Optional map of commit hash to branch names
  * @param tagMap - Optional map of commit hash to tag names
  * @param focusedPathHashes - Optional set of commit hashes on the focused
- *   branch's path-to-merge-base (Wave D / D3). When `undefined` or empty,
+ * branch's path-to-merge-base. When `undefined` or empty,
  *   every node's `onFocusedBranchPath` is `false`.
  * @returns Array of commit nodes with graph visualization data
  */
@@ -239,7 +239,7 @@ export function generateCommitGraph(
         // commit. Use the existing lane.
         parentLane = state.commitToLane.get(parentHash)!;
       } else {
-        // KEY CHANGE (D1) — only inherit our lane if WE are the parent's
+        // KEY CHANGE — only inherit our lane if WE are the parent's
         // first-seen child in display order AND we're the parent's first
         // parent slot. Anything else is a divergent fork that needs a
         // brand-new lane.

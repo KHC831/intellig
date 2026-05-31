@@ -17,7 +17,7 @@ export type BranchTreeItemType =
   | 'remote-branch'
   | 'tag'
   | 'category'
-  | 'detached-head'; // Wave H — synthetic row for detached HEAD state
+  | 'detached-head'; // Synthetic row for detached HEAD state
 
 /**
  * Context values for tree items (used in when clauses for menus)
@@ -28,7 +28,7 @@ export const CONTEXT_VALUES = {
   REMOTE_BRANCH: 'intellig.remoteBranch',
   TAG: 'intellig.tag',
   CATEGORY: 'intellig.category',
-  DETACHED_HEAD: 'intellig.detachedHead', // Wave H
+  DETACHED_HEAD: 'intellig.detachedHead',
 } as const;
 
 /**
@@ -40,7 +40,7 @@ export class BranchTreeItem extends vscode.TreeItem {
   public readonly tag?: ITag;
   public readonly isCurrentBranch: boolean;
   /**
-   * Wave H — full 40-char commit SHA when {@link itemType} is
+   * Full 40-char commit SHA when {@link itemType} is
    * `'detached-head'`. Read by dispatcher (e.g. `_handleCheckout`,
    * `_handleNewBranchFrom`) via {@link getDetachedHeadSha}; never reach
    * inside this field directly so the dispatcher contract stays
@@ -57,7 +57,7 @@ export class BranchTreeItem extends vscode.TreeItem {
     branch?: IBranch,
     tag?: ITag,
     isCurrentBranch: boolean = false,
-    detachedHeadSha?: string // Wave H — full 40-char SHA for detached row
+    detachedHeadSha?: string // Full 40-char SHA for detached row
   ) {
     super(label, collapsibleState);
 
@@ -79,7 +79,7 @@ export class BranchTreeItem extends vscode.TreeItem {
     // Set tooltip
     this.tooltip = this._getTooltip();
 
-    // Wave J R1 / MED-3 — accessibilityInformation for the synthetic
+    // accessibilityInformation for the synthetic
     // detached-head row. VS Code's TreeView reads `label + description`
     // by default; for the detached row we want the SR to hear the
     // multi-line tooltip's leading phrase ("Detached HEAD — at <sha>")
@@ -100,13 +100,13 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   /**
-   * Wave H — public accessor for the detached HEAD SHA. Returns the full
+   * Public accessor for the detached HEAD SHA. Returns the full
    * 40-char commit SHA when this row is the synthetic detached-head row;
    * `undefined` otherwise.
    *
    * Dispatchers (`_handleCheckout`, `_handleNewBranchFrom`) call this
    * to obtain the git start-point WITHOUT reading the parenthesized
-   * label string — that path is the Wave F regression class.
+   * label string — that path is the regression class.
    */
   public getDetachedHeadSha(): string | undefined {
     return this._detachedHeadSha;
@@ -125,7 +125,7 @@ export class BranchTreeItem extends vscode.TreeItem {
       case 'category':
         return CONTEXT_VALUES.CATEGORY;
       case 'detached-head':
-        return CONTEXT_VALUES.DETACHED_HEAD; // Wave H
+        return CONTEXT_VALUES.DETACHED_HEAD;
       default:
         return '';
     }
@@ -147,7 +147,7 @@ export class BranchTreeItem extends vscode.TreeItem {
       case 'category':
         return new vscode.ThemeIcon('folder');
       case 'detached-head':
-        // Wave H — yellow/gold matches the Wave G HEAD chip in the graph
+        // yellow/gold matches the HEAD chip in the graph
         // (`statusBarItem.warningBackground`). User reads "this is HEAD"
         // consistently across both surfaces.
         return new vscode.ThemeIcon(
@@ -160,7 +160,7 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getDescription(): string | undefined {
-    // Wave H — synthetic detached-head row description. Distinct from
+    // Synthetic detached-head row description. Distinct from
     // 'current' (which implies a branch is checked out) — 'detached'
     // reads as "you are at this commit; HEAD is not bound to a branch".
     if (this.itemType === 'detached-head') {
@@ -196,7 +196,7 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getTooltip(): string {
-    // Wave H — synthetic detached-head row tooltip.
+    // Synthetic detached-head row tooltip.
     if (this.itemType === 'detached-head') {
       const sha = this._detachedHeadSha ?? '';
       return (
@@ -252,10 +252,10 @@ export class BranchTreeProvider
   private _currentRepository: IRepository | undefined;
   private _onDidChangeTreeData: vscode.EventEmitter<BranchTreeItem | undefined | null | void>;
   readonly onDidChangeTreeData: vscode.Event<BranchTreeItem | undefined | null | void>;
-  // Wave I H-3 — own the EventEmitter + every event subscription so
+  // Own the EventEmitter + every event subscription so
   // `dispose()` (called from the extension's
   // `context.subscriptions.push(...)` registration) tears down cleanly
-  // on extension deactivation. Pre-Wave-I the constructor leaked the
+  // on extension deactivation. The constructor leaked the
   // `onDidChangeRepository` listener and the EventEmitter on dispose.
   private readonly _disposables: vscode.Disposable[] = [];
   private _disposed = false;
@@ -274,7 +274,7 @@ export class BranchTreeProvider
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this._logger = getLogger().child({ component: 'BranchTreeProvider' });
 
-    // Listen for repository changes. Wave I — capture the subscription
+    // Listen for repository changes. Capture the subscription
     // so dispose() tears it down. Guard the callback against post-dispose
     // delivery (the event source can outlive us when dispose() races
     // with an in-flight `onDidChangeRepository` fire — a no-op here is
@@ -299,7 +299,7 @@ export class BranchTreeProvider
   }
 
   /**
-   * Wave I H-3 — Dispose the EventEmitter and every captured
+   * Dispose the EventEmitter and every captured
    * subscription. Idempotent: safe to call twice (the second call is
    * a no-op). Post-dispose, `refresh()` becomes a no-op because the
    * event emitter is dead and the `_disposed` flag short-circuits
@@ -350,7 +350,7 @@ export class BranchTreeProvider
    * Refresh the tree view
    */
   refresh(): void {
-    // Task 9.9 — debug-level waypoint on every refresh trigger
+    // debug-level waypoint on every refresh trigger
     // (Requirement 6.4). Fires whenever upstream state changes
     // (repo switch, init, manual `setRepository`, etc.).
     this._logger.debug('refresh triggered');
@@ -408,7 +408,7 @@ export class BranchTreeProvider
             return [];
         }
       } catch (err) {
-        // Task 9.9 — warn-level waypoint on refresh failure
+        // warn-level waypoint on refresh failure
         // (Requirement 6.4). Re-throw so VS Code still surfaces the
         // error to the TreeView host (preserves pre-task observable
         // behaviour).
@@ -429,9 +429,9 @@ export class BranchTreeProvider
 
     const items: BranchTreeItem[] = [];
 
-    // Wave H — when detached, prepend a "(HEAD detached at <sha>)" row at
+    // When detached, prepend a "(HEAD detached at <sha>)" row at
     // the TOP of Local Branches. Detached signal: `head.name === undefined
-    // && head.commit` is a non-empty string (per Wave F: `git symbolic-ref
+    // && head.commit` is a non-empty string (per: `git symbolic-ref
     // HEAD` exits non-zero in detached state, so `head.name` is undefined;
     // `parseHead` always sets `head.commit` to `commitOutput.trim()`,
     // which can be the EMPTY string in a corrupt repo where rev-parse
@@ -439,7 +439,7 @@ export class BranchTreeProvider
     // we don't render `(HEAD detached at )` with an empty SHA).
     // Empty repo (`head` undefined entirely) falls through — no detached
     // row. Mid-rebase keeps `head.name` set, so no detached row there
-    // either. Pinned by branchTree-detached-1..6 (Wave H R1).
+    // either. Pinned by branchTree-detached-1..6.
     const head = this._currentRepository.head;
     if (head && head.name === undefined && head.commit && head.commit.length > 0) {
       const shortSha = head.commit.substring(0, 7);

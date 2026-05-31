@@ -1,7 +1,7 @@
 /**
  * Bounded recursive scan for git repositories under a workspace folder.
  *
- * Wave 10 (task #204) — fixes the nested-repo discovery gap where opening
+ * Fixes the nested-repo discovery gap (issue #204) where opening
  * `~/work/` with `~/work/projectA/.git` + `~/work/projectB/.git` showed zero
  * repos in IntelliG because `discoverRepository(folder)` only checked the
  * folder root for `.git/`. Mirrors the behavior of VS Code's
@@ -33,23 +33,23 @@ import * as path from 'path';
  * no useful result.
  *
  * `.git` itself is included so the helper can never re-enter a `.git/`
- * directory while scanning a parent for nested repos. Per TL-87 / #212
+ * directory while scanning a parent for nested repos. Per issue #212
  * the filter applies to both `.git` directories AND `.git` files (the
  * latter are how linked worktrees and submodule worktrees encode their
  * repo metadata as `gitdir: <path>` pointers); the basename match is
  * shape-agnostic so either form is handled uniformly.
  *
- * **R1 / H2 — split case-policy.** Pre-R1 every entry was matched
- * case-insensitively (TL-89 / #214). That silently broke a Linux user
- * with `Build/projectA/.git`: pre-TL-89 their repo was discovered (case-
- * sensitive Linux fs; `Build` ≠ `build`), post-TL-89 `Build` was filtered.
+ * **Split case-policy.** Every entry was previously matched
+ * case-insensitively (issue #214). That silently broke a Linux user
+ * with `Build/projectA/.git`: their repo was previously discovered (case-
+ * sensitive Linux fs; `Build` ≠ `build`), then `Build` was filtered.
  * Same for `Out/`, `Target/`, `Vendor/`, `Dist/` — common Pascal-case
  * directories in C#/.NET, Rust, Java, monorepo conventions. The "git
  * crashes anyway on case-insensitive volumes" justification only holds
  * for `.git` / `.vscode` / `node_modules` / `.next`, which are
  * filesystem-canonicalized on Windows + case-insensitive macOS.
  *
- * R1's split policy:
+ * The split policy:
  *   - {@link CASE_INSENSITIVE_IGNORED_NAMES}: filtered case-insensitively
  *     because they're filesystem-canonicalized anyway (`.git`, `.vscode`,
  *     `node_modules`, `.next`).
@@ -92,7 +92,7 @@ export const INTERNAL_IGNORED_FOLDERS: readonly string[] = [
  * stub so they don't have to set up real directory trees.
  *
  * @remarks
- * **TL-87 (#212) — `isFile()` on each entry.** Linked worktrees and
+ * **`isFile()` on each entry (issue #212).** Linked worktrees and
  * submodule worktrees encode their repo metadata as a `.git` *file*
  * containing a `gitdir: <path>` pointer rather than a `.git/` directory.
  * The scanner currently treats those entries via the per-path
@@ -115,7 +115,7 @@ export interface IRepoScanFs {
       isDirectory(): boolean;
       isSymbolicLink(): boolean;
       /**
-       * TL-87 (#212): true when the entry is a regular file (not a directory
+       * Issue #212: true when the entry is a regular file (not a directory
        * and not a symlink). Most importantly used to recognize the `.git`
        * file shape used by linked worktrees + submodule worktrees, but the
        * current scan algorithm only requires it to be present on the type —
@@ -171,7 +171,7 @@ export interface IScanRepoOptions {
    * User-configured ignored folder basenames. Union'd with
    * {@link INTERNAL_IGNORED_FOLDERS}.
    *
-   * **TL-89 + R1/H2:** the comparison for user-supplied folders is
+   * The comparison for user-supplied folders is
    * case-INsensitive (Windows-parity); INTERNAL folders are split per
    * the policy documented above on {@link CASE_INSENSITIVE_IGNORED_NAMES}
    * / {@link CASE_SENSITIVE_IGNORED_NAMES}. So `mybuild`, `MyBuild`, and
@@ -218,7 +218,7 @@ export interface IScanRepoOptions {
  * whatever was discovered before the error.
  *
  * @remarks
- * **Performance note (TL-84):** `maxDepth: -1` (unlimited) incurs `O(N)`
+ * **Performance note:** `maxDepth: -1` (unlimited) incurs `O(N)`
  * `fs.realpath` syscalls — one per directory entered AND one per symlinked
  * child evaluated — to power the cycle guard. On large trees with many
  * subdirectories this can add measurable I/O latency. Stay on the default
@@ -231,7 +231,7 @@ export async function scanFolderForGitRepos(
   opts: IScanRepoOptions
 ): Promise<string[]> {
   const fsImpl = opts.fs ?? defaultRepoScanFs;
-  // R1 / H2 (refines TL-89 / #214): split case policy.
+  // Split case policy.
   //   - {@link CASE_INSENSITIVE_IGNORED_NAMES} (`.git`, `.vscode`,
   //     `node_modules`, `.next`): always filesystem-canonicalized on
   //     Windows + case-insensitive macOS, so a basename match is
@@ -239,7 +239,7 @@ export async function scanFolderForGitRepos(
   //   - {@link CASE_SENSITIVE_IGNORED_NAMES} (`out`, `dist`, `target`,
   //     `build`, `vendor`): match EXACTLY so Pascal-case build dirs on
   //     case-sensitive Linux (`Build/projectA/.git`, `Out/cargo`, etc.)
-  //     are still discovered. Pre-R1 these were lowercased uniformly,
+  //     are still discovered. These were previously lowercased uniformly,
   //     which silently filtered legitimate Linux repos.
   //   - User-supplied `opts.ignoredFolders`: matched case-insensitively
   //     so a Windows user who configures `["mybuild"]` doesn't have to
@@ -301,9 +301,9 @@ export async function scanFolderForGitRepos(
     }
 
     for (const entry of entries) {
-      // R1 / H2 (refines TL-89 / #214): split case policy. Apply BEFORE
-      // the directory-only filter so a `.git` *file* child (TL-87 / #212:
-      // linked-worktree shape) is also skipped without spawning
+      // Split case policy, applied BEFORE the directory-only filter so a
+      // `.git` *file* child (issue #212: linked-worktree shape) is also
+      // skipped without spawning
       // `git rev-parse --show-toplevel` against a known repo signal.
       const lowerName = entry.name.toLowerCase();
       if (caseInsensitiveIgnored.has(lowerName) || caseSensitiveIgnored.has(entry.name)) {

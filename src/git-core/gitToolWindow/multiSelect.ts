@@ -1,7 +1,7 @@
 /**
  * Pure helpers for multi-commit selection in the Git Tool Window.
  *
- * Wave A introduces IntelliJ-parity multi-select on the log/graph:
+ * Introduces IntelliJ-parity multi-select on the log/graph:
  *   - Plain click   → single-select + set anchor
  *   - Ctrl/Cmd      → toggle membership + move anchor
  *   - Shift         → replace selection with range from anchor to click
@@ -13,24 +13,24 @@
  * project the `commitNodes` display order down to a `string[]` (or the
  * slim `IMenuStateNode` shape) before invoking these helpers.
  *
- * Architectural invariant (R1, ADR-009): the **host** is the source of
+ * Architectural invariant (ADR-009): the **host** is the source of
  * truth for menu visibility/enable state. The webview JS does NOT mirror
  * the rules — instead the host calls {@link computeMenuState} and posts
  * the result via the `updateMenuEnableState` message; the JS just applies
  * the precomputed map by toggling CSS classes. This eliminates the
- * "two copies of the rules drift apart" failure mode that R1 review
- * flagged (TL-H-2/H-3/H-4 + Senior M-3).
+ * "two copies of the rules drift apart" failure mode that review
+ * flagged.
  */
 
 /**
  * All right-click menu actions that participate in multi-select gating.
  *
  * The 13 single-select originals plus the two new multi-select-only
- * actions introduced in Wave A: `squashCommits` (N≥2 contiguous) and
+ * actions introduced in: `squashCommits` (N≥2 contiguous) and
  * `compareVersions` (N=2).
  *
  * Relationship to {@link import('./GitToolWindowProvider').LogContextAction}
- * (R1 TL-L-3): every member of this union is also a member of
+ * Every member of this union is also a member of
  * `LogContextAction` so the cast at `_handleCommitContextMenu` is safe.
  * `LogContextAction` may include legacy actions that pre-date multi-select
  * (none currently) — the structural test
@@ -52,7 +52,7 @@ export type MultiSelectMenuAction =
   | 'interactiveRebase'
   | 'squashCommits'
   | 'compareVersions'
-  // Wave K — IntelliJ-parity single-only entries (WK-1 + WK-2). Same
+  // IntelliJ-parity single-only entries. Same
   // single-only visibility rule as editCommitMessage / checkoutRevision /
   // mergeIntoCurrent / interactiveRebase. squashWithPrevious / fixupWithPrevious
   // synthesise a 2-commit selection (the clicked commit + its first parent)
@@ -116,8 +116,8 @@ export interface IMenuStateInputs {
 /**
  * Per-action visibility + enable flags as posted on the wire.
  *
- * R3 (TL2-M-3): `reason` is an optional human-readable explanation for
- * why the action is disabled. R4 (Senior M-2 + TL3-H-1) refined the
+ * `reason` is an optional human-readable explanation for
+ * why the action is disabled. Refined the
  * contract:
  *
  *   - **Populated when `visible === true && enabled === false`** AND
@@ -126,13 +126,13 @@ export interface IMenuStateInputs {
  *     rows leave `reason` undefined because they have no tooltip
  *     surface — the apply-loop never reads `reason` for them.
  *   - The webview JS surfaces it as a `title=` tooltip on the disabled
- *     row via `applyMenuEnableMap` (R4-1). Consumers that don't care
+ * row via `applyMenuEnableMap`. Consumers that don't care
  *     can ignore it.
- *   - Wave B will add reasons for repo-state gating ("target branch is
- *     checked out"); Wave C may extend the shape further.
+ * - will add reasons for repo-state gating ("target branch is
+ * checked out"); may extend the shape further.
  *
  * (See the field-level docstring on `reason` for the post-locale TODO
- * — R5-4 dropped the duplicate marker here so the type-shape change,
+ * Dropped the duplicate marker here so the type-shape change,
  * when it lands, has exactly one anchor.)
  */
 export interface IMenuItemState {
@@ -159,13 +159,13 @@ export interface IMenuItemState {
 /**
  * Map from menu action to whether it should be visible at the given
  * `selectedCount`. `false` means the row is hidden via
- * `.menu-multi-hidden` (A2 rule). The opposite of "enabled" — even
+ * `.menu-multi-hidden`. The opposite of "enabled" — even
  * visible items can still be `.disabled` per {@link computeMenuEnableState}.
  *
  * Single-only items (hidden when N≥2):
  *   editCommitMessage, undoCommit, checkoutRevision, showRepoAtRevision,
  *   compareWithLocal, mergeIntoCurrent, interactiveRebase, resetToHere
- *   (R1 H-1: resetToHere reclassified single-only — it targets one
+ * (resetToHere reclassified single-only — it targets one
  *   commit and "reset to N points" is incoherent).
  *
  * Multi-also items (visible at N≥1): cherryPick, revert, dropCommit,
@@ -197,7 +197,7 @@ export function computeMenuVisibility(
     // Multi-only
     squashCommits: selectedCount >= 2,
     compareVersions: selectedCount === 2,
-    // Wave K — single-only IntelliJ-parity entries.
+    // single-only IntelliJ-parity entries.
     squashWithPrevious: !isMulti,
     fixupWithPrevious: !isMulti,
     compareWithBranch: !isMulti,
@@ -212,7 +212,7 @@ export function computeMenuVisibility(
  * `_getInlineScript` a single shape-check away from a TypeScript error
  * on missing actions.
  *
- * Rules (Wave A spec, A3):
+ * Rules (spec, A3):
  *   - editCommitMessage:    N=1
  *   - undoCommit:           N=1 AND HEAD
  *   - dropCommit:           N≥1
@@ -239,13 +239,13 @@ export function computeMenuEnableState(
     createPatch: isAtLeastOne,
     cherryPick: isAtLeastOne,
     revert: isAtLeastOne,
-    // Wave C D3 — drop must reject merge commits. Silent history-
+    // Drop must reject merge commits. Silent history-
     // flattening (a multi-parent commit dropped via interactive rebase
     // loses one parent's reachable history without warning) is a
     // footgun. Gate at the UI surface and again at the handler entry
     // (defence in depth).
     dropCommit: isAtLeastOne && !hasMergeCommitInSelection,
-    // N=1 actions (R1 H-1: resetToHere added here)
+    // N=1 actions (resetToHere added here)
     editCommitMessage: isSingle,
     checkoutRevision: isSingle,
     showRepoAtRevision: isSingle,
@@ -259,7 +259,7 @@ export function computeMenuEnableState(
     squashCommits: isAtLeastTwo && isContiguous && !hasMergeCommitInSelection,
     // N=2
     compareVersions: selectedCount === 2,
-    // Wave K — single-only IntelliJ-parity entries; the handler does its
+    // single-only IntelliJ-parity entries; the handler does its
     // own root-commit / merge-commit guard since the parent count for the
     // clicked commit isn't visible to the menu-state computation here
     // (the visibility rule only sees N=1; the handler dispatches against
@@ -271,7 +271,7 @@ export function computeMenuEnableState(
 }
 
 /**
- * R1 — Composite host-precomputed wire payload.
+ * Composite host-precomputed wire payload.
  *
  * Bundles {@link computeMenuVisibility} + {@link computeMenuEnableState}
  * into a single call that takes the raw selection state plus the
@@ -335,10 +335,10 @@ export function computeMenuState(
     hasMergeCommitInSelection,
   });
 
-  // R3 (TL2-M-3) — derive a human-readable disabled reason for the
+  // Derive a human-readable disabled reason for the
   // multi-only actions whose enable rules are non-trivial.
   //
-  // R5-2 (Senior L-1) — dead-code cleanup. The R4-2 narrowing
+  // dead-code cleanup. The narrowing
   // `visible && !enabled` makes two earlier branches unreachable:
   //   - `squashReason` at `selectedCount < 2` produced "Squash needs at
   //     least 2 commits"; squashCommits is hidden when N<2 (visibility
@@ -358,8 +358,8 @@ export function computeMenuState(
     return undefined;
   })();
 
-  // Wave C D3 — explain why drop is disabled when the selection contains
-  // a merge commit. Only populated when visible+disabled (R4-2 narrowing
+  // Explain why drop is disabled when the selection contains
+  // a merge commit. Only populated when visible+disabled (narrowing
   // in the apply loop below); other dropCommit disables (N=0) hide the
   // row entirely so no reason is needed.
   const dropReason = hasMergeCommitInSelection
@@ -373,7 +373,7 @@ export function computeMenuState(
     const visible = visibility[action];
     const enabled = enableState[action];
     const entry: IMenuItemState = { visible, enabled };
-    // R4-2 (Senior M-2): attach `reason` only when the row is BOTH
+    // Attach `reason` only when the row is BOTH
     // visible AND disabled. Hidden rows have no tooltip surface — the
     // webview apply-loop only reads `reason` for visible rows — so
     // shipping a string for hidden rows would just bloat the wire
@@ -383,13 +383,13 @@ export function computeMenuState(
       if (action === 'squashCommits') {
         reason = squashReason;
       } else if (action === 'dropCommit') {
-        // Wave C D3 — merge-commit gate.
+        // merge-commit gate.
         reason = dropReason;
       }
-      // R5-2: compareVersions has no visible+disabled state by
+      // compareVersions has no visible+disabled state by
       // construction, so no branch here. Other actions have trivial
       // reasons ("needs N=1") that the visibility-driven hide already
-      // conveys. Wave B/C will add reasons for them as repo-state
+      // conveys. Will add reasons for them as repo-state
       // gating lands.
       if (reason !== undefined) {
         entry.reason = reason;

@@ -587,7 +587,7 @@ export interface IGitService {
   getRepositories(): IRepository[];
   onDidChangeRepository: vscode.Event<IRepository>;
   /**
-   * TL-88 (#213): fired when a previously-discovered repository is
+   * (#213): fired when a previously-discovered repository is
    * removed from tracking — either because the user removed the
    * containing workspace folder, OR because the repo's `.git/HEAD` was
    * deleted mid-session (`rm -rf .git`, aggressive `git worktree remove`,
@@ -596,7 +596,7 @@ export interface IGitService {
    * ConflictResolutionService, GitToolWindowProvider) listen and drop
    * the repo from their UI.
    *
-   * R1 / M1 (TL-88 follow-up): required (not optional) on the interface
+   * Required (not optional) on the interface
    * so production callers can subscribe directly without `?.()` guards.
    * Test mocks adopt the {@link noopEvent} helper from
    * `src/test/mocks/noopEvent.ts` to add a one-line stub.
@@ -604,7 +604,7 @@ export interface IGitService {
   onDidRemoveRepository: vscode.Event<IRepository>;
 
   /**
-   * Wave G — synchronously invalidate + reload a repository's cache entry,
+   * Synchronously invalidate + reload a repository's cache entry,
    * then return the fresh `IRepository`.
    *
    * Mutation handlers (`checkout`, `cherry-pick`, etc.) call this BEFORE
@@ -615,7 +615,7 @@ export interface IGitService {
    * `onDidChangeRepository` as a side-effect so subscribers
    * (BranchTreeProvider, StatusBarService, etc.) refresh too.
    *
-   * **Caller contract (Wave G R1 / SG-L-2)**: callers MUST NOT branch on
+   * **Caller contract **: callers MUST NOT branch on
    * the return value. The `IRepository | undefined` return type is for
    * type safety against the failure path; the BEHAVIOR is fire-and-forget.
    * Always call `provider.refresh()` next regardless of whether the
@@ -650,7 +650,7 @@ export interface IGitService {
   deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void>;
   renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void>;
   /**
-   * Wave K — WK-3 (DK-3): set the upstream tracking ref of an existing
+   * Set the upstream tracking ref of an existing
    * local branch. Routes through `git branch --set-upstream-to=<ref>
    * <localName>`. Used by the Track Remote Branch single-menu-entry
    * smart-detect path: when a local with the matching simple name
@@ -662,7 +662,7 @@ export interface IGitService {
    *   `git branch --set-upstream-to=<remote>/<branch> <localName>`
    *
    * Both `localName` and `upstreamRef` are user-controlled; the
-   * implementation rejects names starting with `-` / `.` (Wave I
+   * implementation rejects names starting with `-` / `.` (
    * leading-dash guard) and splices `--end-of-options` between the
    * flag(s) and the local name.
    */
@@ -798,7 +798,7 @@ export interface IGitService {
   getChangedFilesAgainstWorkingTree?(repo: IRepository, ref: string): Promise<IRefDiffFile[]>;
 
   /**
-   * Wave D / D3 — compute the merge-base between two refs.
+   * Compute the merge-base between two refs.
    *
    * Returns the SHA of the best common ancestor. Backed by
    * `git merge-base <refA> <refB>`. Used by the Git tool window's branch
@@ -814,7 +814,7 @@ export interface IGitService {
    * Optional, mirroring the {@link getCherryMarks} /
    * {@link getChangedFilesAgainstWorkingTree} pattern: narrow test mocks
    * needn't stub it, and the focus-on-graph caller falls back to no
-   * highlight when it's absent or returns undefined (Wave D Trap T-8).
+   * highlight when it's absent or returns undefined (Trap T-8).
    *
    * @param repo - The repository
    * @param refA - The first ref (typically `HEAD`)

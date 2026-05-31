@@ -215,21 +215,21 @@ export class ExtensionServices implements IExtensionServices {
       // Initialize ConfigurationService first as other services may depend on it
       this._configurationService = new ConfigurationService();
 
-      // Initialize GitService (Task 2.1)
+      // Initialize GitService
       this._gitService = new GitService();
 
-      // Initialize RebaseService (Task 6.1).
-      // Wave I WI-D — pass gitService so RebaseService routes commands
+      // Initialize RebaseService.
+      // Pass gitService so RebaseService routes commands
       // through the SAME GitCli the GitService owns (so the
       // ConsoleService captures `git rebase` calls end-to-end).
       this._rebaseService = new RebaseService(undefined, this._gitService);
 
-      // Initialize ShelfService (Task 9.1).
-      // Wave I WI-D — share GitCli with the GitService for back-channel
+      // Initialize ShelfService.
+      // Share GitCli with the GitService for back-channel
       // diagnostics on `git stash`/`git diff` calls.
       this._shelfService = new ShelfService(undefined, this._gitService);
 
-      // Initialize ChangelistService (Task 10.1)
+      // Initialize ChangelistService
       //
       // Must be constructed with `this._gitService` so
       // `reconcileWithGitStatus()` can read git state and the
@@ -239,14 +239,14 @@ export class ExtensionServices implements IExtensionServices {
       // reporting "No files in active changelist" against any dirty repo.
       this._changelistService = new ChangelistService(this._gitService);
 
-      // Initialize BlameService (Task 17.1).
-      // Wave I WI-C/WI-D — pass gitService for: (a) shared GitCli so
+      // Initialize BlameService.
+      // Pass gitService for: (a) shared GitCli so
       // `git blame` calls flow through ConsoleService, and (b) per-repo
       // file watchers (RelativePattern rooted at repo root) instead of
       // the workspace-global `**/*` glob.
       this._blameService = new BlameService(undefined, this._gitService);
 
-      // Initialize ConsoleService (Task 19.4)
+      // Initialize ConsoleService
       // Connects to GitService to capture command output
       this._consoleService = new ConsoleService();
       // Reach through the @internal IGitServiceCli escape hatch instead
@@ -258,7 +258,7 @@ export class ExtensionServices implements IExtensionServices {
         this._consoleService.connectToGitCli(cliEscape.gitCli);
       }
 
-      // Initialize ConflictResolutionService (Task 24.3)
+      // Initialize ConflictResolutionService
       // Provides conflict detection, resolution, and merge/rebase completion
       this._conflictResolutionService = new ConflictResolutionService(this._gitService);
 

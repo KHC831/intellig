@@ -118,7 +118,7 @@ export function statusCodeToFileStatus(
  * Parse Git log output into commit objects.
  * Expects format: %H<sep>%h<sep>%an<sep>%ae<sep>%aI<sep>%cn<sep>%ce<sep>%cI<sep>%P<sep>%s%n%b
  *
- * Wave I — separator switched from `|` to `\x1f` (ASCII Unit Separator,
+ * Separator switched from `|` to `\x1f` (ASCII Unit Separator,
  * RFC 1345). The previous pipe separator collided with author/committer
  * names containing `|` (legitimate in Unicode-name policies, common in
  * imported histories) and silently corrupted every downstream field.
@@ -187,7 +187,7 @@ export function parseLog(output: string, separator: string = '\x1f'): ICommit[] 
 /**
  * Parse a single commit from Git show output.
  *
- * Wave I — separator default switched to `\x1f` to match `parseLog`.
+ * Separator default switched to `\x1f` to match `parseLog`.
  *
  * @param output - The output from `git show` with the specified format
  * @param separator - The field separator (default: `\x1f`)
@@ -217,7 +217,7 @@ export function parseBranches(output: string): IBranch[] {
 
     const [refname, commit, upstream, head] = parts;
 
-    // Wave F — filter out git's pseudo-refs for detached HEAD / rebase /
+    // Filter out git's pseudo-refs for detached HEAD / rebase /
     // bisect / cherry-pick. These appear in `git branch -a --format` output
     // as parenthesized strings (e.g. `(HEAD detached at 5eed84b)`,
     // `(no branch, rebasing main)`). They have a real commit hash and
@@ -284,12 +284,12 @@ export function parseBranches(output: string): IBranch[] {
 /**
  * Parse Git tag output into tag objects.
  *
- * Wave I R1 — separator switched from `|` to `\x1f` (ASCII Unit Separator).
+ * Separator switched from `|` to `\x1f` (ASCII Unit Separator).
  * The previous pipe separator collided with tagger names containing `|`
  * (legitimate in Unicode-name policies, common in imported histories) and
  * silently corrupted every downstream field. `\x1f` is in the C0 control
  * range and never appears in a normalised git ident or tag subject.
- * Mirrors the `parseLog` Wave I switch.
+ * Mirrors the `parseLog` switch.
  *
  * @param output - The output from `git tag -l --format`
  * @param separator - The field separator (default: `\x1f`)
@@ -722,7 +722,7 @@ export function parseBlame(output: string): IBlameLine[] {
  * Format a log format string for Git.
  * Returns the format string to use with `git log --format`.
  *
- * Wave I — default separator switched to `\x1f` (ASCII Unit Separator)
+ * Default separator switched to `\x1f` (ASCII Unit Separator)
  * to keep author/committer names with literal `|` round-tripping. Old
  * default of `|` is retained as a legal value for explicit overrides
  * (the parser still accepts it).
@@ -746,8 +746,8 @@ export function getBranchFormat(): string {
 /**
  * Format a tag format string for Git.
  *
- * Wave I R1 — default separator switched to `\x1f` (ASCII Unit Separator)
- * to match the `parseTags` post-Wave-I default. The previous `|`
+ * Default separator switched to `\x1f` (ASCII Unit Separator)
+ * to match the `parseTags` default. The previous `|`
  * collided with tagger names containing literal pipes. Callers that need
  * to keep the legacy `|` separator can pass it explicitly.
  *

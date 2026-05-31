@@ -21,18 +21,18 @@ import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolW
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 
 /**
- * Wave B R1 Senior M-2 — defence-in-depth hash format check.
+ * Defence-in-depth hash format check.
  *
- * `_handleCommitContextMenu` (TL-M-4) already rejects hashes that
+ * `_handleCommitContextMenu` already rejects hashes that
  * aren't in the rendered `commitNodes`, but a future bypass (palette
  * command, scripted entry point) could feed unvalidated input. A
  * lowercase-hex regex catches obvious shell-injection / typoed-string
  * inputs before they reach the gitCli argv. Bounds:
  *   - 4 chars is the shortest `git rev-parse` accepts (abbreviated
  *     refs).
- *   - R2 (Senior M-2) bumped the upper bound from 40 to 64 to support
+ *   - The upper bound is 64 (not 40) to support
  *     SHA-256 repos created by `git init --object-format=sha256` (Git
- *     ≥ 2.29). The SHA-1 cap was silently rejecting valid SHA-256
+ *     ≥ 2.29). A SHA-1 cap would silently reject valid SHA-256
  *     hashes.
  */
 const HASH_RE = /^[0-9a-f]{4,64}$/i;
@@ -41,10 +41,10 @@ function allHashesValid(hashes: readonly string[]): boolean {
 }
 
 /**
- * Wave C R1 (Senior L-3) — single source of truth for the stale-selection
+ * Single source of truth for the stale-selection
  * toast surfaced when an in-order guard rejects a dispatched action whose
- * commit hash is no longer in the rendered commitNodes. Pre-R1 the same
- * literal lived in five places (createPatchMulti, compareVersions,
+ * commit hash is no longer in the rendered commitNodes. The same
+ * literal previously lived in five places (createPatchMulti, compareVersions,
  * dropCommitMulti, squashCommits, dropCommit) and inline structural tests
  * pinned exact matches. The const lets future copy edits land in one
  * place. Wire format frozen here.
@@ -55,8 +55,8 @@ function allHashesValid(hashes: readonly string[]): boolean {
  * TODO(Wave D / TLC-L-2): the single-commit handlers (cherry-pick,
  * revert, etc.) still don't run `allHashesValid` on entry — only the
  * multi-commit ones do. Adopt the regex check at the top of every
- * single-commit handler in a follow-up wave; the dispatch path
- * (`_handleCommitContextMenu` TL-M-4) catches webview-driven calls,
+ * single-commit handler in a follow-up; the dispatch path
+ * catches webview-driven calls,
  * but a palette / scripted entry could feed unvalidated hex.
  */
 const STALE_SELECTION_TOAST = 'Commit selection changed since the menu opened — please retry.';
@@ -82,7 +82,7 @@ export class CommitContextMenuCommands {
   private _gitToolWindowProvider: GitToolWindowProvider;
   private _gitCli: GitCli;
   private _conflictResolutionService: IConflictResolutionService | undefined;
-  // Wave K — WK-2: late-bound by extension.ts via {@link setBranchComparisonView}
+  // late-bound by extension.ts via {@link setBranchComparisonView}
   // because BranchComparisonView is constructed AFTER this commands class
   // in the activate() order. The compareWithBranch handler guards on
   // undefined and surfaces a graceful error toast if the user fires the
@@ -117,7 +117,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave K — WK-2: late-bind the branch comparison view. extension.ts
+   * late-bind the branch comparison view. Extension.ts
    * constructs `BranchComparisonView` AFTER this class (the panel layer
    * predates the comparison view), so we accept the dependency through a
    * setter rather than the constructor. Idempotent — duplicate calls
@@ -169,11 +169,11 @@ export class CommitContextMenuCommands {
   register(context: vscode.ExtensionContext): void {
     this._context = context;
     const disposable = this._gitToolWindowProvider.onDidRequestLogContextAction((event) =>
-      // Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): commitNodes (the slim
+      // commitNodes (the slim
       // IMenuStateNode list, newest-first) threaded through the event
       // payload so multi-commit handlers (cherry-pick, drop, squash,
       // createPatch, compareVersions) don't reach back into the
-      // provider for it. ADR-009 inversion fix; R2 collapsed the prior
+      // provider for it. ADR-009 inversion fix; collapsed the prior
       // parallel `displayOrder` + `parentCounts` records to this single
       // typed list.
       this._handleAction(event.action, event.commitHashes, event.commitNodes)
@@ -201,7 +201,7 @@ export class CommitContextMenuCommands {
   /**
    * Dispatch the action to the appropriate handler method.
    *
-   * Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): `commitNodes` is the slim
+   * `commitNodes` is the slim
    * newest-first commit-node list supplied by the dispatcher
    * (`GitToolWindowProvider._handleCommitContextMenu`). Multi-commit
    * handlers (cherry-pick, drop, squash, createPatch, compareVersions)
@@ -210,7 +210,7 @@ export class CommitContextMenuCommands {
    * `getExtendedLogState()`. ADR-009 inversion fix: handlers receive
    * everything they need on the event payload.
    *
-   * R2 collapsed the prior `displayOrder` + `parentCounts` parallel
+   * Collapsed the prior `displayOrder` + `parentCounts` parallel
    * records to this single `IMenuStateNode[]` shape — same data, one
    * lookup, one test fixture.
    *
@@ -256,7 +256,7 @@ export class CommitContextMenuCommands {
         await this._handleUndoCommit(commitHashes);
         break;
       case 'dropCommit':
-        // Wave C C1 — `_handleDropCommit` internally routes N>=2 to
+        // `_handleDropCommit` internally routes N>=2 to
         // `_handleDropCommitMulti`. Keeping a single dispatcher arm
         // preserves the dispatch-property invariant (one handler per
         // action) while still landing the multi-commit semantics.
@@ -272,24 +272,24 @@ export class CommitContextMenuCommands {
         await this._handleInteractiveRebase(commitHashes);
         break;
       case 'squashCommits':
-        // Wave C C2 — gated to N>=2 contiguous non-merge by Wave A's
+        // Gated to N>=2 contiguous non-merge by 's
         // `computeMenuEnableState`; defence-in-depth at handler entry.
         await this._handleSquashCommits(commitHashes, commitNodes);
         break;
       case 'compareVersions':
         await this._handleCompareVersions(commitHashes, commitNodes);
         break;
-      // Wave K — WK-1: IntelliJ-parity single-commit Squash/Fixup with
+      // IntelliJ-parity single-commit Squash/Fixup with
       // Previous. Both delegate into `_handleSquashCommits` with a
       // synthesised 2-commit selection (clicked commit + its first
-      // parent). DK-1: single source of truth for the squash plan.
+      // parent).: single source of truth for the squash plan.
       case 'squashWithPrevious':
         await this._handleSquashWithPrevious(commitHashes);
         break;
       case 'fixupWithPrevious':
         await this._handleFixupWithPrevious(commitHashes);
         break;
-      // Wave K — WK-2: open the Compare-with-Branch picker (local +
+      // Open the Compare-with-Branch picker (local
       // remote + tags) and route through BranchComparisonView.
       case 'compareWithBranch':
         await this._handleCompareWithBranch(commitHashes);
@@ -435,7 +435,7 @@ export class CommitContextMenuCommands {
           `Removed commit ${shortHash} (all ${droppedPaths.length} file(s) dropped).`
         );
       }
-      // Wave G — synchronously reload before refresh so panel sees fresh
+      // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` (history rewrite moved HEAD).
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
@@ -470,7 +470,7 @@ export class CommitContextMenuCommands {
    * Copy the full SHA(s) to the system clipboard.
    *
    * N=1 (legacy): one hash, no newline.
-   * Wave B B4: N>=2 joins hashes with `\n` so a paste into a shell or
+   * N>=2 joins hashes with `\n` so a paste into a shell or
    * editor lands them as a vertical list. Order is preserved as supplied
    * (newest-first per the webview's DOM order).
    */
@@ -496,10 +496,10 @@ export class CommitContextMenuCommands {
   /**
    * Cherry-pick the selected commit(s) onto the current branch.
    *
-   * Wave B B1 — `commitHashes` arrives in NEWEST-FIRST order (the
+   * `commitHashes` arrives in NEWEST-FIRST order (the
    * webview sends DOM order from `.commit-row.selected`). For a
    * cherry-pick, that's the wrong direction: replaying newest-first
-   * destroys authored ordering on the target branch. The Wave A R4-3
+   * destroys authored ordering on the target branch. The
    * WARNING on `getSelectedCommits()` covers this contract: chronological-
    * replay consumers MUST `.reverse()`. We do it here so the `gitService`
    * call site is the canonical "this is the order git will see" point.
@@ -513,7 +513,7 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // Wave B B1 — display order (newest-first) → replay order
+    // Display order (newest-first) → replay order
     // (oldest-first). Slice first so we don't mutate the caller's array.
     const replayOrder = [...commitHashes].reverse();
 
@@ -556,7 +556,7 @@ export class CommitContextMenuCommands {
           }
         }
       }
-      // Wave G — synchronously reload before refresh so panel sees fresh
+      // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` after the cherry-pick.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
@@ -608,20 +608,20 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave C R2 (Senior R1-M-3) — pop the stash on the success path of a
+   * Pop the stash on the success path of a
    * destructive operation (drop / squash) and surface a distinct toast
-   * if it fails. The pre-R2 helper {@link _unstash} swallows errors by
+   * if it fails. The plain {@link _unstash} helper swallows errors by
    * design; on the success path that's misleading because the user
    * sees "Squashed N commits successfully" but their stashed working
    * changes silently stay in the stash list.
    *
    * Single source of truth so drop-multi and squash-multi share the
-   * same phrasing — pre-R2 the drop path inlined this logic and the
+   * same phrasing — the drop path previously inlined this logic and the
    * squash path used the silent helper.
    *
    * Single-commit handlers (drop, edit-commit-message) keep their
-   * existing `_unstash` shape; per the TLC-L-2 follow-up TODO they
-   * adopt this helper in Wave D.
+   * existing `_unstash` shape; the follow-up TODO tracks adopting
+   * this helper there too.
    */
   private async _unstashWithErrorReport(cwd: string, opName: string): Promise<void> {
     try {
@@ -641,13 +641,13 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave C R1 (Senior H-1) — open an editor for the squash commit
+   * Open an editor for the squash commit
    * message and resolve when the user saves or closes it.
    *
-   * Pre-R1 used `vscode.window.showInputBox`, which is a single-line
+   * Previously used `vscode.window.showInputBox`, which is a single-line
    * affordance that renders multi-line seeds with literal `\n`
    * characters — a real UX bug for any squash spanning a commit with a
-   * body. R1 switches to an editor opened on a tempfile inside
+   * body. Switches to an editor opened on a tempfile inside
    * `os.tmpdir()` so:
    *   - multi-line editing is natural (no `\n` literals).
    *   - language `'git-commit'` triggers VS Code's commit-message
@@ -658,8 +658,8 @@ export class CommitContextMenuCommands {
    * Resolution contract:
    *   - Save → resolve with the saved text.
    *   - Close without save → resolve `undefined` (cancel).
-   *   - Save with empty / whitespace-only content → R1 (Senior L-2)
-   *     treats this as cancel: returning `undefined` rather than
+   *   - Save with empty / whitespace-only content
+   *     is treated as cancel: returning `undefined` rather than
    *     re-opening or toasting an error matches IntelliJ's "user
    *     changed their mind" semantics.
    *
@@ -674,7 +674,7 @@ export class CommitContextMenuCommands {
     // makes some VS Code installs apply git-commit highlighting
     // automatically.
     //
-    // R2 (Senior R1-L-1) — append 8 random hex chars to the name so two
+    // Append 8 random hex chars to the name so two
     // squash dialogs opened in the same millisecond on the same PID
     // (background flow + user re-trigger) don't collide on the
     // tempfile path.
@@ -691,7 +691,7 @@ export class CommitContextMenuCommands {
     try {
       fs.writeFileSync(tmpPath, seedMessage, { encoding: 'utf8' });
     } catch {
-      // R2 (Senior R1-L-2) — degraded fallback now surfaces a heads-up
+      // Degraded fallback now surfaces a heads-up
       // toast so the user knows the multi-line editor was attempted.
       void vscode.window.showInformationMessage(
         'Multi-line squash editor unavailable; using single-line fallback.'
@@ -715,7 +715,7 @@ export class CommitContextMenuCommands {
       return this._squashMessageInputBoxFallback(seedMessage, commitCount);
     }
 
-    // R2 (Senior R1-L-3) — open beside the active column so the squash
+    // Open beside the active column so the squash
     // editor doesn't cover the log the user was looking at.
     await vscode.window.showTextDocument(document, {
       preview: false,
@@ -745,7 +745,7 @@ export class CommitContextMenuCommands {
             finish(saved.getText());
             return;
           }
-          // R2 (Senior R1-M-2) — Save-As silent abort. When the user
+          // Save-As silent abort. When the user
           // hits Save-As, VS Code fires `onDidSaveTextDocument` with
           // the NEW URI (not the original tempfile's URI). The matching
           // close event fires for the original — without this branch
@@ -769,7 +769,7 @@ export class CommitContextMenuCommands {
       );
     });
 
-    // Best-effort cleanup. R2 (Senior R1-M-1): closing the active
+    // Best-effort cleanup.: closing the active
     // editor is a footgun when focus has shifted — it would close
     // whatever the user moved on to. Use the tab API to target the
     // squash tab specifically; falls through gracefully when the tab
@@ -797,7 +797,7 @@ export class CommitContextMenuCommands {
       return undefined;
     }
     if (message.trim().length === 0) {
-      // R1 (Senior L-2) — empty save = cancel. User changed their mind
+      // Empty save = cancel. User changed their mind
       // mid-edit; treat that as a cancel rather than an error toast.
       return undefined;
     }
@@ -805,7 +805,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave C R2 (Senior R1-L-2) — single-line `showInputBox` fallback for
+   * single-line `showInputBox` fallback for
    * `_promptForSquashMessage`. Extracted so the two failure sites
    * (tempfile write fail, openTextDocument fail) share one implementation.
    * The caller is expected to surface the heads-up info toast before
@@ -854,7 +854,7 @@ export class CommitContextMenuCommands {
     if (commitHashes.length === 1) {
       const outcome = await this._runSelectiveRevertIfApplicable(repo, commitHashes[0]);
       if (outcome === 'handled') {
-        // Wave G — selective-revert runs `git commit` internally (mutates
+        // selective-revert runs `git commit` internally (mutates
         // HEAD); reload before refresh so panel sees fresh state.
         await this._gitService.reloadRepository(repo);
         this._gitToolWindowProvider.refresh();
@@ -868,11 +868,11 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      // Wave B B2 — `commitHashes` arrives newest-first (DOM order). For
+      // `commitHashes` arrives newest-first (DOM order). For
       // revert, that IS the right direction: undoing the most recent
       // change first means each subsequent revert applies to a tree the
       // user can mentally check against the displayed log. Cherry-pick
-      // reverses; revert does not. ADR follows the Wave A R4-3 contract.
+      // reverses; revert does not. ADR follows the contract.
       const result = await this._gitService.revert(repo, commitHashes);
 
       if (result.success) {
@@ -911,7 +911,7 @@ export class CommitContextMenuCommands {
           }
         }
       }
-      // Wave G — synchronously reload before refresh so panel sees fresh
+      // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` after the revert.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
@@ -1050,7 +1050,7 @@ export class CommitContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, hash);
-      // Wave G — synchronously reload after checkout so the panel reload
+      // Synchronously reload after checkout so the panel reload
       // runs against fresh `repo.head.commit` (the user's stated bug).
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
@@ -1076,7 +1076,7 @@ export class CommitContextMenuCommands {
               `Auto-stash before checkout ${hash.substring(0, 8)}`
             );
             await this._gitService.checkout(repo, hash);
-            // Wave G — reload after the stash + checkout pair so panel
+            // Reload after the stash + checkout pair so panel
             // reload sees fresh `repo.head.commit`.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
@@ -1092,7 +1092,7 @@ export class CommitContextMenuCommands {
         } else if (choice === 'Force Checkout') {
           try {
             await this._gitService.checkout(repo, hash, { force: true });
-            // Wave G — reload after force checkout.
+            // Reload after force checkout.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
               `Force checked out revision ${hash.substring(0, 8)} (detached HEAD)`
@@ -1153,7 +1153,7 @@ export class CommitContextMenuCommands {
       protectedBranches,
       gitService: this._gitService,
       onResetComplete: () => {
-        // Wave G — fire-and-forget reload before refresh so panel sees
+        // fire-and-forget reload before refresh so panel sees
         // fresh `repo.head.commit` after the dialog's resetToCommit. The
         // callback can't be async (dialog API constraint), so we
         // sequence reload → refresh inside an IIFE; the watcher's
@@ -1193,7 +1193,7 @@ export class CommitContextMenuCommands {
    * --stdout` to a temp buffer, then `vscode.window.showSaveDialog` for
    * the destination, then `atomicWriteFile`.
    *
-   * Multi-commit (N>=2): Wave B B3 flow.
+   * Multi-commit (N>=2) flow.
    *   - User picks a directory (`vscode.window.showOpenDialog` with
    *     `canSelectFolders=true`).
    *   - We classify the selection: "contiguous" iff the commits land on
@@ -1217,7 +1217,7 @@ export class CommitContextMenuCommands {
     if (!repo || commitHashes.length === 0) {
       return;
     }
-    // R1 Senior M-2 — defence-in-depth hash regex.
+    // defence-in-depth hash regex.
     if (!allHashesValid(commitHashes)) {
       return;
     }
@@ -1269,32 +1269,32 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
       return;
     }
-    // R1 Senior M-3 — clickable "Open Folder" affordance (IntelliJ parity).
+    // Clickable "Open Folder" affordance (IntelliJ parity).
     void this._toastPatchSavedSingle(saveUri.fsPath);
   }
 
   /**
-   * Wave B B3 — multi-commit `format-patch` driver. See
+   * Multi-commit `format-patch` driver. See
    * {@link _handleCreatePatch} for the contract.
    *
-   * R2 (TLBR1-L-1): consumes the typed `commitNodes` payload (newest-
+   * Consumes the typed `commitNodes` payload (newest-
    * first `IMenuStateNode[]`) and derives `displayOrder` + parent
    * lookups from it, replacing the prior parallel records.
    *
-   * R2 (Senior L-4): see ADR-009 §6 for the display-order vs replay-
+   * See ADR-009 §6 for the display-order vs replay-
    * order contract; `getSelectedCommitsOldestFirst()` is the
    * programmatic-caller equivalent of the dispatch payload.
    *
-   * R1 fixes (preserved):
-   *   - Senior H-1: every commitHash MUST resolve in displayOrder; abort
-   *     with the TL-M-4 toast otherwise (no silent drop).
-   *   - Senior H-2: when oldest is the initial commit (parents=0),
+   * Fixes (preserved):
+   *   - Every commitHash MUST resolve in displayOrder; abort
+   *     with the toast otherwise (no silent drop).
+   *   - When oldest is the initial commit (parents=0),
    *     `<oldest>^..` doesn't resolve. Switch to positional fallback.
-   *   - TLB-H-1: contiguity check delegates to `isSelectionContiguous`
+   *   - Contiguity check delegates to `isSelectionContiguous`
    *     from `multiSelect.ts` (no inline `indices.every` reimpl).
-   *   - TLB-H-2: takes `commitNodes` directly via the dispatch event,
+   *   - Takes `commitNodes` directly via the dispatch event,
    *     no `getExtendedLogState()` call.
-   *   - Senior M-3: success toast offers "Open Folder" via
+   *   - Success toast offers "Open Folder" via
    *     `revealFileInOS`.
    */
   private async _handleCreatePatchMulti(
@@ -1302,11 +1302,11 @@ export class CommitContextMenuCommands {
     commitHashes: readonly string[],
     commitNodes: readonly IMenuStateNode[]
   ): Promise<void> {
-    // R2 (TLBR1-L-1) — derive `displayOrder` from the typed nodes.
+    // Derive `displayOrder` from the typed nodes.
     const displayOrder = commitNodes.map((n) => n.hash);
 
-    // R1 Senior H-1 — every commitHash MUST be in displayOrder. The
-    // host (TL-M-4) already validates against commitNodes; this is the
+    // Every commitHash MUST be in displayOrder. The
+    // host already validates against commitNodes; this is the
     // belt-and-suspenders mirror at the handler boundary.
     const inOrder = new Set(displayOrder);
     const stale = commitHashes.filter((h) => !inOrder.has(h));
@@ -1331,10 +1331,10 @@ export class CommitContextMenuCommands {
     const newestHash = displayOrder[newestIdx];
     const oldestHash = displayOrder[oldestIdx];
 
-    // R1 TLB-H-1 — delegate contiguity to the multiSelect helper.
+    // Delegate contiguity to the multiSelect helper.
     const isContiguous = isSelectionContiguous(new Set(commitHashes), displayOrder);
 
-    // R1 Senior H-2 — `<oldest>^..` fails when oldest is the initial
+    // `<oldest>^..` fails when oldest is the initial
     // commit (no parent → `oldest^` doesn't resolve). Detect via the
     // event-supplied commitNodes and fall through to the positional
     // form, which uses each hash standalone and tolerates initial-commit.
@@ -1364,7 +1364,7 @@ export class CommitContextMenuCommands {
       // parent up to newest inclusive."
       argv.push(`${oldestHash}^..${newestHash}`);
     } else {
-      // R1 Senior M-4: declarative one-liner replaces the pre-R1
+      // Declarative one-liner replaces the earlier
       // walk-through comment block. Sort descending by display index
       // → oldest-first replay order (newest-first display means
       // larger index = older).
@@ -1395,7 +1395,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * R1 Senior M-3 — show the success toast with a clickable "Open
+   * Show the success toast with a clickable "Open
    * Folder" action that reveals the patch file in the host OS file
    * manager (Finder / Explorer / xdg-open). IntelliJ parity.
    */
@@ -1410,7 +1410,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * R1 Senior M-3 — multi-commit success toast variant.
+   * multi-commit success toast variant.
    */
   private async _toastPatchSavedMulti(outDir: string, count: number): Promise<void> {
     const choice = await vscode.window.showInformationMessage(
@@ -1468,7 +1468,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave B B4 — Compare Versions: open `vscode.diff` between the two
+   * Compare Versions: open `vscode.diff` between the two
    * selected commits.
    *
    * Reuses the `intellig-git:` `TextDocumentContentProvider` already
@@ -1492,7 +1492,7 @@ export class CommitContextMenuCommands {
       // quiet rather than throw on a stale dispatch.
       return;
     }
-    // R1 Senior M-2 — defence-in-depth hash regex (R2 raised cap to 64
+    // defence-in-depth hash regex (cap raised to 64
     // for SHA-256 support).
     if (!allHashesValid(commitHashes)) {
       return;
@@ -1502,10 +1502,10 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // R2 (TLBR1-L-1) — derive displayOrder from the typed nodes.
+    // Derive displayOrder from the typed nodes.
     const displayOrder = commitNodes.map((n) => n.hash);
 
-    // R2 (Senior M-3) — symmetry with `_handleCreatePatchMulti`: every
+    // Symmetry with `_handleCreatePatchMulti`: every
     // commitHash must be in commitNodes. Without this guard a hex-format
     // hash that isn't in the rendered log slips past the regex check
     // and `git diff <bad>..<good>` produces a noisy "fatal: bad
@@ -1519,17 +1519,17 @@ export class CommitContextMenuCommands {
 
     // The webview hands hashes in newest-first display order. See
     // ADR-009 §5 (selection mutations come in two flavours) and the
-    // Wave A R4-3 WARNING on `getSelectedCommits()` for the contract:
+    // WARNING on `getSelectedCommits()` for the contract:
     // newest-first is the canonical projection from the rendered log.
-    // R1 TLB-H-2 + R2 (TLBR1-L-1): project against the dispatched
+    // Project against the dispatched
     // commitNodes instead of `getExtendedLogState()` so the handler
     // stays decoupled from provider state.
     //
-    // R1 TLB-L-2 + R2 Senior L-1 + R3 Senior L-2: TL-M-4 already aborts
+    // The dispatcher already aborts
     // upstream when a hash isn't in the rendered commitNodes, AND the
     // in-order guard immediately above also catches it; the swap-
-    // fallback that lived here pre-R1 is dead. Webview-driven dispatches
-    // see TL-M-4 + the in-order check; an external caller passing
+    // fallback that lived here earlier is dead. Webview-driven dispatches
+    // see the dispatcher guard plus the in-order check; an external caller passing
     // default `commitNodes = []` will see EVERY hash as stale and get
     // the stale-selection toast — they must supply a non-empty
     // `commitNodes: readonly IMenuStateNode[]` covering both targeted
@@ -1546,9 +1546,9 @@ export class CommitContextMenuCommands {
     const oldHash = idx0 > idx1 ? commitHashes[0] : commitHashes[1];
     const newHash = idx0 > idx1 ? commitHashes[1] : commitHashes[0];
 
-    // R1 TLB-M-1 (Senior M-1) — `git diff --name-only oldHash..newHash`
+    // `git diff --name-only oldHash..newHash`
     // gives ONLY the changes from oldHash to newHash, the right
-    // semantic for "compare these two commits". The pre-R1 path used
+    // semantic for "compare these two commits". The earlier path used
     // `getMultiCommitDiff` which returns CUMULATIVE changes across all
     // listed commits — wrong for non-adjacent endpoints where the user
     // explicitly skipped the intermediates.
@@ -1557,7 +1557,7 @@ export class CommitContextMenuCommands {
       throwOnError: false,
     });
 
-    // R1 Senior L-3 — propagate failure as a sanitised toast instead
+    // Propagate failure as a sanitised toast instead
     // of silently returning undefined.
     if (result.exitCode !== 0) {
       const stderr = (result.stderr || result.stdout || 'git diff failed').trim();
@@ -1671,7 +1671,7 @@ export class CommitContextMenuCommands {
       });
 
       void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
-      // Wave G — soft-reset moved HEAD; reload before refresh.
+      // soft-reset moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
@@ -1686,9 +1686,9 @@ export class CommitContextMenuCommands {
    * Drop the selected commit using interactive rebase.
    * Uses hash~1 as the onto target so the selected commit is included in the session.
    *
-   * Wave C C1 — single-commit path. Multi-commit selections route via the
+   * Single-commit path. Multi-commit selections route via the
    * dispatcher to {@link _handleDropCommitMulti}. Both paths share the
-   * Wave C D3 merge-commit gate (UI disables it via `computeMenuEnableState`;
+   * merge-commit gate (UI disables it via `computeMenuEnableState`;
    * the handler re-checks here as belt-and-suspenders).
    */
   private async _handleDropCommit(
@@ -1699,7 +1699,7 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // Wave C R1 (Senior M-1) — hash-format validation and initial-commit
+    // hash-format validation and initial-commit
     // guards apply to BOTH the single- and multi-commit drop paths. Lift
     // them above the N>=2 routing so palette / scripted entry points
     // hitting either branch get the same defence-in-depth.
@@ -1724,7 +1724,7 @@ export class CommitContextMenuCommands {
       }
     }
 
-    // Wave C C1 — N>=2 routes to the multi-commit drop flow. Single
+    // N>=2 routes to the multi-commit drop flow. Single
     // entry point keeps the dispatcher simple and preserves the
     // dispatch-property invariant.
     if (commitHashes.length >= 2) {
@@ -1740,7 +1740,7 @@ export class CommitContextMenuCommands {
     const hash = commitHashes[0];
     const cwd = repo.rootUri.fsPath;
 
-    // Wave C D3 — defence-in-depth merge-commit gate. The UI hides the
+    // defence-in-depth merge-commit gate. The UI hides the
     // action entirely when the selection contains a merge commit, but
     // a palette / scripted entry point could still call this handler
     // with a merge hash. Refuse with a friendly toast.
@@ -1799,7 +1799,7 @@ export class CommitContextMenuCommands {
           void vscode.window.showWarningMessage(
             `Drop commit conflicts in ${result.conflictedFiles.length} file(s). The operation has been aborted.`
           );
-          // Wave G — abort moved HEAD; reload before refresh.
+          // Abort moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
@@ -1814,7 +1814,7 @@ export class CommitContextMenuCommands {
       if (stashed) {
         await this._unstash(cwd);
       }
-      // Wave G — drop-via-rebase moved HEAD; reload before refresh.
+      // drop-via-rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
@@ -1826,25 +1826,25 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave C C1 — drop N>=2 contiguous-or-not commits via a single
+   * Drop N>=2 contiguous-or-not commits via a single
    * interactive rebase.
    *
    * Flow:
-   *   1. Validate every hash is hex (R1 Senior M-2 belt + suspenders).
+   *   1. Validate every hash is hex (belt-and-suspenders).
    *   2. In-order guard: every selected hash must still be in the
    *      rendered commitNodes; otherwise toast "selection changed" and
-   *      abort. Mirror of `_handleCommitContextMenu` (TL-M-4).
-   *   3. D3 defence-in-depth — refuse if any selected commit is a merge.
+   *      abort. Mirror of `_handleCommitContextMenu`.
+   *   3. Defence-in-depth — refuse if any selected commit is a merge.
    *      The UI gates this in `computeMenuEnableState`; this is the
    *      handler-side mirror.
-   *   4. D6 initial-commit edge — `oldest^` doesn't resolve when oldest
+   *   4. Initial-commit edge — `oldest^` doesn't resolve when oldest
    *      is the initial commit. Detect via parentCount=0 and toast.
-   *   5. Confirm modal — N>=2 only (D2). List up to 5 short-shas.
-   *   6. D7 stash dirty working tree if needed (mirrors single-drop).
+   *   5. Confirm modal — N>=2 only. List up to 5 short-shas.
+   *   6. Stash dirty working tree if needed (mirrors single-drop).
    *   7. Start interactive rebase onto `oldest^`. Build the plan: every
    *      commit in the rebase window stays `pick` unless its hash is in
    *      the selected set, which becomes `drop`.
-   *   8. Execute. On success, refresh + toast. On conflict (D8), abort
+   *   8. Execute. On success, refresh + toast. On conflict, abort
    *      the rebase + unstash, then route the conflict files through
    *      `_openResolveConflictsDialog(operation: 'rebase', target: 'drop')`.
    *
@@ -1863,7 +1863,7 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // 1. Hash format validation (R1 Senior M-2).
+    // 1. Hash format validation.
     if (!allHashesValid(commitHashes)) {
       return;
     }
@@ -1876,7 +1876,7 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // 3. D3 defence-in-depth — refuse merge-commit selections.
+    // 3. Defence-in-depth — refuse merge-commit selections.
     const selectedSet = new Set(commitHashes);
     const hasMerge = commitNodes.some((n) => selectedSet.has(n.hash) && n.parentCount >= 2);
     if (hasMerge) {
@@ -1901,7 +1901,7 @@ export class CommitContextMenuCommands {
     const oldestIdx = indices[indices.length - 1];
     const oldestHash = commitNodes[oldestIdx].hash;
 
-    // 4. D6 initial-commit edge — `oldest^` cannot resolve.
+    // 4. Initial-commit edge — `oldest^` cannot resolve.
     const oldestParents = commitNodes[oldestIdx].parentCount;
     if (oldestParents === 0) {
       void vscode.window.showErrorMessage(
@@ -1910,19 +1910,19 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // 5. Confirm modal (D2 — N>=2 only). Surface up to 5 rows formatted
+    // 5. Confirm modal (N>=2 only). Surface up to 5 rows formatted
     // as `<short-sha> — <subject>` so the user can verify exactly which
-    // commits the destructive op will rewrite. Pre-R1 we listed bare
+    // commits the destructive op will rewrite. Earlier we listed bare
     // short-shas, which the user couldn't disambiguate against the log.
-    // R1 (Senior M-4): subjects pulled via getCommit and truncated to
+    // Subjects pulled via getCommit and truncated to
     // 60 chars; failed lookups fall back to the bare short-sha.
     //
-    // R2 (Senior R1-L-4): wrap each lookup in a 500ms `Promise.race` so a
+    // Wrap each lookup in a 500ms `Promise.race` so a
     // slow / hung git process can't stall the modal indefinitely on a
     // huge repo. Timeout falls back to the bare short-sha — the user
     // still sees the destructive-op confirm with valid disambiguation.
     //
-    // L-4 — bare 'Drop' label is intentional per
+    // Bare 'Drop' label is intentional per
     // `feedback_data_loss_confirms.md`'s minimal-confirm policy.
     const previewLimit = 5;
     const previewTimeoutMs = 500;
@@ -1960,7 +1960,7 @@ export class CommitContextMenuCommands {
     let stashed = false;
 
     try {
-      // 6. D7 stash dirty tree.
+      // 6. Stash dirty tree.
       const stashResult = await this._stashIfDirty(cwd);
       stashed = stashResult.stashed;
       if (stashResult.blocked) {
@@ -1984,7 +1984,7 @@ export class CommitContextMenuCommands {
             : { hash: c.hash, action: c.action }
         );
 
-        // R1 (Senior M-3) — empty rebase-window or partial-coverage
+        // Empty rebase-window or partial-coverage
         // guard. If `getCommitsToRebase` returned fewer commits than
         // the user selected (the most plausible cause: a force-push
         // landed between dispatch and rebase, mutating reachable
@@ -1992,7 +1992,7 @@ export class CommitContextMenuCommands {
         // success and we'd surface a misleading "dropped N commits"
         // toast. Detect via "every selected hash must be a drop in
         // the plan"; toast STALE_SELECTION_TOAST and abort.
-        // R2 (Senior R1-L-5) — compare against `selectedSet.size`, not
+        // Compare against `selectedSet.size`, not
         // `commitHashes.length`. The webview never produces duplicate
         // hashes today, but a future palette / scripted entry point
         // might (e.g. a user pasting `[abc, abc]` from the clipboard).
@@ -2013,7 +2013,7 @@ export class CommitContextMenuCommands {
             `Dropped ${commitHashes.length} commits successfully.`
           );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          // 8. D8 conflict path — abort + unstash, then hand off to the
+          // 8. Conflict path — abort + unstash, then hand off to the
           // resolve dialog with operation:'rebase', target:'drop'.
           await this._rebaseService.abortRebase(repo);
           if (stashed) {
@@ -2024,7 +2024,7 @@ export class CommitContextMenuCommands {
             operation: 'rebase',
             target: 'drop',
           });
-          // Wave G — abortRebase moved HEAD; reload before refresh.
+          // abortRebase moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
@@ -2037,13 +2037,13 @@ export class CommitContextMenuCommands {
         throw opError;
       }
 
-      // R1 (Senior L-1) → R2 (Senior R1-M-3): post-success unstash uses
+      // Post-success unstash uses
       // the shared {@link _unstashWithErrorReport} helper so the drop
       // and squash success paths share the same phrasing.
       if (stashed) {
         await this._unstashWithErrorReport(cwd, 'Drop');
       }
-      // Wave G — multi-drop rebase moved HEAD; reload before refresh.
+      // multi-drop rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
@@ -2055,10 +2055,10 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave C C2 — squash N>=2 contiguous non-merge commits into one via a
+   * Squash N>=2 contiguous non-merge commits into one via a
    * single interactive rebase.
    *
-   * Flow (D1 — IntelliJ semantics: dialog runs BEFORE the rebase):
+   * Flow (IntelliJ semantics: dialog runs BEFORE the rebase):
    *   1. Validate hashes; in-order guard; defence-in-depth contiguity +
    *      no-merge checks (UI gates them in `computeMenuEnableState`).
    *   2. Determine the oldest selected commit (largest index in newest-
@@ -2067,21 +2067,21 @@ export class CommitContextMenuCommands {
    *      and a non-merge always has a parent.
    *   3. Fetch each selected commit's full message via `getCommit`. Join
    *      with `\n\n` to seed the message editor.
-   *   4. Open `vscode.window.showInputBox` with the seed value (D5). On
+   *   4. Open `vscode.window.showInputBox` with the seed value. On
    *      cancel (undefined), abort with no git side-effects.
-   *   5. Stash dirty tree (D7). On unmerged-files block, error toast.
+   *   5. Stash dirty tree. On unmerged-files block, error toast.
    *   6. Start rebase onto `oldest^`. Build the plan: oldest selected
    *      stays `pick` (it's the squash target); every other selected
    *      becomes `squash`; non-selected stays `pick`.
    *   7. Execute the rebase. When it pauses for the squash message,
    *      thread the user's chosen message via `provideSquashMessage`.
-   *   8. Conflict path (D8): abort + unstash + handoff to the resolve
+   *   8. Conflict path: abort + unstash + handoff to the resolve
    *      dialog with operation:'rebase', target:'squash'.
    */
   private async _handleSquashCommits(
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = [],
-    // Wave K — WK-1 (DK-1): optional mode flag distinguishing the
+    // Optional mode flag distinguishing the
     // user-visible squash variant from a `git --fixup` variant. The latter
     // skips the message-edit dialog and reuses the parent commit's
     // existing message verbatim, matching git's `--fixup` semantics. The
@@ -2154,15 +2154,15 @@ export class CommitContextMenuCommands {
     }
     const seedMessage = messages.filter((m) => m.length > 0).join('\n\n');
 
-    // 4. Show the squash-message editor (D5, R1 Senior H-1). Pre-R1
+    // 4. Show the squash-message editor. This previously
     // used `showInputBox`, which is single-line and rendered the
-    // multi-line `\n\n`-joined seed with literal backslash-n. R1
+    // multi-line `\n\n`-joined seed with literal backslash-n. It now
     // switches to an untitled-style editor opened on a tempfile so
     // multi-line editing works naturally and `git-commit` syntax
     // highlighting kicks in. Cancel (close-without-save OR empty save)
     // aborts the flow with NO git side-effects.
     //
-    // Wave K (WK-1, DK-1): when `mode === 'fixup'` the editor step is
+    // When `mode === 'fixup'` the editor step is
     // skipped — fixup semantics reuse the kept commit's message verbatim
     // (matching `git commit --fixup`). The kept commit is the OLDEST in
     // display order (the rebase plan keeps it as `pick`); its message
@@ -2170,7 +2170,7 @@ export class CommitContextMenuCommands {
     let userMessage: string | undefined;
     if (mode === 'fixup') {
       // The oldest selected commit is at the start of `oldestFirst`, so
-      // its message is `messages[0]`. In the WK-1 entry path that is the
+      // its message is `messages[0]`. In the entry path that is the
       // PARENT of the right-clicked commit. Falling back to the seed if
       // for any reason messages[0] is empty (e.g. getCommit failed and
       // the shortHash sentinel is in messages[0]) keeps the rebase
@@ -2179,7 +2179,7 @@ export class CommitContextMenuCommands {
     } else {
       userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
       if (userMessage === undefined) {
-        // D1 cancel — no git command runs.
+        // Cancel — no git command runs.
         return;
       }
     }
@@ -2222,7 +2222,7 @@ export class CommitContextMenuCommands {
           result = await this._rebaseService.provideSquashMessage(repo, userMessage);
         }
 
-        // R1 (Senior M-2) — `result.success` alone is not sufficient:
+        // `result.success` alone is not sufficient:
         // `RebaseService.amendEditCommit` returns `{success: true,
         // status: 'paused'}` when the amend lands but the rebase still
         // has more steps to run. Treating that as "squash done" surfaces
@@ -2230,7 +2230,7 @@ export class CommitContextMenuCommands {
         // and route `'paused'` through a "partial" warning so the user
         // knows to resume manually.
         if (result.success && result.status === 'completed') {
-          // Wave K — phrase the toast per mode so the user reads the
+          // Phrase the toast per mode so the user reads the
           // semantically correct verb ("Squashed" vs "Fixup'd"). Plurality
           // matches existing squash semantics: the count is the number of
           // commits that were combined.
@@ -2244,7 +2244,7 @@ export class CommitContextMenuCommands {
             `${verbCap} partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
           );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          // 8. D8 conflict path — abort + unstash + handoff.
+          // 8. Conflict path — abort + unstash + handoff.
           await this._rebaseService.abortRebase(repo);
           if (stashed) {
             await this._unstash(cwd);
@@ -2253,7 +2253,7 @@ export class CommitContextMenuCommands {
             operation: 'rebase',
             target: 'squash',
           });
-          // Wave G — abortRebase moved HEAD; reload before refresh.
+          // abortRebase moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
           this._gitToolWindowProvider.refresh();
           return;
@@ -2265,14 +2265,14 @@ export class CommitContextMenuCommands {
         throw opError;
       }
 
-      // R2 (Senior R1-M-3) — squash success path now reports unstash
+      // Squash success path now reports unstash
       // failures distinctly via {@link _unstashWithErrorReport}, mirroring
-      // the drop path. Pre-R2 the silent `_unstash` would leave the user
+      // the drop path. The earlier silent `_unstash` would leave the user
       // believing the squash had restored their working changes.
       if (stashed) {
         await this._unstashWithErrorReport(cwd, mode === 'fixup' ? 'Fixup' : 'Squash');
       }
-      // Wave G — squash rebase moved HEAD; reload before refresh.
+      // Squash rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
@@ -2283,11 +2283,11 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave K — WK-1 (DK-1): IntelliJ-parity "Squash with Previous". Combines
+   * IntelliJ-parity "Squash with Previous". Combines
    * the right-clicked commit with its first parent into a single commit
    * via the existing {@link _handleSquashCommits} pipeline. Synthesises
    * the 2-commit selection [clicked, parent] in newest-first display order
-   * + the matching `IMenuStateNode[]` so the contiguity / merge-commit
+   * plus the matching `IMenuStateNode[]` so the contiguity / merge-commit
    * guards apply unchanged. The existing squash-message editor still runs
    * pre-rebase; the user can edit the seeded `clicked\n\nparent` message
    * before the rebase runs.
@@ -2306,7 +2306,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave K — WK-1 (DK-1): IntelliJ-parity "Fixup with Previous". Same
+   * IntelliJ-parity "Fixup with Previous". Same
    * shape as {@link _handleSquashWithPrevious} but routes through
    * `_handleSquashCommits` with `mode: 'fixup'` so the squash-message
    * editor is skipped and the parent's existing message is reused
@@ -2317,7 +2317,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave K — WK-1: shared body for {@link _handleSquashWithPrevious} and
+   * Shared body for {@link _handleSquashWithPrevious} and
    * {@link _handleFixupWithPrevious}. The two entry points differ only in
    * the mode flag passed to `_handleSquashCommits`.
    */
@@ -2372,13 +2372,13 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Wave K — WK-2 (DK-2): IntelliJ-parity "Compare with Branch...". Opens
+   * IntelliJ-parity "Compare with Branch...". Opens
    * a single QuickPick listing local branches + remote branches + tags
    * (each group separated by a `Separator` kind item) and routes the
    * picked ref through {@link BranchComparisonView.show}. The clicked
    * commit's full SHA is one side of the comparison; the picked ref is
    * the other. Git accepts a SHA on either side of `branch1...branch2`
-   * + `branch1..branch2` so we treat the SHA as a "branch" alias for
+   * and `branch1..branch2` so we treat the SHA as a "branch" alias for
    * the diff purposes — no new GitService method needed.
    */
   private async _handleCompareWithBranch(commitHashes: string[]): Promise<void> {
@@ -2600,7 +2600,7 @@ export class CommitContextMenuCommands {
             void vscode.window.showErrorMessage(
               'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
             );
-            // Wave G — abortRebase moved HEAD; reload before refresh.
+            // abortRebase moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             this._gitToolWindowProvider.refresh();
             return;
@@ -2620,7 +2620,7 @@ export class CommitContextMenuCommands {
       void vscode.window.showInformationMessage(
         `Updated commit message for ${hash.substring(0, 8)}`
       );
-      // Wave G — reword rewrote history; reload before refresh.
+      // Reword rewrote history; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
@@ -2684,7 +2684,7 @@ export class CommitContextMenuCommands {
           }
         }
       }
-      // Wave G — merge moved HEAD; reload before refresh.
+      // Merge moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {
@@ -2709,7 +2709,7 @@ export class CommitContextMenuCommands {
       void vscode.window.showInformationMessage(
         `Interactive rebase started from ${hash.substring(0, 8)}`
       );
-      // Wave G — interactive rebase may have moved HEAD; reload before refresh.
+      // Interactive rebase may have moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();
     } catch (error) {

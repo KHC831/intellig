@@ -198,7 +198,7 @@ export class BranchContextMenuCommands {
       )
     );
 
-    // Wave K — WK-3: Track Remote Branch single-entry smart-detect.
+    // Track Remote Branch single-entry smart-detect.
     this._disposables.push(
       registerLoggedCommand('intellig.remoteBranch.trackBranch', (item: BranchTreeItem) =>
         this._handleTrackRemote(item)
@@ -302,7 +302,7 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // Wave H — accept the detached row as a checkout target. `item.branch`
+    // Accept the detached row as a checkout target. `item.branch`
     // is undefined for the synthetic detached-head row; the SHA lives on
     // `getDetachedHeadSha()`. The git command runs uniformly (no
     // early-return on "already at that commit" — IntelliJ does the same;
@@ -335,7 +335,7 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, ref);
-      // Wave G — checkout moved HEAD; reload before refresh so the
+      // Checkout moved HEAD; reload before refresh so the
       // BranchTreeProvider's "current branch" mark reflects fresh state.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(successToast());
@@ -356,7 +356,7 @@ export class BranchContextMenuCommands {
           try {
             await this._gitService.stash(repo, stashLabel());
             await this._gitService.checkout(repo, ref);
-            // Wave G — stash + checkout pair moved HEAD; reload before refresh.
+            // Stash + checkout pair moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(stashSuccessToast());
             this._branchTreeProvider.refresh();
@@ -369,7 +369,7 @@ export class BranchContextMenuCommands {
         } else if (choice === 'Force Checkout') {
           try {
             await this._gitService.checkout(repo, ref, { force: true });
-            // Wave G — force checkout moved HEAD; reload before refresh.
+            // Force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(forceSuccessToast());
             this._branchTreeProvider.refresh();
@@ -397,11 +397,11 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // Wave H — `??` chain (was `||`) so empty-string ref names don't
+    // `??` chain (was `||`) so empty-string ref names don't
     // accidentally fall through to the next operand. Falls through to
     // `getDetachedHeadSha()` for the synthetic detached-head row, which
     // returns the 40-char SHA — never the parenthesized label, so this
-    // can't resurrect the Wave F bug class.
+    // can't resurrect the bug class.
     const startPoint = item.branch?.name ?? item.tag?.name ?? item.getDetachedHeadSha();
     if (!startPoint) {
       return;
@@ -423,9 +423,9 @@ export class BranchContextMenuCommands {
         if (!value || !value.trim()) {
           return 'Branch name cannot be empty';
         }
-        // Wave I L-2 — reject leading `-` (git interprets as a CLI flag)
+        // Reject leading `-` (git interprets as a CLI flag)
         // and leading `.` (git rejects refs starting with `.` per
-        // git-check-ref-format) at the validator level. Pre-Wave-I the
+        // git-check-ref-format) at the validator level. The
         // regex `^[\w\-./]+$` accepted `-foo` and `.hidden` because the
         // character class allowed `-` and `.` anywhere including the
         // first position; the service-boundary guard in
@@ -444,7 +444,7 @@ export class BranchContextMenuCommands {
     try {
       await this._gitService.createBranch(repo, branchName, startPoint);
       await this._gitService.checkout(repo, branchName);
-      // Wave G — createBranch + checkout pair moved HEAD; reload before refresh.
+      // createBranch + checkout pair moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
         `Created and switched to branch '${branchName}' from '${startPoint}'`
@@ -495,7 +495,7 @@ export class BranchContextMenuCommands {
           );
         }
       }
-      // Wave G — merge moved HEAD; reload before refresh.
+      // Merge moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -536,7 +536,7 @@ export class BranchContextMenuCommands {
           );
         }
       }
-      // Wave G — rebase moved HEAD; reload before refresh.
+      // Rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -596,9 +596,9 @@ export class BranchContextMenuCommands {
         if (value === item.branch?.name) {
           return 'New name must be different';
         }
-        // Wave I L-2 — reject leading `-` (git interprets as a CLI flag)
+        // Reject leading `-` (git interprets as a CLI flag)
         // and leading `.` (git rejects refs starting with `.` per
-        // git-check-ref-format) at the validator level. Pre-Wave-I the
+        // git-check-ref-format) at the validator level. The
         // regex `^[\w\-./]+$` accepted `-foo` and `.hidden` because the
         // character class allowed `-` and `.` anywhere including the
         // first position; the service-boundary guard in
@@ -616,7 +616,7 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.renameBranch(repo, item.branch.name, newName);
-      // Wave G — rename may have updated `repo.head.name` (if renaming
+      // Rename may have updated `repo.head.name` (if renaming
       // current branch); reload before refresh.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Renamed branch to '${newName}'`);
@@ -650,7 +650,7 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.deleteBranch(repo, item.branch.name);
-      // Wave G — branch list changed; reload so the tree shows the
+      // Branch list changed; reload so the tree shows the
       // post-deletion ref set deterministically.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Deleted branch '${item.branch.name}'`);
@@ -687,7 +687,7 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.fetch(repo, upstream.remote);
-      // Wave G — fetch updated remote-tracking refs; reload so ahead/behind
+      // Fetch updated remote-tracking refs; reload so ahead/behind
       // counts on the branch tree match the post-fetch state.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(
@@ -735,7 +735,7 @@ export class BranchContextMenuCommands {
         });
       }
       void vscode.window.showInformationMessage(`Pushed branch '${item.branch.name}'`);
-      // Wave G R1 / UXG-L-1 — fallback push path lacked any
+      // Fallback push path lacked any
       // reload/refresh; add both so ahead/behind counts on the
       // branch tree match the post-push state.
       await this._gitService.reloadRepository(repo);
@@ -854,10 +854,10 @@ export class BranchContextMenuCommands {
     const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
 
     try {
-      // Step 1: Checkout the right-clicked branch
+      // Checkout the right-clicked branch
       await this._gitService.checkout(repo, item.branch.name);
 
-      // Step 2: Rebase onto the previously current branch
+      // Rebase onto the previously current branch
       const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
 
       if (result.success) {
@@ -878,7 +878,7 @@ export class BranchContextMenuCommands {
           );
         }
       }
-      // Wave G — checkout + rebase moved HEAD; reload before refresh.
+      // Checkout + rebase moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -915,7 +915,7 @@ export class BranchContextMenuCommands {
                 );
               }
             }
-            // Wave G — stash + checkout + rebase moved HEAD; reload before refresh.
+            // Stash + checkout + rebase moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
           } catch (stashError) {
@@ -945,7 +945,7 @@ export class BranchContextMenuCommands {
                 );
               }
             }
-            // Wave G — force checkout + rebase moved HEAD; reload before refresh.
+            // Force checkout + rebase moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
           } catch (forceError) {
@@ -1006,7 +1006,7 @@ export class BranchContextMenuCommands {
     const dialog = this._pullDialogAccessor?.();
     if (dialog) {
       await dialog.show(repo, preset, { remote: remoteName, branch: branchName });
-      // Wave G — pull moved HEAD; reload before refresh.
+      // Pull moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
       return;
@@ -1024,7 +1024,7 @@ export class BranchContextMenuCommands {
       void vscode.window.showInformationMessage(
         `Pulled '${item.branch.name}' into current branch using ${strategy}`
       );
-      // Wave G — pull moved HEAD; reload before refresh.
+      // Pull moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -1053,7 +1053,7 @@ export class BranchContextMenuCommands {
               conflicts.map((c) => c.path),
               { operation: preset === 'rebase' ? 'rebase' : 'merge', target: item.branch.name }
             );
-            // Wave G — pull may have partially advanced HEAD before the
+            // Pull may have partially advanced HEAD before the
             // conflict; reload so the tree reflects the post-conflict state.
             await this._gitService.reloadRepository(repo);
             this._branchTreeProvider.refresh();
@@ -1112,7 +1112,7 @@ export class BranchContextMenuCommands {
         });
       }
 
-      // Wave G — checkout-as-local moved HEAD; reload before refresh.
+      // checkout-as-local moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Switched to branch '${branchName}'`);
       this._branchTreeProvider.refresh();
@@ -1141,7 +1141,7 @@ export class BranchContextMenuCommands {
                 track: `${remoteName}/${branchName}`,
               });
             }
-            // Wave G — stash + checkout moved HEAD; reload before refresh.
+            // Stash + checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
               `Stashed changes and switched to '${branchName}'`
@@ -1166,7 +1166,7 @@ export class BranchContextMenuCommands {
                 track: `${remoteName}/${branchName}`,
               });
             }
-            // Wave G — force checkout moved HEAD; reload before refresh.
+            // Force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
             this._branchTreeProvider.refresh();
@@ -1240,7 +1240,7 @@ export class BranchContextMenuCommands {
           );
         }
       }
-      // Wave G — cherry-pick moved HEAD; reload before refresh.
+      // cherry-pick moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -1294,7 +1294,7 @@ export class BranchContextMenuCommands {
         branch: `:${branchName}`,
       });
 
-      // Wave G — push :branch removed remote ref; reload so the tree's
+      // Push:branch removed remote ref; reload so the tree's
       // remote-branches list reflects the deletion.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Deleted remote branch '${item.branch.name}'`);
@@ -1308,7 +1308,7 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Wave K — WK-3 (DK-3): IntelliJ-parity "Track Branch" — single menu
+   * IntelliJ-parity "Track Branch" — single menu
    * entry with smart detection of the user's intent based on whether a
    * matching local branch already exists.
    *
@@ -1335,9 +1335,9 @@ export class BranchContextMenuCommands {
    *     ("Already tracking …"). Saves the user wondering whether the
    *     menu fired at all.
    *
-   * Pre-Wave-K we exposed only `Checkout (as new local)` for remote
+   * We exposed only `Checkout (as new local)` for remote
    * branches, which always created a new local — the existing-local
-   * cross-tracking case had no menu surface at all. WK-3 closes that
+   * cross-tracking case had no menu surface at all. Closes that
    * IntelliJ-parity gap.
    */
   private async _handleTrackRemote(item: BranchTreeItem): Promise<void> {
@@ -1363,7 +1363,7 @@ export class BranchContextMenuCommands {
     const upstreamRef = item.branch.name; // e.g. "origin/main"
     const simpleName = parts.slice(1).join('/');
 
-    // Wave K R1 SK-2 — defense-in-depth: Wave I sweep relied on
+    // SK-2 — defense-in-depth: sweep relied on
     // validateBranchName at the service boundary for checkout({ createBranch }),
     // but the simpleName here is sliced from a parsed remote branch name
     // which could theoretically be hostile (e.g. a malformed remote ref like
@@ -1462,7 +1462,7 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.checkout(repo, item.tag.name);
-      // Wave G — checkout-tag moved HEAD into detached state; reload
+      // checkout-tag moved HEAD into detached state; reload
       // before refresh so the tree's "current branch" mark clears
       // (HEAD chip on the log graph drives the user-visible cue).
       await this._gitService.reloadRepository(repo);
@@ -1507,7 +1507,7 @@ export class BranchContextMenuCommands {
           `Cherry-pick conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
         );
       }
-      // Wave G — cherry-pick from tag moved HEAD; reload before refresh.
+      // cherry-pick from tag moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._branchTreeProvider.refresh();
     } catch (error) {
@@ -1539,7 +1539,7 @@ export class BranchContextMenuCommands {
 
     try {
       await this._gitService.deleteTag(repo, item.tag.name);
-      // Wave G — tag list changed; reload so the tree's tags section
+      // Tag list changed; reload so the tree's tags section
       // reflects the post-deletion ref set.
       await this._gitService.reloadRepository(repo);
       void vscode.window.showInformationMessage(`Deleted tag '${item.tag.name}'`);
@@ -1564,7 +1564,7 @@ export class BranchContextMenuCommands {
     try {
       await this._gitService.pushTag(repo, item.tag.name);
       void vscode.window.showInformationMessage(`Pushed tag '${item.tag.name}' to remote`);
-      // Wave G R1 / UXG-L-2 — pushTag updates remote-tracking refs;
+      // pushTag updates remote-tracking refs;
       // reload + refresh so the tag tree's "pushed to remote" cue
       // (when present) reads the post-push state.
       await this._gitService.reloadRepository(repo);

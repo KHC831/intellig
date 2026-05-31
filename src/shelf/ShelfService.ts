@@ -16,7 +16,7 @@ import { IRepository, IDiff, IHunk, IGitService } from '../git-core/interfaces/I
 import { GitCli, createGitCli } from '../git-core/gitCli';
 import { getLogger, type Logger } from '../utils/logger';
 
-// Wave I WI-D — typeguard for GitService's @internal cli escape hatch.
+// Typeguard for GitService's @internal cli escape hatch.
 interface IGitServiceWithCli {
   gitCli: GitCli;
 }
@@ -286,7 +286,7 @@ export function serializeShelfForDisk(storage: IShelfStorage): Record<string, un
  */
 export class ShelfService implements IShelfService {
   private _gitCli: GitCli;
-  /** See {@link RebaseService._ownsGitCli} for the Wave I WI-D rationale. */
+  /** See {@link RebaseService._ownsGitCli} for the rationale. */
   private _ownsGitCli: boolean;
   private _shelfCache: Map<string, IShelfItem[]> = new Map();
   private _onDidChangeShelf: vscode.EventEmitter<IShelfItem[]>;
@@ -951,7 +951,7 @@ export class ShelfService implements IShelfService {
   /**
    * Generate a unique shelf ID.
    *
-   * Wave I L-5 — switched from `Math.random()` (predictable, can collide
+   * Switched from `Math.random()` (predictable, can collide
    * across rapid shelves in the same millisecond) to `randomBytes(4)`
    * (32 bits of CSPRNG entropy → ~4.3B distinct ids per timestamp).
    * Mirrors the pattern in `src/utils/webviewNonce.ts`.
@@ -977,7 +977,7 @@ export class ShelfService implements IShelfService {
   /**
    * Dispose of resources.
    *
-   * Wave I WI-D — only dispose `_gitCli` when WE own it.
+   * Only dispose `_gitCli` when WE own it.
    */
   dispose(): void {
     this._logger.info('ShelfService disposing', {

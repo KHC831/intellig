@@ -197,20 +197,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     getLogger().info('extension activating');
 
-    // Wave 135 R3 / C1 — one-time migration from the deprecated
+    // one-time migration from the deprecated
     // `intellig.useIntelliJKeymap` boolean to `intellig.keymapPreset`.
     // Runs before service init so KeymapService picks up the migrated
     // value on its first read. Idempotent — once the legacy boolean
     // is cleared, this is a no-op on subsequent activations.
     //
-    // Wave 135 R4 / M1 — migration is non-essential. KeymapService's
+    // Migration is non-essential. KeymapService's
     // `resolveKeymap` legacy fallback covers the keymap surface
     // even if migration fails (read-only settings.json, sync
     // conflict, transient policy error). The safe wrapper
-    // `runKeymapMigrationSafe` (Wave 135 R5 / M3 path A) routes
+    // `runKeymapMigrationSafe` (path A) routes
     // failures to OutputChannel and returns; activation continues.
     //
-    // Wave 135 R5 / L2 perf note: the seam re-acquires
+    // Perf note: the seam re-acquires
     // `vscode.workspace.getConfiguration('intellig')` per inspect /
     // update call. Cheap (microseconds) and pins fresh-state
     // semantics so a re-inspect immediately after update reads the
@@ -737,9 +737,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         () => gitService.push(repo, { tags: true })
       );
       void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
-      // Wave G R1 / SG-M-1 — push --tags updated remote tracking refs
+      // Push --tags updated remote tracking refs
       // for tags; reload + refresh so the panel reflects fresh tag-on-
-      // remote state. Pre-R1 this site had neither call.
+      // remote state. This site previously had neither call.
       await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
         gitToolWindowProvider.refresh();
@@ -797,10 +797,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
         extensionServices.autoFetchService.resetBackoff();
       }
 
-      // Wave G follow-up: fetch advances remote-tracking refs so the
+      // follow-up: fetch advances remote-tracking refs so the
       // ahead/behind counts on the branch tree go stale until the watcher's
       // 250ms debounce. Reload-then-refresh closes the visible window the
-      // same way the other Wave G mutation sites do.
+      // same way the other mutation sites do.
       await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
         gitToolWindowProvider.refresh();
@@ -1626,7 +1626,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
           res.conflicts.map((p) => ({ path: p, resolved: false })),
           { operation: 'rebase', canAbort: true, canContinue: true }
         );
-        // Wave G R1 / SG-M-1 — rebaseSkip advanced HEAD even though
+        // rebaseSkip advanced HEAD even though
         // conflicts persist on the next commit; reload + refresh so
         // the panel reflects the new in-progress rebase position.
         await gitService.reloadRepository(repo);
@@ -1636,8 +1636,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
         return;
       }
       void vscode.window.showInformationMessage('Commit skipped.');
-      // Wave G R1 / SG-M-1 — rebaseSkip moved HEAD; reload + refresh
-      // (pre-R1 this site had neither call, leaving the log graph
+      // rebaseSkip moved HEAD; reload + refresh
+      // (this site previously had neither call, leaving the log graph
       // showing the pre-skip rebase position).
       await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
@@ -4120,7 +4120,7 @@ function registerViews(context: vscode.ExtensionContext): void {
       treeDataProvider: branchTreeProvider,
       showCollapseAll: true,
     });
-    // Wave I H-3 — register the provider too so its EventEmitter +
+    // Register the provider too so its EventEmitter
     // onDidChangeRepository subscription are torn down on deactivation.
     context.subscriptions.push(branchTreeView, branchTreeProvider);
 
@@ -4139,12 +4139,12 @@ function registerViews(context: vscode.ExtensionContext): void {
       });
       context.subscriptions.push(branchSelectionListener);
 
-      // Wave D / D2 — `intellig.branch.focusOnGraph` inline icon command.
+      // `intellig.branch.focusOnGraph` inline icon command.
       // Routes the click on the branch tree's eye icon to the provider's
       // setFocusedBranch so the graph chip outlines, the scroll lands,
       // and the focused-path commits brighten while the rest dim.
       //
-      // Wave D R1 / Senior M-1 — toggle semantics: clicking the SAME
+      // Toggle semantics: clicking the SAME
       // branch's eye icon a second time clears focus. Matches IntelliJ
       // parity (the eye icon turns into a toggle once focus is active).
       const focusOnGraphCommand = vscode.commands.registerCommand(
@@ -4256,7 +4256,7 @@ function registerViews(context: vscode.ExtensionContext): void {
     branchComparisonView = createBranchComparisonView(gitService);
     context.subscriptions.push(branchComparisonView);
 
-    // Wave K — WK-2: late-bind the branch comparison view onto the
+    // late-bind the branch comparison view onto the
     // commit context menu commands so the new "Compare with Branch..."
     // menu entry can route through it. The comparison view is
     // constructed AFTER `commitContextMenuCommands` in this activate()
@@ -4519,7 +4519,7 @@ export function _openPushDialog(preselect?: {
     protectedBranches,
     pullDialogAccessor: _getPullDialog,
     onPushComplete: () => {
-      // Wave G R1 / UXG-H-1 — reload before refresh so the panel sees
+      // Reload before refresh so the panel sees
       // post-push remote-tracking refs (ahead/behind reset to 0). Push
       // can target any of `repos`; reload them all so the next refresh
       // reads fresh state regardless of which row the user actioned.
@@ -4563,7 +4563,7 @@ export function _openMergeDialog(preselect: {
     gitService,
     conflictResolutionService: extensionServices.conflictResolutionService,
     onMergeComplete: () => {
-      // Wave G R1 / UXG-H-1 — reload before refresh so the panel sees
+      // Reload before refresh so the panel sees
       // fresh `repo.head.commit` after the merge advances HEAD. Mirrors
       // the IIFE pattern at `CommitContextMenuCommands.ts:1122`
       // (onResetComplete) — dialog callbacks are sync so we sequence
@@ -4784,7 +4784,7 @@ async function _runNewTagFlow(targetRef: string | undefined): Promise<void> {
       showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
       showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
       onTagCreated: () => {
-        // Wave G R1 / SG-M-1 — createTag added a ref that drives the
+        // createTag added a ref that drives the
         // tag tree + log-graph tag chip; reload before refresh so the
         // panel reads the post-mutation tag set.
         void (async (): Promise<void> => {
@@ -4869,7 +4869,7 @@ async function _runCherryPickVariant(
           ? 'Cherry-picked (without commit)'
           : 'Cherry-picked';
       void vscode.window.showInformationMessage(`${verb} ${shortHash}`);
-      // Wave G R1 / SG-M-1 — top-level cherry-pick advanced HEAD;
+      // top-level cherry-pick advanced HEAD;
       // reload before refresh so panel sees fresh state.
       await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
@@ -4888,7 +4888,7 @@ async function _runCherryPickVariant(
           canContinue: true,
         }
       );
-      // Wave G R1 / SG-M-1 — partial cherry-pick may have advanced HEAD
+      // Partial cherry-pick may have advanced HEAD
       // before the conflict; reload before refresh.
       await gitService.reloadRepository(repo);
       if (gitToolWindowProvider) {
@@ -4928,7 +4928,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
   const gitService = extensionServices.gitService;
   const shortHash = hash.substring(0, 8);
 
-  // Step 1: pick the target branch.
+  // Pick the target branch.
   const branches = await gitService.getBranches(repo);
   const localBranches = branches.filter((b) => b.type === 'local');
   const currentBranchName = repo.head?.name?.replace(/^refs\/heads\//, '');
@@ -4951,13 +4951,13 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
   }
   const targetBranch = branchPick.label;
 
-  // Step 2: pick the file subset.
+  // Pick the file subset.
   const files = await _pickCommitFiles(gitService, repo, hash, 'Apply Files to Branch');
   if (!files || files.length === 0) {
     return;
   }
 
-  // Step 3: stash dirty state (best-effort), switch, cherry-pick, restore.
+  // Stash dirty state (best-effort), switch, cherry-pick, restore.
   let stashed = false;
   try {
     const status = await gitService.getStatus(repo);
@@ -5003,7 +5003,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
         );
       }
       // Leave the user on the target branch so they can resolve.
-      // Wave G R1 / SG-M-1 — checkout + cherry-pick advanced HEAD onto
+      // Checkout + cherry-pick advanced HEAD onto
       // target branch; reload before refresh so the user sees the
       // post-checkout panel state with the unresolved conflicts.
       await gitService.reloadRepository(repo);
@@ -5040,7 +5040,7 @@ async function _runApplyFilesToBranchFlow(commitArg: unknown): Promise<void> {
         );
       }
     }
-    // Wave G R1 / SG-M-1 — finally block runs after multi-step pipeline
+    // Finally block runs after multi-step pipeline
     // (stash → checkout → cherry-pick → checkout-back → stashPop); reload
     // before refresh so the panel reflects the final restored state on
     // the original branch.

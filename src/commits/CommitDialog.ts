@@ -1136,11 +1136,11 @@ export class CommitDialog {
     const isSelected = this._selectedFilePath === file.path;
     const statusColor = this._getStatusColor(file.status);
 
-    // Wave I H-2 — inline `onclick="X('${path}')"` is replaced by
+    // Inline `onclick="X('${path}')"` is replaced by
     // `data-action="X" data-path="${path}"`. The delegated dispatcher
     // at the bottom of the inline <script> picks it up via
     // `addEventListener('click', ...)`, matching the pattern at
-    // GitToolWindowProvider.ts:4523. Pre-Wave-I, escaping a path
+    // GitToolWindowProvider.ts:4523., escaping a path
     // containing a `'` would still inject JavaScript through the inline
     // attribute (`<button onclick="stageFile('foo\'-evil')">` →
     // CSP-bypassing arbitrary script).
@@ -1162,9 +1162,11 @@ export class CommitDialog {
         ${
           file.staged
             ? `<button class="stage-button unstage" data-action="unstageFile" data-path="${escapedPath}" title="Unstage">−</button>`
+
             : `<button class="stage-button stage" data-action="stageFile" data-path="${escapedPath}" title="Stage">+</button>`
         }
       </div>
+
     `;
   }
 
@@ -1177,11 +1179,16 @@ export class CommitDialog {
         <div class="section diff-section">
           <div class="section-header">
             <span class="section-title">Diff Preview</span>
+
           </div>
+
           <div class="diff-content empty">
             <div class="empty-message">Select a file to preview changes</div>
+
           </div>
+
         </div>
+
       `;
     }
 
@@ -1193,18 +1200,24 @@ export class CommitDialog {
       <div class="section diff-section">
         <div class="section-header">
           <span class="section-title">Diff: ${this._escapeHtml(this._getFileName(this._selectedFilePath))}</span>
+
           <div class="diff-header-controls">
             <button class="partial-staging-toggle ${this._partialStagingMode ? 'active' : ''}" 
                     onclick="togglePartialStagingMode()" 
                     title="${this._partialStagingMode ? 'Exit line selection mode' : 'Enable line selection for partial staging'}">
               ${this._partialStagingMode ? '✓ Line Selection' : '☐ Line Selection'}
             </button>
+
           </div>
+
         </div>
+
         <div class="diff-content">
           ${diffHtml}
         </div>
+
       </div>
+
     `;
   }
 
@@ -1271,7 +1284,7 @@ export class CommitDialog {
         // ${lineNumber})"` interpolated into the row HTML. Although
         // both args are caller-controlled numbers (no user input
         // through the JS string here, unlike the file/path onclicks
-        // Wave I cleaned), consistency wins — the dispatcher pattern
+        // Cleaned), consistency wins — the dispatcher pattern
         // is uniform once toggleLine joins it. The dispatcher at
         // `_getInlineScript()` reads `data-hunk-index` and
         // `data-line-number` and routes to the global toggleLine().
@@ -1300,7 +1313,7 @@ export class CommitDialog {
       .join('');
 
     // Hunk controls - stage/unstage buttons.
-    // Wave I H-2 — inline-onclick → data-action delegation. `hunkIndex`
+    // inline-onclick → data-action delegation. `hunkIndex`
     // is a number (caller-controlled), but the data-action pattern
     // brings the same uniform CSP-safe shape as the path-based handlers
     // above. Matches GitToolWindowProvider:4523.
@@ -1317,9 +1330,11 @@ export class CommitDialog {
           ${
             hasSelectedLines && !isStaged
               ? `<button class="hunk-button stage-selected" data-action="stageSelectedLines" data-hunk-index="${hunkIndex}" title="Stage selected lines">+ Stage ${selectedLines.size} Line${selectedLines.size !== 1 ? 's' : ''}</button>`
+
               : ''
           }
         </div>
+
       `
       : '';
 
@@ -1327,13 +1342,17 @@ export class CommitDialog {
       <div class="diff-hunk">
         <div class="hunk-header-row">
           <div class="hunk-header">${this._escapeHtml(hunk.header)}</div>
+
           <div class="hunk-controls">
             ${stageButton}
           </div>
+
         </div>
+
         ${lineSelectionControls}
         ${linesHtml}
       </div>
+
     `;
   }
 
@@ -1351,7 +1370,9 @@ export class CommitDialog {
             onchange="toggleAmend(this.checked)"
           />
           <span>Amend</span>
+
         </label>
+
         <label class="option-label">
           <input 
             type="checkbox" 
@@ -1360,8 +1381,11 @@ export class CommitDialog {
             onchange="toggleSignOff(this.checked)"
           />
           <span>Sign-off</span>
+
         </label>
+
       </div>
+
     `;
   }
 
@@ -1375,10 +1399,13 @@ export class CommitDialog {
     return `
       <div class="buttons-section">
         <button class="button cancel-button" onclick="cancel()">Cancel</button>
+
         <button class="button commit-button" onclick="commit()" ${commitDisabled}>
           Commit${this._amendMode ? ' (Amend)' : ''} (${selectedCount} file${selectedCount !== 1 ? 's' : ''})
         </button>
+
       </div>
+
     `;
   }
 
@@ -1979,7 +2006,7 @@ export class CommitDialog {
         vscode.postMessage({ type: 'cancel' });
       }
 
-      // Wave I H-2 — Delegated event dispatcher.
+      // Delegated event dispatcher.
       // Replaces inline onclick attributes with data-action + data-path
       // (and data-hunk-index for the hunk buttons). The dispatcher reads
       // those attributes from the closest matching ancestor and routes to
@@ -2008,7 +2035,7 @@ export class CommitDialog {
           stageSelectedLines: () => stageSelectedLines(Number(hunkIndex)),
           selectAllLinesInHunk: () => selectAllLinesInHunk(Number(hunkIndex)),
           deselectAllLinesInHunk: () => deselectAllLinesInHunk(Number(hunkIndex)),
-          // Wave J / WJ-5 — toggleLine joins the dispatcher. The
+          // / WJ-5 — toggleLine joins the dispatcher. The
           // existing global toggleLine(hunkIndex, lineNumber) function
           // is unchanged; we just route through it via Number()
           // coercion of the dataset strings. Pinned by

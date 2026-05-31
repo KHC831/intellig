@@ -231,7 +231,7 @@ export class ShelfView implements IShelfView {
   async showShelveDialog(repository: IRepository): Promise<IShelveDialogResult> {
     this._repository = repository;
 
-    // Step 1: Get changed files
+    // Get changed files
     const changedFiles = await this._getChangedFiles(repository);
 
     if (changedFiles.length === 0) {
@@ -239,14 +239,14 @@ export class ShelfView implements IShelfView {
       return { shelved: false };
     }
 
-    // Step 2: Show file selection dialog
+    // Show file selection dialog
     const selectedFiles = await this._showFileSelectionDialog(changedFiles);
 
     if (!selectedFiles || selectedFiles.length === 0) {
       return { shelved: false };
     }
 
-    // Step 3: Get shelf name
+    // Get shelf name
     const name = await vscode.window.showInputBox({
       prompt: 'Enter a name for the shelved changes',
       placeHolder: 'My shelved changes',
@@ -264,7 +264,7 @@ export class ShelfView implements IShelfView {
       return { shelved: false };
     }
 
-    // Step 4: Create the shelf item
+    // Create the shelf item
     const selection: IShelveSelection = {
       files: selectedFiles,
     };
@@ -891,11 +891,11 @@ export class ShelfView implements IShelfView {
         // apply` stderr which can contain credentialed URLs from a
         // patch header, or absolute `/Users/<name>` paths on macOS.
         // Downstream consumers (toasts, logs, result payloads) must not
-        // leak either. Mirrors the TL-46 sanitization pattern applied
+        // leak either. Mirrors the sanitization pattern applied
         // to unshelve / delete / rename above.
         const raw = error instanceof Error ? error.message : String(error);
         const sanitized = sanitizeGitError(raw);
-        // TL-64: route the per-file failure into the shared
+        // Route the per-file failure into the shared
         // OutputChannel so the aggregate toast ("N patch file(s) could
         // not be imported") has an actionable companion in
         // `Output → IntelliG`. The toast itself is informative-only;

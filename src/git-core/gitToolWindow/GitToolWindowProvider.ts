@@ -93,7 +93,7 @@ export const INTELLIJ_FILE_STATUS_COLORS: Record<FileStatus, string> = {
 };
 
 /**
- * Wave J R1 — VS Code theme-variable mapping for file statuses. Each
+ * VS Code theme-variable mapping for file statuses. Each
  * status maps to its semantically-correct `gitDecoration-*` token,
  * which themes (especially high-contrast) use to render their own
  * file-status colors. {@link GitToolWindowProvider._getFileStatusColor}
@@ -131,7 +131,7 @@ export type LocalChangesContextAction =
 /**
  * Context menu action types for Log View.
  *
- * R3-10 (TL2-L-1): MUST be a superset of `MultiSelectMenuAction` from
+ * MUST be a superset of `MultiSelectMenuAction` from
  * `./multiSelect.ts`. Every menu `data-action` rendered in the webview
  * resolves to a `LogContextAction` arm, and the multi-select gating
  * (visibility / enable / reason) is computed from the
@@ -140,7 +140,7 @@ export type LocalChangesContextAction =
  * outside the menu (e.g., a keyboard-only action), add it here only.
  *
  * Drift between the two unions is caught at runtime by
- * `multiSelectR1.test.ts` "every rendered data-action has a matching
+ * `multiSelect.test.ts` "every rendered data-action has a matching
  * case in CommitContextMenuCommands._handleAction".
  */
 export type LogContextAction =
@@ -157,16 +157,16 @@ export type LogContextAction =
   | 'editCommitMessage'
   | 'mergeIntoCurrent'
   | 'interactiveRebase'
-  // Wave A — multi-select-only actions. Stub handlers in
-  // CommitContextMenuCommands surface a "lands in Wave B/C" toast until
-  // the real implementations land. Adding them to the union (R1 C-2) makes
+  // multi-select-only actions. Stub handlers in
+  // CommitContextMenuCommands surface a "lands in " toast until
+  // the real implementations land. Adding them to the union (C-2) makes
   // the cast in `_handleCommitContextMenu` truthful again.
   | 'squashCommits'
   | 'compareVersions'
-  // Wave K — IntelliJ-parity additions (WK-1, WK-2). Single-only entries
+  // IntelliJ-parity additions. Single-only entries
   // that route through dedicated handlers in CommitContextMenuCommands.
   // squashWithPrevious / fixupWithPrevious synthesise a 2-commit selection
-  // and reuse `_handleSquashCommits` (DK-1: single source of truth for the
+  // and reuse `_handleSquashCommits` (single source of truth for the
   // squash plan). compareWithBranch opens a QuickPick listing local +
   // remote branches + tags and routes through BranchComparisonView.
   | 'squashWithPrevious'
@@ -194,7 +194,7 @@ export interface IExtendedLogState extends ILogState {
    */
   cherryPickBaseRef?: string;
   /**
-   * Wave A — IntelliJ-parity multi-select anchor.
+   * IntelliJ-parity multi-select anchor.
    *
    * The "anchor" is the last single-clicked commit; shift-click ranges
    * are computed inclusively from the anchor to the click target. Plain
@@ -207,13 +207,13 @@ export interface IExtendedLogState extends ILogState {
    */
   anchorHash: string | null;
   /**
-   * Wave D / D2 — IntelliJ-parity branch focus.
+   * IntelliJ-parity branch focus.
    *
    * The currently-focused branch name. Set by
    * {@link GitToolWindowProvider.setFocusedBranch} when the user invokes
    * the "Focus on Graph" inline action on a branch in the BRANCHES tree
    * view. The chip for this branch is rendered with `branch-label-focused`
-   * (outline + bold), and (when D3 is wired) every commit on the path
+   * (outline + bold), and (when is wired) every commit on the path
    * from the branch tip back to its merge-base with HEAD is brightened
    * while every other commit is dimmed.
    *
@@ -224,7 +224,7 @@ export interface IExtendedLogState extends ILogState {
    */
   focusedBranchName: string | null;
   /**
-   * Wave G — HEAD commit hash sourced from `repo.head?.commit` at
+   * HEAD commit hash sourced from `repo.head?.commit` at
    * `loadLogCommitsForRepo` time. Drives the HEAD chip prepended in
    * {@link GitToolWindowProvider._getBranchLabelsHtml} when a node's
    * hash matches.
@@ -244,7 +244,7 @@ export interface IExtendedLogState extends ILogState {
 export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWindowProvider {
   private _extendedLogState: IExtendedLogState;
   /**
-   * Wave D / D3 — set of commit hashes on the BFS path from the focused
+   * Set of commit hashes on the BFS path from the focused
    * branch tip back to its merge-base with HEAD. Recomputed every time
    * {@link setFocusedBranch} runs; cleared (set to empty) by
    * {@link updateLogState} whenever the focused branch is no longer
@@ -282,7 +282,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   /**
    * T1-05 — host-side tab router.
    *
-   * Phase 1 responsibilities:
+   * Responsibilities:
    *   - Own active-tab state (default: `log`).
    *   - Handle the `tabChange` meta-message from the webview.
    *   - Publish the `intellig.toolWindow.activeTab` context key on change.
@@ -303,17 +303,17 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private _historyTab: HistoryTab | undefined;
 
   /**
-   * Wave D / D3 — reference to the GitService set by
+   * Reference to the GitService set by
    * {@link attachGitService}. Used by {@link setFocusedBranch} to call
    * `getMergeBase` when computing the path-to-merge-base for a focused
    * branch. Optional — when missing (no service attached, or attached
    * service lacks `getMergeBase`), focus still works at the chip-only
-   * level (D2) but the path treatment (D3) is a no-op.
+   * level but the path treatment is a no-op.
    */
   private _attachedGitService: IGitService | undefined;
 
   /**
-   * Wave D R1 / Senior H-1 + Tech-lead TLD-M-2 — async-race generation
+   * Async-race generation
    * counter. {@link setFocusedBranch} bumps this on entry and captures
    * the value as `myGen`; after `await getMergeBase`, the method
    * compares `myGen` to the live counter and bails (no state mutation,
@@ -350,17 +350,17 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     action: LogContextAction;
     commitHashes: string[];
     /**
-     * Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): NEWEST-FIRST commit-node
+     * NEWEST-FIRST commit-node
      * projection at dispatch time. Each entry is the slim
      * `IMenuStateNode { hash, parentCount }` (already used by the menu
      * helper). Handlers derive `displayOrder` via
      * `commitNodes.map(n => n.hash)` and look up parents via
      * `commitNodes.find(n => n.hash === oldestHash)?.parentCount`.
      *
-     * R2 collapsed the pre-R2 parallel records (`displayOrder: string[]`
-     * + `parentCounts: Record<string, number>`) to this single
+     * Collapsed the prior parallel records (`displayOrder: string[]`
+     * and `parentCounts: Record<string, number>`) to this single
      * structurally-typed list — one source of truth, one lookup, one
-     * test fixture shape. Wave A R4-3 / ADR-009 §6 cover the
+     * test fixture shape. ADR-009 §6 covers the
      * chronological-replay direction conventions.
      */
     commitNodes: readonly IMenuStateNode[];
@@ -486,7 +486,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * service replaces the current tab (so tests can rebind).
    */
   public attachGitService(gitService: IGitService): void {
-    // Wave D / D3 — hold the reference for `setFocusedBranch` →
+    // Hold the reference for `setFocusedBranch` →
     // `getMergeBase`. Re-attaches replace the prior reference.
     this._attachedGitService = gitService;
 
@@ -573,7 +573,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       branchMap: new Map<string, string[]>(),
       tagMap: new Map<string, string[]>(),
       anchorHash: null,
-      // Wave D / D2 — no branch focused at start.
+      // No branch focused at start.
       focusedBranchName: null,
     };
   }
@@ -712,10 +712,10 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // `generateCommitGraph` expects. This makes lane positions
     // deterministic across sessions even when `git log`'s default
     // ordering shifts (the upstream variance the prior README
-    // "Commit-graph ordering" caveat called out). TL-99.
+    // "Commit-graph ordering" caveat called out)..
     const stable = sortCommitsStable(commits).reverse();
 
-    // Wave D / D2-D3 — re-validate the focused branch against the new
+    // re-validate the focused branch against the new
     // branch list. If the focus target disappeared (force-push, branch
     // rename, repo switch), null it out and clear the cached path-hash
     // set. The `commitNodes` we then generate get `onFocusedBranchPath:
@@ -734,7 +734,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     if (newFocusName === null) {
       // Focus was either already off or invalidated by this update;
       // either way the cached path is stale.
-      // Wave D R1 / Senior H-1 — bump `_focusGeneration` so any
+      // Bump `_focusGeneration` so any
       // in-flight setFocusedBranch awaiting `getMergeBase` sees the
       // bump and bails. We only need to bump on the cleared-focus
       // path: a refresh that KEEPS the focus name doesn't invalidate
@@ -756,7 +756,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     const emptyBranchMap: Map<string, string[]> = new Map();
     const emptyTagMap: Map<string, string[]> = new Map();
 
-    // Wave A R1 — anchor lifecycle (TL-C-1, Senior M-2):
+    // Anchor lifecycle (TL-C-1):
     //   - Prune `selectedCommits` to the intersection with the new commit
     //     hashes so a force-push / log-filter that drops commits doesn't
     //     leave dangling selection state pointing at hashes that aren't
@@ -764,7 +764,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     //   - Reset `anchorHash` to `null` when the anchor is no longer in
     //     the new list. JS `let anchorHash` mirror is reset by the
     //     `syncSelection` message we post below + by reading the
-    //     `data-anchor-hash` attribute on the next render (TL-H-1/M-2).
+    // `data-anchor-hash` attribute on the next render.
     const newHashes = new Set(commitNodes.map((n) => n.commit.hash));
     const prunedSelection = new Set<string>();
     for (const h of this._extendedLogState.selectedCommits) {
@@ -789,8 +789,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._hasRepository = true;
     this._isLoading = false;
     this._updateWebview();
-    // R5-1 (TL4-M-1, Senior L-2 partial) — fire BEFORE the post sequence.
-    // Aligns with the 5 setters (R4-7) and ADR-009 §3 generalised rule:
+    // Fire BEFORE the post sequence.
+    // Aligns with the 5 setters and ADR-009 §3 generalised rule:
     // any host method that calls `_post*` helpers fires `onDidChangeState`
     // first so subscribers see "state changed" on the same event-loop
     // tick the host knows it.
@@ -882,10 +882,10 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._extendedLogState.selectedCommits.clear();
     this._extendedLogState.selectedCommits.add(hash);
     this._extendedLogState.expandedCommit = hash;
-    // Wave A — plain-click sets the multi-select anchor.
+    // plain-click sets the multi-select anchor.
     this._extendedLogState.anchorHash = hash;
 
-    // R4-7 (Senior L-2) — fire onDidChangeState BEFORE the post sequence
+    // Fire onDidChangeState BEFORE the post sequence
     // so subscribers see "selection changed" on the same event-loop
     // tick the host knows it.
     this._onDidSelectCommit.fire(hash);
@@ -984,21 +984,21 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     } else {
       this._extendedLogState.selectedCommits.add(hash);
     }
-    // Wave A — Ctrl/Cmd-click also moves the anchor to the clicked
+    // Ctrl/Cmd-click also moves the anchor to the clicked
     // commit, matching IntelliJ's selection model.
     this._extendedLogState.anchorHash = hash;
 
-    // R3-1 (HIGH) — order: render FIRST so the new document exists,
+    // (HIGH) — order: render FIRST so the new document exists,
     // THEN post so postMessage lands on the live page rather than the
     // pre-reload one (ADR-009 §3 sub-rule). _postSyncSelection mirrors
     // the host's anchor + selection onto the JS-side mirror so the
     // freshly-rendered document agrees with state on first paint.
     this._updateWebview();
-    // R4-7 (Senior L-2) — fire onDidChangeState BEFORE the wire posts
+    // Fire onDidChangeState BEFORE the wire posts
     // so subscribers see "selection changed" on the same event-loop
     // tick the host knows it. Aligns with selectCommit's ordering.
     this._onDidChangeState.fire();
-    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // belt-and-suspenders — the rendered HTML already
     // carries data-anchor-hash; syncSelection guards against
     // interpolation bugs and partial-update extension cases.
     this._postSyncSelection();
@@ -1006,7 +1006,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave A R1 (TL-M-1) — programmatic selection setter.
+   * Programmatic selection setter.
    *
    * Public API for B/C/scripted entry points: replaces the current
    * selection with `hashes`, sets `anchorHash` to `anchor` (or `null`
@@ -1020,7 +1020,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * `updateMenuEnableState` so the webview stays in sync.
    */
   public selectCommits(hashes: readonly string[], anchor?: string | null): void {
-    // R3-2 (Senior M-1) — mirror selectCommit's pending-state cleanup so
+    // Mirror selectCommit's pending-state cleanup so
     // a programmatic selection doesn't leak a half-loaded changed-files
     // payload into the next details-panel render.
     this._pendingChangedFiles = undefined;
@@ -1038,7 +1038,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     } else {
       this._extendedLogState.anchorHash = known.has(anchor) ? anchor : null;
     }
-    // R3-8 (Senior L-1) — for N>=2, focus the details pane on the FIRST
+    // For N>=2, focus the details pane on the FIRST
     // surviving hash so the panel can't show a stale commit that's no
     // longer in the selection. For N=1, use that single hash. For N=0,
     // leave whatever was there (the pane will switch to the placeholder
@@ -1047,13 +1047,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       this._extendedLogState.expandedCommit = filtered[0];
     }
 
-    // R3-1 (HIGH) — render BEFORE posting so the precomputed enable map +
+    // (HIGH) — render BEFORE posting so the precomputed enable map
     // anchor sync land on the live document, not the pre-reload one.
     this._updateWebview();
-    // R4-7 (Senior L-2) — fire BEFORE the post sequence (matches
+    // Fire BEFORE the post sequence (matches
     // selectCommit's ordering).
     this._onDidChangeState.fire();
-    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // belt-and-suspenders — the rendered HTML already
     // carries data-anchor-hash; syncSelection guards against
     // interpolation bugs and partial-update extension cases.
     this._postSyncSelection();
@@ -1061,7 +1061,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave A R1 (M-1) — host-side mirror of "right-click on a non-selected
+   * host-side mirror of "right-click on a non-selected
    * commit moves selection to that commit". Called by the webview when
    * the user opens the context menu on a row that isn't in
    * `selectedCommits`. No-op when the hash is already part of the
@@ -1076,7 +1076,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave A — Shift+click range-select.
+   * Shift+click range-select.
    *
    * Replaces the existing selection with the inclusive range from the
    * current `anchorHash` to `hash` (in display order). When `anchorHash`
@@ -1115,11 +1115,11 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._extendedLogState.expandedCommit = hash;
     // Anchor unchanged — shift-click does not move the anchor.
 
-    // R3-1 (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
+    // (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
     this._updateWebview();
-    // R4-7 (Senior L-2) — fire BEFORE the post sequence.
+    // Fire BEFORE the post sequence.
     this._onDidChangeState.fire();
-    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // belt-and-suspenders — the rendered HTML already
     // carries data-anchor-hash; syncSelection guards against
     // interpolation bugs and partial-update extension cases.
     this._postSyncSelection();
@@ -1127,7 +1127,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave A — Shift+Ctrl+click additive range-select.
+   * Shift+Ctrl+click additive range-select.
    *
    * Adds the inclusive range from `anchorHash` to `hash` to the existing
    * selection. With anchor null, falls back to a single toggle so the
@@ -1156,11 +1156,11 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     }
     this._extendedLogState.expandedCommit = hash;
 
-    // R3-1 (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
+    // (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
     this._updateWebview();
-    // R4-7 (Senior L-2) — fire BEFORE the post sequence.
+    // Fire BEFORE the post sequence.
     this._onDidChangeState.fire();
-    // R4-5 (TL3-L-1): belt-and-suspenders — the rendered HTML already
+    // belt-and-suspenders — the rendered HTML already
     // carries data-anchor-hash; syncSelection guards against
     // interpolation bugs and partial-update extension cases.
     this._postSyncSelection();
@@ -1169,8 +1169,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
 
   /**
    * Get selected commit hashes in DISPLAY ORDER (newest-first; matches
-   * what the user sees in the log). R3-9 (Senior L-3) introduced the
-   * display-order projection so Wave B/C consumers see hashes in the
+   * what the user sees in the log). Introduced the
+   * display-order projection so consumers see hashes in the
    * order the user expects rather than Set-iteration order.
    *
    * **WARNING for chronological-replay consumers (cherry-pick, rebase):**
@@ -1178,9 +1178,9 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * a branch (cherry-pick, rebase) MUST `.reverse()` the result to
    * apply commits OLDEST-FIRST; otherwise authored-order is destroyed
    * and `git log` shows the new commits backwards relative to the
-   * source branch. R4-3 (TL3-M-2).
+   * source branch..
    *
-   * Wave B / Wave C handlers that batch-apply commits should call:
+   * Handlers that batch-apply commits should call:
    *
    * ```ts
    * const replayOrder = [...provider.getSelectedCommits()].reverse();
@@ -1204,7 +1204,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave B R1 (TLB-H-3) — selected commit hashes in OLDEST-FIRST replay
+   * Selected commit hashes in OLDEST-FIRST replay
    * order: chronologically older commits first, suitable for any git
    * operation that replays commits onto a branch (cherry-pick, drop,
    * squash, rebase). Returns `getSelectedCommits().slice().reverse()`.
@@ -1218,8 +1218,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    *     consumers (cherry-pick, drop, squash, rebase).
    *
    * Aimed at external programmatic callers (palette commands, scripted
-   * entry points) and Wave C handlers. Wave B's webview-driven dispatch
-   * receives display-order via the event payload (TLB-H-2) and
+   * entry points) and handlers. 's webview-driven dispatch
+   * receives display-order via the event payload and
    * `.reverse()`s inline at the call site for cherry-pick — both
    * approaches converge on the same direction. ADR-009 §6.
    *
@@ -1245,7 +1245,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave A R1 (TL-H-2/H-3/H-4) — host-side menu-state computation.
+   * host-side menu-state computation.
    *
    * The host is the source of truth for which menu items are visible /
    * enabled. Whenever selection or commit-list state changes, we
@@ -1264,12 +1264,12 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       hash: n.commit.hash,
       parentCount: (n.commit.parents || []).length,
     }));
-    // Wave G — read the real head hash from state. Pre-Wave-G this used
+    // Read the real head hash from state. This used
     // `commitNodes[0].hash` which assumed HEAD was the newest commit; that's
     // only true when HEAD is at the tip of the loaded log. In detached state
     // at an older commit, the bogus assumption made `computeMenuState`'s
     // HEAD-membership rule (which gates "Reset to here", "Squash", etc.)
-    // wrong for any commit that wasn't the top row. TG-R5.
+    // wrong for any commit that wasn't the top row. TG-.
     const headHash = this._extendedLogState.headHash ?? '';
     const state = computeMenuState({
       selectedHashes: this._extendedLogState.selectedCommits,
@@ -1285,7 +1285,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave A R1 (TL-C-1) — sync the webview's `let anchorHash` mirror with
+   * (TL-C-1) — sync the webview's `let anchorHash` mirror with
    * the freshly-computed host anchor after a re-render that may have
    * pruned the prior anchor. The webview JS reads
    * {@link IExtendedLogState.anchorHash} from the rendered
@@ -1330,12 +1330,12 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         }
         break;
       case 'rangeSelectCommit':
-        // Wave A — shift+click: replace selection with [anchor..click].
-        // R2 (TL-M-2): the user's click anchor travels in the message and
+        // shift+click: replace selection with [anchor..click].
+        // The user's click anchor travels in the message and
         // wins over the host's cached anchorHash. Ensures the host honours
         // the JS view of the world for this single click instead of
         // consulting a cache that can be one render stale (ADR-009 §3).
-        // R3-3 (Senior M-2): real type narrow — accept string|null only,
+        // Real type narrow — accept string|null only,
         // ignore wrong-type fields (a rogue / bug-mutated webview can't
         // poison the host state).
         if (message.commitHash) {
@@ -1346,9 +1346,9 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         }
         break;
       case 'addRangeSelectCommit':
-        // Wave A — shift+ctrl+click: ADD [anchor..click] to existing selection.
-        // R2 (TL-M-2): same message-anchor-wins contract as rangeSelectCommit.
-        // R3-3 (Senior M-2): same type narrow.
+        // shift+ctrl+click: ADD [anchor..click] to existing selection.
+        // Same message-anchor-wins contract as rangeSelectCommit.
+        // Same type narrow.
         if (message.commitHash) {
           if (typeof message.anchorHash === 'string' || message.anchorHash === null) {
             this._extendedLogState.anchorHash = message.anchorHash;
@@ -1357,7 +1357,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         }
         break;
       case 'selectIfNotSelected':
-        // Wave A R1 (M-1) — right-click on a non-selected commit.
+        // right-click on a non-selected commit.
         if (message.commitHash) {
           this.selectIfNotSelected(message.commitHash);
         }
@@ -1409,10 +1409,10 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         }
         break;
       case 'focusBranchOnGraph':
-        // Wave D / D2 — webview asked to focus the graph on a branch.
+        // Webview asked to focus the graph on a branch.
         // The bridge is async (getMergeBase + scroll); fire-and-forget.
         //
-        // Wave D R1 / Senior H-2 (security) — the branchName arrives
+        // (security) — the branchName arrives
         // from the webview, which is untrusted; combined with the
         // `git merge-base <refA> <refB>` argv shape this can become a
         // git-option-injection if a string like `--upload-pack=evil`
@@ -1539,10 +1539,10 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave D / D2 + D3 — focus the graph on a branch.
+   * Focus the graph on a branch.
    *
    * Resolves the branch's tip commit, scrolls the graph to it, computes
-   * the BFS path back to the merge-base with HEAD (D3), updates internal
+   * the BFS path back to the merge-base with HEAD, updates internal
    * state, fires `onDidChangeState` (per ADR-009 §3 fire-before-post),
    * posts a `branchFocusUpdate` partial-update message to the webview,
    * and triggers a full re-render so the focus class lands on the
@@ -1553,24 +1553,24 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * `intellig.branch.focusOnGraph` so the user opts into focus
    * deliberately rather than getting it on every chip click.
    *
-   * Wave D R1 / TLD-M-1 — ordering corrected to render-then-post per
-   * ADR-009 §3 (R5-1, TL4-M-1 generalisation): every method that calls
+   * Ordering corrected to render-then-post per
+   * ADR-009 §3 (generalisation): every method that calls
    * `_post*` helpers does `_updateWebview() → fire → _post*()` so the
    * post lands on the new document, not the doomed pre-render one.
    *
-   * Wave D R1 / Senior H-1 + TLD-M-2 — `_focusGeneration` guard bails
+   * The `_focusGeneration` guard bails
    * after `await getMergeBase` if a later focus call (or
    * updateLogState) has bumped the counter, so rapid focus switches
    * don't land state in the wrong order.
    *
-   * Wave D R1 / Senior M-2 — does NOT mutate selection state. Uses
+   * Does NOT mutate selection state. Uses
    * {@link _scrollWebviewToCommit} (post-only) so a user's mid-shift-
    * click range survives a focus toggle.
    *
    * @param branchName - The branch to focus. When `null`, clears focus.
    */
   public async setFocusedBranch(branchName: string | null): Promise<void> {
-    // R1 / Senior H-1 — bump generation counter. Capture for post-await
+    // Bump generation counter. Capture for post-await
     // staleness check.
     this._focusGeneration += 1;
     const myGen = this._focusGeneration;
@@ -1582,7 +1582,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       this._extendedLogState.focusedBranchName = null;
       this._focusedPathHashes = new Set();
       this._regenerateCommitNodesForFocus();
-      // ADR-009 §3 R5-1 (TL4-M-1) — render FIRST, fire, then post.
+      // ADR-009 §3 — render FIRST, fire, then post.
       // Posting before render means the post lands on the doomed
       // pre-reload document.
       this._updateWebview();
@@ -1609,7 +1609,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       return;
     }
 
-    // Wave D / D3 — compute the path from `targetHash` back through
+    // Compute the path from `targetHash` back through
     // `commitNodes` to the merge-base of `HEAD` and the branch.
     let pathHashes = new Set<string>();
     const repo = this.getSelectedRepository();
@@ -1626,7 +1626,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
         mergeBaseHash = undefined;
       }
 
-      // R1 / Senior H-1 — staleness check after `await`. If a later
+      // Staleness check after `await`. If a later
       // setFocusedBranch / updateLogState bumped the counter, OR if
       // the focused branch is no longer in the current branchMap
       // (refresh dropped it), bail: the live state already reflects
@@ -1651,18 +1651,18 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // the existing nodes and patch the flag in place.
     this._regenerateCommitNodesForFocus();
 
-    // ADR-009 §3 (R5-1, TL4-M-1) — render-then-fire-then-post.
+    // ADR-009 §3 — render-then-fire-then-post.
     this._updateWebview();
     this._onDidChangeState.fire();
     this._postBranchFocusUpdate(branchName, targetHash);
 
-    // R1 / Senior M-2 — non-selecting scroll: bring the tip into view
+    // non-selecting scroll: bring the tip into view
     // WITHOUT clearing the user's selection / anchor / expandedCommit.
     this._scrollWebviewToCommit(targetHash);
   }
 
   /**
-   * Wave D R1 / Senior M-1 — read-only accessor for the current focus
+   * read-only accessor for the current focus
    * name. Used by the `intellig.branch.focusOnGraph` command handler in
    * extension.ts to implement toggle semantics: clicking the same
    * branch's eye icon a second time clears focus.
@@ -1672,7 +1672,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave D R1 / Senior H-2 — collect every branch name visible to the
+   * Collect every branch name visible to the
    * host (i.e. listed in `branchMap.values()` or any `commitNodes[].
    * branches`). The webview-message handler validates against this set
    * before propagating to {@link setFocusedBranch}, defending against
@@ -1696,7 +1696,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave D R1 / Senior M-2 — non-selecting scroll. Posts a
+   * non-selecting scroll. Posts a
    * `scrollToCommit` message to the webview without touching
    * `selectedCommits`, `expandedCommit`, or `anchorHash`.
    *
@@ -1740,7 +1740,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave D / D3 — BFS over `commitNodes`'s parent edges from `targetHash`
+   * BFS over `commitNodes`'s parent edges from `targetHash`
    * back to `mergeBaseHash`. Every visited commit (inclusive of the merge
    * base when found) is added to the result set.
    *
@@ -1753,7 +1753,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * git error), the BFS still walks until exhaustion or until it leaves
    * the loaded commit set — same partial-highlight outcome.
    *
-   * Wave D R1 / Senior L-1 — orphan-branch behavior. When the focused
+   * orphan-branch behavior. When the focused
    * branch shares no common ancestor with HEAD (e.g. `git checkout
    * --orphan`), `getMergeBase` returns undefined and this BFS walks
    * the entire loaded ancestry of the focused branch. That over-
@@ -1808,7 +1808,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave D / D3 — re-tag every node's `onFocusedBranchPath` flag against
+   * re-tag every node's `onFocusedBranchPath` flag against
    * the current `_focusedPathHashes` set. Cheaper than re-running
    * {@link generateCommitGraph}, and the lane assignments don't change
    * with focus state.
@@ -1826,14 +1826,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Wave D / D2 — post a `branchFocusUpdate` message to the webview
+   * Post a `branchFocusUpdate` message to the webview
    * with the current focus name and resolved tip hash. The webview's
    * inline-script handler caches this into a `branchFocus` local and
    * toggles the `branch-label-focused` class on `[data-branch-name]`
    * chips so a partial state update (no full re-render) keeps the chip
    * in sync.
    *
-   * Wave D R1 / Senior M-3 — `focusedPathHashes` was dropped from the
+   * `focusedPathHashes` was dropped from the
    * payload: the JS handler only ever read `focusedBranchName` /
    * `focusedHash`. The path data flows host-side via
    * {@link _focusedPathHashes}; the SVG dim/brighten lands during the
@@ -1859,7 +1859,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * Finds the branch's HEAD commit hash from the loaded commit nodes and branch map,
    * then selects that commit and asks the webview to scroll to it.
    *
-   * D1: Uses the partial-update path (selectCommit + _scrollWebviewToCommit) rather
+   * Uses the partial-update path (selectCommit + _scrollWebviewToCommit) rather
    * than a full re-render, so the graph panel's scroll position is preserved. The
    * visibility-aware inline scrollToCommit then only scrolls when the target row is
    * not already fully visible, and highlights the latest commit of that branch.
@@ -1889,7 +1889,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     }
 
     if (targetCommitHash) {
-      // D1: Use the partial-update path (no full re-render) so the graph panel's
+      // Use the partial-update path (no full re-render) so the graph panel's
       // scroll position is preserved. selectCommit posts selectGraphRow +
       // updateDetailsPanel; _scrollWebviewToCommit posts { type: 'scrollToCommit',
       // commitHash } which the now visibility-aware inline scrollToCommit gates.
@@ -2008,7 +2008,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * Fires the same event as the log context menu, since both operate on commits.
    */
   private _handleCommitContextMenu(action: LogContextAction, commitHashes: string[]): void {
-    // Wave A R1 (TL-M-4) — validate every targeted hash is still in the
+    // Validate every targeted hash is still in the
     // rendered commit list. The webview's selection state can drift
     // mid-action if a refresh / force-push / log-filter change happens
     // between the user opening the menu and clicking the action. Aborting
@@ -2022,10 +2022,10 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       );
       return;
     }
-    // Wave B R1 (TLB-H-2) + R2 (TLBR1-L-1): push the slim newest-first
+    // Push the slim newest-first
     // commit-node projection forward so handlers don't call back into
-    // the provider. ADR-009 §6 covers the direction convention. R2
-    // collapsed the prior parallel records (`displayOrder` +
+    // the provider. ADR-009 §6 covers the direction convention.
+    // Collapsed the prior parallel records (`displayOrder` and
     // `parentCounts`) to this single typed list — same data, one
     // lookup, one test-fixture shape.
     const commitNodes: IMenuStateNode[] = this._extendedLogState.commitNodes.map((n) => ({
@@ -2229,7 +2229,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
 
     const extraStyles = flagOn ? `${tabStripStyles()}\n${historyTabStyles()}` : '';
 
-    // Wave J R1 / HIGH-1 — codicon font loader. Without a `@font-face`
+    // / HIG — codicon font loader. Without a `@font-face`
     // declaration that points to the actual TTF, the `<i class="codicon">`
     // glyphs we emit on every chip render as empty-box "tofu" — the WCAG
     // 1.4.1 non-color affordance (snap-12f/12g) silently fails. The
@@ -2346,7 +2346,7 @@ ${bodyMarkup}
   }
 
   /**
-   * Wave J R1 / HIGH-1 — emit the `@font-face` declaration that loads
+   * / HIG — emit the `@font-face` declaration that loads
    * the bundled VS Code codicon TTF, plus the `.codicon` utility rule
    * that every codicon glyph (`<i class="codicon codicon-…">`) needs to
    * render as the actual icon instead of a "tofu" empty-box.
@@ -2688,10 +2688,10 @@ ${bodyMarkup}
   }
 
   /**
-   * Wave J R1 — return a `var(--vscode-gitDecoration-*, #hex)` expression
+   * Return a `var(--vscode-gitDecoration-*, #hex)` expression
    * for the given file status, so the colour follows the user's theme
    * (especially high-contrast) instead of the bare IntelliJ hex. The
-   * pre-Wave-J hex literal is retained as the CSS-var fallback (defence
+   * Hex literal is retained as the CSS-var fallback (defence
    * in depth + dev-mode jsdom test surface). Pinned by
    * `fileStatusTheme-1..8` in detailsPanel.test.ts.
    */
@@ -2783,10 +2783,10 @@ ${bodyMarkup}
     const childCountMap = computeChildCountMap(commitNodes);
     const childLanesMap = computeChildLanesMap(commitNodes);
 
-    // Wave D / D3 — true when ANY commit in the rendered set is on the
+    // True when ANY commit in the rendered set is on the
     // focused-branch path. The renderer reads this to decide whether to
     // brighten on-path / dim off-path lines and nodes. When false, the
-    // graph renders at baseline (no change from pre-Wave-D).
+    // graph renders at baseline (no change from).
     const hasFocusedBranch = commitNodes.some((n) => n.onFocusedBranchPath === true);
 
     // T3-07 — pre-resolve the cherry-picked set once per render to keep the
@@ -2819,10 +2819,10 @@ ${bodyMarkup}
 
         // Format fields.
         //
-        // Wave E (E2-bonus) — emit the FULL first line of the commit message
+        // Emit the FULL first line of the commit message
         // and let CSS `.commit-title { overflow: hidden; text-overflow:
         // ellipsis; white-space: nowrap }` truncate responsively based on
-        // the panel's actual flex-allocated width. The pre-Wave-E call to
+        // the panel's actual flex-allocated width. The call to
         // `_truncateMessage(…, 60)` hard-capped the row text at 60 chars
         // regardless of available space, so a 1200px-wide panel still
         // showed `"…"` on a 70-char subject. The tooltip (`title=` below)
@@ -2844,7 +2844,7 @@ ${bodyMarkup}
         // Generate branch labels HTML
         const branchLabelsHtml = this._getBranchLabelsHtml(node);
 
-        // T3-07 — `✓` badge + title tooltip for already-cherry-picked commits.
+        // `✓` badge + title tooltip for already-cherry-picked commits.
         const cherryBadgeHtml = isCherryPicked
           ? `<span class="commit-cherry-badge" title="${
               cherryPickBaseRef
@@ -2896,13 +2896,13 @@ ${bodyMarkup}
 
     const repositorySelectorHtml = this._getRepositorySelectorHtml();
 
-    // Wave A R1 (TL-H-1, TL-M-2) — embed the anchor hash so a full
+    // Embed the anchor hash so a full
     // re-render rehydrates the JS `let anchorHash` mirror correctly.
     // The webview JS reads this attribute on script-execution and
     // again whenever the host posts a `syncSelection` message.
     const anchorAttr = this._extendedLogState.anchorHash ?? '';
 
-    // Wave J R1 / MED-2 — visually-hidden help span referenced by
+    // visually-hidden help span referenced by
     // `aria-describedby="focused-branch-help"` on every focused branch
     // chip. Rendered ONCE per panel so all focused chips (only one is
     // ever focused at a time today; loop-safe nonetheless) share the
@@ -2942,25 +2942,25 @@ ${bodyMarkup}
     const headHash = this._extendedLogState.headHash;
     const isHeadCommit = !!headHash && node.commit.hash === headHash;
     const hasBranches = !!node.branches && node.branches.length > 0;
-    // Wave K — WK-4: tag chips render alongside the existing HEAD/branch
+    // Tag chips render alongside the existing HEAD/branch
     // chip family. The empty-string return contract (snap-7d) extends to
     // the no-tag case here so `.commit-branches:empty` still collapses.
     const hasTags = !!node.tags && node.tags.length > 0;
 
     if (!isHeadCommit && !hasBranches && !hasTags) {
-      // Wave E — CSS `.commit-branches:empty { display: none }` depends
+      // CSS `.commit-branches:empty { display: none }` depends
       // on this returning the LITERAL empty string (not whitespace, not
       // an HTML comment) so the empty wrapper collapses with no margin
       // / no flex basis. Pinned by snap-7d in commitGraphSnapshots.test.ts.
       return '';
     }
 
-    // Wave G — HEAD chip is prepended FIRST (leftmost) so it precedes
+    // HEAD chip is prepended FIRST (leftmost) so it precedes
     // any branch chips on the same commit. Detached HEAD: chip stands
     // alone. Pinned by snap-9a..9f.
-    // Wave J — WJ-1: HEAD chip carries role="img" + descriptive
+    // The HEAD chip carries role="img" + descriptive
     // aria-label so SR users hear "Current HEAD" rather than just the
-    // bare "HEAD" string. WJ-4: codicon-check prefix is the non-color
+    // bare "HEAD" string. The codicon-check prefix is the non-color
     // WCAG 1.4.1 affordance — the icon is decorative for AT (the
     // aria-label is authoritative), so aria-hidden="true" hides it.
     // Pinned by snap-12a + snap-12f.
@@ -2972,20 +2972,20 @@ ${bodyMarkup}
     const labels = (node.branches || []).map((branchName) => {
       const classification = classifyBranchName(branchName);
       const baseClass = classification === 'remote' ? 'branch-label-remote' : 'branch-label-local';
-      // Wave D / D2 — `branch-label-focused` is render-time source of
+      // `branch-label-focused` is render-time source of
       // truth for the focus outline; the partial-update message handler
       // is just the optimization for selection-changes-without-rerender.
       const isFocused = focusedBranchName === branchName;
       const cssClass = isFocused ? `${baseClass} branch-label-focused` : baseClass;
       const escapedName = this._escapeHtml(branchName);
-      // Wave J — WJ-1: role="img" + descriptive aria-label tells SRs
-      // this is a branch chip, not just inline text. WJ-4: codicon
+      // role="img" + descriptive aria-label tells SRs
+      // this is a branch chip, not just inline text. The codicon
       // prefix gives non-color affordance (WCAG 1.4.1) — codicon-cloud
       // for remote, codicon-git-branch for local. The icon's
       // aria-hidden="true" lets the chip's own aria-label own the AT
       // narration. The aria-label string is run through _escapeHtml
       // since branch names are user-controlled.
-      // DJ-2: aria-pressed is deferred to Wave K when chips become
+      // aria-pressed is deferred to when chips become
       // keyboard-interactive — adding it now would lie about an
       // interaction that doesn't yet exist. Pinned by snap-12b..d, 12f.
       const iconClass = classification === 'remote' ? 'codicon-cloud' : 'codicon-git-branch';
@@ -2994,7 +2994,7 @@ ${bodyMarkup}
           ? `Remote branch: ${branchName}`
           : `Local branch: ${branchName}`;
       const ariaLabel = this._escapeHtml(ariaLabelText);
-      // Wave J R1 / MED-2 — focused chip carries `aria-describedby` to
+      // Focused chip carries `aria-describedby` to
       // a visually-hidden help span (rendered once at panel level)
       // explaining the focus state. Non-focused chips omit the
       // attribute so SRs don't announce the help text on every chip.
@@ -3006,9 +3006,9 @@ ${bodyMarkup}
       return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
-    // Wave K — WK-4 (DK-4): tag chips render LAST (rightmost) so HEAD +
+    // Tag chips render LAST (rightmost) so HEAD
     // branch chips remain in their existing order. Each tag chip carries
-    // the Wave J chip-family contract: role="img" + aria-label="Tag: …"
+    // the chip-family contract: role="img" + aria-label="Tag: …"
     // + leading codicon prefix (codicon-tag for the non-color WCAG 1.4.1
     // affordance, distinct from codicon-git-branch / codicon-cloud /
     // codicon-check). aria-pressed is intentionally absent — tags are
@@ -3081,7 +3081,7 @@ ${bodyMarkup}
         ? this._extendedLogState.commitNodes[0].commit.hash
         : '';
 
-    // Wave A \u2014 A2: items marked with `menu-multi-hidden` default to hidden;
+    // \u2014 A2: items marked with `menu-multi-hidden` default to hidden;
     // the inline-script `updateContextMenuState` JS toggles the class based
     // on `selectedCount`. This keeps the visibility rules in one
     // declarative place rather than string-rebuilding the menu each time.
@@ -3439,7 +3439,7 @@ ${bodyMarkup}
         background-color: var(--vscode-sideBar-background);
       }
 
-      /* Wave J R1 / MED-2 — visually-hidden utility for AT-only text.
+      /* Visually-hidden utility for AT-only text.
          Removes the element from sighted layout (clip-path + 1px box +
          absolute positioning to prevent layout-flow contribution) while
          keeping it in the DOM for screen readers, find-in-page, and
@@ -3691,7 +3691,7 @@ ${bodyMarkup}
         pointer-events: none;
       }
 
-      /* Wave A R1 (C-1) — visibility flag for multi-select menu items.
+      /* Visibility flag for multi-select menu items.
          Keeps single-only items hidden when N>=2 and multi-only items
          hidden when their N constraint isn't met. The display: none
          rule takes the row out of the flow so the menu collapses
@@ -4024,12 +4024,9 @@ ${bodyMarkup}
         text-align: left;
       }
 
-      /* Wave E — branch chips live in a sibling flex slot of .commit-title.
-         Pre-Wave-E the chips were nested inside .commit-title which has
-         overflow:hidden + white-space:nowrap, so chips clipped at narrow
-         panel widths instead of pushing the message into ellipsis. The
-         flex-shrink: 0 here is the IntelliJ-parity invariant: chips are
-         always reachable; the message ellipsises around them. The
+      /* Branch chips live in a sibling flex slot of .commit-title.
+         The flex-shrink: 0 here is the IntelliJ-parity invariant: chips 
+         are always reachable; the message ellipsises around them. The
          :empty rule keeps the slot from occupying the 8px right margin
          when a commit has no branches. */
       .commit-branches {
@@ -4096,7 +4093,7 @@ ${bodyMarkup}
         color: white;
       }
 
-      /* Wave G — HEAD chip (IntelliJ-parity yellow/gold). Distinct from
+      /* Distinct from
          branch chips so the user reads "this is HEAD" at a glance even
          when HEAD is on a commit that ALSO has branch-tip chips. The
          chip lives in the same .commit-branches flex slot Wave E set up
@@ -4575,14 +4572,14 @@ ${bodyMarkup}
   /**
    * Get inline script for the webview.
    *
-   * FU: extract inline-script functions to a separate `.js` resource
+   * FU — extract inline-script functions to a separate `.js` resource
    * served via `webview.asWebviewUri` when the function count crosses 5
    * non-trivial functions OR when the first inline-script-resident
    * function needs async data flow. Current count: 5
    * (`applyMenuEnableMap`, `applyRangeSelectionDom`,
    * `refreshSelectedCount`, `readInitialAnchor`, `scrollToCommit`).
-   * Trigger imminent — Wave B's per-action pre-flight checks may add
-   * the sixth. R5-5 (TL4-L-2).
+   * Trigger imminent — 's per-action pre-flight checks may add
+   * the sixth..
    */
   private _getInlineScript(): string {
     return `
@@ -5601,9 +5598,9 @@ interface IWebviewLogFilter {
  * and are treated as implicit `tab: 'log'` by {@link TabRouter}.
  */
 /**
- * Wave A R1 (L-4) — typed envelopes for the four new Wave A wire types.
+ * Typed envelopes for the four new wire types.
  * Included as a separate union (rather than a refactor of the legacy
- * flat `IWebviewMessage` shape) to keep the scope tight: Wave B/C can
+ * flat `IWebviewMessage` shape) to keep the scope tight: can
  * extend the union as their messages land.
  *
  * Inbound (webview → host):
@@ -5621,7 +5618,7 @@ interface IWebviewLogFilter {
 // development we're in; long-term this is one type so the
 // `_handleWebviewMessage` switch is exhaustively-checkable.
 export type WaveAInboundMessage =
-  // R2 (TL-M-2 follow-up): the click anchor travels WITH the message.
+  // The click anchor travels WITH the message.
   // The host trusts the message anchor for this single operation rather
   // than consulting its own cache, which can be stale by one render.
   // ADR-009 §3 documents the exception.
@@ -5653,7 +5650,7 @@ interface IWebviewMessage {
   filter?: IWebviewLogFilter | null;
   /**
    * Branch name carried by `branchClick` and `focusBranchOnGraph`.
-   * Wave D / D2 — `null` is allowed for the focus message to clear the
+   * `null` is allowed for the focus message to clear the
    * current focus.
    */
   branchName?: string | null;
@@ -5661,7 +5658,7 @@ interface IWebviewMessage {
   widths?: [number, number];
   repositoryIndex?: number;
   /**
-   * Wave A R2 (TL-M-2): click anchor that travels with
+   * Click anchor that travels with
    * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no
    * prior anchor" (first click after a render). Authoritative for the
    * single message it carries; see {@link WaveAInboundMessage}.
