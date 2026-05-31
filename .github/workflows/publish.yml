@@ -1,16 +1,22 @@
 name: Publish
 
-# Publishes IntelliG to the VS Code Marketplace and Open VSX when a
-# semver tag is pushed (e.g. `v0.1.2`, `v0.2.0`, `v1.0.0`).
+# Publishes IntelliG to the VS Code Marketplace and Open VSX. Two
+# triggers:
 #
-# Trigger:
-#   git tag v0.1.2
-#   git push origin v0.1.2
+# 1. Manual dispatch — recommended when CLI tag-push isn't available.
+#    Go to repo → Actions → Publish → "Run workflow", then either
+#    enter a version explicitly or leave the input blank to use the
+#    version currently in package.json on `main`. The workflow creates
+#    and pushes the matching `v<version>` tag itself before publishing.
 #
-# The tag's version (without the leading `v`) MUST match the version
-# in `package.json` on the tagged commit; the workflow refuses to
-# proceed if they disagree, so you can never accidentally publish a
-# different version than the one labelled by the tag.
+# 2. Tag push — for users with CLI access:
+#       git tag v0.1.2
+#       git push origin v0.1.2
+#    The workflow runs against the tagged commit and publishes.
+#
+# In both paths, the tag's version (without the leading `v`) MUST
+# equal `package.json.version` on the tagged commit. Mismatches abort
+# the workflow before any publish step runs.
 #
 # Required GitHub Secrets:
 #   VSCE_PAT         — Azure DevOps PAT for `KaHoChan` publisher
@@ -26,9 +32,19 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.2). Leave blank to use the version from package.json on main.'
+        required: false
+        type: string
 
+# `contents: write` is required so the workflow can push the tag it
+# creates on a manual dispatch. Tag-push triggers don't need it (the
+# tag already exists) but the same job handles both, so the union of
+# permissions applies.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -39,6 +55,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Required so the workflow can push the tag it creates on
+          # a manual dispatch (the default checkout uses a token that
+          # cannot push).
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Fetch tags so the duplicate-tag check below can see them.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -50,7 +73,7 @@ jobs:
         run: npm ci
 
       # Refuse to publish anything until the same gates that gate a
-      # main-branch CI run also pass on the tagged commit.
+      # main-branch CI run also pass on the commit being released.
       - name: Lint
         run: npm run lint -- --max-warnings 0
 
@@ -63,20 +86,74 @@ jobs:
       - name: Property tests
         run: npm run test:property
 
-      - name: Tag-version coherence
-        # The git tag's numeric portion must equal package.json.version
-        # on the tagged commit. Without this, `git tag v0.2.0` on a
-        # commit where package.json still says 0.1.5 would publish 0.1.5
-        # under a misleading tag.
+      - name: Resolve release version
+        id: resolve_version
+        # Two trigger paths:
+        #   - Tag push:          $GITHUB_REF_NAME is `v0.1.2`. Strip the
+        #                        leading `v` and require it to equal
+        #                        package.json.version on the tagged
+        #                        commit.
+        #   - Manual dispatch:   ${{ inputs.version }} may be empty
+        #                        (use package.json) or explicit
+        #                        (must equal package.json). The
+        #                        workflow creates the tag itself in
+        #                        the next step.
         run: |
-          tag_version="${GITHUB_REF_NAME#v}"
           pkg_version="$(node -p 'require("./package.json").version')"
-          if [ "$tag_version" != "$pkg_version" ]; then
-            echo "✗ tag version (v$tag_version) does not match package.json version ($pkg_version)" >&2
-            echo "  Bump package.json on main, commit, push, then re-tag." >&2
+          echo "package.json version: $pkg_version"
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$pkg_version" ]; then
+              echo "✗ tag version (v$tag_version) does not match package.json version ($pkg_version)" >&2
+              echo "  Bump package.json on main, commit, push, then re-tag." >&2
+              exit 1
+            fi
+            echo "✓ tag v$tag_version matches package.json $pkg_version"
+            release_version="$pkg_version"
+            tag_pre_existed=true
+          else
+            input_version="${{ inputs.version }}"
+            if [ -n "$input_version" ] && [ "$input_version" != "$pkg_version" ]; then
+              echo "✗ workflow input version ($input_version) does not match package.json version ($pkg_version)" >&2
+              echo "  Bump package.json on main first, then re-run with a matching input (or leave blank)." >&2
+              exit 1
+            fi
+            release_version="$pkg_version"
+            tag_pre_existed=false
+            echo "✓ manual dispatch will publish $release_version"
+          fi
+
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "tag_pre_existed=$tag_pre_existed" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to overwrite an existing tag (manual dispatch only)
+        # On manual dispatch we create the tag ourselves. If the tag
+        # already exists (e.g. a prior dispatch published this version),
+        # fail loudly rather than silently re-using or overwriting it.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          tag="v${{ steps.resolve_version.outputs.release_version }}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "✗ tag $tag already exists. Bump package.json to a new version before re-running." >&2
             exit 1
           fi
-          echo "✓ tag v$tag_version matches package.json $pkg_version"
+          echo "✓ tag $tag is available"
+
+      - name: Create and push tag (manual dispatch only)
+        # When the workflow is triggered via `workflow_dispatch` the
+        # repo doesn't have the release tag yet. Create it pointing at
+        # whatever commit GitHub checked out (typically the tip of
+        # main, since the workflow is selected from the main branch
+        # in the UI), then push it so it's discoverable in the GUI.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          tag="v${{ steps.resolve_version.outputs.release_version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
+          echo "✓ pushed $tag → origin"
 
       - name: Build .vsix
         run: |

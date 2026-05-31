@@ -514,7 +514,7 @@ Before running `npm run release`, manually verify:
 - [ ] CHANGELOG.md has a dated entry for the version (no
       `[Unreleased]` content unless it belongs there).
 - [ ] Lint, unit tests, property tests pass (`npm run lint &&
-    npm run test:unit && npm run test:property`).
+  npm run test:unit && npm run test:property`).
 - [ ] You've installed the rebuilt `.vsix` locally and dogfooded
       it briefly. The gallery upload is what users will get; F5
       doesn't exercise it. (Use `--dry-run` to produce the
@@ -562,8 +562,28 @@ them back through the GitHub UI. Re-create them when they expire
 
 #### Triggering a release
 
-Once `package.json` is bumped, CHANGELOG entry is dated, and the
-commit is on `main`:
+The Action runs against `main` only. First make sure the version
+bump and dated CHANGELOG entry are committed and pushed, then
+trigger the workflow one of two ways:
+
+**Option A — manual dispatch (recommended when CLI tag-push isn't
+available).** No git tag command needed; the workflow creates and
+pushes the tag itself.
+
+1. Open <https://github.com/KHC831/intellig/actions/workflows/publish.yml>.
+2. Click **"Run workflow"** (right side of the workflow header).
+3. The "Use workflow from" dropdown stays on `main`.
+4. Leave the **Version** input blank to use the version currently
+   in `package.json` on `main`. (If you fill it in, it must match
+   `package.json` — the workflow refuses mismatches as a safety
+   net.)
+5. Click the green **"Run workflow"** button.
+
+The workflow runs the lint / unit / property gates, creates and
+pushes a `v<version>` tag, builds the `.vsix`, and publishes to
+both galleries. End-to-end takes ~3 minutes.
+
+**Option B — push a tag from the CLI.**
 
 ```bash
 # From a clean main with the bump committed + pushed.
@@ -571,8 +591,11 @@ git tag v0.1.2
 git push origin v0.1.2
 ```
 
-Watch the run at **repo → Actions → Publish**. End-to-end takes
-~3 minutes on a clean run.
+The workflow runs against the tagged commit and proceeds through
+the same gates and publish steps as Option A.
+
+Watch progress for either path at
+**<https://github.com/KHC831/intellig/actions/workflows/publish.yml>**.
 
 #### Failure modes and fixes
 
