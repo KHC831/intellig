@@ -50,11 +50,16 @@ jobs:
   publish:
     name: Build & publish
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30 min: same gates as CI (lint, compile, unit, property — ~5 min)
+    # plus the build + Marketplace + Open VSX upload (~3-5 min, network-
+    # dependent). 30 leaves enough headroom for either gallery to be
+    # slow without killing a real publish.
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # v5+ runs on Node 24 (clears the mid-2026 deprecation).
+        uses: actions/checkout@v5
         with:
           # Required so the workflow can push the tag it creates on
           # a manual dispatch (the default checkout uses a token that
@@ -70,7 +75,7 @@ jobs:
         # which marks the entire run as failed even when every publish
         # step has already succeeded. The honest signal is worth the
         # ~30s lost on each `npm ci` cold install.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -206,7 +211,10 @@ jobs:
         # Keep the published .vsix attached to the workflow run for
         # auditing; useful when comparing what shipped against the
         # tagged source.
-        uses: actions/upload-artifact@v4
+        # v6+ defaults to Node 24 (clears the mid-2026 deprecation).
+        # v5 had preliminary Node 24 support but still ran on Node 20
+        # by default; only v6+ flips the default.
+        uses: actions/upload-artifact@v6
         with:
           name: intellig-vsix
           path: intellig-*.vsix

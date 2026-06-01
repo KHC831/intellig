@@ -13,11 +13,18 @@ jobs:
   test:
     name: Build & test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25 min: the e2e + ext-host lanes routinely run 12-14 min on a
+    # contended runner; 15 min cliff was timing out runs whose actual
+    # work succeeded. Headroom > tight gate when the timeout is killing
+    # cleanup mid-tar (see commit 8b81680).
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # v5+ runs on Node 24. The previous v4 emitted a Node-20
+        # deprecation warning that becomes an enforcement-failure
+        # mid-2026.
+        uses: actions/checkout@v5
 
       - name: Setup Node
         # `cache: 'npm'` deliberately omitted. The setup-node cache
@@ -26,7 +33,7 @@ jobs:
         # which marks the entire run as failed even when every CI step
         # has already succeeded. The honest signal is worth the ~30s
         # lost on each `npm ci` cold install.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
