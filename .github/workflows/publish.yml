@@ -18,15 +18,22 @@ name: Publish
 # equal `package.json.version` on the tagged commit. Mismatches abort
 # the workflow before any publish step runs.
 #
-# Required GitHub Secrets:
-#   VSCE_PAT         — Azure DevOps PAT for `KaHoChan` publisher
-#                      (Marketplace → Manage scope, "All accessible
-#                      organizations").
-#   OPEN_VSX_TOKEN   — Open VSX access token for the `KaHoChan`
-#                      namespace (https://open-vsx.org/user-settings/tokens).
+# GitHub Secrets:
+#   OPEN_VSX_TOKEN   — REQUIRED. Open VSX access token for the
+#                      `KaHoChan` namespace
+#                      (https://open-vsx.org/user-settings/tokens).
+#                      The Open VSX publish step fails loudly if missing.
+#   VSCE_PAT         — OPTIONAL. Azure DevOps PAT for the `KaHoChan`
+#                      Marketplace publisher (Marketplace → Manage
+#                      scope, "All accessible organizations"). When
+#                      missing, the Marketplace publish step is
+#                      skipped with a clear log line; Open VSX still
+#                      proceeds. Add this secret later to enable
+#                      automated Marketplace publishing without
+#                      editing this workflow.
 #
 # Set these at: Settings → Secrets and variables → Actions → New
-# repository secret. Without them, the publish steps fail loudly.
+# repository secret.
 
 on:
   push:
@@ -183,12 +190,20 @@ jobs:
             || true
 
       - name: Publish to VS Code Marketplace
+        # Optional. When VSCE_PAT is unset (e.g. tokenless / manual-
+        # upload-only workflow), this step skips with a clear log line
+        # rather than failing the run. Adding the secret later enables
+        # automated Marketplace publishing on the next release without
+        # touching this workflow.
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
           if [ -z "$VSCE_PAT" ]; then
-            echo "✗ VSCE_PAT secret is not set" >&2
-            exit 1
+            echo "ℹ VSCE_PAT secret is not set — skipping VS Code Marketplace publish."
+            echo "  To enable: Settings → Secrets and variables → Actions → New repository secret."
+            echo "  Until then, upload intellig-<version>.vsix manually at"
+            echo "  https://marketplace.visualstudio.com/manage/publishers/KaHoChan"
+            exit 0
           fi
           version="$(node -p 'require("./package.json").version')"
           npx --yes @vscode/vsce@2.24.0 publish \

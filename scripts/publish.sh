@@ -83,8 +83,12 @@ if [[ "$local_sha" != "$remote_sha" ]]; then
   exit 1
 fi
 
-if [[ "$skip_ovsx" -eq 0 && -z "${OPEN_VSX_TOKEN:-}" ]]; then
-  echo "✗ OPEN_VSX_TOKEN not set. Either export it, or pass --skip-ovsx." >&2
+# Token presence is a publish-time concern, not a build-time one.
+# Dry-runs (--dry-run) and explicit skips don't need the token, so
+# only check when an actual publish to Open VSX would run.
+if [[ "$dry_run" -eq 0 && "$skip_ovsx" -eq 0 && -z "${OPEN_VSX_TOKEN:-}" ]]; then
+  echo "✗ OPEN_VSX_TOKEN not set. Either export it, pass --skip-ovsx," >&2
+  echo "  or use --dry-run to build the .vsix without publishing." >&2
   echo "  Generate a token at https://open-vsx.org/user-settings/tokens" >&2
   exit 1
 fi
@@ -112,7 +116,18 @@ vsix="intellig-$version.vsix"
 
 echo "→ cleaning out/ and building intellig-$version.vsix"
 rm -f "$vsix"
-rm -rf out
+# `rm -rf out` occasionally fails with ENOTEMPTY on macOS even when
+# the directory has no content the user is touching — likely a TS
+# watcher / Spotlight indexer race. Retry once; if the second
+# attempt still fails, abort with a clear error.
+if ! rm -rf out 2>/dev/null; then
+  sleep 1
+  rm -rf out
+fi
+if [ -d out ]; then
+  echo "✗ failed to remove out/ — close any process holding it open and retry." >&2
+  exit 1
+fi
 npx --yes tsc -p ./
 npx --yes @vscode/vsce@2.24.0 package --out "$vsix"
 
@@ -139,21 +154,57 @@ fi
 
 # ─── 6. Publish ───────────────────────────────────────────────
 
+published_vsce=0
+published_ovsx=0
+
 if [[ "$skip_vsce" -eq 0 ]]; then
   echo
-  echo "→ publishing to VS Code Marketplace"
-  npx --yes @vscode/vsce@2.24.0 publish --packagePath "$vsix"
+  if [[ -n "${VSCE_PAT:-}" ]]; then
+    echo "→ publishing to VS Code Marketplace (using \$VSCE_PAT)"
+    npx --yes @vscode/vsce@2.24.0 publish --packagePath "$vsix" --pat "$VSCE_PAT"
+    published_vsce=1
+  else
+    # Try the cached `vsce login` credential. `vsce publish` exits
+    # non-zero with a clear error if no credential is available, so
+    # we run it through `if` rather than letting `set -e` kill the
+    # whole script — a missing Marketplace credential is now a
+    # skip-with-note, matching the GitHub Action's optional VSCE_PAT
+    # behavior. Open VSX still proceeds.
+    echo "→ publishing to VS Code Marketplace (using cached vsce login)"
+    if npx --yes @vscode/vsce@2.24.0 publish --packagePath "$vsix"; then
+      published_vsce=1
+    else
+      echo
+      echo "ℹ Marketplace publish skipped — no VSCE_PAT in env, no cached"
+      echo "  vsce login for KaHoChan, or vsce login expired."
+      echo "  To publish to the Marketplace from this run, either:"
+      echo "    - export VSCE_PAT=<your Azure DevOps PAT> and re-run, OR"
+      echo "    - npx vsce login KaHoChan       (caches the PAT for future runs), OR"
+      echo "    - upload $vsix manually at"
+      echo "      https://marketplace.visualstudio.com/manage/publishers/KaHoChan"
+    fi
+  fi
 fi
 
 if [[ "$skip_ovsx" -eq 0 ]]; then
   echo
   echo "→ publishing to Open VSX"
   npx --yes ovsx@latest publish "$vsix" -p "$OPEN_VSX_TOKEN"
+  published_ovsx=1
 fi
 
 echo
-echo "✓ published $version"
-echo "  VS Code Marketplace:"
-echo "    https://marketplace.visualstudio.com/items?itemName=KaHoChan.intellig"
-echo "  Open VSX:"
-echo "    https://open-vsx.org/extension/KaHoChan/intellig"
+echo "✓ run complete for $version"
+if [[ "$published_vsce" -eq 1 ]]; then
+  echo "  VS Code Marketplace: published"
+  echo "    https://marketplace.visualstudio.com/items?itemName=KaHoChan.intellig"
+else
+  echo "  VS Code Marketplace: not published this run"
+fi
+if [[ "$published_ovsx" -eq 1 ]]; then
+  echo "  Open VSX: published"
+  echo "    https://open-vsx.org/extension/KaHoChan/intellig"
+else
+  echo "  Open VSX: not published this run"
+fi
+echo "  Local artifact: $vsix"

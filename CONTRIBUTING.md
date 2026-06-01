@@ -514,7 +514,7 @@ Before running `npm run release`, manually verify:
 - [ ] CHANGELOG.md has a dated entry for the version (no
       `[Unreleased]` content unless it belongs there).
 - [ ] Lint, unit tests, property tests pass (`npm run lint &&
-  npm run test:unit && npm run test:property`).
+npm run test:unit && npm run test:property`).
 - [ ] You've installed the rebuilt `.vsix` locally and dogfooded
       it briefly. The gallery upload is what users will get; F5
       doesn't exercise it. (Use `--dry-run` to produce the
@@ -545,16 +545,21 @@ Before running `npm run release`, manually verify:
 
 #### One-time GitHub setup
 
-The Action needs two secrets. Add them at:
+The Action reads two secrets. Add them at:
 **repo → Settings → Secrets and variables → Actions → New
 repository secret.**
 
-- `VSCE_PAT` — Azure DevOps PAT under publisher `KaHoChan` with
-  the **Marketplace → Manage** scope and "All accessible
-  organizations" set as the org. (Same PAT used for local
-  `vsce login`; you can reuse it.)
-- `OPEN_VSX_TOKEN` — Open VSX token from
-  <https://open-vsx.org/user-settings/tokens>.
+- `OPEN_VSX_TOKEN` — **REQUIRED**. Open VSX token from
+  <https://open-vsx.org/user-settings/tokens>. The Open VSX publish
+  step fails the run if this is missing.
+- `VSCE_PAT` — **OPTIONAL**. Azure DevOps PAT under publisher
+  `KaHoChan` with the **Marketplace → Manage** scope and "All
+  accessible organizations" set as the org. When this secret isn't
+  set, the Marketplace publish step **skips with a clear log line
+  instead of failing**. Add it later to enable automated Marketplace
+  publishing without editing the workflow. Until then, upload the
+  built `.vsix` manually at
+  <https://marketplace.visualstudio.com/manage/publishers/KaHoChan>.
 
 Both tokens are write-only secrets — once stored, you cannot read
 them back through the GitHub UI. Re-create them when they expire
@@ -599,13 +604,14 @@ Watch progress for either path at
 
 #### Failure modes and fixes
 
-| Symptom                                   | Cause                                                           | Fix                                                                                                                               |
-| ----------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `tag version does not match package.json` | Tagged a commit where `package.json` is at a different version. | Delete the tag locally + on origin (`git tag -d`, `git push origin :refs/tags/<tag>`), bump `package.json`, commit, push, re-tag. |
-| `VSCE_PAT secret is not set`              | Secret missing or renamed.                                      | Add it at repo → Settings → Secrets → Actions.                                                                                    |
-| `vsce publish ... 401`                    | PAT expired.                                                    | Generate a new PAT at <https://dev.azure.com/>, update the `VSCE_PAT` secret.                                                     |
-| `ovsx publish ... 403`                    | Open VSX token revoked or namespace mismatch.                   | Confirm the token's owner has the `KaHoChan` namespace; regenerate the token if needed.                                           |
-| `version 0.1.X already exists`            | You re-tagged an already-published version.                     | Bump to `0.1.X+1` (Marketplace will not let you overwrite).                                                                       |
+| Symptom                                       | Cause                                                           | Fix                                                                                                                               |
+| --------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `tag version does not match package.json`     | Tagged a commit where `package.json` is at a different version. | Delete the tag locally + on origin (`git tag -d`, `git push origin :refs/tags/<tag>`), bump `package.json`, commit, push, re-tag. |
+| `ℹ VSCE_PAT secret is not set — skipping ...` | Marketplace secret deliberately unset.                          | Expected when running tokenless. Upload the built `.vsix` manually at the Marketplace publisher page.                             |
+| `vsce publish ... 401`                        | PAT expired.                                                    | Generate a new PAT, update the `VSCE_PAT` secret.                                                                                 |
+| `OPEN_VSX_TOKEN secret is not set`            | Open VSX secret missing.                                        | Add it at repo → Settings → Secrets → Actions.                                                                                    |
+| `ovsx publish ... 403`                        | Open VSX token revoked or namespace mismatch.                   | Confirm the token's owner has the `KaHoChan` namespace; regenerate the token if needed.                                           |
+| `version 0.1.X already exists`                | You re-tagged an already-published version.                     | Bump to `0.1.X+1` (Marketplace will not let you overwrite).                                                                       |
 
 #### Local script vs. Action
 
