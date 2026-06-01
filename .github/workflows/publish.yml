@@ -64,10 +64,15 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
+        # `cache: 'npm'` deliberately omitted. The setup-node cache
+        # post-step runs `tar` over ~/.npm at job teardown and is
+        # prone to cancellation when the runner is under pool pressure,
+        # which marks the entire run as failed even when every publish
+        # step has already succeeded. The honest signal is worth the
+        # ~30s lost on each `npm ci` cold install.
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
