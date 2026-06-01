@@ -1,19 +1,19 @@
 /**
- * Wave B R2 — final review-round fixes.
+ * Final review-round fixes for the multi-commit context-menu commands.
  *
  * Covers:
- *   1. MEDIUM — Senior M-2 — HASH_RE cap raised to 64 (SHA-256 support).
- *   2. MEDIUM — Senior M-3 — `_handleCompareVersions` gets the missing
- *               `inOrder.has()` symmetry check (mirrors createPatchMulti).
- *   3. MEDIUM — Senior M-1 — dispatch-property fuzzer covers
- *               `compareVersions`. Lives in the property test, not here.
- *   4. MEDIUM — Tech-lead TLBR1-L-1 — collapse `displayOrder` + `parentCounts`
- *               parallel records to a single `commitNodes: IMenuStateNode[]`
- *               on the dispatch event payload.
- *   5. LOW    — Senior L-2 — `getSelectedCommits()` returns `readonly string[]`.
- *   6. LOW    — Senior L-1 — comment on the swap-fallback site updated.
- *   7. LOW    — Senior L-4 — `_handleCreatePatchMulti` JSDoc cross-reference.
- *   8. LOW    — Senior L-3 — diagnostic comment on the R1-2 test.
+ *   1. HASH_RE cap raised to 64 (SHA-256 support).
+ *   2. `_handleCompareVersions` gets the missing `inOrder.has()`
+ *      symmetry check (mirrors createPatchMulti).
+ *   3. dispatch-property fuzzer covers `compareVersions`. Lives in the
+ *      property test, not here.
+ *   4. Collapse `displayOrder` + `parentCounts` parallel records to a
+ *      single `commitNodes: IMenuStateNode[]` on the dispatch event
+ *      payload.
+ *   5. `getSelectedCommits()` returns `readonly string[]`.
+ *   6. Comment on the swap-fallback site updated.
+ *   7. `_handleCreatePatchMulti` JSDoc cross-reference.
+ *   8. Diagnostic comment on the initial-commit test.
  */
 
 import '../../setup';
@@ -172,7 +172,7 @@ function restoreMocks(): void {
 interface CommandsInternal {
   _gitCli: GitCli;
   /**
-   * R2 (TLBR1-L-1): displayOrder + parentCounts collapse to a single
+   * displayOrder + parentCounts collapse to a single
    * `commitNodes: readonly IMenuStateNode[]` positional. Default `[]`
    * lets external callers (palette commands) call without supplying it
    * — the multi-commit branches all hit the stale-selection guard
@@ -209,7 +209,7 @@ describe('Wave B R2 — final review fixes', () => {
 
   afterEach(() => restoreMocks());
 
-  // ─── R2-1 (Senior M-2) — SHA-256 regex cap ─────────────────────────────
+  // ─── SHA-256 regex cap ────────────────────────────────────────────────────
   describe('R2-1 (Senior M-2) — HASH_RE accepts 64-char SHA-256 hashes', () => {
     it('createPatch with a 64-char hex hash invokes git (no silent rejection)', async () => {
       const gitService = createMockGitService(repo);
@@ -272,7 +272,7 @@ describe('Wave B R2 — final review fixes', () => {
     });
   });
 
-  // ─── R2-2 (Senior M-3) — compareVersions inOrder symmetry check ────────
+  // ─── compareVersions inOrder symmetry check ──────────────────────────────
   describe('R2-2 (Senior M-3) — compareVersions aborts on stale hash with the TL-M-4 toast', () => {
     it('toasts the stale-selection phrasing and skips git diff when a hash is not in commitNodes', async () => {
       const gitService = createMockGitService(repo);
@@ -294,10 +294,10 @@ describe('Wave B R2 — final review fixes', () => {
       writableCommands().executeCommand = () => Promise.resolve(undefined);
       try {
         // displayOrder includes only [NEWEST, OLDEST]; commitHashes
-        // includes a hex-but-not-listed hash. Without R2-2 the regex
-        // passes and the handler reaches the diff call (or, post-R1,
-        // the swap-fallback was deleted so it'd just produce a bad
-        // ref error from git).
+        // includes a hex-but-not-listed hash. Without the symmetry
+        // check the regex passes and the handler reaches the diff call
+        // (or, since the swap-fallback was deleted, it'd just produce a
+        // bad ref error from git).
         const HASH_GHOST = 'eeee555555555555555555555555555555555555';
         await (cmds as unknown as CommandsInternal)._handleAction(
           'compareVersions',
@@ -326,7 +326,7 @@ describe('Wave B R2 — final review fixes', () => {
     });
   });
 
-  // ─── R2-4 (TLBR1-L-1) — IMenuStateNode payload collapse ──────────────────
+  // ─── IMenuStateNode payload collapse ─────────────────────────────────────
   describe('R2-4 (TLBR1-L-1) — dispatch payload uses commitNodes (no parallel records)', () => {
     it('GitToolWindowProvider event emitter declares commitNodes (not displayOrder + parentCounts)', async () => {
       const fs = await import('fs');
@@ -342,7 +342,7 @@ describe('Wave B R2 — final review fixes', () => {
         ),
         'event payload type must include commitNodes (R2-4 collapse)'
       );
-      // The pre-R2 parallel records are gone from the event type.
+      // The earlier parallel records are gone from the event type.
       // (Either name appearing as a property name on the union type
       // would indicate the refactor didn't land.)
       const evMatch = src.match(
@@ -393,7 +393,7 @@ describe('Wave B R2 — final review fixes', () => {
     });
   });
 
-  // ─── R2-5 (Senior L-2) — getSelectedCommits readonly return type ────────
+  // ─── getSelectedCommits readonly return type ─────────────────────────────
   describe('R2-5 (Senior L-2) — getSelectedCommits returns readonly string[]', () => {
     it('declared return type matches the sibling helper', async () => {
       const fs = await import('fs');
@@ -410,7 +410,7 @@ describe('Wave B R2 — final review fixes', () => {
     });
   });
 
-  // ─── R2-6 (Senior L-1) — swap-fallback comment updated ──────────────────
+  // ─── swap-fallback comment updated ───────────────────────────────────────
   describe('R2-6 (Senior L-1) — swap-fallback comment notes external-caller behaviour', () => {
     it('comment in CommitContextMenuCommands.ts mentions external callers + commitNodes', async () => {
       const fs = await import('fs');
@@ -431,7 +431,7 @@ describe('Wave B R2 — final review fixes', () => {
     });
   });
 
-  // ─── R2-7 (Senior L-4) — JSDoc cross-reference ──────────────────────────
+  // ─── JSDoc cross-reference ────────────────────────────────────────────────
   describe('R2-7 (Senior L-4) — _handleCreatePatchMulti JSDoc cross-references ADR-009 §6', () => {
     it('JSDoc near the multi handler mentions ADR-009 §6 and getSelectedCommitsOldestFirst', async () => {
       const fs = await import('fs');
@@ -452,7 +452,7 @@ describe('Wave B R2 — final review fixes', () => {
     });
   });
 
-  // ─── R2-8 (Senior L-3) — diagnostic comment on R1-2 test ────────────────
+  // ─── diagnostic comment on the initial-commit test ──────────────────────
   describe('R2-8 (Senior L-3) — R1-2 initial-commit test points at R1-4 inversion guard', () => {
     it('waveBR1.test.ts R1-2 block references R1-4 as the dedicated inversion regression guard', async () => {
       const fs = await import('fs');
@@ -463,10 +463,14 @@ describe('Wave B R2 — final review fixes', () => {
       );
       const idx = src.indexOf('R1-2 (Senior H-2)');
       assert.ok(idx > 0);
-      const window = src.substring(idx, idx + 2000);
+      // The diagnostic note that points at the dedicated guard sits just
+      // before the initial-commit describe block; widen the window
+      // backward to include it, then assert it names the end-to-end
+      // smoke guard.
+      const window = src.substring(Math.max(0, idx - 800), idx + 2000);
       assert.ok(
-        /R1-4/.test(window),
-        'R1-2 test block must reference R1-4 as the dedicated inversion regression guard'
+        /end-to-end smoke/.test(window),
+        'R1-2 test block must point at the dedicated end-to-end smoke inversion regression guard'
       );
     });
   });

@@ -1,31 +1,29 @@
 /**
- * Wave B R1 — review-round fixes.
+ * Review-round fixes for the multi-commit context-menu commands.
  *
  * Covers:
- *   1. HIGH    — Senior H-1 — B3 silently drops scrolled-out commits.
- *                Assert ALL hashes resolved against displayOrder, abort
- *                with the TL-M-4 toast otherwise.
- *   2. HIGH    — Senior H-2 — B3 initial-commit boundary failure.
- *                `<oldest>^..<newest>` fails when oldest is the initial
- *                commit. Detect and fall through to positional form.
- *   3. HIGH    — TLB-H-1 — replace inline contiguity check with the
- *                `isSelectionContiguous` helper from Wave A.
- *   4. HIGH    — TLB-H-2 — push displayOrder forward through the
- *                dispatch event. Handlers no longer call back into
- *                provider via `getExtendedLogState()`.
- *   5. HIGH    — TLB-H-3 — `getSelectedCommitsOldestFirst()` sibling
- *                method on the provider for chronological-replay
- *                consumers.
- *   6. MEDIUM  — TLB-M-1 — B4 compareVersions uses `git diff
- *                oldHash..newHash`, not cumulative `getMultiCommitDiff`.
- *   7. MEDIUM  — Senior M-2 — hash-format validation in B3 + B4.
- *   8. MEDIUM  — Senior M-3 — B3 toast clickable "Open Folder" affordance.
- *   9. MEDIUM  — Senior M-4 — B3 "Wait —" comment cleanup.
- *  10. LOW     — Senior L-1 — B4 fallback comment cross-reference.
- *  11. LOW     — Senior L-2 — property-test fixture cross-reference.
- *  12. LOW     — TLB-L-2 — delete unreachable swap-fallback.
- *  13. LOW     — TLB-M-3 — rule-of-three FU on the property mock.
- *  14. MEDIUM  — TLB-M-2 — ADR-009 §6 (display-order vs replay-order).
+ *   1. B3 silently drops scrolled-out commits. Assert ALL hashes
+ *      resolved against displayOrder, abort with the stale-selection
+ *      toast otherwise.
+ *   2. B3 initial-commit boundary failure. `<oldest>^..<newest>` fails
+ *      when oldest is the initial commit. Detect and fall through to
+ *      positional form.
+ *   3. Replace the inline contiguity check with the
+ *      `isSelectionContiguous` helper.
+ *   4. Push displayOrder forward through the dispatch event. Handlers no
+ *      longer call back into the provider via `getExtendedLogState()`.
+ *   5. `getSelectedCommitsOldestFirst()` sibling method on the provider
+ *      for chronological-replay consumers.
+ *   6. B4 compareVersions uses `git diff oldHash..newHash`, not
+ *      cumulative `getMultiCommitDiff`.
+ *   7. Hash-format validation in B3 + B4.
+ *   8. B3 toast clickable "Open Folder" affordance.
+ *   9. B3 inline comment cleanup.
+ *  10. B4 fallback comment cross-reference.
+ *  11. Property-test fixture cross-reference.
+ *  12. Delete unreachable swap-fallback.
+ *  13. Rule-of-three follow-up on the property mock.
+ *  14. ADR-009 §6 (display-order vs replay-order).
  */
 
 import '../../setup';
@@ -110,8 +108,8 @@ function createMockRebaseService(): IRebaseService {
 }
 
 /**
- * R1: provider mock no longer needs `getExtendedLogState` — handlers
- * receive `displayOrder` directly via the dispatch event (TLB-H-2).
+ * Provider mock no longer needs `getExtendedLogState` — handlers
+ * receive `displayOrder` directly via the dispatch event.
  */
 function createMockProvider(): GitToolWindowProvider & { refreshCallCount: number } {
   return {
@@ -190,11 +188,10 @@ function restoreMocks(): void {
 interface CommandsInternal {
   _gitCli: GitCli;
   /**
-   * R1 (TLB-H-2) + R2 (TLBR1-L-1): commitNodes (slim
-   * `IMenuStateNode[]`, newest-first) threaded through the dispatch
-   * event. Single positional, defaults to `[]` on the production
-   * signature so legacy single-commit tests don't have to construct
-   * it.
+   * commitNodes (slim `IMenuStateNode[]`, newest-first) threaded
+   * through the dispatch event. Single positional, defaults to `[]` on
+   * the production signature so legacy single-commit tests don't have to
+   * construct it.
    */
   _handleAction(
     action: string,
@@ -226,7 +223,7 @@ describe('Wave B R1 — review fixes', () => {
   const HASH_FAR = 'dddd444444444444444444444444444444444444';
   // Display order is newest-first.
   const DISPLAY_ORDER: readonly string[] = [HASH_NEWEST, HASH_MIDDLE, HASH_OLDEST, HASH_FAR];
-  // R2 (TLBR1-L-1): commitNodes shape — newest-first, parentCount=1.
+  // commitNodes shape — newest-first, parentCount=1.
   const COMMIT_NODES: readonly { hash: string; parentCount: number }[] = DISPLAY_ORDER.map((h) => ({
     hash: h,
     parentCount: 1,
@@ -234,7 +231,7 @@ describe('Wave B R1 — review fixes', () => {
 
   afterEach(() => restoreMocks());
 
-  // ─── R1-3 (TLB-H-1) — uses isSelectionContiguous helper ──────────────────
+  // ─── _handleCreatePatchMulti uses isSelectionContiguous helper ───────────
   describe('R1-3 (TLB-H-1) — _handleCreatePatchMulti uses the multiSelect helper', () => {
     it('CommitContextMenuCommands.ts imports isSelectionContiguous from multiSelect', async () => {
       const fs = await import('fs');
@@ -256,9 +253,9 @@ describe('Wave B R1 — review fixes', () => {
         path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts'),
         'utf8'
       );
-      // The pre-R1 _handleCreatePatchMulti contained:
+      // The earlier _handleCreatePatchMulti contained:
       //   indices.every((v, i) => i === 0 || v - indices[i - 1] === 1)
-      // After TLB-H-1 the contiguity check delegates to the helper.
+      // The contiguity check now delegates to the helper.
       assert.ok(
         !/indices\.every\(\s*\(v,\s*i\)\s*=>\s*i\s*===\s*0\s*\|\|\s*v\s*-\s*indices\[i\s*-\s*1\]\s*===\s*1/.test(
           src
@@ -268,7 +265,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-5 (TLB-H-3) — getSelectedCommitsOldestFirst sibling ──────────────
+  // ─── getSelectedCommitsOldestFirst sibling ───────────────────────────────
   describe('R1-5 (TLB-H-3) — getSelectedCommitsOldestFirst()', () => {
     it('GitToolWindowProvider exposes getSelectedCommitsOldestFirst as a public method', async () => {
       const fs = await import('fs');
@@ -352,7 +349,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-4 (TLB-H-2) — displayOrder threaded through dispatch ─────────────
+  // ─── displayOrder threaded through dispatch ──────────────────────────────
   describe('R1-4 (TLB-H-2) — handlers receive displayOrder via dispatch event', () => {
     it('onDidRequestLogContextAction event payload includes commitNodes (R2 collapsed shape)', async () => {
       const fs = await import('fs');
@@ -361,9 +358,8 @@ describe('Wave B R1 — review fixes', () => {
         path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
-      // R2 (TLBR1-L-1): the EventEmitter declaration carries
-      // `commitNodes` instead of the prior parallel `displayOrder` +
-      // `parentCounts` records.
+      // The EventEmitter declaration carries `commitNodes` instead of
+      // the prior parallel `displayOrder` + `parentCounts` records.
       assert.ok(
         /_onDidRequestLogContextAction\s*=\s*new\s+vscode\.EventEmitter<\{[\s\S]{0,3000}commitNodes/.test(
           src
@@ -407,7 +403,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-1 (Senior H-1) — B3 silently drops scrolled-out commits ─────────
+  // ─── B3 silently drops scrolled-out commits ──────────────────────────────
   describe('R1-1 (Senior H-1) — B3 aborts on stale hashes', () => {
     it('toasts the TL-M-4 phrasing and aborts when a hash is not in displayOrder', async () => {
       const gitService = createMockGitService(repo);
@@ -418,8 +414,8 @@ describe('Wave B R1 — review fixes', () => {
 
       // commitNodes includes only [NEWEST, MIDDLE, OLDEST]; the
       // commitHashes argument includes a hex-but-unknown hash not in
-      // the list. Hex-only so the M-2 regex passes and the H-1 stale
-      // check is exercised.
+      // the list. Hex-only so the hash-format regex passes and the
+      // stale-selection check is exercised.
       const HASH_GHOST = 'eeee555555555555555555555555555555555555';
       await (cmds as unknown as CommandsInternal)._handleAction(
         'createPatch',
@@ -453,14 +449,14 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-2 (Senior H-2) — B3 initial-commit boundary ─────────────────────
-  // R2 (Senior L-3): if a future regression re-introduces a
-  // `getExtendedLogState()` call inside the multi handler, this test
-  // would surface a generic `TypeError` because the mock provider
-  // doesn't supply that method. The R1-4 "end-to-end smoke" block
-  // below is the dedicated guard against that inversion regression —
-  // it asserts the handler chain doesn't reach into provider state at
-  // all. No code change in this block; senior just wanted a pointer.
+  // ─── B3 initial-commit boundary ──────────────────────────────────────────
+  // If a future regression re-introduces a `getExtendedLogState()` call
+  // inside the multi handler, this test would surface a generic
+  // `TypeError` because the mock provider doesn't supply that method.
+  // The end-to-end smoke block below is the dedicated guard against that
+  // inversion regression — it asserts the handler chain doesn't reach
+  // into provider state at all. No code change in this block; it's just
+  // a pointer.
   describe('R1-2 (Senior H-2) — B3 falls through when oldest is the initial commit', () => {
     /**
      * When the oldest selected commit is the initial commit (parents=[]),
@@ -499,11 +495,11 @@ describe('Wave B R1 — review fixes', () => {
         'createPatch',
         // Selection: 3 contiguous oldest commits (NEWEST, MIDDLE, OLDEST in display order).
         [HASH_NEWEST, HASH_MIDDLE, HASH_OLDEST],
-        // R2 (TLBR1-L-1): commitNodes carries {hash, parentCount}. OLDEST
-        // has no parents → "initial commit" branch. Senior H-2: handler
-        // must detect parentCount=0 on oldest and use positional argv
-        // instead of `<oldest>^..` (which would fail because OLDEST^
-        // doesn't resolve).
+        // commitNodes carries {hash, parentCount}. OLDEST has no parents
+        // → "initial commit" branch. The handler must detect
+        // parentCount=0 on oldest and use positional argv instead of
+        // `<oldest>^..` (which would fail because OLDEST^ doesn't
+        // resolve).
         [
           { hash: HASH_NEWEST, parentCount: 1 },
           { hash: HASH_MIDDLE, parentCount: 1 },
@@ -524,7 +520,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-7 (Senior M-2) — hash-format validation ─────────────────────────
+  // ─── hash-format validation ──────────────────────────────────────────────
   describe('R1-7 (Senior M-2) — hash-format validation in B3 + B4', () => {
     it('createPatch rejects malformed hashes silently (defense in depth)', async () => {
       const gitService = createMockGitService(repo);
@@ -589,7 +585,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-6 (TLB-M-1) — compareVersions uses git diff oldHash..newHash ───
+  // ─── compareVersions uses git diff oldHash..newHash ──────────────────────
   describe('R1-6 (TLB-M-1) — compareVersions uses two-dot diff, not cumulative getMultiCommitDiff', () => {
     it('shells out to `git diff --name-only oldHash..newHash` for the file list', async () => {
       const gitService = createMockGitService(repo, {
@@ -682,7 +678,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-12 (TLB-L-2) — unreachable swap-fallback gone ───────────────────
+  // ─── unreachable swap-fallback gone ──────────────────────────────────────
   describe('R1-12 (TLB-L-2) — unreachable swap-fallback deleted', () => {
     it('CommitContextMenuCommands.ts has no "Fallback: if one of the hashes isn\'t in commitNodes" comment', async () => {
       const fs = await import('fs');
@@ -698,7 +694,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-9 (Senior M-4) — comment cleanup ────────────────────────────────
+  // ─── comment cleanup ──────────────────────────────────────────────────────
   describe('R1-9 (Senior M-4) — "Wait —" inline comment block rewritten', () => {
     it('CommitContextMenuCommands.ts has no "Wait —" comment in the patch builder', async () => {
       const fs = await import('fs');
@@ -714,7 +710,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-13 (TLB-M-3) — rule-of-three FU on property mock ────────────────
+  // ─── rule-of-three follow-up on property mock ────────────────────────────
   describe('R1-13 (TLB-M-3) — rule-of-three FU on property mocks', () => {
     it('commitContextMenuDispatch.property.test.ts has the rule-of-three FU comment', async () => {
       const fs = await import('fs');
@@ -743,7 +739,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-14 (TLB-M-2) — ADR-009 §6 ────────────────────────────────────────
+  // ─── ADR-009 §6 ───────────────────────────────────────────────────────────
   describe('R1-14 (TLB-M-2) — ADR-009 §6 display-order vs replay-order', () => {
     it('ADR-009 has a §6 section about display-order vs replay-order', async () => {
       const fs = await import('fs');
@@ -763,7 +759,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── R1-8 (Senior M-3) — B3 toast Open Folder affordance ────────────────
+  // ─── B3 toast Open Folder affordance ─────────────────────────────────────
   describe('R1-8 (Senior M-3) — B3 success toast offers "Open Folder"', () => {
     it('multi-commit success toast includes the "Open Folder" action', async () => {
       const gitService = createMockGitService(repo);
@@ -796,7 +792,7 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── Smoke for R1-4 wiring: dispatch event carries displayOrder end-to-end
+  // ─── Smoke: dispatch event carries displayOrder end-to-end ───────────────
   describe('R1-4 (TLB-H-2) — end-to-end smoke', () => {
     it('handlers receive displayOrder from the dispatch payload (no provider call)', async () => {
       // Provider mock has NO getExtendedLogState. If anything in the

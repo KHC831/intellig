@@ -1,18 +1,16 @@
 /**
- * Wave B R3 — final review-round fixes (tiny).
+ * Final review-round fixes (tiny).
  *
  * Covers:
- *   1. LOW — Senior L-1 — dispatch-property spy forwards all args; the
- *            spy's pre-R3 wrapper dropped `commitNodes`, making the
- *            dead-code construction at the call site visible to a
- *            future reader as a footgun. Comment also referenced the
- *            pre-R2 `displayOrder` field name.
- *   2. LOW — Senior L-2 — `_handleCompareVersions` external-caller
- *            recipe was misleading — `getSelectedCommitsOldestFirst()`
- *            returns `readonly string[]`, not `IMenuStateNode[]`, and
- *            "a parents map" isn't a codebase concept. Updated to point
- *            at `getExtendedLogState().commitNodes` + the canonical
- *            projection in `_handleCommitContextMenu`.
+ *   1. dispatch-property spy forwards all args; the spy's earlier
+ *      wrapper dropped `commitNodes`, making the dead-code construction
+ *      at the call site visible to a future reader as a footgun. The
+ *      comment also referenced the earlier `displayOrder` field name.
+ *   2. `_handleCompareVersions` external-caller recipe was misleading —
+ *      `getSelectedCommitsOldestFirst()` returns `readonly string[]`,
+ *      not `IMenuStateNode[]`, and "a parents map" isn't a codebase
+ *      concept. Updated to point at `getExtendedLogState().commitNodes`
+ *      + the canonical projection in `_handleCommitContextMenu`.
  *
  * Doc-only assertions; no behavioural change.
  */
@@ -21,7 +19,7 @@ import '../../setup';
 import * as assert from 'assert';
 
 describe('Wave B R3 — final review fixes', () => {
-  // ─── R3-1 (Senior L-1) — dispatch-property spy forwards all args ─────────
+  // ─── dispatch-property spy forwards all args ────────────────────────────
   describe('R3-1 (Senior L-1) — dispatch property spy is now varargs', () => {
     it('spy wrapper forwards all positional args to the original handler', async () => {
       const fs = await import('fs');
@@ -30,9 +28,10 @@ describe('Wave B R3 — final review fixes', () => {
         path.join(process.cwd(), 'src/test/property/commitContextMenuDispatch.property.test.ts'),
         'utf8'
       );
-      // Pre-R3: `async (commitHashes: string[]) => … return original(commitHashes)`
-      // dropped the second positional. R3 rewrites to `(...args)` + spread.
-      // Find the spy installation block and assert it uses the spread form.
+      // The earlier wrapper used `async (commitHashes: string[]) => …
+      // return original(commitHashes)`, dropping the second positional.
+      // It now rewrites to `(...args)` + spread. Find the spy
+      // installation block and assert it uses the spread form.
       const idx = src.indexOf('Install spies on each handler method');
       assert.ok(idx > 0, 'expected spy-installation comment block');
       const window = src.substring(idx, idx + 1000);
@@ -53,8 +52,8 @@ describe('Wave B R3 — final review fixes', () => {
         path.join(process.cwd(), 'src/test/property/commitContextMenuDispatch.property.test.ts'),
         'utf8'
       );
-      // The pre-R3 comment used "displayOrder" (the pre-R2 field name);
-      // R3 should refer to commitNodes consistently.
+      // The earlier comment used "displayOrder" (the earlier field
+      // name); it should refer to commitNodes consistently.
       const idx = src.indexOf('await commands._handleAction(');
       assert.ok(idx > 0, 'expected the property _handleAction call site');
       // Look 600 chars back at the lead-up comment.
@@ -70,7 +69,7 @@ describe('Wave B R3 — final review fixes', () => {
     });
   });
 
-  // ─── R3-2 (Senior L-2) — compareVersions external-caller recipe ─────────
+  // ─── compareVersions external-caller recipe ─────────────────────────────
   describe('R3-2 (Senior L-2) — compareVersions comment recipe is accurate', () => {
     let src: string;
     before(async () => {
@@ -83,14 +82,15 @@ describe('Wave B R3 — final review fixes', () => {
     });
 
     it('comment near the swap-fallback site no longer mentions getSelectedCommitsOldestFirst', () => {
-      // The pre-R3 comment at :1208-1217 incorrectly suggested external
-      // callers feed `getSelectedCommitsOldestFirst()` (a string[]) into
-      // commitNodes (an IMenuStateNode[]). R3 corrects the recipe.
+      // The earlier comment at :1208-1217 incorrectly suggested
+      // external callers feed `getSelectedCommitsOldestFirst()` (a
+      // string[]) into commitNodes (an IMenuStateNode[]). The comment
+      // now corrects the recipe.
       const handlerIdx = src.indexOf('private async _handleCompareVersions');
       assert.ok(handlerIdx > 0);
       const block = src.substring(handlerIdx, handlerIdx + 4000);
       // The body comment block (above the idx0/idx1 projection) is the
-      // one that pre-R3 had the misleading line. Look for the
+      // one that earlier had the misleading line. Look for the
       // "external caller" phrase and assert it doesn't pair with the
       // shape-mismatched recipe anymore.
       const externalIdx = block.indexOf('external caller');

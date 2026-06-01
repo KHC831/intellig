@@ -203,11 +203,11 @@ function createProvider(): GitToolWindowProvider {
 /**
  * Compute the expected message summary for the row HTML.
  *
- * Wave E (E2-bonus): the row template no longer pre-truncates the
- * message — `.commit-title { overflow:hidden; text-overflow:ellipsis }`
- * does the responsive ellipsis, and the host emits the full first
- * line so screen readers and find-in-page see complete text. Property
- * 7 now asserts the FULL first line lands in the row HTML.
+ * The row template no longer pre-truncates the message —
+ * `.commit-title { overflow:hidden; text-overflow:ellipsis }` does the
+ * responsive ellipsis, and the host emits the full first line so screen
+ * readers and find-in-page see complete text. Property 7 now asserts the
+ * FULL first line lands in the row HTML.
  */
 function expectedMessageSummary(message: string): string {
   return message.split('\n')[0];
@@ -297,20 +297,20 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
           const testProvider = createProvider();
 
           try {
-            // Wave A R3-9 — `getSelectedCommits` projects through
-            // `commitNodes`, so the rendered commit list must contain
-            // every hash this property might toggle. Seed `commitNodes`
-            // with `initialSet ∪ {toggleHash}` before any toggle so the
+            // `getSelectedCommits` projects through `commitNodes`, so
+            // the rendered commit list must contain every hash this
+            // property might toggle. Seed `commitNodes` with
+            // `initialSet ∪ {toggleHash}` before any toggle so the
             // projection sees the hashes the property is mutating.
             //
-            // R4-8 (Senior L-4) — fixture coupling note for future
-            // property additions: any new property that introduces hash
-            // relationships (parent chains, branch maps, merge graphs)
-            // must ALSO seed those into `commitNodes` here, or the
-            // projection will silently drop them — the property would
-            // appear to pass while actually exercising an empty
-            // selection. If you add a new arbitrary that produces
-            // hashes, audit this seeding block too.
+            // Fixture coupling note for future property additions: any
+            // new property that introduces hash relationships (parent
+            // chains, branch maps, merge graphs) must ALSO seed those
+            // into `commitNodes` here, or the projection will silently
+            // drop them — the property would appear to pass while
+            // actually exercising an empty selection. If you add a new
+            // arbitrary that produces hashes, audit this seeding block
+            // too.
             const allHashes = new Set<string>(initialSet);
             allHashes.add(toggleHash);
             const commits: ICommit[] = Array.from(allHashes).map((h, i) => ({
