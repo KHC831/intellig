@@ -56,7 +56,7 @@ function mkCommit(
  * `multiSelectR3.test.ts`. Defined here too so each spec is
  * self-contained.
  *
- * FU: extract to `src/test/helpers/recordingWebview.ts`
+ * FU — extract to `src/test/helpers/recordingWebview.ts`
  * when a third test file needs this fixture. Currently 2 consumers
  * (this file and `multiSelectR3.test.ts`).
  */
@@ -105,7 +105,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── applyMenuEnableMap surfaces reason as title ─────────────
-  // FU: structural-only coverage; the runtime witness
+  // FU — structural-only coverage; the runtime witness
   // lives in the ext-host smoke. When the inline-script extraction lands
   // in `_getInlineScript`, add a jsdom-driven
   // behavioural test that synthesizes a `message` event with a `reason`
