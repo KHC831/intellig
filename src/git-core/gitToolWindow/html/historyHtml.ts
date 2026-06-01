@@ -124,7 +124,7 @@ function renderCommitList(state: IHistoryTabState): string {
   return `<div class="history-commit-list" role="list">${rows}</div>`;
 }
 
-function renderCommitRow(commit: ICommit, state: IHistoryTabState): string {
+export function renderCommitRow(commit: ICommit, state: IHistoryTabState): string {
   const classes = ['history-commit-row'];
   if (commit.hash === state.selectedCommit) {
     classes.push('history-selected');
@@ -163,12 +163,12 @@ export function historyTabStyles(): string {
     .history-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
     .history-empty, .history-empty-commits { padding: 16px; color: var(--vscode-descriptionForeground); }
     .history-commit-list { flex: 1 1 auto; overflow: auto; }
-    .history-commit-row { display: grid; grid-template-columns: 7ch 1fr 14ch 10ch; gap: 8px; padding: 2px 8px; cursor: pointer; }
+    .history-commit-row { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; }
     .history-commit-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
     .history-commit-row.history-selected { background: var(--vscode-list-activeSelectionBackground, rgba(14,99,156,0.5)); color: var(--vscode-list-activeSelectionForeground); }
     .history-commit-row.history-compare { outline: 1px dashed var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
     .history-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
-    .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+    .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   `;
 }
 
