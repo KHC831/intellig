@@ -631,6 +631,12 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle delete command.
+   *
+   * Two-tier UX matching IntelliJ: the first attempt uses safe delete
+   * (`git branch -d`), which refuses to delete a branch whose tip
+   * commits aren't reachable from any other ref. On that specific
+   * failure, prompt the user with a "Force delete?" modal and, on
+   * confirm, retry with `git branch -D` (force).
    */
   private async _handleDelete(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -638,8 +644,10 @@ export class BranchContextMenuCommands {
       return;
     }
 
+    const branchName = item.branch.name;
+
     const confirm = await vscode.window.showWarningMessage(
-      `Are you sure you want to delete the branch '${item.branch.name}'?`,
+      `Are you sure you want to delete the branch '${branchName}'?`,
       { modal: true },
       'Delete'
     );
@@ -649,14 +657,38 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.deleteBranch(repo, item.branch.name);
+      await this._gitService.deleteBranch(repo, branchName);
       // Branch list changed; reload so the tree shows the
       // post-deletion ref set deterministically.
       await this._gitService.reloadRepository(repo);
-      void vscode.window.showInformationMessage(`Deleted branch '${item.branch.name}'`);
+      void vscode.window.showInformationMessage(`Deleted branch '${branchName}'`);
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      if (isNotFullyMergedError(errorMessage)) {
+        const forceConfirm = await vscode.window.showWarningMessage(
+          `Branch '${branchName}' is not fully merged. Force delete? Unmerged commits will be lost.`,
+          { modal: true },
+          'Force Delete'
+        );
+        if (forceConfirm !== 'Force Delete') {
+          return;
+        }
+        try {
+          await this._gitService.deleteBranch(repo, branchName, true);
+          await this._gitService.reloadRepository(repo);
+          void vscode.window.showInformationMessage(`Force-deleted branch '${branchName}'`);
+          this._branchTreeProvider.refresh();
+        } catch (forceError) {
+          const forceMessage = forceError instanceof Error ? forceError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to force-delete branch: ${sanitizeGitError(forceMessage)}`
+          );
+        }
+        return;
+      }
+
       void vscode.window.showErrorMessage(
         `Failed to delete branch: ${sanitizeGitError(errorMessage)}`
       );
@@ -1584,6 +1616,21 @@ export class BranchContextMenuCommands {
     }
     this._disposables = [];
   }
+}
+
+/**
+ * Recognise the canonical "not fully merged" stderr emitted by
+ * `git branch -d` when the branch's tip is unreachable from any other
+ * ref. Used to upgrade the failure path to a "Force delete?" prompt
+ * rather than surfacing the raw CLI hint to the user.
+ *
+ * Matches across git versions and locales by checking for the stable
+ * "not fully merged" phrase. The full message is roughly:
+ *   error: the branch '<name>' is not fully merged
+ *   If you are sure you want to delete it, run 'git branch -D <name>'
+ */
+export function isNotFullyMergedError(message: string): boolean {
+  return /not fully merged/i.test(message);
 }
 
 /**

@@ -721,4 +721,147 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
     });
   });
+
+  // ─── Branch delete: not-fully-merged → force-delete prompt ─────────────
+
+  describe('_handleDelete — not-fully-merged → force-delete prompt', () => {
+    /**
+     * Stub `showWarningMessage` so the first call (confirm Delete) and the
+     * second call (confirm Force Delete) can return different choices and
+     * be inspected by the test. The shared `installWarningMessageTracker`
+     * helper only supports a single returnChoice across all calls.
+     */
+    function installSequencedWarningTracker(responses: Array<string | undefined>): {
+      calls: MessageCall[];
+    } {
+      const calls: MessageCall[] = [];
+      let i = 0;
+      writableWindow().showWarningMessage = (
+        message: string,
+        ...items: unknown[]
+      ): Promise<string | undefined> => {
+        const stringItems = items.filter((i): i is string => typeof i === 'string');
+        calls.push({ message, items: stringItems });
+        const reply = responses[i] ?? undefined;
+        i += 1;
+        return Promise.resolve(reply);
+      };
+      return { calls };
+    }
+
+    const repo: IRepository = {
+      rootUri: Uri.file('/test/repo'),
+      state: 'idle',
+      head: undefined,
+      remotes: [],
+      submodules: [],
+    };
+
+    it('retries with force=true after the user confirms force delete', async () => {
+      const deleteCalls: Array<{ name: string; force?: boolean }> = [];
+      const gitService = createMockGitService({
+        getRepositories: () => [repo],
+        getRepository: async () => repo,
+        deleteBranch: async (_repo, name, force) => {
+          deleteCalls.push({ name, force });
+          if (force === true) {
+            return; // success
+          }
+          throw new Error(
+            "error: the branch 'test-branch' is not fully merged.\n" +
+              "If you are sure you want to delete it, run 'git branch -D test-branch'."
+          );
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const warnTracker = installSequencedWarningTracker(['Delete', 'Force Delete']);
+      const infoTracker = installInfoMessageTracker();
+      const errTracker = installErrorMessageTracker();
+
+      const item = createLocalBranchTreeItem('test-branch');
+      await invokePrivateHandler(commands, '_handleDelete', item);
+
+      assert.strictEqual(deleteCalls.length, 2, 'expected one safe + one force attempt');
+      assert.strictEqual(deleteCalls[0].force, undefined, 'first attempt is unforced');
+      assert.strictEqual(deleteCalls[1].force, true, 'second attempt forces');
+
+      assert.strictEqual(warnTracker.calls.length, 2, 'expected two warning prompts');
+      assert.ok(
+        warnTracker.calls[1].message.includes('not fully merged'),
+        `expected 'not fully merged' phrasing in second prompt; got "${warnTracker.calls[1].message}"`
+      );
+      assert.ok(
+        warnTracker.calls[1].items.includes('Force Delete'),
+        'second prompt must offer Force Delete'
+      );
+
+      assert.strictEqual(infoTracker.calls.length, 1, 'expected success toast');
+      assert.ok(
+        infoTracker.calls[0].message.includes('Force-deleted'),
+        `expected 'Force-deleted' in info toast; got "${infoTracker.calls[0].message}"`
+      );
+
+      assert.strictEqual(
+        errTracker.calls.length,
+        0,
+        'no error toast when the force-delete succeeds'
+      );
+    });
+
+    it('does NOT retry when the user cancels the force-delete prompt', async () => {
+      const deleteCalls: Array<{ force?: boolean }> = [];
+      const gitService = createMockGitService({
+        getRepositories: () => [repo],
+        getRepository: async () => repo,
+        deleteBranch: async (_repo, _name, force) => {
+          deleteCalls.push({ force });
+          throw new Error("error: the branch 'test-branch' is not fully merged.");
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      installSequencedWarningTracker(['Delete', undefined]); // user dismisses force prompt
+      const errTracker = installErrorMessageTracker();
+      const infoTracker = installInfoMessageTracker();
+
+      const item = createLocalBranchTreeItem('test-branch');
+      await invokePrivateHandler(commands, '_handleDelete', item);
+
+      assert.strictEqual(deleteCalls.length, 1, 'no retry attempted on cancel');
+      assert.strictEqual(infoTracker.calls.length, 0, 'no success toast on cancel');
+      assert.strictEqual(
+        errTracker.calls.length,
+        0,
+        'no error toast either — cancel is a quiet no-op'
+      );
+    });
+
+    it('shows the original error toast for non-merge failures (no force prompt)', async () => {
+      const gitService = createMockGitService({
+        getRepositories: () => [repo],
+        getRepository: async () => repo,
+        deleteBranch: async () => {
+          throw new Error("error: branch 'test-branch' not found.");
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const warnTracker = installSequencedWarningTracker(['Delete']);
+      const errTracker = installErrorMessageTracker();
+
+      const item = createLocalBranchTreeItem('test-branch');
+      await invokePrivateHandler(commands, '_handleDelete', item);
+
+      assert.strictEqual(warnTracker.calls.length, 1, 'only the initial confirm is shown');
+      assert.strictEqual(errTracker.calls.length, 1, 'expected one error toast');
+      assert.ok(
+        errTracker.calls[0].message.includes('Failed to delete branch'),
+        `expected 'Failed to delete branch' in toast; got "${errTracker.calls[0].message}"`
+      );
+    });
+  });
 });
