@@ -40,6 +40,7 @@ import {
   historyTabStyles,
   historyTabBehaviorScript,
 } from './html/historyHtml';
+import { buildFileTree, renderFileTree } from './html/fileTree';
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler } from './tabs/IncomingTab';
@@ -2727,18 +2728,6 @@ ${bodyMarkup}
   }
 
   /**
-   * Get directory part of path
-   */
-  private _getFileDir(path: string): string {
-    const parts = path.split('/');
-    if (parts.length <= 1) {
-      return '';
-    }
-    parts.pop();
-    return parts.join('/');
-  }
-
-  /**
    * Generate the Graph Panel HTML for the 2-panel layout.
    *
    * Renders commit rows in reverse chronological order (as provided by the
@@ -3178,40 +3167,13 @@ ${bodyMarkup}
     } else if (commitDetails.changedFiles.length === 0) {
       changedFilesHtml = '<p class="empty-message">No changed files</p>';
     } else {
-      changedFilesHtml = commitDetails.changedFiles
-        .map((file) => {
-          const statusColor = this._getFileStatusColor(file.status);
-          const statusChar = this._getFileStatusChar(file.status);
-          const fileName = this._getFileName(file.path);
-          const fileDir = this._getFileDir(file.path);
-          const fileDirDisplay = fileDir ? fileDir : '';
-
-          // For renames, show the old path as well
-          const renameInfo =
-            file.status === 'renamed' && file.oldPath
-              ? ` <span class="rename-arrow">←</span> <span class="old-path" title="${this._escapeHtml(file.oldPath)}">${this._escapeHtml(file.oldPath)}</span>`
-              : '';
-
-          return `
-          <div class="changed-file-item"
-               data-path="${this._escapeHtml(file.path)}"
-               data-status="${file.status}"
-               data-commit-hash="${this._escapeHtml(commitDetails.hash)}"
-               role="listitem"
-               tabindex="0">
-            <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">
-              ${statusChar}
-            </span>
-            <span class="file-name" style="color: ${statusColor};">
-              ${this._escapeHtml(fileName)}
-            </span>
-            <span class="file-directory" title="${this._escapeHtml(file.path)}">
-              ${this._escapeHtml(fileDirDisplay)}
-            </span>
-            ${renameInfo}
-          </div>`;
-        })
-        .join('');
+      changedFilesHtml = renderFileTree(buildFileTree(commitDetails.changedFiles), 0, {
+        escapeHtml: (s) => this._escapeHtml(s),
+        statusColor: (st) => this._getFileStatusColor(st),
+        statusChar: (st) => this._getFileStatusChar(st),
+        fileName: (p) => this._getFileName(p),
+        commitHash: commitDetails.hash,
+      });
     }
 
     return `
@@ -3310,39 +3272,12 @@ ${bodyMarkup}
     if (mergedFiles.length === 0) {
       changedFilesHtml = '<p class="empty-message">No changed files</p>';
     } else {
-      changedFilesHtml = mergedFiles
-        .map((file) => {
-          const statusColor = this._getFileStatusColor(file.status);
-          const statusChar = this._getFileStatusChar(file.status);
-          const fileName = this._getFileName(file.path);
-          const fileDir = this._getFileDir(file.path);
-          const fileDirDisplay = fileDir ? fileDir : '';
-
-          // For renames, show the old path as well
-          const renameInfo =
-            file.status === 'renamed' && file.oldPath
-              ? ` <span class="rename-arrow">←</span> <span class="old-path" title="${this._escapeHtml(file.oldPath)}">${this._escapeHtml(file.oldPath)}</span>`
-              : '';
-
-          return `
-          <div class="changed-file-item"
-               data-path="${this._escapeHtml(file.path)}"
-               data-status="${file.status}"
-               role="listitem"
-               tabindex="0">
-            <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">
-              ${statusChar}
-            </span>
-            <span class="file-name" style="color: ${statusColor};">
-              ${this._escapeHtml(fileName)}
-            </span>
-            <span class="file-directory" title="${this._escapeHtml(file.path)}">
-              ${this._escapeHtml(fileDirDisplay)}
-            </span>
-            ${renameInfo}
-          </div>`;
-        })
-        .join('');
+      changedFilesHtml = renderFileTree(buildFileTree(mergedFiles), 0, {
+        escapeHtml: (s) => this._escapeHtml(s),
+        statusColor: (st) => this._getFileStatusColor(st),
+        statusChar: (st) => this._getFileStatusChar(st),
+        fileName: (p) => this._getFileName(p),
+      });
     }
 
     return `
@@ -4337,6 +4272,19 @@ ${bodyMarkup}
 
       .changed-file-item:hover {
         background-color: var(--vscode-list-hoverBackground);
+      }
+
+      .changed-dir-item {
+        display: flex;
+        align-items: center;
+        padding: 3px 4px;
+        font-weight: 600;
+      }
+
+      .changed-dir-item .dir-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .changed-file-status {
