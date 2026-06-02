@@ -15,10 +15,10 @@ import type { IChangedFile } from '../../interfaces/IGitToolWindowProvider';
 import type { FileStatus } from '../../interfaces/IGitService';
 
 /** A node in the Changed Files directory tree. */
-export type FileTreeNode = DirectoryNode | FileLeaf;
+export type FileTreeNode = IDirectoryNode | IFileLeaf;
 
 /** A directory segment (or compacted chain of segments) containing children. */
-export interface DirectoryNode {
+export interface IDirectoryNode {
   kind: 'directory';
   /**
    * Display label: a single segment, or '/'-joined segments after compaction
@@ -33,7 +33,7 @@ export interface DirectoryNode {
 }
 
 /** A single changed file at the end of its path. */
-export interface FileLeaf {
+export interface IFileLeaf {
   kind: 'file';
   /** The base file name (last path segment), used for display and sorting. */
   name: string;
@@ -96,7 +96,7 @@ function insertFile(roots: FileTreeNode[], file: IChangedFile): void {
   let children = roots;
   for (const segment of directorySegments) {
     let directory = children.find(
-      (node): node is DirectoryNode => node.kind === 'directory' && node.name === segment
+      (node): node is IDirectoryNode => node.kind === 'directory' && node.name === segment
     );
     if (!directory) {
       directory = { kind: 'directory', name: segment, children: [] };
@@ -119,7 +119,7 @@ function compactNodes(nodes: readonly FileTreeNode[]): FileTreeNode[] {
       return node;
     }
 
-    let directory: DirectoryNode = {
+    let directory: IDirectoryNode = {
       kind: 'directory',
       name: node.name,
       children: compactNodes(node.children),
@@ -171,7 +171,7 @@ function compareNodes(a: FileTreeNode, b: FileTreeNode): number {
  * (rather than importing the provider) keeps `renderFileTree` pure and lets
  * the single-commit and multi-commit panels share one implementation.
  */
-export interface FileTreeRenderDeps {
+export interface IFileTreeRenderDeps {
   /** HTML-escape a user-controlled string (path, name, oldPath, hash). */
   escapeHtml: (s: string) => string;
   /** CSS color expression for a file status. */
@@ -213,13 +213,13 @@ function paddingLeftPx(depth: number): number {
 export function renderFileTree(
   nodes: readonly FileTreeNode[],
   depth: number,
-  deps: FileTreeRenderDeps
+  deps: IFileTreeRenderDeps
 ): string {
   return nodes.map((node) => renderNode(node, depth, deps)).join('');
 }
 
 /** Render one node (directory row + recursed children, or a file leaf). */
-function renderNode(node: FileTreeNode, depth: number, deps: FileTreeRenderDeps): string {
+function renderNode(node: FileTreeNode, depth: number, deps: IFileTreeRenderDeps): string {
   return node.kind === 'directory'
     ? renderDirectory(node, depth, deps)
     : renderLeaf(node, depth, deps);
@@ -230,7 +230,7 @@ function renderNode(node: FileTreeNode, depth: number, deps: FileTreeRenderDeps)
  * The row carries `role="listitem"` (Requirement 2.10) but no `data-path` /
  * `data-commit-hash`, so the `dblclick` delegation never matches it.
  */
-function renderDirectory(node: DirectoryNode, depth: number, deps: FileTreeRenderDeps): string {
+function renderDirectory(node: IDirectoryNode, depth: number, deps: IFileTreeRenderDeps): string {
   const padding = paddingLeftPx(depth);
   const label = deps.escapeHtml(node.name);
   const childrenHtml = renderFileTree(node.children, depth + 1, deps);
@@ -250,7 +250,7 @@ function renderDirectory(node: DirectoryNode, depth: number, deps: FileTreeRende
  * color-coded status indicator/letter, the file name, and the `renamed`
  * old-path on the same row.
  */
-function renderLeaf(node: FileLeaf, depth: number, deps: FileTreeRenderDeps): string {
+function renderLeaf(node: IFileLeaf, depth: number, deps: IFileTreeRenderDeps): string {
   const { file } = node;
   const padding = paddingLeftPx(depth);
   const statusColor = deps.statusColor(file.status);

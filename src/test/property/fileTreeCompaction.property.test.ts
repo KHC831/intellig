@@ -3,7 +3,7 @@ import * as assert from 'assert';
 import {
   buildFileTree,
   FileTreeNode,
-  DirectoryNode,
+  IDirectoryNode,
 } from '../../git-core/gitToolWindow/html/fileTree';
 import { IChangedFile } from '../../git-core/interfaces/IGitToolWindowProvider';
 import { FileStatus } from '../../git-core/interfaces/IGitService';
@@ -120,8 +120,8 @@ describe('File Tree Compaction Property Tests', () => {
    * which is itself a DirectoryNode. Such a node would be an un-compacted chain
    * link and must never exist after `buildFileTree`.
    */
-  function findUncompactedChains(nodes: readonly FileTreeNode[]): DirectoryNode[] {
-    const violations: DirectoryNode[] = [];
+  function findUncompactedChains(nodes: readonly FileTreeNode[]): IDirectoryNode[] {
+    const violations: IDirectoryNode[] = [];
     for (const node of nodes) {
       if (node.kind === 'directory') {
         if (node.children.length === 1 && node.children[0].kind === 'directory') {

@@ -1183,7 +1183,11 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     // Four file leaves in the fixture → four data-commit-hash attributes on the
     // single-commit tree, zero on the combined tree.
     const singleHashCount = (singleTree.match(/data-commit-hash="/g) ?? []).length;
-    assert.strictEqual(singleHashCount, 4, 'every single-commit file leaf must carry data-commit-hash');
+    assert.strictEqual(
+      singleHashCount,
+      4,
+      'every single-commit file leaf must carry data-commit-hash'
+    );
     assert.ok(
       !combinedTree.includes('data-commit-hash'),
       'combined-view file leaves must NOT carry data-commit-hash'

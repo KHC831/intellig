@@ -17,10 +17,7 @@
 
 import * as fc from 'fast-check';
 import * as assert from 'assert';
-import {
-  buildFileTree,
-  FileTreeNode,
-} from '../../git-core/gitToolWindow/html/fileTree';
+import { buildFileTree, FileTreeNode } from '../../git-core/gitToolWindow/html/fileTree';
 import { IChangedFile } from '../../git-core/interfaces/IGitToolWindowProvider';
 import { FileStatus } from '../../git-core/interfaces/IGitService';
 
@@ -32,9 +29,7 @@ import { FileStatus } from '../../git-core/interfaces/IGitService';
  * (e.g. `App` vs `app`, `B` vs `b`). A small alphabet also makes shared
  * prefixes — and therefore non-trivial sibling groups — common.
  */
-const segmentChar = fc.constantFrom(
-  ...'aAbBcCdDeEmMnNxXyYzZ0123456789'.split('')
-);
+const segmentChar = fc.constantFrom(...'aAbBcCdDeEmMnNxXyYzZ0123456789'.split(''));
 
 /** A single non-empty path segment (1–5 mixed-case chars). */
 const segmentArb: fc.Arbitrary<string> = fc.stringOf(segmentChar, {
@@ -141,10 +136,7 @@ function assertOrdered(children: readonly FileTreeNode[], pathLabel: string): vo
   // Recurse into directory children.
   for (const child of children) {
     if (child.kind === 'directory') {
-      assertOrdered(
-        child.children,
-        pathLabel ? `${pathLabel}/${child.name}` : child.name
-      );
+      assertOrdered(child.children, pathLabel ? `${pathLabel}/${child.name}` : child.name);
     }
   }
 }

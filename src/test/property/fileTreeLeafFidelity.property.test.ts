@@ -29,7 +29,7 @@ import * as assert from 'assert';
 import {
   buildFileTree,
   renderFileTree,
-  FileTreeRenderDeps,
+  IFileTreeRenderDeps,
 } from '../../git-core/gitToolWindow/html/fileTree';
 import { IChangedFile } from '../../git-core/interfaces/IGitToolWindowProvider';
 import { FileStatus } from '../../git-core/interfaces/IGitService';
@@ -90,9 +90,7 @@ function fileName(path: string): string {
  * whitespace, so segments are never empty after splitting and file-name
  * extraction has no leading/trailing whitespace to disambiguate.
  */
-const plainSegChar = fc.constantFrom(
-  ...'aAbBcCdDmMnNxXyYzZ0123456789'.split('')
-);
+const plainSegChar = fc.constantFrom(...'aAbBcCdDmMnNxXyYzZ0123456789'.split(''));
 const specialSegChar = fc.constantFrom('<', '>', '&', '"', "'");
 const segChar = fc.oneof(
   { weight: 6, arbitrary: plainSegChar },
@@ -136,9 +134,7 @@ const fileStatusArb: fc.Arbitrary<FileStatus> = fc.constantFrom(
 const changedFileArb: fc.Arbitrary<IChangedFile> = fc
   .tuple(filePathArb, fileStatusArb, fc.option(filePathArb, { nil: undefined }))
   .map(([path, status, oldPath]) =>
-    status === 'renamed' && oldPath !== undefined
-      ? { path, status, oldPath }
-      : { path, status }
+    status === 'renamed' && oldPath !== undefined ? { path, status, oldPath } : { path, status }
   );
 
 /**
@@ -196,7 +192,7 @@ describe('Feature: git-view-layout-parity - Changed Files Tree Leaf Fidelity', (
     it('Feature: git-view-layout-parity, Property 5: every file row preserves escaped data-path, escaped data-commit-hash, status letter+color, base name, and renamed oldPath', () => {
       fc.assert(
         fc.property(changedFilesArb, commitHashArb, (files, hash) => {
-          const deps: FileTreeRenderDeps = {
+          const deps: IFileTreeRenderDeps = {
             escapeHtml,
             statusColor,
             statusChar,
@@ -230,17 +226,11 @@ describe('Feature: git-view-layout-parity - Changed Files Tree Leaf Fidelity', (
             // The double-click selector `.changed-file-item[data-path]
             // [data-commit-hash]` requires BOTH attributes on every leaf.
             const pathMatch = DATA_PATH_RE.exec(row);
-            assert.ok(
-              pathMatch,
-              `Row is missing a data-path attribute: ${row}`
-            );
+            assert.ok(pathMatch, `Row is missing a data-path attribute: ${row}`);
             const escapedPath = pathMatch[1];
 
             const file = byEscapedPath.get(escapedPath);
-            assert.ok(
-              file,
-              `Rendered data-path="${escapedPath}" does not match any input file`
-            );
+            assert.ok(file, `Rendered data-path="${escapedPath}" does not match any input file`);
 
             // data-path equals the escaped original full path (2.9).
             assert.ok(
@@ -269,23 +259,16 @@ describe('Feature: git-view-layout-parity - Changed Files Tree Leaf Fidelity', (
 
             // Status letter for the file's status (2.5).
             const indicatorMatch = INDICATOR_RE.exec(row);
-            assert.ok(
-              indicatorMatch,
-              `Row for "${file.path}" is missing a status indicator span`
-            );
+            assert.ok(indicatorMatch, `Row for "${file.path}" is missing a status indicator span`);
             assert.strictEqual(
               indicatorMatch[1],
               statusChar(file.status),
-              `Row for "${file.path}" should show status letter ` +
-                `"${statusChar(file.status)}"`
+              `Row for "${file.path}" should show status letter ` + `"${statusChar(file.status)}"`
             );
 
             // Base file name (2.5).
             const nameMatch = FILE_NAME_RE.exec(row);
-            assert.ok(
-              nameMatch,
-              `Row for "${file.path}" is missing a file-name span`
-            );
+            assert.ok(nameMatch, `Row for "${file.path}" is missing a file-name span`);
             assert.strictEqual(
               nameMatch[1],
               escapeHtml(fileName(file.path)),
@@ -297,9 +280,7 @@ describe('Feature: git-view-layout-parity - Changed Files Tree Leaf Fidelity', (
             if (file.status === 'renamed' && file.oldPath) {
               const escapedOld = escapeHtml(file.oldPath);
               assert.ok(
-                row.includes(
-                  `<span class="old-path" title="${escapedOld}">${escapedOld}</span>`
-                ),
+                row.includes(`<span class="old-path" title="${escapedOld}">${escapedOld}</span>`),
                 `Renamed row for "${file.path}" should retain the full escaped ` +
                   `oldPath "${escapedOld}" on the same row`
               );

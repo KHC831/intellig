@@ -1933,9 +1933,7 @@ describe('GitToolWindow state machine (Requirement 3)', () => {
    * this narrow cast.
    */
   function renderHtml(p: GitToolWindowProvider, webview: Webview): string {
-    return (
-      p as unknown as { _getHtmlContent: (w: Webview) => string }
-    )._getHtmlContent(webview);
+    return (p as unknown as { _getHtmlContent: (w: Webview) => string })._getHtmlContent(webview);
   }
 
   // Markers that uniquely identify each of the three rendered views.

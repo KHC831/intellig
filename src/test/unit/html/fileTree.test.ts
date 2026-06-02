@@ -12,8 +12,8 @@ import '../../setup';
 import * as assert from 'assert';
 import {
   buildFileTree,
-  DirectoryNode,
-  FileLeaf,
+  IDirectoryNode,
+  IFileLeaf,
 } from '../../../git-core/gitToolWindow/html/fileTree';
 import { IChangedFile } from '../../../git-core/interfaces/IGitToolWindowProvider';
 
@@ -50,7 +50,7 @@ describe('buildFileTree()', () => {
 
     it('should compact src/main/java into a single directory node', () => {
       const forest = buildFileTree(fixture);
-      const dir = forest[0] as DirectoryNode;
+      const dir = forest[0] as IDirectoryNode;
 
       assert.strictEqual(dir.kind, 'directory');
       assert.strictEqual(
@@ -62,21 +62,21 @@ describe('buildFileTree()', () => {
 
     it('should order App.java before Util.java inside the compacted directory', () => {
       const forest = buildFileTree(fixture);
-      const dir = forest[0] as DirectoryNode;
+      const dir = forest[0] as IDirectoryNode;
 
       assert.strictEqual(dir.children.length, 2, 'directory should hold the two java files');
       assert.strictEqual(dir.children[0].kind, 'file');
       assert.strictEqual(dir.children[1].kind, 'file');
 
-      const first = dir.children[0] as FileLeaf;
-      const second = dir.children[1] as FileLeaf;
+      const first = dir.children[0];
+      const second = dir.children[1];
       assert.strictEqual(first.name, 'App.java', 'App.java should sort first');
       assert.strictEqual(second.name, 'Util.java', 'Util.java should sort second');
     });
 
     it('should render the root-level README.md as a top-level leaf', () => {
       const forest = buildFileTree(fixture);
-      const leaf = forest[1] as FileLeaf;
+      const leaf = forest[1] as IFileLeaf;
 
       assert.strictEqual(leaf.kind, 'file');
       assert.strictEqual(leaf.name, 'README.md', 'root-level file keeps its base name');
@@ -84,9 +84,9 @@ describe('buildFileTree()', () => {
 
     it('should carry the original IChangedFile verbatim on each leaf', () => {
       const forest = buildFileTree(fixture);
-      const dir = forest[0] as DirectoryNode;
-      const app = dir.children[0] as FileLeaf;
-      const readme = forest[1] as FileLeaf;
+      const dir = forest[0] as IDirectoryNode;
+      const app = dir.children[0] as IFileLeaf;
+      const readme = forest[1] as IFileLeaf;
 
       assert.deepStrictEqual(
         app.file,

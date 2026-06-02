@@ -17,7 +17,10 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { historyTabStyles, renderCommitRow } from '../../../git-core/gitToolWindow/html/historyHtml';
+import {
+  historyTabStyles,
+  renderCommitRow,
+} from '../../../git-core/gitToolWindow/html/historyHtml';
 import type { IHistoryTabState } from '../../../git-core/gitToolWindow/tabs/HistoryTab';
 import type { ICommit } from '../../../git-core/interfaces/IGitService';
 

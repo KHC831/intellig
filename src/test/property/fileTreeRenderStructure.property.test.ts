@@ -29,7 +29,7 @@ import * as assert from 'assert';
 import {
   buildFileTree,
   renderFileTree,
-  FileTreeRenderDeps,
+  IFileTreeRenderDeps,
 } from '../../git-core/gitToolWindow/html/fileTree';
 import { IChangedFile } from '../../git-core/interfaces/IGitToolWindowProvider';
 import { FileStatus } from '../../git-core/interfaces/IGitService';
@@ -108,7 +108,7 @@ const changedFilesArb: fc.Arbitrary<IChangedFile[]> = fc
  * five HTML-significant characters so no raw `>` leaks into an attribute value
  * (which the row parser relies on to find the end of each opening tag).
  */
-const deps: FileTreeRenderDeps = {
+const deps: IFileTreeRenderDeps = {
   escapeHtml: (s: string): string =>
     s
       .replace(/&/g, '&amp;')
@@ -190,15 +190,15 @@ describe('Feature: git-view-layout-parity - Changed Files Render Structure', () 
 
           rows.forEach((row, index) => {
             // 1. Every emitted row carries role="listitem" (Requirement 2.10).
-            assert.ok(
-              row.hasListitemRole,
-              `Row ${index} (${row.kind}) is missing role="listitem"`
-            );
+            assert.ok(row.hasListitemRole, `Row ${index} (${row.kind}) is missing role="listitem"`);
 
             // Pop ancestors that are no longer enclosing this row (any open
             // directory whose indentation is >= this row's is a sibling or
             // shallower, not an ancestor).
-            while (openDirs.length > 0 && openDirs[openDirs.length - 1].padding >= row.paddingLeft) {
+            while (
+              openDirs.length > 0 &&
+              openDirs[openDirs.length - 1].padding >= row.paddingLeft
+            ) {
               openDirs.pop();
             }
 

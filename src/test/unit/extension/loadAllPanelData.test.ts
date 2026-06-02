@@ -23,10 +23,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import { loadAllPanelDataCore } from '../../../extension';
-import type {
-  ILoadAllPanelDataProvider,
-  ILoadAllPanelDataDeps,
-} from '../../../extension';
+import type { ILoadAllPanelDataProvider, ILoadAllPanelDataDeps } from '../../../extension';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
@@ -118,10 +115,7 @@ describe('loadAllPanelData wiring — bounded loading guarantee (task 5.3, Req 3
 
   it('passes the full discovered repository list to the selector before resolving loading', async () => {
     const provider = new RecordingProvider();
-    const repos = [
-      createMockRepository('/workspace/a'),
-      createMockRepository('/workspace/b'),
-    ];
+    const repos = [createMockRepository('/workspace/a'), createMockRepository('/workspace/b')];
 
     const deps: ILoadAllPanelDataDeps = {
       discoverAllRepositories: async () => repos,
