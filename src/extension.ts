@@ -170,6 +170,61 @@ let commitContextMenuCommands: CommitContextMenuCommands | undefined;
 let extensionContext: vscode.ExtensionContext | undefined;
 
 /**
+ * Minimal provider surface that {@link loadAllPanelDataCore} drives. Declared
+ * structurally so unit tests can pass a lightweight stub that records the
+ * `setHasRepository` argument without standing up a full
+ * `GitToolWindowProvider`.
+ */
+export interface ILoadAllPanelDataProvider {
+  setAvailableRepositories(repos: IRepository[]): void;
+  setHasRepository(hasRepository: boolean): void;
+}
+
+/**
+ * Dependencies for {@link loadAllPanelDataCore}, injected so the
+ * `activate`-scoped `loadAllPanelData` closure stays a thin delegation and the
+ * bounded-loading guarantee can be unit-tested at the fix's call site
+ * (Requirement 3.4).
+ */
+export interface ILoadAllPanelDataDeps {
+  discoverAllRepositories: () => Promise<IRepository[]>;
+  provider: ILoadAllPanelDataProvider | undefined;
+  loadLogCommits: () => Promise<void>;
+}
+
+/**
+ * Core of the Git tool window's "load all panel data" flow, extracted from the
+ * `activate`-scoped `loadAllPanelData` closure so the no-repository wiring is
+ * directly testable.
+ *
+ * The load-bearing line for Requirement 3 is
+ * `provider.setHasRepository(repositories.length > 0)`: repository detection has
+ * completed by the time `discoverAllRepositories` resolves, so reporting the
+ * outcome to the provider always resolves the transient Loading_State. When
+ * repositories exist, `updateLogState` (reached via `loadLogCommits`) later
+ * flips `_hasRepository=true` and renders the graph; when there are none, this
+ * call is the only signal that leaves Loading and lands the view in
+ * No_Repository_State, so the tool window never stays stuck on the spinner.
+ *
+ * @internal — exported only for
+ * `src/test/unit/extension/loadAllPanelData.test.ts`. Do not call from
+ * production code outside the `loadAllPanelData` closure without review.
+ */
+export async function loadAllPanelDataCore(deps: ILoadAllPanelDataDeps): Promise<void> {
+  const repositories = await deps.discoverAllRepositories();
+
+  // Pass all discovered repositories to the provider for the repository selector.
+  if (deps.provider) {
+    deps.provider.setAvailableRepositories(repositories);
+    // Repository detection has now completed. Resolve the loading state with the
+    // detection outcome so the tool window never stays stuck on the spinner.
+    deps.provider.setHasRepository(repositories.length > 0);
+  }
+
+  await deps.loadLogCommits();
+}
+
+/**
  * This method is called when the extension is activated.
  * The extension is activated based on the activation events defined in package.json.
  *
@@ -3976,14 +4031,17 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Helper to load all panel data (commits) and update repository list
     const loadAllPanelData = async (): Promise<void> => {
-      const repositories = await discoverAllRepositories();
-
-      // Pass all discovered repositories to the provider for the repository selector
-      if (gitToolWindowProvider) {
-        gitToolWindowProvider.setAvailableRepositories(repositories);
-      }
-
-      await loadLogCommits();
+      // Delegate to the exported core so the no-repository wiring (Requirement
+      // 3.4) is unit-testable at the fix's call site. The core reports the
+      // detection outcome to the provider via
+      // `setHasRepository(repositories.length > 0)`, which always resolves the
+      // transient Loading_State: repo present → leaves Loading, then the graph
+      // fills via `loadLogCommits`; no repo → lands in No_Repository_State.
+      await loadAllPanelDataCore({
+        discoverAllRepositories,
+        provider: gitToolWindowProvider,
+        loadLogCommits,
+      });
     };
 
     // Wire up onDidRequestInitialData to load all data when webview first opens

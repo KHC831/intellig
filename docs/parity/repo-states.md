@@ -38,6 +38,7 @@ caught by the Layer 1–3 snapshot suite alone.
 | In-progress cherry-pick     | `.git/CHERRY_PICK_HEAD` exists; `git branch` shows `(no branch, cherry-pick of <sha>)` while paused | Covered (status-bar verb-form label + SHA abbreviation property) | §4      |
 | In-progress revert          | `.git/REVERT_HEAD` exists; revert paused on conflict                          | Covered (status-bar verb-form label)              | §4.5    |
 | Empty repo                  | `HEAD` exists but no objects; `git log` returns nothing; `git branch` empty   | Covered (initial-branch surfacing in status bar)  | §5      |
+| No repository (tool window) | No `.git` in any workspace folder; `discoverAllRepositories()` resolves to `[]` | Covered (No_Repository_State view + snap-norepo-1..4) | §5.5    |
 
 Notes on the table:
 
@@ -463,6 +464,114 @@ Coverage:
 Open questions deferred: log-graph treatment of an empty repo
 (currently shows nothing; visually fine) and branches-popup state
 when no branches exist beyond the unborn initial.
+
+---
+
+## §5.5 No repository (tool window) — Covered
+
+Distinct from §5 (empty repo): there, a `.git` exists but has no
+commits yet. Here, **no git repository exists at all** in any
+workspace folder — the user opened the Git tool window in a plain
+directory. `discoverAllRepositories()` resolves to an empty array
+and there is no `repo.head` to surface anywhere.
+
+### §5.5.1 The defect this state pins
+
+The GitToolWindow renders one of three views from
+`_getHtmlContent()` (`src/git-core/gitToolWindow/GitToolWindowProvider.ts`):
+Loading_State (`_getLoadingHtml`, while `_isLoading`), No_Repository_State
+(`_getNoRepositoryHtml`, while `!_isLoading && !_hasRepository`), or the
+commit-graph view. The provider constructs with `_isLoading = true`,
+so the spinner is the first frame.
+
+Pre-fix, when repository detection found nothing, the
+`Loading → NoRepository` transition edge never fired: only the graph
+edge (via `updateLogState`, which sets `_hasRepository = true;
+_isLoading = false`) ever cleared `_isLoading`, and that edge is
+unreachable when there are zero repositories. The window stayed on
+the spinner indefinitely. This is a repo-state gap of exactly the
+class Layer 4 exists to catch — the happy path (a repo is present)
+worked, and only the no-repository state stranded the view.
+
+### §5.5.2 IntelliG behaviour contract
+
+1. **Repository detection completion always resolves the loading
+   state.** `loadAllPanelData` (`src/extension.ts`) calls
+   `setHasRepository(repositories.length > 0)` right after
+   `discoverAllRepositories()` resolves. No repo →
+   `setHasRepository(false)` is the sole edge that leaves Loading,
+   landing the view in No_Repository_State. Repo present →
+   `setHasRepository(true)` clears `_isLoading`, and the subsequent
+   `loadLogCommits` fills the graph. Wired through
+   `onDidRequestInitialData`, `onDidRequestRefresh`, and
+   `gitService.onDidChangeRepository`, so the path is covered on
+   first open, manual refresh, and repository-removed events.
+2. **The No_Repository_State conveys its status as visible text, not
+   the spinner.** `_getNoRepositoryHtml` emits the message
+   `No Git repository found in this workspace.` plus an
+   `Initialize Repository` button (`id="init-repo-btn"`, wired to
+   post `{ type: 'initRepository' }`). None of the loading-view body
+   markers (`loading-container`, `loading-spinner-icon`,
+   `Loading git graph`) appear in this view.
+3. **The transition is idempotent.** Repeated detection completions
+   (refresh, repository-change events) re-assert the same state
+   without flicker — `setHasRepository` only re-renders when the
+   value changed or the view was still loading.
+
+The exact No_Repository_State wording is the glossary contract
+(Requirement 3.6); the design keeps the existing
+`No Git repository found in this workspace.` text rather than the
+requirement introduction's informal "No git project in directory"
+phrasing, and the snapshot freezes it.
+
+### §5.5.3 Test coverage
+
+Layer 1 — No_Repository_State HTML emit (Requirement 3.6):
+
+- `snap-norepo-1` — freezes the whole no-repository document
+  (CSP scaffold, the `No Git repository found in this workspace.`
+  message paragraph, the `Initialize Repository` button, the
+  init-repo bootstrap script), with the per-call nonce and the
+  shared inline-styles block normalized to placeholders.
+- `snap-norepo-2` — pins the message text and the
+  `Initialize Repository` control verbatim.
+  (both in `src/test/unit/html/noRepositoryHtml.snapshots.test.ts`,
+  suite `git-view-layout-parity / snap-norepo`)
+
+Layer 1 — spinner-vs-text discriminator (Requirement 3.5):
+
+- `snap-norepo-3` — asserts the no-repository HTML does NOT contain
+  the loading-view body markers (`loading-container`,
+  `loading-spinner-icon`, `Loading git graph`).
+- `snap-norepo-4` — guards `snap-norepo-3` by proving those markers
+  genuinely identify `_getLoadingHtml`'s output (so the absence
+  assertion is meaningful, not vacuous).
+  (see `snap-norepo-3` / `snap-norepo-4` in
+  `src/test/unit/html/noRepositoryHtml.snapshots.test.ts`)
+
+Layer 1 — state-machine + call-site wiring (Requirements 3.1–3.4):
+
+- The three-view state machine and the `loadAllPanelData` call-site
+  fix are pinned by the provider state-machine tests and the
+  `loadAllPanelData` wiring test (`setHasRepository(false)` on `[]`,
+  `setHasRepository(true)` on `[repo]`).
+
+Layer 4 — repo-state input space:
+
+- This §5.5 entry IS the Layer 4 citation. The §0 landmap row points
+  here; the snapshot back-references above close the loop.
+
+### §5.5.4 Cross-references
+
+- ADR-010 Layer 4 — repo-state coverage; this section is the
+  reference for the no-repository tool-window input shape.
+- `src/extension.ts` `loadAllPanelData` — the call site that reports
+  the detection outcome via `setHasRepository(repositories.length > 0)`.
+- `src/git-core/gitToolWindow/GitToolWindowProvider.ts` —
+  `_getHtmlContent` (the three-view selector), `setHasRepository`
+  (the transition), and `_getNoRepositoryHtml` (the rendered view).
+- `docs/parity/changed-files-tree.md` — the sibling git-view-layout-parity
+  reference doc (Changed Files hierarchy + history-row layout).
 
 ---
 

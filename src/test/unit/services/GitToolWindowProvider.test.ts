@@ -1898,3 +1898,105 @@ describe('_getBranchLabelsHtml', () => {
     });
   });
 });
+
+describe('GitToolWindow state machine (Requirement 3)', () => {
+  let provider: GitToolWindowProvider;
+  const extensionUri = Uri.file('/test/extension');
+
+  beforeEach(() => {
+    provider = new GitToolWindowProvider(extensionUri);
+  });
+
+  afterEach(() => {
+    provider.dispose();
+  });
+
+  /**
+   * Minimal mock Webview sufficient for the state-machine HTML methods,
+   * which only read `cspSource` and `asWebviewUri`.
+   */
+  function createMockWebview(): Webview {
+    return {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: Uri) => uri,
+    } as unknown as Webview;
+  }
+
+  /**
+   * Reach the private `_getHtmlContent` state-machine selector. The three
+   * rendered views are not otherwise observable without going through
+   * `resolveWebviewView`, so the tests below assert the rendered output via
+   * this narrow cast.
+   */
+  function renderHtml(p: GitToolWindowProvider, webview: Webview): string {
+    return (p as unknown as { _getHtmlContent: (w: Webview) => string })._getHtmlContent(webview);
+  }
+
+  // Markers that uniquely identify each of the three rendered views.
+  const LOADING_MARKER = 'Loading git graph';
+  const NO_REPO_MARKER = 'No Git repository found in this workspace.';
+  const GRAPH_MARKER = 'three-panel-layout';
+
+  it('renders the loading view for a freshly constructed provider (Loading state)', () => {
+    // Construct → _isLoading=true, _hasRepository=false (Loading state).
+    const webview = createMockWebview();
+
+    const html = renderHtml(provider, webview);
+
+    assert.ok(html.includes(LOADING_MARKER), 'Should render the loading spinner text');
+    assert.ok(
+      !html.includes(NO_REPO_MARKER),
+      'Should not render the no-repository message while loading'
+    );
+    assert.ok(!html.includes(GRAPH_MARKER), 'Should not render the graph while loading');
+  });
+
+  it('renders the no-repository view after setHasRepository(false) (Loading → NoRepository)', () => {
+    // Repository_Detection completes with no repo → setHasRepository(false)
+    // leaves the Loading state and lands in No_Repository_State (Req 3.1, 3.2).
+    const webview = createMockWebview();
+    provider.setHasRepository(false);
+
+    const html = renderHtml(provider, webview);
+
+    assert.ok(html.includes(NO_REPO_MARKER), 'Should render the no-repository message');
+    assert.ok(html.includes('Initialize Repository'), 'Should render the init-repository control');
+    assert.ok(
+      !html.includes(LOADING_MARKER),
+      'Should not render the loading spinner once detection has completed'
+    );
+    assert.ok(!html.includes(GRAPH_MARKER), 'Should not render the graph with no repository');
+  });
+
+  it('renders the graph view after setHasRepository(true) then updateLogState(...) (Loading → Graph)', () => {
+    // Repository present → setHasRepository(true) leaves Loading, and
+    // updateLogState fills the commit graph (Req 3.3).
+    const webview = createMockWebview();
+    provider.setHasRepository(true);
+    provider.updateLogState([
+      {
+        hash: 'abc1234567890',
+        shortHash: 'abc1234',
+        message: 'First commit',
+        author: { name: 'Test Author', email: 'test@example.com' },
+        committer: { name: 'Test Author', email: 'test@example.com' },
+        parents: [],
+        authorDate: new Date(),
+        commitDate: new Date(),
+      },
+    ] as Parameters<typeof provider.updateLogState>[0]);
+
+    const html = renderHtml(provider, webview);
+
+    assert.ok(html.includes(GRAPH_MARKER), 'Should render the three-panel graph layout');
+    assert.ok(!html.includes(LOADING_MARKER), 'Should not render the loading spinner once loaded');
+    assert.ok(
+      !html.includes(NO_REPO_MARKER),
+      'Should not render the no-repository message once a repository is present'
+    );
+  });
+});
