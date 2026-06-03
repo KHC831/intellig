@@ -1454,6 +1454,7 @@
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
+    "test": "npm run lint -- --max-warnings 0 && npm run test:unit && npm run test:property",
     "test:unit": "mocha --require ts-node/register 'src/test/unit/**/*.test.ts'",
     "test:property": "mocha --require ts-node/register --timeout 60000 'src/test/property/**/*.property.test.ts'",
     "test:property:stress": "node scripts/propertyStress.mjs",

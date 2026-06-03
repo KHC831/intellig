@@ -199,13 +199,12 @@ npx mocha --no-config --require out/test/setup.js 'out/test/property/**/*.proper
 npm run compile
 npx mocha --no-config --require out/test/setup.js 'out/test/property/stashRoundTrip.property.test.js' --timeout 60000 --exit
 
-# All tests together (unit + property)
-npm run compile
-npx mocha --timeout 60000
-npx mocha --no-config --require out/test/setup.js 'out/test/property/**/*.property.test.js' --timeout 60000 --exit
+# All in-process tests together (lint + unit + property)
+npm test
 
 # VS Code integration tests (launches Extension Host)
-npm test
+npm run test:ext-host
+npm run test:e2e
 ```
 
 ## Local Development
