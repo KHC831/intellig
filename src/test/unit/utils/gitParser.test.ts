@@ -509,6 +509,95 @@ diff --git a/file2.ts b/file2.ts
       assert.strictEqual(result.length, 1);
       assert.strictEqual(result[0].hunks.length, 2);
     });
+
+    // ─── Combined-diff (merge commit) support — Bug A ──────────────────────
+    // `git show <merge-hash>` emits combined-diff output: `diff --cc <path>`
+    // headers (no a/…b/ prefixes) and `@@@` hunks. The old splitter keyed on
+    // `^diff --git ` and dropped these entirely, so merge commits rendered
+    // "No changed files". parseDiff must now capture them.
+    it('should parse a single-file combined (merge) diff', () => {
+      const output = `diff --cc src/foo.ts
+index 1234567,abcdefg..fedcba9
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@@ -10,3 -10,5 +10,4 @@@
+  context
+- removed-from-parent-0
+ -removed-from-parent-1
+++added-by-merge
+  context
+`;
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 1);
+      assert.strictEqual(result[0].path, 'src/foo.ts');
+      assert.strictEqual(result[0].status, 'modified');
+      assert.strictEqual(result[0].oldPath, undefined);
+    });
+
+    it('should parse a multi-file combined (merge) diff with no duplicates', () => {
+      const output = `diff --cc src/a.ts
+index 1111111,2222222..3333333
+--- a/src/a.ts
++++ b/src/a.ts
+@@@ -1,2 -1,2 +1,2 @@@
+  context
+++merge-a
+diff --cc src/b.ts
+index 4444444,5555555..6666666
+--- a/src/b.ts
++++ b/src/b.ts
+@@@ -1,2 -1,2 +1,2 @@@
+  context
+++merge-b
+diff --cc src/c.ts
+index 7777777,8888888..9999999
+--- a/src/c.ts
++++ b/src/c.ts
+@@@ -1,2 -1,2 +1,2 @@@
+  context
+++merge-c
+`;
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 3);
+      assert.deepStrictEqual(
+        result.map((d) => d.path),
+        ['src/a.ts', 'src/b.ts', 'src/c.ts']
+      );
+      const unique = new Set(result.map((d) => d.path));
+      assert.strictEqual(unique.size, 3, 'paths must be unique');
+      for (const d of result) {
+        assert.strictEqual(d.status, 'modified');
+      }
+    });
+
+    it('should capture both --git and --cc blocks in one input', () => {
+      const output = `diff --git a/regular.ts b/regular.ts
+--- a/regular.ts
++++ b/regular.ts
+@@ -1 +1 @@
+-old
++new
+diff --cc merged.ts
+index 1234567,abcdefg..fedcba9
+--- a/merged.ts
++++ b/merged.ts
+@@@ -1,2 -1,2 +1,2 @@@
+  context
+++added-by-merge
+`;
+      const result = parseDiff(output);
+
+      assert.strictEqual(result.length, 2);
+      assert.deepStrictEqual(
+        result.map((d) => d.path),
+        ['regular.ts', 'merged.ts']
+      );
+      // Regular block keeps its hunks; combined block reports none.
+      assert.ok(result[0].hunks.length >= 1, 'regular diff retains hunks');
+      assert.strictEqual(result[1].hunks.length, 0, 'combined diff has no parsed hunks');
+    });
   });
 
   describe('format functions', () => {
