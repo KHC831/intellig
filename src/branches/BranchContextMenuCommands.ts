@@ -1236,6 +1236,16 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle checkout as local branch command.
+   *
+   * Bug F: a remote branch "Checkout" must land the user on the remote tip
+   * even when a stale local of the same name exists. We use IntelliJ's
+   * idiom `git checkout -B <branch> <remote>/<branch>` (forceCreate) which
+   * creates-or-resets the local to the remote tip in one step — the old
+   * `localExists ? plain-checkout : create-tracking` branching left a stale
+   * local untouched. Because `-B` rewrites the local's commit pointer, we
+   * first probe the local branch's `ahead` count and, when it has commits
+   * not on the remote (which would become unreachable), show a modal
+   * confirmation before resetting.
    */
   private async _handleCheckoutAsLocal(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -1247,22 +1257,37 @@ export class BranchContextMenuCommands {
     const parts = item.branch.name.split('/');
     const remoteName = parts[0];
     const branchName = parts.slice(1).join('/');
+    const track = `${remoteName}/${branchName}`;
 
     try {
-      // Check if local branch already exists
+      // Data-loss guard: if a local branch of the same name exists and is
+      // ahead of the remote, `-B` would orphan its unique commits. Probe the
+      // local IBranch and prompt before resetting. When the local doesn't
+      // exist (nothing to lose) or `ahead === 0` (the reset is a no-op or a
+      // fast-forward), skip the prompt and reset directly.
       const branches = await this._gitService.getBranches(repo);
-      const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
+      const local = branches.find((b) => b.type === 'local' && b.name === branchName);
+      const ahead = local?.ahead ?? 0;
 
-      if (localExists) {
-        // Just checkout the existing local branch
-        await this._gitService.checkout(repo, branchName);
-      } else {
-        // Create and checkout tracking branch
-        await this._gitService.checkout(repo, branchName, {
-          createBranch: true,
-          track: `${remoteName}/${branchName}`,
-        });
+      if (local && ahead > 0) {
+        const choice = await vscode.window.showWarningMessage(
+          `Local branch '${branchName}' has ${ahead} commit${ahead === 1 ? '' : 's'} ` +
+            `not on remote '${track}'. Resetting to the remote tip will make ` +
+            `${ahead === 1 ? 'it' : 'them'} unreachable.`,
+          { modal: true },
+          'Reset anyway',
+          'Stash and reset'
+        );
+        if (choice === 'Stash and reset') {
+          await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
+        } else if (choice !== 'Reset anyway') {
+          // Cancel (or dialog dismissed): do not touch the local branch.
+          return;
+        }
       }
+
+      // Create-or-reset the local to the remote tip in one step.
+      await this._gitService.checkout(repo, branchName, { forceCreate: true, track });
 
       // checkout-as-local moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -1283,16 +1308,8 @@ export class BranchContextMenuCommands {
         if (choice === 'Stash & Switch') {
           try {
             await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
-            const branches = await this._gitService.getBranches(repo);
-            const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
-            if (localExists) {
-              await this._gitService.checkout(repo, branchName);
-            } else {
-              await this._gitService.checkout(repo, branchName, {
-                createBranch: true,
-                track: `${remoteName}/${branchName}`,
-              });
-            }
+            // `-B` create-or-resets regardless of whether a local exists.
+            await this._gitService.checkout(repo, branchName, { forceCreate: true, track });
             // Stash + checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
@@ -1307,17 +1324,12 @@ export class BranchContextMenuCommands {
           }
         } else if (choice === 'Force Checkout') {
           try {
-            const branches = await this._gitService.getBranches(repo);
-            const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
-            if (localExists) {
-              await this._gitService.checkout(repo, branchName, { force: true });
-            } else {
-              await this._gitService.checkout(repo, branchName, {
-                createBranch: true,
-                force: true,
-                track: `${remoteName}/${branchName}`,
-              });
-            }
+            // `-B` create-or-resets regardless of whether a local exists.
+            await this._gitService.checkout(repo, branchName, {
+              forceCreate: true,
+              force: true,
+              track,
+            });
             // Force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);

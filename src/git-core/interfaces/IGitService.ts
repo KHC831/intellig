@@ -258,6 +258,36 @@ export interface ICheckoutOptions {
   createBranch?: boolean;
   force?: boolean;
   track?: string;
+  /**
+   * Maps to `git checkout -B <ref> [<startPoint>]` — "create-or-reset to
+   * startpoint". Unlike `createBranch` (which emits `-b` and fails when the
+   * branch already exists), `-B` resets an existing local branch's commit
+   * pointer to the startpoint, or creates it if absent. This is IntelliJ's
+   * "Checkout" idiom for a remote branch: `git checkout -B <branch>
+   * <remote>/<branch>` lands the user on the remote tip regardless of any
+   * stale local of the same name.
+   *
+   * **Startpoint**: when `forceCreate` is set, the `track` value doubles as
+   * the startpoint positional. `{ forceCreate: true, track: 'origin/main' }`
+   * emits `git checkout -B <ref> --track origin/main`, where git treats
+   * `origin/main` as the single startpoint that also becomes the new
+   * branch's upstream. Omitting `track` emits a bare `git checkout -B <ref>`
+   * (reset to HEAD / current commit, no startpoint).
+   *
+   * **Mutex**: if both `forceCreate` and `createBranch` are set, `forceCreate`
+   * wins — it is the strictly-more-permissive operation (`-B` succeeds whether
+   * or not the branch exists, `-b` only when it doesn't).
+   *
+   * **argv safety**: the startpoint is user-controlled, but `--end-of-options`
+   * CANNOT precede it here — with `--track`, git reinterprets the
+   * post-`--end-of-options` token as a pathspec and fails with "'--track'
+   * cannot be used with updating paths". The implementation instead rejects
+   * startpoints starting with `-`/`.` (the same leading-token guard used by
+   * `deleteBranch` / `setBranchUpstream`). The `<ref>` after `-B` is safe by
+   * adjacency (git parses the token immediately after `-B` as the branch
+   * name, mirroring the `-b` precedent).
+   */
+  forceCreate?: boolean;
 }
 
 /**

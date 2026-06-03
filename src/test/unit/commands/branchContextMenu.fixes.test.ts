@@ -1175,3 +1175,294 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
     }
   });
 });
+
+// ─── Tests: _handleCheckoutAsLocal (Bug F — reset stale local to remote tip) ──
+
+/**
+ * Bug F coverage: "Checkout" on a remote branch must land the user on the
+ * remote tip even when a stale local of the same name exists. The handler
+ * collapses the old `localExists ? plain-checkout : create-tracking`
+ * branching into a single `checkout(repo, branch, { forceCreate: true,
+ * track: '<remote>/<branch>' })` call (emits `git checkout -B <branch>
+ * <remote>/<branch>`). Because `-B` rewrites the local's commit pointer, the
+ * handler first probes the local IBranch's `ahead` count and, when it has
+ * unique commits, shows a modal confirmation gating the reset.
+ */
+describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale local', () => {
+  interface CheckoutLocalMockGit {
+    _calls: {
+      checkout: Call<[IRepository, string, unknown?]>[];
+      stash: Call<[IRepository, string?]>[];
+      getBranches: Call<[IRepository]>[];
+    };
+    onDidChangeRepository: unknown;
+    onDidFetch: unknown;
+    getRepositories: () => IRepository[];
+    getRepository: () => Promise<IRepository | undefined>;
+    getBranches: (repo: IRepository) => Promise<IBranch[]>;
+    checkout: (repo: IRepository, ref: string, options?: unknown) => Promise<void>;
+    stash: (repo: IRepository, message?: string) => Promise<void>;
+    reloadRepository: (repo: IRepository) => Promise<IRepository>;
+  }
+
+  function createCheckoutLocalMockGit(branches: IBranch[]): CheckoutLocalMockGit {
+    const repoChange = new EventEmitter<IRepository>();
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const calls = {
+      checkout: [] as Call<[IRepository, string, unknown?]>[],
+      stash: [] as Call<[IRepository, string?]>[],
+      getBranches: [] as Call<[IRepository]>[],
+    };
+    return {
+      _calls: calls,
+      onDidChangeRepository: repoChange.event,
+      onDidFetch: fetchEmitter.event,
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+      getBranches: async (repo: IRepository) => {
+        calls.getBranches.push({ args: [repo] });
+        return branches;
+      },
+      checkout: async (repo: IRepository, ref: string, options?: unknown) => {
+        calls.checkout.push({ args: [repo, ref, options] });
+      },
+      stash: async (repo: IRepository, message?: string) => {
+        calls.stash.push({ args: [repo, message] });
+      },
+      reloadRepository: async (repo: IRepository) => repo,
+    };
+  }
+
+  it('checkout-as-local-1: existing local at ahead:0 → single forceCreate call, NOT a plain checkout', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 0, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
+
+    const item = createRemoteBranchTreeItem('origin/main');
+    await (
+      commands as unknown as {
+        _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckoutAsLocal(item);
+
+    // Exactly one checkout call, with the forceCreate + track options.
+    assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must be called once');
+    assert.strictEqual(gitService._calls.checkout[0].args[1], 'main');
+    const opts = gitService._calls.checkout[0].args[2] as {
+      forceCreate?: boolean;
+      track?: string;
+    };
+    assert.strictEqual(opts.forceCreate, true, 'must use forceCreate (-B), not a plain checkout');
+    assert.strictEqual(opts.track, 'origin/main');
+    // ahead:0 → no prompt.
+    assert.strictEqual(gitService._calls.stash.length, 0, 'no stash when ahead === 0');
+  });
+
+  it('checkout-as-local-2a: local ahead:3 + Cancel → warning shown, checkout NOT called', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningMsg = '';
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (
+      message: string,
+      ..._items: unknown[]
+    ): Promise<string | undefined> => {
+      warningMsg = message;
+      return Promise.resolve('Cancel');
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.ok(
+        warningMsg.includes('3 commits not on remote'),
+        `warning should mention the ahead count; got: "${warningMsg}"`
+      );
+      assert.strictEqual(
+        gitService._calls.checkout.length,
+        0,
+        'checkout MUST NOT run when the user cancels'
+      );
+      assert.strictEqual(gitService._calls.stash.length, 0, 'no stash on cancel');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-2b: local ahead:3 + "Reset anyway" → forceCreate, no stash', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> =>
+      Promise.resolve('Reset anyway');
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(gitService._calls.stash.length, 0, 'Reset anyway must NOT stash');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must run after confirm');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-2c: local ahead:3 + "Stash and reset" → stash THEN forceCreate', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    // Record interleaving order of stash vs checkout.
+    const order: string[] = [];
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> =>
+      Promise.resolve('Stash and reset');
+    gitService.stash = async (repo2: IRepository, message?: string) => {
+      order.push('stash');
+      gitService._calls.stash.push({ args: [repo2, message] });
+    };
+    gitService.checkout = async (repo2: IRepository, ref: string, options?: unknown) => {
+      order.push('checkout');
+      gitService._calls.checkout.push({ args: [repo2, ref, options] });
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(gitService._calls.stash.length, 1, 'stash must run');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'forceCreate must run');
+      assert.deepStrictEqual(order, ['stash', 'checkout'], 'stash must precede the reset');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-3: local ahead:0 → no prompt, checkout immediately', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 0, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningCalled = false;
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> => {
+      warningCalled = true;
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(warningCalled, false, 'no prompt when local is not ahead');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout runs immediately');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-4: no local exists → no prompt, forceCreate creates tracking branch', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningCalled = false;
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> => {
+      warningCalled = true;
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(warningCalled, false, 'no prompt when local does not exist');
+      assert.strictEqual(gitService._calls.checkout.length, 1);
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+});

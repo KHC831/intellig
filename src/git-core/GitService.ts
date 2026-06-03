@@ -1238,6 +1238,39 @@ export class GitService implements IGitService, IGitServiceCli {
     // name without breaking git's parser. We keep the createBranch
     // path's argv unchanged and rely on `validateBranchName` (called
     // by createBranch upstream) to reject hostile names.
+
+    // forceCreate path (Bug F): `git checkout -B <ref> [-f] [--track
+    // <startPoint>]` — "create-or-reset to startpoint". Mirrors the `-b`
+    // precedent: `-B` and `<ref>` MUST be adjacent (git parses the token
+    // right after `-B` as the branch name). forceCreate WINS over
+    // createBranch when both are set — `-B` is strictly more permissive
+    // (succeeds whether or not the branch exists).
+    //
+    // Startpoint design: the `track` value doubles as the single startpoint
+    // positional. git treats `--track <startPoint>` here as both "set this
+    // upstream" and "reset to this commit". `--end-of-options` is NOT used
+    // for the startpoint: with `--track`, git reinterprets a token after
+    // `--end-of-options` as a pathspec and fails ("'--track' cannot be used
+    // with updating paths"). Verified against git 2.50.1. We instead reject
+    // a startpoint that starts with `-`/`.` (mirrors deleteBranch /
+    // setBranchUpstream's leading-token guard). The `<ref>` is safe by
+    // adjacency.
+    if (options?.forceCreate) {
+      if (options.track && (options.track.startsWith('-') || options.track.startsWith('.'))) {
+        throw new Error(`Invalid start point: ${options.track}`);
+      }
+      const args = ['checkout', '-B', ref];
+      if (options.force) {
+        args.push('-f');
+      }
+      if (options.track) {
+        args.push('--track', options.track);
+      }
+      await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+      this.invalidateCache(repo.rootUri.fsPath);
+      return;
+    }
+
     if (options?.createBranch) {
       const args = ['checkout', '-b', ref];
       if (options?.force) {

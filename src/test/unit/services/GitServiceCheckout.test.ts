@@ -228,6 +228,79 @@ describe('GitService - Command Argument Correctness', () => {
   });
 
   // ============================================
+  // checkout() forceCreate path (Bug F)
+  // ============================================
+  describe('checkout() forceCreate (-B) argument ordering', () => {
+    it('plain forceCreate produces: git checkout -B <ref>', async () => {
+      await gitService.checkout(mockRepo, 'main', { forceCreate: true });
+      const cmd = mockGitCli.getLastCommand();
+      assert.ok(cmd);
+      // `-B <ref>` adjacency mirrors the `-b` precedent (git parser
+      // contract). No startpoint when `track` is omitted.
+      assert.deepStrictEqual(cmd.args, ['checkout', '-B', 'main']);
+    });
+
+    it('forceCreate with track produces: git checkout -B <ref> --track <startPoint>', async () => {
+      await gitService.checkout(mockRepo, 'main', {
+        forceCreate: true,
+        track: 'origin/main',
+      });
+      const cmd = mockGitCli.getLastCommand();
+      assert.ok(cmd);
+      // The `track` value doubles as the single startpoint positional:
+      // `git checkout -B main --track origin/main` resets `main` to
+      // `origin/main` AND records it as upstream. `--end-of-options` is
+      // deliberately absent — with `--track`, git would reinterpret a
+      // post-separator token as a pathspec ("'--track' cannot be used
+      // with updating paths"). Verified against git 2.50.1.
+      assert.deepStrictEqual(cmd.args, ['checkout', '-B', 'main', '--track', 'origin/main']);
+    });
+
+    it('forceCreate with force produces: git checkout -B <ref> -f', async () => {
+      await gitService.checkout(mockRepo, 'main', { forceCreate: true, force: true });
+      const cmd = mockGitCli.getLastCommand();
+      assert.ok(cmd);
+      // `-f` lands AFTER the `-B <ref>` pair so the branch name stays
+      // adjacent to `-B`.
+      assert.deepStrictEqual(cmd.args, ['checkout', '-B', 'main', '-f']);
+    });
+
+    it('forceCreate + force + track: -B <ref> -f --track <startPoint>', async () => {
+      await gitService.checkout(mockRepo, 'main', {
+        forceCreate: true,
+        force: true,
+        track: 'origin/main',
+      });
+      const cmd = mockGitCli.getLastCommand();
+      assert.ok(cmd);
+      assert.deepStrictEqual(cmd.args, ['checkout', '-B', 'main', '-f', '--track', 'origin/main']);
+    });
+
+    it('mutex: forceCreate wins over createBranch (emits -B, not -b)', async () => {
+      await gitService.checkout(mockRepo, 'main', {
+        forceCreate: true,
+        createBranch: true,
+        track: 'origin/main',
+      });
+      const cmd = mockGitCli.getLastCommand();
+      assert.ok(cmd);
+      // forceCreate is the strictly-more-permissive operation, so it wins.
+      assert.ok(cmd.args.includes('-B'), 'must emit -B when forceCreate is set');
+      assert.ok(!cmd.args.includes('-b'), 'must NOT emit -b when forceCreate wins the mutex');
+      assert.deepStrictEqual(cmd.args, ['checkout', '-B', 'main', '--track', 'origin/main']);
+    });
+
+    it('rejects a startpoint beginning with "-" (argv-injection guard)', async () => {
+      await assert.rejects(
+        () =>
+          gitService.checkout(mockRepo, 'main', { forceCreate: true, track: '--upload-pack=x' }),
+        /Invalid start point/
+      );
+      assert.strictEqual(mockGitCli.getAllCommands().length, 0, 'no git command should run');
+    });
+  });
+
+  // ============================================
   // push() argument construction
   // ============================================
   describe('push() argument construction', () => {
