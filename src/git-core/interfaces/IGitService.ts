@@ -426,12 +426,29 @@ export interface IMergeOptions {
 }
 
 /**
- * Merge result
+ * Merge result.
+ *
+ * Failure shapes (mutually exclusive at the call site):
+ *   - `success: true` → no other fields are read.
+ *   - `success: false` with non-empty `conflicts` → callers route to the
+ *     resolve-conflicts dialog.
+ *   - `success: false`, empty/undefined `conflicts`, AND `failureReason`
+ *     set → non-conflict failure (refused merge, unrelated histories,
+ *     dirty tree, etc.). Callers MUST surface `failureReason` to the
+ *     user instead of dropping the failure silently. Sanitized at the
+ *     GitService boundary; safe to pass directly to a toast.
  */
 export interface IMergeResult {
   success: boolean;
   conflicts?: string[];
   mergeCommit?: string;
+  /**
+   * Sanitized error reason for non-conflict failures. Populated when
+   * git's exit code is non-zero AND no merge-conflict files are
+   * present, so the caller can show the underlying git error instead
+   * of a silent no-op.
+   */
+  failureReason?: string;
 }
 
 /**
@@ -464,24 +481,16 @@ export interface ICreateBranchOptions {
 /**
  * Basic rebase result (for simple rebase operations).
  *
- * Failure shapes are mutually exclusive at the call site:
- *   - `success: true` → no other fields are read.
- *   - `success: false` with non-empty `conflicts` → callers route to the
- *     resolve-conflicts dialog.
- *   - `success: false`, empty/undefined `conflicts`, AND `failureReason` set
- *     → non-conflict failure (dirty working tree, in-progress rebase, refs
- *     out of sync, etc.). Callers MUST surface `failureReason` to the user
- *     instead of silently dropping the failure. Sanitized at the
- *     GitService boundary; safe to pass directly to a toast.
+ * See {@link IMergeResult} for the documented failure-shape contract;
+ * `failureReason` is populated identically here for non-conflict
+ * failures so callers never drop the failure silently.
  */
 export interface IBasicRebaseResult {
   success: boolean;
   conflicts?: string[];
   /**
-   * Sanitized error reason for non-conflict failures. Populated when git's
-   * exit code is non-zero AND no merge-conflict files are present, so the
-   * caller can show the underlying git error (e.g. "cannot rebase: You have
-   * unstaged changes") instead of a silent no-op.
+   * Sanitized error reason for non-conflict failures (e.g. "cannot
+   * rebase: You have unstaged changes", in-progress rebase, etc.).
    */
   failureReason?: string;
 }
@@ -511,22 +520,40 @@ export interface ICherryPickOptions {
 }
 
 /**
- * Cherry-pick result
+ * Cherry-pick result.
+ *
+ * See {@link IMergeResult} for the documented failure-shape contract;
+ * `failureReason` is populated identically here for non-conflict
+ * failures so callers never drop the failure silently.
  */
 export interface ICherryPickResult {
   success: boolean;
   conflicts?: string[];
+  /**
+   * Sanitized error reason for non-conflict failures (e.g. "your local
+   * changes would be overwritten", "fatal: bad object <hash>").
+   */
+  failureReason?: string;
 }
 
 /**
- * Revert result
+ * Revert result.
+ *
  * Contains information about the result of a revert operation.
+ *
+ * See {@link IMergeResult} for the documented failure-shape contract;
+ * `failureReason` is populated identically here for non-conflict
+ * failures so callers never drop the failure silently.
  */
 export interface IRevertResult {
   /** Whether the revert operation succeeded */
   success: boolean;
   /** List of conflicted file paths if the revert caused conflicts */
   conflicts?: string[];
+  /**
+   * Sanitized error reason for non-conflict failures.
+   */
+  failureReason?: string;
 }
 
 /**

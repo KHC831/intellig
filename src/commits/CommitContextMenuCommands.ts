@@ -555,6 +555,10 @@ export class CommitContextMenuCommands {
             }
           }
         }
+      } else {
+        // Non-conflict failure: surface the underlying git error.
+        const reason = result.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(reason)}`);
       }
       // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` after the cherry-pick.
@@ -910,6 +914,10 @@ export class CommitContextMenuCommands {
             }
           }
         }
+      } else {
+        // Non-conflict failure: surface the underlying git error.
+        const reason = result.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(reason)}`);
       }
       // Synchronously reload before refresh so panel sees fresh
       // `repo.head.commit` after the revert.
@@ -2683,6 +2691,10 @@ export class CommitContextMenuCommands {
             }
           }
         }
+      } else {
+        // Non-conflict failure: surface the underlying git error.
+        const reason = result.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(`Failed to merge: ${sanitizeGitError(reason)}`);
       }
       // Merge moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);

@@ -558,101 +558,91 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
-    it('_handleRebaseCurrentOnto warns and skips rebase when working tree is dirty', async () => {
-      // Pre-check: any non-empty `getStatus` should short-circuit BEFORE
-      // `rebaseBranch` ever runs. Without this guard, git refuses with
-      // "cannot rebase: You have unstaged changes" and the previous handler
-      // implementation silently swallowed that failure (no toast, no log).
-      const warningTracker = installWarningMessageTracker();
-      let rebaseCalled = false;
+    // ─── Non-conflict failure surfacing (regression: silent no-op) ────────
+    //
+    // PR1 (fix/silent-rebase-error-surfacing) pinned the rebase handler's
+    // dirty-tree pre-check + non-conflict failure surfacing + fallback path.
+    // Those three rebase tests are merged on main. PR3 keeps its two unique
+    // tests covering the same regression for `_handleMergeIntoCurrent` and
+    // `_handleCherryPickCommits` — handlers PR1 didn't touch.
 
-      const gitService = createMockGitService({
-        getStatus: async () => [{ path: 'README.md', indexStatus: ' ', workTreeStatus: 'M' }],
-        rebaseBranch: async (): Promise<IBasicRebaseResult> => {
-          rebaseCalled = true;
-          return { success: true };
-        },
-      });
-      const branchTreeProvider = createMockBranchTreeProvider(gitService);
-      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
-
-      const item = createLocalBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
-
-      assert.strictEqual(
-        rebaseCalled,
-        false,
-        'rebaseBranch must NOT be invoked when the working tree is dirty'
-      );
-      assert.ok(
-        warningTracker.calls.length > 0,
-        'showWarningMessage must be called for the dirty-tree pre-check'
-      );
-      const msg = warningTracker.calls[0].message;
-      assert.ok(
-        msg.toLowerCase().includes('uncommitted'),
-        `Warning should mention uncommitted changes, got: "${msg}"`
-      );
-      assert.ok(
-        msg.toLowerCase().includes('stash') || msg.toLowerCase().includes('commit'),
-        `Warning should suggest stash/commit, got: "${msg}"`
-      );
-    });
-
-    it('_handleRebaseCurrentOnto surfaces git failure reason on non-conflict failure (regression: silent no-op)', async () => {
-      // Original bug: `rebaseBranch` returned `{success:false, conflicts:[]}`
-      // for any non-conflict failure (in-progress rebase, refs out of sync,
-      // etc.). The if/else-if chain in the handler had no else clause for
-      // that shape, so the click looked like a no-op. This test pins the
-      // surfaced-error behavior against regressions.
+    it('_handleMergeIntoCurrent surfaces failureReason on non-conflict failure', async () => {
       const errorTracker = installErrorMessageTracker();
 
       const gitService = createMockGitService({
-        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+        mergeBranch: async () => ({
           success: false,
           conflicts: [],
-          failureReason: 'It seems that there is already a rebase-merge directory',
+          failureReason: 'fatal: refusing to merge unrelated histories',
         }),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-      const item = createLocalBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      const item = createLocalBranchTreeItem('feature/merge-test');
+      await invokePrivateHandler(commands, '_handleMergeIntoCurrent', item);
 
       assert.ok(
         errorTracker.calls.length > 0,
-        'showErrorMessage MUST be called when rebase fails for a non-conflict reason'
+        'showErrorMessage MUST be called for non-conflict merge failure (regression: was silent no-op)'
       );
-      const msg = errorTracker.calls[0].message;
       assert.ok(
-        msg.includes('rebase-merge directory'),
-        `Error message should include the underlying git reason, got: "${msg}"`
+        errorTracker.calls[0].message.includes('unrelated histories'),
+        `error message should include the underlying git reason, got: "${errorTracker.calls[0].message}"`
       );
     });
 
-    it('_handleRebaseCurrentOnto surfaces a fallback message when failureReason is missing', async () => {
-      // Defensive: even if a future GitService refactor returns
-      // `{success:false, conflicts:[]}` without populating `failureReason`,
-      // the user must still see SOMETHING — never a silent no-op.
+    it('_handleCherryPickCommits surfaces failureReason on non-conflict failure', async () => {
       const errorTracker = installErrorMessageTracker();
 
-      const gitService = createMockGitService({
-        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
-          success: false,
-          conflicts: [],
-        }),
-      });
-      const branchTreeProvider = createMockBranchTreeProvider(gitService);
-      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+      // The QuickPick prompts for which commits to pick — pre-resolve it.
+      const w = writableWindow();
+      const originalQuickPick = w.showQuickPick;
+      w.showQuickPick = (items: unknown): Promise<unknown> => {
+        if (Array.isArray(items)) {
+          return Promise.resolve(items.length > 0 ? items.slice(0, 1) : undefined);
+        }
+        return Promise.resolve(undefined);
+      };
 
-      const item = createLocalBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+      try {
+        const gitService = createMockGitService({
+          getLog: async () => [
+            {
+              hash: 'abc1234',
+              shortHash: 'abc1234',
+              message: 'Commit msg',
+              author: { name: 'A', email: 'a@a' },
+              committer: { name: 'A', email: 'a@a' },
+              parents: [],
+              authorDate: new Date(0),
+              commitDate: new Date(0),
+            },
+          ],
+          cherryPick: async () => ({
+            success: false,
+            conflicts: [],
+            failureReason: 'fatal: bad object abc1234',
+          }),
+        });
+        const branchTreeProvider = createMockBranchTreeProvider(gitService);
+        const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
 
-      assert.ok(
-        errorTracker.calls.length > 0,
-        'showErrorMessage MUST be called even without failureReason'
-      );
+        const item = createRemoteBranchTreeItem('origin/feature/x');
+        await invokePrivateHandler(commands, '_handleCherryPickCommits', item);
+
+        assert.ok(
+          errorTracker.calls.length > 0,
+          'showErrorMessage MUST be called for non-conflict cherry-pick failure'
+        );
+        assert.ok(
+          errorTracker.calls[0].message.toLowerCase().includes('bad object') ||
+            errorTracker.calls[0].message.toLowerCase().includes('cherry-pick'),
+          `error message should reference the failure, got: "${errorTracker.calls[0].message}"`
+        );
+      } finally {
+        w.showQuickPick = originalQuickPick;
+      }
     });
 
     // TL-33: tests for the `_parseConflictCount` fallback path were removed.
