@@ -3044,9 +3044,14 @@ ${bodyMarkup}
       })
       .join('');
 
+    // The `change` listener is wired from the main inline script
+    // (`_getInlineScript`), which already holds the single `vscode` API
+    // instance. A second `acquireVsCodeApi()` call inside an inline
+    // `onchange` handler would throw — VS Code only allows one acquire
+    // per webview lifetime — and silently drop the selection.
     return `
       <div class="repository-selector-container">
-        <select class="repository-selector" onchange="(function(el){ const vscode = acquireVsCodeApi(); vscode.postMessage({ type: 'selectRepository', repositoryIndex: Number(el.value) }); })(this)">
+        <select class="repository-selector" aria-label="Select repository">
           ${optionsHtml}
         </select>
       </div>`;
@@ -4521,6 +4526,25 @@ ${bodyMarkup}
     return `
       (function() {
         const vscode = acquireVsCodeApi();
+
+        // Repository selector wiring. Posts the selectRepository message
+        // through the single \`vscode\` instance acquired above. The
+        // dropdown intentionally has no inline onchange handler — calling
+        // \`acquireVsCodeApi()\` a second time in the same render throws
+        // a DOMException and the message would be silently dropped.
+        const repoSelect = document.querySelector('.repository-selector');
+        if (repoSelect) {
+          repoSelect.addEventListener('change', function(e) {
+            const target = e.target;
+            if (!target) return;
+            const value = Number(target.value);
+            if (!Number.isFinite(value)) return;
+            vscode.postMessage({
+              type: 'selectRepository',
+              repositoryIndex: value,
+            });
+          });
+        }
 
         // State for drag and drop
         let draggedFiles = [];

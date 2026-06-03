@@ -232,6 +232,47 @@ export async function loadAllPanelDataCore(deps: ILoadAllPanelDataDeps): Promise
 }
 
 /**
+ * Minimal surfaces of the providers that {@link wireRepositorySelection}
+ * needs. Declared structurally so unit tests can pass lightweight stubs and
+ * record both wiring effects (graph reload + branch tree refresh) without
+ * standing up the full extension host.
+ */
+export interface IRepoSelectionToolWindowProvider {
+  onDidSelectRepository: vscode.Event<IRepository>;
+}
+export interface IRepoSelectionBranchTreeProvider {
+  setRepository(repo: IRepository): void;
+}
+
+/**
+ * Wire the Git tool window's repository selector to BOTH downstream views:
+ *   - the Log/Graph (Git) view via `loadLogCommitsForRepo`
+ *   - the Branches tree view via `branchTreeProvider.setRepository`
+ *
+ * Extracted from the `activate`-scoped wiring so the dual-update behavior is
+ * unit-testable. Without this, the dropdown could update one view while the
+ * other silently desyncs — the original bug.
+ *
+ * Returns the disposables so the caller can register them with
+ * `context.subscriptions.push(...)`.
+ *
+ * @internal — exported for `src/test/unit/extension/repoSelectionWiring.test.ts`.
+ */
+export function wireRepositorySelection(deps: {
+  toolWindowProvider: IRepoSelectionToolWindowProvider;
+  branchTreeProvider: IRepoSelectionBranchTreeProvider;
+  loadLogCommitsForRepo: (repo: IRepository) => Promise<void>;
+}): vscode.Disposable[] {
+  const graphListener = deps.toolWindowProvider.onDidSelectRepository(async (repo) => {
+    await deps.loadLogCommitsForRepo(repo);
+  });
+  const branchTreeListener = deps.toolWindowProvider.onDidSelectRepository((repo) => {
+    deps.branchTreeProvider.setRepository(repo);
+  });
+  return [graphListener, branchTreeListener];
+}
+
+/**
  * This method is called when the extension is activated.
  * The extension is activated based on the activation events defined in package.json.
  *
@@ -3700,6 +3741,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function registerViews(context: vscode.ExtensionContext): void {
+  // Hoisted so the second `if (extensionServices)` block — which creates
+  // the BranchTreeProvider — can pass this helper into
+  // `wireRepositorySelection(...)` and refresh both the Log/Graph view and
+  // the Branches tree view from a single `onDidSelectRepository` event.
+  // Bound to the block-local `loadLogCommitsForRepo` inside the first
+  // `if (extensionServices)` block where its closure dependencies
+  // (gitService, gitToolWindowProvider) are in scope.
+  let hoistedLoadLogCommitsForRepo: ((repo: IRepository) => Promise<void>) | undefined;
+
   // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
   gitToolWindowProvider = new GitToolWindowProvider(context.extensionUri, context.workspaceState);
 
@@ -3890,7 +3940,12 @@ function registerViews(context: vscode.ExtensionContext): void {
       return repositories;
     };
 
-    // Helper to load commits into the log view for a specific repository
+    // Helper to load commits into the log view for a specific repository.
+    // Kept as a block-local `const` so type narrowing inside this block
+    // continues to work. We then bind it to the hoisted
+    // `hoistedLoadLogCommitsForRepo` below so the second
+    // `if (extensionServices)` block can pass it into
+    // `wireRepositorySelection(...)`.
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }
@@ -4095,11 +4150,11 @@ function registerViews(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(filterChangeListener);
 
-    // Wire up onDidSelectRepository to re-fetch commits/branches/tags for the selected repo
-    const repoSelectListener = gitToolWindowProvider.onDidSelectRepository(async (repo) => {
-      await loadLogCommitsForRepo(repo);
-    });
-    context.subscriptions.push(repoSelectListener);
+    // The repository-selector wiring (onDidSelectRepository → graph reload +
+    // branch tree refresh) is registered in the second `if (extensionServices)`
+    // block below, where `branchTreeProvider` is in scope. Both wirings live
+    // there as a single unit so the dropdown can never update one view while
+    // silently desyncing the other.
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
     const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
@@ -4179,6 +4234,12 @@ function registerViews(context: vscode.ExtensionContext): void {
     );
     context.subscriptions.push(commitDiffListener);
 
+    // Bind the block-local helper to the hoisted reference so the second
+    // `if (extensionServices)` block (which creates the BranchTreeProvider)
+    // can pass it into `wireRepositorySelection(...)`.
+    hoistedLoadLogCommitsForRepo = (repo: IRepository): Promise<void> =>
+      loadLogCommitsForRepo(repo);
+
     // In the 2-panel layout, load all data immediately
     void loadAllPanelData();
   }
@@ -4198,6 +4259,29 @@ function registerViews(context: vscode.ExtensionContext): void {
     // Register the provider too so its EventEmitter
     // onDidChangeRepository subscription are torn down on deactivation.
     context.subscriptions.push(branchTreeView, branchTreeProvider);
+
+    // Wire the repository selector to BOTH downstream views: the Log/Graph
+    // (Git) view AND the Branches tree view. Without the branch-tree side,
+    // switching repos in the dropdown updates the graph but leaves the
+    // branches tree pointing at the previously-selected repo. The dual
+    // wiring is centralized in `wireRepositorySelection` so the behavior
+    // is unit-testable end-to-end (see repoSelectionWiring.test.ts).
+    //
+    // `hoistedLoadLogCommitsForRepo` is bound in the first
+    // `if (extensionServices)` block above. Both blocks share this
+    // top-level guard, so the helper is always defined here in production;
+    // the `?? noop` fallback keeps the wiring resilient if that invariant
+    // is ever broken by a future refactor.
+    if (gitToolWindowProvider) {
+      const noopLoadLog = (_repo: IRepository): Promise<void> => Promise.resolve();
+      const loadLog = hoistedLoadLogCommitsForRepo ?? noopLoadLog;
+      const repoSelectionDisposables = wireRepositorySelection({
+        toolWindowProvider: gitToolWindowProvider,
+        branchTreeProvider,
+        loadLogCommitsForRepo: loadLog,
+      });
+      context.subscriptions.push(...repoSelectionDisposables);
+    }
 
     // Link native BRANCHES tree view selection to the git graph.
     // When the user clicks a branch in the tree view, scroll the graph

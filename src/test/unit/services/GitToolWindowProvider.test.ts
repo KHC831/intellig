@@ -1370,7 +1370,11 @@ describe('Multi-Repository Selection State', () => {
       );
     });
 
-    it('should include selectRepository message type in onchange handler', () => {
+    it('should NOT call acquireVsCodeApi inside the selector HTML (regression: dropdown was a no-op)', () => {
+      // VS Code only allows acquireVsCodeApi() once per webview lifetime.
+      // The main inline script already acquires it, so any second call
+      // inside the selector throws DOMException and silently drops the
+      // user's selection. This test pins the fix in place.
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1381,12 +1385,33 @@ describe('Multi-Repository Selection State', () => {
 
       const html = provider._getRepositorySelectorHtml();
       assert.ok(
-        html.includes('selectRepository'),
-        'Should reference selectRepository message type'
+        !html.includes('acquireVsCodeApi'),
+        'Selector HTML must not call acquireVsCodeApi — the change listener is wired from the main inline script'
       );
       assert.ok(
-        html.includes('repositoryIndex'),
-        'Should reference repositoryIndex in the message'
+        !html.includes('onchange='),
+        'Selector HTML must not use an inline onchange handler'
+      );
+    });
+
+    it('should wire the selectRepository message via the main inline script', () => {
+      // The change listener that posts `selectRepository` is registered
+      // from `_getInlineScript`, where the single `vscode` API instance
+      // already lives.
+      const inlineScript = (
+        provider as unknown as { _getInlineScript: () => string }
+      )._getInlineScript();
+      assert.ok(
+        inlineScript.includes('selectRepository'),
+        'Inline script should post the selectRepository message type'
+      );
+      assert.ok(
+        inlineScript.includes('repositoryIndex'),
+        'Inline script should reference repositoryIndex in the payload'
+      );
+      assert.ok(
+        inlineScript.includes('repository-selector'),
+        'Inline script should bind the change listener to the .repository-selector element'
       );
     });
 
