@@ -558,6 +558,103 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
+    it('_handleRebaseCurrentOnto warns and skips rebase when working tree is dirty', async () => {
+      // Pre-check: any non-empty `getStatus` should short-circuit BEFORE
+      // `rebaseBranch` ever runs. Without this guard, git refuses with
+      // "cannot rebase: You have unstaged changes" and the previous handler
+      // implementation silently swallowed that failure (no toast, no log).
+      const warningTracker = installWarningMessageTracker();
+      let rebaseCalled = false;
+
+      const gitService = createMockGitService({
+        getStatus: async () => [{ path: 'README.md', indexStatus: ' ', workTreeStatus: 'M' }],
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => {
+          rebaseCalled = true;
+          return { success: true };
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.strictEqual(
+        rebaseCalled,
+        false,
+        'rebaseBranch must NOT be invoked when the working tree is dirty'
+      );
+      assert.ok(
+        warningTracker.calls.length > 0,
+        'showWarningMessage must be called for the dirty-tree pre-check'
+      );
+      const msg = warningTracker.calls[0].message;
+      assert.ok(
+        msg.toLowerCase().includes('uncommitted'),
+        `Warning should mention uncommitted changes, got: "${msg}"`
+      );
+      assert.ok(
+        msg.toLowerCase().includes('stash') || msg.toLowerCase().includes('commit'),
+        `Warning should suggest stash/commit, got: "${msg}"`
+      );
+    });
+
+    it('_handleRebaseCurrentOnto surfaces git failure reason on non-conflict failure (regression: silent no-op)', async () => {
+      // Original bug: `rebaseBranch` returned `{success:false, conflicts:[]}`
+      // for any non-conflict failure (in-progress rebase, refs out of sync,
+      // etc.). The if/else-if chain in the handler had no else clause for
+      // that shape, so the click looked like a no-op. This test pins the
+      // surfaced-error behavior against regressions.
+      const errorTracker = installErrorMessageTracker();
+
+      const gitService = createMockGitService({
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+          success: false,
+          conflicts: [],
+          failureReason: 'It seems that there is already a rebase-merge directory',
+        }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.ok(
+        errorTracker.calls.length > 0,
+        'showErrorMessage MUST be called when rebase fails for a non-conflict reason'
+      );
+      const msg = errorTracker.calls[0].message;
+      assert.ok(
+        msg.includes('rebase-merge directory'),
+        `Error message should include the underlying git reason, got: "${msg}"`
+      );
+    });
+
+    it('_handleRebaseCurrentOnto surfaces a fallback message when failureReason is missing', async () => {
+      // Defensive: even if a future GitService refactor returns
+      // `{success:false, conflicts:[]}` without populating `failureReason`,
+      // the user must still see SOMETHING — never a silent no-op.
+      const errorTracker = installErrorMessageTracker();
+
+      const gitService = createMockGitService({
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+          success: false,
+          conflicts: [],
+        }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.ok(
+        errorTracker.calls.length > 0,
+        'showErrorMessage MUST be called even without failureReason'
+      );
+    });
+
     // TL-33: tests for the `_parseConflictCount` fallback path were removed.
     // The pull-throws-with-CONFLICT-markers branch no longer stringifies a
     // count out of the error text; when `_conflictResolutionService` is
