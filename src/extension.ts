@@ -46,7 +46,14 @@ import {
   ChangelistService,
   PatchWriteFailed,
 } from './services';
-import type { IBranch, IGitService, IGitServiceCli, IRepository, ITag } from './services';
+import type {
+  IBranch,
+  IGitService,
+  IGitServiceCli,
+  IRepository,
+  ITag,
+  PullDialogOutcome,
+} from './services';
 import { findCommitByQuery } from './git-core/gitToolWindow/jumpToHash';
 import { createCommandTitleProvider } from './commits/CommandTitleProvider';
 import {
@@ -806,12 +813,17 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Pull command — T1-02 Pull dialog (2-step QuickPick: source then flags).
+  // Bug G.2: branch on the dialog's outcome. The dialog handles its own
+  // pulled/conflict/error toasts internally (see `runPullDialog`); we only
+  // add a debug log on cancellation so a dismissed dialog is observable in
+  // the IntelliG OutputChannel (no toast — cancel is a normal user action).
   const pullCommand = registerLoggedCommand('intellig.pull', async () => {
     const dialog = _getPullDialog();
     if (!dialog) {
       return;
     }
-    await dialog.show();
+    const outcome = await dialog.show();
+    handlePullDialogOutcome(outcome);
   });
 
   // Fetch command (T1-03). Fetches all remotes for the selected repository,
@@ -3894,14 +3906,19 @@ function registerViews(context: vscode.ExtensionContext): void {
           grep: filter?.searchText,
         });
 
-        // Build branch map: commit hash -> branch names
-        const branchMap = new Map<string, string[]>();
+        // Build branch map: commit hash -> branch refs (name + type).
+        // Bug E: carry `branch.type` (local/remote, derived by parseBranches
+        // from the refs/heads vs refs/remotes prefix) instead of guessing
+        // from the name — `feature/foo` is local even though it has a `/`.
+        const branchMap = new Map<string, Array<{ name: string; type: 'local' | 'remote' }>>();
         try {
           const branches = await gitService.getBranches(repo);
           for (const branch of branches) {
-            if (branch.commit) {
+            // getBranches only returns refs/heads + refs/remotes, so type is
+            // always 'local' or 'remote' here; tags travel through tagMap.
+            if (branch.commit && branch.type !== 'tag') {
               const existing = branchMap.get(branch.commit) || [];
-              existing.push(branch.name);
+              existing.push({ name: branch.name, type: branch.type });
               branchMap.set(branch.commit, existing);
             }
           }
@@ -4540,6 +4557,35 @@ function _getPullDialog(): PullDialog | undefined {
  */
 export function getPullDialog(): PullDialog | undefined {
   return _getPullDialog();
+}
+
+/**
+ * Bug G.2 — handle the outcome of the generic `intellig.pull` PullDialog.
+ *
+ * The dialog (`runPullDialog`) shows its own toasts for the `pulled`,
+ * `conflict`, and `error` outcomes, so this helper deliberately does NOT
+ * re-toast for those — doing so would double-handle. For `cancelled`, the
+ * dialog shows nothing (Esc / dismissing is a normal user action), so we
+ * emit a single debug-level structured log record naming the step the user
+ * cancelled at. That keeps a dismissed dialog observable in the IntelliG
+ * OutputChannel without surfacing a toast.
+ *
+ * Extracted as a pure, exported function so the outcome-branching is unit
+ * testable without driving the registered command through the extension
+ * host. Do not call from production code outside the `intellig.pull`
+ * registration without review.
+ *
+ * @param outcome the result returned by `PullDialog.show()`
+ */
+export function handlePullDialogOutcome(outcome: PullDialogOutcome): void {
+  if (outcome.status === 'cancelled') {
+    getLogger()
+      .child({ component: 'extension' })
+      .debug('pull dialog cancelled', { step: outcome.step });
+    return;
+  }
+  // pulled / conflict / error: the dialog already surfaced the appropriate
+  // toast internally (see `runPullDialog`). Nothing more to do here.
 }
 
 // ─── T1-01: Push dialog ──────────────────────────────────────────────────────

@@ -1,16 +1,20 @@
 /**
  * Unit tests for — finished checkoutAndRebase / pullUsingRebase /
- * pullUsingMerge handlers.
+ * pullUsingMerge handlers, plus the generic `intellig.pull` dialog-outcome
+ * handler (Bug G).
  *
  * Complements the existing property tests (which cover the fallback /
- * error paths) by exercising the *wired* path:
+ * error paths) by exercising:
  *   - `_handleCheckoutAndRebase`: happy path (checkout → rebase → refresh),
  *     and conflict → `openResolveConflictsDialog` with `operation: 'rebase'`.
- *   - `_handlePullUsingRebase` / `_handlePullUsingMerge`: when a PullDialog
- *     accessor is wired, the handlers route through `PullDialog.show(repo,
- *     preset, { remote, branch })`. When the accessor is absent, the
- *     fallback direct-pull path is used (preserving the behaviour covered
- *     by the property suite).
+ *   - `_handlePullUsingRebase` / `_handlePullUsingMerge` (Bug G.1): the
+ *     right-click entries chose the strategy via the menu, so they bypass
+ *     the PullDialog entirely and pull directly via `gitService.pull` with
+ *     `rebase: preset === 'rebase'`. A wired dialog accessor's `show` must
+ *     NOT be called.
+ *   - `handlePullDialogOutcome` (Bug G.2): the generic `intellig.pull`
+ *     palette command still routes through PullDialog; a `cancelled`
+ *     outcome emits a debug log naming the step and fires NO toast.
  */
 
 /*
@@ -22,6 +26,8 @@ import '../../setup';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../branches/BranchTreeProvider';
+import { handlePullDialogOutcome } from '../../../extension';
+import type { PullDialogOutcome } from '../../../sync/PullDialog';
 import {
   IBasicRebaseResult,
   IBranch,
@@ -36,8 +42,14 @@ import {
   IConflictResolutionService,
 } from '../../../conflicts/interfaces/IConflictResolutionService';
 import type { PullDialog } from '../../../sync/PullDialog';
-import { EventEmitter, Uri } from '../../mocks/vscode';
-import { writableWindow } from '../../typed/windowStub';
+import { EventEmitter, Uri, resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
+import {
+  installErrorMessageTracker,
+  installInfoMessageTracker,
+  installWarningMessageTracker,
+  restoreMessageFunctions,
+  writableWindow,
+} from '../../typed/windowStub';
 import {
   createMockGitService as createSharedMockGitService,
   detachedRepo,
@@ -294,58 +306,95 @@ describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
 // ─── Tests: pullUsingRebase / pullUsingMerge ─────────────────────────────────
 
 describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () => {
-  it('pullUsingRebase: routes through PullDialog with preset="rebase" + remote/branch prefilled', async () => {
+  it('pullUsingRebase: skips PullDialog and routes to direct pull with rebase=true', async () => {
+    // Bug G.1: the right-click entry already chose the strategy, so the
+    // handler must NOT open the PullDialog. A wired dialog accessor's
+    // `show` must never be called; instead the direct-pull path runs with
+    // `rebase: preset === 'rebase'` → true.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
     const pullDialog = createMockPullDialog();
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => pullDialog as unknown as PullDialog
-    );
+    const infoTracker = installInfoMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        undefined,
+        () => pullDialog as unknown as PullDialog
+      );
 
-    const item = createRemoteBranchTreeItem('origin/feature/x');
-    await (
-      commands as unknown as {
-        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingRebase(item);
+      const item = createRemoteBranchTreeItem('origin/feature/x');
+      await (
+        commands as unknown as {
+          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingRebase(item);
 
-    assert.strictEqual(pullDialog._calls.length, 1);
-    const [repoArg, preset, source] = pullDialog._calls[0].args;
-    assert.strictEqual(repoArg, repo);
-    assert.strictEqual(preset, 'rebase');
-    assert.deepStrictEqual(source, { remote: 'origin', branch: 'feature/x' });
-    // Direct pull NOT invoked because the dialog accessor handled it.
-    assert.strictEqual(gitService._calls.pull.length, 0);
+      // Dialog is bypassed entirely.
+      assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
+      // Direct pull invoked with the rebase strategy and prefilled source.
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      const pullOptions = gitService._calls.pull[0].args[1] as {
+        remote: string;
+        branch: string;
+        rebase: boolean;
+      };
+      assert.strictEqual(pullOptions.remote, 'origin');
+      assert.strictEqual(pullOptions.branch, 'feature/x');
+      assert.strictEqual(pullOptions.rebase, true, 'rebase preset → rebase=true');
+      // Success toast fired.
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes('using rebase')),
+        `expected a success toast naming the rebase strategy, got: ${JSON.stringify(infoTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
   });
 
-  it('pullUsingMerge: routes through PullDialog with preset="merge"', async () => {
+  it('pullUsingMerge: skips PullDialog and routes to direct pull with rebase=false', async () => {
+    // Bug G.1: same as rebase but the merge preset maps to rebase=false.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
     const pullDialog = createMockPullDialog();
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => pullDialog as unknown as PullDialog
-    );
+    const infoTracker = installInfoMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        undefined,
+        () => pullDialog as unknown as PullDialog
+      );
 
-    const item = createRemoteBranchTreeItem('origin/develop');
-    await (
-      commands as unknown as {
-        _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingMerge(item);
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingMerge(item);
 
-    assert.strictEqual(pullDialog._calls.length, 1);
-    const [, preset, source] = pullDialog._calls[0].args;
-    assert.strictEqual(preset, 'merge');
-    assert.deepStrictEqual(source, { remote: 'origin', branch: 'develop' });
-    assert.strictEqual(gitService._calls.pull.length, 0);
+      // Dialog is bypassed entirely.
+      assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
+      // Direct pull invoked with merge semantics (rebase=false).
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      const pullOptions = gitService._calls.pull[0].args[1] as {
+        remote: string;
+        branch: string;
+        rebase: boolean;
+      };
+      assert.strictEqual(pullOptions.remote, 'origin');
+      assert.strictEqual(pullOptions.branch, 'main');
+      assert.strictEqual(pullOptions.rebase, false, 'merge preset → rebase=false');
+      // Success toast fired.
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes('using merge')),
+        `expected a success toast naming the merge strategy, got: ${JSON.stringify(infoTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
   });
 
   it('pullDialog accessor returning undefined falls back to direct pull', async () => {
@@ -424,7 +473,8 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
   it('remote branch name without "/" maps remote=fullName branch=fullName', async () => {
     // Defensive: BranchTreeItem names should always be "<remote>/<branch>",
     // but the parser handles the degenerate no-slash case by using the
-    // whole string as both remote and branch. Lock that behaviour in.
+    // whole string as both remote and branch. Bug G.1: the dialog is
+    // bypassed, so this asserts the direct-pull call's options instead.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
@@ -443,9 +493,145 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
       }
     )._handlePullUsingRebase(item);
 
-    assert.strictEqual(pullDialog._calls.length, 1);
-    const [, , source] = pullDialog._calls[0].args;
-    assert.deepStrictEqual(source, { remote: 'origin-only', branch: 'origin-only' });
+    assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
+    assert.strictEqual(gitService._calls.pull.length, 1);
+    const pullOptions = gitService._calls.pull[0].args[1] as {
+      remote: string;
+      branch: string;
+    };
+    assert.strictEqual(pullOptions.remote, 'origin-only');
+    assert.strictEqual(pullOptions.branch, 'origin-only');
+  });
+});
+
+// ─── Tests: generic intellig.pull dialog-outcome handling (Bug G.2) ──────────
+
+/**
+ * Bug G.2: the generic `intellig.pull` palette command still routes through
+ * the PullDialog (where strategy IS the question). The dialog already shows
+ * its own toasts for the `pulled` / `conflict` / `error` outcomes
+ * (see `runPullDialog`), so the registration must NOT double-handle those.
+ * On `cancelled` the dialog shows nothing — Esc / dismissing is a normal
+ * user action — so the registration emits a single debug-level structured
+ * log record naming the step the user cancelled at, with NO toast.
+ *
+ * The outcome-branching is extracted from the `intellig.pull` registration
+ * into the exported, pure `handlePullDialogOutcome` helper so it is testable
+ * without driving the registered command through the extension host. These
+ * tests pin that helper's behaviour.
+ */
+describe('Bug G.2 — generic intellig.pull dialog-outcome handler', () => {
+  /** Pin the Logger to `debug` BEFORE init so the debug record is admitted. */
+  function setupDebugLogger(): { _lines: string[] } {
+    __resetLoggerForTest();
+    __resetOutputChannelForTest();
+    resetMockConfiguration();
+    setMockConfigValue('intellig', 'log.level', 'debug');
+    const ctxSubs: { dispose(): void }[] = [];
+    const ctx = { subscriptions: ctxSubs } as unknown as import('vscode').ExtensionContext;
+    initOutputChannel(ctx);
+    initLogger(ctx);
+    return getOutputChannel() as unknown as { _lines: string[] };
+  }
+
+  it('cancelled at options step: emits a debug log, no toast', () => {
+    const channel = setupDebugLogger();
+    const infoTracker = installInfoMessageTracker();
+    const warnTracker = installWarningMessageTracker();
+    const errorTracker = installErrorMessageTracker();
+    try {
+      const outcome: PullDialogOutcome = { status: 'cancelled', step: 'options' };
+      handlePullDialogOutcome(outcome);
+
+      // No toast on user-cancel.
+      assert.strictEqual(infoTracker.calls.length, 0, 'no info toast on cancel');
+      assert.strictEqual(warnTracker.calls.length, 0, 'no warning toast on cancel');
+      assert.strictEqual(errorTracker.calls.length, 0, 'no error toast on cancel');
+
+      // At least one debug record mentioning the cancellation + step.
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const cancelRecord = records.find(
+        (r) =>
+          r.level === 'debug' &&
+          r.component === 'extension' &&
+          r.message.includes('pull dialog cancelled')
+      );
+      assert.ok(
+        cancelRecord,
+        `expected a debug 'pull dialog cancelled' record; saw lines: ${JSON.stringify(channel._lines)}`
+      );
+      const rendered = JSON.stringify(cancelRecord);
+      assert.ok(
+        rendered.includes('options'),
+        `cancel record must name the 'options' step; got: ${rendered}`
+      );
+    } finally {
+      restoreMessageFunctions();
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
+      resetMockConfiguration();
+    }
+  });
+
+  it('cancelled at source step: debug record names the source step', () => {
+    const channel = setupDebugLogger();
+    const infoTracker = installInfoMessageTracker();
+    try {
+      handlePullDialogOutcome({ status: 'cancelled', step: 'source' });
+
+      assert.strictEqual(infoTracker.calls.length, 0, 'no toast on cancel');
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const cancelRecord = records.find(
+        (r) =>
+          r.level === 'debug' &&
+          r.component === 'extension' &&
+          r.message.includes('pull dialog cancelled')
+      );
+      assert.ok(cancelRecord, 'expected a debug cancel record for the source step');
+      assert.ok(
+        JSON.stringify(cancelRecord).includes('source'),
+        'cancel record must name the source step'
+      );
+    } finally {
+      restoreMessageFunctions();
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
+      resetMockConfiguration();
+    }
+  });
+
+  it('pulled / conflict / error: no extra toast and no cancel log (dialog handled it)', () => {
+    const channel = setupDebugLogger();
+    const infoTracker = installInfoMessageTracker();
+    const warnTracker = installWarningMessageTracker();
+    const errorTracker = installErrorMessageTracker();
+    try {
+      const opts = { remote: 'origin', branch: 'main' };
+      handlePullDialogOutcome({ status: 'pulled', options: opts });
+      handlePullDialogOutcome({ status: 'conflict', options: opts, message: 'CONFLICT' });
+      handlePullDialogOutcome({ status: 'error', options: opts, message: 'boom' });
+
+      // The registration must not double-handle: the dialog already
+      // toasted internally for these outcomes.
+      assert.strictEqual(infoTracker.calls.length, 0, 'no extra info toast');
+      assert.strictEqual(warnTracker.calls.length, 0, 'no extra warning toast');
+      assert.strictEqual(errorTracker.calls.length, 0, 'no extra error toast');
+
+      // And no spurious "pull dialog cancelled" debug record for non-cancel
+      // outcomes.
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const cancelRecord = records.find((r) => r.message.includes('pull dialog cancelled'));
+      assert.strictEqual(
+        cancelRecord,
+        undefined,
+        'no cancel log should fire for pulled/conflict/error outcomes'
+      );
+    } finally {
+      restoreMessageFunctions();
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
+      resetMockConfiguration();
+    }
   });
 });
 
@@ -1172,6 +1358,297 @@ describe('Wave K WK-3 — _handleTrackRemote (smart-detect)', () => {
       );
     } finally {
       writableWindow().showErrorMessage = savedError;
+    }
+  });
+});
+
+// ─── Tests: _handleCheckoutAsLocal (Bug F — reset stale local to remote tip) ──
+
+/**
+ * Bug F coverage: "Checkout" on a remote branch must land the user on the
+ * remote tip even when a stale local of the same name exists. The handler
+ * collapses the old `localExists ? plain-checkout : create-tracking`
+ * branching into a single `checkout(repo, branch, { forceCreate: true,
+ * track: '<remote>/<branch>' })` call (emits `git checkout -B <branch>
+ * <remote>/<branch>`). Because `-B` rewrites the local's commit pointer, the
+ * handler first probes the local IBranch's `ahead` count and, when it has
+ * unique commits, shows a modal confirmation gating the reset.
+ */
+describe('Bug F BranchContextMenuCommands — checkout-as-local resets stale local', () => {
+  interface CheckoutLocalMockGit {
+    _calls: {
+      checkout: Call<[IRepository, string, unknown?]>[];
+      stash: Call<[IRepository, string?]>[];
+      getBranches: Call<[IRepository]>[];
+    };
+    onDidChangeRepository: unknown;
+    onDidFetch: unknown;
+    getRepositories: () => IRepository[];
+    getRepository: () => Promise<IRepository | undefined>;
+    getBranches: (repo: IRepository) => Promise<IBranch[]>;
+    checkout: (repo: IRepository, ref: string, options?: unknown) => Promise<void>;
+    stash: (repo: IRepository, message?: string) => Promise<void>;
+    reloadRepository: (repo: IRepository) => Promise<IRepository>;
+  }
+
+  function createCheckoutLocalMockGit(branches: IBranch[]): CheckoutLocalMockGit {
+    const repoChange = new EventEmitter<IRepository>();
+    const fetchEmitter = new EventEmitter<{ repo: IRepository; result: IFetchResult }>();
+    const calls = {
+      checkout: [] as Call<[IRepository, string, unknown?]>[],
+      stash: [] as Call<[IRepository, string?]>[],
+      getBranches: [] as Call<[IRepository]>[],
+    };
+    return {
+      _calls: calls,
+      onDidChangeRepository: repoChange.event,
+      onDidFetch: fetchEmitter.event,
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+      getBranches: async (repo: IRepository) => {
+        calls.getBranches.push({ args: [repo] });
+        return branches;
+      },
+      checkout: async (repo: IRepository, ref: string, options?: unknown) => {
+        calls.checkout.push({ args: [repo, ref, options] });
+      },
+      stash: async (repo: IRepository, message?: string) => {
+        calls.stash.push({ args: [repo, message] });
+      },
+      reloadRepository: async (repo: IRepository) => repo,
+    };
+  }
+
+  it('checkout-as-local-1: existing local at ahead:0 → single forceCreate call, NOT a plain checkout', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 0, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(gitService as unknown as IGitService, provider);
+
+    const item = createRemoteBranchTreeItem('origin/main');
+    await (
+      commands as unknown as {
+        _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckoutAsLocal(item);
+
+    // Exactly one checkout call, with the forceCreate + track options.
+    assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must be called once');
+    assert.strictEqual(gitService._calls.checkout[0].args[1], 'main');
+    const opts = gitService._calls.checkout[0].args[2] as {
+      forceCreate?: boolean;
+      track?: string;
+    };
+    assert.strictEqual(opts.forceCreate, true, 'must use forceCreate (-B), not a plain checkout');
+    assert.strictEqual(opts.track, 'origin/main');
+    // ahead:0 → no prompt.
+    assert.strictEqual(gitService._calls.stash.length, 0, 'no stash when ahead === 0');
+  });
+
+  it('checkout-as-local-2a: local ahead:3 + Cancel → warning shown, checkout NOT called', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningMsg = '';
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (
+      message: string,
+      ..._items: unknown[]
+    ): Promise<string | undefined> => {
+      warningMsg = message;
+      return Promise.resolve('Cancel');
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.ok(
+        warningMsg.includes('3 commits not on remote'),
+        `warning should mention the ahead count; got: "${warningMsg}"`
+      );
+      assert.strictEqual(
+        gitService._calls.checkout.length,
+        0,
+        'checkout MUST NOT run when the user cancels'
+      );
+      assert.strictEqual(gitService._calls.stash.length, 0, 'no stash on cancel');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-2b: local ahead:3 + "Reset anyway" → forceCreate, no stash', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> =>
+      Promise.resolve('Reset anyway');
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(gitService._calls.stash.length, 0, 'Reset anyway must NOT stash');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout must run after confirm');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-2c: local ahead:3 + "Stash and reset" → stash THEN forceCreate', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 3, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    // Record interleaving order of stash vs checkout.
+    const order: string[] = [];
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> =>
+      Promise.resolve('Stash and reset');
+    gitService.stash = async (repo2: IRepository, message?: string) => {
+      order.push('stash');
+      gitService._calls.stash.push({ args: [repo2, message] });
+    };
+    gitService.checkout = async (repo2: IRepository, ref: string, options?: unknown) => {
+      order.push('checkout');
+      gitService._calls.checkout.push({ args: [repo2, ref, options] });
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(gitService._calls.stash.length, 1, 'stash must run');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'forceCreate must run');
+      assert.deepStrictEqual(order, ['stash', 'checkout'], 'stash must precede the reset');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-3: local ahead:0 → no prompt, checkout immediately', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'main', type: 'local', commit: 'aaa', isHead: false, ahead: 0, behind: 0 },
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningCalled = false;
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> => {
+      warningCalled = true;
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(warningCalled, false, 'no prompt when local is not ahead');
+      assert.strictEqual(gitService._calls.checkout.length, 1, 'checkout runs immediately');
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
+    }
+  });
+
+  it('checkout-as-local-4: no local exists → no prompt, forceCreate creates tracking branch', async () => {
+    const gitService = createCheckoutLocalMockGit([
+      { name: 'origin/main', type: 'remote', commit: 'bbb', isHead: false },
+    ]);
+    const repo = createMockRepo('feature');
+    const provider = createMockBranchTreeProvider(repo);
+
+    let warningCalled = false;
+    const savedWarning = writableWindow().showWarningMessage;
+    writableWindow().showWarningMessage = (): Promise<string | undefined> => {
+      warningCalled = true;
+      return Promise.resolve(undefined);
+    };
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider
+      );
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handleCheckoutAsLocal(i: BranchTreeItem): Promise<void>;
+        }
+      )._handleCheckoutAsLocal(item);
+
+      assert.strictEqual(warningCalled, false, 'no prompt when local does not exist');
+      assert.strictEqual(gitService._calls.checkout.length, 1);
+      const opts = gitService._calls.checkout[0].args[2] as {
+        forceCreate?: boolean;
+        track?: string;
+      };
+      assert.strictEqual(opts.forceCreate, true);
+      assert.strictEqual(opts.track, 'origin/main');
+    } finally {
+      writableWindow().showWarningMessage = savedWarning;
     }
   });
 });

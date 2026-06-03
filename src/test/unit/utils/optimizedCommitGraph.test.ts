@@ -10,6 +10,7 @@
 
 import * as assert from 'assert';
 import { ICommit } from '../../../git-core/interfaces/IGitService';
+import { IBranchRef } from '../../../git-core/commitGraph';
 import {
   generateOptimizedCommitGraph,
   processCommitsInBatches,
@@ -116,11 +117,22 @@ describe('generateOptimizedCommitGraph', () => {
 
     it('should include branch labels', () => {
       const commits = [createMockCommit('abc123', [], 'Initial')];
-      const branchMap = new Map([['abc123', ['main', 'develop']]]);
+      const branchMap = new Map<string, IBranchRef[]>([
+        [
+          'abc123',
+          [
+            { name: 'main', type: 'local' },
+            { name: 'develop', type: 'local' },
+          ],
+        ],
+      ]);
 
       const result = generateOptimizedCommitGraph(commits, branchMap);
 
-      assert.deepStrictEqual(result[0].branches, ['main', 'develop']);
+      assert.deepStrictEqual(result[0].branches, [
+        { name: 'main', type: 'local' },
+        { name: 'develop', type: 'local' },
+      ]);
     });
 
     it('should include tag labels', () => {
@@ -241,12 +253,14 @@ describe('processCommitsInBatches', () => {
 
   it('should include branch and tag maps', async () => {
     const commits = [createMockCommit('abc123', [], 'Initial')];
-    const branchMap = new Map([['abc123', ['main']]]);
+    const branchMap = new Map<string, IBranchRef[]>([
+      ['abc123', [{ name: 'main', type: 'local' }]],
+    ]);
     const tagMap = new Map([['abc123', ['v1.0.0']]]);
 
     const result = await processCommitsInBatches(commits, 10, () => {}, branchMap, tagMap);
 
-    assert.deepStrictEqual(result[0].branches, ['main']);
+    assert.deepStrictEqual(result[0].branches, [{ name: 'main', type: 'local' }]);
     assert.deepStrictEqual(result[0].tags, ['v1.0.0']);
   });
 });

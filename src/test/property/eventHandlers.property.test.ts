@@ -134,10 +134,12 @@ function arbitraryCommitNode(hash: string): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), {
-        minLength: 1,
-        maxLength: 10,
-      }),
+      fc
+        .stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), {
+          minLength: 1,
+          maxLength: 10,
+        })
+        .map((name) => ({ name, type: name.includes('/') ? 'remote' : 'local' }) as const),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(

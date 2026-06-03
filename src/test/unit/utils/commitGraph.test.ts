@@ -20,8 +20,8 @@ import {
   computeTerminalNodes,
   computeChildCountMap,
   isBranchSplit,
-  classifyBranchName,
   ICommitNode,
+  IBranchRef,
 } from '../../../git-core/commitGraph';
 import { ICommit } from '../../../git-core/interfaces/IGitService';
 
@@ -190,12 +190,18 @@ describe('Commit Graph Generation', () => {
       it('should include branch names in commit nodes', () => {
         const commits = [createMockCommit('abc123', [], 'Initial commit')];
 
-        const branchMap = new Map<string, string[]>();
-        branchMap.set('abc123', ['main', 'develop']);
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('abc123', [
+          { name: 'main', type: 'local' },
+          { name: 'develop', type: 'local' },
+        ]);
 
         const result = generateCommitGraph(commits, branchMap);
 
-        assert.deepStrictEqual(result[0].branches, ['main', 'develop']);
+        assert.deepStrictEqual(result[0].branches, [
+          { name: 'main', type: 'local' },
+          { name: 'develop', type: 'local' },
+        ]);
       });
 
       it('should include tag names in commit nodes', () => {
@@ -212,15 +218,15 @@ describe('Commit Graph Generation', () => {
       it('should include both branches and tags', () => {
         const commits = [createMockCommit('abc123', [], 'Initial commit')];
 
-        const branchMap = new Map<string, string[]>();
-        branchMap.set('abc123', ['main']);
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('abc123', [{ name: 'main', type: 'local' }]);
 
         const tagMap = new Map<string, string[]>();
         tagMap.set('abc123', ['v1.0.0']);
 
         const result = generateCommitGraph(commits, branchMap, tagMap);
 
-        assert.deepStrictEqual(result[0].branches, ['main']);
+        assert.deepStrictEqual(result[0].branches, [{ name: 'main', type: 'local' }]);
         assert.deepStrictEqual(result[0].tags, ['v1.0.0']);
       });
 
@@ -854,52 +860,6 @@ describe('Commit Graph - Complex Scenarios', () => {
       // Both merge commits should have 2 lines each
       assert.strictEqual(result[0].graphLines.length, 2);
       assert.strictEqual(result[1].graphLines.length, 2);
-    });
-  });
-});
-
-describe('classifyBranchName()', () => {
-  describe('local branches', () => {
-    it('should classify "main" as local', () => {
-      assert.strictEqual(classifyBranchName('main'), 'local');
-    });
-
-    it('should classify "develop" as local', () => {
-      assert.strictEqual(classifyBranchName('develop'), 'local');
-    });
-
-    it('should classify "feature-branch" as local', () => {
-      assert.strictEqual(classifyBranchName('feature-branch'), 'local');
-    });
-
-    it('should classify a single word branch name as local', () => {
-      assert.strictEqual(classifyBranchName('hotfix'), 'local');
-    });
-
-    it('should classify an empty string as local', () => {
-      assert.strictEqual(classifyBranchName(''), 'local');
-    });
-  });
-
-  describe('remote branches', () => {
-    it('should classify "origin/main" as remote', () => {
-      assert.strictEqual(classifyBranchName('origin/main'), 'remote');
-    });
-
-    it('should classify "origin/develop" as remote', () => {
-      assert.strictEqual(classifyBranchName('origin/develop'), 'remote');
-    });
-
-    it('should classify "upstream/feature-branch" as remote', () => {
-      assert.strictEqual(classifyBranchName('upstream/feature-branch'), 'remote');
-    });
-
-    it('should classify "origin/feature/nested-name" as remote', () => {
-      assert.strictEqual(classifyBranchName('origin/feature/nested-name'), 'remote');
-    });
-
-    it('should classify any "remoteName/" pattern as remote', () => {
-      assert.strictEqual(classifyBranchName('my-remote/branch'), 'remote');
     });
   });
 });

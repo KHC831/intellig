@@ -4,6 +4,7 @@ import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
 import {
   generateCommitGraph,
   ICommitNode,
+  IBranchRef,
   isMergeCommit,
   isRootCommit,
 } from '../../git-core/commitGraph';
@@ -435,13 +436,20 @@ describe('Log Graph Accuracy Property Tests', () => {
             }
 
             // Create branch and tag maps
-            const branchMap = new Map<string, string[]>();
+            const branchMap = new Map<string, IBranchRef[]>();
             const tagMap = new Map<string, string[]>();
+
+            // Branch names → typed refs. These tests don't assert
+            // classification, so we derive type from the slash convention.
+            const branchRefs: IBranchRef[] = branchNames.map(
+              (name: string) =>
+                ({ name, type: name.includes('/') ? 'remote' : 'local' }) as IBranchRef
+            );
 
             // Assign branches and tags to first commit
             const firstCommitHash = commits[0].hash;
-            if (branchNames.length > 0) {
-              branchMap.set(firstCommitHash, branchNames);
+            if (branchRefs.length > 0) {
+              branchMap.set(firstCommitHash, branchRefs);
             }
             if (tagNames.length > 0) {
               tagMap.set(firstCommitHash, tagNames);
@@ -454,7 +462,7 @@ describe('Log Graph Accuracy Property Tests', () => {
             const firstNode = nodes[0];
             assert.deepStrictEqual(
               firstNode.branches,
-              branchNames,
+              branchRefs,
               'First commit should have assigned branches'
             );
             assert.deepStrictEqual(

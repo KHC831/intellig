@@ -498,12 +498,35 @@ export function parseRepositoryState(statusOutput: string): RepositoryState {
 /**
  * Parse unified diff output into diff objects.
  *
+ * Handles BOTH standard two-parent-free diffs and the combined-diff format
+ * git emits for merge commits:
+ *
+ * - Regular: blocks begin `diff --git a/<old> b/<new>` and carry `@@` hunks.
+ * - Combined (`git show <merge>`): blocks begin `diff --cc <path>` (or
+ *   `diff --combined <path>`) with no `a/`…`b/` prefixes and `@@@` hunk
+ *   headers carrying N+1 prefix columns for an N-parent merge.
+ *
+ * Before this handled combined diffs, `output.split(/^diff --git /m)` returned
+ * the whole combined block as one unsplittable chunk whose first line
+ * (`diff --cc <path>`) failed the `a/…b/…` path match — so merge commits
+ * surfaced as "No changed files" in the details panel even though they had
+ * real content. For combined blocks we extract the path, mark the file
+ * `'modified'` (the correct semantic answer for a conflict-resolved file),
+ * and skip per-line hunk parsing — the Changed Files list only reads
+ * `path` / `status` / `oldPath`. Per-line merge diffs are a follow-up.
+ *
  * @param output - The unified diff output
  * @returns Array of diff objects
  */
 export function parseDiff(output: string): IDiff[] {
   const diffs: IDiff[] = [];
-  const diffBlocks = output.split(/^diff --git /m).filter((block) => block.trim().length > 0);
+  // Split on either header form. Each block retains its own leading marker
+  // (`--git …` or `--cc …` / `--combined …`) because we strip the literal
+  // `diff ` prefix only, letting each block self-identify.
+  const diffBlocks = output
+    .split(/^diff /m)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0);
 
   for (const block of diffBlocks) {
     const lines = block.split('\n');
@@ -511,8 +534,24 @@ export function parseDiff(output: string): IDiff[] {
       continue;
     }
 
-    // Parse file paths from first line: a/path b/path
-    const pathMatch = lines[0].match(/^a\/(.+)\s+b\/(.+)$/);
+    const header = lines[0];
+
+    // Combined-diff block (merge commit): `--cc <path>` or `--combined <path>`.
+    if (header.startsWith('--cc ') || header.startsWith('--combined ')) {
+      const combined = parseCombinedDiffHeader(header, lines);
+      if (combined) {
+        diffs.push(combined);
+      }
+      continue;
+    }
+
+    // Regular block: `--git a/<old> b/<new>`.
+    if (!header.startsWith('--git ')) {
+      continue;
+    }
+
+    // Parse file paths from the header: a/path b/path
+    const pathMatch = header.match(/^--git a\/(.+)\s+b\/(.+)$/);
     if (!pathMatch) {
       continue;
     }
@@ -551,6 +590,42 @@ export function parseDiff(output: string): IDiff[] {
   }
 
   return diffs;
+}
+
+/**
+ * Extract a diff object from a combined-diff (`diff --cc` / `diff --combined`)
+ * block emitted by `git show` on a merge commit.
+ *
+ * Combined diffs have no `a/`…`b/` path distinction and do not emit
+ * `new file mode` / `deleted file mode` / `rename from` lines the way regular
+ * diffs do, so the file is always reported as `'modified'` — the correct
+ * semantic answer for any file that participated in a merge/conflict
+ * resolution, and all the Changed Files panel needs. Per-line hunk parsing is
+ * skipped (`hunks: []`) because the `@@@` multi-column format isn't modelled
+ * by `parseHunks`; the file-list view never reads it.
+ *
+ * @param header - The block's first line, with the leading `diff ` stripped
+ *   (e.g. `--cc src/foo.ts`).
+ * @param lines - All lines of the block (header included).
+ * @returns A diff object, or `undefined` when the path can't be extracted.
+ */
+function parseCombinedDiffHeader(header: string, lines: string[]): IDiff | undefined {
+  const path = header.replace(/^--(?:cc|combined)\s+/, '').trim();
+  if (path.length === 0) {
+    return undefined;
+  }
+
+  // Detect a binary combined diff defensively — git can still print the
+  // "Binary files … differ" sentinel for binary content in a merge.
+  const binary = lines.some((line) => line.includes('Binary files'));
+
+  return {
+    path,
+    oldPath: undefined,
+    status: 'modified',
+    hunks: [],
+    binary,
+  };
 }
 
 /**

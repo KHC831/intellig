@@ -7,7 +7,7 @@
  */
 
 import { ICommit } from './interfaces/IGitService';
-import { ICommitNode, IGraphLine, getColumnColor } from './commitGraph';
+import { ICommitNode, IBranchRef, IGraphLine, getColumnColor } from './commitGraph';
 
 /**
  * Configuration for optimized graph generation.
@@ -134,14 +134,14 @@ function releaseLane(state: IOptimizedLaneState, lane: number): void {
  * 4. Batch processing support for incremental rendering
  *
  * @param commits - Array of commits in topological order (newest first)
- * @param branchMap - Optional map of commit hash to branch names
+ * @param branchMap - Optional map of commit hash to branch refs (name + type)
  * @param tagMap - Optional map of commit hash to tag names
  * @param config - Optimization configuration
  * @returns Array of commit nodes with graph visualization data
  */
 export function generateOptimizedCommitGraph(
   commits: ICommit[],
-  branchMap?: Map<string, string[]>,
+  branchMap?: Map<string, IBranchRef[]>,
   tagMap?: Map<string, string[]>,
   config?: IGraphOptimizationConfig
 ): ICommitNode[] {
@@ -164,7 +164,7 @@ export function generateOptimizedCommitGraph(
  */
 function generateFullGraph(
   commits: ICommit[],
-  branchMap: Map<string, string[]> | undefined,
+  branchMap: Map<string, IBranchRef[]> | undefined,
   tagMap: Map<string, string[]> | undefined,
   config: Required<IGraphOptimizationConfig>
 ): ICommitNode[] {
@@ -266,7 +266,7 @@ function generateFullGraph(
  */
 function generateSimplifiedGraph(
   commits: ICommit[],
-  branchMap: Map<string, string[]> | undefined,
+  branchMap: Map<string, IBranchRef[]> | undefined,
   tagMap: Map<string, string[]> | undefined,
   config: Required<IGraphOptimizationConfig>
 ): ICommitNode[] {
@@ -342,14 +342,14 @@ function generateSimplifiedGraph(
  * @param commits - Array of commits to process
  * @param batchSize - Number of commits per batch
  * @param onBatch - Callback for each processed batch
- * @param branchMap - Optional branch map
+ * @param branchMap - Optional branch map (commit hash → branch refs)
  * @param tagMap - Optional tag map
  */
 export async function processCommitsInBatches(
   commits: ICommit[],
   batchSize: number,
   onBatch: (nodes: ICommitNode[], isComplete: boolean) => void,
-  branchMap?: Map<string, string[]>,
+  branchMap?: Map<string, IBranchRef[]>,
   tagMap?: Map<string, string[]>
 ): Promise<ICommitNode[]> {
   const allNodes: ICommitNode[] = [];

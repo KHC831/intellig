@@ -13,7 +13,7 @@ import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
-import { ICommitNode, IGraphLine } from '../../git-core/commitGraph';
+import { ICommitNode, IGraphLine, IBranchRef } from '../../git-core/commitGraph';
 import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
 
@@ -134,10 +134,12 @@ function arbitraryCommitNode(hash: string): fc.Arbitrary<ICommitNode> {
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
     branches: fc.array(
-      fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), {
-        minLength: 1,
-        maxLength: 10,
-      }),
+      fc
+        .stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-'.split('')), {
+          minLength: 1,
+          maxLength: 10,
+        })
+        .map((name) => ({ name, type: name.includes('/') ? 'remote' : 'local' }) as const),
       { minLength: 0, maxLength: 2 }
     ),
     tags: fc.array(
@@ -222,7 +224,7 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
 
             // Load commit nodes into the provider
             const commits = commitNodes.map((n) => n.commit);
-            const branchMap = new Map<string, string[]>();
+            const branchMap = new Map<string, IBranchRef[]>();
             const tagMap = new Map<string, string[]>();
             testProvider.updateLogState(commits, branchMap, tagMap);
 
@@ -288,7 +290,7 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
               },
               date: selectedNode.commit.authorDate,
               parents: selectedNode.commit.parents || [],
-              branches: selectedNode.branches || [],
+              branches: (selectedNode.branches || []).map((ref) => ref.name),
               tags: selectedNode.tags || [],
               changedFiles: [],
             };

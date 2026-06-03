@@ -524,6 +524,16 @@ export class BranchContextMenuCommands {
    * one. Skipping the pre-check was the original silent-failure UX bug:
    * `rebaseBranch` returned `{success:false, conflicts:[]}` and the handler
    * had no else branch for that shape, so the click looked like a no-op.
+   *
+   * Bug C extends this: after the rebase runs, the handler reloads the repo
+   * and inspects `repo.inProgress` (populated from `readInProgressOperation`
+   * via `loadRepository`). On a non-conflict failure that left an orphaned
+   * `rebasing` state created by OUR invocation, it auto-aborts (C.2). When a
+   * rebasing state remains for any other reason (e.g. paused on conflicts
+   * with no Resolve Conflicts dialog wired), it surfaces an actionable
+   * "rebase paused" warning (C.1). The before/after snapshot of
+   * `inProgress.kind` ensures we never touch a rebase the user already had
+   * in progress before they clicked.
    */
   private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -544,7 +554,23 @@ export class BranchContextMenuCommands {
         return;
       }
 
+      // Bug C: snapshot the in-progress operation BEFORE invoking the
+      // rebase. This lets us distinguish a rebasing state that OUR call
+      // created (eligible for auto-abort / pause-warning recovery) from one
+      // the user already had paused before they clicked. `repo.inProgress`
+      // is populated by `loadRepository` via `readInProgressOperation`
+      // (see gitInProgress.ts); `kind` is the `IInProgressOperation` field.
+      const beforeKind = repo.inProgress?.kind;
+
       const result = await this._gitService.rebaseBranch(repo, item.branch.name);
+
+      // Track whether the Resolve Conflicts dialog was opened so we suppress
+      // the redundant Bug C.1 "rebase paused" warning for that same state —
+      // the dialog is itself the actionable continue/abort UI.
+      let conflictDialogOpened = false;
+      // Track the non-conflict-failure branch so only it is eligible for the
+      // Bug C.2 auto-abort of an orphaned rebase.
+      let nonConflictFailure = false;
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -554,6 +580,7 @@ export class BranchContextMenuCommands {
         // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise.
         if (this._conflictResolutionService) {
+          conflictDialogOpened = true;
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'rebase',
             target: item.branch.name,
@@ -572,13 +599,47 @@ export class BranchContextMenuCommands {
         // safety contract is locally evident at the toast site (TL-72
         // structural guard) and survives any future refactor of the source
         // side.
+        nonConflictFailure = true;
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
           `Failed to rebase onto '${item.branch.name}': ${sanitizeGitError(reason)}`
         );
       }
-      // Rebase moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
+
+      // Rebase moved HEAD (or left an in-progress marker); reload before
+      // refresh so the fresh `inProgress` state is read off disk.
+      const reloaded = await this._gitService.reloadRepository(repo);
+      const afterKind = (reloaded ?? repo).inProgress?.kind;
+
+      if (nonConflictFailure && beforeKind !== 'rebasing' && afterKind === 'rebasing') {
+        // Bug C.2: our non-conflict-failure invocation left an orphaned
+        // rebasing state (`.git/rebase-merge/`). The user's mental model is
+        // "I clicked rebase, it didn't work, it should be like I never
+        // clicked it" — so auto-abort AFTER the error toast above. The
+        // boundary is strict: only abort when the rebasing state did NOT
+        // exist before our call. If the user already had a rebase paused,
+        // `beforeKind === 'rebasing'` and we never touch it.
+        try {
+          await this._gitService.rebaseAbort(repo);
+        } catch (abortError) {
+          const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to abort orphaned rebase: ${sanitizeGitError(abortMsg)}`
+          );
+        }
+      } else if (afterKind === 'rebasing' && !conflictDialogOpened) {
+        // Bug C.1: a rebasing state remains after the operation and we did
+        // NOT open the Resolve Conflicts dialog as a dedicated UI. The rebase
+        // is paused (conflicts) or was interrupted. Surface an actionable
+        // warning. Of the rebase recovery commands the extension contributes,
+        // only `intellig.rebase.skip` exists today (continue/abort are not
+        // registered commands), so the message stays generic rather than
+        // referencing command IDs that don't exist.
+        void vscode.window.showWarningMessage(
+          'Rebase paused with conflicts (or interruption). Resolve and continue, or abort.'
+        );
+      }
+
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1056,9 +1117,10 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using rebase command for remote branches.
-   * Routes through the T1-02 Pull Dialog with the `rebase` preset and the
-   * remote/branch pre-filled from the menu item. Falls back to a direct
-   * pull if the dialog accessor isn't available.
+   * Bug G: pulls directly with the `rebase` preset (rebase=true) and the
+   * remote/branch parsed from the menu item. The second "Pull: Options"
+   * QuickPick is intentionally bypassed — the menu entry already chose the
+   * strategy.
    */
   private async _handlePullUsingRebase(item: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'rebase');
@@ -1066,16 +1128,29 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using merge command for remote branches.
-   * Routes through the T1-02 Pull Dialog with the `merge` preset.
+   * Bug G: pulls directly with the `merge` preset (rebase=false). The
+   * second "Pull: Options" QuickPick is intentionally bypassed.
    */
   private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'merge');
   }
 
   /**
-   * Shared implementation for the pullUsing* handlers — delegates to the
-   * Pull Dialog with source pre-filled, or falls back to a direct pull
-   * when the dialog is unavailable.
+   * Shared implementation for the pullUsing* handlers (Bug G).
+   *
+   * The right-click menu entry already chose the strategy
+   * (`pullUsingRebase` → rebase, `pullUsingMerge` → merge), so this path
+   * pulls directly via `gitService.pull` with `rebase: preset === 'rebase'`
+   * and never opens the PullDialog. Previously this delegated to
+   * `PullDialog.show`, which popped a second "Pull: Options" QuickPick
+   * requiring the synthetic ▶ Pull terminal item; dismissing it returned
+   * `{status:'cancelled'}` that the caller awaited but never branched on,
+   * making the action look like a silent no-op.
+   *
+   * `_pullDialogAccessor` remains a field/constructor param (other wiring
+   * may reference it) but is intentionally NOT consulted here. The generic
+   * `intellig.pull` palette command still routes through PullDialog — that
+   * entry point is where strategy IS the question.
    */
   private async _runPullFromBranchMenu(
     item: BranchTreeItem,
@@ -1094,17 +1169,24 @@ export class BranchContextMenuCommands {
     const branchName =
       slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
 
-    const dialog = this._pullDialogAccessor?.();
-    if (dialog) {
-      await dialog.show(repo, preset, { remote: remoteName, branch: branchName });
-      // Pull moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._branchTreeProvider.refresh();
-      return;
-    }
+    // Bug G: the right-click pullUsing* entries intentionally bypass the
+    // PullDialog — the menu entry already chose the strategy, so the second
+    // "Pull: Options" QuickPick was redundant friction whose silent cancel
+    // looked like a no-op. The `_pullDialogAccessor` field is retained for
+    // constructor-arity / wiring compatibility (the generic `intellig.pull`
+    // palette command still routes through PullDialog). Emit a debug note
+    // (visible only at `log.level=debug`) so a received click is observable
+    // even though no dialog opens.
+    getLogger()
+      .child({ component: 'BranchContextMenuCommands' })
+      .debug('pullUsing* bypassing PullDialog (strategy chosen via menu)', {
+        preset,
+        dialogAvailable: this._pullDialogAccessor !== undefined,
+      });
 
-    // Fallback path (tests and any legacy caller that didn't wire up the
-    // Pull Dialog): preserve the original direct-pull behaviour.
+    // Direct-pull path — the only path for both presets. The conflict-probe
+    // handoff below auto-opens the Resolve Conflicts dialog when the pull
+    // leaves the working tree with unresolved conflicts.
     try {
       await this._gitService.pull(repo, {
         remote: remoteName,
@@ -1175,6 +1257,16 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle checkout as local branch command.
+   *
+   * Bug F: a remote branch "Checkout" must land the user on the remote tip
+   * even when a stale local of the same name exists. We use IntelliJ's
+   * idiom `git checkout -B <branch> <remote>/<branch>` (forceCreate) which
+   * creates-or-resets the local to the remote tip in one step — the old
+   * `localExists ? plain-checkout : create-tracking` branching left a stale
+   * local untouched. Because `-B` rewrites the local's commit pointer, we
+   * first probe the local branch's `ahead` count and, when it has commits
+   * not on the remote (which would become unreachable), show a modal
+   * confirmation before resetting.
    */
   private async _handleCheckoutAsLocal(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -1186,22 +1278,37 @@ export class BranchContextMenuCommands {
     const parts = item.branch.name.split('/');
     const remoteName = parts[0];
     const branchName = parts.slice(1).join('/');
+    const track = `${remoteName}/${branchName}`;
 
     try {
-      // Check if local branch already exists
+      // Data-loss guard: if a local branch of the same name exists and is
+      // ahead of the remote, `-B` would orphan its unique commits. Probe the
+      // local IBranch and prompt before resetting. When the local doesn't
+      // exist (nothing to lose) or `ahead === 0` (the reset is a no-op or a
+      // fast-forward), skip the prompt and reset directly.
       const branches = await this._gitService.getBranches(repo);
-      const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
+      const local = branches.find((b) => b.type === 'local' && b.name === branchName);
+      const ahead = local?.ahead ?? 0;
 
-      if (localExists) {
-        // Just checkout the existing local branch
-        await this._gitService.checkout(repo, branchName);
-      } else {
-        // Create and checkout tracking branch
-        await this._gitService.checkout(repo, branchName, {
-          createBranch: true,
-          track: `${remoteName}/${branchName}`,
-        });
+      if (local && ahead > 0) {
+        const choice = await vscode.window.showWarningMessage(
+          `Local branch '${branchName}' has ${ahead} commit${ahead === 1 ? '' : 's'} ` +
+            `not on remote '${track}'. Resetting to the remote tip will make ` +
+            `${ahead === 1 ? 'it' : 'them'} unreachable.`,
+          { modal: true },
+          'Reset anyway',
+          'Stash and reset'
+        );
+        if (choice === 'Stash and reset') {
+          await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
+        } else if (choice !== 'Reset anyway') {
+          // Cancel (or dialog dismissed): do not touch the local branch.
+          return;
+        }
       }
+
+      // Create-or-reset the local to the remote tip in one step.
+      await this._gitService.checkout(repo, branchName, { forceCreate: true, track });
 
       // checkout-as-local moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -1222,16 +1329,8 @@ export class BranchContextMenuCommands {
         if (choice === 'Stash & Switch') {
           try {
             await this._gitService.stash(repo, `Auto-stash before checkout ${branchName}`);
-            const branches = await this._gitService.getBranches(repo);
-            const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
-            if (localExists) {
-              await this._gitService.checkout(repo, branchName);
-            } else {
-              await this._gitService.checkout(repo, branchName, {
-                createBranch: true,
-                track: `${remoteName}/${branchName}`,
-              });
-            }
+            // `-B` create-or-resets regardless of whether a local exists.
+            await this._gitService.checkout(repo, branchName, { forceCreate: true, track });
             // Stash + checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(
@@ -1246,17 +1345,12 @@ export class BranchContextMenuCommands {
           }
         } else if (choice === 'Force Checkout') {
           try {
-            const branches = await this._gitService.getBranches(repo);
-            const localExists = branches.some((b) => b.type === 'local' && b.name === branchName);
-            if (localExists) {
-              await this._gitService.checkout(repo, branchName, { force: true });
-            } else {
-              await this._gitService.checkout(repo, branchName, {
-                createBranch: true,
-                force: true,
-                track: `${remoteName}/${branchName}`,
-              });
-            }
+            // `-B` create-or-resets regardless of whether a local exists.
+            await this._gitService.checkout(repo, branchName, {
+              forceCreate: true,
+              force: true,
+              track,
+            });
             // Force checkout moved HEAD; reload before refresh.
             await this._gitService.reloadRepository(repo);
             void vscode.window.showInformationMessage(`Force switched to '${branchName}'`);
@@ -1350,9 +1444,11 @@ export class BranchContextMenuCommands {
    * Handle pull into current command.
    *
    * Delegates to `_runPullFromBranchMenu` with the default ("merge")
-   * preset so the user gets the same Pull Dialog + conflict-handoff
-   * pipeline as the pullUsingMerge/Rebase entries. Matches the caller-
-   * invoked pattern introduced by T1-02 and extended by T1-08(a).
+   * preset so the user gets the same direct-pull + conflict-handoff
+   * pipeline as the pullUsingMerge/Rebase entries. Bug G: this path no
+   * longer opens the second "Pull: Options" QuickPick — the right-click
+   * entry already chose the strategy. The conflict-handoff (T1-08(a))
+   * still fires on a conflicted pull.
    */
   private async _handlePullIntoCurrent(item: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'merge');

@@ -13,7 +13,7 @@ import '../setup';
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
-import { ICommitNode, IGraphLine } from '../../git-core/commitGraph';
+import { ICommitNode, IGraphLine, IBranchRef } from '../../git-core/commitGraph';
 import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
 import { invokePrivateHandler } from '../typed/privateHandler';
@@ -155,7 +155,11 @@ function arbitraryCommitNode(hash: string, branches: string[]): fc.Arbitrary<ICo
     commit: arbitraryCommit(hash),
     graphColumn: fc.integer({ min: 0, max: 5 }),
     graphLines: fc.array(arbitraryGraphLine(), { minLength: 0, maxLength: 3 }),
-    branches: fc.constant(branches),
+    branches: fc.constant(
+      branches.map(
+        (name) => ({ name, type: name.includes('/') ? 'remote' : 'local' }) as IBranchRef
+      )
+    ),
     tags: fc.array(
       fc.stringOf(fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789.'.split('')), {
         minLength: 1,
@@ -197,7 +201,7 @@ function arbitraryBranchMapEntry(): fc.Arbitrary<{
  * Returns { branchMap, commitNodes, selectedBranch, expectedHash }
  */
 function arbitraryBranchClickScenario(): fc.Arbitrary<{
-  branchMap: Map<string, string[]>;
+  branchMap: Map<string, IBranchRef[]>;
   commitNodes: ICommitNode[];
   selectedBranch: string;
   expectedHash: string;
@@ -250,10 +254,15 @@ function arbitraryBranchClickScenario(): fc.Arbitrary<{
         fc.nat({ max: allBranches.length - 1 })
       )
       .map(([nodes, branchIndex]) => {
-        // Build the branch map: hash -> branch names[]
-        const branchMap = new Map<string, string[]>();
+        // Build the branch map: hash -> branch refs[]
+        const branchMap = new Map<string, IBranchRef[]>();
         for (const entry of finalEntries) {
-          branchMap.set(entry.hash, entry.branches);
+          branchMap.set(
+            entry.hash,
+            entry.branches.map(
+              (name) => ({ name, type: name.includes('/') ? 'remote' : 'local' }) as IBranchRef
+            )
+          );
         }
 
         const selected = allBranches[branchIndex];
@@ -364,7 +373,7 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
                 },
                 date: matchingNode.commit.authorDate,
                 parents: matchingNode.commit.parents || [],
-                branches: matchingNode.branches || [],
+                branches: (matchingNode.branches || []).map((ref) => ref.name),
                 tags: matchingNode.tags || [],
                 changedFiles: [],
               };
@@ -471,9 +480,9 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
         });
         const commits: ICommit[] = [mkCommit(hashA, 'first'), mkCommit(hashB, 'second')];
         // Both commits claim the SAME branch name "a". Insertion order: A first.
-        const branchMap = new Map<string, string[]>();
-        branchMap.set(hashA, ['a']);
-        branchMap.set(hashB, ['a']);
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set(hashA, [{ name: 'a', type: 'local' }]);
+        branchMap.set(hashB, [{ name: 'a', type: 'local' }]);
         const tagMap = new Map<string, string[]>();
         provider.updateLogState(commits, branchMap, tagMap);
 
@@ -516,9 +525,9 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
           commitDate: date,
         });
         const commits: ICommit[] = [mkCommit(hashB, 'second'), mkCommit(hashA, 'first')];
-        const branchMap = new Map<string, string[]>();
-        branchMap.set(hashB, ['a']); // B inserted FIRST this time
-        branchMap.set(hashA, ['a']);
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set(hashB, [{ name: 'a', type: 'local' }]); // B inserted FIRST this time
+        branchMap.set(hashA, [{ name: 'a', type: 'local' }]);
         const tagMap = new Map<string, string[]>();
         provider.updateLogState(commits, branchMap, tagMap);
 

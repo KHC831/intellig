@@ -24,7 +24,11 @@
 import '../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
-import { generateCommitGraph, type ICommitNode } from '../../../git-core/commitGraph';
+import {
+  generateCommitGraph,
+  type ICommitNode,
+  type IBranchRef,
+} from '../../../git-core/commitGraph';
 import type { ICommit } from '../../../git-core/interfaces/IGitService';
 import { renderGraphSvg, DEFAULT_GRAPH_CONFIG } from '../../../utils/graphRenderer';
 import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
@@ -42,6 +46,20 @@ function mkCommit(hash: string, parents: string[] = []): ICommit {
     authorDate: new Date('2024-01-01T00:00:00Z'),
     commitDate: new Date('2024-01-01T00:00:00Z'),
   };
+}
+
+/**
+ * Fixture sugar: coerce a list of branch names (or already-typed refs) into
+ * `IBranchRef[]`. A bare string is mapped to a `type` using the historical
+ * `name.includes('/')` convention purely so these legacy fixtures keep the
+ * same expected HTML. The production chip renderer reads `ref.type` directly
+ * (Bug E) — this convention is a test-fixture shorthand, NOT the code path
+ * under test.
+ */
+function toBranchRefs(branches: Array<string | IBranchRef>): IBranchRef[] {
+  return branches.map((b) =>
+    typeof b === 'string' ? { name: b, type: b.includes('/') ? 'remote' : 'local' } : b
+  );
 }
 
 interface SnapshotRow {
@@ -208,8 +226,8 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
       mkCommit('ccc', ['ddd']),
       mkCommit('ddd'),
     ];
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, IBranchRef[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     const focusedPath = new Set(['aaa', 'bbb', 'ccc']);
     const result = generateCommitGraph(commits, branchMap, undefined, focusedPath);
 
@@ -221,7 +239,12 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
       onFocusedBranchPath: n.onFocusedBranchPath,
     }));
     const expected = [
-      { hash: 'aaa', graphColumn: 0, branches: ['feature'], onFocusedBranchPath: true },
+      {
+        hash: 'aaa',
+        graphColumn: 0,
+        branches: [{ name: 'feature', type: 'local' }],
+        onFocusedBranchPath: true,
+      },
       { hash: 'bbb', graphColumn: 0, branches: [], onFocusedBranchPath: true },
       { hash: 'ccc', graphColumn: 0, branches: [], onFocusedBranchPath: true },
       { hash: 'ddd', graphColumn: 0, branches: [], onFocusedBranchPath: false },
@@ -336,12 +359,12 @@ interface ProviderInternals {
   _extendedLogState: IExtendedLogState;
 }
 
-function nodeWithBranches(hash: string, branches: string[]): ICommitNode {
+function nodeWithBranches(hash: string, branches: Array<string | IBranchRef>): ICommitNode {
   return {
     commit: mkCommit(hash, ['parent']),
     graphColumn: 0,
     graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
-    branches,
+    branches: toBranchRefs(branches),
     tags: [],
     onFocusedBranchPath: false,
   };
@@ -630,19 +653,22 @@ describe('Wave E R1 / Senior M-1 — chip max-width contract', () => {
   });
 
   it('snap-7h: long branch name → chip text is full name; inline CSS pins max-width 200px + ellipsis', () => {
-    // The senior-review fixture branch name contains a `/` so
-    // `classifyBranchName` treats it as remote (`.branch-label-remote`);
-    // we also exercise a long LOCAL name so both selectors are covered.
-    const longRemoteName = 'feature/JIRA-12345-very-long-descriptive-feature-name-with-context';
-    const longLocalName = 'JIRA-12345-very-long-descriptive-feature-name-with-context-but-local';
-    assert.ok(longRemoteName.length >= 60, 'fixture sanity: remote name is at least 60 chars');
+    // Bug E: classification is now type-driven, not name-shape-driven. The
+    // LOCAL fixture name deliberately CONTAINS a `/` (`feature/...`) — the
+    // exact case the old `classifyBranchName` heuristic misclassified as
+    // remote. With the typed ref it must render as `.branch-label-local`.
+    // The remote fixture carries `type: 'remote'`.
+    const longLocalName = 'feature/JIRA-12345-very-long-descriptive-feature-name-with-context';
+    const longRemoteName = 'origin/JIRA-12345-very-long-descriptive-feature-name-with-context';
     assert.ok(longLocalName.length >= 60, 'fixture sanity: local name is at least 60 chars');
+    assert.ok(longRemoteName.length >= 60, 'fixture sanity: remote name is at least 60 chars');
+    assert.ok(longLocalName.includes('/'), 'fixture sanity: local name contains a slash (Bug E)');
 
     // Chip-emit-stage assertion — host emits the FULL branch name for
     // BOTH variants; CSS does the visual clipping.
     const node = nodeWithBranches('hhh1234567890hhhhhhhhhhhhhhhhhhhhhhhhhhh', [
-      longLocalName,
-      longRemoteName,
+      { name: longLocalName, type: 'local' },
+      { name: longRemoteName, type: 'remote' },
     ]);
     const labelHtml = provider._getBranchLabelsHtml(node);
     assert.ok(
@@ -775,13 +801,16 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
       'Wave F: parenthesized pseudo-ref must be filtered before reaching branch-map'
     );
 
-    // The production path (extension.ts:3870-3879) builds a
-    // commit-hash → branch-name map from `branches`. With the parser
+    // The production path (extension.ts) builds a
+    // commit-hash → branch-ref map from `branches`. With the parser
     // filtering the pseudo-ref, the detached SHA has NO entry.
-    const branchMap = new Map<string, string[]>();
+    const branchMap = new Map<string, IBranchRef[]>();
     for (const b of branches) {
+      if (b.type === 'tag') {
+        continue;
+      }
       const existing = branchMap.get(b.commit) ?? [];
-      existing.push(b.name);
+      existing.push({ name: b.name, type: b.type });
       branchMap.set(b.commit, existing);
     }
     assert.strictEqual(
@@ -933,12 +962,12 @@ interface HeadStateInternals {
   _extendedLogState: IExtendedLogState;
 }
 
-function nodeAt(hash: string, branches: string[] = []): ICommitNode {
+function nodeAt(hash: string, branches: Array<string | IBranchRef> = []): ICommitNode {
   return {
     commit: mkCommit(hash, ['parent1234567890123456789012345678901234']),
     graphColumn: 0,
     graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
-    branches,
+    branches: toBranchRefs(branches),
     tags: [],
     onFocusedBranchPath: false,
   };
@@ -1630,12 +1659,16 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
   });
 
   // Helper: build a commit node carrying both branches AND tags.
-  function nodeWithBranchesAndTags(hash: string, branches: string[], tags: string[]): ICommitNode {
+  function nodeWithBranchesAndTags(
+    hash: string,
+    branches: Array<string | IBranchRef>,
+    tags: string[]
+  ): ICommitNode {
     return {
       commit: mkCommit(hash, ['parent1234567890123456789012345678901234']),
       graphColumn: 0,
       graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' }],
-      branches,
+      branches: toBranchRefs(branches),
       tags,
       onFocusedBranchPath: false,
     };

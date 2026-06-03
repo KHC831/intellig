@@ -7,6 +7,7 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
 import { EventEmitter, Uri, Webview } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { ICommitNode, IBranchRef } from '../../../git-core/commitGraph';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
 
 /**
@@ -256,13 +257,19 @@ describe('Log View', () => {
 
     it('should include branch labels on commits', () => {
       const commits = [createMockCommit('abc1234567890', 'First commit')];
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('abc1234567890', ['main', 'feature/test']);
+      const branchMap = new Map<string, IBranchRef[]>();
+      branchMap.set('abc1234567890', [
+        { name: 'main', type: 'local' },
+        { name: 'feature/test', type: 'local' },
+      ]);
 
       provider.updateLogState(commits, branchMap);
 
       const extendedState = provider.getExtendedLogState();
-      assert.deepStrictEqual(extendedState.commitNodes[0].branches, ['main', 'feature/test']);
+      assert.deepStrictEqual(extendedState.commitNodes[0].branches, [
+        { name: 'main', type: 'local' },
+        { name: 'feature/test', type: 'local' },
+      ]);
     });
 
     it('should include tag labels on commits', () => {
@@ -555,8 +562,8 @@ describe('Log View', () => {
   describe('getExtendedLogState', () => {
     it('should return a copy of extended log state', () => {
       const commits = [createMockCommit('abc1234567890', 'First commit')];
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('abc1234567890', ['main']);
+      const branchMap = new Map<string, IBranchRef[]>();
+      branchMap.set('abc1234567890', [{ name: 'main', type: 'local' }]);
 
       provider.updateLogState(commits, branchMap);
 
@@ -1485,23 +1492,19 @@ describe('_getBranchLabelsHtml', () => {
 
   /**
    * Helper to create a minimal ICommitNode for branch label testing.
+   *
+   * Accepts either bare branch names or fully-typed {@link IBranchRef}
+   * entries. A bare string is coerced to a typed ref using the historical
+   * `name.includes('/')` convention purely as fixture sugar so the legacy
+   * fixtures below keep their expected output. The Bug E tests pass explicit
+   * `{ name, type }` refs to exercise the type-driven classification that the
+   * production chip renderer now relies on (a LOCAL `feature/foo` must NOT
+   * render as remote).
    */
-  function makeNode(branches: string[]): {
-    commit: {
-      hash: string;
-      shortHash: string;
-      message: string;
-      author: { name: string; email: string };
-      committer: { name: string; email: string };
-      parents: string[];
-      authorDate: Date;
-      commitDate: Date;
-    };
-    graphColumn: number;
-    graphLines: { fromColumn: number; toColumn: number; color: string; type: 'commit' }[];
-    branches: string[];
-    tags: string[];
-  } {
+  function makeNode(branches: Array<string | IBranchRef>): ICommitNode {
+    const refs: IBranchRef[] = branches.map((b) =>
+      typeof b === 'string' ? { name: b, type: b.includes('/') ? 'remote' : 'local' } : b
+    );
     return {
       commit: {
         hash: 'abc1234567890abcdef1234567890abcdef123456',
@@ -1515,7 +1518,7 @@ describe('_getBranchLabelsHtml', () => {
       },
       graphColumn: 0,
       graphLines: [{ fromColumn: 0, toColumn: 0, color: '#4CAF50', type: 'commit' as const }],
-      branches,
+      branches: refs,
       tags: [],
     };
   }
@@ -1588,6 +1591,99 @@ describe('_getBranchLabelsHtml', () => {
     });
   });
 
+  // Bug E — branch chips are classified by the typed IBranchRef.type
+  // (sourced from IBranch.type / refs-prefix), NOT by a name.includes('/')
+  // heuristic. A local branch whose name contains a `/` (`feature/foo`,
+  // `fix/bar`) must render the LOCAL affordances, never the cloud icon.
+  describe('Bug E — type-driven branch classification', () => {
+    it('renders a local branch with a `/` in its name using the local icon, not the cloud', () => {
+      const node = makeNode([{ name: 'feature/foo', type: 'local' }]);
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(
+        html.includes('codicon-git-branch'),
+        'local `feature/foo` must use codicon-git-branch'
+      );
+      assert.ok(
+        html.includes('branch-label-local'),
+        'local `feature/foo` must use branch-label-local'
+      );
+      assert.ok(
+        html.includes('aria-label="Local branch: feature/foo"'),
+        'local `feature/foo` must carry the "Local branch:" aria-label'
+      );
+      assert.ok(
+        !html.includes('codicon-cloud'),
+        'local `feature/foo` must NOT use the remote cloud icon (the Bug E regression)'
+      );
+      assert.ok(
+        !html.includes('branch-label-remote'),
+        'local `feature/foo` must NOT use branch-label-remote'
+      );
+    });
+
+    it('renders a remote branch using the cloud icon and remote affordances', () => {
+      const node = makeNode([{ name: 'origin/main', type: 'remote' }]);
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(html.includes('codicon-cloud'), 'remote `origin/main` must use codicon-cloud');
+      assert.ok(
+        html.includes('branch-label-remote'),
+        'remote `origin/main` must use branch-label-remote'
+      );
+      assert.ok(
+        html.includes('aria-label="Remote branch: origin/main"'),
+        'remote `origin/main` must carry the "Remote branch:" aria-label'
+      );
+      assert.ok(
+        !html.includes('codicon-git-branch'),
+        'remote `origin/main` must NOT use the local branch icon'
+      );
+      assert.ok(
+        !html.includes('branch-label-local'),
+        'remote `origin/main` must NOT use branch-label-local'
+      );
+    });
+
+    it('renders mixed local + remote chips on the same commit, each with its own affordance', () => {
+      const node = makeNode([
+        { name: 'feature/foo', type: 'local' },
+        { name: 'origin/feature/foo', type: 'remote' },
+      ]);
+      const html = provider._getBranchLabelsHtml(node);
+
+      // Both chips present with the right icon/class/aria for their type.
+      assert.ok(
+        html.includes('aria-label="Local branch: feature/foo"'),
+        'local chip must announce "Local branch: feature/foo"'
+      );
+      assert.ok(
+        html.includes('aria-label="Remote branch: origin/feature/foo"'),
+        'remote chip must announce "Remote branch: origin/feature/foo"'
+      );
+      assert.strictEqual(
+        (html.match(/branch-label-local/g) || []).length,
+        1,
+        'exactly one local chip'
+      );
+      assert.strictEqual(
+        (html.match(/branch-label-remote/g) || []).length,
+        1,
+        'exactly one remote chip'
+      );
+      assert.strictEqual(
+        (html.match(/codicon-git-branch/g) || []).length,
+        1,
+        'exactly one local (git-branch) icon'
+      );
+      assert.strictEqual(
+        (html.match(/codicon-cloud/g) || []).length,
+        1,
+        'exactly one remote (cloud) icon'
+      );
+    });
+  });
+
   describe('HTML escaping', () => {
     it('should escape HTML special characters in branch names', () => {
       const node = makeNode(['feature/<script>']);
@@ -1640,8 +1736,11 @@ describe('_getBranchLabelsHtml', () => {
           commitDate: new Date(),
         },
       ];
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('abc1234567890abcdef1234567890abcdef123456', ['main', 'origin/main']);
+      const branchMap = new Map<string, IBranchRef[]>();
+      branchMap.set('abc1234567890abcdef1234567890abcdef123456', [
+        { name: 'main', type: 'local' },
+        { name: 'origin/main', type: 'remote' },
+      ]);
 
       provider.updateLogState(commits, branchMap);
 
