@@ -153,3 +153,20 @@ describe('GitService.rebaseBranch — failure-reason surfacing', () => {
     );
   });
 });
+
+describe('GitService.rebaseAbort — orphaned-rebase cleanup (Bug C.2)', () => {
+  it('emits `git rebase --abort`', async () => {
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    await gitService.rebaseAbort(createMockRepo());
+
+    assert.strictEqual(cli.executed.length, 1, 'exactly one git invocation');
+    assert.deepStrictEqual(
+      cli.executed[0].args,
+      ['rebase', '--abort'],
+      'rebaseAbort must shell out to `git rebase --abort`'
+    );
+  });
+});

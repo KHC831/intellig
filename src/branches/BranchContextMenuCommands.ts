@@ -524,6 +524,16 @@ export class BranchContextMenuCommands {
    * one. Skipping the pre-check was the original silent-failure UX bug:
    * `rebaseBranch` returned `{success:false, conflicts:[]}` and the handler
    * had no else branch for that shape, so the click looked like a no-op.
+   *
+   * Bug C extends this: after the rebase runs, the handler reloads the repo
+   * and inspects `repo.inProgress` (populated from `readInProgressOperation`
+   * via `loadRepository`). On a non-conflict failure that left an orphaned
+   * `rebasing` state created by OUR invocation, it auto-aborts (C.2). When a
+   * rebasing state remains for any other reason (e.g. paused on conflicts
+   * with no Resolve Conflicts dialog wired), it surfaces an actionable
+   * "rebase paused" warning (C.1). The before/after snapshot of
+   * `inProgress.kind` ensures we never touch a rebase the user already had
+   * in progress before they clicked.
    */
   private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -544,7 +554,23 @@ export class BranchContextMenuCommands {
         return;
       }
 
+      // Bug C: snapshot the in-progress operation BEFORE invoking the
+      // rebase. This lets us distinguish a rebasing state that OUR call
+      // created (eligible for auto-abort / pause-warning recovery) from one
+      // the user already had paused before they clicked. `repo.inProgress`
+      // is populated by `loadRepository` via `readInProgressOperation`
+      // (see gitInProgress.ts); `kind` is the `IInProgressOperation` field.
+      const beforeKind = repo.inProgress?.kind;
+
       const result = await this._gitService.rebaseBranch(repo, item.branch.name);
+
+      // Track whether the Resolve Conflicts dialog was opened so we suppress
+      // the redundant Bug C.1 "rebase paused" warning for that same state —
+      // the dialog is itself the actionable continue/abort UI.
+      let conflictDialogOpened = false;
+      // Track the non-conflict-failure branch so only it is eligible for the
+      // Bug C.2 auto-abort of an orphaned rebase.
+      let nonConflictFailure = false;
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -554,6 +580,7 @@ export class BranchContextMenuCommands {
         // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise.
         if (this._conflictResolutionService) {
+          conflictDialogOpened = true;
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'rebase',
             target: item.branch.name,
@@ -572,13 +599,47 @@ export class BranchContextMenuCommands {
         // safety contract is locally evident at the toast site (TL-72
         // structural guard) and survives any future refactor of the source
         // side.
+        nonConflictFailure = true;
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
           `Failed to rebase onto '${item.branch.name}': ${sanitizeGitError(reason)}`
         );
       }
-      // Rebase moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
+
+      // Rebase moved HEAD (or left an in-progress marker); reload before
+      // refresh so the fresh `inProgress` state is read off disk.
+      const reloaded = await this._gitService.reloadRepository(repo);
+      const afterKind = (reloaded ?? repo).inProgress?.kind;
+
+      if (nonConflictFailure && beforeKind !== 'rebasing' && afterKind === 'rebasing') {
+        // Bug C.2: our non-conflict-failure invocation left an orphaned
+        // rebasing state (`.git/rebase-merge/`). The user's mental model is
+        // "I clicked rebase, it didn't work, it should be like I never
+        // clicked it" — so auto-abort AFTER the error toast above. The
+        // boundary is strict: only abort when the rebasing state did NOT
+        // exist before our call. If the user already had a rebase paused,
+        // `beforeKind === 'rebasing'` and we never touch it.
+        try {
+          await this._gitService.rebaseAbort(repo);
+        } catch (abortError) {
+          const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to abort orphaned rebase: ${sanitizeGitError(abortMsg)}`
+          );
+        }
+      } else if (afterKind === 'rebasing' && !conflictDialogOpened) {
+        // Bug C.1: a rebasing state remains after the operation and we did
+        // NOT open the Resolve Conflicts dialog as a dedicated UI. The rebase
+        // is paused (conflicts) or was interrupted. Surface an actionable
+        // warning. Of the rebase recovery commands the extension contributes,
+        // only `intellig.rebase.skip` exists today (continue/abort are not
+        // registered commands), so the message stays generic rather than
+        // referencing command IDs that don't exist.
+        void vscode.window.showWarningMessage(
+          'Rebase paused with conflicts (or interruption). Resolve and continue, or abort.'
+        );
+      }
+
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';

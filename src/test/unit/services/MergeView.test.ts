@@ -410,11 +410,7 @@ describe('MergeView', () => {
         const relPath = 'src/foo.ts';
         const absPath = path.join(tmpDir, relPath);
         fs.mkdirSync(path.dirname(absPath), { recursive: true });
-        fs.writeFileSync(
-          absPath,
-          '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n',
-          'utf8'
-        );
+        fs.writeFileSync(absPath, '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n', 'utf8');
 
         const repo: IRepository = {
           rootUri: vscode.Uri.file(tmpDir),

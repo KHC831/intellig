@@ -23,6 +23,7 @@ import {
   ICheckoutOptions,
   IFetchResult,
   IPushOptions,
+  IInProgressOperation,
 } from '../../git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
@@ -61,6 +62,8 @@ function createMockGitService(overrides: Partial<IGitService> = {}): IGitService
     renameBranch: async () => {},
     mergeBranch: async () => ({ success: true }),
     rebaseBranch: async () => ({ success: true }),
+    rebaseSkip: async () => ({ success: true }),
+    rebaseAbort: async () => {},
     compareBranches: async () => ({
       commitsAhead: [],
       commitsBehind: [],
@@ -948,6 +951,187 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(
         errTracker.calls[0].message.includes('Failed to delete branch'),
         `expected 'Failed to delete branch' in toast; got "${errTracker.calls[0].message}"`
+      );
+    });
+  });
+
+  // ─── Bug C — in-progress rebase surfacing + orphaned-rebase auto-abort ──
+  //
+  // C.1: after `_handleRebaseCurrentOnto` runs, the handler reloads the repo
+  //      and, if `inProgress.kind === 'rebasing'` remains (and no Resolve
+  //      Conflicts dialog was opened), surfaces an actionable "rebase paused"
+  //      warning toast.
+  // C.2: when a NON-conflict failure left an orphaned rebasing state that
+  //      OUR call created (before.kind !== 'rebasing' && after.kind ===
+  //      'rebasing'), the handler auto-runs `git rebase --abort` AFTER the
+  //      error toast. The auto-abort must NOT fire when the user already had
+  //      a rebase in progress before they clicked.
+  describe('Bug C — in-progress rebase warning + auto-abort', () => {
+    /**
+     * Build a BranchTreeProvider whose repo carries the given `before`
+     * in-progress state. The handler reads this as its pre-rebase snapshot.
+     */
+    function providerWithInProgress(
+      gitService: IGitService,
+      before?: IInProgressOperation
+    ): BranchTreeProvider {
+      const provider = new BranchTreeProvider(gitService);
+      const mockRepo: IRepository = {
+        rootUri: Uri.file('/test-repo'),
+        state: before ? before.kind : 'idle',
+        head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+        ...(before ? { inProgress: before } : {}),
+      };
+      provider.getRepository = () => mockRepo;
+      return provider;
+    }
+
+    /** A repo snapshot that reports an in-progress rebase. */
+    function rebasingRepoSnapshot(): IRepository {
+      return {
+        rootUri: Uri.file('/test-repo'),
+        state: 'rebasing',
+        head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+        inProgress: { kind: 'rebasing', target: 'main' },
+      };
+    }
+
+    it('C.1: surfaces a "rebase paused" warning when a rebasing state remains after the call', async () => {
+      const warningTracker = installWarningMessageTracker();
+      installInfoMessageTracker();
+
+      // rebaseBranch reports success, but reloadRepository shows the repo is
+      // still mid-rebase (paused/interrupted). before.inProgress is absent.
+      const gitService = createMockGitService({
+        getStatus: async () => [],
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+        reloadRepository: async () => rebasingRepoSnapshot(),
+      });
+      const branchTreeProvider = providerWithInProgress(gitService /* no before state */);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/rebase-target');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.ok(
+        warningTracker.calls.length > 0,
+        'showWarningMessage MUST be called when a rebasing state remains after the rebase'
+      );
+      const msg = warningTracker.calls[warningTracker.calls.length - 1].message.toLowerCase();
+      assert.ok(
+        msg.includes('rebase paused'),
+        `warning should mention "rebase paused", got: "${msg}"`
+      );
+      assert.ok(
+        msg.includes('continue') && msg.includes('abort'),
+        `warning should mention continue/abort, got: "${msg}"`
+      );
+    });
+
+    it('C.1: does NOT warn when the repo is clean after the rebase', async () => {
+      const warningTracker = installWarningMessageTracker();
+      installInfoMessageTracker();
+
+      const gitService = createMockGitService({
+        getStatus: async () => [],
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+        // reloadRepository returns an idle repo (no inProgress).
+        reloadRepository: async (repo) => repo,
+      });
+      const branchTreeProvider = providerWithInProgress(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/rebase-target');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      const pausedWarnings = warningTracker.calls.filter((c) =>
+        c.message.toLowerCase().includes('rebase paused')
+      );
+      assert.strictEqual(
+        pausedWarnings.length,
+        0,
+        'no "rebase paused" warning should fire when the repo is clean afterwards'
+      );
+    });
+
+    it('C.2: auto-aborts an orphaned rebase AFTER the error toast on non-conflict failure', async () => {
+      const events: string[] = [];
+
+      // Custom error tracker that records ordering relative to rebaseAbort.
+      writableWindow().showErrorMessage = (message: string): Promise<string | undefined> => {
+        events.push(`error-toast:${message}`);
+        return Promise.resolve(undefined);
+      };
+
+      let abortCalled = false;
+      const gitService = createMockGitService({
+        getStatus: async () => [],
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+          success: false,
+          conflicts: [],
+          failureReason: 'error: cannot rebase: You have unstaged changes.',
+        }),
+        // reloadRepository reports the orphaned rebasing state our call left.
+        reloadRepository: async () => rebasingRepoSnapshot(),
+        rebaseAbort: async () => {
+          abortCalled = true;
+          events.push('rebaseAbort');
+        },
+      });
+      // before.inProgress is absent → our call created the rebasing state.
+      const branchTreeProvider = providerWithInProgress(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/rebase-target');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.ok(abortCalled, 'rebaseAbort MUST be invoked to clean up the orphaned rebase');
+
+      const errorIdx = events.findIndex((e) => e.startsWith('error-toast:'));
+      const abortIdx = events.indexOf('rebaseAbort');
+      assert.ok(errorIdx >= 0, 'an error toast MUST be shown for the non-conflict failure');
+      assert.ok(abortIdx >= 0, 'rebaseAbort MUST run');
+      assert.ok(
+        abortIdx > errorIdx,
+        `rebaseAbort must run AFTER the error toast (toast idx ${errorIdx}, abort idx ${abortIdx})`
+      );
+    });
+
+    it('C.2: does NOT auto-abort when the user already had a rebase in progress before clicking', async () => {
+      installErrorMessageTracker();
+
+      let abortCalled = false;
+      const gitService = createMockGitService({
+        getStatus: async () => [],
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+          success: false,
+          conflicts: [],
+          failureReason: 'error: it seems that there is already a rebase-merge directory',
+        }),
+        reloadRepository: async () => rebasingRepoSnapshot(),
+        rebaseAbort: async () => {
+          abortCalled = true;
+        },
+      });
+      // before.inProgress.kind === 'rebasing' → the user already had a rebase
+      // paused; our call must NOT clobber it.
+      const branchTreeProvider = providerWithInProgress(gitService, {
+        kind: 'rebasing',
+        target: 'someother',
+      });
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/rebase-target');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.strictEqual(
+        abortCalled,
+        false,
+        'rebaseAbort MUST NOT run when the user already had a rebase in progress before clicking'
       );
     });
   });

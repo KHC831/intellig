@@ -729,6 +729,24 @@ export interface IGitService {
    *   the next commit in the rebase sequence.
    */
   rebaseSkip(repo: IRepository): Promise<IBasicRebaseResult>;
+
+  /**
+   * Abort an in-progress rebase (`git rebase --abort`).
+   *
+   * Restores the working tree and HEAD to the pre-rebase state, removing
+   * the `.git/rebase-merge/` (or `rebase-apply/`) metadata. Used by the
+   * Bug C auto-abort recovery path in `_handleRebaseCurrentOnto`: when our
+   * own `rebaseBranch` invocation left an orphaned rebasing state after a
+   * non-conflict failure, the handler runs this so the click behaves as
+   * "it should be like I never clicked it".
+   *
+   * Mirrors {@link cherryPickAbort} / {@link revertAbort}: resolves on
+   * success, rejects (via `throwOnError`) on failure so the caller can
+   * surface a sanitized error.
+   *
+   * @param repo - The repository
+   */
+  rebaseAbort(repo: IRepository): Promise<void>;
   compareBranches(repo: IRepository, branch1: string, branch2: string): Promise<IBranchComparison>;
 
   // Remote operations

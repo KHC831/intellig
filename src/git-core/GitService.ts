@@ -1480,6 +1480,26 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
+   * Abort an in-progress rebase (`git rebase --abort`).
+   *
+   * Restores the working tree + HEAD to their pre-rebase state and removes
+   * the `.git/rebase-merge/` (or `rebase-apply/`) metadata. Mirrors the
+   * {@link cherryPickAbort} / {@link revertAbort} pattern: `throwOnError`
+   * surfaces any git failure to the caller, which is responsible for
+   * routing the message through `sanitizeGitError` before display (Bug C
+   * auto-abort recovery in `_handleRebaseCurrentOnto`).
+   *
+   * @param repo - The repository
+   */
+  async rebaseAbort(repo: IRepository): Promise<void> {
+    await this._gitCli.exec(['rebase', '--abort'], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
+    this.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  /**
    * Compare two branches to find differences.
    * Returns commits unique to each branch, files that differ, and ahead/behind counts.
    *
