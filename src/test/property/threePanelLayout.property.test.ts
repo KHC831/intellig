@@ -15,7 +15,7 @@ import { clampPanelWidths, savePanelWidths, loadPanelWidths } from '../../utils/
 import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../services/interfaces';
 import { FileStatus } from '../../git-core/interfaces/IGitService';
-import { ICommitNode } from '../../git-core/commitGraph';
+import { ICommitNode, IBranchRef } from '../../git-core/commitGraph';
 import { Uri, Webview } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -183,6 +183,15 @@ function arbitraryBranchName(): fc.Arbitrary<string> {
 }
 
 /**
+ * Generate a branch ref (name + type) for ICommitNode.branches.
+ */
+function arbitraryBranchRef(): fc.Arbitrary<IBranchRef> {
+  return arbitraryBranchName().map(
+    (name) => ({ name, type: name.includes('/') ? 'remote' : 'local' }) as const
+  );
+}
+
+/**
  * Generate a full commit hash (40 hex characters).
  */
 function arbitraryFullHash(): fc.Arbitrary<string> {
@@ -240,7 +249,7 @@ function arbitraryCommitNode(): fc.Arbitrary<ICommitNode> {
       }),
       { minLength: 0, maxLength: 3 }
     ),
-    branches: fc.array(arbitraryBranchName(), { minLength: 0, maxLength: 2 }),
+    branches: fc.array(arbitraryBranchRef(), { minLength: 0, maxLength: 2 }),
     tags: fc.array(fc.string({ minLength: 1, maxLength: 10 }), { minLength: 0, maxLength: 2 }),
   });
 }

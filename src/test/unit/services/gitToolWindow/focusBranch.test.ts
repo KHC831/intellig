@@ -98,9 +98,9 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
 
   it('setFocusedBranch mutates focusedBranchName to the resolved name', async () => {
     const internals = provider as unknown as FocusInternals;
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
-    branchMap.set('bbb', ['main']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
+    branchMap.set('bbb', [{ name: 'main', type: 'local' }]);
     provider.updateLogState([mkCommit('aaa', ['bbb']), mkCommit('bbb')], branchMap);
 
     await provider.setFocusedBranch('feature');
@@ -110,9 +110,9 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
 
   it('setFocusedBranch posts an updateBranchFocus message to the webview', async () => {
     const { messages } = stubWebview(provider);
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
-    branchMap.set('bbb', ['main']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
+    branchMap.set('bbb', [{ name: 'main', type: 'local' }]);
     provider.updateLogState([mkCommit('aaa', ['bbb']), mkCommit('bbb')], branchMap);
     messages.length = 0;
 
@@ -138,8 +138,11 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
 
   it('_getBranchLabelsHtml emits .branch-label-focused on the focused chip only', async () => {
     const internals = provider as unknown as FocusInternals;
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature', 'main']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [
+      { name: 'feature', type: 'local' },
+      { name: 'main', type: 'local' },
+    ]);
     provider.updateLogState([mkCommit('aaa')], branchMap);
 
     await provider.setFocusedBranch('feature');
@@ -159,17 +162,17 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
 
   it('updateLogState clears focusedBranchName when the focused branch is gone', async () => {
     const internals = provider as unknown as FocusInternals;
-    const branchMap1 = new Map<string, string[]>();
-    branchMap1.set('aaa', ['feature']);
-    branchMap1.set('bbb', ['main']);
+    const branchMap1 = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap1.set('aaa', [{ name: 'feature', type: 'local' }]);
+    branchMap1.set('bbb', [{ name: 'main', type: 'local' }]);
     provider.updateLogState([mkCommit('aaa', ['bbb']), mkCommit('bbb')], branchMap1);
 
     await provider.setFocusedBranch('feature');
     assert.strictEqual(internals._extendedLogState.focusedBranchName, 'feature');
 
     // Refresh: the new branch list no longer contains "feature".
-    const branchMap2 = new Map<string, string[]>();
-    branchMap2.set('bbb', ['main']);
+    const branchMap2 = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap2.set('bbb', [{ name: 'main', type: 'local' }]);
     provider.updateLogState([mkCommit('bbb')], branchMap2);
 
     assert.strictEqual(
@@ -186,8 +189,8 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
 
   it('webview focusBranchOnGraph message routes through to setFocusedBranch', () => {
     const internals = provider as unknown as FocusInternals;
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     provider.updateLogState([mkCommit('aaa')], branchMap);
 
     internals._handleWebviewMessage({
@@ -228,8 +231,8 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
     //   * bbb
     //   * ccc  (merge base — also HEAD's ancestor)
     //   * ddd
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     provider.updateLogState(
       [
         mkCommit('aaa', ['bbb']),

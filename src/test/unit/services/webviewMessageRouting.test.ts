@@ -85,9 +85,9 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
         createMockCommit('abc1234567890', 'Initial commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
       ];
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('abc1234567890', ['main']);
-      branchMap.set('def4567890123', ['develop']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('abc1234567890', [{ name: 'main', type: 'local' }]);
+      branchMap.set('def4567890123', [{ name: 'develop', type: 'local' }]);
 
       provider.updateLogState(commits, branchMap);
 
@@ -104,8 +104,8 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
 
     it('should fire onDidSelectCommit event when branch is clicked', (done) => {
       const commits = [createMockCommit('abc1234567890', 'Initial commit')];
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('abc1234567890', ['main']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('abc1234567890', [{ name: 'main', type: 'local' }]);
       provider.updateLogState(commits, branchMap);
 
       const disposable = provider.onDidSelectCommit((hash) => {
@@ -608,8 +608,8 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
     it('should handle all 7 required message types without throwing', () => {
       // Set up state needed for branchClick
       const commits = [createMockCommit('abc1234567890', 'Initial commit')];
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('abc1234567890', ['main']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('abc1234567890', [{ name: 'main', type: 'local' }]);
       provider.updateLogState(commits, branchMap);
 
       const messages = [

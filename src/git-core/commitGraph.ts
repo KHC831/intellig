@@ -23,6 +23,23 @@ export interface IGraphLine {
 }
 
 /**
+ * A branch reference pointing at a commit, carrying the branch's name AND
+ * its type. The `type` is sourced from `IBranch.type` (which `parseBranches`
+ * derives from the `refs/heads/` vs `refs/remotes/` prefix), NOT guessed from
+ * the name. This is the fix for Bug E: local branches with a `/` in their
+ * name (`feature/foo`, `fix/bar`) must not be misclassified as remote.
+ *
+ * Only `'local'` and `'remote'` are carried here — tags travel through the
+ * separate `tagMap` and never enter the branch map.
+ */
+export interface IBranchRef {
+  /** The branch name (e.g. `feature/foo`, `origin/main`). */
+  name: string;
+  /** Whether this is a local (`refs/heads`) or remote (`refs/remotes`) branch. */
+  type: 'local' | 'remote';
+}
+
+/**
  * Represents a commit with its graph visualization data.
  */
 export interface ICommitNode {
@@ -32,8 +49,8 @@ export interface ICommitNode {
   graphColumn: number;
   /** Lines connecting this commit to its parents */
   graphLines: IGraphLine[];
-  /** Branch names pointing to this commit */
-  branches: string[];
+  /** Branch refs (name + type) pointing to this commit */
+  branches: IBranchRef[];
   /** Tag names pointing to this commit */
   tags: string[];
   /**
@@ -172,7 +189,7 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * 3. Tag every node with `onFocusedBranchPath` for the renderer.
  *
  * @param commits - Array of commits in topological order (newest first)
- * @param branchMap - Optional map of commit hash to branch names
+ * @param branchMap - Optional map of commit hash to branch refs (name + type)
  * @param tagMap - Optional map of commit hash to tag names
  * @param focusedPathHashes - Optional set of commit hashes on the focused
  * branch's path-to-merge-base. When `undefined` or empty,
@@ -181,7 +198,7 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  */
 export function generateCommitGraph(
   commits: ICommit[],
-  branchMap?: Map<string, string[]>,
+  branchMap?: Map<string, IBranchRef[]>,
   tagMap?: Map<string, string[]>,
   focusedPathHashes?: Set<string>
 ): ICommitNode[] {
@@ -373,19 +390,6 @@ export function getMaxGraphColumn(nodes: ICommitNode[]): number {
  */
 export function isMergeCommit(commit: ICommit): boolean {
   return commit.parents.length > 1;
-}
-
-/**
- * Classify a branch name as local or remote.
- * A branch is considered remote if it contains a '/' character, indicating
- * it is a remote tracking branch (e.g., "origin/main", "upstream/develop").
- * Otherwise it is classified as local (e.g., "main", "develop", "feature-branch").
- *
- * @param name - The branch name to classify
- * @returns 'remote' if the branch name contains a '/', 'local' otherwise
- */
-export function classifyBranchName(name: string): 'local' | 'remote' {
-  return name.includes('/') ? 'remote' : 'local';
 }
 
 /**

@@ -197,10 +197,10 @@ describe('Wave D R1 / Senior L-4 — focus race property', () => {
 
           // Default branch list: all three present, each pointing at
           // its own commit.
-          let branchMap = new Map<string, string[]>();
-          branchMap.set('hashA', ['A']);
-          branchMap.set('hashB', ['B']);
-          branchMap.set('hashC', ['C']);
+          let branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+          branchMap.set('hashA', [{ name: 'A', type: 'local' }]);
+          branchMap.set('hashB', [{ name: 'B', type: 'local' }]);
+          branchMap.set('hashC', [{ name: 'C', type: 'local' }]);
           provider.updateLogState(
             [mkBareCommit('hashA'), mkBareCommit('hashB'), mkBareCommit('hashC')],
             branchMap
@@ -238,11 +238,11 @@ describe('Wave D R1 / Senior L-4 — focus race property', () => {
 
           for (const op of ops) {
             if (op.kind === 'refresh') {
-              branchMap = new Map<string, string[]>();
+              branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
               const commits: ICommit[] = [];
               for (const b of op.branches) {
                 const hash = `hash${b}`;
-                branchMap.set(hash, [b]);
+                branchMap.set(hash, [{ name: b, type: 'local' }]);
                 commits.push(mkBareCommit(hash));
               }
               provider.updateLogState(commits, branchMap);

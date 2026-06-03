@@ -110,8 +110,8 @@ describe('Wave D — focused path BFS and traps (D3)', () => {
     const internals = provider as unknown as FocusedPathInternals;
     attachStubGitService(provider, 'ccc');
 
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     provider.updateLogState(
       [
         mkCommit('aaa', ['bbb']),
@@ -139,8 +139,8 @@ describe('Wave D — focused path BFS and traps (D3)', () => {
     // until it hits the depth cap (commitNodes.length) without looping.
     attachStubGitService(provider, 'no-such-hash');
 
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     // Synthetic cycle: a → b → a (this would never happen in real git
     // but defends the BFS against corrupt parents).
     provider.updateLogState([mkCommit('aaa', ['bbb']), mkCommit('bbb', ['aaa'])], branchMap);
@@ -159,8 +159,8 @@ describe('Wave D — focused path BFS and traps (D3)', () => {
     const internals = provider as unknown as FocusedPathInternals;
     attachStubGitService(provider, undefined);
 
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     provider.updateLogState([mkCommit('aaa', ['bbb']), mkCommit('bbb')], branchMap);
 
     await provider.setFocusedBranch('feature');
@@ -176,8 +176,8 @@ describe('Wave D — focused path BFS and traps (D3)', () => {
     const internals = provider as unknown as FocusedPathInternals;
     attachStubGitService(provider, 'ccc');
 
-    const branchMap = new Map<string, string[]>();
-    branchMap.set('aaa', ['feature']);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+    branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
     provider.updateLogState(
       [
         mkCommit('aaa', ['bbb']),

@@ -16,8 +16,8 @@ import {
 import { FileStatus, ICommit, IGitService, IRepository } from '../interfaces/IGitService';
 import {
   ICommitNode,
+  IBranchRef,
   generateCommitGraph,
-  classifyBranchName,
   computeTerminalNodes,
   computeChildCountMap,
   isBranchSplit,
@@ -179,7 +179,7 @@ export type LogContextAction =
  */
 export interface IExtendedLogState extends ILogState {
   commitNodes: ICommitNode[];
-  branchMap: Map<string, string[]>;
+  branchMap: Map<string, IBranchRef[]>;
   tagMap: Map<string, string[]>;
   /**
    * T3-07 — Set of commit hashes marked `=` by `git log --cherry-mark`
@@ -571,7 +571,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       expandedCommit: undefined,
       filter: undefined,
       commitNodes: [],
-      branchMap: new Map<string, string[]>(),
+      branchMap: new Map<string, IBranchRef[]>(),
       tagMap: new Map<string, string[]>(),
       anchorHash: null,
       // No branch focused at start.
@@ -703,7 +703,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    */
   public updateLogState(
     commits: ICommit[],
-    branchMap?: Map<string, string[]>,
+    branchMap?: Map<string, IBranchRef[]>,
     tagMap?: Map<string, string[]>,
     headHash?: string
   ): void {
@@ -723,9 +723,9 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // false` for every node, which is the no-focus baseline.
     const branchNamesPresent = new Set<string>();
     if (branchMap) {
-      for (const names of branchMap.values()) {
-        for (const n of names) {
-          branchNamesPresent.add(n);
+      for (const refs of branchMap.values()) {
+        for (const ref of refs) {
+          branchNamesPresent.add(ref.name);
         }
       }
     }
@@ -754,7 +754,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined
     );
 
-    const emptyBranchMap: Map<string, string[]> = new Map();
+    const emptyBranchMap: Map<string, IBranchRef[]> = new Map();
     const emptyTagMap: Map<string, string[]> = new Map();
 
     // Anchor lifecycle (TL-C-1):
@@ -912,7 +912,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
-          branches: node.branches || [],
+          branches: (node.branches || []).map((ref) => ref.name),
           tags: node.tags || [],
           changedFiles: [],
         };
@@ -962,7 +962,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
-          branches: node.branches || [],
+          branches: (node.branches || []).map((ref) => ref.name),
           tags: node.tags || [],
           changedFiles,
           changedFilesError: error ? String(error) : undefined,
@@ -1682,14 +1682,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private _collectKnownBranchNames(): Set<string> {
     const names = new Set<string>();
     for (const list of this._extendedLogState.branchMap.values()) {
-      for (const n of list) {
-        names.add(n);
+      for (const ref of list) {
+        names.add(ref.name);
       }
     }
     for (const node of this._extendedLogState.commitNodes) {
       if (node.branches) {
-        for (const n of node.branches) {
-          names.add(n);
+        for (const ref of node.branches) {
+          names.add(ref.name);
         }
       }
     }
@@ -1728,12 +1728,12 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    */
   private _resolveBranchTipHash(branchName: string): string | undefined {
     for (const [commitHash, branches] of this._extendedLogState.branchMap.entries()) {
-      if (branches.includes(branchName)) {
+      if (branches.some((ref) => ref.name === branchName)) {
         return commitHash;
       }
     }
     for (const node of this._extendedLogState.commitNodes) {
-      if (node.branches && node.branches.includes(branchName)) {
+      if (node.branches && node.branches.some((ref) => ref.name === branchName)) {
         return node.commit.hash;
       }
     }
@@ -1870,10 +1870,10 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     const branchMap = this._extendedLogState.branchMap;
     let targetCommitHash: string | undefined;
 
-    // The branchMap maps commit hash -> branch names[]
+    // The branchMap maps commit hash -> branch refs[]
     // We need to find the commit hash that has this branch name
     for (const [commitHash, branches] of branchMap.entries()) {
-      if (branches.includes(branchName)) {
+      if (branches.some((ref) => ref.name === branchName)) {
         targetCommitHash = commitHash;
         break;
       }
@@ -1882,7 +1882,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // If not found in branchMap, search through commit nodes for a matching branch reference
     if (!targetCommitHash) {
       for (const node of this._extendedLogState.commitNodes) {
-        if (node.branches && node.branches.includes(branchName)) {
+        if (node.branches && node.branches.some((ref) => ref.name === branchName)) {
           targetCommitHash = node.commit.hash;
           break;
         }
@@ -2111,7 +2111,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
           author: { name: node.commit.author.name, email: node.commit.author.email },
           date: node.commit.authorDate,
           parents: node.commit.parents || [],
-          branches: node.branches || [],
+          branches: (node.branches || []).map((ref) => ref.name),
           tags: node.tags || [],
           changedFiles:
             this._pendingChangedFiles && this._extendedLogState.expandedCommit === node.commit.hash
@@ -2914,7 +2914,8 @@ ${bodyMarkup}
    * Get the branch labels HTML for a commit node.
    * Renders `<span>` elements for each branch name on the commit node.
    * Applies `branch-label-local` or `branch-label-remote` CSS class based on
-   * the classification from `classifyBranchName`.
+   * the branch ref's `type` (sourced from `IBranch.type`, NOT guessed from
+   * the name — see Bug E).
    * Branch names are escaped for HTML safety.
    *
    * @param node - The commit node to render branch labels for
@@ -2958,9 +2959,13 @@ ${bodyMarkup}
       : '';
 
     const focusedBranchName = this._extendedLogState.focusedBranchName;
-    const labels = (node.branches || []).map((branchName) => {
-      const classification = classifyBranchName(branchName);
-      const baseClass = classification === 'remote' ? 'branch-label-remote' : 'branch-label-local';
+    const labels = (node.branches || []).map((branchRef) => {
+      const branchName = branchRef.name;
+      // Bug E: classify directly from the branch ref's `type` (sourced from
+      // IBranch.type / refs-prefix), NOT from a `name.includes('/')` heuristic.
+      // A local branch named `feature/foo` is local, not remote.
+      const isRemote = branchRef.type === 'remote';
+      const baseClass = isRemote ? 'branch-label-remote' : 'branch-label-local';
       // `branch-label-focused` is render-time source of
       // truth for the focus outline; the partial-update message handler
       // is just the optimization for selection-changes-without-rerender.
@@ -2977,11 +2982,10 @@ ${bodyMarkup}
       // aria-pressed is deferred to when chips become
       // keyboard-interactive — adding it now would lie about an
       // interaction that doesn't yet exist. Pinned by snap-12b..d, 12f.
-      const iconClass = classification === 'remote' ? 'codicon-cloud' : 'codicon-git-branch';
-      const ariaLabelText =
-        classification === 'remote'
-          ? `Remote branch: ${branchName}`
-          : `Local branch: ${branchName}`;
+      const iconClass = isRemote ? 'codicon-cloud' : 'codicon-git-branch';
+      const ariaLabelText = isRemote
+        ? `Remote branch: ${branchName}`
+        : `Local branch: ${branchName}`;
       const ariaLabel = this._escapeHtml(ariaLabelText);
       // Focused chip carries `aria-describedby` to
       // a visually-hidden help span (rendered once at panel level)

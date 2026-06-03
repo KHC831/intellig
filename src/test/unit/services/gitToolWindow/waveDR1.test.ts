@@ -139,8 +139,8 @@ describe('Wave D R1 — review-round fixes', () => {
   describe('R1-1 — webview branchName injection (Senior H-2)', () => {
     it('drops focusBranchOnGraph for branchName not in branchMap', () => {
       const internals = provider as unknown as R1Internals;
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap);
 
       // Inject a malicious option-like string. Must NOT propagate to
@@ -159,8 +159,8 @@ describe('Wave D R1 — review-round fixes', () => {
 
     it('drops focusBranchOnGraph for any string not in the live branch list', () => {
       const internals = provider as unknown as R1Internals;
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap);
 
       internals._handleWebviewMessage({
@@ -173,8 +173,8 @@ describe('Wave D R1 — review-round fixes', () => {
 
     it('still allows null branchName (clear focus path)', async () => {
       const internals = provider as unknown as R1Internals;
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap);
 
       // Set focus first, then clear via null.
@@ -198,9 +198,9 @@ describe('Wave D R1 — review-round fixes', () => {
       const internals = provider as unknown as R1Internals;
       stubWebview(provider);
 
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature-A']);
-      branchMap.set('bbb', ['feature-B']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature-A', type: 'local' }]);
+      branchMap.set('bbb', [{ name: 'feature-B', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa'), mkCommit('bbb')], branchMap);
 
       // Build deferred promises so we can resolve in arbitrary order.
@@ -241,8 +241,8 @@ describe('Wave D R1 — review-round fixes', () => {
       const internals = provider as unknown as R1Internals;
       stubWebview(provider);
 
-      const branchMap1 = new Map<string, string[]>();
-      branchMap1.set('aaa', ['feature']);
+      const branchMap1 = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap1.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap1);
 
       let resolveMergeBase: (v: string | undefined) => void = () => {};
@@ -252,8 +252,8 @@ describe('Wave D R1 — review-round fixes', () => {
       const opA = provider.setFocusedBranch('feature');
 
       // Refresh removes 'feature' from the branch list.
-      const branchMap2 = new Map<string, string[]>();
-      branchMap2.set('aaa', ['main']);
+      const branchMap2 = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap2.set('aaa', [{ name: 'main', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap2);
 
       resolveMergeBase(undefined);
@@ -272,8 +272,8 @@ describe('Wave D R1 — review-round fixes', () => {
     it('setFocusedBranch posts updateBranchFocus AFTER the html reassignment', async () => {
       const recorded = stubWebview(provider);
 
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap);
       // Reset post-html-counter from updateLogState's render burst.
       const beforePosts = recorded.postsAfterLastHtml;
@@ -295,8 +295,8 @@ describe('Wave D R1 — review-round fixes', () => {
     it('setFocusedBranch(null) posts updateBranchFocus AFTER the html reassignment', async () => {
       const recorded = stubWebview(provider);
 
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap);
 
       const before = recorded.postsAfterLastHtml;
@@ -317,8 +317,8 @@ describe('Wave D R1 — review-round fixes', () => {
     });
 
     it('getFocusedBranchName returns the focused name after setFocusedBranch', async () => {
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState([mkCommit('aaa')], branchMap);
 
       await provider.setFocusedBranch('feature');
@@ -399,8 +399,8 @@ describe('Wave D R1 — review-round fixes', () => {
       const internals = provider as unknown as R1Internals;
       stubWebview(provider);
 
-      const branchMap = new Map<string, string[]>();
-      branchMap.set('aaa', ['feature']);
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [{ name: 'feature', type: 'local' }]);
       provider.updateLogState(
         [mkCommit('aaa', ['bbb']), mkCommit('bbb', ['ccc']), mkCommit('ccc')],
         branchMap

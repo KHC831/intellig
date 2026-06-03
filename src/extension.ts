@@ -3894,14 +3894,19 @@ function registerViews(context: vscode.ExtensionContext): void {
           grep: filter?.searchText,
         });
 
-        // Build branch map: commit hash -> branch names
-        const branchMap = new Map<string, string[]>();
+        // Build branch map: commit hash -> branch refs (name + type).
+        // Bug E: carry `branch.type` (local/remote, derived by parseBranches
+        // from the refs/heads vs refs/remotes prefix) instead of guessing
+        // from the name — `feature/foo` is local even though it has a `/`.
+        const branchMap = new Map<string, Array<{ name: string; type: 'local' | 'remote' }>>();
         try {
           const branches = await gitService.getBranches(repo);
           for (const branch of branches) {
-            if (branch.commit) {
+            // getBranches only returns refs/heads + refs/remotes, so type is
+            // always 'local' or 'remote' here; tags travel through tagMap.
+            if (branch.commit && branch.type !== 'tag') {
               const existing = branchMap.get(branch.commit) || [];
-              existing.push(branch.name);
+              existing.push({ name: branch.name, type: branch.type });
               branchMap.set(branch.commit, existing);
             }
           }

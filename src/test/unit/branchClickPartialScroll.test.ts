@@ -96,7 +96,9 @@ describe('Feature: git-graph-branch-click-scroll - branch click uses the partial
     // inside `updateLogState` no-ops (`_render` early-returns without a view)
     // and does not contaminate the html-set / postMessage taps.
     const commits: ICommit[] = [mkCommit(tipHash, 'tip commit')];
-    const branchMap = new Map<string, string[]>([[tipHash, [branchName]]]);
+    const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>([
+      [tipHash, [{ name: branchName, type: 'local' }]],
+    ]);
     const tagMap = new Map<string, string[]>();
     provider.updateLogState(commits, branchMap, tagMap);
 
