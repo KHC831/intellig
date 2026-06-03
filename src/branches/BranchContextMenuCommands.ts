@@ -500,7 +500,9 @@ export class BranchContextMenuCommands {
         // silent no-op. `failureReason` is sanitized at the GitService
         // boundary; safe to drop straight into a toast.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
-        void vscode.window.showErrorMessage(`Failed to merge '${item.branch.name}': ${reason}`);
+        void vscode.window.showErrorMessage(
+          `Failed to merge '${item.branch.name}': ${sanitizeGitError(reason)}`
+        );
       }
       // Merge moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -548,7 +550,7 @@ export class BranchContextMenuCommands {
         // silent no-op.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
-          `Failed to rebase onto '${item.branch.name}': ${reason}`
+          `Failed to rebase onto '${item.branch.name}': ${sanitizeGitError(reason)}`
         );
       }
       // Rebase moved HEAD; reload before refresh.
@@ -928,7 +930,7 @@ export class BranchContextMenuCommands {
         // Non-conflict failure: surface the underlying git error.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
-          `Failed to rebase onto '${previousCurrentBranch}': ${reason}`
+          `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
         );
       }
       // Checkout + rebase moved HEAD; reload before refresh.
@@ -971,7 +973,7 @@ export class BranchContextMenuCommands {
               // Non-conflict failure: surface the underlying git error.
               const reason = result.failureReason ?? 'unknown error (no output from git)';
               void vscode.window.showErrorMessage(
-                `Failed to rebase onto '${previousCurrentBranch}': ${reason}`
+                `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
               );
             }
             // Stash + checkout + rebase moved HEAD; reload before refresh.
@@ -1007,7 +1009,7 @@ export class BranchContextMenuCommands {
               // Non-conflict failure: surface the underlying git error.
               const reason = result.failureReason ?? 'unknown error (no output from git)';
               void vscode.window.showErrorMessage(
-                `Failed to rebase onto '${previousCurrentBranch}': ${reason}`
+                `Failed to rebase onto '${previousCurrentBranch}': ${sanitizeGitError(reason)}`
               );
             }
             // Force checkout + rebase moved HEAD; reload before refresh.
@@ -1307,7 +1309,7 @@ export class BranchContextMenuCommands {
       } else {
         // Non-conflict failure: surface the underlying git error.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
-        void vscode.window.showErrorMessage(`Failed to cherry-pick: ${reason}`);
+        void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(reason)}`);
       }
       // cherry-pick moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
@@ -1578,7 +1580,7 @@ export class BranchContextMenuCommands {
       } else {
         // Non-conflict failure: surface the underlying git error.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
-        void vscode.window.showErrorMessage(`Failed to cherry-pick: ${reason}`);
+        void vscode.window.showErrorMessage(`Failed to cherry-pick: ${sanitizeGitError(reason)}`);
       }
       // cherry-pick from tag moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);
