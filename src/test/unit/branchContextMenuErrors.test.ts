@@ -558,6 +558,113 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
+    // ─── Non-conflict failure surfacing (regression: silent no-op) ────────
+
+    it('_handleMergeIntoCurrent surfaces failureReason on non-conflict failure', async () => {
+      const errorTracker = installErrorMessageTracker();
+
+      const gitService = createMockGitService({
+        mergeBranch: async () => ({
+          success: false,
+          conflicts: [],
+          failureReason: 'fatal: refusing to merge unrelated histories',
+        }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/merge-test');
+      await invokePrivateHandler(commands, '_handleMergeIntoCurrent', item);
+
+      assert.ok(
+        errorTracker.calls.length > 0,
+        'showErrorMessage MUST be called for non-conflict merge failure (regression: was silent no-op)'
+      );
+      assert.ok(
+        errorTracker.calls[0].message.includes('unrelated histories'),
+        `error message should include the underlying git reason, got: "${errorTracker.calls[0].message}"`
+      );
+    });
+
+    it('_handleRebaseCurrentOnto surfaces failureReason on non-conflict failure', async () => {
+      const errorTracker = installErrorMessageTracker();
+
+      const gitService = createMockGitService({
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+          success: false,
+          conflicts: [],
+          failureReason: 'error: cannot rebase: You have unstaged changes.',
+        }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.ok(
+        errorTracker.calls.length > 0,
+        'showErrorMessage MUST be called for non-conflict rebase failure'
+      );
+      assert.ok(
+        errorTracker.calls[0].message.includes('unstaged changes'),
+        `error message should include the underlying git reason, got: "${errorTracker.calls[0].message}"`
+      );
+    });
+
+    it('_handleCherryPickCommits surfaces failureReason on non-conflict failure', async () => {
+      const errorTracker = installErrorMessageTracker();
+
+      // The QuickPick prompts for which commits to pick — pre-resolve it.
+      const w = writableWindow();
+      const originalQuickPick = w.showQuickPick;
+      w.showQuickPick = (items: unknown): Promise<unknown> => {
+        if (Array.isArray(items)) {
+          return Promise.resolve(items.length > 0 ? items.slice(0, 1) : undefined);
+        }
+        return Promise.resolve(undefined);
+      };
+
+      try {
+        const gitService = createMockGitService({
+          getLog: async () => [
+            {
+              hash: 'abc1234',
+              shortHash: 'abc1234',
+              message: 'Commit msg',
+              author: { name: 'A', email: 'a@a' },
+              committer: { name: 'A', email: 'a@a' },
+              parents: [],
+              authorDate: new Date(0),
+              commitDate: new Date(0),
+            },
+          ],
+          cherryPick: async () => ({
+            success: false,
+            conflicts: [],
+            failureReason: 'fatal: bad object abc1234',
+          }),
+        });
+        const branchTreeProvider = createMockBranchTreeProvider(gitService);
+        const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+        const item = createRemoteBranchTreeItem('origin/feature/x');
+        await invokePrivateHandler(commands, '_handleCherryPickCommits', item);
+
+        assert.ok(
+          errorTracker.calls.length > 0,
+          'showErrorMessage MUST be called for non-conflict cherry-pick failure'
+        );
+        assert.ok(
+          errorTracker.calls[0].message.toLowerCase().includes('bad object') ||
+            errorTracker.calls[0].message.toLowerCase().includes('cherry-pick'),
+          `error message should reference the failure, got: "${errorTracker.calls[0].message}"`
+        );
+      } finally {
+        w.showQuickPick = originalQuickPick;
+      }
+    });
+
     // TL-33: tests for the `_parseConflictCount` fallback path were removed.
     // The pull-throws-with-CONFLICT-markers branch no longer stringifies a
     // count out of the error text; when `_conflictResolutionService` is

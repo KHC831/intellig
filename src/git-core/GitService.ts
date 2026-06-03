@@ -60,6 +60,7 @@ import {
   getTagFormat,
 } from './gitParser';
 import { sortCommitsStable } from './commitSort';
+import { sanitizeGitError } from './gitError';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -1378,9 +1379,20 @@ export class GitService implements IGitService, IGitServiceCli {
       .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
       .map((f) => f.path);
 
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    // Non-conflict failure (refused merge, unrelated histories, dirty
+    // tree, etc.). Preserve git's stderr so the caller can surface the
+    // underlying reason instead of a silent no-op.
     return {
       success: false,
-      conflicts,
+      conflicts: [],
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
     };
   }
 
@@ -1411,9 +1423,20 @@ export class GitService implements IGitService, IGitServiceCli {
       .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
       .map((f) => f.path);
 
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    // Non-conflict failure (dirty working tree, in-progress rebase, refs
+    // out of sync, etc.). Preserve git's stderr so the caller can surface
+    // the underlying reason instead of a silent no-op.
     return {
       success: false,
-      conflicts,
+      conflicts: [],
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
     };
   }
 
@@ -2451,9 +2474,19 @@ export class GitService implements IGitService, IGitServiceCli {
     if (result.exitCode !== 0) {
       // Check for conflicts (keeps pre-T2-05 behavior for plain cherry-pick).
       const conflicts = await this.getConflictedFiles(repo);
+      if (conflicts.length > 0) {
+        return {
+          success: false,
+          conflicts,
+        };
+      }
+      // Non-conflict failure (bad object, refused operation, dirty tree
+      // for a non-conflicting reason, etc.). Surface git's stderr so the
+      // caller can show it instead of dropping the failure silently.
       return {
         success: false,
-        conflicts,
+        conflicts: [],
+        failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
       };
     }
 
@@ -2556,9 +2589,19 @@ export class GitService implements IGitService, IGitServiceCli {
     // Check for conflicts (there might be more commits to cherry-pick)
     const conflicts = await this.getConflictedFiles(repo);
 
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    // Non-conflict failure: surface git's stderr so the caller can show
+    // it instead of dropping the failure silently.
     return {
       success: false,
-      conflicts,
+      conflicts: [],
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
     };
   }
 
@@ -2596,9 +2639,19 @@ export class GitService implements IGitService, IGitServiceCli {
     // Check for conflicts
     const conflicts = await this.getConflictedFiles(repo);
 
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    // Non-conflict failure: surface git's stderr so the caller can show
+    // it instead of dropping the failure silently.
     return {
       success: false,
-      conflicts,
+      conflicts: [],
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
     };
   }
 
@@ -2636,9 +2689,19 @@ export class GitService implements IGitService, IGitServiceCli {
     // Check for conflicts (there might be more commits to revert)
     const conflicts = await this.getConflictedFiles(repo);
 
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    // Non-conflict failure: surface git's stderr so the caller can show
+    // it instead of dropping the failure silently.
     return {
       success: false,
-      conflicts,
+      conflicts: [],
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
     };
   }
 
