@@ -359,6 +359,17 @@ export function renderGraphSvg(
       // The commit's own lane is handled separately in step 2
       continue;
     }
+    // Bug B: at the topmost row there is nothing above to connect to, so a
+    // pass-through stub (which always starts at y=0) renders as a detached
+    // line floating above the row — most visible above a merge commit whose
+    // merged-in lane is correctly marked active at row 0 so the bezier below
+    // has a landing lane. The commit's own column already guards this at
+    // `rowIndex > 0` below; the pass-through loop needs the same guard. The
+    // bezier curve still draws the bottom-half connection, so suppressing the
+    // top stub at row 0 loses no signal.
+    if (rowIndex === 0) {
+      continue;
+    }
     // On a branch split row, suppress pass-through lines for diverging child lanes.
     // These lanes only exist above the split point (the children), not below it.
     if (isBranchSplitPoint && childLanes.has(lane)) {

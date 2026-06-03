@@ -622,6 +622,43 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
   });
 
+  describe('Topmost merge commit pass-through guard (Bug B)', () => {
+    // A merge commit at row 0 whose second parent lives on lane 1. The merge
+    // line {from:0, to:1} forces lane 1 active at row 0 so the bezier has a
+    // landing lane. Before the fix, the pass-through loop drew a stub from
+    // y=0 down to centerY at lane 1's x — a detached blue line floating above
+    // the merge commit, because nothing exists above row 0 to connect to.
+    const node = makeNode('mmm', ['p1p', 'p2p'], 0, [
+      { fromColumn: 0, toColumn: 0, type: 'commit' },
+      { fromColumn: 0, toColumn: 1, type: 'merge' },
+    ]);
+    // activeLanes at row 0 includes both the commit's own lane (0) and the
+    // merge target lane (1) — matches what computeActiveLanes produces.
+    const activeLanes = new Set<number>([0, 1]);
+    const lane1X = getColumnX(1, config).toString();
+
+    it('emits no y1="0" pass-through line for the merged-in lane at row 0', () => {
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const lines = extractLines(svg);
+
+      // No line that both starts at the very top (y1=0) AND sits on lane 1's
+      // column may be emitted at row 0 — that's the phantom stub.
+      const phantomStubs = lines.filter((l) => l.y1 === '0' && l.x1 === lane1X);
+      assert.strictEqual(
+        phantomStubs.length,
+        0,
+        `expected no y1="0" stub on lane 1 at row 0, found ${phantomStubs.length}`
+      );
+    });
+
+    it('still draws the bezier connecting the merge commit to lane 1', () => {
+      const svg = renderGraphSvg(node, 0, activeLanes, config, false, false);
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 1, 'the merge bezier must still render');
+      assert.ok(paths[0].d.includes(lane1X), 'bezier should target lane 1');
+    });
+  });
+
   describe('Diamond merge pattern - Req 1.1, 1.2, 3.1', () => {
     // M → (B, C) → A
     // M at col 0, B at col 0, C at col 1, A at col 0
