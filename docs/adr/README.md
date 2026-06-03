@@ -34,7 +34,10 @@ status block.
   sanitization) conforming to ADR-002
 - [ADR-012](ADR-012-topical-source-tree.md) — Accepted —
   Topical `/src` source tree restructure (move `src/services/**`
-  into topic folders via deterministic migration)
+  into topic folders). The decision remains in force; the one-time
+  migration is complete and its Migration_Resources (Restructure_Plan,
+  Migration_Script, Migration_Property_Tests, and Migration_Unit_Tests)
+  are retired.
 
 ## Status legend
 
