@@ -2,6 +2,48 @@
 
 Status: Accepted (2026-05-26)
 
+## Status update — migration complete
+
+> This block is a historical removal record, not an operative reference.
+> The Decision and Consequences prose below is preserved verbatim as the
+> original record of the decision.
+
+The one-time ADR-012 migration is **complete**, and the topical `/src`
+restructure it produced **remains in force**. The decision is not
+reversed: the source tree stays grouped by topic exactly as described
+below. Only the one-time *machinery* that performed and policed the move
+has been retired now that it has served its purpose.
+
+The following Migration_Resource groups have been retired and removed
+from the repository:
+
+| Retired group | Path(s) |
+|---|---|
+| **Restructure_Plan** | `scripts/restructure/plan.json` |
+| **Migration_Script** | `scripts/restructure/migrate.mjs` |
+| **Migration_Property_Tests** | `src/test/property/restructurePlanTotality.property.test.ts`, `src/test/property/migrateBoundary.property.test.ts`, `src/test/property/migrateIdempotence.property.test.ts`, `src/test/property/migrateImportRewrite.property.test.ts` |
+| **Migration_Unit_Tests** | `src/test/unit/scripts/restructure/` (the whole folder) |
+
+**No migration-pinned invariant required relocation.** Every invariant
+that was presently binding when the migration tooling was retired is
+already enforced by a retained guard or test, so nothing had to be moved
+into a new home to survive the removal:
+
+- the **ADR-006** QuickPick view-state guard
+  (`scripts/check-quickpick-state-no-error.sh`) still enforces the
+  no-`error?`-sideband invariant against the live tree;
+- the **ADR-008** watcher-family registration guard
+  (`scripts/check-watcher-families-registered.mjs`) still enforces the
+  `_*Watchers` cleanup-registry invariant against the moved
+  `GitService.ts`;
+- the per-ADR conformance suites and the storage round-trip suites
+  remain present and continue to enforce their respective invariants.
+
+Because the migration unit and property tests only ever asserted
+migration *mechanics* (path mappings resolved through the now-removed
+`plan.json`), retiring them removed no sole enforcement of a
+still-relevant invariant.
+
 ## Context
 
 The extension grew its service layer past the point where a flat

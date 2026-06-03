@@ -7,12 +7,12 @@ a test without rotting the production API.
 
 ## §1. Test layers
 
-| Layer      | Path                 | VS Code host? | Real git? | Driver     | Approx. count |
-| ---------- | -------------------- | ------------- | --------- | ---------- | ------------: |
-| Unit       | `src/test/unit/**`   | no            | no        | Mocha      |          2542 |
-| Property   | `src/test/property/**` | no          | no        | fast-check |          3158 |
-| Ext-host   | `src/test/ext-host/**` | yes         | no        | Mocha      |            22 |
-| E2E        | `src/test/e2e/**`    | yes           | yes       | Mocha      |            36 |
+| Layer      | Path                 | CI lane                | VS Code host? | Real git? | Driver     | Approx. count |
+| ---------- | -------------------- | ---------------------- | ------------- | --------- | ---------- | ------------: |
+| Unit       | `src/test/unit/**`   | `test:unit`            | no            | no        | Mocha      |          2542 |
+| Property   | `src/test/property/**` | `test:property` (+ `test:property:stress`) | no | no | fast-check |          3158 |
+| Ext-host   | `src/test/ext-host/**` | `test:ext-host`      | yes           | no        | Mocha      |            22 |
+| E2E        | `src/test/e2e/**`    | `test:e2e`             | yes           | yes       | Mocha      |            36 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -30,6 +30,51 @@ a test without rotting the production API.
   Per-test isolated via `src/test/e2e/support/Fixture.ts` +
   `workspaceHelper.ts`. Use for command flows that exercise real git
   state transitions. These are slow; budget carefully.
+
+### The test surface is the CI lanes
+
+The complete, runnable test surface is the five CI lanes, and nothing
+else:
+
+- `test:unit` — the Unit layer (in-process, `vscode` mock).
+- `test:property` — the Property layer (in-process, `vscode` mock).
+- `test:property:stress` — re-runs the Property layer N times to shake
+  out flakey counterexamples.
+- `test:ext-host` — the Ext-host layer (real Extension Host).
+- `test:e2e` — the E2E layer (real Extension Host + real git fixtures).
+
+These are exactly the lanes `.github/workflows/ci.yml` runs
+(`test:ext-host` and `test:e2e` under `xvfb-run -a`). Each Electron lane
+(`test:ext-host`, `test:e2e`) launches with
+`--disable-extensions --disable-workspace-trust` so it runs fully
+unattended — no workspace-trust modal, no extension-recommendations
+prompt.
+
+**Decision (Option B + compatibility alias): the aggregate *harness* is
+retired, but `npm test` survives as a thin alias.** The legacy aggregate
+host — the old `test` script's `node ./out/test/runTest.js` entry point,
+its launcher `src/test/runTest.ts`, and its recursive Mocha loader
+`src/test/suite/index.ts` — has been **removed**. It booted a real
+Extension Host with no launch args (so it stalled on the workspace-trust
+modal) and dragged the mock-`vscode` unit/property suites into that host;
+CI never invoked it, and its only host spec was already covered by the
+`test:ext-host` `01.activate.test.ts` smoke suite.
+
+To avoid breaking the muscle-memory `npm test` command, the `test` script
+is **retained as an alias** over the in-process lanes plus lint rather
+than removed:
+
+```
+test = lint (--max-warnings 0) → test:unit → test:property
+```
+
+`npm test` therefore runs the fast, headless, in-process gates (the same
+ones the pre-commit checks and CI run) and never boots an Extension Host,
+so it stays fully unattended. The two Electron lanes (`test:ext-host`,
+`test:e2e`) are intentionally **not** part of the alias — run them
+explicitly when you need a real host. There is no longer any single
+command that runs everything (in-process + both Electron lanes) in one
+process; that is by design.
 
 ## §2. Test-infra locations
 
