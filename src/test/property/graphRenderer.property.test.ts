@@ -491,6 +491,17 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
 
             const lines = extractLines(svg);
 
+            // Bug B: `renderGraphSvg` suppresses all pass-through lines at the
+            // topmost row (rowIndex 0) — a stub starting at y=0 there would
+            // float detached above the row. This property pins the COLOR of a
+            // rendered pass-through line; at row 0 there is no such line to
+            // colour, so the invariant is vacuous. Skip row 0 here (the row-0
+            // suppression itself is asserted by Property 4 and the Bug B unit
+            // test); rows 1–100 still exercise the colour determinism.
+            if (rowIndex === 0) {
+              return;
+            }
+
             if (isBezierTarget) {
               // Bezier target lanes get half-height pass-through (y=0 to y=centerY)
               const halfHeightLine = lines.find(
@@ -574,6 +585,25 @@ describe('Feature: git-graph-visualization - renderGraphSvg Property Tests', () 
               }
 
               const expectedX = getColumnX(lane, config);
+
+              // Bug B: pass-through stubs always start at y=0, so at the
+              // topmost row (rowIndex 0) they render as detached lines
+              // floating above the row. `renderGraphSvg` suppresses every
+              // pass-through line at rowIndex 0 (the bezier still draws the
+              // bottom-half connection). Assert the ABSENCE of any
+              // pass-through line at this lane's x for row 0 rather than the
+              // full/half-height presence the rows below require.
+              if (rowIndex === 0) {
+                const stubAtLane = lines.find(
+                  (l) => parseFloat(l.x1) === expectedX && parseFloat(l.y1) === 0
+                );
+                assert.ok(
+                  !stubAtLane,
+                  `At rowIndex 0 there must be NO pass-through stub (y1=0) at x=${expectedX} for lane ${lane}. ` +
+                    `Active lanes: [${[...activeLanes].join(', ')}], commit column: ${node.graphColumn}`
+                );
+                continue;
+              }
 
               if (bezierTargetLanes.has(lane)) {
                 // Bezier target lanes get a half-height pass-through (y=0 to y=centerY)
