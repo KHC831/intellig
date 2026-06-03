@@ -1117,9 +1117,10 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using rebase command for remote branches.
-   * Routes through the T1-02 Pull Dialog with the `rebase` preset and the
-   * remote/branch pre-filled from the menu item. Falls back to a direct
-   * pull if the dialog accessor isn't available.
+   * Bug G: pulls directly with the `rebase` preset (rebase=true) and the
+   * remote/branch parsed from the menu item. The second "Pull: Options"
+   * QuickPick is intentionally bypassed — the menu entry already chose the
+   * strategy.
    */
   private async _handlePullUsingRebase(item: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'rebase');
@@ -1127,16 +1128,29 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using merge command for remote branches.
-   * Routes through the T1-02 Pull Dialog with the `merge` preset.
+   * Bug G: pulls directly with the `merge` preset (rebase=false). The
+   * second "Pull: Options" QuickPick is intentionally bypassed.
    */
   private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'merge');
   }
 
   /**
-   * Shared implementation for the pullUsing* handlers — delegates to the
-   * Pull Dialog with source pre-filled, or falls back to a direct pull
-   * when the dialog is unavailable.
+   * Shared implementation for the pullUsing* handlers (Bug G).
+   *
+   * The right-click menu entry already chose the strategy
+   * (`pullUsingRebase` → rebase, `pullUsingMerge` → merge), so this path
+   * pulls directly via `gitService.pull` with `rebase: preset === 'rebase'`
+   * and never opens the PullDialog. Previously this delegated to
+   * `PullDialog.show`, which popped a second "Pull: Options" QuickPick
+   * requiring the synthetic ▶ Pull terminal item; dismissing it returned
+   * `{status:'cancelled'}` that the caller awaited but never branched on,
+   * making the action look like a silent no-op.
+   *
+   * `_pullDialogAccessor` remains a field/constructor param (other wiring
+   * may reference it) but is intentionally NOT consulted here. The generic
+   * `intellig.pull` palette command still routes through PullDialog — that
+   * entry point is where strategy IS the question.
    */
   private async _runPullFromBranchMenu(
     item: BranchTreeItem,
@@ -1155,17 +1169,24 @@ export class BranchContextMenuCommands {
     const branchName =
       slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
 
-    const dialog = this._pullDialogAccessor?.();
-    if (dialog) {
-      await dialog.show(repo, preset, { remote: remoteName, branch: branchName });
-      // Pull moved HEAD; reload before refresh.
-      await this._gitService.reloadRepository(repo);
-      this._branchTreeProvider.refresh();
-      return;
-    }
+    // Bug G: the right-click pullUsing* entries intentionally bypass the
+    // PullDialog — the menu entry already chose the strategy, so the second
+    // "Pull: Options" QuickPick was redundant friction whose silent cancel
+    // looked like a no-op. The `_pullDialogAccessor` field is retained for
+    // constructor-arity / wiring compatibility (the generic `intellig.pull`
+    // palette command still routes through PullDialog). Emit a debug note
+    // (visible only at `log.level=debug`) so a received click is observable
+    // even though no dialog opens.
+    getLogger()
+      .child({ component: 'BranchContextMenuCommands' })
+      .debug('pullUsing* bypassing PullDialog (strategy chosen via menu)', {
+        preset,
+        dialogAvailable: this._pullDialogAccessor !== undefined,
+      });
 
-    // Fallback path (tests and any legacy caller that didn't wire up the
-    // Pull Dialog): preserve the original direct-pull behaviour.
+    // Direct-pull path — the only path for both presets. The conflict-probe
+    // handoff below auto-opens the Resolve Conflicts dialog when the pull
+    // leaves the working tree with unresolved conflicts.
     try {
       await this._gitService.pull(repo, {
         remote: remoteName,
@@ -1423,9 +1444,11 @@ export class BranchContextMenuCommands {
    * Handle pull into current command.
    *
    * Delegates to `_runPullFromBranchMenu` with the default ("merge")
-   * preset so the user gets the same Pull Dialog + conflict-handoff
-   * pipeline as the pullUsingMerge/Rebase entries. Matches the caller-
-   * invoked pattern introduced by T1-02 and extended by T1-08(a).
+   * preset so the user gets the same direct-pull + conflict-handoff
+   * pipeline as the pullUsingMerge/Rebase entries. Bug G: this path no
+   * longer opens the second "Pull: Options" QuickPick — the right-click
+   * entry already chose the strategy. The conflict-handoff (T1-08(a))
+   * still fires on a conflicted pull.
    */
   private async _handlePullIntoCurrent(item: BranchTreeItem): Promise<void> {
     await this._runPullFromBranchMenu(item, 'merge');

@@ -1,16 +1,20 @@
 /**
  * Unit tests for — finished checkoutAndRebase / pullUsingRebase /
- * pullUsingMerge handlers.
+ * pullUsingMerge handlers, plus the generic `intellig.pull` dialog-outcome
+ * handler (Bug G).
  *
  * Complements the existing property tests (which cover the fallback /
- * error paths) by exercising the *wired* path:
+ * error paths) by exercising:
  *   - `_handleCheckoutAndRebase`: happy path (checkout → rebase → refresh),
  *     and conflict → `openResolveConflictsDialog` with `operation: 'rebase'`.
- *   - `_handlePullUsingRebase` / `_handlePullUsingMerge`: when a PullDialog
- *     accessor is wired, the handlers route through `PullDialog.show(repo,
- *     preset, { remote, branch })`. When the accessor is absent, the
- *     fallback direct-pull path is used (preserving the behaviour covered
- *     by the property suite).
+ *   - `_handlePullUsingRebase` / `_handlePullUsingMerge` (Bug G.1): the
+ *     right-click entries chose the strategy via the menu, so they bypass
+ *     the PullDialog entirely and pull directly via `gitService.pull` with
+ *     `rebase: preset === 'rebase'`. A wired dialog accessor's `show` must
+ *     NOT be called.
+ *   - `handlePullDialogOutcome` (Bug G.2): the generic `intellig.pull`
+ *     palette command still routes through PullDialog; a `cancelled`
+ *     outcome emits a debug log naming the step and fires NO toast.
  */
 
 /*
@@ -22,6 +26,8 @@ import '../../setup';
 import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../../branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../../branches/BranchTreeProvider';
+import { handlePullDialogOutcome } from '../../../extension';
+import type { PullDialogOutcome } from '../../../sync/PullDialog';
 import {
   IBasicRebaseResult,
   IBranch,
@@ -36,8 +42,14 @@ import {
   IConflictResolutionService,
 } from '../../../conflicts/interfaces/IConflictResolutionService';
 import type { PullDialog } from '../../../sync/PullDialog';
-import { EventEmitter, Uri } from '../../mocks/vscode';
-import { writableWindow } from '../../typed/windowStub';
+import { EventEmitter, Uri, resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
+import {
+  installErrorMessageTracker,
+  installInfoMessageTracker,
+  installWarningMessageTracker,
+  restoreMessageFunctions,
+  writableWindow,
+} from '../../typed/windowStub';
 import {
   createMockGitService as createSharedMockGitService,
   detachedRepo,
@@ -294,58 +306,95 @@ describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
 // ─── Tests: pullUsingRebase / pullUsingMerge ─────────────────────────────────
 
 describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () => {
-  it('pullUsingRebase: routes through PullDialog with preset="rebase" + remote/branch prefilled', async () => {
+  it('pullUsingRebase: skips PullDialog and routes to direct pull with rebase=true', async () => {
+    // Bug G.1: the right-click entry already chose the strategy, so the
+    // handler must NOT open the PullDialog. A wired dialog accessor's
+    // `show` must never be called; instead the direct-pull path runs with
+    // `rebase: preset === 'rebase'` → true.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
     const pullDialog = createMockPullDialog();
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => pullDialog as unknown as PullDialog
-    );
+    const infoTracker = installInfoMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        undefined,
+        () => pullDialog as unknown as PullDialog
+      );
 
-    const item = createRemoteBranchTreeItem('origin/feature/x');
-    await (
-      commands as unknown as {
-        _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingRebase(item);
+      const item = createRemoteBranchTreeItem('origin/feature/x');
+      await (
+        commands as unknown as {
+          _handlePullUsingRebase(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingRebase(item);
 
-    assert.strictEqual(pullDialog._calls.length, 1);
-    const [repoArg, preset, source] = pullDialog._calls[0].args;
-    assert.strictEqual(repoArg, repo);
-    assert.strictEqual(preset, 'rebase');
-    assert.deepStrictEqual(source, { remote: 'origin', branch: 'feature/x' });
-    // Direct pull NOT invoked because the dialog accessor handled it.
-    assert.strictEqual(gitService._calls.pull.length, 0);
+      // Dialog is bypassed entirely.
+      assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
+      // Direct pull invoked with the rebase strategy and prefilled source.
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      const pullOptions = gitService._calls.pull[0].args[1] as {
+        remote: string;
+        branch: string;
+        rebase: boolean;
+      };
+      assert.strictEqual(pullOptions.remote, 'origin');
+      assert.strictEqual(pullOptions.branch, 'feature/x');
+      assert.strictEqual(pullOptions.rebase, true, 'rebase preset → rebase=true');
+      // Success toast fired.
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes('using rebase')),
+        `expected a success toast naming the rebase strategy, got: ${JSON.stringify(infoTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
   });
 
-  it('pullUsingMerge: routes through PullDialog with preset="merge"', async () => {
+  it('pullUsingMerge: skips PullDialog and routes to direct pull with rebase=false', async () => {
+    // Bug G.1: same as rebase but the merge preset maps to rebase=false.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
     const pullDialog = createMockPullDialog();
-    const commands = new BranchContextMenuCommands(
-      gitService as unknown as IGitService,
-      provider,
-      undefined,
-      () => pullDialog as unknown as PullDialog
-    );
+    const infoTracker = installInfoMessageTracker();
+    try {
+      const commands = new BranchContextMenuCommands(
+        gitService as unknown as IGitService,
+        provider,
+        undefined,
+        () => pullDialog as unknown as PullDialog
+      );
 
-    const item = createRemoteBranchTreeItem('origin/develop');
-    await (
-      commands as unknown as {
-        _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
-      }
-    )._handlePullUsingMerge(item);
+      const item = createRemoteBranchTreeItem('origin/main');
+      await (
+        commands as unknown as {
+          _handlePullUsingMerge(i: BranchTreeItem): Promise<void>;
+        }
+      )._handlePullUsingMerge(item);
 
-    assert.strictEqual(pullDialog._calls.length, 1);
-    const [, preset, source] = pullDialog._calls[0].args;
-    assert.strictEqual(preset, 'merge');
-    assert.deepStrictEqual(source, { remote: 'origin', branch: 'develop' });
-    assert.strictEqual(gitService._calls.pull.length, 0);
+      // Dialog is bypassed entirely.
+      assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
+      // Direct pull invoked with merge semantics (rebase=false).
+      assert.strictEqual(gitService._calls.pull.length, 1);
+      const pullOptions = gitService._calls.pull[0].args[1] as {
+        remote: string;
+        branch: string;
+        rebase: boolean;
+      };
+      assert.strictEqual(pullOptions.remote, 'origin');
+      assert.strictEqual(pullOptions.branch, 'main');
+      assert.strictEqual(pullOptions.rebase, false, 'merge preset → rebase=false');
+      // Success toast fired.
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes('using merge')),
+        `expected a success toast naming the merge strategy, got: ${JSON.stringify(infoTracker.calls)}`
+      );
+    } finally {
+      restoreMessageFunctions();
+    }
   });
 
   it('pullDialog accessor returning undefined falls back to direct pull', async () => {
@@ -424,7 +473,8 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
   it('remote branch name without "/" maps remote=fullName branch=fullName', async () => {
     // Defensive: BranchTreeItem names should always be "<remote>/<branch>",
     // but the parser handles the degenerate no-slash case by using the
-    // whole string as both remote and branch. Lock that behaviour in.
+    // whole string as both remote and branch. Bug G.1: the dialog is
+    // bypassed, so this asserts the direct-pull call's options instead.
     const gitService = createMockGitService();
     const repo = createMockRepo('main');
     const provider = createMockBranchTreeProvider(repo);
@@ -443,9 +493,145 @@ describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge',
       }
     )._handlePullUsingRebase(item);
 
-    assert.strictEqual(pullDialog._calls.length, 1);
-    const [, , source] = pullDialog._calls[0].args;
-    assert.deepStrictEqual(source, { remote: 'origin-only', branch: 'origin-only' });
+    assert.strictEqual(pullDialog._calls.length, 0, 'PullDialog.show must NOT be called');
+    assert.strictEqual(gitService._calls.pull.length, 1);
+    const pullOptions = gitService._calls.pull[0].args[1] as {
+      remote: string;
+      branch: string;
+    };
+    assert.strictEqual(pullOptions.remote, 'origin-only');
+    assert.strictEqual(pullOptions.branch, 'origin-only');
+  });
+});
+
+// ─── Tests: generic intellig.pull dialog-outcome handling (Bug G.2) ──────────
+
+/**
+ * Bug G.2: the generic `intellig.pull` palette command still routes through
+ * the PullDialog (where strategy IS the question). The dialog already shows
+ * its own toasts for the `pulled` / `conflict` / `error` outcomes
+ * (see `runPullDialog`), so the registration must NOT double-handle those.
+ * On `cancelled` the dialog shows nothing — Esc / dismissing is a normal
+ * user action — so the registration emits a single debug-level structured
+ * log record naming the step the user cancelled at, with NO toast.
+ *
+ * The outcome-branching is extracted from the `intellig.pull` registration
+ * into the exported, pure `handlePullDialogOutcome` helper so it is testable
+ * without driving the registered command through the extension host. These
+ * tests pin that helper's behaviour.
+ */
+describe('Bug G.2 — generic intellig.pull dialog-outcome handler', () => {
+  /** Pin the Logger to `debug` BEFORE init so the debug record is admitted. */
+  function setupDebugLogger(): { _lines: string[] } {
+    __resetLoggerForTest();
+    __resetOutputChannelForTest();
+    resetMockConfiguration();
+    setMockConfigValue('intellig', 'log.level', 'debug');
+    const ctxSubs: { dispose(): void }[] = [];
+    const ctx = { subscriptions: ctxSubs } as unknown as import('vscode').ExtensionContext;
+    initOutputChannel(ctx);
+    initLogger(ctx);
+    return getOutputChannel() as unknown as { _lines: string[] };
+  }
+
+  it('cancelled at options step: emits a debug log, no toast', () => {
+    const channel = setupDebugLogger();
+    const infoTracker = installInfoMessageTracker();
+    const warnTracker = installWarningMessageTracker();
+    const errorTracker = installErrorMessageTracker();
+    try {
+      const outcome: PullDialogOutcome = { status: 'cancelled', step: 'options' };
+      handlePullDialogOutcome(outcome);
+
+      // No toast on user-cancel.
+      assert.strictEqual(infoTracker.calls.length, 0, 'no info toast on cancel');
+      assert.strictEqual(warnTracker.calls.length, 0, 'no warning toast on cancel');
+      assert.strictEqual(errorTracker.calls.length, 0, 'no error toast on cancel');
+
+      // At least one debug record mentioning the cancellation + step.
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const cancelRecord = records.find(
+        (r) =>
+          r.level === 'debug' &&
+          r.component === 'extension' &&
+          r.message.includes('pull dialog cancelled')
+      );
+      assert.ok(
+        cancelRecord,
+        `expected a debug 'pull dialog cancelled' record; saw lines: ${JSON.stringify(channel._lines)}`
+      );
+      const rendered = JSON.stringify(cancelRecord);
+      assert.ok(
+        rendered.includes('options'),
+        `cancel record must name the 'options' step; got: ${rendered}`
+      );
+    } finally {
+      restoreMessageFunctions();
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
+      resetMockConfiguration();
+    }
+  });
+
+  it('cancelled at source step: debug record names the source step', () => {
+    const channel = setupDebugLogger();
+    const infoTracker = installInfoMessageTracker();
+    try {
+      handlePullDialogOutcome({ status: 'cancelled', step: 'source' });
+
+      assert.strictEqual(infoTracker.calls.length, 0, 'no toast on cancel');
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const cancelRecord = records.find(
+        (r) =>
+          r.level === 'debug' &&
+          r.component === 'extension' &&
+          r.message.includes('pull dialog cancelled')
+      );
+      assert.ok(cancelRecord, 'expected a debug cancel record for the source step');
+      assert.ok(
+        JSON.stringify(cancelRecord).includes('source'),
+        'cancel record must name the source step'
+      );
+    } finally {
+      restoreMessageFunctions();
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
+      resetMockConfiguration();
+    }
+  });
+
+  it('pulled / conflict / error: no extra toast and no cancel log (dialog handled it)', () => {
+    const channel = setupDebugLogger();
+    const infoTracker = installInfoMessageTracker();
+    const warnTracker = installWarningMessageTracker();
+    const errorTracker = installErrorMessageTracker();
+    try {
+      const opts = { remote: 'origin', branch: 'main' };
+      handlePullDialogOutcome({ status: 'pulled', options: opts });
+      handlePullDialogOutcome({ status: 'conflict', options: opts, message: 'CONFLICT' });
+      handlePullDialogOutcome({ status: 'error', options: opts, message: 'boom' });
+
+      // The registration must not double-handle: the dialog already
+      // toasted internally for these outcomes.
+      assert.strictEqual(infoTracker.calls.length, 0, 'no extra info toast');
+      assert.strictEqual(warnTracker.calls.length, 0, 'no extra warning toast');
+      assert.strictEqual(errorTracker.calls.length, 0, 'no extra error toast');
+
+      // And no spurious "pull dialog cancelled" debug record for non-cancel
+      // outcomes.
+      const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);
+      const cancelRecord = records.find((r) => r.message.includes('pull dialog cancelled'));
+      assert.strictEqual(
+        cancelRecord,
+        undefined,
+        'no cancel log should fire for pulled/conflict/error outcomes'
+      );
+    } finally {
+      restoreMessageFunctions();
+      __resetLoggerForTest();
+      __resetOutputChannelForTest();
+      resetMockConfiguration();
+    }
   });
 });
 
