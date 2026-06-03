@@ -36,6 +36,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
+// Forward-declare `getLogger` via a circular-safe ES import. `logger.ts`
+// imports `_readCorrelationStore` from this file, so this forms a
+// circular dependency. Node + ts-node both handle the cycle at runtime
+// because `getLogger` is invoked LAZILY inside `registerLoggedCommand`'s
+// per-call closure — by the time a command actually runs, both modules
+// have finished initialising and the import binding is live.
+import { getLogger } from './logger';
 
 /**
  * One per-command frame stored in `AsyncLocalStorage`.
@@ -158,7 +165,58 @@ export function registerLoggedCommand<T>(
   return vscode.commands.registerCommand(id, (...args: any[]) => {
     const correlationId = crypto.randomBytes(8).toString('hex');
     const frame: ICorrelationFrame = { correlationId, commandId: id };
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-    return _store.run(frame, () => handler(...args));
+
+    // Observability — emit a debug-level invocation record and a
+    // warn-level rejection record for every command. Without this layer,
+    // command handlers that swallow failures (returned the failure shape
+    // instead of throwing) left no trace at all in the IntelliG
+    // OutputChannel. The original example: "Rebase Current onto This"
+    // with a dirty working tree showed no toast and no log entry; the
+    // user could not tell whether the click was even received.
+    //
+    // Both records run inside the correlation frame via `_store.run`, so
+    // they pick up `commandId` and `correlationId` automatically through
+    // the Logger's frame-aware emit path.
+    return _store.run(frame, () => {
+      const logger = getLogger().child({ component: 'Command' });
+      // Embed `commandId` in the message text so it surfaces as a
+      // human-readable substring in `Output → IntelliG`. The renderer
+      // does not project frame.commandId into the rendered line; only
+      // correlationId is exposed via `cid=`. Keeping the id in the text
+      // makes the records both grep-friendly and self-describing.
+      logger.debug(`command invoked: ${id}`);
+
+      let outcome: T | Promise<T>;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        outcome = handler(...args);
+      } catch (err) {
+        logger.warn(`command handler threw synchronously: ${id}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+
+      if (outcome instanceof Promise) {
+        return outcome.then(
+          (value): T => {
+            logger.debug(`command resolved: ${id}`);
+            return value;
+          },
+          (err: unknown): never => {
+            // VS Code surfaces command rejections to the user as a generic
+            // toast; log them here too so the failure has a record in the
+            // IntelliG channel that ties back to the correlation id.
+            logger.warn(`command handler rejected: ${id}`, {
+              error: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
+        );
+      }
+
+      logger.debug(`command resolved: ${id}`);
+      return outcome;
+    });
   });
 }

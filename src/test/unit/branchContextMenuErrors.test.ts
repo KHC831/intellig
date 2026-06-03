@@ -559,6 +559,12 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
 
     // ─── Non-conflict failure surfacing (regression: silent no-op) ────────
+    //
+    // PR1 (fix/silent-rebase-error-surfacing) pinned the rebase handler's
+    // dirty-tree pre-check + non-conflict failure surfacing + fallback path.
+    // Those three rebase tests are merged on main. PR3 keeps its two unique
+    // tests covering the same regression for `_handleMergeIntoCurrent` and
+    // `_handleCherryPickCommits` — handlers PR1 didn't touch.
 
     it('_handleMergeIntoCurrent surfaces failureReason on non-conflict failure', async () => {
       const errorTracker = installErrorMessageTracker();
@@ -582,32 +588,6 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
       assert.ok(
         errorTracker.calls[0].message.includes('unrelated histories'),
-        `error message should include the underlying git reason, got: "${errorTracker.calls[0].message}"`
-      );
-    });
-
-    it('_handleRebaseCurrentOnto surfaces failureReason on non-conflict failure', async () => {
-      const errorTracker = installErrorMessageTracker();
-
-      const gitService = createMockGitService({
-        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
-          success: false,
-          conflicts: [],
-          failureReason: 'error: cannot rebase: You have unstaged changes.',
-        }),
-      });
-      const branchTreeProvider = createMockBranchTreeProvider(gitService);
-      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
-
-      const item = createLocalBranchTreeItem('origin/main');
-      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
-
-      assert.ok(
-        errorTracker.calls.length > 0,
-        'showErrorMessage MUST be called for non-conflict rebase failure'
-      );
-      assert.ok(
-        errorTracker.calls[0].message.includes('unstaged changes'),
         `error message should include the underlying git reason, got: "${errorTracker.calls[0].message}"`
       );
     });

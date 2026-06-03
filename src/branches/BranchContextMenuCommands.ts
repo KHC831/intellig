@@ -517,6 +517,13 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle rebase current onto command.
+   *
+   * Pre-checks the working tree for uncommitted changes BEFORE invoking
+   * `git rebase` so the user gets an actionable "commit or stash first"
+   * toast instead of git's terse "cannot rebase: You have unstaged changes"
+   * one. Skipping the pre-check was the original silent-failure UX bug:
+   * `rebaseBranch` returned `{success:false, conflicts:[]}` and the handler
+   * had no else branch for that shape, so the click looked like a no-op.
    */
   private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -525,6 +532,18 @@ export class BranchContextMenuCommands {
     }
 
     try {
+      // Pre-check: working tree must be clean. Both unstaged changes and a
+      // dirty index will cause `git rebase` to refuse, so we treat any
+      // non-empty status as a hard stop with a friendly toast.
+      const status = await this._gitService.getStatus(repo);
+      if (status.length > 0) {
+        void vscode.window.showWarningMessage(
+          `Cannot rebase onto '${item.branch.name}': you have uncommitted changes. ` +
+            `Commit or stash them first.`
+        );
+        return;
+      }
+
       const result = await this._gitService.rebaseBranch(repo, item.branch.name);
 
       if (result.success) {
@@ -545,9 +564,14 @@ export class BranchContextMenuCommands {
           );
         }
       } else {
-        // Non-conflict failure (dirty tree, in-progress rebase, refs out of
-        // sync, etc.). Surface the underlying git error instead of a
-        // silent no-op.
+        // Non-conflict failure (e.g. dirty tree, in-progress rebase, refs
+        // out of sync, remote ref disappeared, etc.). Surface the underlying
+        // git error so the user has SOMETHING to act on instead of a silent
+        // no-op. `failureReason` is already sanitized at the GitService
+        // boundary, but we re-pipe through `sanitizeGitError` here so the
+        // safety contract is locally evident at the toast site (TL-72
+        // structural guard) and survives any future refactor of the source
+        // side.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
           `Failed to rebase onto '${item.branch.name}': ${sanitizeGitError(reason)}`
