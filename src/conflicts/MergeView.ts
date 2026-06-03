@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import {
   IMergeView,
   IMergeState,
@@ -33,15 +34,48 @@ export class MergeView implements IMergeView {
   }
 
   /**
-   * Show the merge view for a conflicted file
+   * Show the merge view for a conflicted file.
+   *
+   * `file` may be either an absolute path or a path relative to a repository
+   * root. The Resolve Conflicts dialog and the conflicted-file picker both
+   * source their paths from `git status --porcelain`, which emits
+   * repo-relative paths (e.g. `src/foo/bar.ts`). Passing such a path straight
+   * to `vscode.Uri.file()` would anchor it at the filesystem root
+   * (`/src/foo/bar.ts`), so `getRepository` finds no owning repo and we throw
+   * "No repository found". To support both shapes we first try the path
+   * verbatim, and — when that misses and the path is relative — resolve it
+   * against each discovered repository root before giving up.
    */
   async show(file: string): Promise<void> {
-    // Find the repository for this file
-    const fileUri = vscode.Uri.file(file);
-    this._repository = await this._gitService.getRepository(fileUri);
+    // Find the repository for this file. Try the path as given first (covers
+    // the absolute-path callers).
+    this._repository = await this._gitService.getRepository(vscode.Uri.file(file));
+
+    // Relative path (the common case from `git status --porcelain`): resolve
+    // it against the known repository roots and retry the lookup.
+    const searchedRoots: string[] = [];
+    if (!this._repository && !path.isAbsolute(file)) {
+      for (const repo of this._gitService.getRepositories()) {
+        searchedRoots.push(repo.rootUri.fsPath);
+        const candidate = path.join(repo.rootUri.fsPath, file);
+        if (fs.existsSync(candidate)) {
+          this._repository = await this._gitService.getRepository(vscode.Uri.file(candidate));
+          if (this._repository) {
+            break;
+          }
+        }
+      }
+    }
 
     if (!this._repository) {
-      throw new Error(`No repository found for file: ${file}`);
+      // Clearer than the bare "No repository found": name the path we tried
+      // and the roots we searched so the failure is debuggable from the toast
+      // / log alone.
+      const rootList =
+        searchedRoots.length > 0 ? searchedRoots.join(', ') : '(no repositories discovered)';
+      throw new Error(
+        `No repository found for file "${file}". Searched repository roots: ${rootList}`
+      );
     }
 
     // Parse the conflict markers and get the three versions

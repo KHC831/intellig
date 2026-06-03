@@ -395,4 +395,88 @@ describe('MergeView', () => {
       assert.strictEqual(typeof mergeView.hide, 'function');
     });
   });
+
+  describe('show() repository resolution (Bug D)', () => {
+    // Regression: the Resolve Conflicts dialog and the conflicted-file picker
+    // pass repo-RELATIVE paths (from `git status --porcelain`). The old
+    // `show()` ran `vscode.Uri.file(file)` on that relative path, anchoring it
+    // at the filesystem root (`/src/foo.ts`) so `getRepository` found no repo
+    // and threw "No repository found for file" — surfacing as the "Failed to
+    // open merge view" error when clicking "Merge…". `show()` must resolve the
+    // relative path against the discovered repository roots.
+    it('resolves a repo-relative path against discovered repository roots', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-mergeview-relpath-'));
+      try {
+        const relPath = 'src/foo.ts';
+        const absPath = path.join(tmpDir, relPath);
+        fs.mkdirSync(path.dirname(absPath), { recursive: true });
+        fs.writeFileSync(
+          absPath,
+          '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n',
+          'utf8'
+        );
+
+        const repo: IRepository = {
+          rootUri: vscode.Uri.file(tmpDir),
+          state: 'idle',
+          head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+          remotes: [],
+          submodules: [],
+        };
+
+        // The bogus root-anchored path misses (returns undefined); the
+        // absolute path under the repo root resolves.
+        const resolved = path.resolve(tmpDir, relPath);
+        mockGitService.getRepository = (uri: vscode.Uri): Promise<IRepository | undefined> =>
+          Promise.resolve(uri.fsPath === resolved ? repo : undefined);
+        mockGitService.getRepositories = (): IRepository[] => [repo];
+
+        await mergeView.show(relPath);
+
+        const internals = mergeView as unknown as MergeViewInternals;
+        assert.strictEqual(
+          internals._repository?.rootUri.fsPath,
+          tmpDir,
+          'show() should bind the repo found via the relative-path fallback'
+        );
+        assert.ok(
+          mergeView.getMergeState() !== undefined,
+          'merge state should load once the repo resolves'
+        );
+      } finally {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    });
+
+    it('throws a debuggable error naming the path and searched roots when nothing resolves', async () => {
+      const repoA: IRepository = {
+        rootUri: vscode.Uri.file('/repo-a'),
+        state: 'idle',
+        head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+        remotes: [],
+        submodules: [],
+      };
+      mockGitService.getRepository = (): Promise<undefined> => Promise.resolve(undefined);
+      mockGitService.getRepositories = (): IRepository[] => [repoA];
+
+      await assert.rejects(
+        () => mergeView.show('src/does-not-exist.ts'),
+        (err: Error) => {
+          assert.ok(
+            err.message.includes('src/does-not-exist.ts'),
+            'error should name the attempted path'
+          );
+          assert.ok(
+            err.message.includes('/repo-a'),
+            'error should list the repository roots searched'
+          );
+          return true;
+        }
+      );
+    });
+  });
 });
