@@ -558,10 +558,13 @@ export class BranchContextMenuCommands {
         // Non-conflict failure (e.g. in-progress rebase, refs out of sync,
         // remote ref disappeared, etc.). Surface the underlying git error
         // so the user has SOMETHING to act on instead of a silent no-op.
-        // `failureReason` is already sanitized at the GitService boundary.
+        // `failureReason` is already sanitized at the GitService boundary,
+        // but we re-pipe through `sanitizeGitError` here so the safety
+        // contract is locally evident at the toast site (TL-72 structural
+        // guard) and survives any future refactor of the source side.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
-          `Failed to rebase onto '${item.branch.name}': ${reason}`
+          `Failed to rebase onto '${item.branch.name}': ${sanitizeGitError(reason)}`
         );
       }
       // Rebase moved HEAD; reload before refresh.
