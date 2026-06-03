@@ -60,6 +60,7 @@ import {
   getTagFormat,
 } from './gitParser';
 import { sortCommitsStable } from './commitSort';
+import { sanitizeGitError } from './gitError';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -1411,9 +1412,24 @@ export class GitService implements IGitService, IGitServiceCli {
       .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
       .map((f) => f.path);
 
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    // Non-conflict failure (dirty working tree, in-progress rebase, refs out
+    // of sync, etc.). Without this branch, the empty `conflicts: []` shape
+    // looked indistinguishable from a successful no-op to callers, which led
+    // to silent UI failures (clicked "Rebase Current onto This" → nothing
+    // happened, no toast, no log). Preserve git's stderr (sanitized) so the
+    // caller can surface the underlying reason.
+    const reason = sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined;
     return {
       success: false,
-      conflicts,
+      conflicts: [],
+      failureReason: reason,
     };
   }
 
