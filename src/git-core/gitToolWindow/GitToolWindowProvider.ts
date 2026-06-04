@@ -2973,16 +2973,18 @@ ${bodyMarkup}
       const cssClass = isFocused ? `${baseClass} branch-label-focused` : baseClass;
       const escapedName = this._escapeHtml(branchName);
       // role="img" + descriptive aria-label tells SRs
-      // this is a branch chip, not just inline text. The codicon
-      // prefix gives non-color affordance (WCAG 1.4.1) — codicon-cloud
-      // for remote, codicon-git-branch for local. The icon's
-      // aria-hidden="true" lets the chip's own aria-label own the AT
-      // narration. The aria-label string is run through _escapeHtml
-      // since branch names are user-controlled.
+      // this is a branch chip, not just inline text. Per UX request,
+      // both local and remote branches use the same codicon-git-branch
+      // icon — the ref kind is still distinguishable via the chip's
+      // CSS class (`branch-label-local` / `branch-label-remote`) and
+      // the aria-label text ("Local branch:" / "Remote branch:"). The
+      // icon's aria-hidden="true" lets the chip's own aria-label own
+      // the AT narration. The aria-label string is run through
+      // _escapeHtml since branch names are user-controlled.
       // aria-pressed is deferred to when chips become
       // keyboard-interactive — adding it now would lie about an
       // interaction that doesn't yet exist. Pinned by snap-12b..d, 12f.
-      const iconClass = isRemote ? 'codicon-cloud' : 'codicon-git-branch';
+      const iconClass = 'codicon-git-branch';
       const ariaLabelText = isRemote
         ? `Remote branch: ${branchName}`
         : `Local branch: ${branchName}`;

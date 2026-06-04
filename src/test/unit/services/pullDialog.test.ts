@@ -179,7 +179,7 @@ function createHarness(options: HarnessOptionsWithConflict = {}): HarnessState {
       if (options.sourcePickerCancelled) {
         return undefined;
       }
-      const targetLabel = options.sourcePick ?? '$(cloud) main';
+      const targetLabel = options.sourcePick ?? '$(git-branch) main';
       return items.find((i) => i.label === targetLabel);
     },
     showQuickPickMulti: async <T extends vscode.QuickPickItem>(
@@ -333,7 +333,7 @@ describe('T1-02 PullDialog — pure helpers', () => {
         name: 'main',
       });
       const upstreamItem = items.find(
-        (i) => i.label === '$(cloud) main' && i.description === 'upstream'
+        (i) => i.label === '$(git-branch) main' && i.description === 'upstream'
       );
       assert.ok(upstreamItem, 'expected upstream row to have description "upstream"');
     });
@@ -408,7 +408,7 @@ describe('T1-02 PullDialog — pure helpers', () => {
 
 describe('T1-02 PullDialog — runPullDialog', () => {
   it('happy path: picks source, confirms flags, calls pull, shows info toast', async () => {
-    const h = createHarness({ sourcePick: '$(cloud) main' });
+    const h = createHarness({ sourcePick: '$(git-branch) main' });
     const outcome = await runPullDialog(h.deps);
 
     assert.strictEqual(outcome.status, 'pulled');
@@ -426,7 +426,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
   it('preset "rebase" pre-selects --rebase in the flag picker', async () => {
     const h = createHarness({
       preset: 'rebase',
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPicks: ['--rebase', '$(play) Pull'],
     });
     const outcome = await runPullDialog(h.deps);
@@ -443,7 +443,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
     const h = createHarness({
       preset: 'merge',
       defaultRebase: true,
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPicks: ['$(play) Pull'],
     });
     const outcome = await runPullDialog(h.deps);
@@ -457,7 +457,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
   it('mutex: picking --rebase alongside --ff-only clears --ff-only', async () => {
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPicks: ['--rebase', '--ff-only', '$(play) Pull'],
     });
     await runPullDialog(h.deps);
@@ -467,7 +467,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
   it('maps each flag onto the IPullOptions record', async () => {
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPicks: ['--no-ff', '--squash', '--no-commit', '--no-verify', '$(play) Pull'],
     });
     const outcome = await runPullDialog(h.deps);
@@ -493,7 +493,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
   it('cancel at flags step → no pull, no toasts', async () => {
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPickerCancelled: true,
     });
     const outcome = await runPullDialog(h.deps);
@@ -503,7 +503,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
   it('flags picker submitted without ▶ Pull → treated as cancel', async () => {
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPicks: ['--rebase'], // missing the terminal confirm item
     });
     const outcome = await runPullDialog(h.deps);
@@ -534,7 +534,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
   it('pull CONFLICT hands off to openResolveConflictsDialog with merge operation', async () => {
     const conflictedFiles = [{ path: 'src/foo.ts', resolved: false }];
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       pullError: new Error('Automatic merge failed; CONFLICT (content) in src/foo.ts'),
       conflictedFiles,
     });
@@ -560,7 +560,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
   it('pull CONFLICT with --rebase maps operation to "rebase"', async () => {
     const h = createHarness({
       preset: 'rebase',
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       flagPicks: ['--rebase', '$(play) Pull'],
       pullError: new Error('CONFLICT (content) during rebase'),
       conflictedFiles: [{ path: 'a.ts', resolved: false }],
@@ -574,7 +574,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
   it('openResolveConflictsDialog failure falls back to a warning toast', async () => {
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       pullError: new Error('CONFLICT (content) in src/foo.ts'),
       conflictedFiles: [{ path: 'src/foo.ts', resolved: false }],
       openResolveConflictsDialogError: new Error('dialog boom'),
@@ -592,7 +592,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
   it('pull non-conflict error → error toast, no warning', async () => {
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       pullError: new Error('fatal: unable to access remote'),
     });
     const outcome = await runPullDialog(h.deps);
@@ -612,7 +612,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
     const RAW = 'fail: https://alice:secret@example.com/repo.git\n/Users/alice/project';
     const EXPECTED = 'fail: https://<redacted>@example.com/repo.git\n~/project';
     const h = createHarness({
-      sourcePick: '$(cloud) main',
+      sourcePick: '$(git-branch) main',
       pullError: new Error(RAW),
     });
     const outcome = await runPullDialog(h.deps);

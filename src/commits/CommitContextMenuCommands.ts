@@ -2467,7 +2467,7 @@ export class CommitContextMenuCommands {
       items.push({ label: 'Remote', kind: vscode.QuickPickItemKind.Separator });
       for (const b of remoteBranches) {
         items.push({
-          label: `$(cloud) ${b.name}`,
+          label: `$(git-branch) ${b.name}`,
           description: b.commit ? b.commit.substring(0, 7) : '',
           ref: b.name,
         });

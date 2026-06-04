@@ -1647,22 +1647,29 @@ describe('_getBranchLabelsHtml', () => {
       );
     });
 
-    it('renders a remote branch using the cloud icon and remote affordances', () => {
+    it('renders a remote branch using the same git-branch icon as local chips', () => {
+      // Per UX request, local and remote chips share the same
+      // codicon-git-branch icon. The ref kind is still distinguishable
+      // via the CSS class (`branch-label-remote`) and the aria-label
+      // ("Remote branch: …") — only the visual icon is unified.
       const node = makeNode([{ name: 'origin/main', type: 'remote' }]);
       const html = provider._getBranchLabelsHtml(node);
 
-      assert.ok(html.includes('codicon-cloud'), 'remote `origin/main` must use codicon-cloud');
+      assert.ok(
+        html.includes('codicon-git-branch'),
+        'remote `origin/main` must use codicon-git-branch (same as local chips)'
+      );
+      assert.ok(
+        !html.includes('codicon-cloud'),
+        'remote `origin/main` must NOT use codicon-cloud (icon was unified with local)'
+      );
       assert.ok(
         html.includes('branch-label-remote'),
-        'remote `origin/main` must use branch-label-remote'
+        'remote `origin/main` must use branch-label-remote (CSS still differentiates ref kind)'
       );
       assert.ok(
         html.includes('aria-label="Remote branch: origin/main"'),
-        'remote `origin/main` must carry the "Remote branch:" aria-label'
-      );
-      assert.ok(
-        !html.includes('codicon-git-branch'),
-        'remote `origin/main` must NOT use the local branch icon'
+        'remote `origin/main` must carry the "Remote branch:" aria-label (SR still hears the kind)'
       );
       assert.ok(
         !html.includes('branch-label-local'),
@@ -1696,15 +1703,16 @@ describe('_getBranchLabelsHtml', () => {
         1,
         'exactly one remote chip'
       );
+      // Both chips now use the same codicon-git-branch icon.
       assert.strictEqual(
         (html.match(/codicon-git-branch/g) || []).length,
-        1,
-        'exactly one local (git-branch) icon'
+        2,
+        'two git-branch icons (one per chip; local and remote share the icon)'
       );
       assert.strictEqual(
         (html.match(/codicon-cloud/g) || []).length,
-        1,
-        'exactly one remote (cloud) icon'
+        0,
+        'no cloud icons (was previously the remote icon; unified to git-branch)'
       );
     });
   });

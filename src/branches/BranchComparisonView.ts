@@ -367,7 +367,7 @@ export class BranchComparisonView implements IBranchComparisonView {
 
       for (const branch of remoteBranches) {
         items.push({
-          label: `$(cloud) ${branch.name}`,
+          label: `$(git-branch) ${branch.name}`,
           description: branch.commit.substring(0, 7),
           branch,
           branchName: branch.name,

@@ -261,7 +261,7 @@ export function buildSectionedItems(input: {
         kind: vscode.QuickPickItemKind.Separator,
       });
       for (const branch of favoriteResolved) {
-        const marker = branch.type === 'remote' ? '$(cloud)' : '$(git-branch)';
+        const marker = '$(git-branch)';
         items.push({
           label: `★ ${marker} ${branch.name}`,
           description: branch.type === 'remote' ? 'remote' : 'local',
@@ -356,10 +356,10 @@ export function buildSectionedItems(input: {
       // Compute the post-remote segment for indent-group matching.
       const slash = branch.name.indexOf('/');
       const postRemote = slash >= 0 ? branch.name.substring(slash + 1) : branch.name;
-      let label = `$(cloud) ${branch.name}`;
+      let label = `$(git-branch) ${branch.name}`;
       for (const prefix of remoteIndentablePrefixes) {
         if (postRemote.startsWith(prefix)) {
-          label = `  $(cloud) ${branch.name}`;
+          label = `  $(git-branch) ${branch.name}`;
           break;
         }
       }

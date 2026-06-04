@@ -1858,8 +1858,10 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.deepStrictEqual(headerLabels, ['Local', 'Remote', 'Tags']);
       // The non-separator items include all three refs.
       const refLabels = seenItems.map((i) => i.label);
+      // Both local and remote refs use the same git-branch icon now
+      // (per UX request to drop the cloud-vs-branch distinction).
       assert.ok(refLabels.some((l) => l.includes('main') && l.includes('git-branch')));
-      assert.ok(refLabels.some((l) => l.includes('origin/main') && l.includes('cloud')));
+      assert.ok(refLabels.some((l) => l.includes('origin/main') && l.includes('git-branch')));
       assert.ok(refLabels.some((l) => l.includes('v1.0') && l.includes('tag')));
       // Suppress unused-var lint on separatorCount
       void separatorCount;
@@ -1868,7 +1870,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     it('compareWithBranch-2: selection routes to BranchComparisonView.show with the picked ref', async () => {
       const view = createMockBranchComparisonView();
       writableWindow().showQuickPick = (): Promise<unknown> =>
-        Promise.resolve({ ref: 'origin/main', label: '$(cloud) origin/main' });
+        Promise.resolve({ ref: 'origin/main', label: '$(git-branch) origin/main' });
       createMessageTrackers();
       const repo = createMockRepo(hash);
       const gitService = createMockGitService(repo, {

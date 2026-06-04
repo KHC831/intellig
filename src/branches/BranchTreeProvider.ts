@@ -141,7 +141,12 @@ export class BranchTreeItem extends vscode.TreeItem {
             )
           : new vscode.ThemeIcon('git-branch');
       case 'remote-branch':
-        return new vscode.ThemeIcon('cloud');
+        // Both local and remote branches use the same git-branch icon
+        // (per UX request to drop the cloud-vs-branch distinction). The
+        // ref kind is still distinguishable via the parent category in
+        // the tree (`Local` vs `Remote`) and the `Remote branch:` aria
+        // label on chips.
+        return new vscode.ThemeIcon('git-branch');
       case 'tag':
         return new vscode.ThemeIcon('tag');
       case 'category':

@@ -246,8 +246,10 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
 
     /**
      * For any REMOTE branch ref, the rendered HTML must use the remote
-     * affordances (branch-label-remote + codicon-cloud + "Remote branch:")
-     * and must NOT use the local ones.
+     * CSS class + "Remote branch:" aria-label, AND the same
+     * codicon-git-branch icon as local chips (per UX request to drop
+     * the cloud-vs-branch distinction; ref kind still discoverable via
+     * the CSS class and aria-label).
      */
     it('Feature: git-graph-visual-improvements, Property 6: remote branch refs render remote affordances', () => {
       fc.assert(
@@ -260,16 +262,16 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
             `Remote ref "${ref.name}" should render branch-label-remote. HTML: "${html}"`
           );
           assert.ok(
-            html.includes('codicon-cloud'),
-            `Remote ref "${ref.name}" should render codicon-cloud. HTML: "${html}"`
+            html.includes('codicon-git-branch'),
+            `Remote ref "${ref.name}" should render codicon-git-branch (unified with local). HTML: "${html}"`
+          );
+          assert.ok(
+            !html.includes('codicon-cloud'),
+            `Remote ref "${ref.name}" should NOT render codicon-cloud (icon was unified with local). HTML: "${html}"`
           );
           assert.ok(
             !html.includes('branch-label-local'),
             `Remote ref "${ref.name}" should NOT render branch-label-local. HTML: "${html}"`
-          );
-          assert.ok(
-            !html.includes('codicon-git-branch'),
-            `Remote ref "${ref.name}" should NOT render codicon-git-branch. HTML: "${html}"`
           );
         }),
         { numRuns: 100 }
