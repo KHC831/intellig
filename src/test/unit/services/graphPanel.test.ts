@@ -141,12 +141,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
-    it('caps the author column with max-width and ellipsis (regression: was fixed-width with dead space)', () => {
+    it('uses a fixed 100px author column with ellipsis (matches IntelliJ; balances dead space with vertical alignment)', () => {
       // Reach into the inline-style block for the .commit-author rule.
-      // Pre-fix, the column was `width: 140px` which produced a visible
-      // dead band between short author names and the date column. The
-      // fix uses `max-width: 140px` so the column shrinks to its
-      // content below the cap and ellipsises above it.
+      // The column went through 140px → max-width:140px → 100px. The
+      // 100px fixed width matches IntelliJ's left-aligned column layout
+      // while keeping the dead band small enough to be visually
+      // acceptable for typical author names.
       const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
 
       const authorRuleMatch = styles.match(/\.commit-author\s*\{([^}]+)\}/);
@@ -154,24 +154,24 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const authorRule = authorRuleMatch[1];
 
       assert.ok(
-        authorRule.includes('max-width: 140px'),
-        `.commit-author should declare max-width: 140px (content-sized below cap), got: "${authorRule.trim()}"`
+        /(^|[^-])\bwidth:\s*100px/.test(authorRule),
+        `.commit-author should declare a fixed width: 100px, got: "${authorRule.trim()}"`
       );
       assert.ok(
-        !/(^|[^-])\bwidth:\s*140px/.test(authorRule),
-        `.commit-author must NOT declare a fixed width: 140px (would re-introduce the dead band; max-width is fine, plain width is not), got: "${authorRule.trim()}"`
+        authorRule.includes('text-align: left'),
+        '.commit-author must be left-aligned (matches IntelliJ)'
       );
       assert.ok(
         authorRule.includes('text-overflow: ellipsis'),
-        '.commit-author must keep text-overflow: ellipsis for the truncation indicator'
+        '.commit-author must declare text-overflow: ellipsis for the truncation indicator'
       );
       assert.ok(
         authorRule.includes('overflow: hidden'),
-        '.commit-author must keep overflow: hidden so the ellipsis can apply'
+        '.commit-author must declare overflow: hidden so the ellipsis can apply'
       );
       assert.ok(
         authorRule.includes('white-space: nowrap'),
-        '.commit-author must keep white-space: nowrap so the name fits one line'
+        '.commit-author must declare white-space: nowrap so the name fits one line'
       );
     });
 

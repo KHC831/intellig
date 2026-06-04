@@ -3991,20 +3991,17 @@ ${bodyMarkup}
         line-height: 1.2;
       }
 
-      /* Author column: content-sized below the cap, ellipsised at the cap.
-         Previously fixed at width:140px regardless of content, which left
-         a visible 40-100px dead band between the author name and the date
-         column on every row (most author names are well under 140px). The
-         shift from width to max-width lets short names shrink the column
-         to their natural size; long names still truncate at 140px with
-         the ellipsis indicator (text-overflow: ellipsis). flex-shrink: 0
-         stays so the column never compresses below its content (the
-         title column absorbs the slack instead). */
+      /* Author column: fixed-width, left-aligned. Match IntelliJ. The
+         column was originally 140px which left a visible dead band
+         between short names and the date column. Reduced to 100px
+         which is closer to the typical author-name width — long names
+         ellipsise sooner, short names still leave a small gap (which
+         IntelliJ keeps as part of its column-aligned layout). */
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        max-width: 140px;
+        width: 100px;
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
