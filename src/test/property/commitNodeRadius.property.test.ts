@@ -177,12 +177,13 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
               `SVG should contain at least one circle element, got ${radii.length}`
             );
 
-            // All circles should have r="4"
+            // All circles should have r="5" (the visibility-bumped radius;
+            // previously 4 — see DEFAULT_GRAPH_CONFIG comment).
             for (const r of radii) {
               assert.strictEqual(
                 r,
-                '4',
-                `All commit node circles should have r="4", but found r="${r}"`
+                '5',
+                `All commit node circles should have r="5", but found r="${r}"`
               );
             }
 
@@ -227,7 +228,8 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
               `SVG should contain at least one rect element for merge commit diamond, got ${rects.length}`
             );
 
-            // The diamond side length should be nodeRadius * 1.8 = 4 * 1.8 = 7.199999...
+            // The diamond side length should be nodeRadius * 1.8.
+            // (nodeRadius is 5 since the visibility-bump; previously 4.)
             const expectedSide = DEFAULT_GRAPH_CONFIG.nodeRadius * 1.8;
             const hasDiamond = rects.some(
               (r) =>
@@ -275,16 +277,17 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
               `SVG should contain at least one circle element for root commit, got ${radii.length}`
             );
 
-            // All circles should have r="4"
+            // All circles should have r="5" (the visibility-bumped radius;
+            // previously 4 — see DEFAULT_GRAPH_CONFIG comment).
             for (const r of radii) {
               assert.strictEqual(
                 r,
-                '4',
-                `Root commit node circles should have r="4", but found r="${r}"`
+                '5',
+                `Root commit node circles should have r="5", but found r="${r}"`
               );
             }
 
-            // No circle should have r="6"
+            // No circle should have r="6" (an even-older radius)
             assert.ok(
               !radii.includes('6'),
               'No root commit circle should have the old radius r="6"'

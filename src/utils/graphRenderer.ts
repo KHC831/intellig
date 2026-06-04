@@ -47,7 +47,12 @@ export type ActiveLaneMap = Map<number, Set<number>>;
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
   columnWidth: 20,
   rowHeight: 24,
-  nodeRadius: 4,
+  // Increased from 4 to 5 — at 4px the commit dot blended into the
+  // 2px lane line at common display scales, producing the "node not
+  // viewable on some rows" visual reported by users. 5px gives the
+  // dot a clear ~2px halo around the line stroke without growing the
+  // chip rail.
+  nodeRadius: 5,
   padding: 10,
   lineWidth: 2,
 };

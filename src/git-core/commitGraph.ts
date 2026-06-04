@@ -210,6 +210,19 @@ export function generateCommitGraph(
   // display order. A parent's "first-seen" child is `childrenMap[parent][0]`.
   const childrenMap = buildChildrenMap(commits);
 
+  // PRE-PASS — set of commit hashes in the rendered window. A commit's
+  // parent that ISN'T in this set is older than the loaded log window
+  // (we paginate via `--max-count`). When we encounter such a parent
+  // we draw the lane straight down ("history continues below") rather
+  // than allocating a fresh lateral lane that hooks into nowhere.
+  // Without this, every commit whose parent fell off the load window
+  // emitted a stray bezier into a phantom lane, which is the visual
+  // "disconnected line" bug users reported.
+  const commitsInWindow = new Set<string>();
+  for (const c of commits) {
+    commitsInWindow.add(c.hash);
+  }
+
   const result: ICommitNode[] = [];
   const state: ILaneState = {
     commitToLane: new Map(),
@@ -249,6 +262,31 @@ export function generateCommitGraph(
     for (let i = 0; i < parents.length; i++) {
       const parentHash = parents[i];
       let parentLane: number;
+
+      // OFF-WINDOW PARENT: the parent commit fell off the loaded log
+      // window (older than our `--max-count` slice). We can't allocate
+      // a lane that points at it because it has no row to land on, and
+      // we can't inherit our lane and walk down the column because the
+      // next row will be a different commit. Emit a same-lane "history
+      // continues below" line and skip allocating a phantom lateral
+      // lane. The renderer draws this as a vertical stub from the
+      // commit's centerY to the row's bottomY — visually correct
+      // ("history continues") and identical to a same-lane parent that
+      // simply isn't in the rendered window.
+      //
+      // Without this guard the algorithm took the `else` branch, called
+      // allocateLane(), and emitted a bezier from `column` to a fresh
+      // lane that has no node anywhere — producing the stray lateral
+      // hook visible at the bottom of the row in user reports.
+      if (!commitsInWindow.has(parentHash)) {
+        graphLines.push({
+          fromColumn: column,
+          toColumn: column,
+          color: getColumnColor(column),
+          type: i === 0 ? 'commit' : 'merge',
+        });
+        continue;
+      }
 
       if (state.commitToLane.has(parentHash)) {
         // Already claimed — either by an earlier sibling (the common

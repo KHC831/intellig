@@ -214,6 +214,20 @@ function generateFullGraph(
           color: getColumnColor(column),
           type: 'commit',
         });
+      } else {
+        // Parent fell off the loaded log window. Emit a same-lane
+        // "history continues below" line so the renderer draws a
+        // vertical stub from the commit's center down to the row's
+        // bottom edge. Without this, the row had no graph line at all
+        // and the renderer skipped the bottom-half of the lane —
+        // producing the visible "disconnected line" symptom users
+        // reported when scrolling past the load boundary.
+        graphLines.push({
+          fromColumn: column,
+          toColumn: column,
+          color: getColumnColor(column),
+          type: 'commit',
+        });
       }
     } else {
       // Merge commit - multiple parents
@@ -228,6 +242,18 @@ function generateFullGraph(
             fromColumn: column,
             toColumn: parentLane,
             color: getColumnColor(j === 0 ? column : parentLane),
+            type: j === 0 ? 'commit' : 'merge',
+          });
+        } else {
+          // Off-window parent for a merge. Same fallback as the
+          // single-parent case — emit a same-lane stub so the row
+          // still renders a continuous lane line. The merge bezier
+          // for the in-window parent (handled by the `if` branch
+          // above) keeps the merge-from visual intact.
+          graphLines.push({
+            fromColumn: column,
+            toColumn: column,
+            color: getColumnColor(column),
             type: j === 0 ? 'commit' : 'merge',
           });
         }
@@ -298,6 +324,16 @@ function generateSimplifiedGraph(
         graphLines.push({
           fromColumn: column,
           toColumn: parentLane,
+          color: getColumnColor(column),
+          type: 'commit',
+        });
+      } else {
+        // Off-window parent: emit same-lane "continues below" stub.
+        // See the equivalent guard in `generateOptimizedCommitGraph`
+        // and `generateCommitGraph` for the rationale.
+        graphLines.push({
+          fromColumn: column,
+          toColumn: column,
           color: getColumnColor(column),
           type: 'commit',
         });
@@ -386,6 +422,16 @@ export async function processCommitsInBatches(
             fromColumn: column,
             toColumn: parentLane,
             color: getColumnColor(j === 0 ? column : parentLane),
+            type: j === 0 ? 'commit' : 'merge',
+          });
+        } else {
+          // Off-window parent: emit same-lane "continues below" stub.
+          // See `generateOptimizedCommitGraph` / `generateCommitGraph`
+          // for the rationale.
+          graphLines.push({
+            fromColumn: column,
+            toColumn: column,
+            color: getColumnColor(column),
             type: j === 0 ? 'commit' : 'merge',
           });
         }
