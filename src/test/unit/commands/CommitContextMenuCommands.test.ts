@@ -1199,6 +1199,112 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
+    it('routes through provideRewordMessage when executeRebase pauses (regression: was leaving HEAD detached)', async () => {
+      // Bug: editing a non-HEAD commit message dropped the local
+      // branch onto a detached HEAD. Root cause: `git rebase -i` paused
+      // at the reword step waiting for $GIT_EDITOR to provide the new
+      // message, but only GIT_SEQUENCE_EDITOR was set. The rebase
+      // metadata stayed in `.git/rebase-merge/` and HEAD detached at
+      // the parent of the reword target.
+      //
+      // Fix: when executeRebase returns `{status:'paused'}`, route
+      // through `provideRewordMessage` (which uses `git commit --amend
+      // -m <msg>` followed by `git rebase --continue`) so the rebase
+      // actually finishes and the branch ref updates.
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('updated message');
+      createMessageTrackers();
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+
+      let rewordCallCount = 0;
+      let rewordMessageReceived: string | undefined;
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+        provideRewordMessage: async (_repo: IRepository, message: string) => {
+          rewordCallCount++;
+          rewordMessageReceived = message;
+          return { success: true, status: 'completed' as const };
+        },
+      });
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return {
+              exitCode: 0,
+              stdout: 'old message\n',
+              stderr: '',
+              combined: '',
+            };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      assert.strictEqual(
+        rewordCallCount,
+        1,
+        'provideRewordMessage MUST be called once when executeRebase pauses'
+      );
+      assert.strictEqual(
+        rewordMessageReceived,
+        'updated message',
+        'provideRewordMessage MUST receive the new message the user typed'
+      );
+      const abortCall = rebaseService.calls.find((c) => c.method === 'abortRebase');
+      assert.ok(
+        !abortCall,
+        'abortRebase MUST NOT be called on the happy paused-then-resolved path (would re-create the detached-HEAD bug)'
+      );
+    });
+
+    it('aborts the rebase when provideRewordMessage hits a conflict', async () => {
+      // Defensive companion to the paused-path test above. If the
+      // post-paused continue produces conflicts, abort cleanly so
+      // the user never sees a half-finished rebase with a detached
+      // HEAD.
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('updated message');
+      createMessageTrackers();
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+        provideRewordMessage: async () => ({
+          success: false,
+          status: 'conflict' as const,
+          conflictedFiles: ['src/foo.ts'],
+        }),
+      });
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      const abortCall = rebaseService.calls.find((c) => c.method === 'abortRebase');
+      assert.ok(
+        abortCall,
+        'abortRebase MUST be called when provideRewordMessage surfaces a conflict'
+      );
+    });
+
     it('does nothing when user cancels input', async () => {
       writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve(undefined);
       createMessageTrackers();

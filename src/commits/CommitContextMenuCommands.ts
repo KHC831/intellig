@@ -2613,6 +2613,44 @@ export class CommitContextMenuCommands {
             this._gitToolWindowProvider.refresh();
             return;
           }
+
+          // `git rebase -i` pauses at the reword step waiting for the
+          // user to type a new commit message in `$GIT_EDITOR` /
+          // `core.editor`. Headless extension hosts have no
+          // GIT_EDITOR (we only set GIT_SEQUENCE_EDITOR), so git
+          // pauses with the rebase metadata still in `.git/rebase-merge/`
+          // and HEAD detached at the parent of the reword target —
+          // the user-visible "branch dropped to detached HEAD" symptom.
+          //
+          // The codebase already provides the right primitive:
+          // `provideRewordMessage` runs `git commit --amend -m <msg>`
+          // (no editor needed) followed by `git rebase --continue`,
+          // which lands the rewrite and updates the branch ref. We
+          // route through it here so the rebase actually completes.
+          //
+          // For the common single-reword case there's only one paused
+          // step, but we loop in case a future caller passes a plan
+          // with multiple reword actions in sequence.
+          let pausedResult = result;
+          while (pausedResult.success && pausedResult.status === 'paused') {
+            pausedResult = await this._rebaseService.provideRewordMessage(repo, newMessage);
+            if (
+              !pausedResult.success &&
+              pausedResult.conflictedFiles &&
+              pausedResult.conflictedFiles.length > 0
+            ) {
+              await this._rebaseService.abortRebase(repo);
+              if (stashed) {
+                await this._unstash(cwd);
+              }
+              void vscode.window.showErrorMessage(
+                'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
+              );
+              await this._gitService.reloadRepository(repo);
+              this._gitToolWindowProvider.refresh();
+              return;
+            }
+          }
         } catch (opError) {
           if (stashed) {
             await this._unstash(cwd);
