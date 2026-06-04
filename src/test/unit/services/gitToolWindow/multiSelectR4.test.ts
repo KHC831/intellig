@@ -292,22 +292,30 @@ describe('Wave A R4 — review fixes', () => {
     });
   });
 
-  // ─── belt-and-suspenders comment ──────────────────────────────
-  describe('R4-5 (LOW) — belt-and-suspenders comment on _postSyncSelection call sites', () => {
-    it('each of the 4 setters carries a belt-and-suspenders comment', async () => {
+  // ─── _postSyncSelection call-site coverage ──────────────────────
+  describe('R4-5 (LOW) — _postSyncSelection is called from every selection-mutating setter', () => {
+    it('each selection-mutating setter calls _postSyncSelection', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
         path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
-      // Count comments matching the canonical phrase. Brief asks for the
-      // comment "right above" each call site; we assert the phrase appears
-      // at least 4 times so all setters have it.
-      const matches = src.match(/belt-and-suspenders/gi) || [];
+      // Originally this test counted "belt-and-suspenders" comments as a
+      // proxy for "every setter called _postSyncSelection alongside a
+      // full _updateWebview()". The Shift+Arrow keyboard-multiselect bug
+      // (UI fix; commit-row focus destroyed by re-render) forced a
+      // refactor where _postSyncSelection is the PRIMARY partial-update
+      // path for range selections — _updateWebview() no longer fires
+      // there, and the "belt-and-suspenders" framing no longer applies.
+      // The structural assertion remains: every selection-mutating
+      // setter must invoke _postSyncSelection (directly or via a
+      // partial-update helper). Count the call sites instead of the
+      // obsolete prose.
+      const callSites = src.match(/this\._postSyncSelection\(\)/g) || [];
       assert.ok(
-        matches.length >= 4,
-        `expected 'belt-and-suspenders' comment in at least 4 setters, found ${matches.length}`
+        callSites.length >= 4,
+        `expected at least 4 _postSyncSelection() call sites, found ${callSites.length}`
       );
     });
   });

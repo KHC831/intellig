@@ -1116,14 +1116,18 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._extendedLogState.expandedCommit = hash;
     // Anchor unchanged — shift-click does not move the anchor.
 
-    // (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
-    this._updateWebview();
     // Fire BEFORE the post sequence.
     this._onDidChangeState.fire();
-    // belt-and-suspenders — the rendered HTML already
-    // carries data-anchor-hash; syncSelection guards against
-    // interpolation bugs and partial-update extension cases.
+    // Partial-update path — sync selection + details panel without
+    // a full HTML re-render. Bug fix: the previous `_updateWebview()`
+    // call rebuilt the entire panel HTML, which destroyed the
+    // currently-focused commit-row DOM element. The webview JS keys
+    // its keyboard handler off `e.target.closest('.commit-row')`, so
+    // after a re-render no row is focused and the next Shift+Arrow
+    // press finds no target — the user-visible "Shift+Arrow stops
+    // responding after 1-2 commits" symptom.
     this._postSyncSelection();
+    this._postDetailsForExpandedCommit();
     this._postMenuStateUpdate();
   }
 
@@ -1157,14 +1161,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     }
     this._extendedLogState.expandedCommit = hash;
 
-    // (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
-    this._updateWebview();
     // Fire BEFORE the post sequence.
     this._onDidChangeState.fire();
-    // belt-and-suspenders — the rendered HTML already
-    // carries data-anchor-hash; syncSelection guards against
-    // interpolation bugs and partial-update extension cases.
+    // Partial-update path — see the matching comment block in
+    // `rangeSelectCommit` for the rationale: a full `_updateWebview()`
+    // re-render destroys commit-row focus and breaks the keyboard
+    // Shift+Arrow loop.
     this._postSyncSelection();
+    this._postDetailsForExpandedCommit();
     this._postMenuStateUpdate();
   }
 
@@ -1304,6 +1308,50 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       selectedHashes: Array.from(this._extendedLogState.selectedCommits),
     };
     void this._view.webview.postMessage(msg);
+  }
+
+  /**
+   * Push an `updateDetailsPanel` message for the current
+   * `expandedCommit`. Used by the range-select handlers (which
+   * deliberately avoid `_updateWebview()` to preserve commit-row
+   * focus for keyboard navigation) so the details pane still
+   * reflects the latest range tip without re-rendering the graph.
+   *
+   * Mirrors the inline post path in {@link selectCommit}.
+   */
+  private _postDetailsForExpandedCommit(): void {
+    if (!this._view) {
+      return;
+    }
+    const expanded = this._extendedLogState.expandedCommit;
+    if (!expanded) {
+      return;
+    }
+    const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === expanded);
+    if (!node) {
+      const placeholderHtml = this._getDetailsPanelPlaceholderHtml();
+      void this._view.webview.postMessage({
+        type: 'updateDetailsPanel',
+        html: placeholderHtml,
+      });
+      return;
+    }
+    const commitDetails: ICommitDetails = {
+      hash: node.commit.hash,
+      message: node.commit.message,
+      body: node.commit.body,
+      author: { name: node.commit.author.name, email: node.commit.author.email },
+      date: node.commit.authorDate,
+      parents: node.commit.parents || [],
+      branches: (node.branches || []).map((ref) => ref.name),
+      tags: node.tags || [],
+      changedFiles: [],
+    };
+    const detailsHtml = this._getDetailsPanelHtml(commitDetails);
+    void this._view.webview.postMessage({
+      type: 'updateDetailsPanel',
+      html: detailsHtml,
+    });
   }
 
   /**
