@@ -408,7 +408,11 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     );
   });
 
-  it('snap-7c: multiple branches at same commit → 3 sequential <span> elements in order', () => {
+  it('snap-7c: 3 branches at same commit → 2 inline chips + collapsed +1 summary chip', () => {
+    // The collapse behaviour (UI fix 5) caps inline branch chips at
+    // MAX_INLINE_BRANCH_CHIPS = 2. The third branch lands in a `+1`
+    // summary chip with the full name available via title=tooltip and
+    // data-collapsed-branches.
     const node = nodeWithBranches('ccc1234567890cccccccccccccccccccccccccccc', [
       'main',
       'develop',
@@ -420,7 +424,7 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
       [
         '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>',
         '<span class="branch-label-local" data-branch-name="develop" role="img" aria-label="Local branch: develop"><i class="codicon codicon-git-branch" aria-hidden="true"></i>develop</span>',
-        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>origin/main</span>',
+        '<span class="branch-label-collapsed" data-collapsed-branches="origin/main" role="img" aria-label="1 more branch: origin/main" title="origin/main">+1</span>',
       ].join('')
     );
   });

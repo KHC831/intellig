@@ -2959,7 +2959,28 @@ ${bodyMarkup}
       : '';
 
     const focusedBranchName = this._extendedLogState.focusedBranchName;
-    const labels = (node.branches || []).map((branchRef) => {
+    // Maximum number of branch chips to render inline before collapsing
+    // the rest into a single `+N more` summary chip. The full names of
+    // the collapsed branches stay reachable via the summary chip's
+    // tooltip. IntelliJ uses a similar pattern: a single chip showing
+    // the count, expandable on hover. Threshold of 2 means 1-2 chips
+    // render normally; the third onwards collapses.
+    const MAX_INLINE_BRANCH_CHIPS = 2;
+    const allBranches = node.branches || [];
+    const focusedIndex = allBranches.findIndex((b) => b.name === focusedBranchName);
+    // If a focused branch exists beyond the inline cap, ensure it
+    // stays visible by including it in the inline set. This keeps the
+    // focus-affordance discoverable when the focused branch is buried
+    // deep in a chip pile (otherwise it'd disappear under +N more).
+    const inlineBranches =
+      allBranches.length <= MAX_INLINE_BRANCH_CHIPS
+        ? allBranches
+        : focusedIndex >= MAX_INLINE_BRANCH_CHIPS
+          ? [...allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS - 1), allBranches[focusedIndex]]
+          : allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS);
+    const collapsedBranches = allBranches.filter((b) => !inlineBranches.includes(b));
+
+    const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
       // Bug E: classify directly from the branch ref's `type` (sourced from
       // IBranch.type / refs-prefix), NOT from a `name.includes('/')` heuristic.
@@ -3018,7 +3039,24 @@ ${bodyMarkup}
       return `<span class="tag-label" data-tag-name="${escapedName}" role="img" aria-label="${ariaLabel}"><i class="codicon codicon-tag" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
-    return headChipHtml + labels.join('') + tagLabels.join('');
+    // Collapse summary chip: `+N` shown after the inline branch chips
+    // (and before the tag chips) when more branches exist than fit
+    // inline. The tooltip lists the collapsed branch names so the user
+    // can discover them on hover; data-collapsed-branches keeps a
+    // pipe-delimited list available for any future click-to-expand
+    // wiring.
+    let collapsedSummaryHtml = '';
+    if (collapsedBranches.length > 0) {
+      const tooltipLines = collapsedBranches.map((b) => b.name).join('\n');
+      const escapedTooltip = this._escapeHtml(tooltipLines);
+      const dataAttr = this._escapeHtml(collapsedBranches.map((b) => b.name).join('|'));
+      const ariaLabel = this._escapeHtml(
+        `${collapsedBranches.length} more branch${collapsedBranches.length === 1 ? '' : 'es'}: ${collapsedBranches.map((b) => b.name).join(', ')}`
+      );
+      collapsedSummaryHtml = `<span class="branch-label-collapsed" data-collapsed-branches="${dataAttr}" role="img" aria-label="${ariaLabel}" title="${escapedTooltip}">+${collapsedBranches.length}</span>`;
+    }
+
+    return headChipHtml + labels.join('') + collapsedSummaryHtml + tagLabels.join('');
   }
 
   /**
@@ -4106,6 +4144,22 @@ ${bodyMarkup}
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
+      }
+
+      /* Collapsed-summary chip ("+N"): rendered when a commit has more
+         branches pointing at it than fit inline. Uses a muted
+         description-foreground so it reads as metadata, not as another
+         branch. The native title=tooltip carries the full list of
+         collapsed branch names; a future click-to-expand handler can
+         flip data-collapsed-branches into individual chips inline. */
+      .branch-label-collapsed {
+        background: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-descriptionForeground, #888);
+        font-size: 11px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
+        cursor: help;
       }
 
       /* The remote-chip fallback hex pair is retained as a CSS-var

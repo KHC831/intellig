@@ -1606,13 +1606,61 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(html.includes('origin/main'), 'Should contain "origin/main"');
     });
 
-    it('should render all branches when there are multiple local and remote', () => {
+    it('collapses chips beyond MAX_INLINE_BRANCH_CHIPS into a +N summary chip', () => {
+      // 4 branches at the same commit. The first 2 render inline; the
+      // remaining 2 collapse into a single `+2` summary chip with the
+      // names available via title=tooltip.
       const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
       const html = provider._getBranchLabelsHtml(node);
-      const localCount = (html.match(/branch-label-local/g) || []).length;
-      const remoteCount = (html.match(/branch-label-remote/g) || []).length;
-      assert.strictEqual(localCount, 2, 'Should have 2 local labels');
-      assert.strictEqual(remoteCount, 2, 'Should have 2 remote labels');
+
+      // Inline: main + develop only.
+      const inlineCount =
+        (html.match(/branch-label-local/g) || []).length +
+        (html.match(/branch-label-remote/g) || []).length;
+      assert.strictEqual(inlineCount, 2, 'Two inline chips (cap: MAX_INLINE_BRANCH_CHIPS = 2)');
+      assert.ok(html.includes('data-branch-name="main"'), 'first branch must render inline');
+      assert.ok(html.includes('data-branch-name="develop"'), 'second branch must render inline');
+
+      // Collapsed summary chip carries the rest.
+      const summaryMatch = html.match(/<span class="branch-label-collapsed"[^>]*>\+(\d+)</);
+      assert.ok(summaryMatch, 'a +N summary chip must be rendered');
+      assert.strictEqual(summaryMatch[1], '2', 'summary count must be 2 (the collapsed branches)');
+      assert.ok(
+        html.includes('data-collapsed-branches="origin/main|origin/develop"'),
+        'collapsed branch names must be carried in data-collapsed-branches'
+      );
+      assert.ok(
+        html.includes('title="origin/main\norigin/develop"'),
+        'tooltip must list the collapsed branch names so the user can discover them on hover'
+      );
+    });
+
+    it('renders all chips inline when count is below the collapse threshold', () => {
+      const node = makeNode(['main', 'develop']);
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(html.includes('data-branch-name="main"'));
+      assert.ok(html.includes('data-branch-name="develop"'));
+      assert.ok(
+        !html.includes('branch-label-collapsed'),
+        'no summary chip when count <= MAX_INLINE_BRANCH_CHIPS'
+      );
+    });
+
+    it('keeps the focused branch visible inline even when it would otherwise be collapsed', () => {
+      // Focus is set on the FOURTH branch — without the focus-pin, it
+      // would land in the +N collapse. With the pin, it bumps the
+      // second inline slot so the user sees the focused chip.
+      const node = makeNode(['main', 'develop', 'origin/main', 'feature/x']);
+      const internals = provider as unknown as { _extendedLogState: { focusedBranchName: string } };
+      internals._extendedLogState.focusedBranchName = 'feature/x';
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(
+        html.includes('data-branch-name="feature/x"'),
+        'focused branch must render inline despite being beyond the cap'
+      );
+      assert.ok(html.includes('branch-label-focused'), 'focused chip must carry the focused class');
     });
   });
 

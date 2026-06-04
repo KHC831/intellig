@@ -166,6 +166,14 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
      * row HTML should contain a label element for each branch ref in the array.
      */
     it('Feature: git-graph-visual-improvements, Property 5: Branch labels rendered for all branch references', () => {
+      // UI fix 5: when more than `MAX_INLINE_BRANCH_CHIPS` (= 2)
+      // branches point at a commit, branches beyond the cap collapse
+      // into a single `+N` summary chip. Every branch name must still
+      // be REACHABLE (either as an inline chip or via the summary
+      // chip's title=tooltip / data-collapsed-branches attribute), but
+      // the inline-span-per-branch invariant relaxes to inline-cap +
+      // optional summary chip.
+      const MAX_INLINE_BRANCH_CHIPS = 2;
       fc.assert(
         fc.property(arbitraryCommitNodeWithBranches(), (node) => {
           const html = provider._getBranchLabelsHtml(node);
@@ -176,20 +184,41 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
             `HTML should not be empty for node with ${node.branches.length} branches`
           );
 
-          // Count the number of <span> elements — should match branch count
           const spanCount = (html.match(/<span\s/g) || []).length;
-          assert.strictEqual(
-            spanCount,
-            node.branches.length,
-            `Should have ${node.branches.length} <span> elements, got ${spanCount}`
-          );
+          if (node.branches.length <= MAX_INLINE_BRANCH_CHIPS) {
+            // Below the cap: one span per branch, no summary chip.
+            assert.strictEqual(
+              spanCount,
+              node.branches.length,
+              `Below-cap: should have ${node.branches.length} <span> elements, got ${spanCount}`
+            );
+            assert.ok(
+              !html.includes('branch-label-collapsed'),
+              `Below-cap: must not render the +N summary chip`
+            );
+          } else {
+            // Above the cap: at most MAX_INLINE_BRANCH_CHIPS inline
+            // spans + one summary chip.
+            assert.strictEqual(
+              spanCount,
+              MAX_INLINE_BRANCH_CHIPS + 1,
+              `Above-cap: should have ${MAX_INLINE_BRANCH_CHIPS} inline + 1 summary = ${MAX_INLINE_BRANCH_CHIPS + 1} <span> elements, got ${spanCount}`
+            );
+            assert.ok(
+              html.includes('branch-label-collapsed'),
+              `Above-cap: must render the +N summary chip`
+            );
+          }
 
-          // Each branch name (HTML-escaped) should appear in the output
+          // Every branch name must remain REACHABLE — either as
+          // visible chip text or via the summary chip's tooltip /
+          // data-collapsed-branches list. We assert each escaped name
+          // appears anywhere in the rendered HTML.
           for (const branchRef of node.branches) {
             const escapedName = escapeHtml(branchRef.name);
             assert.ok(
               html.includes(escapedName),
-              `HTML should contain escaped branch name "${escapedName}" (original: "${branchRef.name}"). HTML: "${html}"`
+              `HTML should contain escaped branch name "${escapedName}" (inline chip OR collapsed-summary tooltip; original: "${branchRef.name}"). HTML: "${html}"`
             );
           }
         }),
@@ -284,21 +313,32 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
      * the rendered HTML should have the correct number of local and remote
      * labels — counted by the typed classification, not the name shape.
      */
-    it('Feature: git-graph-visual-improvements, Property 6: Mixed branches get correct local/remote label counts', () => {
+    it('Feature: git-graph-visual-improvements, Property 6: Mixed branches get correct local/remote label counts when below the inline cap', () => {
+      // UI fix 5 introduced an inline cap (`MAX_INLINE_BRANCH_CHIPS = 2`).
+      // Beyond the cap, branches collapse into a single `+N` summary
+      // chip rather than each rendering a labeled span. To keep this
+      // property meaningful, constrain the generator so the total
+      // count never exceeds the cap — the per-kind tally only holds
+      // for inline-rendered chips.
+      const MAX_INLINE_BRANCH_CHIPS = 2;
       fc.assert(
         fc.property(
-          fc.tuple(
-            fc.uniqueArray(arbitraryLocalBranchRef(), {
-              minLength: 1,
-              maxLength: 4,
-              selector: (ref) => ref.name,
-            }),
-            fc.uniqueArray(arbitraryRemoteBranchRef(), {
-              minLength: 1,
-              maxLength: 4,
-              selector: (ref) => ref.name,
-            })
-          ),
+          fc
+            .tuple(
+              fc.uniqueArray(arbitraryLocalBranchRef(), {
+                minLength: 1,
+                maxLength: 2,
+                selector: (ref) => ref.name,
+              }),
+              fc.uniqueArray(arbitraryRemoteBranchRef(), {
+                minLength: 1,
+                maxLength: 2,
+                selector: (ref) => ref.name,
+              })
+            )
+            .filter(
+              ([locals, remotes]) => locals.length + remotes.length <= MAX_INLINE_BRANCH_CHIPS
+            ),
           ([localBranches, remoteBranches]) => {
             const allBranches = [...localBranches, ...remoteBranches];
             const node = makeCommitNode(allBranches);
@@ -318,6 +358,10 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
               remoteBranches.length,
               `Should have ${remoteBranches.length} remote labels, got ${remoteCount}. ` +
                 `Remote branches: ${JSON.stringify(remoteBranches)}`
+            );
+            assert.ok(
+              !html.includes('branch-label-collapsed'),
+              `Below-cap input must not render the +N summary chip`
             );
           }
         ),
