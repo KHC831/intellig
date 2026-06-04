@@ -10,6 +10,24 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.1.3] - 2026-06-03
+
+### Added
+
+- The Changed Files panel now renders as a collapsible tree.
+- The Git tool window shows a clear "no repository" message when no Git repo is open.
+
+### Fixed
+
+- Merge commits now show their changed files in the details panel instead of "No changed files".
+- Removed a phantom lane stub that drew above the topmost commit row in the graph.
+- Tightened the column spacing in the commit history pane.
+- Bug fixes for failed merge / rebase / cherry-pick / revert operations.
+
+### Changed
+
+- Every IntelliG command invocation and handler outcome is now logged to `Output → IntelliG` for easier troubleshooting.
+
 ## [0.1.2] - 2026-05-31
 
 ### Fixed
