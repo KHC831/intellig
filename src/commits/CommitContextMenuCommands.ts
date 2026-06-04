@@ -19,6 +19,7 @@ import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
+import { getLogger } from '../utils/logger';
 
 /**
  * Defence-in-depth hash format check.
@@ -2098,13 +2099,43 @@ export class CommitContextMenuCommands {
     options?: { mode?: 'squash' | 'fixup' }
   ): Promise<void> {
     const mode = options?.mode ?? 'squash';
+    const log = getLogger().child({ component: 'CommitContextMenuCommands' });
+    log.debug('squash commits handler invoked', {
+      mode,
+      commitHashesCount: commitHashes.length,
+      commitNodesCount: commitNodes.length,
+    });
     const repo = await this._getRepository();
-    if (!repo || commitHashes.length < 2) {
+    if (!repo) {
+      log.warn('squash aborted: no repository resolved');
+      void vscode.window.showWarningMessage(
+        `Cannot ${mode === 'fixup' ? 'fixup' : 'squash'} commits: no repository found.`
+      );
+      return;
+    }
+    if (commitHashes.length < 2) {
+      // Squash needs ≥ 2 commits. Surface a toast so the user knows
+      // their click was received but the action requires more
+      // selection — previously a silent return.
+      log.warn('squash aborted: fewer than 2 commits selected', {
+        commitHashesCount: commitHashes.length,
+      });
+      void vscode.window.showWarningMessage(
+        `Cannot ${mode === 'fixup' ? 'fixup' : 'squash'} commits: select 2 or more commits first.`
+      );
       return;
     }
 
     // 1. Hash format validation.
     if (!allHashesValid(commitHashes)) {
+      // Hash format failure — should not happen in practice given the
+      // webview only sends rendered hashes, but if it does the user
+      // needs to know the click was received and rejected for a real
+      // reason rather than silently dropped.
+      log.warn('squash aborted: hash format validation failed', { commitHashes });
+      void vscode.window.showErrorMessage(
+        'Squash aborted: one or more selected commit hashes are malformed.'
+      );
       return;
     }
 
@@ -2112,6 +2143,9 @@ export class CommitContextMenuCommands {
     const knownHashes = new Set(commitNodes.map((n) => n.hash));
     const stale = commitHashes.filter((h) => !knownHashes.has(h));
     if (stale.length > 0) {
+      log.warn('squash aborted: stale selection (commit hashes not in current commitNodes)', {
+        staleCount: stale.length,
+      });
       void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
       return;
     }
@@ -2185,9 +2219,20 @@ export class CommitContextMenuCommands {
       // working rather than landing an empty message.
       userMessage = messages[0] && messages[0].length > 0 ? messages[0] : seedMessage;
     } else {
+      // Heads-up toast so the user notices the side editor opening.
+      // Without this, users routinely missed the message-editor tab
+      // (it opens beside the active editor column, which is often
+      // far from the bottom-panel-hosted Git tool window) and reported
+      // the squash action as "no response".
+      log.debug('squash: opening message editor', {
+        commitCount: commitHashes.length,
+      });
+      void vscode.window.showInformationMessage(
+        `Squash: editing combined message for ${commitHashes.length} commits. Save the editor tab to apply, or close it to cancel.`
+      );
       userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
       if (userMessage === undefined) {
-        // Cancel — no git command runs.
+        log.debug('squash cancelled: user closed the message editor without saving');
         return;
       }
     }
