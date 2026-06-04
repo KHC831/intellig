@@ -1533,6 +1533,52 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
+   * Continue an in-progress rebase after the user resolves conflicts
+   * (`git rebase --continue`).
+   *
+   * Mirrors {@link rebaseSkip}'s result-shape contract: on success returns
+   * `{success: true}`; on exit-code ≠ 0 with unmerged files still present
+   * returns `{success: false, conflicts}`; on exit-code ≠ 0 with no
+   * unmerged files (e.g. continued without staging the resolution, or
+   * editor closed without saving the commit message) surfaces the
+   * underlying git error via `failureReason` so the caller can show it
+   * instead of dropping the failure silently — same boundary contract as
+   * {@link rebaseBranch}.
+   *
+   * @param repo - The repository
+   */
+  async rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
+    const result = await this._gitCli.exec(['rebase', '--continue'], {
+      cwd: repo.rootUri.fsPath,
+    });
+    this.invalidateCache(repo.rootUri.fsPath);
+
+    if (result.exitCode === 0) {
+      return { success: true };
+    }
+
+    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
+      cwd: repo.rootUri.fsPath,
+    });
+    const conflicts = parseStatus(statusResult.stdout)
+      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .map((f) => f.path);
+
+    if (conflicts.length > 0) {
+      return {
+        success: false,
+        conflicts,
+      };
+    }
+
+    return {
+      success: false,
+      conflicts: [],
+      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
+    };
+  }
+
+  /**
    * Compare two branches to find differences.
    * Returns commits unique to each branch, files that differ, and ahead/behind counts.
    *

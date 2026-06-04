@@ -49,6 +49,7 @@ function createMockGitService(): IGitService {
     rebaseBranch: async () => ({ success: true }),
     rebaseSkip: async () => ({ success: true }),
     rebaseAbort: async () => {},
+    rebaseContinue: async () => ({ success: true }),
     compareBranches: async () => ({
       commitsAhead: [],
       commitsBehind: [],

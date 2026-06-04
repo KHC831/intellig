@@ -273,6 +273,114 @@ export function wireRepositorySelection(deps: {
 }
 
 /**
+ * Minimal git-service surface that {@link wireRebasePausedWarning} consumes.
+ * Declared structurally so unit tests can pass a lightweight stub without
+ * standing up the full `GitService`. Only the two members the wiring
+ * actually touches are listed.
+ */
+export interface IRebaseWarningGitService {
+  getRepositories(): IRepository[];
+  onDidChangeRepository: vscode.Event<IRepository>;
+}
+
+/**
+ * Toast surface the rebase-paused warning routes through. Split out from
+ * `vscode.window` so the unit test can capture invocations without
+ * monkey-patching the real namespace.
+ */
+export interface IRebaseWarningToastSurface {
+  showWarningMessage(message: string, ...items: string[]): Thenable<string | undefined>;
+}
+
+/**
+ * Command-execution surface for the warning's actionable items. Same
+ * dependency-injection rationale as {@link IRebaseWarningToastSurface}.
+ */
+export interface IRebaseWarningCommandRunner {
+  executeCommand(command: string): Thenable<unknown>;
+}
+
+/**
+ * Bug C follow-up: surface a warning toast when ANY open repository has
+ * `inProgress.kind === 'rebasing'`, gated on a per-repo warned-set so the
+ * same paused rebase isn't re-announced on every `onDidChangeRepository`
+ * event.
+ *
+ * The warning offers three actionable buttons that map to the registered
+ * `intellig.rebase.continue` / `intellig.rebase.abort` / `intellig.rebase.skip`
+ * commands. Without this surface, a user who reloaded VS Code mid-rebase (or
+ * inherited a paused rebase from a CLI session) had to know to re-trigger
+ * "Rebase Current onto This" from the BRANCHES menu before any UI signal
+ * appeared. See `KNOWN-ISSUES.md` "Rebase recovery" entry for the original
+ * deferral rationale.
+ *
+ * Returns disposables so the caller can register them with
+ * `context.subscriptions.push(...)`. The helper itself manages the
+ * warned-set; callers don't need to clean it up.
+ *
+ * @internal — exported for
+ *   `src/test/unit/extension/rebasePausedWarning.test.ts`.
+ */
+export function wireRebasePausedWarning(deps: {
+  gitService: IRebaseWarningGitService;
+  window: IRebaseWarningToastSurface;
+  commands: IRebaseWarningCommandRunner;
+}): vscode.Disposable[] {
+  const warned = new Set<string>();
+
+  const fireForRepo = async (repo: IRepository): Promise<void> => {
+    const rootPath = repo.rootUri.fsPath;
+    const inProgressKind = repo.inProgress?.kind;
+
+    // Reset the warned-set entry whenever the rebase clears so a future
+    // rebase will re-warn. The clear can happen after the user runs
+    // continue/abort/skip, or when an external tool ends the rebase.
+    if (inProgressKind !== 'rebasing') {
+      warned.delete(rootPath);
+      return;
+    }
+
+    if (warned.has(rootPath)) {
+      return;
+    }
+    warned.add(rootPath);
+
+    const choice = await deps.window.showWarningMessage(
+      `A rebase is paused in '${rootPath.split('/').pop() ?? rootPath}'. ` +
+        `Resolve any conflicts and continue, or abort to restore the pre-rebase state.`,
+      'Continue',
+      'Abort',
+      'Skip Commit'
+    );
+    if (choice === 'Continue') {
+      await deps.commands.executeCommand('intellig.rebase.continue');
+    } else if (choice === 'Abort') {
+      await deps.commands.executeCommand('intellig.rebase.abort');
+    } else if (choice === 'Skip Commit') {
+      await deps.commands.executeCommand('intellig.rebase.skip');
+    }
+    // Other choices (Esc / dismissed): leave the warned-set entry in
+    // place. The user explicitly dismissed; don't re-warn until the
+    // rebase state changes.
+  };
+
+  // Initial scan: any repo already in `rebasing` state at activation
+  // gets a warning. Fire-and-forget so activation isn't blocked by a
+  // slow toast pipeline.
+  for (const repo of deps.gitService.getRepositories()) {
+    void fireForRepo(repo);
+  }
+
+  // Per-repo listener: re-evaluates the warned-set whenever a repo's
+  // state transitions in or out of `rebasing`.
+  const changeListener = deps.gitService.onDidChangeRepository((repo) => {
+    void fireForRepo(repo);
+  });
+
+  return [changeListener];
+}
+
+/**
  * This method is called when the extension is activated.
  * The extension is activated based on the activation events defined in package.json.
  *
@@ -1754,6 +1862,112 @@ function registerCommands(context: vscode.ExtensionContext): void {
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
+    }
+  });
+
+  // Bug C follow-up: palette + activation-warning entry points for
+  // `git rebase --continue` and `git rebase --abort`. Together with the
+  // pre-existing `intellig.rebase.skip`, these are the three commands the
+  // activation-time rebase-paused warning toast can route the user to.
+  // Without continue/abort registered, the warning had to stay generic
+  // (no actionable button → see KNOWN-ISSUES.md "Rebase recovery"
+  // entry).
+  const rebaseContinueCommand = registerLoggedCommand('intellig.rebase.continue', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+    const gitService = extensionServices.gitService;
+    const conflictService = extensionServices.conflictResolutionService;
+    const repo = await resolveRepo(gitService, { preferActive: true });
+    if (!repo) {
+      return;
+    }
+
+    const state = conflictService.getRepositoryState(repo);
+    if (state !== 'rebasing') {
+      void vscode.window.showInformationMessage(
+        'Rebase --continue is only available while a rebase is in progress.'
+      );
+      return;
+    }
+
+    try {
+      const res = await gitService.rebaseContinue(repo);
+      if (res.success) {
+        void vscode.window.showInformationMessage('Rebase continued successfully.');
+      } else if (res.conflicts && res.conflicts.length > 0) {
+        // Next commit in the rebase sequence introduced new conflicts —
+        // reopen the Resolve Conflicts dialog so the user can keep going.
+        await conflictService.openResolveConflictsDialog(
+          repo,
+          res.conflicts.map((p) => ({ path: p, resolved: false })),
+          { operation: 'rebase', canAbort: true, canContinue: true }
+        );
+      } else {
+        // Non-conflict failure (unstaged resolution, editor cancelled,
+        // etc.). Surface git's reason — already sanitized at the
+        // GitService boundary, but re-pipe through `sanitizeGitError`
+        // here so the safety contract is locally evident at the toast
+        // site (TL-72 structural guard).
+        const reason = res.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(
+          `Failed to continue rebase: ${sanitizeGitError(reason)}`
+        );
+      }
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to continue rebase: ${sanitizeGitError(errMsg)}`);
+    }
+  });
+
+  const rebaseAbortCommand = registerLoggedCommand('intellig.rebase.abort', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+    const gitService = extensionServices.gitService;
+    const conflictService = extensionServices.conflictResolutionService;
+    const repo = await resolveRepo(gitService, { preferActive: true });
+    if (!repo) {
+      return;
+    }
+
+    const state = conflictService.getRepositoryState(repo);
+    if (state !== 'rebasing') {
+      void vscode.window.showInformationMessage(
+        'Rebase --abort is only available while a rebase is in progress.'
+      );
+      return;
+    }
+
+    // `rebase --abort` rewrites HEAD back to the pre-rebase state and is
+    // therefore destructive of the in-flight rebase work (NOT of any
+    // committed history). Single-confirm modal matches the rest of the
+    // rebase recovery commands.
+    const choice = await vscode.window.showWarningMessage(
+      'Abort the rebase? Your working tree will be restored to its pre-rebase state.',
+      { modal: true },
+      'Abort'
+    );
+    if (choice !== 'Abort') {
+      return;
+    }
+
+    try {
+      await gitService.rebaseAbort(repo);
+      void vscode.window.showInformationMessage('Rebase aborted.');
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to abort rebase: ${sanitizeGitError(errMsg)}`);
     }
   });
 
@@ -3675,6 +3889,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     markFileResolvedCommand,
     showResolveConflictsDialogCommand,
     rebaseSkipCommand,
+    rebaseContinueCommand,
+    rebaseAbortCommand,
     localChangesOpenFileCommand,
     applyPatchCommand,
     createPatchFromLocalCommand,
@@ -4555,6 +4771,21 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function setupEventListeners(context: vscode.ExtensionContext): void {
+  // Bug C follow-up: surface a warning toast for any repository that's
+  // already in a paused-rebase state at activation, plus on every
+  // subsequent `onDidChangeRepository` transition into `rebasing`.
+  // Without this, users who reloaded VS Code mid-rebase saw no signal
+  // until they re-triggered a rebase command. See
+  // `wireRebasePausedWarning` for the implementation contract.
+  if (extensionServices) {
+    const rebaseWarningDisposables = wireRebasePausedWarning({
+      gitService: extensionServices.gitService,
+      window: vscode.window,
+      commands: vscode.commands,
+    });
+    context.subscriptions.push(...rebaseWarningDisposables);
+  }
+
   // Listen for workspace folder changes and update the repository list
   const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
     getLogger().child({ component: 'extension' }).info('workspace folders changed', {

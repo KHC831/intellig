@@ -121,6 +121,18 @@
         "icon": "$(debug-step-over)"
       },
       {
+        "command": "intellig.rebase.continue",
+        "title": "Rebase: Continue",
+        "category": "IntelliG",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "intellig.rebase.abort",
+        "title": "Rebase: Abort",
+        "category": "IntelliG",
+        "icon": "$(debug-stop)"
+      },
+      {
         "command": "intellig.localChanges.openFile",
         "title": "Jump to Source (from Local Changes)",
         "category": "IntelliG"
