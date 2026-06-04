@@ -141,6 +141,40 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
+    it('caps the author column with max-width and ellipsis (regression: was fixed-width with dead space)', () => {
+      // Reach into the inline-style block for the .commit-author rule.
+      // Pre-fix, the column was `width: 140px` which produced a visible
+      // dead band between short author names and the date column. The
+      // fix uses `max-width: 140px` so the column shrinks to its
+      // content below the cap and ellipsises above it.
+      const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
+
+      const authorRuleMatch = styles.match(/\.commit-author\s*\{([^}]+)\}/);
+      assert.ok(authorRuleMatch, '.commit-author CSS rule must exist');
+      const authorRule = authorRuleMatch[1];
+
+      assert.ok(
+        authorRule.includes('max-width: 140px'),
+        `.commit-author should declare max-width: 140px (content-sized below cap), got: "${authorRule.trim()}"`
+      );
+      assert.ok(
+        !/(^|[^-])\bwidth:\s*140px/.test(authorRule),
+        `.commit-author must NOT declare a fixed width: 140px (would re-introduce the dead band; max-width is fine, plain width is not), got: "${authorRule.trim()}"`
+      );
+      assert.ok(
+        authorRule.includes('text-overflow: ellipsis'),
+        '.commit-author must keep text-overflow: ellipsis for the truncation indicator'
+      );
+      assert.ok(
+        authorRule.includes('overflow: hidden'),
+        '.commit-author must keep overflow: hidden so the ellipsis can apply'
+      );
+      assert.ok(
+        authorRule.includes('white-space: nowrap'),
+        '.commit-author must keep white-space: nowrap so the name fits one line'
+      );
+    });
+
     it('should render absolute date instead of relative date', () => {
       const node = makeCommitNode(
         {},
