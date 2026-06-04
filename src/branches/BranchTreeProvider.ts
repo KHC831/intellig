@@ -384,12 +384,8 @@ export class BranchTreeProvider
     // Root level - show categories
     if (!element) {
       return [
-        new BranchTreeItem('Local Branches', vscode.TreeItemCollapsibleState.Expanded, 'category'),
-        new BranchTreeItem(
-          'Remote Branches',
-          vscode.TreeItemCollapsibleState.Collapsed,
-          'category'
-        ),
+        new BranchTreeItem('Local', vscode.TreeItemCollapsibleState.Expanded, 'category'),
+        new BranchTreeItem('Remote', vscode.TreeItemCollapsibleState.Collapsed, 'category'),
         new BranchTreeItem('Tags', vscode.TreeItemCollapsibleState.Collapsed, 'category'),
       ];
     }
@@ -398,9 +394,9 @@ export class BranchTreeProvider
     if (element.itemType === 'category') {
       try {
         switch (element.label) {
-          case 'Local Branches':
+          case 'Local':
             return await this._getLocalBranches();
-          case 'Remote Branches':
+          case 'Remote':
             return await this._getRemoteBranches();
           case 'Tags':
             return await this._getTags();

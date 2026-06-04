@@ -1044,8 +1044,8 @@ describe('Wave H — detached row dispatcher safety (Wave F regression class)', 
     try {
       const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
       const rootChildren = await branchTreeProvider.getChildren();
-      const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
-      assert.ok(localCategory, 'Local Branches category must exist');
+      const localCategory = rootChildren.find((c) => c.label === 'Local');
+      assert.ok(localCategory, 'Local category must exist');
       const items = await branchTreeProvider.getChildren(localCategory);
       const detachedRow = items.find((i) => i.itemType === 'detached-head');
       assert.ok(detachedRow, 'detached row must be present in fixture');
@@ -1079,8 +1079,8 @@ describe('Wave H — detached row dispatcher safety (Wave F regression class)', 
 
     const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
     const rootChildren = await branchTreeProvider.getChildren();
-    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
-    assert.ok(localCategory, 'Local Branches category must exist');
+    const localCategory = rootChildren.find((c) => c.label === 'Local');
+    assert.ok(localCategory, 'Local category must exist');
     const items = await branchTreeProvider.getChildren(localCategory);
     const detachedRow = items.find((i) => i.itemType === 'detached-head');
     assert.ok(detachedRow, 'detached row must be present in fixture');

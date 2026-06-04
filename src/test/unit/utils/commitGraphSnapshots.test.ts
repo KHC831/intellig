@@ -909,10 +909,8 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
     treeProvider.setRepository(mockRepo);
 
     // Drive `_getLocalBranches` via the public `getChildren` API.
-    const localCategory = (await treeProvider.getChildren()).find(
-      (item) => item.label === 'Local Branches'
-    );
-    assert.ok(localCategory, 'Local Branches category must exist at root');
+    const localCategory = (await treeProvider.getChildren()).find((item) => item.label === 'Local');
+    assert.ok(localCategory, 'Local category must exist at root');
     const localItems = await treeProvider.getChildren(localCategory);
 
     // Pin the contract: NO item label or branch.name starts with `(`.
@@ -1166,8 +1164,8 @@ describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
     provider.setRepository(repo);
 
     const rootChildren = await provider.getChildren();
-    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
-    assert.ok(localCategory, 'Local Branches category must exist at root');
+    const localCategory = rootChildren.find((c) => c.label === 'Local');
+    assert.ok(localCategory, 'Local category must exist at root');
     const items = await provider.getChildren(localCategory);
 
     assert.strictEqual(items[0].label, '(HEAD detached at abc1234)');

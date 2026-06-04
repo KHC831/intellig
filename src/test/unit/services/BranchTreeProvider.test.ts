@@ -46,9 +46,9 @@ const SHORT_SHA = 'abc1234';
 
 function localBranchesFromTree(provider: BranchTreeProvider): Promise<BranchTreeItem[]> {
   return provider.getChildren().then((rootChildren) => {
-    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
+    const localCategory = rootChildren.find((c) => c.label === 'Local');
     if (!localCategory) {
-      throw new Error('Local Branches category missing');
+      throw new Error('Local category missing');
     }
     return provider.getChildren(localCategory);
   });

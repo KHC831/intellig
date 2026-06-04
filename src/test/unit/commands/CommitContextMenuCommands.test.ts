@@ -1846,7 +1846,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('compareWithBranch' as LogContextAction, [hash]);
 
-      // Three separators: Local Branches / Remote Branches / Tags.
+      // Three separators: Local / Remote / Tags.
       const separatorCount = seenItems.filter(
         (i) => i.kind === (1 as unknown as vscode.QuickPickItemKind) // Separator value
       ).length;
@@ -1854,8 +1854,8 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // Just count items whose label is one of the headers.
       const headerLabels = seenItems
         .map((i) => i.label)
-        .filter((l) => l === 'Local Branches' || l === 'Remote Branches' || l === 'Tags');
-      assert.deepStrictEqual(headerLabels, ['Local Branches', 'Remote Branches', 'Tags']);
+        .filter((l) => l === 'Local' || l === 'Remote' || l === 'Tags');
+      assert.deepStrictEqual(headerLabels, ['Local', 'Remote', 'Tags']);
       // The non-separator items include all three refs.
       const refLabels = seenItems.map((i) => i.label);
       assert.ok(refLabels.some((l) => l.includes('main') && l.includes('git-branch')));

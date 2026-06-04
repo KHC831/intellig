@@ -325,7 +325,7 @@ describe('CommandTitleProvider', () => {
 
       // Create a category item (no branch)
       const item = new BranchTreeItem(
-        'Local Branches',
+        'Local',
         1, // TreeItemCollapsibleState.Expanded
         'category'
       );

@@ -2453,7 +2453,7 @@ export class CommitContextMenuCommands {
     }
 
     if (localBranches.length > 0) {
-      items.push({ label: 'Local Branches', kind: vscode.QuickPickItemKind.Separator });
+      items.push({ label: 'Local', kind: vscode.QuickPickItemKind.Separator });
       for (const b of localBranches) {
         items.push({
           label: `$(git-branch) ${b.name}`,
@@ -2464,7 +2464,7 @@ export class CommitContextMenuCommands {
     }
 
     if (remoteBranches.length > 0) {
-      items.push({ label: 'Remote Branches', kind: vscode.QuickPickItemKind.Separator });
+      items.push({ label: 'Remote', kind: vscode.QuickPickItemKind.Separator });
       for (const b of remoteBranches) {
         items.push({
           label: `$(cloud) ${b.name}`,
