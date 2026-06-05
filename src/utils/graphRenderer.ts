@@ -414,12 +414,22 @@ export function renderGraphSvg(
     // Draw center-to-bottom segment if the commit has a parent in the same lane
     // (i.e., the lane continues straight down). If all parents are in different lanes,
     // the bezier curves handle the connection and no vertical stub is needed.
-    const hasSameLaneParent = node.graphLines.some(
+    const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
-    if (hasSameLaneParent) {
+    if (sameLaneLines.length > 0) {
+      // Dashed stroke when AT LEAST ONE same-lane line targets an
+      // off-window parent ("history continues below"). A merge whose
+      // first parent is in-window but second parent is off-window
+      // produces TWO same-lane lines; if any is dashed, the visual
+      // stub must be dashed — otherwise the off-window affordance
+      // disappears whenever the in-window line happens to come first.
+      // IntelliJ parity: solid lines connect to scrollable rows;
+      // dashed lines say "more history exists, it just isn't loaded".
+      const isDashed = sameLaneLines.some((l) => l.style === 'dashed');
+      const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';
       elements.push(
-        `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+        `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
       );
     }
   }
@@ -439,8 +449,9 @@ export function renderGraphSvg(
     const fromX = getColumnX(line.fromColumn, config);
     const toX = getColumnX(line.toColumn, config);
     const color = getColumnColor(line.toColumn);
+    const dashAttr = line.style === 'dashed' ? ` stroke-dasharray="4,3"` : '';
     elements.push(
-      `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+      `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
     );
   }
 

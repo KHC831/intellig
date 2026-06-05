@@ -9,6 +9,19 @@
 import { ICommit } from './interfaces/IGitService';
 
 /**
+ * Visual style of a graph line. Used by the renderer to differentiate
+ * "real" edges (the parent commit is in the loaded window) from
+ * off-window stubs (the parent fell off our `--max-count` slice).
+ *
+ * - `'solid'`: the default — a full edge to a parent that's rendered.
+ * - `'dashed'`: a phantom stub — "history continues below the loaded
+ *   window". IntelliJ uses a similar dashed-line affordance for refs
+ *   whose target isn't visible, so the user can tell at a glance
+ *   that the edge isn't going to a row they can scroll to.
+ */
+export type GraphLineStyle = 'solid' | 'dashed';
+
+/**
  * Represents a line in the commit graph connecting commits.
  */
 export interface IGraphLine {
@@ -20,6 +33,13 @@ export interface IGraphLine {
   color: string;
   /** Type of line: commit (normal), merge (from merge commit), or branch (new branch) */
   type: 'commit' | 'merge' | 'branch';
+  /**
+   * Visual style. Optional for backwards-compat with consumers that
+   * predate the field; when undefined, the renderer treats it as
+   * `'solid'`. Set to `'dashed'` for off-window-parent stubs so the
+   * "history continues below" affordance is visible.
+   */
+  style?: GraphLineStyle;
 }
 
 /**
@@ -364,6 +384,11 @@ export function generateCommitGraph(
           toColumn: column,
           color: getColumnColor(column),
           type: i === 0 ? 'commit' : 'merge',
+          // Dashed: the line is a stub for history that continues
+          // below the loaded window. IntelliJ-parity affordance —
+          // makes it visually obvious the edge isn't pointing at a
+          // row the user can scroll to.
+          style: 'dashed',
         });
         continue;
       }

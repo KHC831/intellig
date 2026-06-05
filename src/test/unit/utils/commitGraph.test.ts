@@ -255,6 +255,61 @@ describe('Commit Graph Generation', () => {
       });
     });
 
+    // ─── Dashed style for off-window edges (architectural fix #4) ─────
+    //
+    // The IGraphLine.style field exposes "is this edge a stub for
+    // history that fell off the loaded window" to the renderer. The
+    // renderer paints dashed strokes for them — IntelliJ-parity
+    // affordance for "history continues below".
+    describe('Off-window parent stubs are marked style: dashed (architectural fix #4)', () => {
+      it('emits style:"dashed" on the same-lane stub when parent is OUTSIDE the loaded window', () => {
+        // Only `child` is in the window; its parent `off-window-parent`
+        // is older than the slice. The stub line must be dashed.
+        const commits = [createMockCommit('child', ['off-window-parent'])];
+
+        const result = generateCommitGraph(commits);
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].graphLines.length, 1);
+        const line = result[0].graphLines[0];
+        // Verify it's the off-window stub (same-lane).
+        assert.strictEqual(line.fromColumn, line.toColumn);
+        assert.strictEqual(
+          line.style,
+          'dashed',
+          `off-window stub must be dashed; got style=${String(line.style)}`
+        );
+      });
+
+      it('does NOT emit style:"dashed" on a normal in-window same-lane line', () => {
+        // Linear history — both rows in the window. The line from
+        // `child` to `parent` is solid (no `style` field set, which
+        // the renderer treats as solid).
+        const commits = [createMockCommit('child', ['parent']), createMockCommit('parent', [])];
+
+        const result = generateCommitGraph(commits);
+        const line = result[0].graphLines[0];
+        assert.notStrictEqual(line.style, 'dashed', 'in-window edges must NOT be dashed');
+      });
+
+      it('emits style:"dashed" on a merge stub when parents[1] is off-window', () => {
+        // Merge whose second parent is off-window. The merge edge for
+        // that parent should still be dashed — same affordance.
+        const commits = [
+          createMockCommit('m', ['p1', 'off-window-p2']),
+          createMockCommit('p1', []),
+        ];
+
+        const result = generateCommitGraph(commits);
+        const merge = result[0];
+        assert.strictEqual(merge.graphLines.length, 2);
+        // graphLines[1] is the merge edge for parents[1].
+        const stubLine = merge.graphLines[1];
+        // Off-window stub: same-lane.
+        assert.strictEqual(stubLine.fromColumn, stubLine.toColumn);
+        assert.strictEqual(stubLine.style, 'dashed', 'off-window merge stub must be dashed');
+      });
+    });
+
     // ─── Lane seeding from branchMap (architectural fix #3) ────────────
     //
     // Without seeding, lane indices were a pure function of input
