@@ -232,6 +232,56 @@ export async function loadAllPanelDataCore(deps: ILoadAllPanelDataDeps): Promise
 }
 
 /**
+ * Single-flight + trailing-edge coalesce for an async load function.
+ *
+ * Many mutation handlers do `await reloadRepository(repo);
+ * provider.refresh();` — both events fire `loadAllPanelData`,
+ * which means TWO un-debounced `git log` invocations land in
+ * parallel. Whichever finishes last wins, with potentially
+ * different orderings (especially right after a squash, when
+ * committer dates have just been rewritten). Visible symptom:
+ * post-squash flicker / linear-looking graph.
+ *
+ * `createCoalescedLoader(load)` returns a no-arg trigger:
+ *  - First call: starts `load()`.
+ *  - Calls during the in-flight window: collapse into a single
+ *    trailing-edge re-fire that runs after the current load settles.
+ *  - Errors in `load()` are swallowed — the trigger is fire-and-forget;
+ *    the caller's `void` already commits to that contract.
+ *
+ * Exported for unit testing; production wires this into the activate
+ * closure.
+ *
+ * @internal
+ */
+export function createCoalescedLoader(load: () => Promise<void>): () => void {
+  let inFlight: Promise<void> | undefined;
+  let pending = false;
+  const trigger = (): void => {
+    if (inFlight) {
+      pending = true;
+      return;
+    }
+    inFlight = (async (): Promise<void> => {
+      try {
+        await load();
+      } catch {
+        // Swallow — the production callers were `void load()`. Surface
+        // errors via the `load` function's own logging path, not by
+        // crashing the trigger and stranding `pending`.
+      } finally {
+        inFlight = undefined;
+        if (pending) {
+          pending = false;
+          trigger();
+        }
+      }
+    })();
+  };
+  return trigger;
+}
+
+/**
  * Minimal surfaces of the providers that {@link wireRepositorySelection}
  * needs. Declared structurally so unit tests can pass lightweight stubs and
  * record both wiring effects (graph reload + branch tree refresh) without
@@ -4349,21 +4399,25 @@ function registerViews(context: vscode.ExtensionContext): void {
       });
     };
 
+    // Single-flight + trailing-edge coalesce around loadAllPanelData.
+    // See {@link createCoalescedLoader} for rationale.
+    const requestPanelDataLoad = createCoalescedLoader(loadAllPanelData);
+
     // Wire up onDidRequestInitialData to load all data when webview first opens
     const initialDataListener = gitToolWindowProvider.onDidRequestInitialData(() => {
-      void loadAllPanelData();
+      requestPanelDataLoad();
     });
     context.subscriptions.push(initialDataListener);
 
     // Wire up onDidRequestRefresh to reload all data when repository changes
     const refreshListener = gitToolWindowProvider.onDidRequestRefresh(() => {
-      void loadAllPanelData();
+      requestPanelDataLoad();
     });
     context.subscriptions.push(refreshListener);
 
     // Auto-refresh the graph when the git repository changes (new commits, branch switches, etc.)
     const repoChangeListener = gitService.onDidChangeRepository(() => {
-      void loadAllPanelData();
+      requestPanelDataLoad();
     });
     context.subscriptions.push(repoChangeListener);
 
