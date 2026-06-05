@@ -4213,7 +4213,16 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
 
         if (gitToolWindowProvider) {
-          gitToolWindowProvider.updateLogState(commits, branchMap, tagMap, repo.head?.commit);
+          // Strip the `refs/heads/` prefix so the chip filter compares
+          // against the same shape `IBranchRef.name` carries.
+          const headBranchName = repo.head?.name?.replace(/^refs\/heads\//, '');
+          gitToolWindowProvider.updateLogState(
+            commits,
+            branchMap,
+            tagMap,
+            repo.head?.commit,
+            headBranchName
+          );
 
           // T3-07 — compute the cherry-mark map in the background and push
           // it into the provider. We don't block the log render on it —

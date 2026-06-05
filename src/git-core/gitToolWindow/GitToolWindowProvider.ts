@@ -237,6 +237,17 @@ export interface IExtendedLogState extends ILogState {
    * any visible row.
    */
   headHash?: string;
+  /**
+   * Name of the branch HEAD points to (the "current branch"), without
+   * the `refs/heads/` prefix. Used by
+   * {@link GitToolWindowProvider._getBranchLabelsHtml} to keep the
+   * current branch's chip inline even when other branch chips on the
+   * same commit collapse into the `+N more` summary chip.
+   *
+   * `undefined` means detached HEAD or unknown — the inline-keep
+   * behaviour falls back to the focused-branch tiebreak.
+   */
+  headBranchName?: string;
 }
 
 /**
@@ -705,7 +716,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     commits: ICommit[],
     branchMap?: Map<string, IBranchRef[]>,
     tagMap?: Map<string, string[]>,
-    headHash?: string
+    headHash?: string,
+    headBranchName?: string
   ): void {
     // Stably sort commits before graph generation. `sortCommitsStable`
     // returns oldest-first using a topological tie-break when parents
@@ -785,6 +797,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       anchorHash: newAnchor,
       focusedBranchName: newFocusName,
       headHash,
+      headBranchName,
     };
 
     this._hasRepository = true;
@@ -3007,26 +3020,40 @@ ${bodyMarkup}
       : '';
 
     const focusedBranchName = this._extendedLogState.focusedBranchName;
-    // Maximum number of branch chips to render inline before collapsing
-    // the rest into a single `+N more` summary chip. The full names of
-    // the collapsed branches stay reachable via the summary chip's
-    // tooltip. IntelliJ uses a similar pattern: a single chip showing
-    // the count, expandable on hover. Threshold of 2 means 1-2 chips
-    // render normally; the third onwards collapses.
-    const MAX_INLINE_BRANCH_CHIPS = 2;
+    const headBranchName = this._extendedLogState.headBranchName;
     const allBranches = node.branches || [];
-    const focusedIndex = allBranches.findIndex((b) => b.name === focusedBranchName);
-    // If a focused branch exists beyond the inline cap, ensure it
-    // stays visible by including it in the inline set. This keeps the
-    // focus-affordance discoverable when the focused branch is buried
-    // deep in a chip pile (otherwise it'd disappear under +N more).
-    const inlineBranches =
-      allBranches.length <= MAX_INLINE_BRANCH_CHIPS
-        ? allBranches
-        : focusedIndex >= MAX_INLINE_BRANCH_CHIPS
-          ? [...allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS - 1), allBranches[focusedIndex]]
-          : allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS);
-    const collapsedBranches = allBranches.filter((b) => !inlineBranches.includes(b));
+    // Tighter chip collapse (UX request, IntelliJ parity).
+    //
+    // Previously: render up to 2 chips inline, collapse the rest into
+    // a `+N more` summary chip — which was still noisy on hot commits
+    // tagged by many remotes (origin/foo + upstream/foo + fork/foo + …).
+    //
+    // Now: when the host has told us which branch HEAD points to OR
+    // a branch is focused, ONLY those two privileged chips stay
+    // inline. Everything else collapses into the summary chip. The
+    // two privileged chips are the ones the user explicitly cares
+    // about; the rest are reachable via the summary chip's tooltip.
+    //
+    // Fallback (no privileged ref known — e.g. detached HEAD with no
+    // focus, or unit tests that drive _getBranchLabelsHtml directly
+    // without populating headBranchName): preserve the prior "top 2
+    // inline, +N collapsed" behaviour so we don't degrade to "all
+    // collapsed" when we have no signal about which chips matter.
+    // This branch matters in the wild only for detached-HEAD-no-focus
+    // — which is a rare state and where the old top-2 cap is fine.
+    const MAX_INLINE_BRANCH_CHIPS_FALLBACK = 2;
+    const havePrivilegedRef = !!headBranchName || !!focusedBranchName;
+    let inlineBranches: IBranchRef[];
+    let collapsedBranches: IBranchRef[];
+    if (havePrivilegedRef) {
+      const isInlineKeepName = (name: string): boolean =>
+        name === headBranchName || name === focusedBranchName;
+      inlineBranches = allBranches.filter((b) => isInlineKeepName(b.name));
+      collapsedBranches = allBranches.filter((b) => !isInlineKeepName(b.name));
+    } else {
+      inlineBranches = allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS_FALLBACK);
+      collapsedBranches = allBranches.slice(MAX_INLINE_BRANCH_CHIPS_FALLBACK);
+    }
 
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
