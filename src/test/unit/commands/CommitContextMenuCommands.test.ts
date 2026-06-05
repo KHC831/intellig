@@ -2024,4 +2024,118 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(messages.info[0].message.toLowerCase().includes('no branches'));
     });
   });
+
+  // Regression suite for the repo-inference fix. Edit Commit Message
+  // / Squash Commits / etc. must NOT pop a "Choose Repository"
+  // QuickPick when the user is staring at a specific repo's log in
+  // the Git tool window. The dropdown selection is the source of
+  // truth.
+  describe('_getRepository — uses GitToolWindowProvider.getSelectedRepository (Bug 6.1)', () => {
+    it('routes through getSelectedRepository when the provider exposes it', async () => {
+      const dropdownRepo = createMockRepo('dropdown_head_hash');
+      const fallbackRepo = createMockRepo('fallback_head_hash');
+      // Make the active-editor fallback resolve to a DIFFERENT repo so
+      // we can prove the dropdown wins over the fallback chain.
+      const gitService = createMockGitService(fallbackRepo);
+      const rebaseService = createMockRebaseService();
+      const provider = {
+        ...createMockProvider(),
+        getSelectedRepository: () => dropdownRepo,
+      } as unknown as GitToolWindowProvider & { refreshCallCount: number };
+      const gitCli = createMockGitCli({
+        exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      // Drive a handler that calls _getRepository under the hood.
+      // copyHash is the cheapest path that hits _getRepository.
+      writableEnv().clipboard = {
+        writeText: () => Promise.resolve(),
+        readText: () => Promise.resolve(''),
+      };
+      createMessageTrackers();
+      await commands._handleAction('copyHash', [testHash]);
+
+      // No QuickPick should have fired (we're in a single-repo mock
+      // anyway, but the assertion is structural: the dropdown must
+      // have been consulted first). Reach in and verify the dropdown
+      // path was taken by injecting a sentinel-only spy:
+      let dropdownConsulted = false;
+      const spyProvider = {
+        ...createMockProvider(),
+        getSelectedRepository: () => {
+          dropdownConsulted = true;
+          return dropdownRepo;
+        },
+      } as unknown as GitToolWindowProvider & { refreshCallCount: number };
+      const spyCommands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        spyProvider,
+        gitCli
+      );
+      const internals = spyCommands as unknown as {
+        _getRepository: () => Promise<IRepository | undefined>;
+      };
+      const resolved = await internals._getRepository();
+      assert.strictEqual(
+        dropdownConsulted,
+        true,
+        'getSelectedRepository must be consulted before any fallback'
+      );
+      assert.strictEqual(
+        resolved,
+        dropdownRepo,
+        'when dropdown returns a repo, _getRepository must return it'
+      );
+    });
+
+    it('falls back to resolveRepo when getSelectedRepository returns undefined', async () => {
+      // The dropdown returns undefined (no repo currently selected, or
+      // single-window stub). The handler must fall through to
+      // resolveRepo so palette / scripted callers without a tool-window
+      // provider still work.
+      const fallbackRepo = createMockRepo('fallback_head_hash');
+      const gitService = createMockGitService(fallbackRepo);
+      const rebaseService = createMockRebaseService();
+      const provider = {
+        ...createMockProvider(),
+        getSelectedRepository: () => undefined,
+      } as unknown as GitToolWindowProvider & { refreshCallCount: number };
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const internals = commands as unknown as {
+        _getRepository: () => Promise<IRepository | undefined>;
+      };
+      const resolved = await internals._getRepository();
+      assert.strictEqual(
+        resolved,
+        fallbackRepo,
+        'when dropdown returns undefined, resolveRepo fallback must run'
+      );
+    });
+
+    it('falls back to resolveRepo when the provider does not expose getSelectedRepository (legacy stubs)', async () => {
+      // Some test harnesses construct partial provider stubs that omit
+      // getSelectedRepository. Those callers must keep working without
+      // throwing.
+      const fallbackRepo = createMockRepo('fallback_head_hash');
+      const gitService = createMockGitService(fallbackRepo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider(); // no getSelectedRepository on the stub
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const internals = commands as unknown as {
+        _getRepository: () => Promise<IRepository | undefined>;
+      };
+      const resolved = await internals._getRepository();
+      assert.strictEqual(
+        resolved,
+        fallbackRepo,
+        'partial provider stubs must not break _getRepository'
+      );
+    });
+  });
 });

@@ -186,13 +186,40 @@ export class CommitContextMenuCommands {
   /**
    * Resolve the repository the current action should target.
    *
-   * Previously pinned `getRepositories()[0]`, which silently targeted
-   * the wrong repo in multi-root workspaces for every destructive action in
-   * this class. Routes through `resolveRepo(preferActive: true, silent: true)`
-   * so the action follows the same fallback chain as other multi-root-aware
-   * entry points (see `CommitToolWindow._resolveRepo`).
+   * The Git tool window's repo selector dropdown is the source of
+   * truth: the user clicked the commit while looking at a specific
+   * repo's log, and the action should target THAT repo without
+   * prompting again. Previously this routed through
+   * `resolveRepo(preferActive: true, silent: true)`, which in a
+   * multi-root workspace would surface a "Choose Repository"
+   * QuickPick whenever the active editor wasn't inside the
+   * Git-tool-window's repo — visible to the user as an unwelcome
+   * popup before Edit Commit Message / Squash Commits / etc. ever
+   * ran.
+   *
+   * Order of preference:
+   *   1. Git-tool-window's selected repo (the dropdown the user
+   *      most recently set; matches the log they're staring at).
+   *   2. `resolveRepo(preferActive)` fallback for callers without
+   *      a tool-window provider wired up (palette commands, scripted
+   *      entries, tests).
    */
   private async _getRepository(): Promise<IRepository | undefined> {
+    // Defensive: a few legacy test harnesses construct partial provider
+    // stubs that omit `getSelectedRepository`. Use the dropdown's
+    // selected repo when the method exists; otherwise fall through to
+    // the resolveRepo fallback so those callers keep working.
+    const maybeGetSelected = (
+      this._gitToolWindowProvider as unknown as {
+        getSelectedRepository?: () => IRepository | undefined;
+      }
+    ).getSelectedRepository;
+    if (typeof maybeGetSelected === 'function') {
+      const selected = maybeGetSelected.call(this._gitToolWindowProvider);
+      if (selected) {
+        return selected;
+      }
+    }
     return this._resolveRepo(this._gitService, {
       preferActive: true,
       silent: true,
