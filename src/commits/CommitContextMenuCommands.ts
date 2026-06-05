@@ -20,6 +20,7 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
 import { getLogger } from '../utils/logger';
+import { SquashMessageDialog } from './SquashMessageDialog';
 
 /**
  * Defence-in-depth hash format check.
@@ -2246,20 +2247,38 @@ export class CommitContextMenuCommands {
       // working rather than landing an empty message.
       userMessage = messages[0] && messages[0].length > 0 ? messages[0] : seedMessage;
     } else {
-      // Heads-up toast so the user notices the side editor opening.
-      // Without this, users routinely missed the message-editor tab
-      // (it opens beside the active editor column, which is often
-      // far from the bottom-panel-hosted Git tool window) and reported
-      // the squash action as "no response".
-      log.debug('squash: opening message editor', {
+      log.debug('squash: opening message dialog', {
         commitCount: commitHashes.length,
       });
-      void vscode.window.showInformationMessage(
-        `Squash: editing combined message for ${commitHashes.length} commits. Save the editor tab to apply, or close it to cancel.`
-      );
-      userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+      // Webview-hosted modal dialog. Replaces the previous
+      // `_promptForSquashMessage` flow (which opened a temp file in
+      // ViewColumn.Beside — confusing UX, users didn't know what to
+      // do with the side tab). The dialog renders a textarea inline
+      // in the editor area and resolves with the user's message on
+      // submit (Cmd+Enter or click) or undefined on cancel (Esc /
+      // close-tab / empty-submit).
+      //
+      // Falls back to the legacy single-line InputBox when the
+      // extension context isn't available (palette / scripted
+      // callers that didn't go through `register()`). Same fallback
+      // path used by every other context-driven dialog in this
+      // class.
+      if (this._context) {
+        const dialog = new SquashMessageDialog(this._context, {
+          seedMessage,
+          commitCount: commitHashes.length,
+        });
+        userMessage = await dialog.prompt();
+      } else {
+        // Fallback for callers without an extension context (palette /
+        // scripted entry points that didn't go through `register()`).
+        // The temp-file flow preserves multi-line editing; the
+        // input-box fallback inside it kicks in if VS Code can't open
+        // the tempfile.
+        userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+      }
       if (userMessage === undefined) {
-        log.debug('squash cancelled: user closed the message editor without saving');
+        log.debug('squash cancelled: user dismissed the message dialog');
         return;
       }
     }
