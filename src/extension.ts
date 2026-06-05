@@ -232,6 +232,155 @@ export async function loadAllPanelDataCore(deps: ILoadAllPanelDataDeps): Promise
 }
 
 /**
+ * Minimal surfaces of the providers that {@link wireRepositorySelection}
+ * needs. Declared structurally so unit tests can pass lightweight stubs and
+ * record both wiring effects (graph reload + branch tree refresh) without
+ * standing up the full extension host.
+ */
+export interface IRepoSelectionToolWindowProvider {
+  onDidSelectRepository: vscode.Event<IRepository>;
+}
+export interface IRepoSelectionBranchTreeProvider {
+  setRepository(repo: IRepository): void;
+}
+
+/**
+ * Wire the Git tool window's repository selector to BOTH downstream views:
+ *   - the Log/Graph (Git) view via `loadLogCommitsForRepo`
+ *   - the Branches tree view via `branchTreeProvider.setRepository`
+ *
+ * Extracted from the `activate`-scoped wiring so the dual-update behavior is
+ * unit-testable. Without this, the dropdown could update one view while the
+ * other silently desyncs — the original bug.
+ *
+ * Returns the disposables so the caller can register them with
+ * `context.subscriptions.push(...)`.
+ *
+ * @internal — exported for `src/test/unit/extension/repoSelectionWiring.test.ts`.
+ */
+export function wireRepositorySelection(deps: {
+  toolWindowProvider: IRepoSelectionToolWindowProvider;
+  branchTreeProvider: IRepoSelectionBranchTreeProvider;
+  loadLogCommitsForRepo: (repo: IRepository) => Promise<void>;
+}): vscode.Disposable[] {
+  const graphListener = deps.toolWindowProvider.onDidSelectRepository(async (repo) => {
+    await deps.loadLogCommitsForRepo(repo);
+  });
+  const branchTreeListener = deps.toolWindowProvider.onDidSelectRepository((repo) => {
+    deps.branchTreeProvider.setRepository(repo);
+  });
+  return [graphListener, branchTreeListener];
+}
+
+/**
+ * Minimal git-service surface that {@link wireRebasePausedWarning} consumes.
+ * Declared structurally so unit tests can pass a lightweight stub without
+ * standing up the full `GitService`. Only the two members the wiring
+ * actually touches are listed.
+ */
+export interface IRebaseWarningGitService {
+  getRepositories(): IRepository[];
+  onDidChangeRepository: vscode.Event<IRepository>;
+}
+
+/**
+ * Toast surface the rebase-paused warning routes through. Split out from
+ * `vscode.window` so the unit test can capture invocations without
+ * monkey-patching the real namespace.
+ */
+export interface IRebaseWarningToastSurface {
+  showWarningMessage(message: string, ...items: string[]): Thenable<string | undefined>;
+}
+
+/**
+ * Command-execution surface for the warning's actionable items. Same
+ * dependency-injection rationale as {@link IRebaseWarningToastSurface}.
+ */
+export interface IRebaseWarningCommandRunner {
+  executeCommand(command: string): Thenable<unknown>;
+}
+
+/**
+ * Bug C follow-up: surface a warning toast when ANY open repository has
+ * `inProgress.kind === 'rebasing'`, gated on a per-repo warned-set so the
+ * same paused rebase isn't re-announced on every `onDidChangeRepository`
+ * event.
+ *
+ * The warning offers three actionable buttons that map to the registered
+ * `intellig.rebase.continue` / `intellig.rebase.abort` / `intellig.rebase.skip`
+ * commands. Without this surface, a user who reloaded VS Code mid-rebase (or
+ * inherited a paused rebase from a CLI session) had to know to re-trigger
+ * "Rebase Current onto This" from the BRANCHES menu before any UI signal
+ * appeared. See `KNOWN-ISSUES.md` "Rebase recovery" entry for the original
+ * deferral rationale.
+ *
+ * Returns disposables so the caller can register them with
+ * `context.subscriptions.push(...)`. The helper itself manages the
+ * warned-set; callers don't need to clean it up.
+ *
+ * @internal — exported for
+ *   `src/test/unit/extension/rebasePausedWarning.test.ts`.
+ */
+export function wireRebasePausedWarning(deps: {
+  gitService: IRebaseWarningGitService;
+  window: IRebaseWarningToastSurface;
+  commands: IRebaseWarningCommandRunner;
+}): vscode.Disposable[] {
+  const warned = new Set<string>();
+
+  const fireForRepo = async (repo: IRepository): Promise<void> => {
+    const rootPath = repo.rootUri.fsPath;
+    const inProgressKind = repo.inProgress?.kind;
+
+    // Reset the warned-set entry whenever the rebase clears so a future
+    // rebase will re-warn. The clear can happen after the user runs
+    // continue/abort/skip, or when an external tool ends the rebase.
+    if (inProgressKind !== 'rebasing') {
+      warned.delete(rootPath);
+      return;
+    }
+
+    if (warned.has(rootPath)) {
+      return;
+    }
+    warned.add(rootPath);
+
+    const choice = await deps.window.showWarningMessage(
+      `A rebase is paused in '${rootPath.split('/').pop() ?? rootPath}'. ` +
+        `Resolve any conflicts and continue, or abort to restore the pre-rebase state.`,
+      'Continue',
+      'Abort',
+      'Skip Commit'
+    );
+    if (choice === 'Continue') {
+      await deps.commands.executeCommand('intellig.rebase.continue');
+    } else if (choice === 'Abort') {
+      await deps.commands.executeCommand('intellig.rebase.abort');
+    } else if (choice === 'Skip Commit') {
+      await deps.commands.executeCommand('intellig.rebase.skip');
+    }
+    // Other choices (Esc / dismissed): leave the warned-set entry in
+    // place. The user explicitly dismissed; don't re-warn until the
+    // rebase state changes.
+  };
+
+  // Initial scan: any repo already in `rebasing` state at activation
+  // gets a warning. Fire-and-forget so activation isn't blocked by a
+  // slow toast pipeline.
+  for (const repo of deps.gitService.getRepositories()) {
+    void fireForRepo(repo);
+  }
+
+  // Per-repo listener: re-evaluates the warned-set whenever a repo's
+  // state transitions in or out of `rebasing`.
+  const changeListener = deps.gitService.onDidChangeRepository((repo) => {
+    void fireForRepo(repo);
+  });
+
+  return [changeListener];
+}
+
+/**
  * This method is called when the extension is activated.
  * The extension is activated based on the activation events defined in package.json.
  *
@@ -1713,6 +1862,112 @@ function registerCommands(context: vscode.ExtensionContext): void {
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       void vscode.window.showErrorMessage(`Failed to skip commit: ${sanitizeGitError(errMsg)}`);
+    }
+  });
+
+  // Bug C follow-up: palette + activation-warning entry points for
+  // `git rebase --continue` and `git rebase --abort`. Together with the
+  // pre-existing `intellig.rebase.skip`, these are the three commands the
+  // activation-time rebase-paused warning toast can route the user to.
+  // Without continue/abort registered, the warning had to stay generic
+  // (no actionable button → see KNOWN-ISSUES.md "Rebase recovery"
+  // entry).
+  const rebaseContinueCommand = registerLoggedCommand('intellig.rebase.continue', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+    const gitService = extensionServices.gitService;
+    const conflictService = extensionServices.conflictResolutionService;
+    const repo = await resolveRepo(gitService, { preferActive: true });
+    if (!repo) {
+      return;
+    }
+
+    const state = conflictService.getRepositoryState(repo);
+    if (state !== 'rebasing') {
+      void vscode.window.showInformationMessage(
+        'Rebase --continue is only available while a rebase is in progress.'
+      );
+      return;
+    }
+
+    try {
+      const res = await gitService.rebaseContinue(repo);
+      if (res.success) {
+        void vscode.window.showInformationMessage('Rebase continued successfully.');
+      } else if (res.conflicts && res.conflicts.length > 0) {
+        // Next commit in the rebase sequence introduced new conflicts —
+        // reopen the Resolve Conflicts dialog so the user can keep going.
+        await conflictService.openResolveConflictsDialog(
+          repo,
+          res.conflicts.map((p) => ({ path: p, resolved: false })),
+          { operation: 'rebase', canAbort: true, canContinue: true }
+        );
+      } else {
+        // Non-conflict failure (unstaged resolution, editor cancelled,
+        // etc.). Surface git's reason — already sanitized at the
+        // GitService boundary, but re-pipe through `sanitizeGitError`
+        // here so the safety contract is locally evident at the toast
+        // site (TL-72 structural guard).
+        const reason = res.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(
+          `Failed to continue rebase: ${sanitizeGitError(reason)}`
+        );
+      }
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to continue rebase: ${sanitizeGitError(errMsg)}`);
+    }
+  });
+
+  const rebaseAbortCommand = registerLoggedCommand('intellig.rebase.abort', async () => {
+    if (!extensionServices) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+    const gitService = extensionServices.gitService;
+    const conflictService = extensionServices.conflictResolutionService;
+    const repo = await resolveRepo(gitService, { preferActive: true });
+    if (!repo) {
+      return;
+    }
+
+    const state = conflictService.getRepositoryState(repo);
+    if (state !== 'rebasing') {
+      void vscode.window.showInformationMessage(
+        'Rebase --abort is only available while a rebase is in progress.'
+      );
+      return;
+    }
+
+    // `rebase --abort` rewrites HEAD back to the pre-rebase state and is
+    // therefore destructive of the in-flight rebase work (NOT of any
+    // committed history). Single-confirm modal matches the rest of the
+    // rebase recovery commands.
+    const choice = await vscode.window.showWarningMessage(
+      'Abort the rebase? Your working tree will be restored to its pre-rebase state.',
+      { modal: true },
+      'Abort'
+    );
+    if (choice !== 'Abort') {
+      return;
+    }
+
+    try {
+      await gitService.rebaseAbort(repo);
+      void vscode.window.showInformationMessage('Rebase aborted.');
+      await gitService.reloadRepository(repo);
+      if (gitToolWindowProvider) {
+        gitToolWindowProvider.refresh();
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to abort rebase: ${sanitizeGitError(errMsg)}`);
     }
   });
 
@@ -3634,6 +3889,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     markFileResolvedCommand,
     showResolveConflictsDialogCommand,
     rebaseSkipCommand,
+    rebaseContinueCommand,
+    rebaseAbortCommand,
     localChangesOpenFileCommand,
     applyPatchCommand,
     createPatchFromLocalCommand,
@@ -3700,6 +3957,15 @@ function registerCommands(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function registerViews(context: vscode.ExtensionContext): void {
+  // Hoisted so the second `if (extensionServices)` block — which creates
+  // the BranchTreeProvider — can pass this helper into
+  // `wireRepositorySelection(...)` and refresh both the Log/Graph view and
+  // the Branches tree view from a single `onDidSelectRepository` event.
+  // Bound to the block-local `loadLogCommitsForRepo` inside the first
+  // `if (extensionServices)` block where its closure dependencies
+  // (gitService, gitToolWindowProvider) are in scope.
+  let hoistedLoadLogCommitsForRepo: ((repo: IRepository) => Promise<void>) | undefined;
+
   // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
   gitToolWindowProvider = new GitToolWindowProvider(context.extensionUri, context.workspaceState);
 
@@ -3890,7 +4156,12 @@ function registerViews(context: vscode.ExtensionContext): void {
       return repositories;
     };
 
-    // Helper to load commits into the log view for a specific repository
+    // Helper to load commits into the log view for a specific repository.
+    // Kept as a block-local `const` so type narrowing inside this block
+    // continues to work. We then bind it to the hoisted
+    // `hoistedLoadLogCommitsForRepo` below so the second
+    // `if (extensionServices)` block can pass it into
+    // `wireRepositorySelection(...)`.
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }
@@ -3942,7 +4213,16 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
 
         if (gitToolWindowProvider) {
-          gitToolWindowProvider.updateLogState(commits, branchMap, tagMap, repo.head?.commit);
+          // Strip the `refs/heads/` prefix so the chip filter compares
+          // against the same shape `IBranchRef.name` carries.
+          const headBranchName = repo.head?.name?.replace(/^refs\/heads\//, '');
+          gitToolWindowProvider.updateLogState(
+            commits,
+            branchMap,
+            tagMap,
+            repo.head?.commit,
+            headBranchName
+          );
 
           // T3-07 — compute the cherry-mark map in the background and push
           // it into the provider. We don't block the log render on it —
@@ -4095,11 +4375,11 @@ function registerViews(context: vscode.ExtensionContext): void {
     });
     context.subscriptions.push(filterChangeListener);
 
-    // Wire up onDidSelectRepository to re-fetch commits/branches/tags for the selected repo
-    const repoSelectListener = gitToolWindowProvider.onDidSelectRepository(async (repo) => {
-      await loadLogCommitsForRepo(repo);
-    });
-    context.subscriptions.push(repoSelectListener);
+    // The repository-selector wiring (onDidSelectRepository → graph reload +
+    // branch tree refresh) is registered in the second `if (extensionServices)`
+    // block below, where `branchTreeProvider` is in scope. Both wirings live
+    // there as a single unit so the dropdown can never update one view while
+    // silently desyncing the other.
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
     const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
@@ -4179,6 +4459,12 @@ function registerViews(context: vscode.ExtensionContext): void {
     );
     context.subscriptions.push(commitDiffListener);
 
+    // Bind the block-local helper to the hoisted reference so the second
+    // `if (extensionServices)` block (which creates the BranchTreeProvider)
+    // can pass it into `wireRepositorySelection(...)`.
+    hoistedLoadLogCommitsForRepo = (repo: IRepository): Promise<void> =>
+      loadLogCommitsForRepo(repo);
+
     // In the 2-panel layout, load all data immediately
     void loadAllPanelData();
   }
@@ -4198,6 +4484,29 @@ function registerViews(context: vscode.ExtensionContext): void {
     // Register the provider too so its EventEmitter
     // onDidChangeRepository subscription are torn down on deactivation.
     context.subscriptions.push(branchTreeView, branchTreeProvider);
+
+    // Wire the repository selector to BOTH downstream views: the Log/Graph
+    // (Git) view AND the Branches tree view. Without the branch-tree side,
+    // switching repos in the dropdown updates the graph but leaves the
+    // branches tree pointing at the previously-selected repo. The dual
+    // wiring is centralized in `wireRepositorySelection` so the behavior
+    // is unit-testable end-to-end (see repoSelectionWiring.test.ts).
+    //
+    // `hoistedLoadLogCommitsForRepo` is bound in the first
+    // `if (extensionServices)` block above. Both blocks share this
+    // top-level guard, so the helper is always defined here in production;
+    // the `?? noop` fallback keeps the wiring resilient if that invariant
+    // is ever broken by a future refactor.
+    if (gitToolWindowProvider) {
+      const noopLoadLog = (_repo: IRepository): Promise<void> => Promise.resolve();
+      const loadLog = hoistedLoadLogCommitsForRepo ?? noopLoadLog;
+      const repoSelectionDisposables = wireRepositorySelection({
+        toolWindowProvider: gitToolWindowProvider,
+        branchTreeProvider,
+        loadLogCommitsForRepo: loadLog,
+      });
+      context.subscriptions.push(...repoSelectionDisposables);
+    }
 
     // Link native BRANCHES tree view selection to the git graph.
     // When the user clicks a branch in the tree view, scroll the graph
@@ -4471,6 +4780,21 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function setupEventListeners(context: vscode.ExtensionContext): void {
+  // Bug C follow-up: surface a warning toast for any repository that's
+  // already in a paused-rebase state at activation, plus on every
+  // subsequent `onDidChangeRepository` transition into `rebasing`.
+  // Without this, users who reloaded VS Code mid-rebase saw no signal
+  // until they re-triggered a rebase command. See
+  // `wireRebasePausedWarning` for the implementation contract.
+  if (extensionServices) {
+    const rebaseWarningDisposables = wireRebasePausedWarning({
+      gitService: extensionServices.gitService,
+      window: vscode.window,
+      commands: vscode.commands,
+    });
+    context.subscriptions.push(...rebaseWarningDisposables);
+  }
+
   // Listen for workspace folder changes and update the repository list
   const workspaceFoldersListener = vscode.workspace.onDidChangeWorkspaceFolders(async (event) => {
     getLogger().child({ component: 'extension' }).info('workspace folders changed', {

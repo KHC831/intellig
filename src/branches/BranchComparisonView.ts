@@ -343,7 +343,7 @@ export class BranchComparisonView implements IBranchComparisonView {
     const localBranches = branches.filter((b) => b.type === 'local' && b.name !== excludeBranch);
     if (localBranches.length > 0) {
       items.push({
-        label: 'Local Branches',
+        label: 'Local',
         kind: vscode.QuickPickItemKind.Separator,
       });
 
@@ -361,13 +361,13 @@ export class BranchComparisonView implements IBranchComparisonView {
     const remoteBranches = branches.filter((b) => b.type === 'remote');
     if (remoteBranches.length > 0) {
       items.push({
-        label: 'Remote Branches',
+        label: 'Remote',
         kind: vscode.QuickPickItemKind.Separator,
       });
 
       for (const branch of remoteBranches) {
         items.push({
-          label: `$(cloud) ${branch.name}`,
+          label: `$(git-branch) ${branch.name}`,
           description: branch.commit.substring(0, 7),
           branch,
           branchName: branch.name,

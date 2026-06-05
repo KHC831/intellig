@@ -32,16 +32,13 @@
  *    construction time).
  *
  * Requirement 5.3 (`safeFireAndForget` captures the cid at call time
- * and emits it on rejection) is intentionally **not** asserted in
- * this property test: the underlying update to `safeFireAndForget` is
- * task 7.1 in tasks.md and has not landed yet (the legacy
- * `console.error` path is still in place). Once 7.1 lands, the
- * property below labelled `safeFireAndForget cid capture` should be
- * lifted out of its skip block and exercised against the new
- * implementation. Until then we cover the *spirit* of 5.3 — that the
- * store is readable from arbitrary call sites synchronously and the
- * value can be closed over — by asserting `getCurrentCorrelationId()`
- * is observable from inside a frame and `undefined` outside one.
+ * and emits it on rejection) is asserted as Property 10.4 below.
+ * Task 7.1 (`safeFireAndForget` rerouted through the structured Logger
+ * with `getCurrentCorrelationId()` captured at call time) has landed —
+ * see `src/utils/safeFireAndForget.ts:151`. The single-shot pin lives
+ * in `src/test/unit/utils/safeFireAndForget.test.ts:141`; the property
+ * generalises it across arbitrary commandIds and rejection-error
+ * messages.
  *
  * ### Capture strategy
  *
@@ -95,6 +92,7 @@ import {
   getOutputChannel,
   initOutputChannel,
 } from '../../utils/outputChannel';
+import { safeFireAndForget } from '../../utils/safeFireAndForget';
 
 /**
  * 16-char lowercase hex string — the format
@@ -606,14 +604,122 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
     );
   });
 
-  // Requirement 5.3 — `safeFireAndForget` cid capture. NOT exercised
-  // here because task 7.1 (the safeFireAndForget update) has not
-  // landed yet and the legacy `console.error` path is still the
-  // rejection-log boundary. Once 7.1 lands, lift the body of this
-  // suite into an active `it(...)`.
-  describe.skip('Property 10.4: safeFireAndForget captures cid at call time and emits it on rejection', () => {
-    it('placeholder — requires task 7.1 (safeFireAndForget update) to be in place', () => {
-      // intentionally empty
+  // Requirement 5.3 — `safeFireAndForget` cid capture. Task 7.1
+  // (safeFireAndForget rerouted through the structured Logger and
+  // capturing `getCurrentCorrelationId()` at call time) has landed:
+  // see `src/utils/safeFireAndForget.ts:151` (`const cid =
+  // getCurrentCorrelationId()`). The single-shot pin lives in
+  // `src/test/unit/utils/safeFireAndForget.test.ts:141`. This property
+  // generalizes the pin across arbitrary commandIds and arbitrary
+  // rejection-error messages: every record emitted by a rejection
+  // fired inside a `registerLoggedCommand` frame must carry the
+  // frame's correlationId, even though the AsyncLocalStorage frame
+  // pops the moment the synchronous handler returns (well before the
+  // rejection settles on the microtask queue).
+  describe('Property 10.4: safeFireAndForget captures cid at call time and emits it on rejection', () => {
+    /**
+     * Yield two microtask ticks so the promise chain inside
+     * `safeFireAndForget` (rejection → handler → Logger emit) settles
+     * before assertions run. Mirrors the pattern in
+     * `safeFireAndForget.test.ts`'s `flushMicrotasks`.
+     */
+    async function flushMicrotasks(): Promise<void> {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    /**
+     * Generator for rejection-error messages. Constrained to printable
+     * ASCII without backslash / `\n` / `\r` so the captured-then-parsed
+     * record round-trips byte-for-byte through the renderer (the
+     * cross-module render-roundtrip property pins the inline-escape
+     * pass elsewhere — here we focus on the cid).
+     */
+    const errorMessageArb: fc.Arbitrary<string> = fc.stringOf(
+      fc.integer({ min: 0x20, max: 0x7e }).map((c) => String.fromCharCode(c)),
+      { minLength: 1, maxLength: 40 }
+    );
+
+    it('emits the captured cid on every rejection record from inside a registerLoggedCommand frame', async () => {
+      await fc.assert(
+        fc.asyncProperty(commandIdArb, errorMessageArb, async (commandId, errorMessage) => {
+          freshActivation();
+          const patch = patchRegisterCommand();
+          try {
+            const disposable = registerLoggedCommand(commandId, () => {
+              // The frame is on the AsyncLocalStorage stack right now.
+              // `safeFireAndForget` reads `getCurrentCorrelationId()`
+              // at call time and closes over the value for its
+              // rejection-log emit. The frame will pop the moment this
+              // synchronous handler returns; the captured cid still
+              // propagates to the Logger.
+              safeFireAndForget(Promise.reject(new Error(errorMessage)), 'PropertyTest.10.4: cid');
+            });
+
+            const dispatch = patch.registered.get(commandId);
+            assert.ok(dispatch !== undefined, 'registered handler must be retrievable');
+            dispatch();
+
+            await flushMicrotasks();
+
+            const records = getCapturedRecords();
+            assert.strictEqual(
+              records.length,
+              1,
+              `expected exactly one rendered record per safeFireAndForget rejection; got ${records.length}`
+            );
+
+            const record = records[0];
+            assert.ok(
+              record.correlationId !== undefined,
+              'correlationId must appear on the record (cid was captured inside the frame)'
+            );
+            assert.match(
+              record.correlationId,
+              HEX16_RE,
+              `correlationId must be a 16-char hex string (Requirement 5.1); got ${JSON.stringify(record.correlationId)}`
+            );
+
+            disposable.dispose();
+          } finally {
+            patch.restore();
+            resetAll();
+          }
+        }),
+        { numRuns: 50 }
+      );
+    });
+
+    it('omits the cid field when safeFireAndForget is invoked outside any command frame', async () => {
+      // Negative pin: at the boundary, no frame on the stack ⇒ the
+      // helper must NOT fabricate a cid (Requirement 5.5 / 14.9). This
+      // covers the watcher / activation / event-handler call sites
+      // that land outside any `registerLoggedCommand` body.
+      await fc.assert(
+        fc.asyncProperty(errorMessageArb, async (errorMessage) => {
+          freshActivation();
+          // No frame on the AsyncLocalStorage stack — invoke directly.
+          safeFireAndForget(
+            Promise.reject(new Error(errorMessage)),
+            'PropertyTest.10.4: outside-frame'
+          );
+          await flushMicrotasks();
+
+          const records = getCapturedRecords();
+          assert.strictEqual(
+            records.length,
+            1,
+            `expected exactly one rendered record; got ${records.length}`
+          );
+          assert.strictEqual(
+            records[0].correlationId,
+            undefined,
+            'correlationId must be undefined when no frame is on the stack (no fabrication)'
+          );
+          resetAll();
+        }),
+        { numRuns: 50 }
+      );
     });
   });
 });

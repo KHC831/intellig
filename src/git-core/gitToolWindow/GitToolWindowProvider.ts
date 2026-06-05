@@ -237,6 +237,17 @@ export interface IExtendedLogState extends ILogState {
    * any visible row.
    */
   headHash?: string;
+  /**
+   * Name of the branch HEAD points to (the "current branch"), without
+   * the `refs/heads/` prefix. Used by
+   * {@link GitToolWindowProvider._getBranchLabelsHtml} to keep the
+   * current branch's chip inline even when other branch chips on the
+   * same commit collapse into the `+N more` summary chip.
+   *
+   * `undefined` means detached HEAD or unknown — the inline-keep
+   * behaviour falls back to the focused-branch tiebreak.
+   */
+  headBranchName?: string;
 }
 
 /**
@@ -705,7 +716,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     commits: ICommit[],
     branchMap?: Map<string, IBranchRef[]>,
     tagMap?: Map<string, string[]>,
-    headHash?: string
+    headHash?: string,
+    headBranchName?: string
   ): void {
     // Stably sort commits before graph generation. `sortCommitsStable`
     // returns oldest-first using a topological tie-break when parents
@@ -785,6 +797,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       anchorHash: newAnchor,
       focusedBranchName: newFocusName,
       headHash,
+      headBranchName,
     };
 
     this._hasRepository = true;
@@ -1116,14 +1129,18 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     this._extendedLogState.expandedCommit = hash;
     // Anchor unchanged — shift-click does not move the anchor.
 
-    // (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
-    this._updateWebview();
     // Fire BEFORE the post sequence.
     this._onDidChangeState.fire();
-    // belt-and-suspenders — the rendered HTML already
-    // carries data-anchor-hash; syncSelection guards against
-    // interpolation bugs and partial-update extension cases.
+    // Partial-update path — sync selection + details panel without
+    // a full HTML re-render. Bug fix: the previous `_updateWebview()`
+    // call rebuilt the entire panel HTML, which destroyed the
+    // currently-focused commit-row DOM element. The webview JS keys
+    // its keyboard handler off `e.target.closest('.commit-row')`, so
+    // after a re-render no row is focused and the next Shift+Arrow
+    // press finds no target — the user-visible "Shift+Arrow stops
+    // responding after 1-2 commits" symptom.
     this._postSyncSelection();
+    this._postDetailsForExpandedCommit();
     this._postMenuStateUpdate();
   }
 
@@ -1157,14 +1174,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     }
     this._extendedLogState.expandedCommit = hash;
 
-    // (HIGH) — render BEFORE posting (ADR-009 §3 ordering rule).
-    this._updateWebview();
     // Fire BEFORE the post sequence.
     this._onDidChangeState.fire();
-    // belt-and-suspenders — the rendered HTML already
-    // carries data-anchor-hash; syncSelection guards against
-    // interpolation bugs and partial-update extension cases.
+    // Partial-update path — see the matching comment block in
+    // `rangeSelectCommit` for the rationale: a full `_updateWebview()`
+    // re-render destroys commit-row focus and breaks the keyboard
+    // Shift+Arrow loop.
     this._postSyncSelection();
+    this._postDetailsForExpandedCommit();
     this._postMenuStateUpdate();
   }
 
@@ -1304,6 +1321,50 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       selectedHashes: Array.from(this._extendedLogState.selectedCommits),
     };
     void this._view.webview.postMessage(msg);
+  }
+
+  /**
+   * Push an `updateDetailsPanel` message for the current
+   * `expandedCommit`. Used by the range-select handlers (which
+   * deliberately avoid `_updateWebview()` to preserve commit-row
+   * focus for keyboard navigation) so the details pane still
+   * reflects the latest range tip without re-rendering the graph.
+   *
+   * Mirrors the inline post path in {@link selectCommit}.
+   */
+  private _postDetailsForExpandedCommit(): void {
+    if (!this._view) {
+      return;
+    }
+    const expanded = this._extendedLogState.expandedCommit;
+    if (!expanded) {
+      return;
+    }
+    const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === expanded);
+    if (!node) {
+      const placeholderHtml = this._getDetailsPanelPlaceholderHtml();
+      void this._view.webview.postMessage({
+        type: 'updateDetailsPanel',
+        html: placeholderHtml,
+      });
+      return;
+    }
+    const commitDetails: ICommitDetails = {
+      hash: node.commit.hash,
+      message: node.commit.message,
+      body: node.commit.body,
+      author: { name: node.commit.author.name, email: node.commit.author.email },
+      date: node.commit.authorDate,
+      parents: node.commit.parents || [],
+      branches: (node.branches || []).map((ref) => ref.name),
+      tags: node.tags || [],
+      changedFiles: [],
+    };
+    const detailsHtml = this._getDetailsPanelHtml(commitDetails);
+    void this._view.webview.postMessage({
+      type: 'updateDetailsPanel',
+      html: detailsHtml,
+    });
   }
 
   /**
@@ -2959,7 +3020,42 @@ ${bodyMarkup}
       : '';
 
     const focusedBranchName = this._extendedLogState.focusedBranchName;
-    const labels = (node.branches || []).map((branchRef) => {
+    const headBranchName = this._extendedLogState.headBranchName;
+    const allBranches = node.branches || [];
+    // Tighter chip collapse (UX request, IntelliJ parity).
+    //
+    // Previously: render up to 2 chips inline, collapse the rest into
+    // a `+N more` summary chip — which was still noisy on hot commits
+    // tagged by many remotes (origin/foo + upstream/foo + fork/foo + …).
+    //
+    // Now: when the host has told us which branch HEAD points to OR
+    // a branch is focused, ONLY those two privileged chips stay
+    // inline. Everything else collapses into the summary chip. The
+    // two privileged chips are the ones the user explicitly cares
+    // about; the rest are reachable via the summary chip's tooltip.
+    //
+    // Fallback (no privileged ref known — e.g. detached HEAD with no
+    // focus, or unit tests that drive _getBranchLabelsHtml directly
+    // without populating headBranchName): preserve the prior "top 2
+    // inline, +N collapsed" behaviour so we don't degrade to "all
+    // collapsed" when we have no signal about which chips matter.
+    // This branch matters in the wild only for detached-HEAD-no-focus
+    // — which is a rare state and where the old top-2 cap is fine.
+    const MAX_INLINE_BRANCH_CHIPS_FALLBACK = 2;
+    const havePrivilegedRef = !!headBranchName || !!focusedBranchName;
+    let inlineBranches: IBranchRef[];
+    let collapsedBranches: IBranchRef[];
+    if (havePrivilegedRef) {
+      const isInlineKeepName = (name: string): boolean =>
+        name === headBranchName || name === focusedBranchName;
+      inlineBranches = allBranches.filter((b) => isInlineKeepName(b.name));
+      collapsedBranches = allBranches.filter((b) => !isInlineKeepName(b.name));
+    } else {
+      inlineBranches = allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS_FALLBACK);
+      collapsedBranches = allBranches.slice(MAX_INLINE_BRANCH_CHIPS_FALLBACK);
+    }
+
+    const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
       // Bug E: classify directly from the branch ref's `type` (sourced from
       // IBranch.type / refs-prefix), NOT from a `name.includes('/')` heuristic.
@@ -2973,16 +3069,18 @@ ${bodyMarkup}
       const cssClass = isFocused ? `${baseClass} branch-label-focused` : baseClass;
       const escapedName = this._escapeHtml(branchName);
       // role="img" + descriptive aria-label tells SRs
-      // this is a branch chip, not just inline text. The codicon
-      // prefix gives non-color affordance (WCAG 1.4.1) — codicon-cloud
-      // for remote, codicon-git-branch for local. The icon's
-      // aria-hidden="true" lets the chip's own aria-label own the AT
-      // narration. The aria-label string is run through _escapeHtml
-      // since branch names are user-controlled.
+      // this is a branch chip, not just inline text. Per UX request,
+      // both local and remote branches use the same codicon-git-branch
+      // icon — the ref kind is still distinguishable via the chip's
+      // CSS class (`branch-label-local` / `branch-label-remote`) and
+      // the aria-label text ("Local branch:" / "Remote branch:"). The
+      // icon's aria-hidden="true" lets the chip's own aria-label own
+      // the AT narration. The aria-label string is run through
+      // _escapeHtml since branch names are user-controlled.
       // aria-pressed is deferred to when chips become
       // keyboard-interactive — adding it now would lie about an
       // interaction that doesn't yet exist. Pinned by snap-12b..d, 12f.
-      const iconClass = isRemote ? 'codicon-cloud' : 'codicon-git-branch';
+      const iconClass = 'codicon-git-branch';
       const ariaLabelText = isRemote
         ? `Remote branch: ${branchName}`
         : `Local branch: ${branchName}`;
@@ -3016,7 +3114,24 @@ ${bodyMarkup}
       return `<span class="tag-label" data-tag-name="${escapedName}" role="img" aria-label="${ariaLabel}"><i class="codicon codicon-tag" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
-    return headChipHtml + labels.join('') + tagLabels.join('');
+    // Collapse summary chip: `+N` shown after the inline branch chips
+    // (and before the tag chips) when more branches exist than fit
+    // inline. The tooltip lists the collapsed branch names so the user
+    // can discover them on hover; data-collapsed-branches keeps a
+    // pipe-delimited list available for any future click-to-expand
+    // wiring.
+    let collapsedSummaryHtml = '';
+    if (collapsedBranches.length > 0) {
+      const tooltipLines = collapsedBranches.map((b) => b.name).join('\n');
+      const escapedTooltip = this._escapeHtml(tooltipLines);
+      const dataAttr = this._escapeHtml(collapsedBranches.map((b) => b.name).join('|'));
+      const ariaLabel = this._escapeHtml(
+        `${collapsedBranches.length} more branch${collapsedBranches.length === 1 ? '' : 'es'}: ${collapsedBranches.map((b) => b.name).join(', ')}`
+      );
+      collapsedSummaryHtml = `<span class="branch-label-collapsed" data-collapsed-branches="${dataAttr}" role="img" aria-label="${ariaLabel}" title="${escapedTooltip}">+${collapsedBranches.length}</span>`;
+    }
+
+    return headChipHtml + labels.join('') + collapsedSummaryHtml + tagLabels.join('');
   }
 
   /**
@@ -3044,9 +3159,14 @@ ${bodyMarkup}
       })
       .join('');
 
+    // The `change` listener is wired from the main inline script
+    // (`_getInlineScript`), which already holds the single `vscode` API
+    // instance. A second `acquireVsCodeApi()` call inside an inline
+    // `onchange` handler would throw — VS Code only allows one acquire
+    // per webview lifetime — and silently drop the selection.
     return `
       <div class="repository-selector-container">
-        <select class="repository-selector" onchange="(function(el){ const vscode = acquireVsCodeApi(); vscode.postMessage({ type: 'selectRepository', repositoryIndex: Number(el.value) }); })(this)">
+        <select class="repository-selector" aria-label="Select repository">
           ${optionsHtml}
         </select>
       </div>`;
@@ -3986,11 +4106,18 @@ ${bodyMarkup}
         line-height: 1.2;
       }
 
+      /* Author column: fixed-width, left-aligned. Match IntelliJ. The
+         column was originally 140px which left a visible dead band
+         between short names and the date column. 100px ellipsised too
+         many real-world names (e.g. "Christopher" + last initial);
+         120px is the IntelliJ-parity sweet spot — long names still
+         ellipsise, but typical "First Last" names fit without
+         truncation. */
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        width: 140px;
+        width: 120px;
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
@@ -4093,6 +4220,22 @@ ${bodyMarkup}
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
+      }
+
+      /* Collapsed-summary chip ("+N"): rendered when a commit has more
+         branches pointing at it than fit inline. Uses a muted
+         description-foreground so it reads as metadata, not as another
+         branch. The native title=tooltip carries the full list of
+         collapsed branch names; a future click-to-expand handler can
+         flip data-collapsed-branches into individual chips inline. */
+      .branch-label-collapsed {
+        background: var(--vscode-badge-background, #3a3a3a);
+        color: var(--vscode-descriptionForeground, #888);
+        font-size: 11px;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 4px;
+        cursor: help;
       }
 
       /* The remote-chip fallback hex pair is retained as a CSS-var
@@ -4521,6 +4664,25 @@ ${bodyMarkup}
     return `
       (function() {
         const vscode = acquireVsCodeApi();
+
+        // Repository selector wiring. Posts the selectRepository message
+        // through the single \`vscode\` instance acquired above. The
+        // dropdown intentionally has no inline onchange handler — calling
+        // \`acquireVsCodeApi()\` a second time in the same render throws
+        // a DOMException and the message would be silently dropped.
+        const repoSelect = document.querySelector('.repository-selector');
+        if (repoSelect) {
+          repoSelect.addEventListener('change', function(e) {
+            const target = e.target;
+            if (!target) return;
+            const value = Number(target.value);
+            if (!Number.isFinite(value)) return;
+            vscode.postMessage({
+              type: 'selectRepository',
+              repositoryIndex: value,
+            });
+          });
+        }
 
         // State for drag and drop
         let draggedFiles = [];

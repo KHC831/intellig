@@ -1199,6 +1199,112 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
+    it('routes through provideRewordMessage when executeRebase pauses (regression: was leaving HEAD detached)', async () => {
+      // Bug: editing a non-HEAD commit message dropped the local
+      // branch onto a detached HEAD. Root cause: `git rebase -i` paused
+      // at the reword step waiting for $GIT_EDITOR to provide the new
+      // message, but only GIT_SEQUENCE_EDITOR was set. The rebase
+      // metadata stayed in `.git/rebase-merge/` and HEAD detached at
+      // the parent of the reword target.
+      //
+      // Fix: when executeRebase returns `{status:'paused'}`, route
+      // through `provideRewordMessage` (which uses `git commit --amend
+      // -m <msg>` followed by `git rebase --continue`) so the rebase
+      // actually finishes and the branch ref updates.
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('updated message');
+      createMessageTrackers();
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+
+      let rewordCallCount = 0;
+      let rewordMessageReceived: string | undefined;
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+        provideRewordMessage: async (_repo: IRepository, message: string) => {
+          rewordCallCount++;
+          rewordMessageReceived = message;
+          return { success: true, status: 'completed' as const };
+        },
+      });
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return {
+              exitCode: 0,
+              stdout: 'old message\n',
+              stderr: '',
+              combined: '',
+            };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      assert.strictEqual(
+        rewordCallCount,
+        1,
+        'provideRewordMessage MUST be called once when executeRebase pauses'
+      );
+      assert.strictEqual(
+        rewordMessageReceived,
+        'updated message',
+        'provideRewordMessage MUST receive the new message the user typed'
+      );
+      const abortCall = rebaseService.calls.find((c) => c.method === 'abortRebase');
+      assert.ok(
+        !abortCall,
+        'abortRebase MUST NOT be called on the happy paused-then-resolved path (would re-create the detached-HEAD bug)'
+      );
+    });
+
+    it('aborts the rebase when provideRewordMessage hits a conflict', async () => {
+      // Defensive companion to the paused-path test above. If the
+      // post-paused continue produces conflicts, abort cleanly so
+      // the user never sees a half-finished rebase with a detached
+      // HEAD.
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('updated message');
+      createMessageTrackers();
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+        provideRewordMessage: async () => ({
+          success: false,
+          status: 'conflict' as const,
+          conflictedFiles: ['src/foo.ts'],
+        }),
+      });
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      const abortCall = rebaseService.calls.find((c) => c.method === 'abortRebase');
+      assert.ok(
+        abortCall,
+        'abortRebase MUST be called when provideRewordMessage surfaces a conflict'
+      );
+    });
+
     it('does nothing when user cancels input', async () => {
       writableWindow().showInputBox = (): Promise<string | undefined> => Promise.resolve(undefined);
       createMessageTrackers();
@@ -1846,7 +1952,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       await commands._handleAction('compareWithBranch' as LogContextAction, [hash]);
 
-      // Three separators: Local Branches / Remote Branches / Tags.
+      // Three separators: Local / Remote / Tags.
       const separatorCount = seenItems.filter(
         (i) => i.kind === (1 as unknown as vscode.QuickPickItemKind) // Separator value
       ).length;
@@ -1854,12 +1960,14 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       // Just count items whose label is one of the headers.
       const headerLabels = seenItems
         .map((i) => i.label)
-        .filter((l) => l === 'Local Branches' || l === 'Remote Branches' || l === 'Tags');
-      assert.deepStrictEqual(headerLabels, ['Local Branches', 'Remote Branches', 'Tags']);
+        .filter((l) => l === 'Local' || l === 'Remote' || l === 'Tags');
+      assert.deepStrictEqual(headerLabels, ['Local', 'Remote', 'Tags']);
       // The non-separator items include all three refs.
       const refLabels = seenItems.map((i) => i.label);
+      // Both local and remote refs use the same git-branch icon now
+      // (per UX request to drop the cloud-vs-branch distinction).
       assert.ok(refLabels.some((l) => l.includes('main') && l.includes('git-branch')));
-      assert.ok(refLabels.some((l) => l.includes('origin/main') && l.includes('cloud')));
+      assert.ok(refLabels.some((l) => l.includes('origin/main') && l.includes('git-branch')));
       assert.ok(refLabels.some((l) => l.includes('v1.0') && l.includes('tag')));
       // Suppress unused-var lint on separatorCount
       void separatorCount;
@@ -1868,7 +1976,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     it('compareWithBranch-2: selection routes to BranchComparisonView.show with the picked ref', async () => {
       const view = createMockBranchComparisonView();
       writableWindow().showQuickPick = (): Promise<unknown> =>
-        Promise.resolve({ ref: 'origin/main', label: '$(cloud) origin/main' });
+        Promise.resolve({ ref: 'origin/main', label: '$(git-branch) origin/main' });
       createMessageTrackers();
       const repo = createMockRepo(hash);
       const gitService = createMockGitService(repo, {
@@ -1914,6 +2022,120 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(pickerCalled, false, 'picker must not show with no refs available');
       assert.strictEqual(messages.info.length, 1);
       assert.ok(messages.info[0].message.toLowerCase().includes('no branches'));
+    });
+  });
+
+  // Regression suite for the repo-inference fix. Edit Commit Message
+  // / Squash Commits / etc. must NOT pop a "Choose Repository"
+  // QuickPick when the user is staring at a specific repo's log in
+  // the Git tool window. The dropdown selection is the source of
+  // truth.
+  describe('_getRepository — uses GitToolWindowProvider.getSelectedRepository (Bug 6.1)', () => {
+    it('routes through getSelectedRepository when the provider exposes it', async () => {
+      const dropdownRepo = createMockRepo('dropdown_head_hash');
+      const fallbackRepo = createMockRepo('fallback_head_hash');
+      // Make the active-editor fallback resolve to a DIFFERENT repo so
+      // we can prove the dropdown wins over the fallback chain.
+      const gitService = createMockGitService(fallbackRepo);
+      const rebaseService = createMockRebaseService();
+      const provider = {
+        ...createMockProvider(),
+        getSelectedRepository: () => dropdownRepo,
+      } as unknown as GitToolWindowProvider & { refreshCallCount: number };
+      const gitCli = createMockGitCli({
+        exec: async () => ({ exitCode: 0, stdout: '', stderr: '', combined: '' }),
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      // Drive a handler that calls _getRepository under the hood.
+      // copyHash is the cheapest path that hits _getRepository.
+      writableEnv().clipboard = {
+        writeText: () => Promise.resolve(),
+        readText: () => Promise.resolve(''),
+      };
+      createMessageTrackers();
+      await commands._handleAction('copyHash', [testHash]);
+
+      // No QuickPick should have fired (we're in a single-repo mock
+      // anyway, but the assertion is structural: the dropdown must
+      // have been consulted first). Reach in and verify the dropdown
+      // path was taken by injecting a sentinel-only spy:
+      let dropdownConsulted = false;
+      const spyProvider = {
+        ...createMockProvider(),
+        getSelectedRepository: () => {
+          dropdownConsulted = true;
+          return dropdownRepo;
+        },
+      } as unknown as GitToolWindowProvider & { refreshCallCount: number };
+      const spyCommands = new CommitContextMenuCommands(
+        gitService,
+        rebaseService,
+        spyProvider,
+        gitCli
+      );
+      const internals = spyCommands as unknown as {
+        _getRepository: () => Promise<IRepository | undefined>;
+      };
+      const resolved = await internals._getRepository();
+      assert.strictEqual(
+        dropdownConsulted,
+        true,
+        'getSelectedRepository must be consulted before any fallback'
+      );
+      assert.strictEqual(
+        resolved,
+        dropdownRepo,
+        'when dropdown returns a repo, _getRepository must return it'
+      );
+    });
+
+    it('falls back to resolveRepo when getSelectedRepository returns undefined', async () => {
+      // The dropdown returns undefined (no repo currently selected, or
+      // single-window stub). The handler must fall through to
+      // resolveRepo so palette / scripted callers without a tool-window
+      // provider still work.
+      const fallbackRepo = createMockRepo('fallback_head_hash');
+      const gitService = createMockGitService(fallbackRepo);
+      const rebaseService = createMockRebaseService();
+      const provider = {
+        ...createMockProvider(),
+        getSelectedRepository: () => undefined,
+      } as unknown as GitToolWindowProvider & { refreshCallCount: number };
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const internals = commands as unknown as {
+        _getRepository: () => Promise<IRepository | undefined>;
+      };
+      const resolved = await internals._getRepository();
+      assert.strictEqual(
+        resolved,
+        fallbackRepo,
+        'when dropdown returns undefined, resolveRepo fallback must run'
+      );
+    });
+
+    it('falls back to resolveRepo when the provider does not expose getSelectedRepository (legacy stubs)', async () => {
+      // Some test harnesses construct partial provider stubs that omit
+      // getSelectedRepository. Those callers must keep working without
+      // throwing.
+      const fallbackRepo = createMockRepo('fallback_head_hash');
+      const gitService = createMockGitService(fallbackRepo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider(); // no getSelectedRepository on the stub
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const internals = commands as unknown as {
+        _getRepository: () => Promise<IRepository | undefined>;
+      };
+      const resolved = await internals._getRepository();
+      assert.strictEqual(
+        resolved,
+        fallbackRepo,
+        'partial provider stubs must not break _getRepository'
+      );
     });
   });
 });

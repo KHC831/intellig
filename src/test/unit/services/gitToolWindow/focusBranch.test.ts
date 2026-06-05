@@ -148,15 +148,23 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
     await provider.setFocusedBranch('feature');
     const html = internals._getBranchLabelsHtml(internals._extendedLogState.commitNodes[0]);
 
-    // The focused chip carries the focus class + data-branch-name attr,
-    // and "main" does not.
+    // The focused chip carries the focus class + data-branch-name attr.
+    // After the chip-collapse tightening (UX request: only HEAD's
+    // current branch and the focused branch stay inline), "main" is
+    // NOT the current branch (no headBranchName set in this test) and
+    // NOT the focused branch, so it collapses into the +N summary chip.
+    // The focused chip still survives inline because it's privileged.
     assert.ok(
       html.includes('class="branch-label-local branch-label-focused" data-branch-name="feature"'),
       `expected focused chip span; got: ${html}`
     );
     assert.ok(
-      html.includes('class="branch-label-local" data-branch-name="main"'),
-      `expected non-focused main chip without focus class; got: ${html}`
+      !html.includes('data-branch-name="main"'),
+      `non-focused, non-current "main" should collapse into +N summary, not render inline; got: ${html}`
+    );
+    assert.ok(
+      html.includes('branch-label-collapsed') && html.includes('data-collapsed-branches="main"'),
+      `"main" should appear inside the collapsed summary chip; got: ${html}`
     );
   });
 
@@ -258,5 +266,99 @@ describe('Wave D — Branch focus on graph (D2 + D3)', () => {
     const dddNode = tagged.find((n) => n.commit.hash === 'ddd')!;
     assert.strictEqual(aaaNode.onFocusedBranchPath, true);
     assert.strictEqual(dddNode.onFocusedBranchPath, false);
+  });
+
+  // ─── Chip-collapse rules (UX fix #35) ─────────────────────────
+  // Only HEAD's current branch and the focused branch render inline.
+  // Everything else collapses into the +N summary chip — a row tagged
+  // by origin/foo + upstream/foo + fork/foo + main no longer eats the
+  // whole commit row.
+  describe('chip collapse: only HEAD-branch + focused branch stay inline', () => {
+    it('keeps the current branch chip inline; collapses the rest', () => {
+      const internals = provider as unknown as FocusInternals;
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [
+        { name: 'main', type: 'local' },
+        { name: 'origin/main', type: 'remote' },
+        { name: 'upstream/main', type: 'remote' },
+      ]);
+      provider.updateLogState([mkCommit('aaa')], branchMap, undefined, 'aaa', 'main');
+
+      const html = internals._getBranchLabelsHtml(internals._extendedLogState.commitNodes[0]);
+
+      // The current branch chip is inline.
+      assert.ok(
+        html.includes('data-branch-name="main"'),
+        `current branch "main" should render inline; got: ${html}`
+      );
+      // The two remotes do NOT render inline.
+      assert.ok(
+        !html.includes('data-branch-name="origin/main"'),
+        `non-current "origin/main" should not be an inline chip; got: ${html}`
+      );
+      assert.ok(
+        !html.includes('data-branch-name="upstream/main"'),
+        `non-current "upstream/main" should not be an inline chip; got: ${html}`
+      );
+      // They DO appear in the collapsed summary chip.
+      assert.ok(
+        html.includes('branch-label-collapsed'),
+        `expected a collapsed summary chip when multiple non-privileged refs are present; got: ${html}`
+      );
+    });
+
+    it('keeps both current and focused branch chips inline when they differ', async () => {
+      const internals = provider as unknown as FocusInternals;
+      // getMergeBase stub — required for setFocusedBranch's BFS.
+      internals._attachedGitService = {
+        getMergeBase: async (): Promise<string | undefined> => 'aaa',
+      };
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [
+        { name: 'main', type: 'local' },
+        { name: 'feature', type: 'local' },
+        { name: 'origin/main', type: 'remote' },
+      ]);
+      provider.updateLogState([mkCommit('aaa')], branchMap, undefined, 'aaa', 'main');
+      await provider.setFocusedBranch('feature');
+
+      const html = internals._getBranchLabelsHtml(internals._extendedLogState.commitNodes[0]);
+
+      assert.ok(html.includes('data-branch-name="main"'), 'current branch inline');
+      assert.ok(
+        html.includes('data-branch-name="feature"'),
+        'focused branch inline (focus class also applied)'
+      );
+      assert.ok(
+        !html.includes('data-branch-name="origin/main"'),
+        'non-privileged remote collapses'
+      );
+      assert.ok(html.includes('branch-label-collapsed'), 'expected the collapsed summary chip');
+    });
+
+    it('falls back to top-2 inline when no privileged ref is known (e.g. detached HEAD with no focus)', () => {
+      // Without headBranchName or focusedBranchName, the chip collapse
+      // has no signal about which chips matter. The fallback preserves
+      // the prior "top 2 inline, rest collapsed" cap rather than
+      // collapsing every chip — otherwise rows with 1-2 refs would
+      // shrink to a single +N chip with no visible branch name, which
+      // would be a regression from the pre-tightening UX.
+      const internals = provider as unknown as FocusInternals;
+      const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
+      branchMap.set('aaa', [
+        { name: 'a', type: 'local' },
+        { name: 'b', type: 'local' },
+        { name: 'c', type: 'local' },
+      ]);
+      // No headBranchName arg → state.headBranchName is undefined.
+      provider.updateLogState([mkCommit('aaa')], branchMap);
+
+      const html = internals._getBranchLabelsHtml(internals._extendedLogState.commitNodes[0]);
+
+      assert.ok(html.includes('data-branch-name="a"'), 'first 2 inline');
+      assert.ok(html.includes('data-branch-name="b"'), 'first 2 inline');
+      assert.ok(!html.includes('data-branch-name="c"'), 'third collapses');
+      assert.ok(html.includes('branch-label-collapsed'), 'expected the collapsed summary chip');
+    });
   });
 });

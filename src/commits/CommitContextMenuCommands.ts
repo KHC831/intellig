@@ -19,6 +19,8 @@ import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { isSelectionContiguous, type IMenuStateNode } from '../git-core/gitToolWindow/multiSelect';
 import type { BranchComparisonView } from '../branches/BranchComparisonView';
+import { getLogger } from '../utils/logger';
+import { SquashMessageDialog } from './SquashMessageDialog';
 
 /**
  * Defence-in-depth hash format check.
@@ -185,13 +187,40 @@ export class CommitContextMenuCommands {
   /**
    * Resolve the repository the current action should target.
    *
-   * Previously pinned `getRepositories()[0]`, which silently targeted
-   * the wrong repo in multi-root workspaces for every destructive action in
-   * this class. Routes through `resolveRepo(preferActive: true, silent: true)`
-   * so the action follows the same fallback chain as other multi-root-aware
-   * entry points (see `CommitToolWindow._resolveRepo`).
+   * The Git tool window's repo selector dropdown is the source of
+   * truth: the user clicked the commit while looking at a specific
+   * repo's log, and the action should target THAT repo without
+   * prompting again. Previously this routed through
+   * `resolveRepo(preferActive: true, silent: true)`, which in a
+   * multi-root workspace would surface a "Choose Repository"
+   * QuickPick whenever the active editor wasn't inside the
+   * Git-tool-window's repo — visible to the user as an unwelcome
+   * popup before Edit Commit Message / Squash Commits / etc. ever
+   * ran.
+   *
+   * Order of preference:
+   *   1. Git-tool-window's selected repo (the dropdown the user
+   *      most recently set; matches the log they're staring at).
+   *   2. `resolveRepo(preferActive)` fallback for callers without
+   *      a tool-window provider wired up (palette commands, scripted
+   *      entries, tests).
    */
   private async _getRepository(): Promise<IRepository | undefined> {
+    // Defensive: a few legacy test harnesses construct partial provider
+    // stubs that omit `getSelectedRepository`. Use the dropdown's
+    // selected repo when the method exists; otherwise fall through to
+    // the resolveRepo fallback so those callers keep working.
+    const maybeGetSelected = (
+      this._gitToolWindowProvider as unknown as {
+        getSelectedRepository?: () => IRepository | undefined;
+      }
+    ).getSelectedRepository;
+    if (typeof maybeGetSelected === 'function') {
+      const selected = maybeGetSelected.call(this._gitToolWindowProvider);
+      if (selected) {
+        return selected;
+      }
+    }
     return this._resolveRepo(this._gitService, {
       preferActive: true,
       silent: true,
@@ -2098,13 +2127,43 @@ export class CommitContextMenuCommands {
     options?: { mode?: 'squash' | 'fixup' }
   ): Promise<void> {
     const mode = options?.mode ?? 'squash';
+    const log = getLogger().child({ component: 'CommitContextMenuCommands' });
+    log.debug('squash commits handler invoked', {
+      mode,
+      commitHashesCount: commitHashes.length,
+      commitNodesCount: commitNodes.length,
+    });
     const repo = await this._getRepository();
-    if (!repo || commitHashes.length < 2) {
+    if (!repo) {
+      log.warn('squash aborted: no repository resolved');
+      void vscode.window.showWarningMessage(
+        `Cannot ${mode === 'fixup' ? 'fixup' : 'squash'} commits: no repository found.`
+      );
+      return;
+    }
+    if (commitHashes.length < 2) {
+      // Squash needs ≥ 2 commits. Surface a toast so the user knows
+      // their click was received but the action requires more
+      // selection — previously a silent return.
+      log.warn('squash aborted: fewer than 2 commits selected', {
+        commitHashesCount: commitHashes.length,
+      });
+      void vscode.window.showWarningMessage(
+        `Cannot ${mode === 'fixup' ? 'fixup' : 'squash'} commits: select 2 or more commits first.`
+      );
       return;
     }
 
     // 1. Hash format validation.
     if (!allHashesValid(commitHashes)) {
+      // Hash format failure — should not happen in practice given the
+      // webview only sends rendered hashes, but if it does the user
+      // needs to know the click was received and rejected for a real
+      // reason rather than silently dropped.
+      log.warn('squash aborted: hash format validation failed', { commitHashes });
+      void vscode.window.showErrorMessage(
+        'Squash aborted: one or more selected commit hashes are malformed.'
+      );
       return;
     }
 
@@ -2112,6 +2171,9 @@ export class CommitContextMenuCommands {
     const knownHashes = new Set(commitNodes.map((n) => n.hash));
     const stale = commitHashes.filter((h) => !knownHashes.has(h));
     if (stale.length > 0) {
+      log.warn('squash aborted: stale selection (commit hashes not in current commitNodes)', {
+        staleCount: stale.length,
+      });
       void vscode.window.showInformationMessage(STALE_SELECTION_TOAST);
       return;
     }
@@ -2185,9 +2247,38 @@ export class CommitContextMenuCommands {
       // working rather than landing an empty message.
       userMessage = messages[0] && messages[0].length > 0 ? messages[0] : seedMessage;
     } else {
-      userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+      log.debug('squash: opening message dialog', {
+        commitCount: commitHashes.length,
+      });
+      // Webview-hosted modal dialog. Replaces the previous
+      // `_promptForSquashMessage` flow (which opened a temp file in
+      // ViewColumn.Beside — confusing UX, users didn't know what to
+      // do with the side tab). The dialog renders a textarea inline
+      // in the editor area and resolves with the user's message on
+      // submit (Cmd+Enter or click) or undefined on cancel (Esc /
+      // close-tab / empty-submit).
+      //
+      // Falls back to the legacy single-line InputBox when the
+      // extension context isn't available (palette / scripted
+      // callers that didn't go through `register()`). Same fallback
+      // path used by every other context-driven dialog in this
+      // class.
+      if (this._context) {
+        const dialog = new SquashMessageDialog(this._context, {
+          seedMessage,
+          commitCount: commitHashes.length,
+        });
+        userMessage = await dialog.prompt();
+      } else {
+        // Fallback for callers without an extension context (palette /
+        // scripted entry points that didn't go through `register()`).
+        // The temp-file flow preserves multi-line editing; the
+        // input-box fallback inside it kicks in if VS Code can't open
+        // the tempfile.
+        userMessage = await this._promptForSquashMessage(seedMessage, commitHashes.length);
+      }
       if (userMessage === undefined) {
-        // Cancel — no git command runs.
+        log.debug('squash cancelled: user dismissed the message dialog');
         return;
       }
     }
@@ -2453,7 +2544,7 @@ export class CommitContextMenuCommands {
     }
 
     if (localBranches.length > 0) {
-      items.push({ label: 'Local Branches', kind: vscode.QuickPickItemKind.Separator });
+      items.push({ label: 'Local', kind: vscode.QuickPickItemKind.Separator });
       for (const b of localBranches) {
         items.push({
           label: `$(git-branch) ${b.name}`,
@@ -2464,10 +2555,10 @@ export class CommitContextMenuCommands {
     }
 
     if (remoteBranches.length > 0) {
-      items.push({ label: 'Remote Branches', kind: vscode.QuickPickItemKind.Separator });
+      items.push({ label: 'Remote', kind: vscode.QuickPickItemKind.Separator });
       for (const b of remoteBranches) {
         items.push({
-          label: `$(cloud) ${b.name}`,
+          label: `$(git-branch) ${b.name}`,
           description: b.commit ? b.commit.substring(0, 7) : '',
           ref: b.name,
         });
@@ -2612,6 +2703,44 @@ export class CommitContextMenuCommands {
             await this._gitService.reloadRepository(repo);
             this._gitToolWindowProvider.refresh();
             return;
+          }
+
+          // `git rebase -i` pauses at the reword step waiting for the
+          // user to type a new commit message in `$GIT_EDITOR` /
+          // `core.editor`. Headless extension hosts have no
+          // GIT_EDITOR (we only set GIT_SEQUENCE_EDITOR), so git
+          // pauses with the rebase metadata still in `.git/rebase-merge/`
+          // and HEAD detached at the parent of the reword target —
+          // the user-visible "branch dropped to detached HEAD" symptom.
+          //
+          // The codebase already provides the right primitive:
+          // `provideRewordMessage` runs `git commit --amend -m <msg>`
+          // (no editor needed) followed by `git rebase --continue`,
+          // which lands the rewrite and updates the branch ref. We
+          // route through it here so the rebase actually completes.
+          //
+          // For the common single-reword case there's only one paused
+          // step, but we loop in case a future caller passes a plan
+          // with multiple reword actions in sequence.
+          let pausedResult = result;
+          while (pausedResult.success && pausedResult.status === 'paused') {
+            pausedResult = await this._rebaseService.provideRewordMessage(repo, newMessage);
+            if (
+              !pausedResult.success &&
+              pausedResult.conflictedFiles &&
+              pausedResult.conflictedFiles.length > 0
+            ) {
+              await this._rebaseService.abortRebase(repo);
+              if (stashed) {
+                await this._unstash(cwd);
+              }
+              void vscode.window.showErrorMessage(
+                'Failed to edit commit message: rebase encountered conflicts. The operation has been aborted.'
+              );
+              await this._gitService.reloadRepository(repo);
+              this._gitToolWindowProvider.refresh();
+              return;
+            }
           }
         } catch (opError) {
           if (stashed) {

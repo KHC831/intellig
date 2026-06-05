@@ -777,6 +777,21 @@ export interface IGitService {
    * @param repo - The repository
    */
   rebaseAbort(repo: IRepository): Promise<void>;
+
+  /**
+   * Continue an in-progress rebase after the user resolves conflicts
+   * (`git rebase --continue`).
+   *
+   * Mirrors {@link rebaseSkip}'s result-shape contract: on success returns
+   * `{success: true}`; on exit-code ≠ 0 with unmerged files still present
+   * returns `{success: false, conflicts}` so callers (e.g. the Resolve
+   * Conflicts dialog) can re-render the new conflict set; on exit-code ≠ 0
+   * with no unmerged files surfaces the underlying git error via
+   * `failureReason`.
+   *
+   * @param repo - The repository
+   */
+  rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult>;
   compareBranches(repo: IRepository, branch1: string, branch2: string): Promise<IBranchComparison>;
 
   // Remote operations

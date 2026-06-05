@@ -384,6 +384,7 @@ describe('CommitToolWindow — host behavior', () => {
       rebaseBranch: notImplemented('rebaseBranch'),
       rebaseSkip: notImplemented('rebaseSkip'),
       rebaseAbort: notImplemented('rebaseAbort'),
+      rebaseContinue: notImplemented('rebaseContinue'),
       compareBranches: notImplemented('compareBranches'),
       fetch: notImplemented('fetch'),
       pull: notImplemented('pull'),

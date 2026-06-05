@@ -46,9 +46,9 @@ const SHORT_SHA = 'abc1234';
 
 function localBranchesFromTree(provider: BranchTreeProvider): Promise<BranchTreeItem[]> {
   return provider.getChildren().then((rootChildren) => {
-    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
+    const localCategory = rootChildren.find((c) => c.label === 'Local');
     if (!localCategory) {
-      throw new Error('Local Branches category missing');
+      throw new Error('Local category missing');
     }
     return provider.getChildren(localCategory);
   });
@@ -86,10 +86,13 @@ describe('Wave H — BranchTreeProvider detached HEAD row', () => {
 
     assert.strictEqual(items.length, 3);
     assert.strictEqual(items[0].itemType, 'detached-head');
+    // Folder grouping (UI fix #37) alpha-sorts leaves, so "feature"
+    // comes before "main" — IntelliJ parity. The detached row stays
+    // anchored at the top regardless.
     assert.strictEqual(items[1].itemType, 'local-branch');
-    assert.strictEqual(items[1].label, 'main');
+    assert.strictEqual(items[1].label, 'feature');
     assert.strictEqual(items[2].itemType, 'local-branch');
-    assert.strictEqual(items[2].label, 'feature');
+    assert.strictEqual(items[2].label, 'main');
   });
 
   it('branchTree-detached-3: attached state → NO detached row; only branches', async () => {
@@ -271,5 +274,171 @@ describe('Wave J R1 / MED-3 — detached HEAD row accessibility', () => {
       /not on a branch/i.test(aria.label),
       `accessibilityInformation.label must mention "not on a branch"; got: ${aria.label}`
     );
+  });
+});
+
+/**
+ * UI fix #37 — IntelliJ-parity nesting of BRANCHES tree by `/`-prefix.
+ *
+ * Previously the tree rendered a flat `feature/auth/login` row.
+ * Now: branches with `/` in their names group into folder rows. The
+ * folder is `branch-folder` itemType, expandable, holding either
+ * further folder children or leaf branch rows whose label is just the
+ * trailing path segment.
+ *
+ * For Remotes, a synthetic top folder per remote name (origin,
+ * upstream, …) wraps that remote's branches; the folder structure
+ * underneath mirrors the local tree.
+ *
+ * These tests pin the tree shape at each level. The FOLDER expansion
+ * itself is exercised via a recursive walk so we cover the
+ * `_getFolderChildren` path.
+ */
+describe('UI fix #37 — BranchTreeProvider folder grouping', () => {
+  function repoWithBranches(branches: IBranch[]): {
+    provider: BranchTreeProvider;
+    repo: ReturnType<typeof attachedRepo>;
+  } {
+    const repo = attachedRepo('main', 'b'.repeat(40));
+    const gitService = createMockGitService(repo, { getBranches: async () => branches });
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(repo);
+    return { provider, repo };
+  }
+
+  it('groups feature/* branches into a single "feature" folder', async () => {
+    const { provider } = repoWithBranches([
+      { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+      { name: 'feature/auth', type: 'local', commit: 'b'.repeat(40), isHead: false },
+      { name: 'feature/billing', type: 'local', commit: 'c'.repeat(40), isHead: false },
+    ]);
+
+    const items = await localBranchesFromTree(provider);
+    // Expect: folder "feature" first (alpha < "main"), then leaf "main".
+    assert.strictEqual(
+      items.length,
+      2,
+      `expected one folder + one leaf; got: ${items.map((i) => i.label).join(',')}`
+    );
+    assert.strictEqual(items[0].itemType, 'branch-folder');
+    assert.strictEqual(items[0].label, 'feature');
+    assert.strictEqual(items[0].folderPath, 'feature');
+    assert.strictEqual(items[0].folderScope, 'local');
+    assert.strictEqual(items[1].itemType, 'local-branch');
+    assert.strictEqual(items[1].label, 'main');
+    assert.strictEqual(items[1].isCurrentBranch, true);
+  });
+
+  it('expands the feature folder into its leaf branches (label = trailing segment only)', async () => {
+    const { provider } = repoWithBranches([
+      { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+      { name: 'feature/auth', type: 'local', commit: 'b'.repeat(40), isHead: false },
+      { name: 'feature/billing', type: 'local', commit: 'c'.repeat(40), isHead: false },
+    ]);
+    const items = await localBranchesFromTree(provider);
+    const folder = items.find((i) => i.itemType === 'branch-folder' && i.label === 'feature');
+    assert.ok(folder, 'feature folder must exist');
+
+    const children = await provider.getChildren(folder);
+    assert.strictEqual(children.length, 2);
+    // Both children are leaves with the trailing-segment label only.
+    assert.strictEqual(children[0].itemType, 'local-branch');
+    assert.strictEqual(
+      children[0].label,
+      'auth',
+      'label is the trailing segment, not the full path'
+    );
+    assert.strictEqual(
+      children[0].branch?.name,
+      'feature/auth',
+      'branch ref carries the full name'
+    );
+    assert.strictEqual(children[1].itemType, 'local-branch');
+    assert.strictEqual(children[1].label, 'billing');
+    assert.strictEqual(children[1].branch?.name, 'feature/billing');
+  });
+
+  it('nests folders for paths with two or more `/` segments (feature/auth/login)', async () => {
+    const { provider } = repoWithBranches([
+      { name: 'feature/auth/login', type: 'local', commit: 'a'.repeat(40), isHead: false },
+      { name: 'feature/auth/logout', type: 'local', commit: 'b'.repeat(40), isHead: false },
+      { name: 'feature/billing', type: 'local', commit: 'c'.repeat(40), isHead: false },
+    ]);
+
+    const items = await localBranchesFromTree(provider);
+    assert.strictEqual(items.length, 1);
+    const featureFolder = items[0];
+    assert.strictEqual(featureFolder.itemType, 'branch-folder');
+    assert.strictEqual(featureFolder.folderPath, 'feature');
+
+    const featureChildren = await provider.getChildren(featureFolder);
+    // Folder "auth" first (alpha < "billing"), then leaf "billing".
+    assert.strictEqual(featureChildren.length, 2);
+    assert.strictEqual(featureChildren[0].itemType, 'branch-folder');
+    assert.strictEqual(featureChildren[0].label, 'auth');
+    assert.strictEqual(featureChildren[0].folderPath, 'feature/auth');
+    assert.strictEqual(featureChildren[1].itemType, 'local-branch');
+    assert.strictEqual(featureChildren[1].label, 'billing');
+
+    const authChildren = await provider.getChildren(featureChildren[0]);
+    assert.strictEqual(authChildren.length, 2);
+    assert.strictEqual(authChildren[0].itemType, 'local-branch');
+    assert.strictEqual(authChildren[0].label, 'login');
+    assert.strictEqual(authChildren[0].branch?.name, 'feature/auth/login');
+    assert.strictEqual(authChildren[1].label, 'logout');
+  });
+
+  it('groups remote branches by remote name then by `/` path', async () => {
+    const { provider } = repoWithBranches([
+      { name: 'origin/main', type: 'remote', commit: 'a'.repeat(40), isHead: false },
+      { name: 'origin/feature/auth', type: 'remote', commit: 'b'.repeat(40), isHead: false },
+      { name: 'origin/feature/billing', type: 'remote', commit: 'c'.repeat(40), isHead: false },
+      { name: 'upstream/main', type: 'remote', commit: 'd'.repeat(40), isHead: false },
+    ]);
+
+    const rootChildren = await provider.getChildren();
+    const remoteCategory = rootChildren.find((c) => c.label === 'Remote');
+    assert.ok(remoteCategory, 'Remote category missing');
+    const remoteRoots = await provider.getChildren(remoteCategory);
+
+    // Top level under Remote: one folder per remote, sorted alpha.
+    assert.strictEqual(remoteRoots.length, 2);
+    assert.strictEqual(remoteRoots[0].itemType, 'branch-folder');
+    assert.strictEqual(remoteRoots[0].label, 'origin');
+    assert.strictEqual(remoteRoots[0].remotePrefix, 'origin');
+    assert.strictEqual(remoteRoots[0].folderScope, 'remote');
+    assert.strictEqual(remoteRoots[1].label, 'upstream');
+
+    // Inside origin: "feature" folder + "main" leaf.
+    const originChildren = await provider.getChildren(remoteRoots[0]);
+    assert.strictEqual(originChildren.length, 2);
+    assert.strictEqual(originChildren[0].itemType, 'branch-folder');
+    assert.strictEqual(originChildren[0].label, 'feature');
+    assert.strictEqual(originChildren[0].folderPath, 'feature');
+    assert.strictEqual(originChildren[0].remotePrefix, 'origin');
+    assert.strictEqual(originChildren[1].itemType, 'remote-branch');
+    assert.strictEqual(originChildren[1].label, 'main');
+    assert.strictEqual(originChildren[1].branch?.name, 'origin/main');
+
+    // Inside origin/feature: two leaf remote branches.
+    const featureChildren = await provider.getChildren(originChildren[0]);
+    assert.strictEqual(featureChildren.length, 2);
+    assert.strictEqual(featureChildren[0].itemType, 'remote-branch');
+    assert.strictEqual(featureChildren[0].label, 'auth');
+    assert.strictEqual(featureChildren[0].branch?.name, 'origin/feature/auth');
+    assert.strictEqual(featureChildren[1].label, 'billing');
+  });
+
+  it('flat branches (no `/`) render as plain leaves with no folder wrapping', async () => {
+    const { provider } = repoWithBranches([
+      { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+      { name: 'develop', type: 'local', commit: 'b'.repeat(40), isHead: false },
+    ]);
+    const items = await localBranchesFromTree(provider);
+    assert.strictEqual(items.length, 2);
+    assert.ok(items.every((i) => i.itemType === 'local-branch'));
+    // Alpha-sorted.
+    assert.strictEqual(items[0].label, 'develop');
+    assert.strictEqual(items[1].label, 'main');
   });
 });

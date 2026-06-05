@@ -180,7 +180,7 @@ export function buildSourceItems(
       const branch = slash >= 0 ? b.name.substring(slash + 1) : b.name;
       const isUpstream = trackedUpstream?.remote === remote && trackedUpstream?.name === branch;
       items.push({
-        label: `$(cloud) ${branch}`,
+        label: `$(git-branch) ${branch}`,
         description: isUpstream ? 'upstream' : undefined,
         remote,
         branch,

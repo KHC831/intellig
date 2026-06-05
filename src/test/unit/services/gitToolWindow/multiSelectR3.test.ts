@@ -169,7 +169,14 @@ describe('Wave A R3 — consolidated review fixes', () => {
       assertPostsAfterHtml(events, 'updateMenuEnableState', 'toggleCommitSelection');
     });
 
-    it('rangeSelectCommit: updateMenuEnableState lands AFTER the re-render', () => {
+    it('rangeSelectCommit: posts updateMenuEnableState via partial-update path (no re-render)', () => {
+      // Bug fix (Shift+Arrow keyboard multi-select): rangeSelectCommit
+      // no longer triggers a full HTML re-render. Re-rendering destroyed
+      // the focused commit-row DOM element, breaking the keyboard
+      // handler's `e.target.closest('.commit-row')` lookup. The partial
+      // update path posts syncSelection + updateDetailsPanel +
+      // updateMenuEnableState directly so the user's focus is
+      // preserved across consecutive Shift+ArrowDown keystrokes.
       const { events } = recordingWebview(provider);
       provider.updateLogState([
         mkCommit('aaa'),
@@ -181,10 +188,21 @@ describe('Wave A R3 — consolidated review fixes', () => {
 
       provider.rangeSelectCommit('ccc');
 
-      assertPostsAfterHtml(events, 'updateMenuEnableState', 'rangeSelectCommit');
+      // No html reassignment expected — partial-update path only.
+      assert.ok(
+        !events.some((e) => e.kind === 'html'),
+        'rangeSelectCommit must NOT trigger a full re-render (would destroy keyboard focus)'
+      );
+      // updateMenuEnableState message must still arrive.
+      assert.ok(
+        events.some((e) => e.kind === 'post' && e.type === 'updateMenuEnableState'),
+        `rangeSelectCommit must post updateMenuEnableState. Events: ${events
+          .map((e) => e.kind + (e.type ? `(${e.type})` : ''))
+          .join(' → ')}`
+      );
     });
 
-    it('addRangeSelectCommit: updateMenuEnableState lands AFTER the re-render', () => {
+    it('addRangeSelectCommit: posts updateMenuEnableState via partial-update path (no re-render)', () => {
       const { events } = recordingWebview(provider);
       provider.updateLogState([
         mkCommit('aaa'),
@@ -196,7 +214,16 @@ describe('Wave A R3 — consolidated review fixes', () => {
 
       provider.addRangeSelectCommit('ccc');
 
-      assertPostsAfterHtml(events, 'updateMenuEnableState', 'addRangeSelectCommit');
+      assert.ok(
+        !events.some((e) => e.kind === 'html'),
+        'addRangeSelectCommit must NOT trigger a full re-render'
+      );
+      assert.ok(
+        events.some((e) => e.kind === 'post' && e.type === 'updateMenuEnableState'),
+        `addRangeSelectCommit must post updateMenuEnableState. Events: ${events
+          .map((e) => e.kind + (e.type ? `(${e.type})` : ''))
+          .join(' → ')}`
+      );
     });
 
     it('selectCommits: updateMenuEnableState lands AFTER the re-render', () => {
@@ -237,7 +264,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       assertPostsAfterHtml(events, 'syncSelection', 'toggleCommitSelection');
     });
 
-    it('rangeSelectCommit: posts syncSelection AFTER re-render', () => {
+    it('rangeSelectCommit: posts syncSelection via partial-update (no re-render)', () => {
       const { events } = recordingWebview(provider);
       provider.updateLogState([
         mkCommit('aaa'),
@@ -249,10 +276,19 @@ describe('Wave A R3 — consolidated review fixes', () => {
 
       provider.rangeSelectCommit('ccc');
 
-      assertPostsAfterHtml(events, 'syncSelection', 'rangeSelectCommit');
+      assert.ok(
+        !events.some((e) => e.kind === 'html'),
+        'rangeSelectCommit must NOT trigger a full re-render'
+      );
+      assert.ok(
+        events.some((e) => e.kind === 'post' && e.type === 'syncSelection'),
+        `rangeSelectCommit must post syncSelection. Events: ${events
+          .map((e) => e.kind + (e.type ? `(${e.type})` : ''))
+          .join(' → ')}`
+      );
     });
 
-    it('addRangeSelectCommit: posts syncSelection AFTER re-render', () => {
+    it('addRangeSelectCommit: posts syncSelection via partial-update (no re-render)', () => {
       const { events } = recordingWebview(provider);
       provider.updateLogState([
         mkCommit('aaa'),
@@ -264,7 +300,16 @@ describe('Wave A R3 — consolidated review fixes', () => {
 
       provider.addRangeSelectCommit('ccc');
 
-      assertPostsAfterHtml(events, 'syncSelection', 'addRangeSelectCommit');
+      assert.ok(
+        !events.some((e) => e.kind === 'html'),
+        'addRangeSelectCommit must NOT trigger a full re-render'
+      );
+      assert.ok(
+        events.some((e) => e.kind === 'post' && e.type === 'syncSelection'),
+        `addRangeSelectCommit must post syncSelection. Events: ${events
+          .map((e) => e.kind + (e.type ? `(${e.type})` : ''))
+          .join(' → ')}`
+      );
     });
   });
 

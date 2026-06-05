@@ -1370,7 +1370,11 @@ describe('Multi-Repository Selection State', () => {
       );
     });
 
-    it('should include selectRepository message type in onchange handler', () => {
+    it('should NOT call acquireVsCodeApi inside the selector HTML (regression: dropdown was a no-op)', () => {
+      // VS Code only allows acquireVsCodeApi() once per webview lifetime.
+      // The main inline script already acquires it, so any second call
+      // inside the selector throws DOMException and silently drops the
+      // user's selection. This test pins the fix in place.
       const repos = [
         createMockRepository('/workspace/repo-a'),
         createMockRepository('/workspace/repo-b'),
@@ -1381,12 +1385,33 @@ describe('Multi-Repository Selection State', () => {
 
       const html = provider._getRepositorySelectorHtml();
       assert.ok(
-        html.includes('selectRepository'),
-        'Should reference selectRepository message type'
+        !html.includes('acquireVsCodeApi'),
+        'Selector HTML must not call acquireVsCodeApi — the change listener is wired from the main inline script'
       );
       assert.ok(
-        html.includes('repositoryIndex'),
-        'Should reference repositoryIndex in the message'
+        !html.includes('onchange='),
+        'Selector HTML must not use an inline onchange handler'
+      );
+    });
+
+    it('should wire the selectRepository message via the main inline script', () => {
+      // The change listener that posts `selectRepository` is registered
+      // from `_getInlineScript`, where the single `vscode` API instance
+      // already lives.
+      const inlineScript = (
+        provider as unknown as { _getInlineScript: () => string }
+      )._getInlineScript();
+      assert.ok(
+        inlineScript.includes('selectRepository'),
+        'Inline script should post the selectRepository message type'
+      );
+      assert.ok(
+        inlineScript.includes('repositoryIndex'),
+        'Inline script should reference repositoryIndex in the payload'
+      );
+      assert.ok(
+        inlineScript.includes('repository-selector'),
+        'Inline script should bind the change listener to the .repository-selector element'
       );
     });
 
@@ -1581,13 +1606,61 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(html.includes('origin/main'), 'Should contain "origin/main"');
     });
 
-    it('should render all branches when there are multiple local and remote', () => {
+    it('collapses chips beyond MAX_INLINE_BRANCH_CHIPS into a +N summary chip', () => {
+      // 4 branches at the same commit. The first 2 render inline; the
+      // remaining 2 collapse into a single `+2` summary chip with the
+      // names available via title=tooltip.
       const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
       const html = provider._getBranchLabelsHtml(node);
-      const localCount = (html.match(/branch-label-local/g) || []).length;
-      const remoteCount = (html.match(/branch-label-remote/g) || []).length;
-      assert.strictEqual(localCount, 2, 'Should have 2 local labels');
-      assert.strictEqual(remoteCount, 2, 'Should have 2 remote labels');
+
+      // Inline: main + develop only.
+      const inlineCount =
+        (html.match(/branch-label-local/g) || []).length +
+        (html.match(/branch-label-remote/g) || []).length;
+      assert.strictEqual(inlineCount, 2, 'Two inline chips (cap: MAX_INLINE_BRANCH_CHIPS = 2)');
+      assert.ok(html.includes('data-branch-name="main"'), 'first branch must render inline');
+      assert.ok(html.includes('data-branch-name="develop"'), 'second branch must render inline');
+
+      // Collapsed summary chip carries the rest.
+      const summaryMatch = html.match(/<span class="branch-label-collapsed"[^>]*>\+(\d+)</);
+      assert.ok(summaryMatch, 'a +N summary chip must be rendered');
+      assert.strictEqual(summaryMatch[1], '2', 'summary count must be 2 (the collapsed branches)');
+      assert.ok(
+        html.includes('data-collapsed-branches="origin/main|origin/develop"'),
+        'collapsed branch names must be carried in data-collapsed-branches'
+      );
+      assert.ok(
+        html.includes('title="origin/main\norigin/develop"'),
+        'tooltip must list the collapsed branch names so the user can discover them on hover'
+      );
+    });
+
+    it('renders all chips inline when count is below the collapse threshold', () => {
+      const node = makeNode(['main', 'develop']);
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(html.includes('data-branch-name="main"'));
+      assert.ok(html.includes('data-branch-name="develop"'));
+      assert.ok(
+        !html.includes('branch-label-collapsed'),
+        'no summary chip when count <= MAX_INLINE_BRANCH_CHIPS'
+      );
+    });
+
+    it('keeps the focused branch visible inline even when it would otherwise be collapsed', () => {
+      // Focus is set on the FOURTH branch — without the focus-pin, it
+      // would land in the +N collapse. With the pin, it bumps the
+      // second inline slot so the user sees the focused chip.
+      const node = makeNode(['main', 'develop', 'origin/main', 'feature/x']);
+      const internals = provider as unknown as { _extendedLogState: { focusedBranchName: string } };
+      internals._extendedLogState.focusedBranchName = 'feature/x';
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(
+        html.includes('data-branch-name="feature/x"'),
+        'focused branch must render inline despite being beyond the cap'
+      );
+      assert.ok(html.includes('branch-label-focused'), 'focused chip must carry the focused class');
     });
   });
 
@@ -1622,22 +1695,29 @@ describe('_getBranchLabelsHtml', () => {
       );
     });
 
-    it('renders a remote branch using the cloud icon and remote affordances', () => {
+    it('renders a remote branch using the same git-branch icon as local chips', () => {
+      // Per UX request, local and remote chips share the same
+      // codicon-git-branch icon. The ref kind is still distinguishable
+      // via the CSS class (`branch-label-remote`) and the aria-label
+      // ("Remote branch: …") — only the visual icon is unified.
       const node = makeNode([{ name: 'origin/main', type: 'remote' }]);
       const html = provider._getBranchLabelsHtml(node);
 
-      assert.ok(html.includes('codicon-cloud'), 'remote `origin/main` must use codicon-cloud');
+      assert.ok(
+        html.includes('codicon-git-branch'),
+        'remote `origin/main` must use codicon-git-branch (same as local chips)'
+      );
+      assert.ok(
+        !html.includes('codicon-cloud'),
+        'remote `origin/main` must NOT use codicon-cloud (icon was unified with local)'
+      );
       assert.ok(
         html.includes('branch-label-remote'),
-        'remote `origin/main` must use branch-label-remote'
+        'remote `origin/main` must use branch-label-remote (CSS still differentiates ref kind)'
       );
       assert.ok(
         html.includes('aria-label="Remote branch: origin/main"'),
-        'remote `origin/main` must carry the "Remote branch:" aria-label'
-      );
-      assert.ok(
-        !html.includes('codicon-git-branch'),
-        'remote `origin/main` must NOT use the local branch icon'
+        'remote `origin/main` must carry the "Remote branch:" aria-label (SR still hears the kind)'
       );
       assert.ok(
         !html.includes('branch-label-local'),
@@ -1671,15 +1751,16 @@ describe('_getBranchLabelsHtml', () => {
         1,
         'exactly one remote chip'
       );
+      // Both chips now use the same codicon-git-branch icon.
       assert.strictEqual(
         (html.match(/codicon-git-branch/g) || []).length,
-        1,
-        'exactly one local (git-branch) icon'
+        2,
+        'two git-branch icons (one per chip; local and remote share the icon)'
       );
       assert.strictEqual(
         (html.match(/codicon-cloud/g) || []).length,
-        1,
-        'exactly one remote (cloud) icon'
+        0,
+        'no cloud icons (was previously the remote icon; unified to git-branch)'
       );
     });
   });

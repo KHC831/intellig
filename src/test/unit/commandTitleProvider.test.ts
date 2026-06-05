@@ -49,6 +49,7 @@ function createMockGitService(): IGitService {
     rebaseBranch: async () => ({ success: true }),
     rebaseSkip: async () => ({ success: true }),
     rebaseAbort: async () => {},
+    rebaseContinue: async () => ({ success: true }),
     compareBranches: async () => ({
       commitsAhead: [],
       commitsBehind: [],
@@ -324,7 +325,7 @@ describe('CommandTitleProvider', () => {
 
       // Create a category item (no branch)
       const item = new BranchTreeItem(
-        'Local Branches',
+        'Local',
         1, // TreeItemCollapsibleState.Expanded
         'category'
       );

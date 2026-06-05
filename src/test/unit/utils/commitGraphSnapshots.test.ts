@@ -404,11 +404,15 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     const html = provider._getBranchLabelsHtml(node);
     assert.strictEqual(
       html,
-      '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-cloud" aria-hidden="true"></i>origin/main</span>'
+      '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>origin/main</span>'
     );
   });
 
-  it('snap-7c: multiple branches at same commit → 3 sequential <span> elements in order', () => {
+  it('snap-7c: 3 branches at same commit → 2 inline chips + collapsed +1 summary chip', () => {
+    // The collapse behaviour (UI fix 5) caps inline branch chips at
+    // MAX_INLINE_BRANCH_CHIPS = 2. The third branch lands in a `+1`
+    // summary chip with the full name available via title=tooltip and
+    // data-collapsed-branches.
     const node = nodeWithBranches('ccc1234567890cccccccccccccccccccccccccccc', [
       'main',
       'develop',
@@ -420,7 +424,7 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
       [
         '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>',
         '<span class="branch-label-local" data-branch-name="develop" role="img" aria-label="Local branch: develop"><i class="codicon codicon-git-branch" aria-hidden="true"></i>develop</span>',
-        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-cloud" aria-hidden="true"></i>origin/main</span>',
+        '<span class="branch-label-collapsed" data-collapsed-branches="origin/main" role="img" aria-label="1 more branch: origin/main" title="origin/main">+1</span>',
       ].join('')
     );
   });
@@ -909,10 +913,8 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
     treeProvider.setRepository(mockRepo);
 
     // Drive `_getLocalBranches` via the public `getChildren` API.
-    const localCategory = (await treeProvider.getChildren()).find(
-      (item) => item.label === 'Local Branches'
-    );
-    assert.ok(localCategory, 'Local Branches category must exist at root');
+    const localCategory = (await treeProvider.getChildren()).find((item) => item.label === 'Local');
+    assert.ok(localCategory, 'Local category must exist at root');
     const localItems = await treeProvider.getChildren(localCategory);
 
     // Pin the contract: NO item label or branch.name starts with `(`.
@@ -998,7 +1000,7 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
       html,
       '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>' +
         '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
-        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-cloud" aria-hidden="true"></i>origin/main</span>'
+        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>origin/main</span>'
     );
   });
 
@@ -1166,8 +1168,8 @@ describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
     provider.setRepository(repo);
 
     const rootChildren = await provider.getChildren();
-    const localCategory = rootChildren.find((c) => c.label === 'Local Branches');
-    assert.ok(localCategory, 'Local Branches category must exist at root');
+    const localCategory = rootChildren.find((c) => c.label === 'Local');
+    assert.ok(localCategory, 'Local category must exist at root');
     const items = await provider.getChildren(localCategory);
 
     assert.strictEqual(items[0].label, '(HEAD detached at abc1234)');
@@ -1193,10 +1195,11 @@ describe('Wave H — branch-tree-stage layout snapshot (jsdom)', () => {
  *     hex literals as CSS fallbacks. Themes that override
  *     the gitDecoration family theme through to the chips automatically.
  *   - WJ-4: each chip carries a leading codicon glyph (`codicon-check`
- *     for HEAD, `codicon-git-branch` for local, `codicon-cloud` for
- *     remote). The icon is the non-color WCAG 1.4.1 affordance — even
- *     a user who can't tell the local-blue background apart from the
- *     remote-blue background sees the branch-vs-cloud icon.
+ *     for HEAD, `codicon-git-branch` for both local and remote). Per
+ *     UX request, local and remote chips share the same icon; the
+ *     ref kind is still distinguishable via the chip's CSS class
+ *     (`branch-label-local` / `branch-label-remote`) and aria-label
+ *     ("Local branch:" / "Remote branch:").
  *
  * snap-12a..d pin chip-emit literals; snap-12e pins the inline CSS
  * theme-variable rule; snap-12f / snap-12g pin the codicon prefix.
@@ -1264,7 +1267,11 @@ describe('Wave J / WJ-1 — chip a11y semantics (role + aria-label)', () => {
     );
   });
 
-  it('snap-12c: remote branch chip emits role="img" + aria-label="Remote branch: origin/main" + codicon-cloud', () => {
+  it('snap-12c: remote branch chip emits role="img" + aria-label="Remote branch: origin/main" + codicon-git-branch', () => {
+    // Remote chips now use the same codicon-git-branch icon as local
+    // chips (per UX request to drop the cloud-vs-branch distinction).
+    // The `branch-label-remote` CSS class and `Remote branch:` aria
+    // label still differentiate the ref kind for SR users.
     const node = nodeWithBranches('ccc1234567890cccccccccccccccccccccccccccc', ['origin/main']);
     const html = provider._getBranchLabelsHtml(node);
     assert.ok(
@@ -1274,8 +1281,8 @@ describe('Wave J / WJ-1 — chip a11y semantics (role + aria-label)', () => {
       `remote chip must carry role="img" + aria-label="Remote branch: origin/main"; got: ${html}`
     );
     assert.ok(
-      /<i class="codicon codicon-cloud"[^>]*aria-hidden="true"[^>]*><\/i>/.test(html),
-      `remote chip must include codicon-cloud with aria-hidden=true; got: ${html}`
+      /<i class="codicon codicon-git-branch"[^>]*aria-hidden="true"[^>]*><\/i>/.test(html),
+      `remote chip must include codicon-git-branch with aria-hidden=true (same icon as local chips); got: ${html}`
     );
   });
 
@@ -1366,13 +1373,15 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
     provider.dispose();
   });
 
-  it('snap-12f: chip HTML carries codicon-git-branch (local), codicon-cloud (remote), codicon-check (HEAD)', () => {
+  it('snap-12f: chip HTML carries codicon-git-branch for both local and remote chips, codicon-check for HEAD', () => {
+    // Local and remote chips now share the same codicon-git-branch
+    // icon (per UX request to drop the cloud-vs-branch distinction).
+    // The CSS class (`branch-label-local` vs `branch-label-remote`)
+    // still differentiates the ref kind for styling and SR labels.
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
     const node = nodeAt(headSha, ['main', 'origin/main']);
     const html = provider._getBranchLabelsHtml(node);
-    // Three icons must be present, one per chip variant. Order is
-    // HEAD-first, then branch chips in branchMap order.
     assert.ok(
       /class="branch-label-head"[^>]*>[\s\S]*?codicon-check/.test(html),
       `HEAD chip must contain codicon-check; got: ${html}`
@@ -1382,8 +1391,12 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
       `local chip must contain codicon-git-branch; got: ${html}`
     );
     assert.ok(
-      /class="branch-label-remote"[^>]*>[\s\S]*?codicon-cloud/.test(html),
-      `remote chip must contain codicon-cloud; got: ${html}`
+      /class="branch-label-remote"[^>]*>[\s\S]*?codicon-git-branch/.test(html),
+      `remote chip must contain codicon-git-branch (same icon as local; per UX request); got: ${html}`
+    );
+    assert.ok(
+      !html.includes('codicon-cloud'),
+      `no chip should use codicon-cloud anymore; got: ${html}`
     );
   });
 
