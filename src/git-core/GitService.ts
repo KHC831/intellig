@@ -2151,6 +2151,18 @@ export class GitService implements IGitService, IGitServiceCli {
     if (options?.all) {
       args.push('--exclude=refs/stash', '--all');
     }
+    if (options?.topoOrder) {
+      // git's default is date-driven ("show commit, then show its
+      // parents in date order"), which interleaves divergent branches
+      // and breaks graph rendering after history rewrites (rebase /
+      // squash / cherry-pick give commits a "now" committerDate even
+      // when their topology hasn't changed). `--topo-order` walks
+      // ancestry in topological order so consumers can rely on a
+      // commit's parent appearing later in the output. The graph
+      // pipeline sets this; non-graph callers (search, file history)
+      // can leave it off if they want git's default.
+      args.push('--topo-order');
+    }
     if (options?.path) {
       args.push('--', options.path);
     }

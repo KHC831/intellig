@@ -600,11 +600,14 @@ describe('Wave A R3 — consolidated review fixes', () => {
   // ─── getSelectedCommits display order ───────────────────────────────────
   describe('R3-9 (LOW) — getSelectedCommits returns display order (Senior L-3)', () => {
     it('returns hashes in commitNodes display order, not Set insertion order', () => {
+      // updateLogState trusts the topo-ordered input (matching
+      // `git log --topo-order`, which is newest-first). Pass commits
+      // newest-first.
       provider.updateLogState([
-        mkCommit('aaa'),
-        mkCommit('bbb', 'b', ['aaa']),
-        mkCommit('ccc', 'c', ['bbb']),
         mkCommit('ddd', 'd', ['ccc']),
+        mkCommit('ccc', 'c', ['bbb']),
+        mkCommit('bbb', 'b', ['aaa']),
+        mkCommit('aaa'),
       ]);
       // Display order is newest-first: ddd → ccc → bbb → aaa.
       // Toggle in mixed order:

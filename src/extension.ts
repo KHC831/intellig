@@ -4170,6 +4170,14 @@ function registerViews(context: vscode.ExtensionContext): void {
         const commits = await gitService.getLog(repo, {
           maxCount: 500,
           all: true,
+          // The graph algorithm needs topological order: a commit's
+          // parent MUST appear later in the list (or off-window).
+          // Without --topo-order, git falls back to date order; after
+          // a squash/rebase/cherry-pick, fresh committerDate values
+          // shuffle divergent branches between a commit and its
+          // parent, which the algorithm reads as "linear" — exactly
+          // the user-visible bug post-squash.
+          topoOrder: true,
           author: filter?.author,
           since: filter?.since,
           until: filter?.until,

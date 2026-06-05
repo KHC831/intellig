@@ -49,7 +49,6 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
-import { sortCommitsStable } from '../commitSort';
 import { getLogger } from '../../utils/logger';
 import {
   computeMenuState,
@@ -719,14 +718,14 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     headHash?: string,
     headBranchName?: string
   ): void {
-    // Stably sort commits before graph generation. `sortCommitsStable`
-    // returns oldest-first using a topological tie-break when parents
-    // are available; we reverse for the newest-first order
-    // `generateCommitGraph` expects. This makes lane positions
-    // deterministic across sessions even when `git log`'s default
-    // ordering shifts (the upstream variance the prior README
-    // "Commit-graph ordering" caveat called out)..
-    const stable = sortCommitsStable(commits).reverse();
+    // The graph caller fetches `git log --topo-order` (extension.ts),
+    // so `commits` arrives in a topology-respecting order: every
+    // parent of a commit appears later in the list (or off-window).
+    // We DON'T re-sort by date here — that step used to dominate
+    // topology after a squash/rebase (fresh committerDate for the
+    // rewritten commits collapsed divergent branches into the wrong
+    // place in the list), which the algorithm faithfully rendered as
+    // a linear graph. Trust the topo-ordered input instead.
 
     // re-validate the focused branch against the new
     // branch list. If the focus target disappeared (force-push, branch
@@ -760,7 +759,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     }
 
     const commitNodes = generateCommitGraph(
-      stable,
+      commits,
       branchMap,
       tagMap,
       this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined
