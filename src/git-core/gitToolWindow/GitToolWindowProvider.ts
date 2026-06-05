@@ -762,7 +762,8 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       commits,
       branchMap,
       tagMap,
-      this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined
+      this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined,
+      headBranchName
     );
 
     const emptyBranchMap: Map<string, IBranchRef[]> = new Map();
