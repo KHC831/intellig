@@ -141,12 +141,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
-    it('uses a fixed 100px author column with ellipsis (matches IntelliJ; balances dead space with vertical alignment)', () => {
+    it('uses a fixed 120px author column with ellipsis (matches IntelliJ; fits typical "First Last" names)', () => {
       // Reach into the inline-style block for the .commit-author rule.
-      // The column went through 140px → max-width:140px → 100px. The
-      // 100px fixed width matches IntelliJ's left-aligned column layout
-      // while keeping the dead band small enough to be visually
-      // acceptable for typical author names.
+      // The column went through 140px → max-width:140px → 100px → 120px.
+      // 100px ellipsised too many real-world names; 120px is the
+      // IntelliJ-parity sweet spot — long names still truncate, typical
+      // "First Last" fits without an ellipsis.
       const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
 
       const authorRuleMatch = styles.match(/\.commit-author\s*\{([^}]+)\}/);
@@ -154,8 +154,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const authorRule = authorRuleMatch[1];
 
       assert.ok(
-        /(^|[^-])\bwidth:\s*100px/.test(authorRule),
-        `.commit-author should declare a fixed width: 100px, got: "${authorRule.trim()}"`
+        /(^|[^-])\bwidth:\s*120px/.test(authorRule),
+        `.commit-author should declare a fixed width: 120px, got: "${authorRule.trim()}"`
       );
       assert.ok(
         authorRule.includes('text-align: left'),

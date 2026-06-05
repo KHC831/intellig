@@ -4081,15 +4081,16 @@ ${bodyMarkup}
 
       /* Author column: fixed-width, left-aligned. Match IntelliJ. The
          column was originally 140px which left a visible dead band
-         between short names and the date column. Reduced to 100px
-         which is closer to the typical author-name width — long names
-         ellipsise sooner, short names still leave a small gap (which
-         IntelliJ keeps as part of its column-aligned layout). */
+         between short names and the date column. 100px ellipsised too
+         many real-world names (e.g. "Christopher" + last initial);
+         120px is the IntelliJ-parity sweet spot — long names still
+         ellipsise, but typical "First Last" names fit without
+         truncation. */
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        width: 100px;
+        width: 120px;
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
