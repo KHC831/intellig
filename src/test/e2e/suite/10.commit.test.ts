@@ -92,7 +92,24 @@ describe('e2e — commit-context commands', function () {
 
     // Post-conditions: HEAD points at target (detached — it's not a branch).
     const headAfter = (await execGit(fix.rootPath, ['rev-parse', 'HEAD'])).stdout.trim();
-    assert.strictEqual(headAfter, target, `HEAD should be at target hash; got ${headAfter}`);
+
+    // Surface every recorded toast in the failure message so a regressing
+    // handler's silenced error becomes visible in CI logs. Without this,
+    // a silent catch-and-toast path looks identical to "command never ran"
+    // — which is the exact diagnostic gap that hid the original Linux-CI
+    // flake from us for two CI iterations.
+    if (headAfter !== target) {
+      const errors = stubs.errorMessageCalls.map((c) => `error: ${c.message}`);
+      const warnings = stubs.warningMessageCalls.map((c) => `warning: ${c.message}`);
+      const infos = stubs.informationMessageCalls.map((c) => `info: ${c.message}`);
+      const toastTrail = [...errors, ...warnings, ...infos].join('\n  ');
+      assert.fail(
+        `HEAD should be at target hash; got ${headAfter}\n` +
+          `  target was ${target}\n` +
+          `  headBefore was ${headBefore}\n` +
+          `  recorded toasts:\n  ${toastTrail || '(none)'}`
+      );
+    }
 
     // HEAD must not be on a branch. `symbolic-ref HEAD` returns non-zero for
     // detached state.
