@@ -471,6 +471,99 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('checkout'));
     });
+
+    // ─── Regression: warning-prompt-cancel must NOT silently no-op ─────────
+    //
+    // Prior bug exposed by the e2e suite on Linux CI: when checkout threw
+    // a "would be overwritten" error, the handler showed a warning prompt
+    // (Stash & Switch / Force Checkout / Cancel). If `showWarningMessage`
+    // returned undefined (user dismissed, or test stubs returned undefined
+    // by default), the handler exited WITHOUT a toast, WITHOUT a log, and
+    // WITHOUT having performed any checkout — the user saw a no-op. This
+    // is the "no response" symptom the e2e test surfaced as
+    // `HEAD should be at target hash; got <unchanged>`.
+    //
+    // Fix: route the dismissed-prompt path through an explicit
+    // `showInformationMessage("Checkout cancelled (...)")` so the user
+    // gets feedback and the e2e harness can observe a deterministic
+    // outcome. The diagnostic log entry is the secondary evidence trail.
+    it('shows a "checkout cancelled" info toast when the overwrite warning is dismissed (regression for e2e silent no-op)', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        checkout: async () => {
+          throw new Error(
+            'Your local changes to the following files would be overwritten by checkout'
+          );
+        },
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      // showWarningMessage returns undefined (the default) — simulates the
+      // user dismissing the prompt OR a test stub that returns undefined.
+      await commands._handleAction('checkoutRevision', [testHash]);
+
+      // Warning prompt was offered (3 actions).
+      assert.strictEqual(
+        messages.warning.length,
+        1,
+        'expected the overwrite-warning prompt to be shown'
+      );
+      assert.ok(
+        messages.warning[0].message.includes('would be overwritten'),
+        `warning text should mention overwrite; got: ${messages.warning[0].message}`
+      );
+      // Critical: an info toast surfaces the cancel — NOT a silent return.
+      assert.strictEqual(
+        messages.info.length,
+        1,
+        `expected exactly one info toast surfacing the cancel; got ${messages.info.length}`
+      );
+      assert.ok(
+        /cancelled/i.test(messages.info[0].message),
+        `info toast must surface the cancel; got: ${messages.info[0].message}`
+      );
+      // No SUCCESS toast — checkout did not happen.
+      assert.ok(
+        !messages.info.some((m) => /Checked out revision/.test(m.message)),
+        `must NOT emit success toast on cancel; got: ${messages.info.map((m) => m.message).join(' | ')}`
+      );
+    });
+
+    it('warns and aborts when no repository is resolved (instead of silent return)', async () => {
+      // Prior bug: `_getRepository()` returning undefined produced a
+      // silent `return` — no toast, no log. Made every cwd-stale CI
+      // failure look like a no-op. Fix: warn the user.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getRepositories: () => [], // no repo registered
+        getRepository: async () => undefined,
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('checkoutRevision', [testHash]);
+
+      assert.strictEqual(
+        messages.warning.length,
+        1,
+        'expected exactly one warning toast when no repo resolved'
+      );
+      assert.ok(
+        /no repository found/i.test(messages.warning[0].message),
+        `warning must mention "no repository"; got: ${messages.warning[0].message}`
+      );
+      // No checkout was attempted.
+      assert.strictEqual(
+        gitService.calls.find((c) => c.method === 'checkout'),
+        undefined,
+        'checkout must not be attempted when no repo resolved'
+      );
+    });
   });
 
   // ─── resetToHere ──────────────────────────────────────────────────────────
@@ -634,6 +727,77 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
       assert.strictEqual(messages.error.length, 1);
       assert.ok(messages.error[0].message.includes('format-patch failed'));
+    });
+
+    // ─── Regression: spawn-failure path must surface as a sanitised toast ─
+    //
+    // Mirrors the e2e CI failure: on Linux `git format-patch` was
+    // failing because the cwd was racing with the file watcher,
+    // producing `spawn git ENOENT`. Without this test, a regression
+    // that re-introduces the silent-return path would only be caught
+    // by an unreliable e2e run.
+    it('surfaces "Failed to create patch" toast when format-patch spawn fails (regression for spawn ENOENT)', async () => {
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      // Simulate spawn ENOENT — the exact failure mode CI hit.
+      const gitCli = createMockGitCli({
+        exec: async () => {
+          throw new Error('Failed to execute git: spawn git ENOENT');
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('createPatch', [testHash]);
+
+      assert.strictEqual(
+        messages.error.length,
+        1,
+        `expected exactly one error toast on spawn ENOENT; got ${messages.error.length}`
+      );
+      assert.ok(
+        messages.error[0].message.startsWith('Failed to create patch:'),
+        `error toast must lead with "Failed to create patch:"; got: "${messages.error[0].message}"`
+      );
+      // Save dialog must NOT have been shown — the format-patch failure
+      // is fatal and we abort before prompting.
+      assert.strictEqual(messages.info.length, 0, 'no success toast on spawn failure');
+    });
+
+    it('warns and aborts when no repository is resolved (instead of silent return)', async () => {
+      // Same regression class as _handleCheckoutRevision: a repo-less
+      // call must NOT silently no-op. Surface a warning so the user
+      // knows their click was received and why it failed.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo, {
+        getRepositories: () => [],
+        getRepository: async () => undefined,
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('createPatch', [testHash]);
+
+      assert.strictEqual(
+        messages.warning.length,
+        1,
+        `expected exactly one warning toast when no repo resolved; got ${messages.warning.length}`
+      );
+      assert.ok(
+        /no repository found/i.test(messages.warning[0].message),
+        `warning must mention "no repository"; got: ${messages.warning[0].message}`
+      );
+      // No format-patch invocation.
+      assert.strictEqual(
+        gitCli.calls.find((c: CallTracker) => c.method === 'exec'),
+        undefined,
+        'gitCli.exec must not be invoked when no repo resolved'
+      );
     });
   });
 
