@@ -976,7 +976,16 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle checkout and rebase command.
-   * Checks out the right-clicked branch and rebases the previously current branch onto it.
+   * Checks out the right-clicked branch and rebases it onto the previously
+   * current branch — IntelliJ's "Checkout and Rebase onto '{current}'" flow.
+   *
+   * Remote-branch handling: a plain `git checkout origin/main` on a
+   * remote-tracking ref detaches HEAD at that ref's commit (remote-tracking
+   * refs aren't local branches). IntelliJ's behaviour is to create or
+   * fast-forward a LOCAL branch of the same leaf name, tracking the remote,
+   * and check THAT out so HEAD stays attached. The fix below uses
+   * `checkout -B <local> --track <remote>` when the right-clicked item is
+   * a remote branch, mirroring `_handleCheckoutAsLocal`'s pattern.
    */
   private async _handleCheckoutAndRebase(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
@@ -987,16 +996,38 @@ export class BranchContextMenuCommands {
     // Store the current branch name before checkout
     const previousCurrentBranch = repo.head?.name?.replace('refs/heads/', '') || 'HEAD';
 
+    // Resolve the actual checkout target:
+    //   - Local branch  → check out by name (`git checkout main`).
+    //   - Remote branch → create-or-fast-forward a local tracking branch
+    //     of the same leaf name (`git checkout -B main --track origin/main`).
+    //     This keeps HEAD attached. IntelliJ parity.
+    const isRemote = item.branch.type === 'remote';
+    const remoteFullName = item.branch.name; // e.g. 'origin/main'
+    const localLeafName = isRemote
+      ? remoteFullName.split('/').slice(1).join('/') // 'origin/main' → 'main'
+      : item.branch.name;
+    // The branch label rendered in toasts always uses the LOCAL leaf name —
+    // reads as "Checked out main" rather than "Checked out origin/main".
+    const displayName = localLeafName;
+    const checkout = (force?: boolean): Promise<void> =>
+      isRemote
+        ? this._gitService.checkout(repo, localLeafName, {
+            forceCreate: true,
+            track: remoteFullName,
+            ...(force ? { force: true } : {}),
+          })
+        : this._gitService.checkout(repo, localLeafName, force ? { force: true } : undefined);
+
     try {
-      // Checkout the right-clicked branch
-      await this._gitService.checkout(repo, item.branch.name);
+      // Checkout the right-clicked branch (attached HEAD).
+      await checkout();
 
       // Rebase onto the previously current branch
       const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
 
       if (result.success) {
         void vscode.window.showInformationMessage(
-          `Checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
+          `Checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
         // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
@@ -1028,19 +1059,19 @@ export class BranchContextMenuCommands {
         errorMessage.includes('Please commit your changes or stash them')
       ) {
         const choice = await vscode.window.showWarningMessage(
-          `Cannot switch to '${item.branch.name}': local changes would be overwritten.`,
+          `Cannot switch to '${displayName}': local changes would be overwritten.`,
           'Stash & Switch',
           'Force Checkout',
           'Cancel'
         );
         if (choice === 'Stash & Switch') {
           try {
-            await this._gitService.stash(repo, `Auto-stash before checkout ${item.branch.name}`);
-            await this._gitService.checkout(repo, item.branch.name);
+            await this._gitService.stash(repo, `Auto-stash before checkout ${displayName}`);
+            await checkout();
             const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
             if (result.success) {
               void vscode.window.showInformationMessage(
-                `Stashed changes, checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
+                `Stashed changes, checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
               // T1-08(a): auto-open Resolve Conflicts dialog when wired.
@@ -1072,11 +1103,11 @@ export class BranchContextMenuCommands {
           }
         } else if (choice === 'Force Checkout') {
           try {
-            await this._gitService.checkout(repo, item.branch.name, { force: true });
+            await checkout(true);
             const result = await this._gitService.rebaseBranch(repo, previousCurrentBranch);
             if (result.success) {
               void vscode.window.showInformationMessage(
-                `Force checked out '${item.branch.name}' and rebased onto '${previousCurrentBranch}'`
+                `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
               // T1-08(a): auto-open Resolve Conflicts dialog when wired.

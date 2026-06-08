@@ -484,6 +484,200 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     });
   });
 
+  // ─── Remote-branch checkout-and-rebase: avoid detached HEAD ──────────────
+  //
+  // Symptom: right-clicking a remote branch (e.g. `origin/main`) and choosing
+  // "Checkout and Rebase onto '{current}'" left the working copy at a
+  // DETACHED HEAD, because the handler used to run
+  // `git checkout origin/main` directly. A remote-tracking ref isn't a local
+  // branch — git resolves it and detaches HEAD at the target commit.
+  //
+  // IntelliJ-parity fix: when the click target is a remote branch, create or
+  // fast-forward a LOCAL tracking branch of the same leaf name and check
+  // THAT out (`git checkout -B main --track origin/main`). HEAD stays
+  // attached, the local branch tracks the remote, and the subsequent rebase
+  // operates on the local branch (so the rebase actually advances a real
+  // ref, not a detached pointer).
+  //
+  // The four tests below pin: success path, dirty-tree → Stash & Switch
+  // path, dirty-tree → Force Checkout path, and that the local-branch path
+  // (the regression-free baseline) is unaffected.
+  describe('Remote-branch checkout-and-rebase: avoid detached HEAD (regression for IntelliJ parity)', () => {
+    type CheckoutCall = { ref: string; options?: ICheckoutOptions };
+
+    function createCheckoutTracker(): {
+      calls: CheckoutCall[];
+      checkout: (repo: IRepository, ref: string, options?: ICheckoutOptions) => Promise<void>;
+    } {
+      const calls: CheckoutCall[] = [];
+      return {
+        calls,
+        checkout: async (_repo, ref, options) => {
+          calls.push({ ref, options });
+        },
+      };
+    }
+
+    it('uses checkout -B <leaf> --track <remote> instead of detaching HEAD on origin/main', async () => {
+      const tracker = createCheckoutTracker();
+      const gitService = createMockGitService({
+        checkout: tracker.checkout,
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService, 'feature/test');
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+
+      assert.strictEqual(
+        tracker.calls.length,
+        1,
+        `checkout should be called once; got ${tracker.calls.length}`
+      );
+      const call = tracker.calls[0];
+      // The ref MUST be the local leaf name, NOT the full remote ref.
+      // `git checkout origin/main` is the buggy form — it detaches HEAD.
+      assert.strictEqual(
+        call.ref,
+        'main',
+        `checkout ref must be the local leaf name "main", not "${call.ref}" (would detach HEAD)`
+      );
+      // The options MUST request forceCreate + track to create-or-fast-
+      // forward the local tracking branch. Without forceCreate, a stale
+      // local "main" pointing at an older commit blocks the checkout.
+      assert.strictEqual(call.options?.forceCreate, true, 'forceCreate must be true');
+      assert.strictEqual(
+        call.options?.track,
+        'origin/main',
+        `track must be "origin/main"; got "${call.options?.track}"`
+      );
+      // Force is NOT set on the success path — it's only added when the
+      // user opted into Force Checkout from the dirty-tree warning.
+      assert.notStrictEqual(call.options?.force, true);
+    });
+
+    it('handles a multi-segment remote ref (origin/feature/x → local "feature/x")', async () => {
+      // Defensive: branch names can contain slashes ("feature/auth/login").
+      // The leaf is everything AFTER the first slash, NOT just the last
+      // segment. Without this, "origin/feature/login" would create a local
+      // "login" instead of "feature/login" and silently lose the namespace.
+      const tracker = createCheckoutTracker();
+      const gitService = createMockGitService({
+        checkout: tracker.checkout,
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService, 'main');
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createRemoteBranchTreeItem('origin/feature/auth/login');
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+
+      assert.strictEqual(tracker.calls.length, 1);
+      const call = tracker.calls[0];
+      assert.strictEqual(
+        call.ref,
+        'feature/auth/login',
+        `multi-segment leaf must be preserved; got "${call.ref}"`
+      );
+      assert.strictEqual(call.options?.track, 'origin/feature/auth/login');
+    });
+
+    it('LOCAL-branch path still uses plain checkout (no forceCreate, no track) — regression baseline', async () => {
+      // The local case must NOT regress: a local-branch click should
+      // still produce `git checkout <name>` with no `-B` / no `--track`.
+      // Verifying this guards against an over-broad fix that would
+      // unconditionally force-reset local branches.
+      const tracker = createCheckoutTracker();
+      const gitService = createMockGitService({
+        checkout: tracker.checkout,
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService, 'feature/test');
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('main');
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+
+      assert.strictEqual(tracker.calls.length, 1);
+      const call = tracker.calls[0];
+      assert.strictEqual(call.ref, 'main');
+      // Local path: no forceCreate, no track.
+      assert.notStrictEqual(call.options?.forceCreate, true, 'local path must NOT set forceCreate');
+      assert.strictEqual(call.options?.track, undefined, 'local path must NOT set track');
+    });
+
+    it('Stash & Switch fallback on dirty tree also uses the local-tracking checkout for remote refs', async () => {
+      // The dirty-tree branch went through `this._gitService.checkout(repo,
+      // item.branch.name)` — the EXACT bug that detaches HEAD. The fix
+      // routes Stash & Switch through the same `checkout()` helper that
+      // knows about the remote-vs-local distinction.
+      installWarningMessageTracker('Stash & Switch');
+      const calls: CheckoutCall[] = [];
+      let throwOnce = true;
+      const gitService = createMockGitService({
+        checkout: async (_repo, ref, options) => {
+          // First call (the entry-point checkout) throws "would be
+          // overwritten"; subsequent calls (after stash) succeed and
+          // record their args so we can verify the local-tracking form.
+          if (throwOnce) {
+            throwOnce = false;
+            throw new Error(
+              'error: Your local changes to the following files would be overwritten by checkout'
+            );
+          }
+          calls.push({ ref, options });
+        },
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService, 'feature/test');
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+
+      assert.strictEqual(
+        calls.length,
+        1,
+        `expected one post-stash checkout call; got ${calls.length}`
+      );
+      const call = calls[0];
+      assert.strictEqual(call.ref, 'main', 'post-stash checkout must use local leaf name');
+      assert.strictEqual(call.options?.forceCreate, true);
+      assert.strictEqual(call.options?.track, 'origin/main');
+    });
+
+    it('Force Checkout fallback on dirty tree also uses the local-tracking checkout for remote refs', async () => {
+      installWarningMessageTracker('Force Checkout');
+      const calls: CheckoutCall[] = [];
+      let throwOnce = true;
+      const gitService = createMockGitService({
+        checkout: async (_repo, ref, options) => {
+          if (throwOnce) {
+            throwOnce = false;
+            throw new Error(
+              'error: Your local changes to the following files would be overwritten by checkout'
+            );
+          }
+          calls.push({ ref, options });
+        },
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({ success: true }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService, 'feature/test');
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+
+      assert.strictEqual(calls.length, 1, `expected one force-checkout call; got ${calls.length}`);
+      const call = calls[0];
+      assert.strictEqual(call.ref, 'main');
+      assert.strictEqual(call.options?.force, true, 'force flag must be set');
+      assert.strictEqual(call.options?.forceCreate, true);
+      assert.strictEqual(call.options?.track, 'origin/main');
+    });
+  });
+
   // ─── Conflict Warning ──────────────────────────────────
 
   describe('Conflict warning for merge/rebase results', () => {
