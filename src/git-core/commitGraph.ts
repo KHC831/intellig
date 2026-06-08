@@ -267,75 +267,51 @@ export function generateCommitGraph(
     return lane;
   };
 
-  // PRE-PASS — seed lane preferences from branchMap.
+  // PRE-PASS — seed lane 0 for HEAD's branch tip ONLY.
   //
-  // Without this, lane indices were a pure function of the input
-  // commit ordering, which meant a branch's column could jump
-  // between renders (e.g. if the HEAD branch happened to share a
-  // tip commit with another branch and the iteration order
-  // changed). Worse: HEAD's branch wasn't pinned to any column at
-  // all, so it could land anywhere depending on first-seen order.
+  // Goal: pin HEAD's branch to the leftmost column for cross-render
+  // stability — IntelliJ parity. The user's "current branch" sits on
+  // lane 0 regardless of where it appears in the input ordering.
   //
-  // Strategy: walk branchMap and pre-claim a lane for each branch
-  // tip in a deterministic priority order:
-  //   1. HEAD's branch first (lane 0).
-  //   2. Other LOCAL branches alphabetically (lanes 1, 2, ...).
-  //   3. REMOTE branches alphabetically (after locals).
+  // We deliberately do NOT pre-seed every branch tip. An earlier
+  // version did, walking refs in priority order and assigning each
+  // tip its own lane; that broke the common case where a local
+  // branch and its remote-tracking counterpart sit on the SAME
+  // physical chain (e.g. local `main` and `origin/main` after a
+  // fetch with no divergence). The pre-seeding split them onto
+  // separate lanes, so the row's node rendered in lane-0 green
+  // while the line flowing to its parent (now on lane 1) rendered
+  // blue — visually wrong, no real divergence in the underlying
+  // history.
   //
-  // A branch tip's commit then *inherits* its pre-claimed lane in
-  // Step A of the main pass, instead of allocating from scratch.
-  // The inheritance path is the same one used for first-seen-child
-  // pre-claims, so this is a structural extension of the existing
-  // mechanism, not a new code path.
+  // The natural first-seen-child algorithm in the main loop already
+  // keeps non-divergent refs on the same lane. We let it do its
+  // job for everything except HEAD, which gets the only privileged
+  // pre-seed.
   //
-  // Two refinements protect us from corner cases:
-  //   - Skip a tip whose commit isn't in the loaded window: a
-  //     pre-claim there would silently waste lane 0 with no
-  //     associated row.
-  //   - If a single commit is the tip of MULTIPLE branches (HEAD ==
-  //     remote tracking, fast-forwarded), only the highest-priority
-  //     branch gets the lane; the other entries collapse onto it.
-  if (branchMap && branchMap.size > 0) {
-    const tips: Array<{ name: string; type: 'local' | 'remote'; commit: string }> = [];
+  // Edge cases preserved:
+  //   - `headBranchName` undefined / not in `branchMap` → no
+  //     pre-seed; algorithm runs untouched.
+  //   - HEAD branch's tip commit is OUTSIDE the loaded window → no
+  //     pre-seed (a pre-claim there would silently waste lane 0
+  //     with no associated row).
+  if (headBranchName && branchMap && branchMap.size > 0) {
+    let headTipHash: string | undefined;
     for (const [commitHash, refs] of branchMap.entries()) {
       if (!commitsInWindow.has(commitHash)) {
         continue;
       }
-      for (const ref of refs) {
-        tips.push({ name: ref.name, type: ref.type, commit: commitHash });
+      if (refs.some((r) => r.name === headBranchName)) {
+        headTipHash = commitHash;
+        break;
       }
     }
-    // Stable priority sort: HEAD first, then locals A→Z, then remotes A→Z.
-    tips.sort((a, b) => {
-      const aIsHead = a.name === headBranchName ? 0 : 1;
-      const bIsHead = b.name === headBranchName ? 0 : 1;
-      if (aIsHead !== bIsHead) {
-        return aIsHead - bIsHead;
-      }
-      const aLocal = a.type === 'local' ? 0 : 1;
-      const bLocal = b.type === 'local' ? 0 : 1;
-      if (aLocal !== bLocal) {
-        return aLocal - bLocal;
-      }
-      return a.name.localeCompare(b.name);
-    });
-    for (const tip of tips) {
-      // The same commit may already have a lane (e.g. it's the
-      // tip of multiple branches and we processed the priority
-      // pick first). Don't overwrite: the priority winner keeps
-      // the column.
-      if (state.commitToLane.has(tip.commit)) {
-        continue;
-      }
+    if (headTipHash !== undefined) {
       const lane = allocateLane();
-      state.commitToLane.set(tip.commit, lane);
-      // Mark active so the NEXT allocateLane in the seeding loop
-      // finds a gap. Without this, every pre-claim collapses onto
-      // lane 0 because findNextAvailableLane only skips lanes
-      // already in activeLanes. The lane stays active through the
-      // main pass too, which is what we want: a divergent commit
-      // row appearing BEFORE the branch tip's row must NOT reuse
-      // the tip's reserved column.
+      state.commitToLane.set(headTipHash, lane);
+      // Mark the lane active so any divergent row appearing BEFORE
+      // the HEAD tip's row in the input doesn't accidentally reuse
+      // the reserved column.
       state.activeLanes.add(lane);
     }
   }
