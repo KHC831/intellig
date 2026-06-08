@@ -221,16 +221,13 @@ describe('Log View', () => {
 
   describe('updateLogState', () => {
     it('should update log state with commits', () => {
-      // `updateLogState` now stably sorts via `sortCommitsStable`
-      // (oldest-first by date, with topological tie-break on parents)
-      // and reverses for newest-first display order. With identical
-      // `commitDate` timestamps and `def` listing `abc` as parent,
-      // the topological tie-break places `abc` first (oldest), then
-      // `.reverse()` makes the display order `[def, abc]` — child first,
-      // parent second, matching `git log`'s newest-first convention.
+      // `updateLogState` trusts the topo-ordered input from
+      // `git log --topo-order`, which is newest-first (parent appears
+      // later than child). Pass commits newest-first; display order
+      // matches input order verbatim.
       const commits = [
-        createMockCommit('abc1234567890', 'First commit'),
         createMockCommit('def4567890123', 'Second commit', ['abc1234567890']),
+        createMockCommit('abc1234567890', 'First commit'),
       ];
 
       provider.updateLogState(commits);

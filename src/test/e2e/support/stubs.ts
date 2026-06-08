@@ -24,6 +24,21 @@ export interface PromptStubs {
   inputBoxCalls: Array<vscode.InputBoxOptions | undefined>;
   saveDialogCalls: Array<vscode.SaveDialogOptions | undefined>;
   warningMessageCalls: Array<{ message: string; options?: unknown; items: unknown[] }>;
+  /**
+   * Error toasts recorded even when silenced from the user. Tests
+   * asserting on git-state outcomes can include this in their failure
+   * messages so a regressing handler's error is visible in CI logs
+   * instead of vanishing into a silenced toast. The handler's error
+   * message is the primary diagnostic for "command did nothing"
+   * symptoms — without this list, we have no observable trail.
+   */
+  errorMessageCalls: Array<{ message: string; items: unknown[] }>;
+  /**
+   * Information toasts recorded even when silenced. Same rationale as
+   * `errorMessageCalls`: the user's silenced toast may be the only
+   * evidence the handler emitted SOMETHING.
+   */
+  informationMessageCalls: Array<{ message: string; items: unknown[] }>;
   restore: () => void;
 }
 
@@ -72,6 +87,8 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
     inputBoxCalls: [],
     saveDialogCalls: [],
     warningMessageCalls: [],
+    errorMessageCalls: [],
+    informationMessageCalls: [],
     restore: () => {
       vscode.window.showQuickPick = orig.quickPick;
       vscode.window.showInputBox = orig.inputBox;
@@ -121,21 +138,35 @@ export function stubPrompts(options: StubPromptOptions = {}): PromptStubs {
     );
   }) as unknown as WarningMessageFn;
 
-  const silenceInfo = options.silenceInfoMessages !== false;
-  if (silenceInfo) {
-    (
-      vscode.window as unknown as { showInformationMessage: InformationMessageFn }
-    ).showInformationMessage = ((_message: string, ..._rest: unknown[]) =>
-      Promise.resolve(undefined)) as unknown as InformationMessageFn;
-  }
+  // Information + error toasts are recorded EVEN when silenced. The
+  // recording is the primary diagnostic for "command did nothing" /
+  // "test asserts a side-effect that didn't happen" failures: the
+  // silenced toast may be the only signal that the handler emitted
+  // anything at all. Tests asserting git-state can include the
+  // recorded text in their failure messages, turning a silent
+  // regression into a readable error.
+  //
+  // We always silence (pass through `undefined`) and always record.
+  // The `silenceInfoMessages` / `silenceErrorMessages` options are
+  // retained for future expansion but currently no-ops — recording
+  // alone gives us everything we need without polluting test output
+  // with toast text.
+  void options.silenceInfoMessages;
+  void options.silenceErrorMessages;
+  (
+    vscode.window as unknown as { showInformationMessage: InformationMessageFn }
+  ).showInformationMessage = ((message: string, ...rest: unknown[]) => {
+    stubs.informationMessageCalls.push({ message, items: rest });
+    return Promise.resolve(undefined);
+  }) as unknown as InformationMessageFn;
 
-  const silenceError = options.silenceErrorMessages !== false;
-  if (silenceError) {
-    (vscode.window as unknown as { showErrorMessage: ErrorMessageFn }).showErrorMessage = ((
-      _message: string,
-      ..._rest: unknown[]
-    ) => Promise.resolve(undefined)) as unknown as ErrorMessageFn;
-  }
+  (vscode.window as unknown as { showErrorMessage: ErrorMessageFn }).showErrorMessage = ((
+    message: string,
+    ...rest: unknown[]
+  ) => {
+    stubs.errorMessageCalls.push({ message, items: rest });
+    return Promise.resolve(undefined);
+  }) as unknown as ErrorMessageFn;
 
   return stubs;
 }

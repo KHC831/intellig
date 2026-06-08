@@ -283,14 +283,18 @@ describe('Wave B R1 — review fixes', () => {
     it('returns the reverse of getSelectedCommits (oldest-first replay order)', () => {
       const provider = new GitToolWindowProvider(Uri.file('/test/extension'));
       try {
+        // updateLogState now trusts the topo-ordered input (matching
+        // `git log --topo-order` output, which is newest-first). Pass
+        // commits in newest-first order to match the production
+        // contract.
         provider.updateLogState([
           {
-            hash: HASH_OLDEST,
-            shortHash: HASH_OLDEST.slice(0, 7),
-            message: 'old',
+            hash: HASH_NEWEST,
+            shortHash: HASH_NEWEST.slice(0, 7),
+            message: 'new',
             author: { name: 'a', email: 'a@x' },
             committer: { name: 'a', email: 'a@x' },
-            parents: [],
+            parents: [HASH_MIDDLE],
             authorDate: new Date(0),
             commitDate: new Date(0),
           },
@@ -305,12 +309,12 @@ describe('Wave B R1 — review fixes', () => {
             commitDate: new Date(0),
           },
           {
-            hash: HASH_NEWEST,
-            shortHash: HASH_NEWEST.slice(0, 7),
-            message: 'new',
+            hash: HASH_OLDEST,
+            shortHash: HASH_OLDEST.slice(0, 7),
+            message: 'old',
             author: { name: 'a', email: 'a@x' },
             committer: { name: 'a', email: 'a@x' },
-            parents: [HASH_MIDDLE],
+            parents: [],
             authorDate: new Date(0),
             commitDate: new Date(0),
           },

@@ -5173,6 +5173,66 @@ describe('GitService - Log Operations', () => {
       });
     });
 
+    describe('Log topology ordering', () => {
+      // Why: post-rebase / squash / cherry-pick give commits a fresh
+      // committerDate of "now". Without --topo-order, git's default
+      // date-driven walk interleaves divergent branches between a
+      // commit and its real parent, which the graph algorithm reads
+      // as a linear ancestry — exactly the user-visible "linear after
+      // squash" bug. The graph caller MUST set topoOrder; this test
+      // pins that the flag makes it onto the wire.
+      it('should include --topo-order when topoOrder option is true', async () => {
+        mockGitCli.setMockResultByPrefix('log --format=', {
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+        await gitService.getLog(mockRepo, { topoOrder: true });
+
+        const lastCommand = mockGitCli.getLastCommand();
+        assert.ok(lastCommand, 'Command should have been executed');
+        assert.ok(
+          lastCommand.args.includes('--topo-order'),
+          `Should include --topo-order; got args: ${lastCommand.args.join(' ')}`
+        );
+      });
+
+      it('should NOT include --topo-order by default (non-graph callers keep git default ordering)', async () => {
+        mockGitCli.setMockResultByPrefix('log --format=', {
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+        await gitService.getLog(mockRepo);
+
+        const lastCommand = mockGitCli.getLastCommand();
+        assert.ok(lastCommand, 'Command should have been executed');
+        assert.ok(
+          !lastCommand.args.includes('--topo-order'),
+          `Default callers should NOT get --topo-order; got args: ${lastCommand.args.join(' ')}`
+        );
+      });
+
+      it('should NOT include --topo-order when topoOrder is explicitly false', async () => {
+        mockGitCli.setMockResultByPrefix('log --format=', {
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+        await gitService.getLog(mockRepo, { topoOrder: false });
+
+        const lastCommand = mockGitCli.getLastCommand();
+        assert.ok(lastCommand, 'Command should have been executed');
+        assert.ok(
+          !lastCommand.args.includes('--topo-order'),
+          `topoOrder:false should NOT add --topo-order; got args: ${lastCommand.args.join(' ')}`
+        );
+      });
+    });
+
     describe('Log filtering by author', () => {
       it('should include --author option when author is specified', async () => {
         mockGitCli.setMockResultByPrefix('log --format=', {

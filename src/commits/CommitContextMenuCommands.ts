@@ -1078,8 +1078,18 @@ export class CommitContextMenuCommands {
    * Uses the stash/force fallback pattern from BranchContextMenuCommands.
    */
   private async _handleCheckoutRevision(commitHashes: string[]): Promise<void> {
+    const log = getLogger().child({ component: 'CommitContextMenuCommands' });
+    log.debug('checkoutRevision handler invoked', {
+      commitHashesCount: commitHashes.length,
+    });
     const repo = await this._getRepository();
-    if (!repo || commitHashes.length === 0) {
+    if (!repo) {
+      log.warn('checkoutRevision aborted: no repository resolved');
+      void vscode.window.showWarningMessage('Cannot checkout revision: no repository found.');
+      return;
+    }
+    if (commitHashes.length === 0) {
+      log.warn('checkoutRevision aborted: empty commitHashes');
       return;
     }
 
@@ -1090,12 +1100,18 @@ export class CommitContextMenuCommands {
       // Synchronously reload after checkout so the panel reload
       // runs against fresh `repo.head.commit` (the user's stated bug).
       await this._gitService.reloadRepository(repo);
+      log.debug('checkoutRevision succeeded', { hash });
       void vscode.window.showInformationMessage(
         `Checked out revision ${hash.substring(0, 8)} (detached HEAD)`
       );
       this._gitToolWindowProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      log.warn('checkoutRevision: gitService.checkout threw', {
+        hash,
+        errorMessage,
+        repoRoot: repo.rootUri.fsPath,
+      });
       if (
         errorMessage.includes('would be overwritten') ||
         errorMessage.includes('Please commit your changes')
@@ -1122,6 +1138,7 @@ export class CommitContextMenuCommands {
             this._gitToolWindowProvider.refresh();
           } catch (stashError) {
             const stashMsg = stashError instanceof Error ? stashError.message : 'Unknown error';
+            log.warn('checkoutRevision: stash + checkout threw', { hash, stashMsg });
             void vscode.window.showErrorMessage(
               `Failed to stash and checkout: ${sanitizeGitError(stashMsg)}`
             );
@@ -1137,10 +1154,28 @@ export class CommitContextMenuCommands {
             this._gitToolWindowProvider.refresh();
           } catch (forceError) {
             const forceMsg = forceError instanceof Error ? forceError.message : 'Unknown error';
+            log.warn('checkoutRevision: force checkout threw', { hash, forceMsg });
             void vscode.window.showErrorMessage(
               `Failed to force checkout: ${sanitizeGitError(forceMsg)}`
             );
           }
+        } else {
+          // User dismissed the warning prompt (Cancel button OR closed
+          // the toast OR `showWarningMessage` returned undefined for any
+          // other reason — e.g. stubbed in tests, dismissed by Esc).
+          // Surface a non-modal info toast so the click isn't silent;
+          // the original "would be overwritten" error stays in the log
+          // for debugging. Without this branch the handler exited
+          // silently when `choice` was undefined, which produced the
+          // "checkout did nothing, no toast, no log" symptom we hit on
+          // CI when the prompt was stubbed.
+          log.debug(
+            'checkoutRevision: user dismissed the overwrite warning prompt; checkout NOT performed',
+            { hash, choice }
+          );
+          void vscode.window.showInformationMessage(
+            `Checkout cancelled (local changes would be overwritten).`
+          );
         }
       } else {
         void vscode.window.showErrorMessage(
@@ -1250,12 +1285,24 @@ export class CommitContextMenuCommands {
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
   ): Promise<void> {
+    const log = getLogger().child({ component: 'CommitContextMenuCommands' });
+    log.debug('createPatch handler invoked', {
+      commitHashesCount: commitHashes.length,
+      commitNodesCount: commitNodes.length,
+    });
     const repo = await this._getRepository();
-    if (!repo || commitHashes.length === 0) {
+    if (!repo) {
+      log.warn('createPatch aborted: no repository resolved');
+      void vscode.window.showWarningMessage('Cannot create patch: no repository found.');
+      return;
+    }
+    if (commitHashes.length === 0) {
+      log.warn('createPatch aborted: empty commitHashes');
       return;
     }
     // defence-in-depth hash regex.
     if (!allHashesValid(commitHashes)) {
+      log.warn('createPatch aborted: hash format validation failed', { commitHashes });
       return;
     }
 
@@ -1277,6 +1324,11 @@ export class CommitContextMenuCommands {
       // git exec failure — keep the historical "Failed to create patch"
       // phrasing so existing tests + docs still match.
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      log.warn('createPatch: git format-patch failed', {
+        hash,
+        repoRoot: repo.rootUri.fsPath,
+        errorMessage,
+      });
       void vscode.window.showErrorMessage(
         `Failed to create patch: ${sanitizeGitError(errorMessage)}`
       );
@@ -1289,6 +1341,7 @@ export class CommitContextMenuCommands {
     });
 
     if (!saveUri) {
+      log.debug('createPatch cancelled: user dismissed the save dialog');
       return;
     }
 
@@ -1303,9 +1356,11 @@ export class CommitContextMenuCommands {
       await atomicWriteFile(saveUri.fsPath, stdout);
     } catch (error) {
       const raw = error instanceof Error ? error.message : String(error);
+      log.warn('createPatch: atomicWriteFile failed', { saveUri: saveUri.fsPath, error: raw });
       void vscode.window.showErrorMessage(`Failed to write patch: ${sanitizeGitError(raw)}`);
       return;
     }
+    log.debug('createPatch succeeded', { hash, saveUri: saveUri.fsPath });
     // Clickable "Open Folder" affordance (IntelliJ parity).
     void this._toastPatchSavedSingle(saveUri.fsPath);
   }

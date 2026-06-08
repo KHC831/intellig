@@ -402,6 +402,16 @@ export interface ILogOptions {
   path?: string;
   grep?: string;
   all?: boolean;
+  /**
+   * Force `git log --topo-order`. Default (false) leaves git's default
+   * date-driven ordering, which is wrong for graph rendering after
+   * history-rewrites (rebase, squash, cherry-pick) — committer dates
+   * become "now" and date-sorted output interleaves divergent branches
+   * between a commit and its real parent. The graph-rendering caller
+   * MUST set this; other callers (file history, search, etc.) can
+   * leave it off.
+   */
+  topoOrder?: boolean;
 }
 
 /**

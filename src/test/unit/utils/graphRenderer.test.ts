@@ -171,7 +171,12 @@ function makeNode(
   hash: string,
   parents: string[],
   graphColumn: number,
-  graphLines: { fromColumn: number; toColumn: number; type: 'commit' | 'merge' | 'branch' }[] = []
+  graphLines: {
+    fromColumn: number;
+    toColumn: number;
+    type: 'commit' | 'merge' | 'branch';
+    style?: 'solid' | 'dashed';
+  }[] = []
 ): ICommitNode {
   return {
     commit: makeCommit(hash, parents),
@@ -181,6 +186,7 @@ function makeNode(
       toColumn: l.toColumn,
       color: '#000',
       type: l.type,
+      ...(l.style ? { style: l.style } : {}),
     })),
     branches: [],
     tags: [],
@@ -1555,5 +1561,68 @@ describe('Graph Renderer - Bezier Curve Connectivity (Req 3.7, 3.8)', () => {
       assert.strictEqual(parsed.endX, expectedToX, 'Bezier end X should use custom config');
       assert.strictEqual(parsed.endY, customBottomY, 'Bezier end Y should use custom bottomY');
     });
+  });
+});
+
+describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () => {
+  // The graph algorithm tags off-window-parent same-lane stubs with
+  // style:'dashed'; the renderer must paint them with stroke-dasharray.
+  // This is the IntelliJ-parity affordance for "history continues
+  // below the loaded window" — solid lines connect to scrollable rows;
+  // dashed lines flag rows the user can't reach.
+  const config = DEFAULT_GRAPH_CONFIG;
+
+  it('emits stroke-dasharray on the same-lane stub when style:"dashed"', () => {
+    // Single commit whose parent is off-window; the graph algorithm
+    // emits a same-lane stub with style:'dashed'.
+    const nodes: ICommitNode[] = [
+      makeNode('child', ['off-window-parent'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+      ]),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
+      /stroke-dasharray="[^"]+"/.test(svg),
+      `dashed off-window stub must emit stroke-dasharray; got SVG: ${svg}`
+    );
+  });
+
+  it('does NOT emit stroke-dasharray for solid (in-window) lines', () => {
+    // Linear in-window history — both lines are solid (no style field).
+    const nodes: ICommitNode[] = [
+      makeNode('child', ['parent'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]),
+      makeNode('parent', [], 0),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
+      !/stroke-dasharray/.test(svg),
+      `solid in-window edges must NOT carry stroke-dasharray; got SVG: ${svg}`
+    );
+  });
+
+  it('emits stroke-dasharray on a dashed bezier merge edge (off-window second parent)', () => {
+    // Merge whose parents[1] is off-window — produces a same-lane
+    // stub with style:'dashed'. (We deliberately make this a same-lane
+    // stub, since that's how the algorithm represents off-window
+    // merge parents; the renderer treats the stub as a line, not a
+    // bezier path.)
+    const nodes: ICommitNode[] = [
+      makeNode('m', ['p1', 'off-window-p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 0, type: 'merge', style: 'dashed' },
+      ]),
+      makeNode('p1', [], 0),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
+      /stroke-dasharray="[^"]+"/.test(svg),
+      `dashed off-window merge stub must emit stroke-dasharray; got SVG: ${svg}`
+    );
   });
 });

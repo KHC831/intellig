@@ -254,6 +254,212 @@ describe('Commit Graph Generation', () => {
         assert.ok(result[0].graphLines[0].color.startsWith('#'));
       });
     });
+
+    // ─── Dashed style for off-window edges (architectural fix #4) ─────
+    //
+    // The IGraphLine.style field exposes "is this edge a stub for
+    // history that fell off the loaded window" to the renderer. The
+    // renderer paints dashed strokes for them — IntelliJ-parity
+    // affordance for "history continues below".
+    describe('Off-window parent stubs are marked style: dashed (architectural fix #4)', () => {
+      it('emits style:"dashed" on the same-lane stub when parent is OUTSIDE the loaded window', () => {
+        // Only `child` is in the window; its parent `off-window-parent`
+        // is older than the slice. The stub line must be dashed.
+        const commits = [createMockCommit('child', ['off-window-parent'])];
+
+        const result = generateCommitGraph(commits);
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].graphLines.length, 1);
+        const line = result[0].graphLines[0];
+        // Verify it's the off-window stub (same-lane).
+        assert.strictEqual(line.fromColumn, line.toColumn);
+        assert.strictEqual(
+          line.style,
+          'dashed',
+          `off-window stub must be dashed; got style=${String(line.style)}`
+        );
+      });
+
+      it('does NOT emit style:"dashed" on a normal in-window same-lane line', () => {
+        // Linear history — both rows in the window. The line from
+        // `child` to `parent` is solid (no `style` field set, which
+        // the renderer treats as solid).
+        const commits = [createMockCommit('child', ['parent']), createMockCommit('parent', [])];
+
+        const result = generateCommitGraph(commits);
+        const line = result[0].graphLines[0];
+        assert.notStrictEqual(line.style, 'dashed', 'in-window edges must NOT be dashed');
+      });
+
+      it('emits style:"dashed" on a merge stub when parents[1] is off-window', () => {
+        // Merge whose second parent is off-window. The merge edge for
+        // that parent should still be dashed — same affordance.
+        const commits = [
+          createMockCommit('m', ['p1', 'off-window-p2']),
+          createMockCommit('p1', []),
+        ];
+
+        const result = generateCommitGraph(commits);
+        const merge = result[0];
+        assert.strictEqual(merge.graphLines.length, 2);
+        // graphLines[1] is the merge edge for parents[1].
+        const stubLine = merge.graphLines[1];
+        // Off-window stub: same-lane.
+        assert.strictEqual(stubLine.fromColumn, stubLine.toColumn);
+        assert.strictEqual(stubLine.style, 'dashed', 'off-window merge stub must be dashed');
+      });
+    });
+
+    // ─── Lane seeding from branchMap (architectural fix #3) ────────────
+    //
+    // Without seeding, lane indices were a pure function of input
+    // ordering. After a squash, refresh, or repository reload,
+    // branches could "jump" between columns. Seeding pre-claims a lane
+    // for each branch tip in priority order: HEAD's branch → 0;
+    // other locals A→Z → 1, 2, ...; remotes A→Z last. This keeps
+    // HEAD's branch on the leftmost column across renders, which is
+    // both IntelliJ parity and the prerequisite for cross-render
+    // lane stability.
+    describe('Lane seeding from branchMap (architectural fix #3)', () => {
+      it("HEAD's branch tip lands on lane 0 even when it's not the newest commit", () => {
+        // Topology:
+        //   tip-feature (newest)
+        //     └─ shared-base
+        //   tip-main
+        //     └─ shared-base
+        //
+        // tip-feature is processed FIRST (newest in input). Without
+        // seeding, tip-feature claims lane 0 and tip-main is forced
+        // to lane 1. With HEAD = main, tip-main MUST get lane 0.
+        const commits = [
+          createMockCommit('tip-feature', ['shared-base']),
+          createMockCommit('tip-main', ['shared-base']),
+          createMockCommit('shared-base', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('tip-feature', [{ name: 'feature', type: 'local' }]);
+        branchMap.set('tip-main', [{ name: 'main', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+
+        const tipMain = result.find((n) => n.commit.hash === 'tip-main')!;
+        assert.strictEqual(
+          tipMain.graphColumn,
+          0,
+          `HEAD's branch tip must land on lane 0 even when later in display order; got ${tipMain.graphColumn}`
+        );
+      });
+
+      it('without seeding (no headBranchName), preserves the existing first-seen order', () => {
+        // The seeding pre-pass is a strict superset: when no
+        // headBranchName is provided AND no branchMap is supplied, the
+        // algorithm must be byte-identical to the pre-fix behaviour.
+        // This guards against regressions in callers that don't pass
+        // a head branch name.
+        const commits = [
+          createMockCommit('tip-feature', ['shared-base']),
+          createMockCommit('tip-main', ['shared-base']),
+          createMockCommit('shared-base', []),
+        ];
+
+        const result = generateCommitGraph(commits);
+        const tipFeature = result.find((n) => n.commit.hash === 'tip-feature')!;
+        const tipMain = result.find((n) => n.commit.hash === 'tip-main')!;
+
+        assert.strictEqual(tipFeature.graphColumn, 0, 'first commit takes lane 0 by default');
+        assert.notStrictEqual(
+          tipMain.graphColumn,
+          tipFeature.graphColumn,
+          'divergent fork must take a different lane'
+        );
+      });
+
+      it('seeding is a no-op when HEAD branch tip is OUTSIDE the loaded window', () => {
+        // The seeding skips tips whose commit isn't in commits[].
+        // Without that guard, lane 0 would be silently wasted on a
+        // ghost tip and the rendered commits would all shift right.
+        const commits = [createMockCommit('a', ['b']), createMockCommit('b', [])];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('off-window-hash', [{ name: 'main', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+
+        // Both visible commits sit in lane 0 — no wasted lane.
+        assert.strictEqual(result[0].graphColumn, 0);
+        assert.strictEqual(result[1].graphColumn, 0);
+      });
+
+      it('locals before remotes when both share the same tip', () => {
+        // A common state: `main` and `origin/main` point at the same
+        // commit. Both names compete for lane 0; the LOCAL wins
+        // (priority sort). The remote entry collapses onto the same
+        // lane (no double-allocation).
+        const commits = [createMockCommit('tip', [])];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('tip', [
+          { name: 'origin/main', type: 'remote' },
+          { name: 'main', type: 'local' },
+        ]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+        assert.strictEqual(result[0].graphColumn, 0);
+      });
+
+      it('multiple local branches alpha-sort onto lanes 1, 2, ...', () => {
+        // HEAD is main → lane 0. Other locals (alpha): apple, banana,
+        // cherry. Their tips should claim lanes 1, 2, 3 in that order
+        // even if their commits appear in a different order in input.
+        const commits = [
+          createMockCommit('cherry-tip', ['shared']),
+          createMockCommit('apple-tip', ['shared']),
+          createMockCommit('main-tip', ['shared']),
+          createMockCommit('banana-tip', ['shared']),
+          createMockCommit('shared', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('main-tip', [{ name: 'main', type: 'local' }]);
+        branchMap.set('apple-tip', [{ name: 'apple', type: 'local' }]);
+        branchMap.set('banana-tip', [{ name: 'banana', type: 'local' }]);
+        branchMap.set('cherry-tip', [{ name: 'cherry', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+        const main = result.find((n) => n.commit.hash === 'main-tip')!;
+        const apple = result.find((n) => n.commit.hash === 'apple-tip')!;
+        const banana = result.find((n) => n.commit.hash === 'banana-tip')!;
+        const cherry = result.find((n) => n.commit.hash === 'cherry-tip')!;
+
+        assert.strictEqual(main.graphColumn, 0, 'HEAD branch on lane 0');
+        assert.strictEqual(apple.graphColumn, 1, 'apple (alpha first non-HEAD) on lane 1');
+        assert.strictEqual(banana.graphColumn, 2, 'banana on lane 2');
+        assert.strictEqual(cherry.graphColumn, 3, 'cherry on lane 3');
+      });
+
+      it('cross-render stability: same branchMap → same lane assignments', () => {
+        // The load-bearing property: if you call generateCommitGraph
+        // twice with the same input, you get the same lane indices.
+        // This guards against any nondeterministic ordering creeping
+        // into the seeding sort.
+        const commits = [
+          createMockCommit('tip-feature', ['shared']),
+          createMockCommit('tip-main', ['shared']),
+          createMockCommit('shared', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('tip-feature', [{ name: 'feature', type: 'local' }]);
+        branchMap.set('tip-main', [{ name: 'main', type: 'local' }]);
+
+        const r1 = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+        const r2 = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+
+        for (let i = 0; i < r1.length; i++) {
+          assert.strictEqual(
+            r1[i].graphColumn,
+            r2[i].graphColumn,
+            `commit ${r1[i].commit.hash} must get the same lane across calls`
+          );
+        }
+      });
+    });
   });
 
   describe('getMaxGraphColumn()', () => {
