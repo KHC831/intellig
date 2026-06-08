@@ -414,6 +414,12 @@ export function renderGraphSvg(
     // Draw center-to-bottom segment if the commit has a parent in the same lane
     // (i.e., the lane continues straight down). If all parents are in different lanes,
     // the bezier curves handle the connection and no vertical stub is needed.
+    //
+    // L4 invariant — same-lane vertical stroke uses the commit's OWN
+    // lane color (`commitColor` resolved above via
+    // `getColumnColor(node.graphColumn)`), never a destination lane
+    // color, even if a sibling line bends. See
+    // `docs/design/git-tool-window-spec.md` §8.L4.
     const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );

@@ -7,12 +7,12 @@ a test without rotting the production API.
 
 ## §1. Test layers
 
-| Layer      | Path                 | CI lane                | VS Code host? | Real git? | Driver     | Approx. count |
-| ---------- | -------------------- | ---------------------- | ------------- | --------- | ---------- | ------------: |
-| Unit       | `src/test/unit/**`   | `test:unit`            | no            | no        | Mocha      |          2542 |
-| Property   | `src/test/property/**` | `test:property` (+ `test:property:stress`) | no | no | fast-check |          3158 |
-| Ext-host   | `src/test/ext-host/**` | `test:ext-host`      | yes           | no        | Mocha      |            22 |
-| E2E        | `src/test/e2e/**`    | `test:e2e`             | yes           | yes       | Mocha      |            36 |
+| Layer    | Path                   | CI lane                                    | VS Code host? | Real git? | Driver     | Approx. count |
+| -------- | ---------------------- | ------------------------------------------ | ------------- | --------- | ---------- | ------------: |
+| Unit     | `src/test/unit/**`     | `test:unit`                                | no            | no        | Mocha      |          2542 |
+| Property | `src/test/property/**` | `test:property` (+ `test:property:stress`) | no            | no        | fast-check |          3158 |
+| Ext-host | `src/test/ext-host/**` | `test:ext-host`                            | yes           | no        | Mocha      |            22 |
+| E2E      | `src/test/e2e/**`      | `test:e2e`                                 | yes           | yes       | Mocha      |            36 |
 
 - **Unit** — everything mocked; no VS Code host, no git subprocess. Fast,
   deterministic. Use for service-level logic, command handlers, parsers,
@@ -50,7 +50,7 @@ These are exactly the lanes `.github/workflows/ci.yml` runs
 unattended — no workspace-trust modal, no extension-recommendations
 prompt.
 
-**Decision (Option B + compatibility alias): the aggregate *harness* is
+**Decision (Option B + compatibility alias): the aggregate _harness_ is
 retired, but `npm test` survives as a thin alias.** The legacy aggregate
 host — the old `test` script's `node ./out/test/runTest.js` entry point,
 its launcher `src/test/runTest.ts`, and its recursive Mocha loader
@@ -75,6 +75,35 @@ so it stays fully unattended. The two Electron lanes (`test:ext-host`,
 explicitly when you need a real host. There is no longer any single
 command that runs everything (in-process + both Electron lanes) in one
 process; that is by design.
+
+### Local-CI parity gate (per-PR)
+
+`npm test` alone is **not sufficient** to ratify a PR. The two Electron
+lanes (`test:ext-host`, `test:e2e`) live outside the `npm test` alias,
+and historical flakes (T50 createPatch / checkoutRevision e2e flake,
+T51 spawn-git ENOENT) were Linux-only — local macOS / Windows runs
+cannot surface them. Before opening a PR for any phase of the Git
+tool window redesign (and as a general pre-PR discipline):
+
+1. **On Linux**, run `npm run test:ext-host` locally and verify it
+   passes. The lane is fast (≈ 22 specs); a green local run rules out
+   the activation / URI-scheme / post-activate-idle drift class that
+   the unit + property lanes can't see.
+2. **On macOS / Windows**, defer to CI for the Electron lanes — the
+   lanes assume `xvfb-run -a` and a Linux-flavored Code test harness.
+   Do **not** skip the Electron lanes; verify the CI matrix
+   (`.github/workflows/ci.yml`) completes the `test:ext-host` and
+   `test:e2e` jobs green before merge.
+3. **The CI matrix is the source of truth.** Full Linux-CI on every
+   developer machine is out of scope. Reviewers MUST check the matrix
+   completion, not just the `test:unit` / `test:property` lanes that
+   `npm test` runs.
+
+This gate is enforced by convention (PR checklist + reviewer
+discipline), not by an automated lint. The cost of a missed Electron
+flake is high — silent activation failures bypass every in-process
+guard — and the cost of running `test:ext-host` once per PR on Linux
+is low.
 
 ## §2. Test-infra locations
 
@@ -114,7 +143,7 @@ No kitchen-sink surfaces.
 1. Interface name ends in `TestSurface` or `Internals`.
 2. Kept narrow — typically ≤5 fields. Each field is a private member the
    test genuinely drives.
-3. JSDoc on the interface explains *why* the test reaches through the
+3. JSDoc on the interface explains _why_ the test reaches through the
    private boundary (what contract it's asserting that the public API
    can't express).
 4. No inline `as unknown as { ... }` literals — every such cast gets a
@@ -122,6 +151,7 @@ No kitchen-sink surfaces.
 5. No omnibus "all private members" surface — one surface per concern.
 
 **Exemplars on main:**
+
 - `src/test/unit/services/resetDialog.test.ts` — `ResetDialogInternals`
   (2 fields; drives `_onMessage` + reads `_panel.webview.html`).
 - `src/test/unit/services/commitToolWindow.test.ts` —
@@ -137,7 +167,7 @@ No kitchen-sink surfaces.
 ### Function-name prefix variant for module-scope test-only exports
 
 The `<ClassName>TestSurface` interface idiom above covers reaching
-into private *class* members. For **module-scope test-only exports**
+into private _class_ members. For **module-scope test-only exports**
 (top-level `export function`s in a non-class module — typically a
 singleton's reset hook or a helper a test needs to call directly),
 use the `__<name>ForTest` prefix convention instead:
@@ -186,7 +216,7 @@ inventory.
 ### The variadic-`unknown[]` `throwError` pattern
 
 Error-path stub factories for `IGitService` (and similar composite role
-interfaces) typically want *every* method to throw the same error. Rather
+interfaces) typically want _every_ method to throw the same error. Rather
 than hand-typing each method signature, declare one polymorphic
 `throwError` that accepts an unconstrained arg list:
 
@@ -217,6 +247,7 @@ Why this is preferred over the alternatives:
   factory is deliberately not structurally compatible field-by-field.
 
 Exemplars:
+
 - `createErrorThrowingGitService` in
   `src/test/property/commitContextMenuErrors.property.test.ts`.
 - `createErrorThrowingMockGitService` in
@@ -224,12 +255,12 @@ Exemplars:
 
 ## §4. Decision rules — where does my new test helper go?
 
-| Scenario                                             | Put it in              |
-| ---------------------------------------------------- | ---------------------- |
-| Crosses unit + property (typed accessor into private state) | `src/test/typed/` |
-| E2E-only (fixtures, workspace juggling)              | `src/test/e2e/support/` |
-| Replaces a module import at resolution time          | `src/test/mocks/`      |
-| One-off for a single test file                       | Inline in that test file |
+| Scenario                                                    | Put it in                |
+| ----------------------------------------------------------- | ------------------------ |
+| Crosses unit + property (typed accessor into private state) | `src/test/typed/`        |
+| E2E-only (fixtures, workspace juggling)                     | `src/test/e2e/support/`  |
+| Replaces a module import at resolution time                 | `src/test/mocks/`        |
+| One-off for a single test file                              | Inline in that test file |
 
 If a helper would be used only once, don't extract it. The overhead of
 reading across two files isn't paid back by a single caller.
@@ -250,7 +281,7 @@ a PR before the linter does. For policy on suppressing a rule, see
 
 - **`@typescript-eslint/no-floating-promises`** — a `Promise` whose
   rejection nobody ever observes. The classic catch here isn't a
-  production fire-and-forget; it's a test that *claims* to assert
+  production fire-and-forget; it's a test that _claims_ to assert
   something but silently passes because the assertion lives behind an
   unawaited call. The regex double-count bug in
   `BranchContextMenuCommands._parseConflictCount` (a case-insensitive
@@ -325,7 +356,7 @@ injects a few arbitrary-named scalar extras at each level:
 ```ts
 fc.assert(
   fc.property(payloadArb, (raw) => {
-    const onDisk = mkPayload(raw);            // JSON-shaped input
+    const onDisk = mkPayload(raw); // JSON-shaped input
     const loaded = migrateStorageForTest(onDisk);
     const emitted = serializeStorageForDisk(loaded);
     for (const k of Object.keys(raw.topLevelUnknown)) {
@@ -340,6 +371,7 @@ realistic forward-compat payload (e.g. a top-level `schemaExtension`
 object, per-item `labels`/`priority`, per-file `isBinary`/`encoding`).
 
 Reference implementations:
+
 - `src/services/ChangelistService.ts` — `KNOWN_TOP_LEVEL_KEYS_SPEC` /
   `KNOWN_ITEM_KEYS_SPEC`; `migrateStorageForTest` /
   `serializeStorageForDisk`.
@@ -348,6 +380,7 @@ Reference implementations:
   `migrateShelfStorageForTest` / `serializeShelfForDisk`.
 
 Reference property suites:
+
 - `src/test/property/changelistStorageRoundTrip.property.test.ts`
 - `src/test/property/shelfStorageRoundTrip.property.test.ts`
 
@@ -391,6 +424,7 @@ Three test patterns give us confidence these sites stay honest:
    "tmp survived but rename rolled back" failure modes.
 
 Reference test files:
+
 - `src/test/unit/services/patchService.test.ts` (integration + atomic)
 - `src/test/unit/services/shelfView.test.ts` (`createPatchFromShelf` —
   TL-38 atomic write)
