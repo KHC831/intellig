@@ -2007,12 +2007,35 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * @param repos - Array of discovered repositories
    */
   public setAvailableRepositories(repos: IRepository[]): void {
+    // Identity-stable selection across reloads.
+    //
+    // Keying by INDEX alone broke after any mutation that triggered
+    // `loadAllPanelData` (drop commit, squash, rebase, etc.). The
+    // gitService's repo cache iteration order is insertion-order, and
+    // a watcher tear-down + re-add (which happens on
+    // reloadRepository's invalidate path) can shift a repo's slot in
+    // the cache — making `_selectedRepositoryIndex = 2` silently
+    // point at a DIFFERENT repo on the next render. Symptom: user
+    // dropped a commit on repo A, dropdown silently jumped to repo B.
+    //
+    // Fix: remember the selected repo's `rootUri.fsPath` BEFORE
+    // overwriting `_availableRepositories`, then re-resolve the index
+    // by matching that path against the new list. Falls back to 0
+    // when the previously-selected repo is no longer present (folder
+    // removed from workspace) — the prior contract.
+    const previousSelectedPath =
+      this._availableRepositories[this._selectedRepositoryIndex]?.rootUri.fsPath;
+
     this._availableRepositories = repos;
 
     if (repos.length === 0) {
       this._selectedRepositoryIndex = 0;
+    } else if (previousSelectedPath !== undefined) {
+      const matched = repos.findIndex((r) => r.rootUri.fsPath === previousSelectedPath);
+      this._selectedRepositoryIndex = matched >= 0 ? matched : 0;
     } else if (this._selectedRepositoryIndex >= repos.length) {
-      // Selected repository became unavailable (folder removed) — fall back to first
+      // No prior selection (cold start) and the saved index is
+      // out-of-bounds — fall back to first.
       this._selectedRepositoryIndex = 0;
     }
 
