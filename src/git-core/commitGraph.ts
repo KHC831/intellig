@@ -267,7 +267,85 @@ export function generateCommitGraph(
     return lane;
   };
 
-  // PRE-PASS — seed lane 0 for HEAD's branch tip ONLY.
+  // PRE-PASS — locate HEAD's branch tip (if any) so subsequent
+  // pre-passes can privilege the HEAD-ancestry. `undefined` if no
+  // headBranchName is supplied OR the tip is outside the loaded
+  // window OR the branchMap doesn't carry it.
+  let headTipHash: string | undefined;
+  if (headBranchName && branchMap && branchMap.size > 0) {
+    for (const [commitHash, refs] of branchMap.entries()) {
+      if (!commitsInWindow.has(commitHash)) {
+        continue;
+      }
+      if (refs.some((r) => r.name === headBranchName)) {
+        headTipHash = commitHash;
+        break;
+      }
+    }
+  }
+
+  // PRE-PASS — compute the set of commit hashes in HEAD's ancestry,
+  // so the children-map's "first child" tie-break can prefer a
+  // HEAD-ancestry child over a divergent sibling.
+  //
+  // Why this matters (regression discovered post-PR #9): when
+  // `git log --topo-order --all` interleaves a divergent branch's
+  // commits BEFORE mainline rows in the loaded window, the
+  // children-map's natural "first push wins" ordering picks the
+  // DIVERGENT child as `firstChildOfParent` of the merge-base
+  // commit. The divergent child then claims the merge-base on its
+  // OWN (non-zero) lane via straight-down inheritance, and when the
+  // mainline child reaches that same parent later, the parent is
+  // already on the divergent lane. The mainline line bends
+  // sideways into a different lane — visually a green-node-on-
+  // blue-line mismatch on the mainline rows.
+  //
+  // Fix: BFS from HEAD's tip backwards through `parents`, stopping
+  // at `commitsInWindow` boundary. Then in the children-map,
+  // promote a HEAD-ancestry child to position 0 of every parent's
+  // children array. The mainline always wins inheritance.
+  const headAncestry = new Set<string>();
+  if (headTipHash !== undefined) {
+    const commitByHash = new Map<string, ICommit>();
+    for (const c of commits) {
+      commitByHash.set(c.hash, c);
+    }
+    const queue: string[] = [headTipHash];
+    while (queue.length > 0) {
+      const h = queue.shift()!;
+      if (headAncestry.has(h)) {
+        continue;
+      }
+      headAncestry.add(h);
+      const c = commitByHash.get(h);
+      if (c) {
+        for (const p of c.parents) {
+          if (commitsInWindow.has(p) && !headAncestry.has(p)) {
+            queue.push(p);
+          }
+        }
+      }
+    }
+  }
+
+  // Promote HEAD-ancestry children to position 0 in the children-
+  // map. Iteration is per-parent: for each parent, if its children
+  // list contains a HEAD-ancestor, move that child to index 0.
+  // Stable for the rest of the list (we only move the first match).
+  if (headAncestry.size > 0) {
+    for (const children of childrenMap.values()) {
+      if (children.length < 2) {
+        continue;
+      }
+      const idx = children.findIndex((c) => headAncestry.has(c));
+      if (idx > 0) {
+        const [headChild] = children.splice(idx, 1);
+        children.unshift(headChild);
+      }
+    }
+  }
+
+  // PRE-PASS — seed lane 0 for HEAD's branch tip.
   //
   // Goal: pin HEAD's branch to the leftmost column for cross-render
   // stability — IntelliJ parity. The user's "current branch" sits on
@@ -288,32 +366,13 @@ export function generateCommitGraph(
   // keeps non-divergent refs on the same lane. We let it do its
   // job for everything except HEAD, which gets the only privileged
   // pre-seed.
-  //
-  // Edge cases preserved:
-  //   - `headBranchName` undefined / not in `branchMap` → no
-  //     pre-seed; algorithm runs untouched.
-  //   - HEAD branch's tip commit is OUTSIDE the loaded window → no
-  //     pre-seed (a pre-claim there would silently waste lane 0
-  //     with no associated row).
-  if (headBranchName && branchMap && branchMap.size > 0) {
-    let headTipHash: string | undefined;
-    for (const [commitHash, refs] of branchMap.entries()) {
-      if (!commitsInWindow.has(commitHash)) {
-        continue;
-      }
-      if (refs.some((r) => r.name === headBranchName)) {
-        headTipHash = commitHash;
-        break;
-      }
-    }
-    if (headTipHash !== undefined) {
-      const lane = allocateLane();
-      state.commitToLane.set(headTipHash, lane);
-      // Mark the lane active so any divergent row appearing BEFORE
-      // the HEAD tip's row in the input doesn't accidentally reuse
-      // the reserved column.
-      state.activeLanes.add(lane);
-    }
+  if (headTipHash !== undefined) {
+    const lane = allocateLane();
+    state.commitToLane.set(headTipHash, lane);
+    // Mark the lane active so any divergent row appearing BEFORE
+    // the HEAD tip's row in the input doesn't accidentally reuse
+    // the reserved column.
+    state.activeLanes.add(lane);
   }
 
   // MAIN PASS — claim lanes + emit graph lines.
