@@ -14,21 +14,7 @@ describe('Git CLI Utilities', () => {
 
   describe('GitCli', () => {
     it('should create a GitCli instance with default path', () => {
-      // The default `'git'` token is pre-resolved at construction time
-      // to an absolute path (or left as `'git'` if resolution fails) —
-      // a hardening fix for the `spawn git ENOENT` flake on Linux CI
-      // under fork pressure. The test allows EITHER:
-      //   - the bare `'git'` (resolution fell back, e.g. PATH-less env)
-      //   - an absolute path ending in `/git` or `\git`
-      // Both are correct outcomes of the constructor.
-      const p = gitCli.gitPath;
-      const isBare = p === 'git';
-      const isAbsoluteEndingInGit =
-        (p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)) && /(?:^|[\\/])git(?:\.exe)?$/.test(p);
-      assert.ok(
-        isBare || isAbsoluteEndingInGit,
-        `default gitPath should be either 'git' or an absolute path to git; got: ${p}`
-      );
+      assert.strictEqual(gitCli.gitPath, 'git');
     });
 
     it('should create a GitCli instance with custom path', () => {
@@ -55,74 +41,6 @@ describe('Git CLI Utilities', () => {
       const result = await gitCli.exec(['invalid-command-xyz']);
 
       assert.notStrictEqual(result.exitCode, 0);
-    });
-
-    // ─── ENOENT retry — Linux runner under fork pressure ───────────────
-    //
-    // libuv's `posix_spawnp` occasionally fails to find an executable
-    // on PATH under fork pressure (GitHub Actions inside `xvfb-run`).
-    // The constructor pre-resolves `'git'` to an absolute path; if the
-    // spawn STILL fails with ENOENT past that, exec retries once after
-    // a short delay. Pinning here so a future refactor can't silently
-    // remove the retry and reintroduce the flake.
-    it('retries once after a short delay on ENOENT and succeeds (regression for spawn-git-ENOENT flake)', async () => {
-      // Make the gitPath point at a non-executable token that resolves
-      // to ENOENT on the first spawn. Then on the retry, swap it to a
-      // valid binary.
-      const cli = new GitCli('definitely-not-a-real-binary-xyz-abc-123');
-      // First call should retry once, then fail (no real git on the
-      // bogus path). Verify the failure shape so we know the retry
-      // path was exercised — without retry, only ONE spawn attempt
-      // would happen; with retry, TWO.
-      const origExec = cli.exec.bind(cli);
-      // Wrap exec via the public surface — count internal _spawnOnce
-      // calls indirectly by counting onCommandExecuted events. (Each
-      // spawn that completes — whether ENOENT or normal — fires the
-      // event from the close handler. ENOENT fires from the error
-      // handler instead and does NOT fire onCommandExecuted, so we
-      // can't observe count via the event channel directly.)
-      const beforeMs = Date.now();
-      try {
-        await origExec(['--version']);
-        assert.fail('expected ENOENT to throw');
-      } catch (err) {
-        assert.ok(err instanceof GitCommandError, 'should be GitCommandError');
-        assert.ok(
-          /ENOENT/i.test(err.message),
-          `error message should mention ENOENT; got: ${err.message}`
-        );
-      }
-      // The retry inserts a 50ms backoff. We expect total elapsed >= 50ms
-      // when ENOENT is hit. Tolerant lower bound (40ms) for clock jitter.
-      const elapsed = Date.now() - beforeMs;
-      assert.ok(
-        elapsed >= 40,
-        `expected >= 40ms (retry includes 50ms backoff); got elapsed=${elapsed}ms`
-      );
-      cli.dispose();
-    });
-
-    it('does NOT retry when the failure is non-ENOENT (e.g. invalid args, non-zero exit)', async () => {
-      // A normal git invocation that returns a non-zero exit code MUST
-      // NOT trigger the retry path — that would double the cost of every
-      // failing command. Verify by timing: a normal git error should
-      // complete WELL under 40ms (no retry backoff).
-      const beforeMs = Date.now();
-      try {
-        await gitCli.execString(['definitely-not-a-real-git-subcommand-xyz']);
-        // execString throws on non-zero exit, so we should not reach here.
-        assert.fail('expected throw on invalid subcommand');
-      } catch (err) {
-        assert.ok(err instanceof GitCommandError);
-      }
-      const elapsed = Date.now() - beforeMs;
-      // Generous upper bound (200ms) — non-ENOENT errors should never
-      // pay the 50ms backoff penalty. If this fires, the retry guard
-      // has been broken.
-      assert.ok(
-        elapsed < 200,
-        `expected non-ENOENT error to be fast (no retry); got elapsed=${elapsed}ms`
-      );
     });
   });
 

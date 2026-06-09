@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { spawn, SpawnOptions, execFileSync } from 'child_process';
+import { spawn, SpawnOptions } from 'child_process';
 
 /**
  * Result of a Git command execution
@@ -72,56 +72,6 @@ export class GitCommandError extends Error {
 }
 
 /**
- * Resolve the bare command name `'git'` to an absolute path on PATH.
- *
- * Why: under heavy fork pressure on Linux runners (GitHub Actions
- * inside `xvfb-run`, the e2e suite shows this consistently),
- * libuv's `posix_spawnp` occasionally fails to resolve a bare
- * executable name and emits `spawn git ENOENT` even though `git`
- * is on PATH. Pre-resolving to an absolute path bypasses
- * `posix_spawnp`'s PATH lookup entirely — the spawn either finds
- * the file at the resolved path or fails deterministically.
- *
- * Falls back to the original `'git'` token if resolution fails for
- * any reason. That preserves behaviour for environments where
- * `which`/`where` isn't available or PATH is provider-injected.
- *
- * This runs synchronously ONCE at GitCli construction time. The
- * cost is a single shell-out at startup; the benefit is the
- * elimination of an entire class of Linux-CI flakes.
- */
-function resolveGitExecutable(gitName: string): string {
-  if (gitName !== 'git') {
-    // Caller already supplied an explicit path; trust it.
-    return gitName;
-  }
-  // POSIX: `command -v git`. Windows: `where git`. Both write the
-  // resolved absolute path to stdout on success.
-  const isWindows = process.platform === 'win32';
-  try {
-    if (isWindows) {
-      const out = execFileSync('where', ['git'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      // `where` may print multiple paths (one per line); take the first.
-      const first = out.split(/\r?\n/).find((line) => line.trim().length > 0);
-      return first ? first.trim() : gitName;
-    }
-    const out = execFileSync('/usr/bin/env', ['sh', '-c', 'command -v git'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return out.length > 0 ? out : gitName;
-  } catch {
-    // Resolution failed (no shell, missing `command`, restrictive sandbox,
-    // etc.). Fall back to the bare name and let the per-command spawn
-    // surface any actual missing-git error to the user.
-    return gitName;
-  }
-}
-
-/**
  * Git CLI wrapper for executing Git commands.
  * Provides a consistent interface for running Git commands and capturing output.
  */
@@ -144,13 +94,7 @@ export class GitCli {
   }>;
 
   constructor(gitPath: string = 'git') {
-    // Pre-resolve the bare `'git'` token to an absolute path so
-    // `child_process.spawn` skips libuv's PATH lookup entirely. This
-    // eliminates the `spawn git ENOENT` flake that surfaces under
-    // fork pressure on Linux CI (GitHub Actions inside `xvfb-run`).
-    // Pre-resolution is a no-op when caller supplied an explicit path
-    // and falls back to the bare name when resolution itself fails.
-    this._gitPath = resolveGitExecutable(gitPath);
+    this._gitPath = gitPath;
     this._onCommandExecuted = new vscode.EventEmitter();
     this.onCommandExecuted = this._onCommandExecuted.event;
   }
@@ -178,32 +122,6 @@ export class GitCli {
    * @throws GitCommandError if throwOnError is true and command fails
    */
   async exec(args: string[], options: IGitCommandOptions = {}): Promise<IGitCommandResult> {
-    // Belt-and-suspenders against `spawn git ENOENT`:
-    //
-    //   1. Constructor pre-resolved `'git'` to an absolute path
-    //      (`resolveGitExecutable`). That should already make
-    //      libuv's PATH lookup a non-issue.
-    //   2. If the spawn STILL fails with ENOENT (e.g. concurrent
-    //      sandbox tear-down, /tmp racing under load), retry ONCE
-    //      after a short delay. The retry uses the same gitPath
-    //      because pre-resolution gave us a deterministic absolute
-    //      path; a transient ENOENT past that point is virtually
-    //      always a fork/scheduler hiccup and not a missing binary.
-    //
-    // The retry is bounded to one attempt so a real "git not found"
-    // surfaces to the user without an interactive hang.
-    try {
-      return await this._spawnOnce(args, options);
-    } catch (err) {
-      if (err instanceof GitCommandError && /ENOENT/i.test(err.result.stderr)) {
-        await new Promise((r) => setTimeout(r, 50));
-        return this._spawnOnce(args, options);
-      }
-      throw err;
-    }
-  }
-
-  private _spawnOnce(args: string[], options: IGitCommandOptions): Promise<IGitCommandResult> {
     const { cwd, env, timeout = 0, input, throwOnError = false } = options;
 
     const spawnOptions: SpawnOptions = {
