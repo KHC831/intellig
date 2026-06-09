@@ -2004,6 +2004,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * it falls back to the first available repository.
    * If no repositories are available, the selected index is reset to 0.
    *
+   * L5 invariant — repo selector identity must be stable by **path**, not
+   * by index, across rebuilds that shift the list (e.g. drop-commit
+   * triggering a workspace re-scan). The path-based hardening lands in
+   * Phase 4; this method is the rebuild boundary that hardening will
+   * route through. See `docs/design/git-tool-window-spec.md` §8.L5
+   * and §8.L14 (`normalizeRepoPath` helper).
+   *
    * @param repos - Array of discovered repositories
    */
   public setAvailableRepositories(repos: IRepository[]): void {
@@ -3492,7 +3499,15 @@ ${bodyMarkup}
   }
 
   /**
-   * Get inline styles for the webview
+   * Get inline styles for the webview.
+   *
+   * L8 invariant — the webview HTML this method's output is embedded
+   * into MUST contain exactly ONE `acquireVsCodeApi(` call across the
+   * full document. Any inline `onclick=`/`onchange=` attribute that
+   * re-acquires throws a DOMException and silently drops every
+   * subsequent `postMessage`. New CSS / handler wiring goes through
+   * the single IIFE-scoped `vscode = acquireVsCodeApi()` call. See
+   * `docs/design/git-tool-window-spec.md` §8.L8.
    */
   private _getInlineStyles(): string {
     return `

@@ -18,11 +18,25 @@ import { ICommit } from './interfaces/IGitService';
  *   window". IntelliJ uses a similar dashed-line affordance for refs
  *   whose target isn't visible, so the user can tell at a glance
  *   that the edge isn't going to a row they can scroll to.
+ *
+ * @invariant L9 — off-window parent edges MUST carry `style: 'dashed'`
+ * and travel in the same lane as the source (`fromColumn === toColumn`).
+ * See `docs/design/git-tool-window-spec.md` §8.L9.
  */
 export type GraphLineStyle = 'solid' | 'dashed';
 
 /**
  * Represents a line in the commit graph connecting commits.
+ *
+ * @invariant L4 — when `fromColumn === toColumn` (a same-lane edge), the
+ * renderer MUST stroke the segment using `getColumnColor(fromColumn)` —
+ * i.e. the *source* commit's lane color, never a destination color.
+ * See `docs/design/git-tool-window-spec.md` §8.L4.
+ *
+ * @invariant L9 — when the parent commit is off-window, this line is
+ * emitted with `fromColumn === toColumn` and `style: 'dashed'`; the
+ * algorithm MUST NOT call `allocateLane()` for an off-window parent.
+ * See `docs/design/git-tool-window-spec.md` §8.L9.
  */
 export interface IGraphLine {
   /** Starting column (lane) of the line */
@@ -38,6 +52,10 @@ export interface IGraphLine {
    * predate the field; when undefined, the renderer treats it as
    * `'solid'`. Set to `'dashed'` for off-window-parent stubs so the
    * "history continues below" affordance is visible.
+   *
+   * @invariant L9 — see interface-level note. `style: 'dashed'` is the
+   * sole signal the renderer uses to draw a stub stroke; dropping it on
+   * an off-window edge silently regresses to a phantom bezier.
    */
   style?: GraphLineStyle;
 }
@@ -102,6 +120,12 @@ const GRAPH_COLORS = [
 
 /**
  * Get a color for a given column index.
+ *
+ * @invariant L4 — load-bearing: any same-lane vertical stroke in the
+ * SVG renderer MUST resolve its `stroke=` via this function, keyed by
+ * the *source* commit's `graphColumn` — never by a destination lane,
+ * even when a graph line bends. See
+ * `docs/design/git-tool-window-spec.md` §8.L4.
  *
  * @param column - The column index
  * @returns A color string from the palette
@@ -183,9 +207,11 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
 /**
  * Generate commit graph data from a list of commits.
  *
- * This function processes commits in topological order (newest first) and assigns
- * each commit to a lane (column). It generates graph lines showing the connections
- * between commits and their parents.
+ * This function is the **algorithm boundary** for the lane / line
+ * model defined in spec §1.1 (`docs/design/git-tool-window-spec.md`).
+ * It processes commits in topological order (newest first), assigns
+ * each commit to a lane (column), and emits the graph lines connecting
+ * each commit to its parents.
  *
  * children-map two-pass algorithm. The pre-pass records each
  * parent's children in display order; the main pass uses that to decide
@@ -207,6 +233,21 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  *    child, else allocate next available); for each parent, decide whether to inherit
  *    this commit's lane (first-child + first-parent) or claim a new lane (divergence).
  * 3. Tag every node with `onFocusedBranchPath` for the renderer.
+ *
+ * @invariant L1 — Lane assignment is byte-identical across no-op
+ * reloads and reflects HEAD ancestry: HEAD's branch tip pre-seeds
+ * lane 0 (and ONLY HEAD's tip; non-HEAD branch tips go through the
+ * main pass). See `docs/design/git-tool-window-spec.md` §8.L1.
+ *
+ * @invariant L9 — A parent that is NOT in the loaded window emits a
+ * single same-lane `{fromColumn === toColumn, style: 'dashed'}` line
+ * and MUST NOT call `allocateLane()` for that parent. See
+ * `docs/design/git-tool-window-spec.md` §8.L9.
+ *
+ * @invariant L10 — Branch type (`'local'` vs `'remote'`) flows through
+ * `IBranchRef.type` from `parseBranches`. The graph algorithm and
+ * renderer MUST NOT infer type from the branch name shape (e.g. a
+ * presence of `/`). See `docs/design/git-tool-window-spec.md` §8.L10.
  *
  * @param commits - Array of commits in topological order (newest first)
  * @param branchMap - Optional map of commit hash to branch refs (name + type)
