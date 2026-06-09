@@ -10,6 +10,21 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.1.4] - 2026-06-09
+
+### Added
+
+- Paused rebases are surfaced on activation, with continue/abort commands in the palette.
+- Graph edges to history below the loaded window now render dashed.
+
+### Fixed
+
+- "Checkout & Rebase" onto a remote branch no longer detaches HEAD.
+- The repository selector now updates both the graph and the Branches view.
+- The commit graph no longer collapses into a linear tree after a squash, rebase, or cherry-pick.
+- Branch lanes stay on stable columns across refreshes and reloads.
+- A local branch and its remote-tracking ref on the same commit no longer split into separate lanes.
+
 ## [0.1.3] - 2026-06-03
 
 ### Added
