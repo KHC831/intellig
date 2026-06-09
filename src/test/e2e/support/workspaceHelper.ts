@@ -18,7 +18,7 @@
 
 import * as vscode from 'vscode';
 
-import { getServices } from '../../../extension';
+import { getServices, getGitToolWindowProvider } from '../../../extension';
 import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
 const EXT_ID = 'KaHoChan.intellig';
@@ -128,4 +128,19 @@ export async function clearWorkspace(): Promise<void> {
   // schedule fresh `discoverRepository` calls; settle those too before we
   // hand control back to the caller's `fs.rmSync`.
   await gitService._drainPendingReloads?.();
+
+  // Reset the GitToolWindowProvider's `_availableRepositories` (the
+  // repo-selector dropdown's source of truth). Without this, the
+  // provider keeps a stale `IRepository` handle from a previous test's
+  // fixture — populated via `loadAllPanelData → setAvailableRepositories`
+  // when the test's `provider.refresh()` fires. The next test's
+  // `_handleCheckoutRevision` (and similar) then reaches the stale
+  // handle through `getSelectedRepository()` and spawns `git` with
+  // `cwd = <deleted fixture path>`, surfacing as
+  // `spawn /usr/bin/git ENOENT` against the absolute git binary.
+  //
+  // The drain alone doesn't fix this because the stale state lives
+  // in the provider, not in `gitService._repositories`.
+  const provider = getGitToolWindowProvider();
+  provider?.setAvailableRepositories([]);
 }
