@@ -105,14 +105,20 @@ export interface Fixture {
    * Absolute cleanup — removes both the working and remote repos if present.
    *
    * @remarks
-   * Intentionally synchronous. The underlying `fs.rmSync(..., { recursive })`
-   * is a blocking call; returning a Promise would misleadingly suggest
-   * callers must await before proceeding. Cleanup is also best-effort:
-   * errors are swallowed so a failing `afterEach` doesn't mask the test's
-   * own failure. See also {@link clearWorkspace} which follows the same
-   * policy for VS Code workspace folders.
+   * Returns a `Promise<void>` so callers can `await` the WRAPPER for
+   * teardown ordering: when paired with `await clearWorkspace()` the
+   * combined sequence is "drain async loadRepository tails → dispose
+   * watchers → drain again → remove fixture directory", which prevents
+   * the structural race where `loadRepository`'s tail spawns git against
+   * a directory `fs.rmSync` already deleted (yielding ENOENT that gets
+   * swallowed and resurrects stale `_repositories` cache entries — see
+   * `clearWorkspace` JSDoc for the full chain).
+   *
+   * The underlying disk removal is still `fs.rmSync(..., { recursive })`
+   * because it is blocking and best-effort: errors are swallowed so a
+   * failing `afterEach` doesn't mask the test's own failure.
    */
-  cleanup: () => void;
+  cleanup: () => Promise<void>;
 }
 
 /**
@@ -221,8 +227,11 @@ export async function createFixtureRepo(opts: FixtureOpts = {}): Promise<Fixture
     rootPath,
     ...(remotePath ? { remotePath } : {}),
     defaultBranch,
-    cleanup: () => {
-      // Best-effort — don't let cleanup errors mask test failures.
+    cleanup: async (): Promise<void> => {
+      // Best-effort — don't let cleanup errors mask test failures. The
+      // method is async only so the caller can `await` it for ordering;
+      // the body is still synchronous `fs.rmSync` because the on-disk
+      // removal must complete before we hand back.
       try {
         fs.rmSync(tmpBase, { recursive: true, force: true, maxRetries: 3 });
       } catch {

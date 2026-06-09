@@ -1039,7 +1039,14 @@ describe('Multi-Repository Selection State', () => {
       assert.strictEqual(selected, undefined);
     });
 
-    it('should preserve selected index when it is still valid after update', () => {
+    it('should preserve selected REPO (by path) — not by index — across reloads', () => {
+      // The earlier contract keyed selection by INDEX. That broke the
+      // common case of the gitService's repo cache reordering between
+      // reloads (e.g. after a watcher tear-down + re-add on
+      // reloadRepository). User dropped a commit on repo B, the
+      // post-mutation reload returned [A, C, B] instead of [A, B, C],
+      // and the "selected index = 1" silently pointed at C instead of B.
+      // Fix: identity-stable selection by `rootUri.fsPath`.
       const repos = [
         createMockRepository('/workspace/a'),
         createMockRepository('/workspace/b'),
@@ -1056,18 +1063,85 @@ describe('Multi-Repository Selection State', () => {
       )._handleRepositorySelection(1);
       assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
 
-      // Update with 3 repos — index 1 is still valid
+      // Reload with the SAME repos but in a DIFFERENT order — the
+      // selection MUST follow the repo's path, not the index.
+      const reorderedRepos = [
+        createMockRepository('/workspace/c'),
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+      ];
+      provider.setAvailableRepositories(
+        reorderedRepos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      assert.strictEqual(
+        provider.getSelectedRepository()!.rootUri.fsPath,
+        '/workspace/b',
+        'selected repo must follow the path, NOT stay at index 1'
+      );
+    });
+
+    it('falls back to the first repo when the previously-selected repo is no longer present', () => {
+      // Folder removed from the workspace OR the repo's `.git` directory
+      // was deleted. The previously-selected path no longer exists in
+      // the new list — fall back to index 0 (the prior contract).
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(2); // select /workspace/c
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/c');
+
+      // Reload — /workspace/c is gone.
       const updatedRepos = [
-        createMockRepository('/workspace/x'),
-        createMockRepository('/workspace/y'),
-        createMockRepository('/workspace/z'),
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
       ];
       provider.setAvailableRepositories(
         updatedRepos as Parameters<typeof provider.setAvailableRepositories>[0]
       );
 
-      // Index 1 should still be selected
-      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/y');
+      assert.strictEqual(
+        provider.getSelectedRepository()!.rootUri.fsPath,
+        '/workspace/a',
+        'must fall back to first repo when previous selection is gone'
+      );
+    });
+
+    it('preserves the selection when the same list is supplied again (no-op reload)', () => {
+      // The most common reload path: after a mutation, the discovered
+      // repo list is identical to before. Selection must not flicker.
+      const repos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+      (
+        provider as unknown as { _handleRepositorySelection: (index: number) => void }
+      )._handleRepositorySelection(1);
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
+
+      // Reload with the SAME list (different IRepository instances —
+      // simulating a fresh fetch from gitService).
+      const sameRepos = [
+        createMockRepository('/workspace/a'),
+        createMockRepository('/workspace/b'),
+        createMockRepository('/workspace/c'),
+      ];
+      provider.setAvailableRepositories(
+        sameRepos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      assert.strictEqual(provider.getSelectedRepository()!.rootUri.fsPath, '/workspace/b');
     });
   });
 

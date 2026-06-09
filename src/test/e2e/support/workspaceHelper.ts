@@ -18,7 +18,7 @@
 
 import * as vscode from 'vscode';
 
-import { getServices } from '../../../extension';
+import { getServices, getGitToolWindowProvider } from '../../../extension';
 import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
 const EXT_ID = 'KaHoChan.intellig';
@@ -26,16 +26,26 @@ const EXT_ID = 'KaHoChan.intellig';
 /**
  * Narrow test-only surface on GitService for the E2E workspace-helper flow.
  *
- * Reaches through the frozen IGitService composite to the two methods needed
- * by per-test fixture swapping: enumerate cached repos + drop their watchers.
+ * Reaches through the frozen IGitService composite to:
+ *   - enumerate cached repos,
+ *   - drop their watchers,
+ *   - drain any in-flight `loadRepository` async work before fixture
+ *     teardown so we don't race a `fs.rmSync(fixture)` against the
+ *     async tail of repository discovery (the structural defect that was
+ *     resurrecting stale `_repositories` entries pointing at deleted
+ *     paths and surfacing as "working directory missing" in the NEXT
+ *     test). See GitService._drainPendingReloads JSDoc.
+ *
  * Kept separate from production because `removeRepositoryWatcher` is a
- * teardown hook that shouldn't leak onto the public service interface.
+ * teardown hook that shouldn't leak onto the public service interface,
+ * and `_drainPendingReloads` is a strictly test-only seam.
  *
  * See `docs/testing.md` §3 for the TestSurface convention.
  */
 interface GitServiceWorkspaceHelperSurface {
   getRepositories(): IRepository[];
   removeRepositoryWatcher?: (rootPath: string) => void;
+  _drainPendingReloads?: () => Promise<void>;
 }
 
 /**
@@ -70,6 +80,9 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
   // `getRepositories()` starts empty. Defensively tolerate a missing method
   // in case the API ever moves.
   const gitService = services.gitService as unknown as GitServiceWorkspaceHelperSurface;
+  // Drain any pending async repository discovery before disposing watchers
+  // so we don't race the cache cleanup against `loadRepository`'s tail.
+  await gitService._drainPendingReloads?.();
   for (const existing of gitService.getRepositories()) {
     gitService.removeRepositoryWatcher?.(existing.rootUri.fsPath);
   }
@@ -85,19 +98,49 @@ export async function useFixtureWorkspace(repoPath: string): Promise<IRepository
 /**
  * Tear down the test's repository registrations. Called in `afterEach`.
  *
- * @remarks
- * Intentionally synchronous — touches only in-memory registrations +
- * watchers on the service. Matches the policy documented on
- * {@link Fixture.cleanup}: callers must not `await` this; adding an
- * awaitable wrapper would imply an ordering guarantee we don't make.
+ * Drains all in-flight repository async work, then synchronously removes
+ * watchers + cache entries. Callers MUST `await` this. Without the drain,
+ * a `fs.rmSync(fixture)` immediately after this returns can race
+ * `loadRepository`'s tail (rev-parse / status / remote -v git spawns),
+ * yielding ENOENT errors that `loadRepository` swallows in its per-call
+ * try/catches — then its final unconditional `_repositories.set(rootPath,
+ * ...)` resurrects a stale cache entry pointing at the deleted directory.
+ * The NEXT test then sees that stale entry through `_resolveRepo` and
+ * surfaces "working directory missing" against a path it never asked
+ * about.
+ *
+ * The two `_drainPendingReloads` calls are intentional: the first drains
+ * the previous test's pending discovery; the second mops up any new
+ * loads that the watcher disposal events themselves kicked off (e.g.
+ * `onDidChangeWorkspaceFolders` listeners triggering rediscovery).
  */
-export function clearWorkspace(): void {
+export async function clearWorkspace(): Promise<void> {
   const services = getServices();
   if (!services) {
     return;
   }
   const gitService = services.gitService as unknown as GitServiceWorkspaceHelperSurface;
+  await gitService._drainPendingReloads?.();
   for (const existing of gitService.getRepositories()) {
     gitService.removeRepositoryWatcher?.(existing.rootUri.fsPath);
   }
+  // Second drain: disposing watchers can fire workspace events that
+  // schedule fresh `discoverRepository` calls; settle those too before we
+  // hand control back to the caller's `fs.rmSync`.
+  await gitService._drainPendingReloads?.();
+
+  // Reset the GitToolWindowProvider's `_availableRepositories` (the
+  // repo-selector dropdown's source of truth). Without this, the
+  // provider keeps a stale `IRepository` handle from a previous test's
+  // fixture — populated via `loadAllPanelData → setAvailableRepositories`
+  // when the test's `provider.refresh()` fires. The next test's
+  // `_handleCheckoutRevision` (and similar) then reaches the stale
+  // handle through `getSelectedRepository()` and spawns `git` with
+  // `cwd = <deleted fixture path>`, surfacing as
+  // `spawn /usr/bin/git ENOENT` against the absolute git binary.
+  //
+  // The drain alone doesn't fix this because the stale state lives
+  // in the provider, not in `gitService._repositories`.
+  const provider = getGitToolWindowProvider();
+  provider?.setAvailableRepositories([]);
 }

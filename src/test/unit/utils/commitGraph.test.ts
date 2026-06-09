@@ -405,10 +405,24 @@ describe('Commit Graph Generation', () => {
         assert.strictEqual(result[0].graphColumn, 0);
       });
 
-      it('multiple local branches alpha-sort onto lanes 1, 2, ...', () => {
-        // HEAD is main → lane 0. Other locals (alpha): apple, banana,
-        // cherry. Their tips should claim lanes 1, 2, 3 in that order
-        // even if their commits appear in a different order in input.
+      it('non-HEAD branches take whatever lane the natural algorithm assigns; only HEAD is privileged on lane 0', () => {
+        // Earlier the seeding pre-pass walked EVERY branch tip in a
+        // priority order and pre-claimed a lane for each. That broke
+        // the common case where a local branch and its remote-tracking
+        // counterpart sit on the SAME physical chain (e.g. local `main`
+        // and `origin/main` after a no-divergence fetch): they got
+        // pinned to separate lanes, producing a green-node-on-blue-line
+        // visual mismatch in the rendered graph.
+        //
+        // The new contract: ONLY HEAD's branch is pre-seeded onto lane
+        // 0. Every other ref falls through to the natural first-seen-
+        // child algorithm, which keeps non-divergent refs on the same
+        // lane.
+        //
+        // Pin: with HEAD = main (lane 0 always), the other locals each
+        // sit on a distinct lane (they're divergent siblings here), but
+        // the EXACT lane index is whatever the natural algorithm picks
+        // — NOT a pre-assigned alphabetical ordering.
         const commits = [
           createMockCommit('cherry-tip', ['shared']),
           createMockCommit('apple-tip', ['shared']),
@@ -428,10 +442,50 @@ describe('Commit Graph Generation', () => {
         const banana = result.find((n) => n.commit.hash === 'banana-tip')!;
         const cherry = result.find((n) => n.commit.hash === 'cherry-tip')!;
 
+        // 1. HEAD branch is on lane 0 (the privileged invariant).
         assert.strictEqual(main.graphColumn, 0, 'HEAD branch on lane 0');
-        assert.strictEqual(apple.graphColumn, 1, 'apple (alpha first non-HEAD) on lane 1');
-        assert.strictEqual(banana.graphColumn, 2, 'banana on lane 2');
-        assert.strictEqual(cherry.graphColumn, 3, 'cherry on lane 3');
+        // 2. Other tips each claim a DISTINCT lane (no overlap among
+        //    divergent siblings).
+        const otherLanes = new Set([apple.graphColumn, banana.graphColumn, cherry.graphColumn]);
+        assert.strictEqual(
+          otherLanes.size,
+          3,
+          `divergent sibling tips must claim distinct lanes; got ${[
+            apple.graphColumn,
+            banana.graphColumn,
+            cherry.graphColumn,
+          ].join(',')}`
+        );
+        // 3. None of them collide with lane 0 (main's reserved column).
+        assert.ok(
+          ![apple, banana, cherry].some((n) => n.graphColumn === 0),
+          'no non-HEAD tip should land on the reserved lane 0'
+        );
+      });
+
+      it('local + remote on the SAME chain (no divergence) keep the same lane → no node/line color mismatch', () => {
+        // Regression for the screenshot bug: local main and origin/main
+        // both point at "main-tip" (no divergence). They MUST share a
+        // single lane so the row's node color matches the line color
+        // flowing to its parent. The earlier seeding split them onto
+        // lanes 0 and 1, producing a green node on a blue line.
+        const commits = [
+          createMockCommit('main-tip', ['parent-1']),
+          createMockCommit('parent-1', ['parent-2']),
+          createMockCommit('parent-2', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        // Both refs point at the same commit — no divergence.
+        branchMap.set('main-tip', [
+          { name: 'main', type: 'local' },
+          { name: 'origin/main', type: 'remote' },
+        ]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+
+        assert.strictEqual(result[0].graphColumn, 0, 'main-tip on lane 0 (HEAD branch privilege)');
+        assert.strictEqual(result[1].graphColumn, 0, 'parent-1 on lane 0 (linear chain — no fork)');
+        assert.strictEqual(result[2].graphColumn, 0, 'parent-2 on lane 0 (still linear chain)');
       });
 
       it('cross-render stability: same branchMap → same lane assignments', () => {

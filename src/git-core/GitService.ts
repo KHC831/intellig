@@ -387,8 +387,17 @@ export class GitService implements IGitService, IGitServiceCli {
       return cachedRoot;
     }
 
-    // Load repository information
-    return this.loadRepository(rootPath);
+    // Load repository information.
+    //
+    // Enroll the load promise into `_reloading` so test infrastructure
+    // (and any other in-flight-aware path) can drain pending repository
+    // discovery before tearing down disk fixtures. Without this enrollment
+    // the async tail of `loadRepository` (rev-parse / status / remote -v
+    // git spawns) can race a synchronous `fs.rmSync(rootPath)` from a
+    // test's afterEach and resurrect a stale `_repositories` cache entry
+    // pointing at a deleted directory. See
+    // `gitServiceDrainPendingReloads.test.ts`.
+    return this._enrollReload(rootPath, this.loadRepository(rootPath));
   }
 
   /**
@@ -414,7 +423,8 @@ export class GitService implements IGitService, IGitServiceCli {
     this._logger.info('reloadRepository entry', { rootPath });
     this.invalidateCache(rootPath);
     try {
-      const fresh = await this.loadRepository(rootPath);
+      // Enroll into `_reloading` so drain paths see this in-flight load.
+      const fresh = await this._enrollReload(rootPath, this.loadRepository(rootPath));
       if (!this._disposed) {
         this._onDidChangeRepository.fire(fresh);
       }
@@ -486,7 +496,8 @@ export class GitService implements IGitService, IGitServiceCli {
 
     for (const root of repoRoots) {
       if (!this._repositories.has(root)) {
-        const repo = await this.loadRepository(root);
+        // Enroll into `_reloading` so drain paths see this in-flight load.
+        const repo = await this._enrollReload(root, this.loadRepository(root));
         this.setupRepositoryWatcher(root);
         this._logger.info('repository discovered', { rootPath: root });
         // Fire `onDidChangeRepository` so the 6
@@ -942,16 +953,17 @@ export class GitService implements IGitService, IGitServiceCli {
       return;
     }
     this.invalidateCache(rootPath);
-    const reload = this.loadRepository(rootPath);
-    this._reloading.set(rootPath, reload);
-    // Resolve the reload inside try/finally so the _reloading entry is
-    // always cleared, but fire the emitter *outside* the catch block:
-    // otherwise a subscriber throwing synchronously gets re-wrapped as a
-    // "repository reload failed" error, which is both misleading and hides
-    // the real bug location.
+    // Enroll the reload promise into `_reloading` via the shared
+    // `_enrollReload` helper so every in-flight load registers uniformly.
+    // The watcher's in-flight guard at `setupRepositoryWatcher` and the
+    // test-only `_drainPendingReloads()` path both rely on this entry.
+    // Resolve inside try/catch so the emitter fires *outside* the catch
+    // block: otherwise a subscriber throwing synchronously gets re-wrapped
+    // as a "repository reload failed" error, which hides the real bug
+    // location.
     let repo: IRepository | undefined;
     try {
-      repo = await reload;
+      repo = await this._enrollReload(rootPath, this.loadRepository(rootPath));
     } catch (err) {
       // Watcher-driven refresh failure (Requirement 6.2): warn rather
       // than error because the next watcher event will retry and the
@@ -962,12 +974,64 @@ export class GitService implements IGitService, IGitServiceCli {
         rootPath,
         errorMessage: errMessage,
       });
-    } finally {
-      this._reloading.delete(rootPath);
     }
     if (repo && !this._disposed) {
       this._onDidChangeRepository.fire(repo);
     }
+  }
+
+  /**
+   * Enroll an in-flight `loadRepository` promise into `_reloading` so the
+   * watcher's in-flight guard and the test-only `_drainPendingReloads()`
+   * path both observe it.
+   *
+   * Idempotency: if multiple call sites race to load the same `rootPath`
+   * concurrently, the LAST writer wins the `_reloading` slot. Both promises
+   * still resolve correctly because the helper returns the SAME promise it
+   * was handed; the map entry is purely a tracking signal, not a coalescing
+   * mechanism.
+   *
+   * The entry is cleared in `.finally()` so failures still release the
+   * tracking slot. We do NOT re-throw or transform the rejection — the
+   * caller's surrounding logic owns the error handling.
+   *
+   * @internal — called by every load path (`getRepository`,
+   * `discoverRepository`, `reloadRepository`, `_performDebouncedRefresh`).
+   */
+  private _enrollReload(rootPath: string, p: Promise<IRepository>): Promise<IRepository> {
+    this._reloading.set(rootPath, p);
+    void p.finally(() => {
+      // Only clear if our entry is still the live one — a later writer may
+      // have replaced us. Without this guard, a long-running first load
+      // racing a quick second load would clear the second's entry early.
+      if (this._reloading.get(rootPath) === p) {
+        this._reloading.delete(rootPath);
+      }
+    });
+    return p;
+  }
+
+  /**
+   * Drain all in-flight `loadRepository` promises. Resolves once every
+   * tracked load has settled (success or failure).
+   *
+   * @internal — test-only seam. Called from
+   * `src/test/e2e/support/workspaceHelper.ts` to flush pending repository
+   * discovery before a test's `afterEach` runs `fs.rmSync(fixture-dir)`.
+   * Without this drain, the async tail of `loadRepository` (rev-parse /
+   * status / remote -v) races the directory removal, yields ENOENT errors
+   * that `loadRepository` swallows in its per-call try/catches, and then
+   * `loadRepository`'s final unconditional `_repositories.set(rootPath, ...)`
+   * resurrects a stale cache entry pointing at the deleted path. The next
+   * test sees that stale entry through `_resolveRepo` and surfaces a
+   * "working directory missing" error against a path it never touched.
+   *
+   * Production code does NOT call this method — production teardown
+   * goes through `dispose()` which simply clears `_reloading` along with
+   * everything else.
+   */
+  async _drainPendingReloads(): Promise<void> {
+    await Promise.allSettled([...this._reloading.values()]);
   }
 
   /**

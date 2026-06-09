@@ -31,9 +31,9 @@ describe('e2e — tag lifecycle commands', function () {
     if (stubs) {
       stubs.restore();
     }
-    clearWorkspace();
+    await clearWorkspace();
     if (fix) {
-      fix.cleanup();
+      await fix.cleanup();
     }
   });
 

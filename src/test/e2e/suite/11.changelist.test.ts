@@ -27,9 +27,9 @@ describe('e2e — changelist commands', function () {
     if (stubs) {
       stubs.restore();
     }
-    clearWorkspace();
+    await clearWorkspace();
     if (fix) {
-      fix.cleanup();
+      await fix.cleanup();
     }
   });
 
