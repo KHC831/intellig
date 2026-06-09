@@ -30,8 +30,8 @@ describe('e2e — refresh commands', function () {
 
   afterEach(async () => {
     stubs.restore();
-    clearWorkspace();
-    fix.cleanup();
+    await clearWorkspace();
+    await fix.cleanup();
   });
 
   it('intellig.refresh — runs twice in a row without throwing', async () => {

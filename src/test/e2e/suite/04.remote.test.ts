@@ -30,9 +30,9 @@ describe('e2e — remote commands (against file:// origin)', function () {
     if (stubs) {
       stubs.restore();
     }
-    clearWorkspace();
+    await clearWorkspace();
     if (fix) {
-      fix.cleanup();
+      await fix.cleanup();
     }
   });
 

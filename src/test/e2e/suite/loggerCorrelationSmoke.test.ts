@@ -141,13 +141,13 @@ describe('e2e — Logger correlation-id smoke', function () {
     stubs = stubPrompts({});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (stubs) {
       stubs.restore();
     }
-    clearWorkspace();
+    await clearWorkspace();
     if (fix) {
-      fix.cleanup();
+      await fix.cleanup();
     }
   });
 

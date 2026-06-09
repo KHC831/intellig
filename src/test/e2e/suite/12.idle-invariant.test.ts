@@ -140,13 +140,13 @@ describe('e2e — post-activate idle invariant (Tier-2 real-repo reproduction)',
     counter = installSpawnCounter();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (counter) {
       counter.dispose();
       counter = undefined;
     }
-    clearWorkspace();
-    fix.cleanup();
+    await clearWorkspace();
+    await fix.cleanup();
   });
 
   it('idle window has ≤ IDLE_SPAWN_THRESHOLD git spawns (catches watcher loop)', async () => {

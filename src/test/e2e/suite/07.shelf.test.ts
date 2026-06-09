@@ -37,9 +37,9 @@ describe('e2e — shelf commands', function () {
     if (stubs) {
       stubs.restore();
     }
-    clearWorkspace();
+    await clearWorkspace();
     if (fix) {
-      fix.cleanup();
+      await fix.cleanup();
     }
   });
 
