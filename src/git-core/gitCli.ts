@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { spawn, SpawnOptions, execFileSync } from 'child_process';
-import * as fs from 'fs';
 
 /**
  * Result of a Git command execution
@@ -184,84 +183,28 @@ export class GitCli {
     //   1. Constructor pre-resolved `'git'` to an absolute path
     //      (`resolveGitExecutable`). That should already make
     //      libuv's PATH lookup a non-issue.
-    //   2. `_spawnOnce` pre-validates `cwd` exists (handles the
-    //      "missing cwd looks like missing binary" ambiguity).
-    //   3. If the spawn STILL fails with ENOENT (concurrent fork
-    //      pressure, sandbox tear-down, /tmp racing), retry up to
-    //      TWO times with exponential backoff. The retry uses the
-    //      same gitPath because pre-resolution gave us a
-    //      deterministic absolute path; a transient ENOENT past
-    //      that point is almost always a fork/scheduler hiccup, not
-    //      a missing binary.
+    //   2. If the spawn STILL fails with ENOENT (e.g. concurrent
+    //      sandbox tear-down, /tmp racing under load), retry ONCE
+    //      after a short delay. The retry uses the same gitPath
+    //      because pre-resolution gave us a deterministic absolute
+    //      path; a transient ENOENT past that point is virtually
+    //      always a fork/scheduler hiccup and not a missing binary.
     //
-    // The retry is bounded to TWO attempts so a real "git not found"
-    // surfaces to the user without an interactive hang. We do NOT
-    // retry the cwd-missing case (deterministic, not transient).
-    //
-    // Why two retries instead of one: the prior single-retry
-    // implementation passed locally on macOS but still flaked on
-    // Linux CI (xvfb-run + extension host concurrent watchers).
-    // Two retries with 50ms / 200ms backoff covers fork pressure
-    // bursts that span multiple scheduler ticks.
-    const RETRY_DELAYS_MS = [50, 200];
-    let lastErr: unknown;
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-      try {
-        return await this._spawnOnce(args, options);
-      } catch (err) {
-        lastErr = err;
-        const isEnoentRetry =
-          err instanceof GitCommandError &&
-          /ENOENT/i.test(err.result.stderr) &&
-          !/working directory missing/i.test(err.result.stderr);
-        if (!isEnoentRetry || attempt === RETRY_DELAYS_MS.length) {
-          throw err;
-        }
-        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    // The retry is bounded to one attempt so a real "git not found"
+    // surfaces to the user without an interactive hang.
+    try {
+      return await this._spawnOnce(args, options);
+    } catch (err) {
+      if (err instanceof GitCommandError && /ENOENT/i.test(err.result.stderr)) {
+        await new Promise((r) => setTimeout(r, 50));
+        return this._spawnOnce(args, options);
       }
+      throw err;
     }
-    // Unreachable, but TypeScript wants exhaustive return.
-    throw lastErr;
   }
 
   private _spawnOnce(args: string[], options: IGitCommandOptions): Promise<IGitCommandResult> {
     const { cwd, env, timeout = 0, input, throwOnError = false } = options;
-
-    // Pre-validate cwd existence before spawn.
-    //
-    // libuv's `spawn` returns ENOENT against the binary path when EITHER
-    // the binary is missing OR the cwd doesn't exist — same error string
-    // shape, ambiguous root cause. Pre-resolution of the binary handles
-    // the first case; pre-validation here handles the second.
-    //
-    // The race that motivates this guard: e2e suite teardown
-    // `fs.rmSync(fixture-dir)` can complete on the main thread but
-    // background watchers (chokidar / parcel-watcher) may still hold
-    // a stale `IRepository` reference whose `rootUri.fsPath` points
-    // at the deleted directory. A subsequent `_performDebouncedRefresh`
-    // OR a test's own racing handler call then spawns `git` against
-    // that missing cwd and ENOENTs with a misleading message.
-    //
-    // With the guard: missing cwd → throw a clear `working directory
-    // missing` error, so toast surfaces something actionable instead
-    // of the user-confusing "git ENOENT". The retry path in `exec`
-    // does NOT retry this error (it's deterministic, not transient).
-    if (cwd && !fs.existsSync(cwd)) {
-      const missingCwdResult: IGitCommandResult = {
-        exitCode: -1,
-        stdout: '',
-        stderr: `working directory missing: ${cwd}`,
-        combined: `working directory missing: ${cwd}`,
-      };
-      return Promise.reject(
-        new GitCommandError(
-          this._gitPath,
-          args,
-          missingCwdResult,
-          `Failed to execute git: working directory missing: ${cwd}`
-        )
-      );
-    }
 
     const spawnOptions: SpawnOptions = {
       cwd,
