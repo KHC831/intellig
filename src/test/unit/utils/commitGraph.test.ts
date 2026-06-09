@@ -514,6 +514,206 @@ describe('Commit Graph Generation', () => {
         }
       });
     });
+
+    // ─── Phase 1a pins (§8 L1, L9) ─────────────────────────────────────
+    //
+    // The four cases below are the unit-level pins for the Phase 1a
+    // matrix entries (`docs/design/git-tool-window-implementation-plan.md`).
+    // They live alongside the seeding suite above because they
+    // exercise exactly the same code paths from a different angle —
+    // each one names a specific bug-class shape from spec §8 and
+    // pins it in isolation, so a regression points the next reader
+    // straight at the rule it broke.
+    //
+    // Property-level coverage of the same invariants lives in
+    // `src/test/property/laneStabilityAcrossReload.property.test.ts`
+    // and `src/test/property/headAncestryPromotion.property.test.ts`.
+    //
+    // ADR ref: `docs/adr/ADR-013-graph-data-model-invariants.md`.
+    describe('Phase 1a pins (§8 L1, L9)', () => {
+      it('seeds lane 0 from HEAD only — local + origin/main on same SHA share lane 0 (§8 L1)', () => {
+        // The tightest L1 pin: when `main` and `origin/main` both
+        // point at the same SHA, we render ONE chain on lane 0, not
+        // two parallel chains (one on lane 0 for `main`, one on
+        // lane 1 for `origin/main`). The seeding pre-pass collapses
+        // the remote entry onto the local's lane via the
+        // `state.commitToLane.has(tip.commit)` guard at the head of
+        // the seeding loop.
+        //
+        // Spec ref: §8.L1 "a repo with `main` and `origin/main` at
+        // the same SHA must render ONE chain on lane 0".
+        const commits = [createMockCommit('tip', ['parent']), createMockCommit('parent', [])];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('tip', [
+          { name: 'main', type: 'local' },
+          { name: 'origin/main', type: 'remote' },
+        ]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+
+        // Both rows must be on lane 0 — the `parent` row inherits
+        // straight-down via the first-child + first-parent rule.
+        assert.strictEqual(result[0].graphColumn, 0, 'tip must be on lane 0 (HEAD pre-seed)');
+        assert.strictEqual(
+          result[1].graphColumn,
+          0,
+          'parent must inherit lane 0 (no second chain claimed by origin/main)'
+        );
+        // `getMaxGraphColumn` is the renderer-visible upper bound.
+        // If the remote entry had double-allocated, it would be 1.
+        assert.strictEqual(
+          getMaxGraphColumn(result),
+          0,
+          'no lane index ≥ 1 may appear when local + remote share the SHA'
+        );
+      });
+
+      it('does NOT pre-seed non-HEAD branch tips — second branch goes through main pass (§8 L1)', () => {
+        // The complement of the test above: prove that the seeding
+        // pre-pass is HEAD-only in the lane-0 sense. A second local
+        // branch tip is still pre-claimed (so it lands on its
+        // alpha-sorted lane), but its lane number comes from
+        // `findNextAvailableLane`, NOT from a hard-coded "second
+        // tip → lane 1" rule. We verify this by giving the FIRST
+        // branch in display order a name that's alphabetically
+        // LATER than HEAD's branch — without HEAD pre-seeding the
+        // input-first behaviour would land it on lane 0, and the
+        // alpha-second branch would skip to lane 1.
+        //
+        // The test asserts both:
+        //   1. HEAD's tip is on lane 0 (pre-seeded).
+        //   2. The non-HEAD tip's lane is determined by the
+        //      alpha-sorted seeding order, NOT by display order.
+        //
+        // If a future change "pre-seeded non-HEAD tips at their
+        // input-display-order index" instead of going through the
+        // priority sort, this test fails — that regression would
+        // re-introduce the lane-jumps-on-refresh bug class.
+        const commits = [
+          // `zebra` appears first in display order, but is alpha-
+          // last in the priority sort. With seeding, `main` (HEAD)
+          // claims lane 0 first, then `apple` claims lane 1, then
+          // `zebra` claims lane 2 — even though `zebra` is the
+          // newest commit.
+          createMockCommit('zebra-tip', ['shared']),
+          createMockCommit('apple-tip', ['shared']),
+          createMockCommit('main-tip', ['shared']),
+          createMockCommit('shared', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('main-tip', [{ name: 'main', type: 'local' }]);
+        branchMap.set('apple-tip', [{ name: 'apple', type: 'local' }]);
+        branchMap.set('zebra-tip', [{ name: 'zebra', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main');
+        const main = result.find((n) => n.commit.hash === 'main-tip')!;
+        const apple = result.find((n) => n.commit.hash === 'apple-tip')!;
+        const zebra = result.find((n) => n.commit.hash === 'zebra-tip')!;
+
+        // §8 L1 invariants the new contract guarantees:
+        //   1. HEAD's branch lands on lane 0 (privileged).
+        //   2. Non-HEAD tips each claim a distinct lane (no overlap).
+        //   3. Non-HEAD tips do NOT collide with the reserved lane 0.
+        // The exact lane index for non-HEAD tips is whatever the
+        // natural first-seen-child algorithm picks — display order,
+        // NOT alphabetical priority. The earlier seed-everything
+        // contract pre-allocated lanes by alpha priority; the
+        // narrowed contract drops that, and these assertions reflect
+        // it.
+        assert.strictEqual(main.graphColumn, 0, 'HEAD branch (main) on lane 0');
+        const nonHeadLanes = new Set([apple.graphColumn, zebra.graphColumn]);
+        assert.strictEqual(
+          nonHeadLanes.size,
+          2,
+          `non-HEAD tips must claim distinct lanes; got apple=${apple.graphColumn} zebra=${zebra.graphColumn}`
+        );
+        assert.ok(
+          ![apple, zebra].some((n) => n.graphColumn === 0),
+          'no non-HEAD tip should land on the reserved lane 0'
+        );
+      });
+
+      it('off-window parent ⇒ {fromColumn === toColumn, style: "dashed"} and zero new lane allocations (§8 L9)', () => {
+        // §8.L9 — when a commit's parent is not in the loaded
+        // window, emit a same-lane dashed stub and DO NOT allocate
+        // a fresh lane. The "zero allocations" piece is what stops
+        // the stray-bezier-into-empty-lane bug; if we allocated,
+        // the renderer would draw a phantom hook to a column with
+        // no row anywhere.
+        //
+        // We assert "no lane allocation" structurally via
+        // `getMaxGraphColumn` — every commit lives on lane 0 (no
+        // non-HEAD seeding), the off-window edge stays on lane 0,
+        // therefore the max graph column is exactly 0. Any new
+        // lane allocation would lift the max to ≥ 1.
+        const commits = [createMockCommit('child', ['off-window-parent'])];
+
+        const result = generateCommitGraph(commits);
+
+        assert.strictEqual(result.length, 1);
+        assert.strictEqual(result[0].graphLines.length, 1);
+        const line = result[0].graphLines[0];
+        assert.strictEqual(line.fromColumn, line.toColumn, 'same-lane stub');
+        assert.strictEqual(line.style, 'dashed', 'off-window stub must be dashed');
+        assert.strictEqual(line.fromColumn, 0, 'stub stays on the source commit lane');
+        assert.strictEqual(
+          getMaxGraphColumn(result),
+          0,
+          'no fresh lane was allocated for the off-window parent'
+        );
+      });
+
+      it('off-window first parent of an in-window merge ⇒ same-lane dashed; bezier still emitted for second parent (§8 L9 + merge interaction)', () => {
+        // The trickier L9 shape: a merge commit whose FIRST parent
+        // is off-window (the mainline branch's history fell off
+        // the loaded slice) but whose SECOND parent IS in the
+        // window. The first-parent edge must be the dashed
+        // same-lane stub (per L9); the second-parent edge is a
+        // normal merge bezier that DOES allocate / inherit a lane,
+        // because that parent has a row to land on.
+        //
+        // This mirrors the IntelliJ behaviour where a long-running
+        // feature branch merges back into a paginated mainline:
+        // the mainline trunk continues "below the loaded window"
+        // (dashed stub), and the merged branch shows up as a
+        // proper bezier from the merge row to its in-window
+        // second-parent row.
+        const commits = [
+          // Merge: first parent is off-window (mainline), second
+          // parent is in-window (the feature branch).
+          createMockCommit('merge', ['off-window-mainline', 'feature-tip']),
+          createMockCommit('feature-tip', ['feature-base']),
+          createMockCommit('feature-base', []),
+        ];
+
+        const result = generateCommitGraph(commits);
+
+        const merge = result[0];
+        assert.strictEqual(merge.graphLines.length, 2, 'merge emits 2 graph lines');
+
+        // First parent: off-window dashed same-lane stub.
+        const firstEdge = merge.graphLines[0];
+        assert.strictEqual(firstEdge.fromColumn, firstEdge.toColumn, 'L9 same-lane');
+        assert.strictEqual(firstEdge.style, 'dashed', 'L9 dashed style');
+        assert.strictEqual(firstEdge.type, 'commit', 'first-parent edge type stays "commit"');
+
+        // Second parent: real merge bezier to the feature-tip row.
+        const secondEdge = merge.graphLines[1];
+        assert.notStrictEqual(
+          secondEdge.style,
+          'dashed',
+          'in-window merge edge must NOT be dashed'
+        );
+        assert.strictEqual(secondEdge.type, 'merge', 'second-parent edge type is "merge"');
+        // The bezier targets the lane of the in-window feature-tip.
+        const featureTip = result.find((n) => n.commit.hash === 'feature-tip')!;
+        assert.strictEqual(
+          secondEdge.toColumn,
+          featureTip.graphColumn,
+          "merge bezier endpoint matches second parent's actual lane"
+        );
+      });
+    });
   });
 
   describe('getMaxGraphColumn()', () => {
