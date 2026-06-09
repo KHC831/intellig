@@ -1,11 +1,11 @@
 /**
- * Property test pins for spec §8 invariant L1 — lane assignment must be
+ * Property test pins for spec spec 8 invariant L1 — lane assignment must be
  * stable across reloads.
  *
- * Spec ref: `docs/design/git-tool-window-spec.md` §8.L1.
+ * Spec ref: `docs/design/git-tool-window-spec.md` spec 8.L1.
  * ADR ref: `docs/adr/ADR-013-graph-data-model-invariants.md`.
  *
- * The §8 L1 rule:
+ * The spec 8 L1 rule:
  *
  *   1. HEAD's branch tip pre-seeds lane 0 (and ONLY HEAD's tip).
  *   2. The two-pass children-map algorithm assigns subsequent lanes
@@ -148,7 +148,7 @@ function laneSnapshot(nodes: ICommitNode[]): Array<[string, number]> {
 // L1 — Byte-identical reload property
 // ---------------------------------------------------------------------------
 
-describe('Phase 1a property pin — §8 L1 lane stability across reloads', () => {
+describe('Phase 1a property pin — spec 8 L1 lane stability across reloads', () => {
   it('property A — same input ⇒ deeply-equal output (lane assignment is byte-identical across no-op reloads)', () => {
     fc.assert(
       fc.property(dagArb, (dag) => {

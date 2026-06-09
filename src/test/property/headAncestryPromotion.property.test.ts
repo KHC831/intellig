@@ -1,10 +1,10 @@
 /**
- * Property test pin for spec §8 invariant L1 — HEAD-ancestry promotion.
+ * Property test pin for spec spec 8 invariant L1 — HEAD-ancestry promotion.
  *
- * Spec ref: `docs/design/git-tool-window-spec.md` §8.L1.
+ * Spec ref: `docs/design/git-tool-window-spec.md` spec 8.L1.
  * ADR ref: `docs/adr/ADR-013-graph-data-model-invariants.md`.
  *
- * The §8 L1 sub-rule pinned here:
+ * The spec 8 L1 sub-rule pinned here:
  *
  *   When the input commit array (newest-first display order)
  *   interleaves a divergent branch's commits BEFORE the HEAD-ancestry
@@ -146,7 +146,7 @@ function buildScenario(s: ScenarioInput): {
 // L1 — HEAD-ancestry promotion property
 // ---------------------------------------------------------------------------
 
-describe('Phase 1a property pin — §8 L1 HEAD-ancestry promotion', () => {
+describe('Phase 1a property pin — spec 8 L1 HEAD-ancestry promotion', () => {
   it('mainline tip wins lane 0 against earlier-listed divergent siblings (across random K, depth, interleaving, head pick)', () => {
     fc.assert(
       fc.property(scenarioArb, (s) => {

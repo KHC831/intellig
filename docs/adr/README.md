@@ -40,8 +40,8 @@ status block.
   are retired.
 - [ADR-013](ADR-013-graph-data-model-invariants.md) — Accepted —
   Commit graph data model (`IGraphLine` / `ICommitNode`) and
-  lane-algorithm invariants (§8 L1 lane stability + HEAD-ancestry
-  promotion, §8 L9 dashed off-window stub, §8 L4 same-lane stroke
+  lane-algorithm invariants (spec 8 L1 lane stability + HEAD-ancestry
+  promotion, spec 8 L9 dashed off-window stub, spec 8 L4 same-lane stroke
   color), pinned by property + unit tests in
   `src/test/property/laneStabilityAcrossReload.property.test.ts`,
   `src/test/property/headAncestryPromotion.property.test.ts`, and
