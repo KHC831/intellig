@@ -57,11 +57,36 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Commit rows with required fields', () => {
-    it('should render an empty message when no commits are provided', () => {
+    it('renders the no-commits empty state when no commits and no active filter', () => {
       const html = provider._getGraphPanelHtml([]);
 
-      assert.ok(html.includes('No commits found'), 'Should show empty message');
+      assert.ok(
+        html.includes('No commits yet'),
+        `Should show the no-commits empty state; got: ${html}`
+      );
       assert.ok(html.includes('graph-panel'), 'Should have graph-panel container');
+      assert.ok(html.includes('graph-empty-state'), 'Should use the empty-state container');
+      // The no-commits state offers no "Clear filter" action.
+      assert.ok(
+        !html.includes('clearLogFilter'),
+        'no-commits state must NOT offer a Clear filter button'
+      );
+    });
+
+    it('renders the filtered-empty state (with Clear filter action) when a filter is active and matches nothing', () => {
+      // Activate a filter, then render an empty result.
+      provider.setLogFilter({ searchText: 'nonexistent-needle' });
+      const html = provider._getGraphPanelHtml([]);
+
+      assert.ok(
+        html.includes('No commits match the current filter'),
+        `Should show the filtered-empty state; got: ${html}`
+      );
+      assert.ok(
+        html.includes('data-action="clearLogFilter"'),
+        'filtered-empty state must offer a Clear filter button'
+      );
+      assert.ok(html.includes('graph-empty-state'), 'Should use the empty-state container');
     });
 
     it('should render a commit row with short hash in data-hash attribute', () => {

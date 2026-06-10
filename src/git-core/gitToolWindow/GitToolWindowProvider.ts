@@ -1453,6 +1453,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       case 'applyLogFilter':
         this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
         break;
+      case 'clearLogFilter':
+        // Fired by the "Clear filter" button on the filtered-empty
+        // graph state. Clearing is just applying a null filter, which
+        // resets `_extendedLogState.filter` and re-fires the log-filter
+        // event so the host reloads the unfiltered commit list.
+        this._handleApplyLogFilter(null);
+        break;
       case 'branchClick':
         if (message.branchName) {
           this._handleBranchClick(message.branchName);
@@ -2850,10 +2857,7 @@ ${bodyMarkup}
     const selected = selectedCommits || new Set<string>();
 
     if (commitNodes.length === 0) {
-      return `
-        <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
-          <p class="empty-message">No commits found</p>
-        </div>`;
+      return this._getEmptyGraphPanelHtml();
     }
 
     // Compute active lanes for the entire commit list
@@ -3004,6 +3008,51 @@ ${bodyMarkup}
         ${repositorySelectorHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
+      </div>`;
+  }
+
+  /**
+   * Build the empty-state body for the graph panel.
+   *
+   * The graph panel reaches this branch whenever `commitNodes` is empty
+   * AND the host has already cleared the loading state and confirmed a
+   * repository (the loading / no-repository cases are handled upstream
+   * in `_getHtmlContent` by `_getLoadingHtml` / `_getNoRepositoryHtml`,
+   * so they never reach here). That leaves exactly two reasons the row
+   * list can be empty:
+   *
+   *   - `filteredEmpty` — a log filter is active and matched zero
+   *     commits. We surface a "Clear filter" affordance so the user can
+   *     recover in one click.
+   *   - `noCommits` — a real repository with no commits in the loaded
+   *     window (a freshly-initialised repo before the first commit).
+   *
+   * Distinguishing the two avoids the old "No commits found" message,
+   * which read as "your filter is broken" to users staring at a fresh
+   * repo and "your repo is empty" to users who'd just typed a filter
+   * that matched nothing.
+   *
+   * The repository selector is preserved at the top so a multi-repo
+   * user can switch repos without the dropdown vanishing on an empty
+   * result.
+   */
+  private _getEmptyGraphPanelHtml(): string {
+    const repositorySelectorHtml = this._getRepositorySelectorHtml();
+    const hasActiveFilter = this._extendedLogState.filter !== undefined;
+
+    const body = hasActiveFilter
+      ? `<div class="graph-empty-state">
+           <p class="empty-message">No commits match the current filter</p>
+           <button type="button" class="graph-empty-action" data-action="clearLogFilter">Clear filter</button>
+         </div>`
+      : `<div class="graph-empty-state">
+           <p class="empty-message">No commits yet — make your first commit</p>
+         </div>`;
+
+    return `
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
+        ${repositorySelectorHtml}
+        ${body}
       </div>`;
   }
 
@@ -3881,6 +3930,32 @@ ${bodyMarkup}
         color: var(--vscode-descriptionForeground);
         text-align: center;
         padding: 16px;
+      }
+
+      /* Empty-state container for the graph panel (no-commits /
+         filtered-empty). Centers the message + optional action button
+         in the available space rather than pinning to the top. */
+      .graph-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 32px 16px;
+        text-align: center;
+      }
+      .graph-empty-action {
+        font-family: inherit;
+        font-size: inherit;
+        padding: 4px 14px;
+        border: 1px solid var(--vscode-button-border, transparent);
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        cursor: pointer;
+        border-radius: 2px;
+      }
+      .graph-empty-action:hover {
+        background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
       }
 
       /* Log View Styles: IntelliJ-style log layout */
@@ -4952,6 +5027,21 @@ ${bodyMarkup}
             }
           }
         })();
+
+        // ─── Empty-state action buttons ──────────────────────────────────
+        // The filtered-empty graph state renders a "Clear filter" button
+        // (data-action="clearLogFilter"). Route it to the host. Uses the
+        // single shared vscode API instance (see L8 invariant) — never
+        // re-acquires.
+        document.addEventListener('click', function(e) {
+          const emptyAction = e.target.closest('.graph-empty-action[data-action]');
+          if (emptyAction) {
+            const action = emptyAction.getAttribute('data-action');
+            if (action === 'clearLogFilter') {
+              vscode.postMessage({ type: 'clearLogFilter' });
+            }
+          }
+        });
 
         // ─── Event delegation for commit rows ────────────────────────────
 
