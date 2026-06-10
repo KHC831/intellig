@@ -243,4 +243,51 @@ wording for parity.
 
 ---
 
-_Last updated: 2026-05-31._
+## High-contrast sign-off (spec 7.2 invariant 4)
+
+This is the manual pre-release checklist for invariant 4
+(high-contrast survival). Automated coverage pins the theme-var
+contract (every colour resolves through a `var(--vscode-…)` token —
+see `themeTokenCompleteness.audit.test.ts`), but contrast and glyph
+legibility under the High Contrast themes are a human judgement call.
+The implementing agent runs this sweep before each release.
+
+Each row is verified under **both** built-in high-contrast themes:
+
+- **HC Dark** = `Default High Contrast`
+- **HC Light** = `Default High Contrast Light`
+
+| Surface / state | HC Dark | HC Light |
+|---|---|---|
+| Branch chip — local | ☐ | ☐ |
+| Branch chip — remote | ☐ | ☐ |
+| HEAD chip | ☐ | ☐ |
+| Tag chip | ☐ | ☐ |
+| Chip at 200px clip (ellipsis legible) | ☐ | ☐ |
+| Commit row — idle | ☐ | ☐ |
+| Commit row — hover | ☐ | ☐ |
+| Commit row — selected | ☐ | ☐ |
+| Commit row — multi-select anchor | ☐ | ☐ |
+| Commit row — cherry-picked marker | ☐ | ☐ |
+| Graph lane colours (8+ lanes distinguishable) | ☐ | ☐ |
+| Focused-branch path (brightened vs dimmed) | ☐ | ☐ |
+| File-status letters (A/M/D/R/C/conflicted) | ☐ | ☐ |
+| Empty state — no commits | ☐ | ☐ |
+| Empty state — filtered-empty | ☐ | ☐ |
+| Repo selector dropdown | ☐ | ☐ |
+| Dialog — ResetDialog (incl. disabled radios) | ☐ | ☐ |
+| Dialog — PushDialog (force / protected rows) | ☐ | ☐ |
+| Dialog — MergeDialog | ☐ | ☐ |
+| Dialog — NewBranchDialog (error text) | ☐ | ☐ |
+| Dialog — ApplyPatchDialog | ☐ | ☐ |
+| Dialog — SquashMessageDialog | ☐ | ☐ |
+| Dialog — ResolveConflictsDialog | ☐ | ☐ |
+
+Sign-off rule: a surface passes when (a) every distinction is legible
+without relying on colour alone (invariant 3 cross-check) and (b) no
+text or glyph drops below the theme's contrast floor. A failure is a
+release blocker for that surface, not a soft warning.
+
+---
+
+_Last updated: 2026-06-10._
