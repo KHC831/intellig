@@ -49,6 +49,7 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { formatCommitDate } from '../../utils/dateFormat';
+import { normalizeRepoPath } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
 import {
@@ -2038,15 +2039,21 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // by matching that path against the new list. Falls back to 0
     // when the previously-selected repo is no longer present (folder
     // removed from workspace) — the prior contract.
-    const previousSelectedPath =
-      this._availableRepositories[this._selectedRepositoryIndex]?.rootUri.fsPath;
+    // Identity comparison goes through `normalizeRepoPath` (L14) so a
+    // Windows drive-letter-case or slash-flavor difference between the
+    // old and new list entries doesn't read as a different repo and
+    // silently drop the user's selection.
+    const previousSelected = this._availableRepositories[this._selectedRepositoryIndex];
+    const previousSelectedPath = previousSelected
+      ? normalizeRepoPath(previousSelected.rootUri)
+      : undefined;
 
     this._availableRepositories = repos;
 
     if (repos.length === 0) {
       this._selectedRepositoryIndex = 0;
     } else if (previousSelectedPath !== undefined) {
-      const matched = repos.findIndex((r) => r.rootUri.fsPath === previousSelectedPath);
+      const matched = repos.findIndex((r) => normalizeRepoPath(r.rootUri) === previousSelectedPath);
       this._selectedRepositoryIndex = matched >= 0 ? matched : 0;
     } else if (this._selectedRepositoryIndex >= repos.length) {
       // No prior selection (cold start) and the saved index is
@@ -3240,7 +3247,13 @@ ${bodyMarkup}
         const fsPath = repo.rootUri.fsPath;
         const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
         const selected = index === this._selectedRepositoryIndex ? ' selected' : '';
-        return `<option value="${index}"${selected}>${folderName}</option>`;
+        // `title` carries the full user-friendly path so two repos
+        // with the same leaf folder name are distinguishable on hover
+        // (spec section 4.2). Internal identity comparisons use the
+        // normalized form (see setAvailableRepositories); the tooltip
+        // shows the raw path the user recognizes.
+        const titleAttr = ` title="${this._escapeHtml(fsPath)}"`;
+        return `<option value="${index}"${selected}${titleAttr}>${folderName}</option>`;
       })
       .join('');
 
