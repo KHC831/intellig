@@ -16,6 +16,7 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { ICommitNode, IGraphLine } from '../../git-core/commitGraph';
 import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
+import { formatCommitDate } from '../../utils/dateFormat';
 import { Uri } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -226,23 +227,35 @@ describe('Feature: git-graph-details-improvements - Commit Row Content Property 
             `HTML output should contain the author name "${commit.author.name}"`
           );
 
-          // 3. The output should contain the absolute date formatted by _formatAbsoluteDate()
-          const expectedDate = provider._formatAbsoluteDate(commit.authorDate);
+          // 3. The output should contain the date label produced by
+          //    `formatCommitDate` (relative for commits under a week
+          //    old, absolute beyond). The label is HTML-escaped in the
+          //    row, but every form this function produces ("now", "5m",
+          //    "Mar 17 2026", …) is already escape-safe, so a plain
+          //    substring check holds.
+          const { display: expectedDateLabel } = formatCommitDate(commit.authorDate);
           assert.ok(
-            html.includes(expectedDate),
-            `HTML output should contain the absolute date "${expectedDate}"`
+            html.includes(expectedDateLabel),
+            `HTML output should contain the date label "${expectedDateLabel}"`
           );
 
-          // 4. The output should NOT contain "ago" (relative date indicator)
-          //    We check specifically within commit-date spans to avoid false positives
-          //    from other content (e.g., a commit message containing "ago")
+          // 4. The commit-date span content must EXACTLY equal the
+          //    formatCommitDate label — never the legacy absolute
+          //    "YYYY-MM-DD H:MM AM/PM" form, and never a stray "ago"
+          //    suffix (the relative labels are suffix-free: "3d", not
+          //    "3d ago").
           const dateSpanRegex = /<span class="commit-date"[^>]*>([^<]*)<\/span>/g;
           let match;
           while ((match = dateSpanRegex.exec(html)) !== null) {
             const dateContent = match[1];
             assert.ok(
               !dateContent.includes('ago'),
-              `Commit date span should NOT contain relative date "ago" but found: "${dateContent}"`
+              `Commit date span should NOT contain relative "ago" suffix but found: "${dateContent}"`
+            );
+            assert.strictEqual(
+              dateContent,
+              expectedDateLabel,
+              `Commit date span content must equal formatCommitDate label "${expectedDateLabel}"`
             );
           }
         }),

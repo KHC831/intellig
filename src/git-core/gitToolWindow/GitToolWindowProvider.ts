@@ -48,6 +48,7 @@ import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
+import { formatCommitDate } from '../../utils/dateFormat';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
 import {
@@ -2918,8 +2919,13 @@ ${bodyMarkup}
         const fullMessage = this._escapeHtml(commit.message);
         const authorName = this._escapeHtml(commit.author.name);
         const authorEmail = this._escapeHtml(commit.author.email);
-        const absoluteDate = this._formatAbsoluteDate(commit.authorDate);
-        const fullDate = commit.authorDate.toLocaleString();
+        // IntelliJ-style relative-or-absolute label: a commit under a
+        // week old reads as a relative distance ("3d", "2h"); older
+        // commits show an absolute calendar date. The tooltip always
+        // carries the full timestamp. See `formatCommitDate`.
+        const { display: dateDisplay, tooltip: dateTooltip } = formatCommitDate(commit.authorDate);
+        const commitDate = this._escapeHtml(dateDisplay);
+        const fullDate = this._escapeHtml(dateTooltip);
 
         // Generate branch labels HTML
         const branchLabelsHtml = this._getBranchLabelsHtml(node);
@@ -2954,7 +2960,7 @@ ${bodyMarkup}
             <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
             <div class="commit-branches">${branchLabelsHtml}</div>
             <span class="commit-author" title="${authorEmail}">${authorName}</span>
-            <span class="commit-date" title="${fullDate}">${absoluteDate}</span>
+            <span class="commit-date" title="${fullDate}">${commitDate}</span>
           </div>
         </div>`;
       })
@@ -4144,13 +4150,20 @@ ${bodyMarkup}
         line-height: 1.2;
       }
 
-      /* Author column: fixed-width, left-aligned. Match IntelliJ. The
-         column was originally 140px which left a visible dead band
-         between short names and the date column. 100px ellipsised too
-         many real-world names (e.g. "Christopher" + last initial);
-         120px is the IntelliJ-parity sweet spot — long names still
-         ellipsise, but typical "First Last" names fit without
-         truncation. */
+      /* Author column: fixed-width, RIGHT-aligned. The column is a
+         fixed 120px so the date column starts at a stable x across
+         rows (IntelliJ-parity column alignment). Earlier the content
+         was left-aligned, which left a visible dead band between a
+         short name and the date column — the name hugged the left
+         edge of its 120px box while the date sat 120px away
+         regardless of name length. Right-aligning collapses that
+         band: the name now butts up against the date column's
+         left padding, and the slack (if any) falls on the LEFT where
+         it abuts the flexible title column. Long names still
+         ellipsise (overflow/text-overflow/nowrap retained); the
+         ellipsis now appears at the LEFT, preserving the most-recent
+         characters of the name nearest the date.
+         See KNOWN-ISSUES.md author/date dead-band entry. */
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -4159,8 +4172,9 @@ ${bodyMarkup}
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
-        text-align: left;
-        padding-left: 12px;
+        text-align: right;
+        padding-left: 0;
+        padding-right: 12px;
       }
 
       .commit-date {
