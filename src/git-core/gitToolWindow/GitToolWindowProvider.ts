@@ -48,6 +48,8 @@ import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
+import { formatCommitDate } from '../../utils/dateFormat';
+import { normalizeRepoPath } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
 import {
@@ -1452,6 +1454,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       case 'applyLogFilter':
         this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
         break;
+      case 'clearLogFilter':
+        // Fired by the "Clear filter" button on the filtered-empty
+        // graph state. Clearing is just applying a null filter, which
+        // resets `_extendedLogState.filter` and re-fires the log-filter
+        // event so the host reloads the unfiltered commit list.
+        this._handleApplyLogFilter(null);
+        break;
       case 'branchClick':
         if (message.branchName) {
           this._handleBranchClick(message.branchName);
@@ -2030,15 +2039,21 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     // by matching that path against the new list. Falls back to 0
     // when the previously-selected repo is no longer present (folder
     // removed from workspace) — the prior contract.
-    const previousSelectedPath =
-      this._availableRepositories[this._selectedRepositoryIndex]?.rootUri.fsPath;
+    // Identity comparison goes through `normalizeRepoPath` (L14) so a
+    // Windows drive-letter-case or slash-flavor difference between the
+    // old and new list entries doesn't read as a different repo and
+    // silently drop the user's selection.
+    const previousSelected = this._availableRepositories[this._selectedRepositoryIndex];
+    const previousSelectedPath = previousSelected
+      ? normalizeRepoPath(previousSelected.rootUri)
+      : undefined;
 
     this._availableRepositories = repos;
 
     if (repos.length === 0) {
       this._selectedRepositoryIndex = 0;
     } else if (previousSelectedPath !== undefined) {
-      const matched = repos.findIndex((r) => r.rootUri.fsPath === previousSelectedPath);
+      const matched = repos.findIndex((r) => normalizeRepoPath(r.rootUri) === previousSelectedPath);
       this._selectedRepositoryIndex = matched >= 0 ? matched : 0;
     } else if (this._selectedRepositoryIndex >= repos.length) {
       // No prior selection (cold start) and the saved index is
@@ -2849,10 +2864,7 @@ ${bodyMarkup}
     const selected = selectedCommits || new Set<string>();
 
     if (commitNodes.length === 0) {
-      return `
-        <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
-          <p class="empty-message">No commits found</p>
-        </div>`;
+      return this._getEmptyGraphPanelHtml();
     }
 
     // Compute active lanes for the entire commit list
@@ -2918,8 +2930,13 @@ ${bodyMarkup}
         const fullMessage = this._escapeHtml(commit.message);
         const authorName = this._escapeHtml(commit.author.name);
         const authorEmail = this._escapeHtml(commit.author.email);
-        const absoluteDate = this._formatAbsoluteDate(commit.authorDate);
-        const fullDate = commit.authorDate.toLocaleString();
+        // IntelliJ-style relative-or-absolute label: a commit under a
+        // week old reads as a relative distance ("3d", "2h"); older
+        // commits show an absolute calendar date. The tooltip always
+        // carries the full timestamp. See `formatCommitDate`.
+        const { display: dateDisplay, tooltip: dateTooltip } = formatCommitDate(commit.authorDate);
+        const commitDate = this._escapeHtml(dateDisplay);
+        const fullDate = this._escapeHtml(dateTooltip);
 
         // Generate branch labels HTML
         const branchLabelsHtml = this._getBranchLabelsHtml(node);
@@ -2954,7 +2971,7 @@ ${bodyMarkup}
             <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
             <div class="commit-branches">${branchLabelsHtml}</div>
             <span class="commit-author" title="${authorEmail}">${authorName}</span>
-            <span class="commit-date" title="${fullDate}">${absoluteDate}</span>
+            <span class="commit-date" title="${fullDate}">${commitDate}</span>
           </div>
         </div>`;
       })
@@ -2998,6 +3015,51 @@ ${bodyMarkup}
         ${repositorySelectorHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
+      </div>`;
+  }
+
+  /**
+   * Build the empty-state body for the graph panel.
+   *
+   * The graph panel reaches this branch whenever `commitNodes` is empty
+   * AND the host has already cleared the loading state and confirmed a
+   * repository (the loading / no-repository cases are handled upstream
+   * in `_getHtmlContent` by `_getLoadingHtml` / `_getNoRepositoryHtml`,
+   * so they never reach here). That leaves exactly two reasons the row
+   * list can be empty:
+   *
+   *   - `filteredEmpty` — a log filter is active and matched zero
+   *     commits. We surface a "Clear filter" affordance so the user can
+   *     recover in one click.
+   *   - `noCommits` — a real repository with no commits in the loaded
+   *     window (a freshly-initialised repo before the first commit).
+   *
+   * Distinguishing the two avoids the old "No commits found" message,
+   * which read as "your filter is broken" to users staring at a fresh
+   * repo and "your repo is empty" to users who'd just typed a filter
+   * that matched nothing.
+   *
+   * The repository selector is preserved at the top so a multi-repo
+   * user can switch repos without the dropdown vanishing on an empty
+   * result.
+   */
+  private _getEmptyGraphPanelHtml(): string {
+    const repositorySelectorHtml = this._getRepositorySelectorHtml();
+    const hasActiveFilter = this._extendedLogState.filter !== undefined;
+
+    const body = hasActiveFilter
+      ? `<div class="graph-empty-state">
+           <p class="empty-message">No commits match the current filter</p>
+           <button type="button" class="graph-empty-action" data-action="clearLogFilter">Clear filter</button>
+         </div>`
+      : `<div class="graph-empty-state">
+           <p class="empty-message">No commits yet — make your first commit</p>
+         </div>`;
+
+    return `
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="0" data-anchor-hash="">
+        ${repositorySelectorHtml}
+        ${body}
       </div>`;
   }
 
@@ -3185,7 +3247,13 @@ ${bodyMarkup}
         const fsPath = repo.rootUri.fsPath;
         const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
         const selected = index === this._selectedRepositoryIndex ? ' selected' : '';
-        return `<option value="${index}"${selected}>${folderName}</option>`;
+        // `title` carries the full user-friendly path so two repos
+        // with the same leaf folder name are distinguishable on hover
+        // (spec section 4.2). Internal identity comparisons use the
+        // normalized form (see setAvailableRepositories); the tooltip
+        // shows the raw path the user recognizes.
+        const titleAttr = ` title="${this._escapeHtml(fsPath)}"`;
+        return `<option value="${index}"${selected}${titleAttr}>${folderName}</option>`;
       })
       .join('');
 
@@ -3877,6 +3945,32 @@ ${bodyMarkup}
         padding: 16px;
       }
 
+      /* Empty-state container for the graph panel (no-commits /
+         filtered-empty). Centers the message + optional action button
+         in the available space rather than pinning to the top. */
+      .graph-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 32px 16px;
+        text-align: center;
+      }
+      .graph-empty-action {
+        font-family: inherit;
+        font-size: inherit;
+        padding: 4px 14px;
+        border: 1px solid var(--vscode-button-border, transparent);
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        cursor: pointer;
+        border-radius: 2px;
+      }
+      .graph-empty-action:hover {
+        background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+      }
+
       /* Log View Styles: IntelliJ-style log layout */
       .log-container {
         display: flex;
@@ -4144,13 +4238,20 @@ ${bodyMarkup}
         line-height: 1.2;
       }
 
-      /* Author column: fixed-width, left-aligned. Match IntelliJ. The
-         column was originally 140px which left a visible dead band
-         between short names and the date column. 100px ellipsised too
-         many real-world names (e.g. "Christopher" + last initial);
-         120px is the IntelliJ-parity sweet spot — long names still
-         ellipsise, but typical "First Last" names fit without
-         truncation. */
+      /* Author column: fixed-width, RIGHT-aligned. The column is a
+         fixed 120px so the date column starts at a stable x across
+         rows (IntelliJ-parity column alignment). Earlier the content
+         was left-aligned, which left a visible dead band between a
+         short name and the date column — the name hugged the left
+         edge of its 120px box while the date sat 120px away
+         regardless of name length. Right-aligning collapses that
+         band: the name now butts up against the date column's
+         left padding, and the slack (if any) falls on the LEFT where
+         it abuts the flexible title column. Long names still
+         ellipsise (overflow/text-overflow/nowrap retained); the
+         ellipsis now appears at the LEFT, preserving the most-recent
+         characters of the name nearest the date.
+         See KNOWN-ISSUES.md author/date dead-band entry. */
       .commit-author {
         overflow: hidden;
         text-overflow: ellipsis;
@@ -4159,8 +4260,9 @@ ${bodyMarkup}
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
-        text-align: left;
-        padding-left: 12px;
+        text-align: right;
+        padding-left: 0;
+        padding-right: 12px;
       }
 
       .commit-date {
@@ -4938,6 +5040,21 @@ ${bodyMarkup}
             }
           }
         })();
+
+        // ─── Empty-state action buttons ──────────────────────────────────
+        // The filtered-empty graph state renders a "Clear filter" button
+        // (data-action="clearLogFilter"). Route it to the host. Uses the
+        // single shared vscode API instance (see L8 invariant) — never
+        // re-acquires.
+        document.addEventListener('click', function(e) {
+          const emptyAction = e.target.closest('.graph-empty-action[data-action]');
+          if (emptyAction) {
+            const action = emptyAction.getAttribute('data-action');
+            if (action === 'clearLogFilter') {
+              vscode.postMessage({ type: 'clearLogFilter' });
+            }
+          }
+        });
 
         // ─── Event delegation for commit rows ────────────────────────────
 

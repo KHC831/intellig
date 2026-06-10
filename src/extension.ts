@@ -590,6 +590,19 @@ export function deactivate(): void {
  *
  * @param context - The VS Code extension context
  */
+/**
+ * Test seam: register every IntelliG command against a context without
+ * running the full `activate()` sequence (which needs a live view /
+ * watcher / service graph). Used by the command-handler transparency
+ * behavioral harness to capture each `registerLoggedCommand` callback and
+ * drive its degraded-mode guard path. NOT part of the public API; the
+ * leading `__` + `ForTest` suffix marks it per the repo's TestSurface
+ * convention (see docs/testing.md).
+ */
+export function __registerCommandsForTest(context: vscode.ExtensionContext): void {
+  registerCommands(context);
+}
+
 function registerCommands(context: vscode.ExtensionContext): void {
   // Open Git Tool Window command
   const openGitToolWindowCommand = registerLoggedCommand('intellig.openGitToolWindow', () => {

@@ -57,11 +57,36 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Commit rows with required fields', () => {
-    it('should render an empty message when no commits are provided', () => {
+    it('renders the no-commits empty state when no commits and no active filter', () => {
       const html = provider._getGraphPanelHtml([]);
 
-      assert.ok(html.includes('No commits found'), 'Should show empty message');
+      assert.ok(
+        html.includes('No commits yet'),
+        `Should show the no-commits empty state; got: ${html}`
+      );
       assert.ok(html.includes('graph-panel'), 'Should have graph-panel container');
+      assert.ok(html.includes('graph-empty-state'), 'Should use the empty-state container');
+      // The no-commits state offers no "Clear filter" action.
+      assert.ok(
+        !html.includes('clearLogFilter'),
+        'no-commits state must NOT offer a Clear filter button'
+      );
+    });
+
+    it('renders the filtered-empty state (with Clear filter action) when a filter is active and matches nothing', () => {
+      // Activate a filter, then render an empty result.
+      provider.setLogFilter({ searchText: 'nonexistent-needle' });
+      const html = provider._getGraphPanelHtml([]);
+
+      assert.ok(
+        html.includes('No commits match the current filter'),
+        `Should show the filtered-empty state; got: ${html}`
+      );
+      assert.ok(
+        html.includes('data-action="clearLogFilter"'),
+        'filtered-empty state must offer a Clear filter button'
+      );
+      assert.ok(html.includes('graph-empty-state'), 'Should use the empty-state container');
     });
 
     it('should render a commit row with short hash in data-hash attribute', () => {
@@ -141,12 +166,13 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
-    it('uses a fixed 120px author column with ellipsis (matches IntelliJ; fits typical "First Last" names)', () => {
+    it('uses a fixed 120px right-aligned author column with ellipsis (closes the author/date dead band)', () => {
       // Reach into the inline-style block for the .commit-author rule.
-      // The column went through 140px → max-width:140px → 100px → 120px.
-      // 100px ellipsised too many real-world names; 120px is the
-      // IntelliJ-parity sweet spot — long names still truncate, typical
-      // "First Last" fits without an ellipsis.
+      // The column went through 140px -> max-width:140px -> 100px -> 120px
+      // for width, and left-align -> RIGHT-align to close the dead band:
+      // a short name now butts against the date column instead of
+      // leaving a gap inside its 120px box. See KNOWN-ISSUES.md
+      // author/date dead-band entry.
       const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
 
       const authorRuleMatch = styles.match(/\.commit-author\s*\{([^}]+)\}/);
@@ -158,8 +184,12 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         `.commit-author should declare a fixed width: 120px, got: "${authorRule.trim()}"`
       );
       assert.ok(
-        authorRule.includes('text-align: left'),
-        '.commit-author must be left-aligned (matches IntelliJ)'
+        authorRule.includes('text-align: right'),
+        '.commit-author must be right-aligned so the name abuts the date column (no dead band)'
+      );
+      assert.ok(
+        !/text-align:\s*left/.test(authorRule),
+        '.commit-author must NOT be left-aligned (re-introduces the dead band)'
       );
       assert.ok(
         authorRule.includes('text-overflow: ellipsis'),
@@ -175,17 +205,27 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('should render absolute date instead of relative date', () => {
+    it('renders the commit date via formatCommitDate (absolute form for an old fixed date)', () => {
+      // Jan 15 2024 is years before any plausible "now", so
+      // formatCommitDate emits its absolute form: "Jan 15 2024".
       const node = makeCommitNode(
         {},
         {
-          authorDate: new Date(2024, 0, 15, 14, 30, 0), // Jan 15, 2024 2:30 PM
+          authorDate: new Date(2024, 0, 15, 14, 30, 0),
         }
       );
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('commit-date'), 'Should have commit-date class');
-      assert.ok(html.includes('2024-01-15 2:30 PM'), 'Should show absolute date');
+      assert.ok(
+        html.includes('Jan 15 2024'),
+        `Should show the absolute "Jan 15 2024" form for an old date; got: ${html}`
+      );
+      // The legacy "YYYY-MM-DD H:MM AM/PM" form must be gone.
+      assert.ok(
+        !html.includes('2024-01-15 2:30 PM'),
+        'Legacy absolute date format must no longer appear'
+      );
     });
 
     it('should render the full hash in the data-hash attribute', () => {
@@ -373,40 +413,32 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Absolute date formatting in graph view', () => {
-    it('should show absolute date for very recent commits', () => {
-      const recentDate = new Date(2024, 5, 15, 10, 5, 0); // June 15, 2024 10:05 AM
-      const node = makeCommitNode(
-        {},
-        {
-          authorDate: recentDate,
-        }
-      );
+    // The row renders dates via formatCommitDate: commits older than a
+    // week show the absolute "MMM dd yyyy" form (e.g. "Jun 15 2024").
+    // The fixed dates below are all years before any plausible "now",
+    // so they always take the absolute branch.
+    it('should show absolute date for a 2024 commit', () => {
+      const recentDate = new Date(2024, 5, 15, 10, 5, 0); // June 15, 2024
+      const node = makeCommitNode({}, { authorDate: recentDate });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('2024-06-15 10:05 AM'), 'Should show absolute date');
+      assert.ok(html.includes('Jun 15 2024'), `Should show "Jun 15 2024"; got: ${html}`);
+      assert.ok(!html.includes('2024-06-15'), 'Legacy YYYY-MM-DD format must no longer appear');
     });
 
-    it('should show absolute date with PM for afternoon commits', () => {
-      const afternoonDate = new Date(2024, 0, 1, 14, 30, 0); // Jan 1, 2024 2:30 PM
-      const node = makeCommitNode(
-        {},
-        {
-          authorDate: afternoonDate,
-        }
-      );
+    it('should show absolute date for an afternoon commit (no AM/PM in the new form)', () => {
+      const afternoonDate = new Date(2024, 0, 1, 14, 30, 0); // Jan 1, 2024
+      const node = makeCommitNode({}, { authorDate: afternoonDate });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('2024-01-01 2:30 PM'), 'Should show absolute date with PM');
+      assert.ok(html.includes('Jan 01 2024'), `Should show "Jan 01 2024"; got: ${html}`);
+      // The new absolute form carries no time-of-day component.
+      assert.ok(!html.includes('2:30 PM'), 'New absolute form must not carry a time component');
     });
 
     it('should show absolute date for old commits', () => {
-      const oldDate = new Date(2020, 11, 25, 0, 0, 0); // Dec 25, 2020 12:00 AM
-      const node = makeCommitNode(
-        {},
-        {
-          authorDate: oldDate,
-        }
-      );
+      const oldDate = new Date(2020, 11, 25, 0, 0, 0); // Dec 25, 2020
+      const node = makeCommitNode({}, { authorDate: oldDate });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('2020-12-25 12:00 AM'), 'Should show absolute date for old commits');
+      assert.ok(html.includes('Dec 25 2020'), `Should show "Dec 25 2020"; got: ${html}`);
     });
   });
 

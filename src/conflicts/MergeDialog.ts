@@ -275,15 +275,32 @@ export class MergeDialog extends BaseWebviewPanel {
             applyMutex(flag);
           });
         }
-        document.getElementById('merge-btn').addEventListener('click', () => {
+        const submit = () => {
           vscode.postMessage({
             type: 'merge',
             flags: readFlags(),
             message: document.getElementById('merge-message').value,
           });
-        });
-        document.getElementById('cancel-btn').addEventListener('click', () => {
+        };
+        const cancel = () => {
           vscode.postMessage({ type: 'cancel' });
+        };
+        document.getElementById('merge-btn').addEventListener('click', submit);
+        document.getElementById('cancel-btn').addEventListener('click', cancel);
+
+        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
+        //   Cmd+Enter / Ctrl+Enter → primary action (Merge)
+        //   Esc                    → cancel
+        // Plain Enter inside the merge-message textarea inserts a newline,
+        // so only the modified Enter submits.
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
         });
       })();
     `;

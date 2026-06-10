@@ -670,12 +670,29 @@ export class PushDialog extends BaseWebviewPanel {
         document.getElementById('action-select').addEventListener('change', (e) => {
           vscode.postMessage({ type: 'updateOverflow', action: e.target.value });
         });
-        document.getElementById('push-btn').addEventListener('click', () => {
+        const submit = () => {
           const action = document.getElementById('action-select').value;
           vscode.postMessage({ type: 'submit', action });
-        });
-        document.getElementById('cancel-btn').addEventListener('click', () => {
+        };
+        const cancel = () => {
           vscode.postMessage({ type: 'cancel' });
+        };
+        document.getElementById('push-btn').addEventListener('click', submit);
+        document.getElementById('cancel-btn').addEventListener('click', cancel);
+
+        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
+        //   Cmd+Enter / Ctrl+Enter → primary action (Push)
+        //   Esc                    → cancel
+        // Plain Enter inside a row's target-branch text input is left to the
+        // browser default so it doesn't submit mid-edit.
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
         });
 
         // Apply incremental host→webview patches. Only derived

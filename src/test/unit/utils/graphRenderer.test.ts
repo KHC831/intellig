@@ -1626,3 +1626,249 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
     );
   });
 });
+
+// ============================================================
+// Phase 2 — Renderer-side invariants (spec 8 L4, L9; spec 1.1 edge-color rule;
+// spec 1.2 focus highlight dim/brighten contract).
+//
+// These pin SVG-stage emit shapes whose drift is the bug class
+// "the green node sits on a blue line" (L4), "off-window history is
+// indistinguishable from in-window history" (L9), and "focused-branch
+// dim contract drifts to a different opacity literal" (spec 1.2).
+//
+// Mutation-test rationale (kept here so a future reader sees why each
+// pin is meaningful):
+//   - L4 pin: if commitColor is swapped to getColumnColor(line.toColumn)
+//     for the same-lane vertical, the stroke color regex no longer
+//     matches getColumnColor(node.graphColumn). Pin fires.
+//   - Bezier pin: if the bezier color rule flips to source-lane
+//     (getColumnColor(line.fromColumn)), the path stroke regex no
+//     longer matches getColumnColor(line.toColumn). Pin fires.
+//   - Dashed-literal pin: if the dasharray literal changes from "4,3"
+//     to "4 3" or "5,3", the substring assertion fails. Pin fires.
+//   - Focus-dim pin: if opacity="0.6" drifts to "0.4" or "0.5", the
+//     literal assertion fails. Pin fires.
+// ============================================================
+
+describe('Graph Renderer - Phase 2 spec 8.L4 + spec 1.1 edge-color invariants', () => {
+  const config = DEFAULT_GRAPH_CONFIG;
+
+  it('spec 8.L4: same-lane vertical stroke color === getColumnColor(node.graphColumn)', () => {
+    // Build a 2-row chain on lane 2 (orange). The same-lane vertical
+    // <line> from row 0's center to its bottom MUST stroke with
+    // getColumnColor(2), NOT getColumnColor of any other column.
+    // This is the load-bearing pin against the lane-bending artifact
+    // (T53: green node sitting on a blue line).
+    const lane = 2;
+    const nodes: ICommitNode[] = [
+      makeNode('child', ['parent'], lane, [{ fromColumn: lane, toColumn: lane, type: 'commit' }]),
+      makeNode('parent', [], lane),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const expectedColor = getColumnColor(lane);
+    const lines = extractLines(svg);
+    // The same-lane vertical (centerY -> bottomY) is the line whose y1
+    // equals centerY and y2 equals rowHeight, at the commit's lane x.
+    const commitX = getColumnX(lane, config).toString();
+    const centerY = (config.rowHeight / 2).toString();
+    const bottomY = config.rowHeight.toString();
+    const sameLaneVertical = lines.find(
+      (l) => l.x1 === commitX && l.x2 === commitX && l.y1 === centerY && l.y2 === bottomY
+    );
+
+    assert.ok(
+      sameLaneVertical,
+      `expected a same-lane vertical line at x=${commitX} centerY->bottomY; got: ${svg}`
+    );
+    assert.strictEqual(
+      sameLaneVertical.stroke,
+      expectedColor,
+      `spec 8.L4: same-lane vertical stroke must equal getColumnColor(${lane})=${expectedColor}; got ${sameLaneVertical.stroke}`
+    );
+  });
+
+  it('spec 8.L4: same-lane vertical stroke color must-not-equal destination lane color when a sibling line bends', () => {
+    // A merge commit at lane 0 with a same-lane first parent (lane 0)
+    // AND a cross-lane second parent (lane 1). The same-lane vertical
+    // MUST still stroke with getColumnColor(0), not getColumnColor(1) —
+    // the regression class is "the bending bezier 'leaks' its color
+    // back onto the same-lane vertical".
+    const nodes: ICommitNode[] = [
+      makeNode('m', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]),
+      makeNode('p1', [], 0),
+      makeNode('p2', [], 1),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const lane0Color = getColumnColor(0);
+    const lane1Color = getColumnColor(1);
+    const commitX = getColumnX(0, config).toString();
+    const centerY = (config.rowHeight / 2).toString();
+    const bottomY = config.rowHeight.toString();
+
+    const lines = extractLines(svg);
+    const sameLaneVertical = lines.find(
+      (l) => l.x1 === commitX && l.x2 === commitX && l.y1 === centerY && l.y2 === bottomY
+    );
+
+    assert.ok(sameLaneVertical, `expected same-lane vertical; got SVG: ${svg}`);
+    assert.strictEqual(
+      sameLaneVertical.stroke,
+      lane0Color,
+      `same-lane vertical must use lane-0 color even when a sibling line bends to lane 1; got ${sameLaneVertical.stroke}, expected ${lane0Color}`
+    );
+    assert.notStrictEqual(
+      sameLaneVertical.stroke,
+      lane1Color,
+      `same-lane vertical must NOT bleed the destination-lane color (${lane1Color}) onto the source-lane vertical`
+    );
+  });
+
+  it('spec 1.1 edge-color rule: cross-lane bezier stroke === getColumnColor(line.toColumn)', () => {
+    // Spec spec 1.1 "Edge geometry" rule 2 + "Edge color rule" bullet 2:
+    // merge / branch edges (i > 0 / cross-lane) take the destination
+    // lane's color (so they read as "joining the merged branch's color").
+    const nodes: ICommitNode[] = [
+      makeNode('m', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]),
+      makeNode('p1', [], 0),
+      makeNode('p2', [], 1),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const paths = extractPaths(svg);
+    assert.strictEqual(
+      paths.length,
+      1,
+      `expected exactly one cross-lane bezier path; got ${paths.length} in ${svg}`
+    );
+    assert.strictEqual(
+      paths[0].stroke,
+      getColumnColor(1),
+      `bezier stroke must equal getColumnColor(toColumn=1)=${getColumnColor(1)}; got ${paths[0].stroke}`
+    );
+    // And it must NOT equal the source-lane color — flipping the rule
+    // is the regression this pin guards against.
+    assert.notStrictEqual(
+      paths[0].stroke,
+      getColumnColor(0),
+      `bezier stroke must NOT equal getColumnColor(fromColumn=0); the spec spec 1.1 rule is destination-lane color`
+    );
+  });
+});
+
+describe('Graph Renderer - Phase 2 spec 8.L9 dashed stroke literal pin', () => {
+  // Phase 1a pins the algorithm-level shape (style:'dashed' on
+  // off-window stubs). The companion renderer-stage assertion
+  // already checks that *some* stroke-dasharray attribute is emitted,
+  // but does not pin the exact value. The IntelliJ parity contract
+  // is the literal "4,3" — a 4px dash followed by a 3px gap — and
+  // accidentally drifting to "4 3" (space-separated) or any other
+  // value silently changes the visual without breaking any current
+  // test. Pin the exact literal here.
+  const config = DEFAULT_GRAPH_CONFIG;
+
+  it('spec 8.L9: same-lane dashed stub emits exact stroke-dasharray="4,3" literal', () => {
+    const nodes: ICommitNode[] = [
+      makeNode('child', ['off-window-parent'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+      ]),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
+      svg.includes('stroke-dasharray="4,3"'),
+      `expected exact literal stroke-dasharray="4,3"; got SVG: ${svg}`
+    );
+  });
+
+  it('spec 8.L9: cross-lane dashed bezier emits exact stroke-dasharray="4,3" literal', () => {
+    // Bezier path with style:'dashed' takes the same dash literal —
+    // the renderer's two emit sites (line vs path) must stay in sync.
+    const nodes: ICommitNode[] = [
+      makeNode('m', ['p1', 'off-window-p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge', style: 'dashed' },
+      ]),
+      makeNode('p1', [], 0),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
+      svg.includes('stroke-dasharray="4,3"'),
+      `cross-lane dashed bezier must emit exact literal stroke-dasharray="4,3"; got SVG: ${svg}`
+    );
+  });
+});
+
+describe('Graph Renderer - Phase 2 spec 1.2 focus highlight dim/brighten contract', () => {
+  // Spec spec 1.2 + spec 1.1 "Focus dim" row pin the literal opacity values:
+  //   on-path  -> opacity="1"
+  //   off-path -> opacity="0.6"
+  //   no focus -> no opacity attribute at all (so unfocused appearance
+  //              is byte-identical to the legacy pre-focus renderer)
+  //
+  // snap-6a/b/c in commitGraphSnapshots.test.ts cover the same triplet
+  // for a single node. The pin below additionally asserts that *both*
+  // states are visible in a single render pass driven by the same
+  // hasFocusedBranch=true flag with mixed onFocusedBranchPath, which
+  // is what production ships — never a single-node graph.
+  const config = DEFAULT_GRAPH_CONFIG;
+
+  function focusNode(hash: string, onFocusedBranchPath: boolean, lane: number): ICommitNode {
+    return {
+      commit: {
+        hash,
+        shortHash: hash.substring(0, 7),
+        message: 'm',
+        author: { name: 't', email: 't@t' },
+        committer: { name: 't', email: 't@t' },
+        parents: ['parent'],
+        authorDate: new Date(),
+        commitDate: new Date(),
+      },
+      graphColumn: lane,
+      graphLines: [{ fromColumn: lane, toColumn: lane, color: '#000', type: 'commit' }],
+      branches: [],
+      tags: [],
+      onFocusedBranchPath,
+    };
+  }
+
+  it('spec 1.2: hasFocusedBranch=true + on-path commit -> every element carries opacity="1"', () => {
+    const node = focusNode('on', true, 0);
+    const svg = renderGraphSvg(node, 0, new Set([0]), config, false, false, new Set(), true);
+    assert.ok(svg.includes('opacity="1"'), `on-path must emit opacity="1"; got: ${svg}`);
+    assert.ok(!svg.includes('opacity="0.6"'), `on-path must NOT emit dim opacity; got: ${svg}`);
+  });
+
+  it('spec 1.2: hasFocusedBranch=true + off-path commit -> every element carries opacity="0.6"', () => {
+    const node = focusNode('off', false, 0);
+    const svg = renderGraphSvg(node, 0, new Set([0]), config, false, false, new Set(), true);
+    assert.ok(svg.includes('opacity="0.6"'), `off-path must emit opacity="0.6"; got: ${svg}`);
+    assert.ok(
+      !svg.includes('opacity="1"'),
+      `off-path must NOT emit on-path opacity="1"; got: ${svg}`
+    );
+  });
+
+  it('spec 1.2: hasFocusedBranch=false -> NO opacity attribute on any element (unfocused parity)', () => {
+    const node = focusNode('any', true, 0); // onFocusedBranchPath ignored when no focus
+    const svg = renderGraphSvg(node, 0, new Set([0]), config, false, false, new Set(), false);
+    assert.ok(
+      !/\bopacity="/.test(svg),
+      `hasFocusedBranch=false must emit zero opacity attributes; got: ${svg}`
+    );
+  });
+});

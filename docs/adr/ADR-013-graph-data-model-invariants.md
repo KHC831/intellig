@@ -47,9 +47,9 @@ Each fix landed in `commitGraph.ts` as a focused change. None of
 them was canonical — there was no single document a future
 contributor could read to understand the contract the graph data
 model honors. The implementation plan
-(`docs/design/git-tool-window-implementation-plan.md`) lists §8.L1,
-§8.L4, and §8.L9 as the load-bearing rules that flow through this
-module; the spec (`docs/design/git-tool-window-spec.md` §8) names
+(`docs/design/git-tool-window-implementation-plan.md`) lists spec 8.L1,
+spec 8.L4, and spec 8.L9 as the load-bearing rules that flow through this
+module; the spec (`docs/design/git-tool-window-spec.md` spec 8) names
 each rule in isolation but does not knit them together with the
 algorithm and renderer surfaces they constrain.
 
@@ -87,9 +87,9 @@ The `style?` field is intentionally optional. The renderer treats
 test snapshots not have to enumerate `style: 'solid'` everywhere; the
 single value the renderer cares about is `style === 'dashed'` for the
 off-window stub case, and the algorithm sets that field exactly when
-the corresponding edge needs the dashed affordance (see §3 below).
+the corresponding edge needs the dashed affordance (see spec 3 below).
 
-### 2. Lane stability across reloads — §8 L1
+### 2. Lane stability across reloads — spec 8 L1
 
 Lane assignment for any commit is determined by:
 
@@ -133,8 +133,8 @@ These guarantees are pinned by:
   proves the property depends on the seeding pre-pass.
 - `src/test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
   — `seeds lane 0 from HEAD only — local + origin/main on same
-SHA share lane 0 (§8 L1)` and `does NOT pre-seed non-HEAD
-branch tips — second branch goes through main pass (§8 L1)`.
+SHA share lane 0 (spec 8 L1)` and `does NOT pre-seed non-HEAD
+branch tips — second branch goes through main pass (spec 8 L1)`.
 - `src/test/unit/utils/commitGraph.test.ts` "Lane seeding from
   branchMap" suite — single-input pins (`HEAD's branch tip lands
 on lane 0 even when it's not the newest commit`,
@@ -142,7 +142,7 @@ on lane 0 even when it's not the newest commit`,
 assignments`, plus the negative-control variants that show
   seeding is a no-op when no `headBranchName` is provided).
 
-### 3. Off-window parent stubs are dashed same-lane edges — §8 L9
+### 3. Off-window parent stubs are dashed same-lane edges — spec 8 L9
 
 When a commit's parent hash is not present in `commitsInWindow`
 (the parent fell off the loaded `--max-count` slice), the algorithm
@@ -179,20 +179,20 @@ Pinned by:
 
 - `src/test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
   — `off-window parent ⇒ {fromColumn === toColumn, style:
-"dashed"} and zero new lane allocations (§8 L9)` and `off-window
+"dashed"} and zero new lane allocations (spec 8 L9)` and `off-window
 first parent of an in-window merge ⇒ same-lane dashed; bezier
-still emitted for second parent (§8 L9 + merge interaction)`.
+still emitted for second parent (spec 8 L9 + merge interaction)`.
 - The pre-existing `Off-window parent stubs are marked style:
 dashed` suite in the same file — covers the linear-commit and
   second-parent-merge variants that landed in the bug-fix branch.
 
-### 4. Same-lane stroke color uses the source lane — §8 L4
+### 4. Same-lane stroke color uses the source lane — spec 8 L4
 
 When `fromColumn === toColumn`, the renderer's vertical stroke MUST
 use `getColumnColor(fromColumn)` — the source commit's lane color,
 NEVER a destination lane color. The data-model side of this rule is
 that the algorithm sets `color: getColumnColor(column)` for every
-same-lane edge it emits, including the off-window stub from §3 above.
+same-lane edge it emits, including the off-window stub from spec 3 above.
 
 This invariant is shared with the renderer surface and is pinned by
 the existing renderer tests; it appears here only to record the
@@ -246,7 +246,7 @@ Phase 4) will add rows that point at the test files this ADR cites.
 
 - **One more ADR to keep current.** When the lane release pre-pass
   ships (the deferred Phase 1b — see implementation plan "Open
-  questions resolved"), this ADR will gain a §6 covering the
+  questions resolved"), this ADR will gain a spec 6 covering the
   released-after-row lifetime model. The append-only style means
   the existing sections survive; the deferred work has its own
   follow-up entry in `KNOWN-ISSUES.md` task #49.
@@ -287,8 +287,8 @@ The spec (`docs/design/git-tool-window-spec.md`) is the UX
 reference; it tells designers and reviewers what a user sees. The
 data-model contract is downstream of UX rules but upstream of every
 implementer touching the algorithm or the renderer. Folding it into
-the spec would mix two audiences. Keeping the spec rules (§8.L1,
-§8.L4, §8.L9) authoritative for the user-visible behaviour and this
+the spec would mix two audiences. Keeping the spec rules (spec 8.L1,
+spec 8.L4, spec 8.L9) authoritative for the user-visible behaviour and this
 ADR authoritative for the algorithm / data-model implementation
 keeps each surface scoped to one audience.
 
@@ -304,7 +304,7 @@ exactly the algorithm boundary, so one ADR is the right altitude.
 
 ## Cross-references
 
-- `docs/design/git-tool-window-spec.md` §8.L1, §8.L4, §8.L9 — the
+- `docs/design/git-tool-window-spec.md` spec 8.L1, spec 8.L4, spec 8.L9 — the
   user-visible rules this ADR encodes for the algorithm + data-model
   surface.
 - `docs/design/git-tool-window-implementation-plan.md` Phase 1a —

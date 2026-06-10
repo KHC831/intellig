@@ -515,13 +515,13 @@ describe('Commit Graph Generation', () => {
       });
     });
 
-    // ─── Phase 1a pins (§8 L1, L9) ─────────────────────────────────────
+    // ─── Phase 1a pins (spec 8 L1, L9) ─────────────────────────────────────
     //
     // The four cases below are the unit-level pins for the Phase 1a
     // matrix entries (`docs/design/git-tool-window-implementation-plan.md`).
     // They live alongside the seeding suite above because they
     // exercise exactly the same code paths from a different angle —
-    // each one names a specific bug-class shape from spec §8 and
+    // each one names a specific bug-class shape from spec spec 8 and
     // pins it in isolation, so a regression points the next reader
     // straight at the rule it broke.
     //
@@ -530,8 +530,8 @@ describe('Commit Graph Generation', () => {
     // and `src/test/property/headAncestryPromotion.property.test.ts`.
     //
     // ADR ref: `docs/adr/ADR-013-graph-data-model-invariants.md`.
-    describe('Phase 1a pins (§8 L1, L9)', () => {
-      it('seeds lane 0 from HEAD only — local + origin/main on same SHA share lane 0 (§8 L1)', () => {
+    describe('Phase 1a pins (spec 8 L1, L9)', () => {
+      it('seeds lane 0 from HEAD only — local + origin/main on same SHA share lane 0 (spec 8 L1)', () => {
         // The tightest L1 pin: when `main` and `origin/main` both
         // point at the same SHA, we render ONE chain on lane 0, not
         // two parallel chains (one on lane 0 for `main`, one on
@@ -540,7 +540,7 @@ describe('Commit Graph Generation', () => {
         // `state.commitToLane.has(tip.commit)` guard at the head of
         // the seeding loop.
         //
-        // Spec ref: §8.L1 "a repo with `main` and `origin/main` at
+        // Spec ref: spec 8.L1 "a repo with `main` and `origin/main` at
         // the same SHA must render ONE chain on lane 0".
         const commits = [createMockCommit('tip', ['parent']), createMockCommit('parent', [])];
         const branchMap = new Map<string, IBranchRef[]>();
@@ -568,7 +568,7 @@ describe('Commit Graph Generation', () => {
         );
       });
 
-      it('does NOT pre-seed non-HEAD branch tips — second branch goes through main pass (§8 L1)', () => {
+      it('does NOT pre-seed non-HEAD branch tips — second branch goes through main pass (spec 8 L1)', () => {
         // The complement of the test above: prove that the seeding
         // pre-pass is HEAD-only in the lane-0 sense. A second local
         // branch tip is still pre-claimed (so it lands on its
@@ -610,7 +610,7 @@ describe('Commit Graph Generation', () => {
         const apple = result.find((n) => n.commit.hash === 'apple-tip')!;
         const zebra = result.find((n) => n.commit.hash === 'zebra-tip')!;
 
-        // §8 L1 invariants the new contract guarantees:
+        // spec 8 L1 invariants the new contract guarantees:
         //   1. HEAD's branch lands on lane 0 (privileged).
         //   2. Non-HEAD tips each claim a distinct lane (no overlap).
         //   3. Non-HEAD tips do NOT collide with the reserved lane 0.
@@ -633,8 +633,8 @@ describe('Commit Graph Generation', () => {
         );
       });
 
-      it('off-window parent ⇒ {fromColumn === toColumn, style: "dashed"} and zero new lane allocations (§8 L9)', () => {
-        // §8.L9 — when a commit's parent is not in the loaded
+      it('off-window parent ⇒ {fromColumn === toColumn, style: "dashed"} and zero new lane allocations (spec 8 L9)', () => {
+        // spec 8.L9 — when a commit's parent is not in the loaded
         // window, emit a same-lane dashed stub and DO NOT allocate
         // a fresh lane. The "zero allocations" piece is what stops
         // the stray-bezier-into-empty-lane bug; if we allocated,
@@ -663,7 +663,7 @@ describe('Commit Graph Generation', () => {
         );
       });
 
-      it('off-window first parent of an in-window merge ⇒ same-lane dashed; bezier still emitted for second parent (§8 L9 + merge interaction)', () => {
+      it('off-window first parent of an in-window merge ⇒ same-lane dashed; bezier still emitted for second parent (spec 8 L9 + merge interaction)', () => {
         // The trickier L9 shape: a merge commit whose FIRST parent
         // is off-window (the mainline branch's history fell off
         // the loaded slice) but whose SECOND parent IS in the

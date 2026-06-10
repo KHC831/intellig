@@ -277,13 +277,30 @@ export class ResetDialog extends BaseWebviewPanel {
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
-        document.getElementById('reset-btn').addEventListener('click', () => {
+        const submit = () => {
           const checked = document.querySelector('input[name="reset-mode"]:checked');
           const mode = checked ? checked.value : 'mixed';
           vscode.postMessage({ type: 'reset', mode });
-        });
-        document.getElementById('cancel-btn').addEventListener('click', () => {
+        };
+        const cancel = () => {
           vscode.postMessage({ type: 'cancel' });
+        };
+        document.getElementById('reset-btn').addEventListener('click', submit);
+        document.getElementById('cancel-btn').addEventListener('click', cancel);
+
+        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
+        //   Cmd+Enter / Ctrl+Enter → primary action (Reset)
+        //   Esc                    → cancel
+        // Destructive Hard/Keep still routes through the modal confirm in
+        // the message handler, so Cmd+Enter never bypasses the safety prompt.
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
         });
       })();
     `;

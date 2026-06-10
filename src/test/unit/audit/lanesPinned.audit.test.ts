@@ -100,9 +100,45 @@ const INVARIANT_PINS: InvariantPin[] = [
       // Same-lane lines bypass the bezier path — pins the renderer's
       // segment selection logic that L4 depends on.
       'same-lane lines should not produce bezier curves',
-      // Color-palette pinned to ≥ 8 distinct entries (L4 depends on
+      // Color-palette pinned to >= 8 distinct entries (L4 depends on
       // `getColumnColor` returning a per-lane color, not a constant).
       'should return at least 8 distinct colors',
+      // Phase 2 renderer pin: same-lane vertical stroke equals the
+      // node's own lane color (the green-node-on-blue-line guard).
+      'same-lane vertical stroke color',
+    ],
+  },
+  {
+    id: 'L5',
+    summary: 'Repo selector identity is by normalized path, not array index',
+    file: 'src/test/unit/services/repositorySelectorIdentity.test.ts',
+    markers: [
+      // The index-shifting reload guard — the core L5 behavior.
+      'selector survives a repo-list rebuild that shifts indexes',
+    ],
+  },
+  {
+    id: 'L9',
+    summary: 'Off-window parents emit a dashed same-lane stub, no new lane',
+    file: 'src/test/unit/utils/commitGraph.test.ts',
+    markers: [
+      // The algorithm-level dashed-stub pin from Phase 1a.
+      /off-window parent/,
+    ],
+  },
+  {
+    id: 'L11',
+    summary: 'Detached-HEAD SHA is read via getDetachedHeadSha(), never label parsing',
+    file: 'src/test/unit/audit/detachedHeadShaSource.audit.test.ts',
+    markers: ['getDetachedHeadSha'],
+  },
+  {
+    id: 'L14',
+    summary: 'Repo identity comparisons go through normalizeRepoPath',
+    file: 'src/test/unit/utils/normalizeRepoPath.test.ts',
+    markers: [
+      // Windows drive-case collapse — the canonical L14 case.
+      'collapses upper- and lower-case drive letters',
     ],
   },
 ];
@@ -136,7 +172,7 @@ function describeMarker(marker: string | RegExp): string {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Phase 0 meta-audit — §8 invariants L1/L2/L4 are pinned by named tests', () => {
+describe('Meta-audit — spec section 8 invariants are pinned by named tests', () => {
   for (const pin of INVARIANT_PINS) {
     describe(`${pin.id} — ${pin.summary}`, () => {
       const absFile = path.join(repoRoot(), pin.file);

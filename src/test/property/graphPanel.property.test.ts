@@ -18,6 +18,7 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../ui-shell/GitToolWindowProvider';
 import { ICommitNode, IGraphLine } from '../../git-core/commitGraph';
 import { ICommit, IAuthor } from '../../git-core/interfaces/IGitService';
+import { formatCommitDate } from '../../utils/dateFormat';
 import { Uri } from '../mocks/vscode';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -261,8 +262,10 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
           );
 
           // 4. A date string must be present (the commit-date span should contain text)
-          // The _formatRelativeDate method produces strings like "just now", "X minutes ago", etc.
-          // We verify the commit-date span exists and contains non-empty text.
+          // The row now uses `formatCommitDate`: relative ("5m", "3d")
+          // for commits under a week old, absolute ("Mar 17 2026")
+          // beyond. We verify the commit-date span exists and is
+          // non-empty.
           const datePattern = /class="commit-date"[^>]*>([^<]+)</;
           const dateMatch = html.match(datePattern);
           assert.ok(
@@ -270,13 +273,16 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
             'HTML should contain a non-empty date string in the commit-date span'
           );
 
-          // Additionally verify the date string matches the expected absolute date format
-          // The _formatAbsoluteDate method produces strings like "2024-01-15 3:30 PM"
+          // The span content must EXACTLY equal the formatCommitDate
+          // label for this commit's date. Since the generator spans the
+          // last year, both relative and absolute forms are exercised
+          // across runs.
           const dateText = dateMatch[1].trim();
-          const absoluteDatePattern = /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}\s+(AM|PM)$/;
-          assert.ok(
-            absoluteDatePattern.test(dateText),
-            `Date string "${dateText}" should match absolute date format YYYY-MM-DD H:MM AM/PM`
+          const { display: expectedDateLabel } = formatCommitDate(commit.authorDate);
+          assert.strictEqual(
+            dateText,
+            expectedDateLabel,
+            `Date span "${dateText}" should equal formatCommitDate label "${expectedDateLabel}"`
           );
         }),
         { numRuns: 150 }
