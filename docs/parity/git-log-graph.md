@@ -1,6 +1,16 @@
 # Git Log Graph — IntelliJ parity reference
 
-Status: Living reference (Wave D, 2026-05-24)
+Status: Living reference (Wave D, 2026-05-24; cross-ref note 2026-06-10)
+
+> **Cross-reference.** This parity doc remains the canonical contract
+> surface for the log-graph's chip / HEAD / focus / lane visual details.
+> The graph data-model and lane-algorithm invariants it depends on (lane
+> stability, HEAD-ancestry promotion, dashed off-window stubs, same-lane
+> stroke colour) are recorded as accepted decisions in
+> [ADR-013](../adr/ADR-013-graph-data-model-invariants.md) and pinned by
+> the property + unit suites named there. When this doc and ADR-013
+> disagree, ADR-013 wins for the data-model contract; this doc wins for
+> the pixel-level visual contract.
 
 This document is the **visual-truth specification** for IntelliG's
 Git tool window log graph. Wave D introduced two discipline layers
