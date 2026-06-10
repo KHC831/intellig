@@ -294,15 +294,10 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
           vscode.postMessage({ type: 'browse' });
         });
 
-        document.getElementById('cancelBtn').addEventListener('click', () => {
+        const cancel = () => {
           vscode.postMessage({ type: 'cancel' });
-        });
-
-        document.getElementById('previewBtn').addEventListener('click', () => {
-          vscode.postMessage(Object.assign({ type: 'preview' }, basePayload()));
-        });
-
-        document.getElementById('applyBtn').addEventListener('click', () => {
+        };
+        const apply = () => {
           const stripLevelEl = document.getElementById('stripLevel');
           const baseDirEl = document.getElementById('baseDir');
           const useAmEl = document.getElementById('useAm');
@@ -312,6 +307,27 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
             baseDir: baseDirEl && baseDirEl.value ? baseDirEl.value : undefined,
           });
           vscode.postMessage(payload);
+        };
+
+        document.getElementById('cancelBtn').addEventListener('click', cancel);
+
+        document.getElementById('previewBtn').addEventListener('click', () => {
+          vscode.postMessage(Object.assign({ type: 'preview' }, basePayload()));
+        });
+
+        document.getElementById('applyBtn').addEventListener('click', apply);
+
+        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
+        //   Cmd+Enter / Ctrl+Enter → primary action (Apply)
+        //   Esc                    → cancel
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            apply();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancel();
+          }
         });
 
         // Source radio toggles the file row's enabled state.

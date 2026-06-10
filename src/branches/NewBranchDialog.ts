@@ -275,6 +275,21 @@ export class NewBranchDialog extends BaseWebviewPanel {
             document.getElementById('create-btn').click();
           }
         });
+
+        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
+        //   Cmd+Enter / Ctrl+Enter → primary action (Create)
+        //   Esc                    → cancel
+        // Plain Enter on the single-line name field already submits (above);
+        // this adds the modified-Enter alias and the page-wide Esc handler.
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            document.getElementById('create-btn').click();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            document.getElementById('cancel-btn').click();
+          }
+        });
       })();
     `;
 
