@@ -145,24 +145,53 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
         }
       }
 
-      // If we didn't find a matching parent by graphColumn, try to find any parent
-      // at a later row that could be the target (fallback for edge cases)
+      // If we didn't find a parent whose graphColumn matches toColumn, fall
+      // back to the parent that sits on `toColumn` if any, else leave
+      // targetRow at rowIndex (no vertical extent). We deliberately do NOT
+      // pick "any later parent regardless of column" — that mis-attributed
+      // a line to an unrelated parent far down the window and extended the
+      // lane interval across mainline rows it never touched. If no parent
+      // owns toColumn, the line is a short same-row connector (e.g. an
+      // off-window stub) and needs no multi-row interval.
       if (targetRow === rowIndex) {
         for (const parentHash of node.commit.parents) {
           const parentRow = hashToRow.get(parentHash);
-          if (parentRow !== undefined && parentRow > rowIndex) {
+          if (
+            parentRow !== undefined &&
+            parentRow > rowIndex &&
+            nodes[parentRow].graphColumn === line.toColumn
+          ) {
             targetRow = parentRow;
             break;
           }
         }
       }
 
-      // The fromColumn lane is active from this row to the target row
-      if (targetRow > rowIndex) {
-        intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: targetRow });
+      // The fromColumn lane's vertical extent depends on whether the line
+      // BENDS. A same-lane line (fromColumn === toColumn) runs straight
+      // down its column from this row to the parent's row, so fromColumn is
+      // active across the whole span. A BENDING line (fromColumn !==
+      // toColumn) is drawn as a bezier that leaves fromColumn at this row's
+      // center and curves over to toColumn by this row's BOTTOM — the
+      // source lane has NO vertical presence at any later row. Marking
+      // fromColumn active down to the parent's row (the old behaviour)
+      // painted a full-height pass-through stroke for the source lane
+      // through rows where that branch no longer exists — the reported
+      // "orphan vertical line in a side-lane colour running through the
+      // mainline" artifact (and the node-vs-line colour mismatch, since
+      // that stroke is a different colour than those rows' nodes). For a
+      // bending line the source lane is active at the source row ONLY.
+      if (line.fromColumn === line.toColumn) {
+        if (targetRow > rowIndex) {
+          intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: targetRow });
+        }
+      } else {
+        // Bending line: source lane present only at the source row.
+        intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: rowIndex });
       }
 
-      // The toColumn lane is active from this row to the target row
+      // The toColumn lane is active from this row to the target row — the
+      // destination lane genuinely runs down to the parent.
       if (targetRow >= rowIndex) {
         intervals.push({ lane: line.toColumn, startRow: rowIndex, endRow: targetRow });
       }

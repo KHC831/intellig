@@ -268,7 +268,8 @@ export function generateCommitGraph(
   branchMap?: Map<string, IBranchRef[]>,
   tagMap?: Map<string, string[]>,
   focusedPathHashes?: Set<string>,
-  headBranchName?: string
+  headBranchName?: string,
+  headHash?: string
 ): ICommitNode[] {
   if (commits.length === 0) {
     return [];
@@ -309,11 +310,27 @@ export function generateCommitGraph(
   };
 
   // PRE-PASS — locate HEAD's branch tip (if any) so subsequent
-  // pre-passes can privilege the HEAD-ancestry. `undefined` if no
-  // headBranchName is supplied OR the tip is outside the loaded
-  // window OR the branchMap doesn't carry it.
+  // pre-passes can privilege the HEAD-ancestry. `undefined` only when HEAD
+  // genuinely can't be anchored in the loaded window.
+  //
+  // PREFER the explicit HEAD commit SHA (`headHash`, from `git rev-parse
+  // HEAD`) over name-matching against the branchMap. The SHA is defined in
+  // strictly more cases than the name and avoids three silent failure modes
+  // that previously disabled the entire HEAD-spine pre-claim (and let a
+  // divergent branch seize lane 0, splitting the mainline across colours):
+  //   1. Detached HEAD — `headBranchName` is undefined, but `headHash` is
+  //      still the rev-parse SHA.
+  //   2. `getBranches` failed upstream — branchMap is empty, so name-match
+  //      finds nothing, but `headHash` is independent of branchMap.
+  //   3. symbolic-ref vs getBranches race — the symbolic HEAD name and the
+  //      branchMap (built from a separate `git branch` call) can disagree
+  //      mid-checkout / after a rename; matching on the SHA sidesteps it.
+  // The name-match is kept as a fallback for callers that pass only the
+  // name. Either way the tip must be in the loaded window to anchor.
   let headTipHash: string | undefined;
-  if (headBranchName && branchMap && branchMap.size > 0) {
+  if (headHash && commitsInWindow.has(headHash)) {
+    headTipHash = headHash;
+  } else if (headBranchName && branchMap && branchMap.size > 0) {
     for (const [commitHash, refs] of branchMap.entries()) {
       if (!commitsInWindow.has(commitHash)) {
         continue;

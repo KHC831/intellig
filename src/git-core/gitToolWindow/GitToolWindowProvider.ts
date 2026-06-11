@@ -765,7 +765,13 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       branchMap,
       tagMap,
       this._focusedPathHashes.size > 0 ? this._focusedPathHashes : undefined,
-      headBranchName
+      headBranchName,
+      // Pass the explicit HEAD commit SHA so the lane algorithm can anchor
+      // HEAD's mainline spine to lane 0 even when the branch NAME can't be
+      // resolved (detached HEAD, getBranches failure, symbolic-ref race).
+      // Previously dropped here, which silently disabled the spine fix and
+      // let a divergent branch seize lane 0 — the reported mainline split.
+      headHash
     );
 
     const emptyBranchMap: Map<string, IBranchRef[]> = new Map();
