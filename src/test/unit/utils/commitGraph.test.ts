@@ -361,10 +361,11 @@ describe('Commit Graph Generation', () => {
         // The old unconditional HEAD-seed pre-claimed lane 0 for the HEAD
         // tip, which forced 'newer' onto lane 1 with a `1->0` bend (the
         // blue-dot-on-lane-1-above-green-HEAD artifact + a stray vertical
-        // stub). The fix skips the seed when HEAD's tip has an in-window
-        // child and lets first-seen-child inheritance flow the chain down
-        // lane 0. Every commit must end up on lane 0 with a straight
-        // same-lane line — no bend, no second lane.
+        // stub). The fix pre-claims HEAD's whole FIRST-PARENT SPINE on lane
+        // 0, walking UP through first-parent-children so a newer descendant
+        // (like 'newer') is part of the spine and pinned to lane 0 too.
+        // Every commit must end up on lane 0 with a straight same-lane
+        // line — no bend, no second lane.
         const commits = [
           createMockCommit('newer', ['mainline']), // newest, child of HEAD tip
           createMockCommit('mainline', ['p1']), // HEAD's branch tip
@@ -387,6 +388,66 @@ describe('Commit Graph Generation', () => {
               line.fromColumn,
               line.toColumn,
               `${node.commit.hash} line must be same-lane (no sideways bend); got ${line.fromColumn}->${line.toColumn}`
+            );
+          }
+        }
+      });
+
+      it('keeps the HEAD mainline spine straight on lane 0 when divergent branches share its ancestors', () => {
+        // Reported via screenshot: with `mainline`, `mainline-clone`, and
+        // `test_squash` all loaded via --all, mainline commits (the shared
+        // ancestors) were dragged onto a side lane because a divergent
+        // branch listed earlier in the topo slice reached the shared parent
+        // FIRST and the main pass allocated it a fresh lane. That rendered a
+        // mainline commit on lane 2 (orange) with the mainline line hooking
+        // sideways into it (green/blue node, orange line).
+        //
+        // Fix: pre-claim HEAD's entire first-parent spine on lane 0, so the
+        // shared ancestors are pinned to lane 0 and the DIVERGENT branches
+        // are the ones that bend into lane 0 (correct IntelliJ behavior).
+        //
+        // Topology (newest-first; test_squash listed before mainline, as
+        // --all topo order tends to interleave):
+        //   t_tip -> t2 -> squash -> base   (test_squash)
+        //   m_tip -> m2 -> base             (mainline / HEAD)
+        //   c_tip -> base                   (mainline-clone)
+        const commits = [
+          createMockCommit('t_tip', ['t2']),
+          createMockCommit('t2', ['squash']),
+          createMockCommit('squash', ['base']),
+          createMockCommit('m_tip', ['m2']),
+          createMockCommit('m2', ['base']),
+          createMockCommit('c_tip', ['base']),
+          createMockCommit('base', ['older']),
+          createMockCommit('older', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('t_tip', [{ name: 'test_squash', type: 'local' }]);
+        branchMap.set('m_tip', [{ name: 'mainline', type: 'local' }]);
+        branchMap.set('c_tip', [{ name: 'mainline-clone', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'mainline');
+        const col = (h: string): number => result.find((n) => n.commit.hash === h)!.graphColumn;
+
+        // The whole HEAD first-parent spine pins to lane 0.
+        for (const h of ['m_tip', 'm2', 'base', 'older']) {
+          assert.strictEqual(col(h), 0, `${h} (mainline spine) must be on lane 0; got ${col(h)}`);
+        }
+        // Divergent branches sit on their own non-zero lanes (they bend INTO
+        // lane 0, not the other way around).
+        assert.notStrictEqual(col('t_tip'), 0, 'test_squash tip must not be on lane 0');
+        assert.notStrictEqual(col('c_tip'), 0, 'mainline-clone tip must not be on lane 0');
+
+        // node/line color match: every commit's own first-parent line is
+        // colored by its own lane (the renderer keys 'commit' edges off the
+        // source column).
+        for (const node of result) {
+          const firstParent = node.graphLines.find((l) => l.type === 'commit');
+          if (firstParent) {
+            assert.strictEqual(
+              firstParent.color,
+              getColumnColor(node.graphColumn),
+              `${node.commit.hash}: first-parent line color must equal node lane color`
             );
           }
         }

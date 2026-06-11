@@ -463,7 +463,22 @@ export function renderGraphSvg(
     }
     const fromX = getColumnX(line.fromColumn, config);
     const toX = getColumnX(line.toColumn, config);
-    const color = getColumnColor(line.toColumn);
+    // Color a bending edge by its TYPE, matching the algorithm's own
+    // per-line color rule (commitGraph.ts) and L4's spirit:
+    //   - 'commit' (the FIRST-parent line — the commit's mainline
+    //     continuation): use the SOURCE lane color, i.e. the commit's
+    //     OWN node color. A first-parent edge that bends to a parent
+    //     sitting on another lane must still leave the node in the node's
+    //     colour — otherwise you get a blue node with an orange outgoing
+    //     line (reported), or a green node whose own line is orange.
+    //   - 'merge' / 'branch' (a 2nd+ parent): use the DESTINATION lane
+    //     color, so the edge reads as "joining the merged branch", shown
+    //     in that branch's colour.
+    // The earlier unconditional `getColumnColor(line.toColumn)` painted
+    // EVERY bending edge in the destination colour, which mismatched the
+    // node on any first-parent bend.
+    const color =
+      line.type === 'commit' ? getColumnColor(line.fromColumn) : getColumnColor(line.toColumn);
     const dashAttr = line.style === 'dashed' ? ` stroke-dasharray="4,3"` : '';
     elements.push(
       `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`

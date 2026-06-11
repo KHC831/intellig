@@ -345,12 +345,13 @@ export function generateCommitGraph(
   // at `commitsInWindow` boundary. Then in the children-map,
   // promote a HEAD-ancestry child to position 0 of every parent's
   // children array. The mainline always wins inheritance.
+  const commitByHash = new Map<string, ICommit>();
+  for (const c of commits) {
+    commitByHash.set(c.hash, c);
+  }
+
   const headAncestry = new Set<string>();
   if (headTipHash !== undefined) {
-    const commitByHash = new Map<string, ICommit>();
-    for (const c of commits) {
-      commitByHash.set(c.hash, c);
-    }
     const queue: string[] = [headTipHash];
     while (queue.length > 0) {
       const h = queue.shift()!;
@@ -408,28 +409,75 @@ export function generateCommitGraph(
   // job for everything except HEAD, which gets the only privileged
   // pre-seed.
   //
-  // BUT only when HEAD's tip is a genuine LEAF in the loaded window —
-  // i.e. it has no in-window child. When HEAD is BEHIND newer loaded
-  // commits (the tool loads `--all` / a topo slice that includes commits
-  // descended from HEAD's branch tip — e.g. an un-pulled upstream commit,
-  // or another branch built on top of HEAD), pre-seeding lane 0 for the
-  // HEAD tip forces its newer descendant onto lane 1 and bends the chain:
-  // the newest row renders on lane 1 with a `1->0` hook down to HEAD,
-  // even though it is one straight mainline. (Reported: blue dot on lane 1
-  // above the green HEAD row, with a stray bend.) In that case we skip the
-  // seed and let the first-seen-child inheritance flow the whole chain down
-  // lane 0 naturally — the descendant claims lane 0 first (processed first,
-  // newest), and straight-down inheritance carries it through HEAD's tip
-  // and onward. HEAD still lands on lane 0; nothing is forced sideways.
-  const headTipHasInWindowChild =
-    headTipHash !== undefined && (childrenMap.get(headTipHash)?.length ?? 0) > 0;
-  if (headTipHash !== undefined && !headTipHasInWindowChild) {
+  // We pre-claim lane 0 for HEAD's entire FIRST-PARENT SPINE, not just
+  // the tip. The spine is HEAD-tip → its 1st parent → that commit's 1st
+  // parent → … walked through `commitsInWindow`. Every commit on it gets
+  // lane 0 up front.
+  //
+  // Why the whole spine, not just the tip: when a divergent branch
+  // (`test_squash`, `mainline-clone`) shares an ancestor with mainline
+  // and is listed BEFORE the mainline child in the `--all` topo slice,
+  // the divergent branch reaches the shared ancestor FIRST and the main
+  // pass allocates that ancestor a fresh side lane. The mainline child
+  // then bends sideways to reach its own parent — a mainline commit
+  // rendered on lane 2 (orange) with the green/blue mainline line hooking
+  // into it. (Reported: "squash test" blue node + orange line; a green
+  // node with a blue+orange line on one commit.) Pre-claiming the spine
+  // pins every mainline commit to lane 0, so the divergent branches are
+  // the ones that bend INTO lane 0 — correct IntelliJ behavior — and the
+  // mainline stays a straight lane-0 column.
+  //
+  // HEAD-behind-newer is handled by extending the spine UPWARD too: when
+  // HEAD's tip has a newer in-window descendant that reaches the tip via
+  // its FIRST parent (an un-pulled upstream commit, or a branch built
+  // straight on top of HEAD), that descendant is part of the same visual
+  // mainline column. We walk up the first-parent-child links from HEAD's
+  // tip to the topmost such descendant, start the spine there, then walk
+  // the whole first-parent chain down. Without this the descendant would
+  // collide with the pre-claimed HEAD tip and get bumped to lane 1 with a
+  // `1->0` bend (the earlier blue-dot-on-lane-1 report).
+  //
+  // We deliberately pre-claim ONLY the first-parent spine — merge second
+  // parents and divergent tips still go through the natural main pass, so
+  // a local branch and its remote-tracking counterpart on the same chain
+  // are NOT split onto separate lanes (the earlier all-tips regression).
+  if (headTipHash !== undefined) {
+    // Walk UP via first-parent-children to find the spine head: the
+    // topmost commit that reaches HEAD's tip through an unbroken chain of
+    // "first parent" links. A child counts only if THIS spine commit is
+    // its `parents[0]` (a first-parent descendant), so divergent merges
+    // that list HEAD's branch as a 2nd parent don't capture the spine.
+    let spineHead = headTipHash;
+    const upGuard = new Set<string>();
+    for (;;) {
+      if (upGuard.has(spineHead)) {
+        break;
+      }
+      upGuard.add(spineHead);
+      const children = childrenMap.get(spineHead) ?? [];
+      const firstParentChild = children.find(
+        (childHash) => commitByHash.get(childHash)?.parents[0] === spineHead
+      );
+      if (firstParentChild === undefined || !commitsInWindow.has(firstParentChild)) {
+        break;
+      }
+      spineHead = firstParentChild;
+    }
+
+    // Walk the first-parent chain DOWN from the spine head, pinning every
+    // commit to lane 0.
     const lane = allocateLane();
-    state.commitToLane.set(headTipHash, lane);
-    // Mark the lane active so any divergent row appearing BEFORE
-    // the HEAD tip's row in the input doesn't accidentally reuse
-    // the reserved column.
-    state.activeLanes.add(lane);
+    let spineHash: string | undefined = spineHead;
+    const guard = new Set<string>();
+    while (spineHash !== undefined && commitsInWindow.has(spineHash) && !guard.has(spineHash)) {
+      guard.add(spineHash);
+      state.commitToLane.set(spineHash, lane);
+      // Mark the lane active so a divergent row appearing BEFORE this
+      // spine commit in the input doesn't reuse the reserved column.
+      state.activeLanes.add(lane);
+      const c: ICommit | undefined = commitByHash.get(spineHash);
+      spineHash = c?.parents[0];
+    }
   }
 
   // MAIN PASS — claim lanes + emit graph lines.

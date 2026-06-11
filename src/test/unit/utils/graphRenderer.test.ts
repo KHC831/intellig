@@ -1647,6 +1647,65 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
   });
 });
 
+describe('Graph Renderer - bending-edge color matches line type (node/line color match)', () => {
+  // Reported: a "squash test" commit rendered with a BLUE node but an
+  // ORANGE outgoing line; a HEAD commit with a GREEN node but a BLUE+ORANGE
+  // line. Root cause: the bezier renderer colored EVERY bending edge by its
+  // destination lane. A commit's own first-parent ('commit') edge that
+  // bends to a parent on another lane must keep the SOURCE (node) color so
+  // node and its own outgoing line agree; only 'merge'/'branch' edges (a
+  // 2nd+ parent joining another branch) take the destination color.
+  const config = DEFAULT_GRAPH_CONFIG;
+
+  it("a first-parent ('commit') edge that bends uses the SOURCE lane color (matches the node)", () => {
+    // Node on lane 1 (blue), first-parent edge bends 1 -> 0 (green dest).
+    // The edge must be drawn in the SOURCE color (lane 1 = blue), matching
+    // the node, NOT the green destination.
+    const nodes: ICommitNode[] = [
+      makeNode('n', ['p'], 1, [{ fromColumn: 1, toColumn: 0, type: 'commit' }]),
+      makeNode('p', [], 0),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const sourceColor = getColumnColor(1); // node / lane 1
+    const destColor = getColumnColor(0); // lane 0
+    // The bending <path> must carry the SOURCE color.
+    const pathMatch = svg.match(/<path[^>]*stroke="(#[0-9A-Fa-f]+)"/);
+    assert.ok(pathMatch, `expected a bezier <path>; got SVG: ${svg}`);
+    assert.strictEqual(
+      pathMatch[1],
+      sourceColor,
+      `first-parent bending edge must use the source/node color ${sourceColor}, not dest ${destColor}; got ${pathMatch[1]}`
+    );
+  });
+
+  it("a 'merge' edge that bends uses the DESTINATION lane color (joins the merged branch)", () => {
+    // Merge node on lane 0; 2nd-parent 'merge' edge bends 0 -> 1. The merge
+    // edge reads as "joining branch on lane 1", so it takes the DESTINATION
+    // color (lane 1), unchanged by the fix.
+    const nodes: ICommitNode[] = [
+      makeNode('m', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]),
+      makeNode('p1', [], 0),
+      makeNode('p2', [], 1),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const destColor = getColumnColor(1);
+    const pathMatch = svg.match(/<path[^>]*stroke="(#[0-9A-Fa-f]+)"/);
+    assert.ok(pathMatch, `expected a bezier <path> for the merge edge; got SVG: ${svg}`);
+    assert.strictEqual(
+      pathMatch[1],
+      destColor,
+      `merge edge must use the destination color ${destColor}; got ${pathMatch[1]}`
+    );
+  });
+});
+
 // ============================================================
 // Phase 2 — Renderer-side invariants (spec 8 L4, L9; spec 1.1 edge-color rule;
 // spec 1.2 focus highlight dim/brighten contract).
