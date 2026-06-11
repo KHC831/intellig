@@ -407,7 +407,23 @@ export function generateCommitGraph(
   // keeps non-divergent refs on the same lane. We let it do its
   // job for everything except HEAD, which gets the only privileged
   // pre-seed.
-  if (headTipHash !== undefined) {
+  //
+  // BUT only when HEAD's tip is a genuine LEAF in the loaded window —
+  // i.e. it has no in-window child. When HEAD is BEHIND newer loaded
+  // commits (the tool loads `--all` / a topo slice that includes commits
+  // descended from HEAD's branch tip — e.g. an un-pulled upstream commit,
+  // or another branch built on top of HEAD), pre-seeding lane 0 for the
+  // HEAD tip forces its newer descendant onto lane 1 and bends the chain:
+  // the newest row renders on lane 1 with a `1->0` hook down to HEAD,
+  // even though it is one straight mainline. (Reported: blue dot on lane 1
+  // above the green HEAD row, with a stray bend.) In that case we skip the
+  // seed and let the first-seen-child inheritance flow the whole chain down
+  // lane 0 naturally — the descendant claims lane 0 first (processed first,
+  // newest), and straight-down inheritance carries it through HEAD's tip
+  // and onward. HEAD still lands on lane 0; nothing is forced sideways.
+  const headTipHasInWindowChild =
+    headTipHash !== undefined && (childrenMap.get(headTipHash)?.length ?? 0) > 0;
+  if (headTipHash !== undefined && !headTipHasInWindowChild) {
     const lane = allocateLane();
     state.commitToLane.set(headTipHash, lane);
     // Mark the lane active so any divergent row appearing BEFORE

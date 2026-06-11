@@ -350,6 +350,48 @@ describe('Commit Graph Generation', () => {
         );
       });
 
+      it('keeps the whole chain on lane 0 when HEAD is BEHIND newer in-window descendants', () => {
+        // Regression (reported via screenshot): the log loads commits
+        // NEWER than HEAD's branch tip — e.g. an un-pulled upstream
+        // commit, or another branch built on top of HEAD, included by the
+        // `--all` / topo slice. HEAD ('mainline') is the SECOND row; a
+        // newer descendant ('newer') is the first row and is a child of
+        // HEAD's tip.
+        //
+        // The old unconditional HEAD-seed pre-claimed lane 0 for the HEAD
+        // tip, which forced 'newer' onto lane 1 with a `1->0` bend (the
+        // blue-dot-on-lane-1-above-green-HEAD artifact + a stray vertical
+        // stub). The fix skips the seed when HEAD's tip has an in-window
+        // child and lets first-seen-child inheritance flow the chain down
+        // lane 0. Every commit must end up on lane 0 with a straight
+        // same-lane line — no bend, no second lane.
+        const commits = [
+          createMockCommit('newer', ['mainline']), // newest, child of HEAD tip
+          createMockCommit('mainline', ['p1']), // HEAD's branch tip
+          createMockCommit('p1', ['p2']),
+          createMockCommit('p2', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('mainline', [{ name: 'mainline', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'mainline');
+
+        for (const node of result) {
+          assert.strictEqual(
+            node.graphColumn,
+            0,
+            `${node.commit.hash} must stay on lane 0 (HEAD-behind-newer must not bend the chain); got ${node.graphColumn}`
+          );
+          for (const line of node.graphLines) {
+            assert.strictEqual(
+              line.fromColumn,
+              line.toColumn,
+              `${node.commit.hash} line must be same-lane (no sideways bend); got ${line.fromColumn}->${line.toColumn}`
+            );
+          }
+        }
+      });
+
       it('without seeding (no headBranchName), preserves the existing first-seen order', () => {
         // The seeding pre-pass is a strict superset: when no
         // headBranchName is provided AND no branchMap is supplied, the

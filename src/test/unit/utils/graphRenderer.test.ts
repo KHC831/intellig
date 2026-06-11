@@ -1604,12 +1604,14 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
     );
   });
 
-  it('emits stroke-dasharray on a dashed bezier merge edge (off-window second parent)', () => {
-    // Merge whose parents[1] is off-window — produces a same-lane
-    // stub with style:'dashed'. (We deliberately make this a same-lane
-    // stub, since that's how the algorithm represents off-window
-    // merge parents; the renderer treats the stub as a line, not a
-    // bezier path.)
+  it('keeps the same-lane stub SOLID when the first parent is in-window even if a second parent is off-window', () => {
+    // Merge whose parents[0] is IN-window (solid same-lane line) and
+    // parents[1] is OFF-window (dashed same-lane stub). The mainline
+    // continues straight down to p1 — a real, scrollable row — so the
+    // vertical stub MUST be solid, not dashed. The off-window second
+    // parent is visually absorbed into the solid mainline stub (it has
+    // no row to land on). Regression guard: an earlier `.some(dashed)`
+    // rule dashed the solid mainline here.
     const nodes: ICommitNode[] = [
       makeNode('m', ['p1', 'off-window-p2'], 0, [
         { fromColumn: 0, toColumn: 0, type: 'commit' },
@@ -1621,8 +1623,26 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
     const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
 
     assert.ok(
+      !/stroke-dasharray/.test(svg),
+      `mainline stub with an in-window first parent must stay SOLID; got SVG: ${svg}`
+    );
+  });
+
+  it('emits stroke-dasharray only when EVERY same-lane parent is off-window', () => {
+    // The bottom row of the loaded window whose sole parent fell off the
+    // slice — a single dashed same-lane stub, no in-window continuation.
+    // This is the genuine "history continues below" case.
+    const nodes: ICommitNode[] = [
+      makeNode('child', ['off-window-parent'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+      ]),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
       /stroke-dasharray="[^"]+"/.test(svg),
-      `dashed off-window merge stub must emit stroke-dasharray; got SVG: ${svg}`
+      `an all-off-window same-lane stub must be dashed; got SVG: ${svg}`
     );
   });
 });

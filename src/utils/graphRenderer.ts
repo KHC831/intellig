@@ -424,15 +424,24 @@ export function renderGraphSvg(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
     if (sameLaneLines.length > 0) {
-      // Dashed stroke when AT LEAST ONE same-lane line targets an
-      // off-window parent ("history continues below"). A merge whose
-      // first parent is in-window but second parent is off-window
-      // produces TWO same-lane lines; if any is dashed, the visual
-      // stub must be dashed — otherwise the off-window affordance
-      // disappears whenever the in-window line happens to come first.
-      // IntelliJ parity: solid lines connect to scrollable rows;
-      // dashed lines say "more history exists, it just isn't loaded".
-      const isDashed = sameLaneLines.some((l) => l.style === 'dashed');
+      // Dashed stroke ONLY when EVERY same-lane line targets an
+      // off-window parent — i.e. this lane has no in-window continuation
+      // and is purely "history continues below the loaded window".
+      //
+      // The earlier `.some()` rule was wrong for a merge whose FIRST
+      // parent is in-window (same lane) but whose SECOND parent is
+      // off-window: that produces two same-lane lines [solid, dashed],
+      // and `.some()` painted the whole vertical stub dashed — dashing
+      // the SOLID mainline even though it continues straight down to a
+      // real, scrollable row. (Reported: mainline rows rendering with a
+      // dashed segment under merge commits.) The off-window second
+      // parent has no row to land on, so it is visually absorbed into
+      // the solid mainline stub; only when NO same-lane parent is
+      // in-window (`.every()` dashed — e.g. the bottom row of the window
+      // whose sole parent fell off the slice) is the stub drawn dashed.
+      // IntelliJ parity: solid connects to scrollable rows; dashed means
+      // "more history exists, it just isn't loaded".
+      const isDashed = sameLaneLines.every((l) => l.style === 'dashed');
       const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
