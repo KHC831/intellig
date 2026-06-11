@@ -25,6 +25,7 @@ import {
 } from '../commitGraph';
 import {
   computeActiveLanes,
+  computeGraphWidth,
   DEFAULT_GRAPH_CONFIG,
   renderGraphSvg,
 } from '../../utils/graphRenderer';
@@ -2892,6 +2893,18 @@ ${bodyMarkup}
     const cherryPickedHashes = this._extendedLogState.cherryPickedHashes;
     const cherryPickBaseRef = this._extendedLogState.cherryPickBaseRef;
 
+    // Size the graph column to the WIDEST row across the whole window. The
+    // `.commit-graph` cell is `width: var(--graph-width)` with
+    // `overflow: hidden`; that var was never set, so it fell back to the
+    // 80px default — which fits only ~3 lanes. Any repo with more parallel
+    // branches than that had its outer lanes (and the branches living on
+    // them) CLIPPED out of view, even with plenty of horizontal room in the
+    // panel — the reported "older branches pushed out of the tree" bug. We
+    // compute the pixel width from the max lane index across all nodes and
+    // publish it as `--graph-width` on the panel so every row's graph cell
+    // is wide enough to show every lane.
+    const graphColumnWidthPx = Math.max(80, computeGraphWidth(commitNodes, DEFAULT_GRAPH_CONFIG));
+
     // Build commit rows
     const rowsHtml = commitNodes
       .map((node, index) => {
@@ -3016,7 +3029,7 @@ ${bodyMarkup}
     const focusedBranchHelpHtml = `<span id="focused-branch-help" class="visually-hidden">Currently focused branch — graph is filtered to this branch's history</span>`;
 
     return `
-      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
         ${focusedBranchHelpHtml}
         ${repositorySelectorHtml}
         ${rowsHtml}
