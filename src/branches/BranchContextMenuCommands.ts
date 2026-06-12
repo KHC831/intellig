@@ -820,7 +820,7 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.fetch(repo, upstream.remote);
+      await this._gitService.fetch(repo, { remote: upstream.remote, prune: true });
       // Fetch updated remote-tracking refs; reload so ahead/behind
       // counts on the branch tree match the post-fetch state.
       await this._gitService.reloadRepository(repo);
@@ -1223,6 +1223,7 @@ export class BranchContextMenuCommands {
         remote: remoteName,
         branch: branchName,
         rebase: preset === 'rebase',
+        prune: true,
       });
       const strategy = preset === 'rebase' ? 'rebase' : 'merge';
       void vscode.window.showInformationMessage(

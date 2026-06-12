@@ -16,6 +16,7 @@ import * as assert from 'assert';
 import { BranchContextMenuCommands } from '../../branches/BranchContextMenuCommands';
 import { BranchTreeItem, BranchTreeProvider } from '../../branches/BranchTreeProvider';
 import {
+  IFetchOptions,
   IGitService,
   IRepository,
   IBranch,
@@ -111,7 +112,11 @@ function createTrackingMockGitService(): IGitService & {
       behindCount: 0,
       changedFiles: [],
     }),
-    fetch: async (repo: IRepository, remote?: string) => {
+    fetch: async (repo: IRepository, optionsOrRemote?: IFetchOptions | string) => {
+      // Accept both IFetchOptions and the legacy string form so the asserted
+      // `remote` field is populated either way.
+      const remote =
+        typeof optionsOrRemote === 'string' ? optionsOrRemote : optionsOrRemote?.remote;
       fetchCalls.push({ repo, remote });
     },
     pull: async () => {},

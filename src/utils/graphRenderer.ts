@@ -125,6 +125,27 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
     // Each graphLine represents a connection from this commit to a parent.
     // The toColumn lane should be active from this row to the parent's row.
     for (const line of node.graphLines) {
+      // FAR-PARENT FORK-POINT BEND: the algorithm marks
+      // a first-parent line whose parent is far below on a different lane
+      // with `endRow=parentRow`. The source lane runs as straight-down ink
+      // at rows `[rowIndex .. endRow-1]`; we deliberately do NOT mark the
+      // source lane at `endRow` (that would re-introduce the orphan-stroke
+      // invariant violation — the bend itself lives at the parent row and
+      // is inked by the parent's own `graphColumn`). Skip the rest of the
+      // generic resolution for these lines.
+      if (line.endRow !== undefined) {
+        if (line.endRow > rowIndex) {
+          intervals.push({
+            lane: line.fromColumn,
+            startRow: rowIndex,
+            endRow: line.endRow - 1,
+          });
+        } else {
+          intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: rowIndex });
+        }
+        continue;
+      }
+
       // Find the target parent commit's row
       // The parent hash is the commit that sits at toColumn.
       // We need to find which parent this line points to.
@@ -333,7 +354,18 @@ export function renderGraphSvg(
    * mainline below a merge commit (reported disconnect). Defaults to an
    * empty set (no continuation known → previous top-half behaviour).
    */
-  nextActiveLanes: Set<number> = new Set()
+  nextActiveLanes: Set<number> = new Set(),
+  /**
+   * Source lanes whose far-parent first-parent line BENDS into THIS
+   * row from above. For each such lane, the renderer emits a TOP-HALF
+   * bend `<path>` at this row landing in the commit's own column. For
+   * non-far-parent bends the bend remains at the source row (a bottom-
+   * half bezier emitted by the per-line loop); only far-parent lines
+   * (those carrying `endRow`) shift the bend to the parent row, fed by
+   * `computeIncomingBendsMap`. Defaults to empty (no incoming far-
+   * parent bends → no top-half bend is drawn).
+   */
+  incomingBendLanes: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -369,6 +401,18 @@ export function renderGraphSvg(
     }
     if (isValidLane(line.toColumn)) {
       allColumns.push(line.toColumn);
+    }
+  }
+  // Far-parent fork-point bends (incomingBendLanes) land AT this row but
+  // their source lane is in NONE of the above sources — neither in the
+  // commit's own column, nor in any of its graphLines (the line is
+  // attached to the SOURCE row's node, not this parent row's). Without
+  // including these, svgWidth omits the source-lane column and the bend
+  // path's start-X falls outside the viewport (clipped under
+  // overflow:hidden in the panel).
+  for (const lane of incomingBendLanes) {
+    if (isValidLane(lane)) {
+      allColumns.push(lane);
     }
   }
 
@@ -417,6 +461,14 @@ export function renderGraphSvg(
     // On a branch split row, suppress pass-through lines for diverging child lanes.
     // These lanes only exist above the split point (the children), not below it.
     if (isBranchSplitPoint && childLanes.has(lane)) {
+      continue;
+    }
+    // Incoming far-parent bend: this lane's straight-down ink stops at
+    // this row's top, then bends into the commit's own column. The
+    // dedicated incoming-bend block below emits the curved top-half
+    // path; suppress the straight pass-through here so we don't double-
+    // draw the same lane.
+    if (incomingBendLanes.has(lane)) {
       continue;
     }
     const x = getColumnX(lane, config);
@@ -471,7 +523,18 @@ export function renderGraphSvg(
     const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
-    if (sameLaneLines.length > 0) {
+    // Far-parent fork-point bend: a first-parent line leaving THIS
+    // commit's lane that bends to a parent many rows below
+    // also implies a straight-down stub at the source row, because the
+    // source lane runs vertically through the rows in between (and the
+    // bend itself lives at the parent row, not here). Without this stub
+    // the source row reads as a hanging dot — the lane stops at the
+    // commit's center with nothing below — even though the algorithm
+    // marks the source lane active across the whole [row..endRow-1] span.
+    const hasFarParentDownward = node.graphLines.some(
+      (l) => l.endRow !== undefined && l.endRow > rowIndex && l.fromColumn === node.graphColumn
+    );
+    if (sameLaneLines.length > 0 || hasFarParentDownward) {
       // Dashed stroke ONLY when EVERY same-lane line targets an
       // off-window parent — i.e. this lane has no in-window continuation
       // and is purely "history continues below the loaded window".
@@ -489,7 +552,19 @@ export function renderGraphSvg(
       // whose sole parent fell off the slice) is the stub drawn dashed.
       // IntelliJ parity: solid connects to scrollable rows; dashed means
       // "more history exists, it just isn't loaded".
-      const isDashed = sameLaneLines.every((l) => l.style === 'dashed');
+      // Dash ONLY when this lane's continuation below is purely "history
+      // continues off-window" — same-lane lines exist AND every one is
+      // dashed AND there is NO far-parent edge running below from this
+      // commit's column. Without the hasFarParentDownward guard, a commit
+      // with both a far-parent first-parent (which leaves sameLaneLines
+      // empty for that edge — it bends, doesn't sit on this lane) and an
+      // off-window dashed 2nd-parent stub painted the centerY→bottomY
+      // stub dashed even though the far-parent edge it shadows runs to a
+      // real in-window fork. A far-parent downward presence forces solid.
+      const isDashed =
+        !hasFarParentDownward &&
+        sameLaneLines.length > 0 &&
+        sameLaneLines.every((l) => l.style === 'dashed');
       const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
@@ -507,6 +582,15 @@ export function renderGraphSvg(
     }
     if (line.fromColumn === line.toColumn) {
       // Same-lane lines are already handled by the vertical segments
+      continue;
+    }
+    // Far-parent fork-point bend. The line is
+    // logically attached to THIS row (the source commit), but its bend
+    // is drawn at the PARENT row by the dedicated incoming-bends block
+    // below. Skip the source-row bottom-half bezier so we don't draw it
+    // twice — the source lane already runs straight down via the stub
+    // emitted above.
+    if (line.endRow !== undefined && line.endRow !== rowIndex) {
       continue;
     }
     const fromX = getColumnX(line.fromColumn, config);
@@ -531,6 +615,30 @@ export function renderGraphSvg(
     elements.push(
       `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
     );
+  }
+
+  // --- Far-parent incoming bends (top half) ---
+  // For each source lane bending INTO this commit's row from above (fed
+  // by `computeIncomingBendsMap`), emit a TOP-HALF cubic bezier landing
+  // at the commit's own column at centerY. The companion source-row
+  // bottom-half bezier is suppressed by the bezier loop above (where
+  // `line.endRow !== rowIndex`); the bend is geometrically split across
+  // two rows so the source lane reads as a straight column down to the
+  // fork point. Colour is the SOURCE lane (first-parent edges always
+  // carry the source-lane colour, matching L4 and the existing same-
+  // lane-bezier rule in the loop above).
+  if (isValidLane(node.graphColumn) && incomingBendLanes.size > 0) {
+    const toX = getColumnX(node.graphColumn, config);
+    for (const sourceLane of incomingBendLanes) {
+      if (!isValidLane(sourceLane) || sourceLane === node.graphColumn) {
+        continue;
+      }
+      const fromX = getColumnX(sourceLane, config);
+      const color = getColumnColor(sourceLane);
+      elements.push(
+        `<path d="M ${fromX},0 C ${fromX},${centerY} ${toX},0 ${toX},${centerY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+      );
+    }
   }
 
   // --- Draw the commit node icon (on top of everything) ---

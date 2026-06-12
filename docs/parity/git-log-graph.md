@@ -107,6 +107,65 @@ lanes ≥ 1000. Property test asserts `getMaxGraphColumn(result) ≤ K + 5`
 where K is the number of distinct branch tips, so the cap is never
 approached in practice.
 
+### §1.5 Far-parent bends
+
+When the **first-parent** of a divergent branch's oldest in-window
+commit lives many rows below on a **different lane**, the bend into
+that lane is drawn at the parent row, NOT at the source row. The
+divergent branch reads as a continuous vertical column running down
+its own lane to the fork point, with the bend hooking into the
+mainline only at the row where the parent itself sits.
+
+```
+  * b0       lane 1   ← side branch tip
+  | * m0     lane 0   ← mainline
+  * | b1     lane 1
+  * | b2     lane 1   ← b2.parents = [m4]; first-parent is m4 (lane 0, row 7)
+  | * m1     lane 0
+  | * m2     lane 0
+  | * m3     lane 0
+  ↘/
+  * m4       lane 0   ← b2's first-parent line BENDS into lane 0 here
+                        (top-half bezier at the parent row, NOT a one-row
+                        diagonal hook from b2's row)
+```
+
+Without this rule (the prior behaviour): `b2`'s first-parent line was
+emitted as a one-row diagonal `{fromColumn: 1, toColumn: 0}` at b2's
+own row, leaving lane 1 active only at b2's row. The visual effect
+was a stub diving sideways into the mainline at b2's row, with rows
+m1..m3 showing only the mainline column — a divergent branch that
+"vanished" into the mainline several rows above its actual fork
+point.
+
+**Implementation invariant** (the additive `endRow?: number` field on
+`IGraphLine`):
+
+- Set ONLY for a **first-parent** (`type: 'commit'`) line whose parent
+  is in-window, on a different lane, and **more than one row below**
+  the source commit. Adjacent-row bends and same-lane inheritance are
+  unchanged. Merge / branch second-parents intentionally still bend at
+  their source row — that's the merge commit itself, and the merged-in
+  edge reads as "joining at the merge", matching IntelliJ.
+- When `endRow` is set, the source lane (`fromColumn`) carries
+  straight-down ink at rows `[row .. endRow - 1]`. The bend lives at
+  row `endRow` and is drawn by the renderer as a top-half bezier from
+  `(fromColumnX, 0)` to `(toColumnX, centerY)`, fed by
+  `computeIncomingBendsMap(nodes)`.
+- The source lane is NOT marked active at `endRow` itself — the
+  parent's own `graphColumn` already inks `toColumn` there. This
+  preserves the pre-existing orphan-stroke invariant ("a bending
+  line's source lane is NOT marked at the row where it lands").
+
+Pinned by `snap-far-parent` (synthetic 8-commit topology),
+`snap-far-parent-multi` (≥2 incoming bends at one parent row, pins
+the SVG-width contract that bend paths fit the viewport),
+`snap-far-parent-dashed-stub` (a far-parent commit whose 2nd parent
+is off-window draws its centerY→bottomY stub solid, not dashed),
+and the `test/test2 (c0..c4)` acceptance test in
+`realTopoRegression.test.ts` (real anonymized topology, c4 → c5 fork
+point at rows 4 → 22).
+
 ---
 
 ## §2 Branch chips

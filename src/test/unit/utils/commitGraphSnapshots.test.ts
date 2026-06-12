@@ -26,11 +26,21 @@ import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import {
   generateCommitGraph,
+  computeChildCountMap,
+  computeChildLanesMap,
+  computeIncomingBendsMap,
+  computeTerminalNodes,
+  isBranchSplit,
   type ICommitNode,
   type IBranchRef,
 } from '../../../git-core/commitGraph';
 import type { ICommit } from '../../../git-core/interfaces/IGitService';
-import { renderGraphSvg, DEFAULT_GRAPH_CONFIG } from '../../../utils/graphRenderer';
+import {
+  computeActiveLanes,
+  getColumnX,
+  renderGraphSvg,
+  DEFAULT_GRAPH_CONFIG,
+} from '../../../utils/graphRenderer';
 import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
 import type { IExtendedLogState } from '../../../ui-shell/GitToolWindowProvider';
 import { Uri } from '../../mocks/vscode';
@@ -250,6 +260,308 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
       { hash: 'ddd', graphColumn: 0, branches: [], onFocusedBranchPath: false },
     ];
     assert.deepStrictEqual(focusSnapshot, expected);
+  });
+
+  // ─── snap-far-parent: divergent branch with far-parent fork point ─────
+  it('snap-far-parent: side branch first-parent line carries endRow + renderer draws bend at parent row', () => {
+    // Synthetic 8-commit deterministic topology. Mainline m0..m4 on lane 0
+    // (newest first); side branch b0→b1→b2 on lane 1 whose oldest commit
+    // (b2) first-parents to mainline m4 several rows below. headHash=m0 so
+    // mainline pre-claims lane 0.
+    //   row 0: m0  parents=[m1]
+    //   row 1: m1  parents=[m2]
+    //   row 2: b0  parents=[b1]    (side branch tip on lane 1)
+    //   row 3: b1  parents=[b2]
+    //   row 4: b2  parents=[m4]    (far-parent — m4 is 3 rows below)
+    //   row 5: m2  parents=[m3]
+    //   row 6: m3  parents=[m4]
+    //   row 7: m4  parents=[]
+    const commits = [
+      mkCommit('m0', ['m1']),
+      mkCommit('m1', ['m2']),
+      mkCommit('b0', ['b1']),
+      mkCommit('b1', ['b2']),
+      mkCommit('b2', ['m4']),
+      mkCommit('m2', ['m3']),
+      mkCommit('m3', ['m4']),
+      mkCommit('m4'),
+    ];
+    const branchMap = new Map<string, IBranchRef[]>();
+    branchMap.set('m0', [{ name: 'main', type: 'local' }]);
+    branchMap.set('b0', [{ name: 'side', type: 'local' }]);
+    const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'main', 'm0');
+
+    // Pin b2's graphLines — the far-parent first-parent line must carry
+    // endRow=7 (m4's row), bending from lane 1 to lane 0.
+    const b2 = result.find((n) => n.commit.hash === 'b2');
+    assert.ok(b2, 'b2 node must exist');
+    assert.deepStrictEqual(
+      b2.graphLines,
+      [
+        {
+          fromColumn: 1,
+          toColumn: 0,
+          color: '#2196F3', // lane 1 colour (Blue) — first-parent uses source lane colour
+          type: 'commit',
+          endRow: 7,
+        },
+      ],
+      `b2 graphLines must pin endRow=7 (m4's row); got ${JSON.stringify(b2.graphLines)}`
+    );
+
+    // Lane assignments (smoke): mainline rows on lane 0, side branch rows
+    // on lane 1, b2's parent m4 on lane 0.
+    const expectedLanes: Record<string, number> = {
+      m0: 0,
+      m1: 0,
+      b0: 1,
+      b1: 1,
+      b2: 1,
+      m2: 0,
+      m3: 0,
+      m4: 0,
+    };
+    for (const n of result) {
+      assert.strictEqual(
+        n.graphColumn,
+        expectedLanes[n.commit.hash],
+        `${n.commit.hash} expected lane ${expectedLanes[n.commit.hash]} got ${n.graphColumn}`
+      );
+    }
+
+    // computeIncomingBendsMap surfaces source lane 1 at m4's row; b2's row
+    // has no incoming bend.
+    const incoming = computeIncomingBendsMap(result);
+    const m4Bends = incoming.get('m4') ?? new Set<number>();
+    assert.deepStrictEqual(
+      [...m4Bends].sort(),
+      [1],
+      `incoming bends at m4 must be {1}; got {${[...m4Bends].join(',')}}`
+    );
+    assert.strictEqual(
+      (incoming.get('b2') ?? new Set<number>()).size,
+      0,
+      'incoming bends at b2 must be empty'
+    );
+
+    // Renderer SVG snapshot — m4's row carries the top-half bend, b2's row
+    // does NOT carry the old source-row bezier and DOES carry the lane-1
+    // downward stub.
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const centerY = cfg.rowHeight / 2;
+    const bottomY = cfg.rowHeight;
+    const lane0X = getColumnX(0, cfg);
+    const lane1X = getColumnX(1, cfg);
+    const active = computeActiveLanes(result);
+    const childCountMap = computeChildCountMap(result);
+    const childLanesMap = computeChildLanesMap(result);
+    const terminals = computeTerminalNodes(result);
+
+    const m4Row = result.findIndex((n) => n.commit.hash === 'm4');
+    const m4Node = result[m4Row];
+    const m4Svg = renderGraphSvg(
+      m4Node,
+      m4Row,
+      active.get(m4Row) ?? new Set<number>(),
+      cfg,
+      terminals.has('m4'),
+      isBranchSplit('m4', childCountMap),
+      childLanesMap.get('m4') ?? new Set<number>(),
+      false,
+      active.get(m4Row + 1) ?? new Set<number>(),
+      incoming.get('m4') ?? new Set<number>()
+    );
+    const expectedTopHalfBend = `<path d="M ${lane1X},0 C ${lane1X},${centerY} ${lane0X},0 ${lane0X},${centerY}"`;
+    assert.ok(
+      m4Svg.includes(expectedTopHalfBend),
+      `m4 SVG must include top-half bend "${expectedTopHalfBend}"; got: ${m4Svg}`
+    );
+
+    const b2Row = result.findIndex((n) => n.commit.hash === 'b2');
+    const b2Svg = renderGraphSvg(
+      result[b2Row],
+      b2Row,
+      active.get(b2Row) ?? new Set<number>(),
+      cfg,
+      terminals.has('b2'),
+      isBranchSplit('b2', childCountMap),
+      childLanesMap.get('b2') ?? new Set<number>(),
+      false,
+      active.get(b2Row + 1) ?? new Set<number>(),
+      incoming.get('b2') ?? new Set<number>()
+    );
+    const oldSourceRowBend = `M ${lane1X},${centerY} C ${lane1X},${bottomY} ${lane0X},${centerY} ${lane0X},${bottomY}`;
+    assert.ok(
+      !b2Svg.includes(oldSourceRowBend),
+      `b2 SVG must NOT include the OLD source-row bezier "${oldSourceRowBend}"; got: ${b2Svg}`
+    );
+    const lane1Stub = `<line x1="${lane1X}" y1="${centerY}" x2="${lane1X}" y2="${bottomY}"`;
+    assert.ok(
+      b2Svg.includes(lane1Stub),
+      `b2 SVG must include lane-1 downward stub "${lane1Stub}"; got: ${b2Svg}`
+    );
+  });
+
+  // ─── snap-far-parent-dashed-stub: far-parent + off-window 2nd parent ───
+  it('snap-far-parent-dashed-stub: a far-parent commit with an off-window 2nd parent draws its centerY→bottomY stub SOLID (the dashed-stub-shadowing the far-parent edge bug)', () => {
+    // Topology — a merge commit `m0` on lane 1 whose:
+    //   - first parent is `base`, in-window, on lane 0, several rows below
+    //     (so the line carries endRow + bends at the parent row, NOT here);
+    //   - second parent is OFF-WINDOW on the same lane (a same-lane dashed
+    //     stub line is emitted alongside the far-parent line).
+    //
+    // Pre-fix: the dashed-detection rule was
+    //   sameLaneLines.length > 0 && sameLaneLines.every(l => l.style==='dashed')
+    // which evaluated TRUE here (the only same-lane line is the off-window
+    // 2nd-parent dashed stub) — so the centerY→bottomY stub was drawn
+    // dashed even though the far-parent edge below is SOLID and runs to a
+    // real, scrollable in-window fork.
+    //
+    //   row 0: f0  parents=[base]              lane 0 (mainline ancestor)
+    //   row 1: m0  parents=[base, offwindow]   lane 1 — THE TEST ROW
+    //   row 2: filler1                         lane 2 (separator only — keeps base far)
+    //   row 3: filler2                         lane 2
+    //   row 4: base parents=[]                 lane 0 (the in-window first parent)
+    const commits = [
+      mkCommit('f0', ['base']),
+      mkCommit('m0', ['base', 'offwindow_hash']),
+      mkCommit('filler1'),
+      mkCommit('filler2'),
+      mkCommit('base'),
+    ];
+    const result = generateCommitGraph(commits);
+    const m0 = result.find((n) => n.commit.hash === 'm0');
+    assert.ok(m0, 'm0 node must exist');
+    // Sanity — m0 emits both a far-parent first-parent (endRow=4, lane 1→0)
+    // and a same-lane dashed off-window 2nd-parent stub.
+    assert.strictEqual(m0.graphColumn, 1, `m0 should sit on lane 1; got ${m0.graphColumn}`);
+    assert.strictEqual(
+      m0.graphLines.length,
+      2,
+      `m0 should have 2 graphLines; got ${m0.graphLines.length}`
+    );
+    const farParent = m0.graphLines[0];
+    const offWindow = m0.graphLines[1];
+    assert.strictEqual(farParent.endRow, 4, 'first-parent line carries endRow=4');
+    assert.strictEqual(farParent.fromColumn, 1);
+    assert.strictEqual(farParent.toColumn, 0);
+    assert.strictEqual(offWindow.style, 'dashed', '2nd parent off-window stub is dashed');
+    assert.strictEqual(offWindow.fromColumn, 1);
+    assert.strictEqual(offWindow.toColumn, 1);
+
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const m0Row = result.indexOf(m0);
+    const active = computeActiveLanes(result);
+    const incoming = computeIncomingBendsMap(result);
+    const childCountMap = computeChildCountMap(result);
+    const childLanesMap = computeChildLanesMap(result);
+    const terminals = computeTerminalNodes(result);
+    const svg = renderGraphSvg(
+      m0,
+      m0Row,
+      active.get(m0Row) ?? new Set<number>(),
+      cfg,
+      terminals.has('m0'),
+      isBranchSplit('m0', childCountMap),
+      childLanesMap.get('m0') ?? new Set<number>(),
+      false,
+      active.get(m0Row + 1) ?? new Set<number>(),
+      incoming.get('m0') ?? new Set<number>()
+    );
+
+    // Locate the centerY→bottomY stub on lane 1 (m0's own lane). It must
+    // exist and must NOT carry stroke-dasharray — the far-parent edge
+    // running below is solid in-window history, not "history continues
+    // off-window".
+    const lane1X = getColumnX(1, cfg);
+    const centerY = cfg.rowHeight / 2;
+    const stubRegex = new RegExp(
+      `<line x1="${lane1X}" y1="${centerY}" x2="${lane1X}" y2="${cfg.rowHeight}"[^/]*/>`
+    );
+    const stubMatch = svg.match(stubRegex);
+    assert.ok(stubMatch, `m0 must emit a centerY→bottomY stub on lane 1; got: ${svg}`);
+    assert.ok(
+      !stubMatch[0].includes('stroke-dasharray'),
+      `m0's centerY→bottomY stub must be SOLID (a far-parent edge runs to a real in-window fork below); got dashed: ${stubMatch[0]}`
+    );
+  });
+
+  // ─── snap-far-parent-multi: ≥2 incoming bends at one parent row ────
+  it('snap-far-parent-multi: parent row with multiple incoming far-parent bends sizes the SVG to fit ALL source-lane start points', () => {
+    // Synthetic topology — three side branches (lanes 1, 2, 3) all have
+    // their oldest commit's first parent equal to `base` on lane 0 several
+    // rows below. At base's row the renderer draws three top-half bend
+    // paths whose start-X values are getColumnX(1..3, cfg). The pre-fix
+    // CRITICAL bug: renderGraphSvg's `allColumns` accumulation only
+    // considered activeLanes / node.graphColumn / node.graphLines.{from,to}
+    // — none of which include the incoming-bend SOURCE lanes at the parent
+    // row — so svgWidth omitted lanes 1..3 and the bend paths were drawn
+    // OUTSIDE the viewport, clipped under overflow:hidden in the panel.
+    //
+    // Topology (newest-first):
+    //   row 0: m0  parents=[m1]    lane 0 (mainline)
+    //   row 1: m1  parents=[base]  lane 0
+    //   row 2: a0  parents=[a1]    lane 1
+    //   row 3: a1  parents=[base]  lane 1 (far parent — base is row 8)
+    //   row 4: b0  parents=[b1]    lane 2
+    //   row 5: b1  parents=[base]  lane 2
+    //   row 6: c0  parents=[c1]    lane 3
+    //   row 7: c1  parents=[base]  lane 3
+    //   row 8: base parents=[]
+    const commits = [
+      mkCommit('m0', ['m1']),
+      mkCommit('m1', ['base']),
+      mkCommit('a0', ['a1']),
+      mkCommit('a1', ['base']),
+      mkCommit('b0', ['b1']),
+      mkCommit('b1', ['base']),
+      mkCommit('c0', ['c1']),
+      mkCommit('c1', ['base']),
+      mkCommit('base'),
+    ];
+    const result = generateCommitGraph(commits, undefined, undefined, undefined, undefined, 'm0');
+    const baseRow = result.findIndex((n) => n.commit.hash === 'base');
+    const incoming = computeIncomingBendsMap(result);
+    const baseBends = incoming.get('base') ?? new Set<number>();
+    // Sanity — each side branch contributes one source lane bending into base.
+    // (The mainline first-parent doesn't bend; only the divergent branches
+    // hit the >1-row-below + cross-lane condition.)
+    assert.ok(baseBends.size >= 2, `expected ≥2 incoming bends at base; got ${baseBends.size}`);
+
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const active = computeActiveLanes(result);
+    const childCountMap = computeChildCountMap(result);
+    const childLanesMap = computeChildLanesMap(result);
+    const terminals = computeTerminalNodes(result);
+    const baseSvg = renderGraphSvg(
+      result[baseRow],
+      baseRow,
+      active.get(baseRow) ?? new Set<number>(),
+      cfg,
+      terminals.has('base'),
+      isBranchSplit('base', childCountMap),
+      childLanesMap.get('base') ?? new Set<number>(),
+      false,
+      active.get(baseRow + 1) ?? new Set<number>(),
+      baseBends
+    );
+
+    // Extract the SVG width.
+    const widthMatch = baseSvg.match(/width="(\d+)"/);
+    assert.ok(widthMatch, `base SVG must declare a width attribute; got: ${baseSvg}`);
+    const svgWidth = Number(widthMatch[1]);
+
+    // Every bend path's start-X (the source lane's centerX) must fit
+    // inside the viewport. Pre-fix, lanes 2..N landed at x ≥ svgWidth
+    // and were clipped.
+    for (const sourceLane of baseBends) {
+      const startX = getColumnX(sourceLane, cfg);
+      assert.ok(
+        startX < svgWidth,
+        `incoming-bend source lane ${sourceLane} starts at x=${startX} but SVG width is only ${svgWidth} ` +
+          `— bend path is clipped. SVG: ${baseSvg}`
+      );
+    }
   });
 });
 

@@ -306,6 +306,8 @@ export interface IPullOptions {
   noCommit?: boolean;
   /** Bypass pre-merge hook (`--no-verify`). */
   noVerify?: boolean;
+  /** Remove remote-tracking refs that no longer exist on the remote (`--prune`). */
+  prune?: boolean;
   /** Remote name (default origin). */
   remote?: string;
   /** Branch name on the remote to pull from. */

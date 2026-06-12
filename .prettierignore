@@ -3,3 +3,6 @@ dist
 node_modules
 .vscode-test
 *.vsix
+
+# Visual-parity reference docs — hand-formatted (ASCII graph diagrams, aligned tables); prettier reflow corrupts them
+docs/parity/

@@ -22,6 +22,7 @@ import {
   computeChildCountMap,
   isBranchSplit,
   computeChildLanesMap,
+  computeIncomingBendsMap,
 } from '../commitGraph';
 import {
   computeActiveLanes,
@@ -2881,6 +2882,11 @@ ${bodyMarkup}
     const terminalNodes = computeTerminalNodes(commitNodes);
     const childCountMap = computeChildCountMap(commitNodes);
     const childLanesMap = computeChildLanesMap(commitNodes);
+    // Far-parent fork-point bends. For each parent
+    // row that receives a far-parent first-parent line from above, the
+    // renderer draws the bend AT the parent row (not at the source row);
+    // this map surfaces the source lanes per parent hash.
+    const incomingBendsMap = computeIncomingBendsMap(commitNodes);
 
     // True when ANY commit in the rendered set is on the
     // focused-branch path. The renderer reads this to decide whether to
@@ -2921,6 +2927,10 @@ ${bodyMarkup}
         // bezier-target lane also continues below (a through-lane) and must
         // be drawn full-height — preventing the gap under a merge commit.
         const nextActiveLanes = activeLaneMap.get(index + 1) || new Set<number>();
+        // Source lanes whose far-parent first-parent
+        // line lands at THIS row from above. The renderer draws a top-half
+        // bend per lane.
+        const incomingBendLanes = incomingBendsMap.get(commit.hash) || new Set<number>();
         const graphSvg = renderGraphSvg(
           node,
           index,
@@ -2930,7 +2940,8 @@ ${bodyMarkup}
           isSplitPoint,
           childLanes,
           hasFocusedBranch,
-          nextActiveLanes
+          nextActiveLanes,
+          incomingBendLanes
         );
 
         // Format fields.

@@ -58,6 +58,24 @@ export interface IGraphLine {
    * an off-window edge silently regresses to a phantom bezier.
    */
   style?: GraphLineStyle;
+  /**
+   * Far-parent fork-point row. Set ONLY for a first-parent (`type:
+   * 'commit'`) line whose parent is in-window, on a DIFFERENT lane, and
+   * MORE than one row below this commit. Semantics: the source lane
+   * (`fromColumn`) renders as straight-down ink at rows `[row .. endRow-1]`
+   * inclusive, and the bend into `toColumn` is drawn by the renderer at
+   * row `endRow` (NOT represented as active-lane ink at `endRow` — the
+   * parent's own `graphColumn` already inks `toColumn` there). Undefined
+   * is the default — the bend is drawn at the source row, matching the
+   * pre-Wave-2 behaviour for adjacent-row first-parent bends and for
+   * non-first-parent (merge / branch) lines.
+   *
+   * This preserves the orphan-stroke invariant ("a bending line's source
+   * lane is NOT marked at the row where it lands"): with `endRow` set,
+   * the source lane's ink stops at `endRow - 1`, and the bend itself
+   * lives in the parent row's renderer, fed by `computeIncomingBendsMap`.
+   */
+  endRow?: number;
 }
 
 /**
@@ -611,11 +629,10 @@ export function generateCommitGraph(
     // row is emitted (see the block after the loop):
     //   - 'inherited' : the first parent took `column` straight down — the
     //     parent's own claim keeps the lane alive, release X now.
-    //   - 'bendToRow' : the first-parent line bends to a parent on another
-    //     lane at row R — keep `column` reserved (X stays its claimant)
-    //     until R, then free it.
-    //   - 'end'       : no in-window first parent (root / off-window) —
-    //     release `column` now.
+    //   - 'end'       : the first-parent line either bends to a parent on
+    //     another lane (release deferred to that parent's row via
+    //     `bendReleaseRow`) OR has no in-window first parent (root /
+    //     off-window) — release `column` immediately.
     let firstParentDisposition: 'inherited' | 'end' = 'end';
     let bendReleaseRow = -1;
     const parents = commit.parents;
@@ -685,7 +702,7 @@ export function generateCommitGraph(
         }
       }
 
-      graphLines.push({
+      const line: IGraphLine = {
         fromColumn: column,
         toColumn: parentLane,
         // Merge / branch lines (i > 0) take the destination lane's color
@@ -693,7 +710,26 @@ export function generateCommitGraph(
         // line uses the current commit's lane color.
         color: getColumnColor(i === 0 ? column : parentLane),
         type: i === 0 ? 'commit' : 'merge',
-      });
+      };
+
+      // FAR-PARENT FORK-POINT BEND. When the first-parent line bends to a
+      // parent that lies more than one row below on a DIFFERENT lane
+      // (the divergent-branch fork-point case), record the parent's row
+      // so the renderer keeps the source lane visually continuous all
+      // the way down to the fork point and only bends there. Adjacent-
+      // row bends and same-lane inheritance keep today's behaviour.
+      // FIRST-PARENT ONLY (i === 0): merge / branch second-parents
+      // intentionally still bend at the merge row (their source row),
+      // matching IntelliJ — the merged-in edge reads as "joining at the
+      // merge commit", not "running down to the merge base".
+      if (i === 0) {
+        const parentRow = rowOfHash.get(parentHash);
+        if (parentRow !== undefined && parentLane !== column && parentRow > rowIndex + 1) {
+          line.endRow = parentRow;
+        }
+      }
+
+      graphLines.push(line);
     }
 
     const branches = branchMap?.get(commitHash) || [];
@@ -886,4 +922,45 @@ export function computeChildLanesMap(nodes: ICommitNode[]): Map<string, Set<numb
   }
 
   return childLanesMap;
+}
+
+/**
+ * Compute a map of parent-row commit hash → set of source lanes whose
+ * far-parent first-parent line BENDS into the parent at that parent row.
+ *
+ * The companion to `computeChildLanesMap`: that one records the lanes
+ * children OCCUPY (used by the renderer to draw split curves UP from a
+ * branch-split commit); this one records the source lanes CONVERGING
+ * INTO a commit from above via a far-parent bend, used by the renderer
+ * to draw the top-half bend at the parent's row (where the bend lands)
+ * rather than at the source row (where today's adjacent-bend bezier is
+ * emitted). Only `endRow`-carrying lines contribute, so non-far-parent
+ * lines keep today's source-row bend behaviour unchanged.
+ *
+ * @param nodes - Array of commit nodes
+ * @returns Map of parent commit hash → set of source-lane indices
+ */
+export function computeIncomingBendsMap(nodes: ICommitNode[]): Map<string, Set<number>> {
+  const incomingBendsMap = new Map<string, Set<number>>();
+
+  for (const node of nodes) {
+    for (const line of node.graphLines) {
+      if (line.endRow === undefined) {
+        continue;
+      }
+      const parentRow = line.endRow;
+      if (parentRow < 0 || parentRow >= nodes.length) {
+        continue;
+      }
+      const parentHash = nodes[parentRow].commit.hash;
+      let set = incomingBendsMap.get(parentHash);
+      if (!set) {
+        set = new Set<number>();
+        incomingBendsMap.set(parentHash, set);
+      }
+      set.add(line.fromColumn);
+    }
+  }
+
+  return incomingBendsMap;
 }
