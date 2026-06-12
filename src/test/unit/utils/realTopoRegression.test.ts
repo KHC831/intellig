@@ -81,7 +81,7 @@ function groundTruthInk(nodes: ICommitNode[]): Map<number, Set<number>> {
   nodes.forEach((n, i) => {
     mark(i, n.graphColumn);
     for (const line of n.graphLines) {
-      // Far-parent fork-point bend (Wave 2 / task #68): the source lane runs
+      // Far-parent fork-point bend: the source lane runs
       // straight down at rows [row..endRow-1]; the bend itself lands at
       // endRow but is inked there by the parent's own graphColumn — we
       // intentionally do NOT mark the source lane at endRow (preserves the
@@ -260,7 +260,7 @@ describe('Real anonymized topology — graph regression pins', () => {
   });
 
   it('test/test2 (c0..c4): branch lane stays vertical down to its fork point at c5', () => {
-    // Wave 2 / task #68 — far-parent fork-point edge routing. The
+    // Far-parent fork-point edge routing. The
     // divergent branch's oldest commit (c4) has its first parent (c5) on a
     // DIFFERENT lane many rows below. Pre-fix: c4 emitted a one-row
     // diagonal hook into the mainline at its own row, leaving lane 1

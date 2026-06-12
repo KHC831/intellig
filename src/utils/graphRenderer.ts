@@ -125,7 +125,7 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
     // Each graphLine represents a connection from this commit to a parent.
     // The toColumn lane should be active from this row to the parent's row.
     for (const line of node.graphLines) {
-      // FAR-PARENT FORK-POINT BEND (Wave 2 / task #68): the algorithm marks
+      // FAR-PARENT FORK-POINT BEND: the algorithm marks
       // a first-parent line whose parent is far below on a different lane
       // with `endRow=parentRow`. The source lane runs as straight-down ink
       // at rows `[rowIndex .. endRow-1]`; we deliberately do NOT mark the
@@ -356,13 +356,14 @@ export function renderGraphSvg(
    */
   nextActiveLanes: Set<number> = new Set(),
   /**
-   * Source lanes whose far-parent first-parent line BENDS into THIS row
-   * from above (Wave 2 / task #68). For each such lane, the renderer
-   * emits a TOP-HALF bend `<path>` at this row landing in the commit's
-   * own column. The bend was previously drawn at the source row as a
-   * bottom-half bezier; for far-parent lines it now lives at the parent
-   * row, fed by `computeIncomingBendsMap`. Defaults to empty (no
-   * incoming far-parent bends → no change from the pre-Wave-2 layout).
+   * Source lanes whose far-parent first-parent line BENDS into THIS
+   * row from above. For each such lane, the renderer emits a TOP-HALF
+   * bend `<path>` at this row landing in the commit's own column. For
+   * non-far-parent bends the bend remains at the source row (a bottom-
+   * half bezier emitted by the per-line loop); only far-parent lines
+   * (those carrying `endRow`) shift the bend to the parent row, fed by
+   * `computeIncomingBendsMap`. Defaults to empty (no incoming far-
+   * parent bends → no top-half bend is drawn).
    */
   incomingBendLanes: Set<number> = new Set()
 ): string {
@@ -462,11 +463,11 @@ export function renderGraphSvg(
     if (isBranchSplitPoint && childLanes.has(lane)) {
       continue;
     }
-    // Wave 2 / task #68 — incoming far-parent bend: this lane's
-    // straight-down ink stops at this row's top, then bends into the
-    // commit's own column. The dedicated incoming-bend block below
-    // emits the curved top-half path; suppress the straight pass-
-    // through here so we don't double-draw the same lane.
+    // Incoming far-parent bend: this lane's straight-down ink stops at
+    // this row's top, then bends into the commit's own column. The
+    // dedicated incoming-bend block below emits the curved top-half
+    // path; suppress the straight pass-through here so we don't double-
+    // draw the same lane.
     if (incomingBendLanes.has(lane)) {
       continue;
     }
@@ -522,8 +523,8 @@ export function renderGraphSvg(
     const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
-    // Wave 2 / task #68 — far-parent fork-point bend: a first-parent line
-    // leaving THIS commit's lane that bends to a parent many rows below
+    // Far-parent fork-point bend: a first-parent line leaving THIS
+    // commit's lane that bends to a parent many rows below
     // also implies a straight-down stub at the source row, because the
     // source lane runs vertically through the rows in between (and the
     // bend itself lives at the parent row, not here). Without this stub
@@ -583,7 +584,7 @@ export function renderGraphSvg(
       // Same-lane lines are already handled by the vertical segments
       continue;
     }
-    // Wave 2 / task #68 — far-parent fork-point bend. The line is
+    // Far-parent fork-point bend. The line is
     // logically attached to THIS row (the source commit), but its bend
     // is drawn at the PARENT row by the dedicated incoming-bends block
     // below. Skip the source-row bottom-half bezier so we don't draw it
@@ -616,7 +617,7 @@ export function renderGraphSvg(
     );
   }
 
-  // --- Wave 2 / task #68 — far-parent incoming bends (top half) ---
+  // --- Far-parent incoming bends (top half) ---
   // For each source lane bending INTO this commit's row from above (fed
   // by `computeIncomingBendsMap`), emit a TOP-HALF cubic bezier landing
   // at the commit's own column at centerY. The companion source-row

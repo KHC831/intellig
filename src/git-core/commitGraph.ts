@@ -629,11 +629,10 @@ export function generateCommitGraph(
     // row is emitted (see the block after the loop):
     //   - 'inherited' : the first parent took `column` straight down — the
     //     parent's own claim keeps the lane alive, release X now.
-    //   - 'bendToRow' : the first-parent line bends to a parent on another
-    //     lane at row R — keep `column` reserved (X stays its claimant)
-    //     until R, then free it.
-    //   - 'end'       : no in-window first parent (root / off-window) —
-    //     release `column` now.
+    //   - 'end'       : the first-parent line either bends to a parent on
+    //     another lane (release deferred to that parent's row via
+    //     `bendReleaseRow`) OR has no in-window first parent (root /
+    //     off-window) — release `column` immediately.
     let firstParentDisposition: 'inherited' | 'end' = 'end';
     let bendReleaseRow = -1;
     const parents = commit.parents;
@@ -715,11 +714,14 @@ export function generateCommitGraph(
 
       // FAR-PARENT FORK-POINT BEND. When the first-parent line bends to a
       // parent that lies more than one row below on a DIFFERENT lane
-      // (the divergent-branch fork-point case — task #68), record the
-      // parent's row so the renderer keeps the source lane visually
-      // continuous all the way down to the fork point and only bends
-      // there. Adjacent-row bends and same-lane inheritance keep today's
-      // behaviour.
+      // (the divergent-branch fork-point case), record the parent's row
+      // so the renderer keeps the source lane visually continuous all
+      // the way down to the fork point and only bends there. Adjacent-
+      // row bends and same-lane inheritance keep today's behaviour.
+      // FIRST-PARENT ONLY (i === 0): merge / branch second-parents
+      // intentionally still bend at the merge row (their source row),
+      // matching IntelliJ — the merged-in edge reads as "joining at the
+      // merge commit", not "running down to the merge base".
       if (i === 0) {
         const parentRow = rowOfHash.get(parentHash);
         if (parentRow !== undefined && parentLane !== column && parentRow > rowIndex + 1) {

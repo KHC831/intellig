@@ -2882,7 +2882,7 @@ ${bodyMarkup}
     const terminalNodes = computeTerminalNodes(commitNodes);
     const childCountMap = computeChildCountMap(commitNodes);
     const childLanesMap = computeChildLanesMap(commitNodes);
-    // Wave 2 / task #68 — far-parent fork-point bends. For each parent
+    // Far-parent fork-point bends. For each parent
     // row that receives a far-parent first-parent line from above, the
     // renderer draws the bend AT the parent row (not at the source row);
     // this map surfaces the source lanes per parent hash.
@@ -2927,7 +2927,7 @@ ${bodyMarkup}
         // bezier-target lane also continues below (a through-lane) and must
         // be drawn full-height — preventing the gap under a merge commit.
         const nextActiveLanes = activeLaneMap.get(index + 1) || new Set<number>();
-        // Wave 2 / task #68 — source lanes whose far-parent first-parent
+        // Source lanes whose far-parent first-parent
         // line lands at THIS row from above. The renderer draws a top-half
         // bend per lane.
         const incomingBendLanes = incomingBendsMap.get(commit.hash) || new Set<number>();
