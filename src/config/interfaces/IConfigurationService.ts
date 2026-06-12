@@ -58,7 +58,7 @@ export interface IExtensionConfiguration {
   ignoredFileColor: string;
   conflictFileColor: string;
 
-  // Logging settings (task 5.3 — typed projection of `intellig.log.*`)
+  // Logging settings (typed projection of `intellig.log.*`)
   /**
    * Minimum severity admitted to the IntelliG logger; records at
    * lower levels are dropped before allocation. Backed by the

@@ -12,9 +12,8 @@ export interface IBlameInfo {
 /**
  * Per-invocation blame options. Map 1-to-1 onto `git blame` flags.
  *
- * Design ref: T2-08 (gap analysis) — surfaces IntelliJ "Options" submenu
- * (Ignore Whitespaces / Detect Movements Within File / Detect Movements
- * Across Files).
+ * Surfaces IntelliJ's "Options" submenu (Ignore Whitespaces / Detect
+ * Movements Within File / Detect Movements Across Files).
  */
 export interface IBlameOptions {
   /** `-w`: ignore whitespace when comparing parent/child revisions. */

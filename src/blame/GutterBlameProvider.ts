@@ -10,10 +10,6 @@ import * as path from 'path';
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with age-based color gradients and click actions.
- *
- * - 9.2: Display blame information in the editor gutter for all visible lines
- * - 9.5: Click actions to view commit or copy hash
- * - 9.7: Use distinct colors to differentiate commits by age
  */
 export class GutterBlameProvider implements IGutterBlameProvider {
   private _enabled: boolean = false;
@@ -60,8 +56,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // Set up event listeners
     this.setupEventListeners();
 
-    // T2-08: re-blame whenever the user toggles an option or hides/un-hides
-    // a revision. Cache is cleared so the new flags take effect.
+    // Re-blame whenever the user toggles an option or hides/un-hides a
+    // revision. Cache is cleared so the new flags take effect.
     if (this._optionsSource) {
       this._disposables.push(
         this._optionsSource.onDidChange(() => {
@@ -311,8 +307,8 @@ export class GutterBlameProvider implements IGutterBlameProvider {
             continue;
           }
 
-          // T2-08: "Hide Revision" — any line whose commit the user has
-          // hidden is elided from the gutter. No decoration is rendered.
+          // "Hide Revision" — any line whose commit the user has hidden is
+          // elided from the gutter. No decoration is rendered.
           if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
             continue;
           }
