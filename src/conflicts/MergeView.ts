@@ -187,7 +187,7 @@ export class MergeView implements IMergeView {
   }
 
   /**
-   * T3-04 — auto-resolve every conflict where the right (incoming) side
+   * Auto-resolve every conflict where the right (incoming) side
    * didn't meaningfully change relative to the base by taking the left
    * (current) side. Returns the number of conflicts auto-resolved.
    *
@@ -214,7 +214,7 @@ export class MergeView implements IMergeView {
   }
 
   /**
-   * T3-04 — symmetric to {@link applyAllNonConflictingFromLeft}.
+   * Symmetric to {@link applyAllNonConflictingFromLeft}.
    */
   applyAllNonConflictingFromRight(): number {
     if (!this._mergeState) {
@@ -1175,8 +1175,6 @@ export class MergeView implements IMergeView {
 export function createMergeView(extensionUri: vscode.Uri, gitService: IGitService): MergeView {
   return new MergeView(extensionUri, gitService);
 }
-
-// ─── T3-04 pure helper ────────────────────────────────────────────────────────
 
 /** Side of a conflict marker — left = current (ours), right = incoming (theirs). */
 export type NonConflictingSide = 'left' | 'right';

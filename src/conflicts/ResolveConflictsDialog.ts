@@ -17,9 +17,8 @@
  * └─────────────────────────────────────────────────────────┘
  * ```
  *
- * Design spec: `.agent/designs/cluster-C-tool-windows.md` §5 (T1-08). Consistency
- * with Pull→Resolve handoff: `.agent/designs/REVIEW.md` §1.5 — caller-invoked
- * pattern (the caller wires `openResolveConflictsDialog`), not event-based.
+ * Caller-invoked pattern (the caller wires `openResolveConflictsDialog`),
+ * not event-based.
  */
 
 import * as vscode from 'vscode';
@@ -53,7 +52,7 @@ type IncomingMessage =
   | { type: 'openMergeView'; path: string }
   | { type: 'abort' }
   | { type: 'continue' }
-  /** T3-05: Skip This Commit — rebase-only; drops the conflicting commit. */
+  /** Skip This Commit — rebase-only; drops the conflicting commit. */
   | { type: 'skip' };
 
 /**
@@ -344,7 +343,7 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       ? `<button class="btn secondary" data-action="abort">Abort ${escapeHtml(opLabel)}</button>`
       : '';
 
-    // T3-05: Skip This Commit — only meaningful during a rebase. Sits between
+    // Skip This Commit — only meaningful during a rebase. Sits between
     // Abort and Continue to match IntelliJ's Resolve Conflicts layout.
     const skipButton =
       this._opContext.operation === 'rebase'
@@ -474,10 +473,8 @@ ${body}
             `<button class="btn secondary" data-action="acceptYours" data-path="${escapedPath}">Accept Yours</button>`,
             `<button class="btn secondary" data-action="acceptTheirs" data-path="${escapedPath}">Accept Theirs</button>`,
             `<button class="btn" data-action="openMergeView" data-path="${escapedPath}">Merge…</button>`,
-            // MEDIUM-1: visibly-disabled Apply Non-Conflicting stub (was a
-            // clickable-but-noop button). Per-file non-conflicting hunk
-            // shortcut tracked for Tier-2 follow-up — the tooltip communicates
-            // the state so users don't keep clicking.
+            // Visibly-disabled Apply Non-Conflicting stub. The tooltip
+            // communicates the state so users don't keep clicking.
             `<button class="btn secondary disabled" data-action="applyAllNonConflicting" data-path="${escapedPath}" disabled aria-disabled="true" title="Landing in Tier-2 follow-up">Apply Non-Conflicting</button>`,
           ].join('');
 
@@ -682,7 +679,7 @@ ${body}
   }
 
   /**
-   * Handle the Skip This Commit button (rebase-only; T3-05).
+   * Handle the Skip This Commit button (rebase-only).
    *
    * Issues a single confirm modal — the button is destructive but the
    * dialog is the only guard (IntelliJ-minimal policy,

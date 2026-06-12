@@ -447,7 +447,7 @@ export function renderGraphSvg(
       // The commit's own lane is handled separately in step 2
       continue;
     }
-    // Bug B: at the topmost row there is nothing above to connect to, so a
+    // At the topmost row there is nothing above to connect to, so a
     // pass-through stub (which always starts at y=0) renders as a detached
     // line floating above the row — most visible above a merge commit whose
     // merged-in lane is correctly marked active at row 0 so the bezier below

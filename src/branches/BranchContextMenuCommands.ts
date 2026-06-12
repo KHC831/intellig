@@ -33,7 +33,7 @@ export type PushDialogOpener = (preselect: {
 }) => PushDialog | undefined;
 
 /**
- * T3-02: open a fresh Merge Dialog for `repo` merging `sourceBranch` into
+ * Open a fresh Merge Dialog for `repo` merging `sourceBranch` into
  * the current branch.
  */
 export type MergeDialogOpener = (preselect: {
@@ -42,7 +42,7 @@ export type MergeDialogOpener = (preselect: {
 }) => MergeDialog | undefined;
 
 /**
- * T3-03: open a fresh New Branch Dialog with the given start point.
+ * Open a fresh New Branch Dialog with the given start point.
  */
 export type NewBranchDialogOpener = (preselect: {
   repo: IRepository;
@@ -96,7 +96,7 @@ export class BranchContextMenuCommands {
    * No-op if the conflict resolution service hasn't been wired in (legacy
    * callers that haven't migrated).
    *
-   * T1-02 extends the operation union with `'pull'` (pull-using-rebase maps
+   * The operation union includes `'pull'` (pull-using-rebase maps
    * to `'rebase'`, pull-using-merge maps to `'merge'`) so Pull Dialog and
    * branch-menu pull handlers share this helper with the existing
    * merge/rebase/cherryPick/revert callers.
@@ -407,7 +407,7 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // T3-03: route through the New Branch Dialog when the opener is wired.
+    // Route through the New Branch Dialog when the opener is wired.
     // Dialog handles name validation, tracking, overwrite, and checkout in a
     // single webview with typed options. Falls back to the old showInputBox
     // path when the opener is absent (test fixtures).
@@ -467,7 +467,7 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // T3-02: route through the Merge Dialog when the opener is wired; the
+    // Route through the Merge Dialog when the opener is wired; the
     // dialog handles options (ff-only / no-ff / squash / no-commit / -m)
     // and conflict handoff itself. Fallback path (no opener) preserves the
     // legacy direct-merge behaviour for tests.
@@ -482,7 +482,7 @@ export class BranchContextMenuCommands {
       if (result.success) {
         void vscode.window.showInformationMessage(`Merged '${item.branch.name}' successfully`);
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
+        // Auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise (legacy callers without the service).
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
@@ -525,13 +525,13 @@ export class BranchContextMenuCommands {
    * `rebaseBranch` returned `{success:false, conflicts:[]}` and the handler
    * had no else branch for that shape, so the click looked like a no-op.
    *
-   * Bug C extends this: after the rebase runs, the handler reloads the repo
+   * After the rebase runs, the handler reloads the repo
    * and inspects `repo.inProgress` (populated from `readInProgressOperation`
    * via `loadRepository`). On a non-conflict failure that left an orphaned
-   * `rebasing` state created by OUR invocation, it auto-aborts (C.2). When a
+   * `rebasing` state created by OUR invocation, it auto-aborts. When a
    * rebasing state remains for any other reason (e.g. paused on conflicts
    * with no Resolve Conflicts dialog wired), it surfaces an actionable
-   * "rebase paused" warning (C.1). The before/after snapshot of
+   * "rebase paused" warning. The before/after snapshot of
    * `inProgress.kind` ensures we never touch a rebase the user already had
    * in progress before they clicked.
    */
@@ -554,7 +554,7 @@ export class BranchContextMenuCommands {
         return;
       }
 
-      // Bug C: snapshot the in-progress operation BEFORE invoking the
+      // Snapshot the in-progress operation BEFORE invoking the
       // rebase. This lets us distinguish a rebasing state that OUR call
       // created (eligible for auto-abort / pause-warning recovery) from one
       // the user already had paused before they clicked. `repo.inProgress`
@@ -565,11 +565,11 @@ export class BranchContextMenuCommands {
       const result = await this._gitService.rebaseBranch(repo, item.branch.name);
 
       // Track whether the Resolve Conflicts dialog was opened so we suppress
-      // the redundant Bug C.1 "rebase paused" warning for that same state —
+      // the redundant "rebase paused" warning for that same state —
       // the dialog is itself the actionable continue/abort UI.
       let conflictDialogOpened = false;
-      // Track the non-conflict-failure branch so only it is eligible for the
-      // Bug C.2 auto-abort of an orphaned rebase.
+      // Track the non-conflict-failure branch so only it is eligible for
+      // auto-abort of an orphaned rebase.
       let nonConflictFailure = false;
 
       if (result.success) {
@@ -577,7 +577,7 @@ export class BranchContextMenuCommands {
           `Rebased onto '${item.branch.name}' successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
+        // Auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise.
         if (this._conflictResolutionService) {
           conflictDialogOpened = true;
@@ -596,9 +596,8 @@ export class BranchContextMenuCommands {
         // git error so the user has SOMETHING to act on instead of a silent
         // no-op. `failureReason` is already sanitized at the GitService
         // boundary, but we re-pipe through `sanitizeGitError` here so the
-        // safety contract is locally evident at the toast site (TL-72
-        // structural guard) and survives any future refactor of the source
-        // side.
+        // safety contract is locally evident at the toast site
+        // and survives any future refactor of the source side.
         nonConflictFailure = true;
         const reason = result.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
@@ -612,7 +611,7 @@ export class BranchContextMenuCommands {
       const afterKind = (reloaded ?? repo).inProgress?.kind;
 
       if (nonConflictFailure && beforeKind !== 'rebasing' && afterKind === 'rebasing') {
-        // Bug C.2: our non-conflict-failure invocation left an orphaned
+        // Our non-conflict-failure invocation left an orphaned
         // rebasing state (`.git/rebase-merge/`). The user's mental model is
         // "I clicked rebase, it didn't work, it should be like I never
         // clicked it" — so auto-abort AFTER the error toast above. The
@@ -628,7 +627,7 @@ export class BranchContextMenuCommands {
           );
         }
       } else if (afterKind === 'rebasing' && !conflictDialogOpened) {
-        // Bug C.1: a rebasing state remains after the operation and we did
+        // A rebasing state remains after the operation and we did
         // NOT open the Resolve Conflicts dialog as a dedicated UI. The rebase
         // is paused (conflicts) or was interrupted. Surface an actionable
         // warning. Of the rebase recovery commands the extension contributes,
@@ -846,7 +845,7 @@ export class BranchContextMenuCommands {
       return;
     }
 
-    // Route through the T1-01 Push Dialog when available so the user gets
+    // Route through the Push Dialog when available so the user gets
     // the per-row target edit, force-with-lease dropdown, and protected-
     // branch guard. Falls back to a direct push (original behaviour) when
     // the opener is absent — e.g. in unit tests that don't wire the dialog.
@@ -886,11 +885,7 @@ export class BranchContextMenuCommands {
    * Handle show diff with working tree command.
    * Opens a per-file diff comparison between the right-clicked branch ref and the working tree.
    *
-   * BUG-17 (T2-01): the original implementation passed a single `vscode.diff` call
-   * using the repo root directory URI as the right-hand side. VS Code's built-in
-   * `vscode.diff` command only diffs files, not directories, so it silently failed.
-   *
-   * New flow:
+   * Flow:
    *   1. List changed files between `<branchRef>` and the working tree
    *      (`git diff --name-status -z <ref>` via `getChangedFilesAgainstWorkingTree`).
    *   2. If zero files → `showInformationMessage`, return.
@@ -1030,7 +1025,7 @@ export class BranchContextMenuCommands {
           `Checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog when wired; fall back
+        // Auto-open Resolve Conflicts dialog when wired; fall back
         // to a warning toast otherwise.
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
@@ -1074,7 +1069,7 @@ export class BranchContextMenuCommands {
                 `Stashed changes, checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
-              // T1-08(a): auto-open Resolve Conflicts dialog when wired.
+              // Auto-open Resolve Conflicts dialog when wired.
               if (this._conflictResolutionService) {
                 await this._openResolveConflictsDialog(repo, result.conflicts, {
                   operation: 'rebase',
@@ -1110,7 +1105,7 @@ export class BranchContextMenuCommands {
                 `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
-              // T1-08(a): auto-open Resolve Conflicts dialog when wired.
+              // Auto-open Resolve Conflicts dialog when wired.
               if (this._conflictResolutionService) {
                 await this._openResolveConflictsDialog(repo, result.conflicts, {
                   operation: 'rebase',
@@ -1148,7 +1143,7 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using rebase command for remote branches.
-   * Bug G: pulls directly with the `rebase` preset (rebase=true) and the
+   * Pulls directly with the `rebase` preset (rebase=true) and the
    * remote/branch parsed from the menu item. The second "Pull: Options"
    * QuickPick is intentionally bypassed — the menu entry already chose the
    * strategy.
@@ -1159,7 +1154,7 @@ export class BranchContextMenuCommands {
 
   /**
    * Handle pull using merge command for remote branches.
-   * Bug G: pulls directly with the `merge` preset (rebase=false). The
+   * Pulls directly with the `merge` preset (rebase=false). The
    * second "Pull: Options" QuickPick is intentionally bypassed.
    */
   private async _handlePullUsingMerge(item: BranchTreeItem): Promise<void> {
@@ -1167,7 +1162,7 @@ export class BranchContextMenuCommands {
   }
 
   /**
-   * Shared implementation for the pullUsing* handlers (Bug G).
+   * Shared implementation for the pullUsing* handlers.
    *
    * The right-click menu entry already chose the strategy
    * (`pullUsingRebase` → rebase, `pullUsingMerge` → merge), so this path
@@ -1200,7 +1195,7 @@ export class BranchContextMenuCommands {
     const branchName =
       slashIndex >= 0 ? item.branch.name.substring(slashIndex + 1) : item.branch.name;
 
-    // Bug G: the right-click pullUsing* entries intentionally bypass the
+    // The right-click pullUsing* entries intentionally bypass the
     // PullDialog — the menu entry already chose the strategy, so the second
     // "Pull: Options" QuickPick was redundant friction whose silent cancel
     // looked like a no-op. The `_pullDialogAccessor` field is retained for
@@ -1234,7 +1229,7 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // T1-08(a) handoff: when the conflict service is wired in (always true
+      // Conflict handoff: when the conflict service is wired in (always true
       // in production via ExtensionServices — see `ConflictResolutionService`
       // construction in `ExtensionServices.initialize`), probe the working
       // tree for unresolved conflicts and auto-open the Resolve Conflicts
@@ -1290,7 +1285,7 @@ export class BranchContextMenuCommands {
   /**
    * Handle checkout as local branch command.
    *
-   * Bug F: a remote branch "Checkout" must land the user on the remote tip
+   * A remote branch "Checkout" must land the user on the remote tip
    * even when a stale local of the same name exists. We use IntelliJ's
    * idiom `git checkout -B <branch> <remote>/<branch>` (forceCreate) which
    * creates-or-resets the local to the remote tip in one step — the old
@@ -1445,7 +1440,7 @@ export class BranchContextMenuCommands {
           `Cherry-picked ${selected.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog when wired.
+        // Auto-open Resolve Conflicts dialog when wired.
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'cherryPick',
@@ -1477,9 +1472,9 @@ export class BranchContextMenuCommands {
    *
    * Delegates to `_runPullFromBranchMenu` with the default ("merge")
    * preset so the user gets the same direct-pull + conflict-handoff
-   * pipeline as the pullUsingMerge/Rebase entries. Bug G: this path no
-   * longer opens the second "Pull: Options" QuickPick — the right-click
-   * entry already chose the strategy. The conflict-handoff (T1-08(a))
+   * pipeline as the pullUsingMerge/Rebase entries. This path does
+   * not open the second "Pull: Options" QuickPick — the right-click
+   * entry already chose the strategy. The conflict-handoff
    * still fires on a conflicted pull.
    */
   private async _handlePullIntoCurrent(item: BranchTreeItem): Promise<void> {
