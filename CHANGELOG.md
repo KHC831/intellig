@@ -10,6 +10,22 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.1.5] - 2026-06-11
+
+### Fixed
+
+- The commit graph no longer splits the mainline across multiple lanes when branches share an ancestor.
+- HEAD stays on lane 0 even when newer commits sit above it.
+- First-parent lines now match their commit's node colour.
+- Removed phantom strokes through unrelated mainline rows.
+- Closed the gap under merge commits whose mainline continues below.
+- Outer branches are no longer clipped when many lanes are present.
+- Lanes are reused when branches end, keeping the graph compact.
+
+### Changed
+
+- Slightly smaller commit nodes for a tighter look.
+
 ## [0.1.4] - 2026-06-09
 
 ### Added
