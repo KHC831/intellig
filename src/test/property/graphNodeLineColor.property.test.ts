@@ -434,6 +434,21 @@ describe('Property — node color equals its own first-parent line color (any DA
         nodes.forEach((n, i) => {
           mark(i, n.graphColumn); // the node sits in its own lane at its row
           for (const line of n.graphLines) {
+            // Far-parent fork-point bend (Wave 2 / task #68): the source
+            // lane runs straight down at rows [i..endRow-1]; the bend
+            // lands at endRow but is inked there by the parent's own
+            // graphColumn (we deliberately do NOT mark the source lane
+            // at endRow — preserves the orphan-stroke invariant).
+            if (line.endRow !== undefined) {
+              if (line.endRow > i) {
+                for (let r = i; r <= line.endRow - 1; r++) {
+                  mark(r, line.fromColumn);
+                }
+              } else {
+                mark(i, line.fromColumn);
+              }
+              continue;
+            }
             // Resolve the target row: the parent on this line's toColumn.
             let target = i;
             for (const p of n.commit.parents) {

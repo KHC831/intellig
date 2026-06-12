@@ -125,6 +125,27 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
     // Each graphLine represents a connection from this commit to a parent.
     // The toColumn lane should be active from this row to the parent's row.
     for (const line of node.graphLines) {
+      // FAR-PARENT FORK-POINT BEND (Wave 2 / task #68): the algorithm marks
+      // a first-parent line whose parent is far below on a different lane
+      // with `endRow=parentRow`. The source lane runs as straight-down ink
+      // at rows `[rowIndex .. endRow-1]`; we deliberately do NOT mark the
+      // source lane at `endRow` (that would re-introduce the orphan-stroke
+      // invariant violation — the bend itself lives at the parent row and
+      // is inked by the parent's own `graphColumn`). Skip the rest of the
+      // generic resolution for these lines.
+      if (line.endRow !== undefined) {
+        if (line.endRow > rowIndex) {
+          intervals.push({
+            lane: line.fromColumn,
+            startRow: rowIndex,
+            endRow: line.endRow - 1,
+          });
+        } else {
+          intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: rowIndex });
+        }
+        continue;
+      }
+
       // Find the target parent commit's row
       // The parent hash is the commit that sits at toColumn.
       // We need to find which parent this line points to.

@@ -307,12 +307,15 @@ describe('Real anonymized topology — graph regression pins', () => {
       !(active.get(c5Row) ?? new Set<number>()).has(1),
       `lane 1 must NOT be active at c5's row ${c5Row} — the bend lands here but is inked by lane 0's parent column`
     );
-    // And lane 1 must not leak below c5's row in the c5..c5+5 stretch
-    // (smoke check; the existing orphan-stroke pin covers the full range).
-    for (let r = c5Row + 1; r <= Math.min(c5Row + 5, nodes.length - 1); r++) {
+    // And lane 1 must not leak below c5's row in the immediate stretch
+    // beneath the fork point. (We bound this to rows that don't have
+    // their own unrelated divergent branch — the fixture re-uses lane 1
+    // for other side branches farther down. The orphan-stroke pin covers
+    // the full range.)
+    for (let r = c5Row + 1; r <= c5Row + 2; r++) {
       assert.ok(
         !(active.get(r) ?? new Set<number>()).has(1),
-        `lane 1 must NOT be active at row ${r} (below c5 fork point)`
+        `lane 1 must NOT be active at row ${r} (immediately below c5 fork point)`
       );
     }
     // Lane 0 is active at c5's row.
