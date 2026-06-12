@@ -263,7 +263,7 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
   });
 
   // ─── snap-far-parent: divergent branch with far-parent fork point ─────
-  it('snap-far-parent: side branch first-parent line carries endRow + renderer draws bend at parent row (Wave 2 / task #68)', () => {
+  it('snap-far-parent: side branch first-parent line carries endRow + renderer draws bend at parent row', () => {
     // Synthetic 8-commit deterministic topology. Mainline m0..m4 on lane 0
     // (newest first); side branch b0→b1→b2 on lane 1 whose oldest commit
     // (b2) first-parents to mainline m4 several rows below. headHash=m0 so
