@@ -177,13 +177,14 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
               `SVG should contain at least one circle element, got ${radii.length}`
             );
 
-            // All circles should have r="5" (the visibility-bumped radius;
-            // previously 4 — see DEFAULT_GRAPH_CONFIG comment).
+            // All circles should have the configured nodeRadius (assert
+            // against the config so radius tweaks don't break the pin).
+            const expectedR = String(DEFAULT_GRAPH_CONFIG.nodeRadius);
             for (const r of radii) {
               assert.strictEqual(
                 r,
-                '5',
-                `All commit node circles should have r="5", but found r="${r}"`
+                expectedR,
+                `All commit node circles should have r="${expectedR}", but found r="${r}"`
               );
             }
 
@@ -229,7 +230,7 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
             );
 
             // The diamond side length should be nodeRadius * 1.8.
-            // (nodeRadius is 5 since the visibility-bump; previously 4.)
+            // (side length is derived from the configured nodeRadius.)
             const expectedSide = DEFAULT_GRAPH_CONFIG.nodeRadius * 1.8;
             const hasDiamond = rects.some(
               (r) =>
@@ -277,13 +278,13 @@ describe('Feature: git-graph-details-improvements - Commit Node Radius Property 
               `SVG should contain at least one circle element for root commit, got ${radii.length}`
             );
 
-            // All circles should have r="5" (the visibility-bumped radius;
-            // previously 4 — see DEFAULT_GRAPH_CONFIG comment).
+            // All circles should have the configured nodeRadius.
+            const expectedRootR = String(DEFAULT_GRAPH_CONFIG.nodeRadius);
             for (const r of radii) {
               assert.strictEqual(
                 r,
-                '5',
-                `Root commit node circles should have r="5", but found r="${r}"`
+                expectedRootR,
+                `Root commit node circles should have r="${expectedRootR}", but found r="${r}"`
               );
             }
 

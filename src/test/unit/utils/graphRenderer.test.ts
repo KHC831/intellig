@@ -31,8 +31,8 @@ describe('Graph Renderer - Core Types and Config', () => {
       assert.strictEqual(DEFAULT_GRAPH_CONFIG.rowHeight, 24);
     });
 
-    it('should have nodeRadius of 5 (raised from 4 for visibility)', () => {
-      assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 5);
+    it('should have nodeRadius of 4 (IntelliJ-snug, not oversized)', () => {
+      assert.strictEqual(DEFAULT_GRAPH_CONFIG.nodeRadius, 4);
     });
 
     it('should have padding of 10', () => {
@@ -1604,12 +1604,14 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
     );
   });
 
-  it('emits stroke-dasharray on a dashed bezier merge edge (off-window second parent)', () => {
-    // Merge whose parents[1] is off-window — produces a same-lane
-    // stub with style:'dashed'. (We deliberately make this a same-lane
-    // stub, since that's how the algorithm represents off-window
-    // merge parents; the renderer treats the stub as a line, not a
-    // bezier path.)
+  it('keeps the same-lane stub SOLID when the first parent is in-window even if a second parent is off-window', () => {
+    // Merge whose parents[0] is IN-window (solid same-lane line) and
+    // parents[1] is OFF-window (dashed same-lane stub). The mainline
+    // continues straight down to p1 — a real, scrollable row — so the
+    // vertical stub MUST be solid, not dashed. The off-window second
+    // parent is visually absorbed into the solid mainline stub (it has
+    // no row to land on). Regression guard: an earlier `.some(dashed)`
+    // rule dashed the solid mainline here.
     const nodes: ICommitNode[] = [
       makeNode('m', ['p1', 'off-window-p2'], 0, [
         { fromColumn: 0, toColumn: 0, type: 'commit' },
@@ -1621,8 +1623,85 @@ describe('Graph Renderer - Dashed off-window stubs (architectural fix #4)', () =
     const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
 
     assert.ok(
+      !/stroke-dasharray/.test(svg),
+      `mainline stub with an in-window first parent must stay SOLID; got SVG: ${svg}`
+    );
+  });
+
+  it('emits stroke-dasharray only when EVERY same-lane parent is off-window', () => {
+    // The bottom row of the loaded window whose sole parent fell off the
+    // slice — a single dashed same-lane stub, no in-window continuation.
+    // This is the genuine "history continues below" case.
+    const nodes: ICommitNode[] = [
+      makeNode('child', ['off-window-parent'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+      ]),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    assert.ok(
       /stroke-dasharray="[^"]+"/.test(svg),
-      `dashed off-window merge stub must emit stroke-dasharray; got SVG: ${svg}`
+      `an all-off-window same-lane stub must be dashed; got SVG: ${svg}`
+    );
+  });
+});
+
+describe('Graph Renderer - bending-edge color matches line type (node/line color match)', () => {
+  // Reported: a "squash test" commit rendered with a BLUE node but an
+  // ORANGE outgoing line; a HEAD commit with a GREEN node but a BLUE+ORANGE
+  // line. Root cause: the bezier renderer colored EVERY bending edge by its
+  // destination lane. A commit's own first-parent ('commit') edge that
+  // bends to a parent on another lane must keep the SOURCE (node) color so
+  // node and its own outgoing line agree; only 'merge'/'branch' edges (a
+  // 2nd+ parent joining another branch) take the destination color.
+  const config = DEFAULT_GRAPH_CONFIG;
+
+  it("a first-parent ('commit') edge that bends uses the SOURCE lane color (matches the node)", () => {
+    // Node on lane 1 (blue), first-parent edge bends 1 -> 0 (green dest).
+    // The edge must be drawn in the SOURCE color (lane 1 = blue), matching
+    // the node, NOT the green destination.
+    const nodes: ICommitNode[] = [
+      makeNode('n', ['p'], 1, [{ fromColumn: 1, toColumn: 0, type: 'commit' }]),
+      makeNode('p', [], 0),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const sourceColor = getColumnColor(1); // node / lane 1
+    const destColor = getColumnColor(0); // lane 0
+    // The bending <path> must carry the SOURCE color.
+    const pathMatch = svg.match(/<path[^>]*stroke="(#[0-9A-Fa-f]+)"/);
+    assert.ok(pathMatch, `expected a bezier <path>; got SVG: ${svg}`);
+    assert.strictEqual(
+      pathMatch[1],
+      sourceColor,
+      `first-parent bending edge must use the source/node color ${sourceColor}, not dest ${destColor}; got ${pathMatch[1]}`
+    );
+  });
+
+  it("a 'merge' edge that bends uses the DESTINATION lane color (joins the merged branch)", () => {
+    // Merge node on lane 0; 2nd-parent 'merge' edge bends 0 -> 1. The merge
+    // edge reads as "joining branch on lane 1", so it takes the DESTINATION
+    // color (lane 1), unchanged by the fix.
+    const nodes: ICommitNode[] = [
+      makeNode('m', ['p1', 'p2'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]),
+      makeNode('p1', [], 0),
+      makeNode('p2', [], 1),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const svg = renderGraphSvg(nodes[0], 0, activeLaneMap.get(0)!, config, false, false);
+
+    const destColor = getColumnColor(1);
+    const pathMatch = svg.match(/<path[^>]*stroke="(#[0-9A-Fa-f]+)"/);
+    assert.ok(pathMatch, `expected a bezier <path> for the merge edge; got SVG: ${svg}`);
+    assert.strictEqual(
+      pathMatch[1],
+      destColor,
+      `merge edge must use the destination color ${destColor}; got ${pathMatch[1]}`
     );
   });
 });

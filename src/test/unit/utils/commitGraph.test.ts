@@ -350,6 +350,182 @@ describe('Commit Graph Generation', () => {
         );
       });
 
+      it('keeps the whole chain on lane 0 when HEAD is BEHIND newer in-window descendants', () => {
+        // Regression (reported via screenshot): the log loads commits
+        // NEWER than HEAD's branch tip — e.g. an un-pulled upstream
+        // commit, or another branch built on top of HEAD, included by the
+        // `--all` / topo slice. HEAD ('mainline') is the SECOND row; a
+        // newer descendant ('newer') is the first row and is a child of
+        // HEAD's tip.
+        //
+        // The old unconditional HEAD-seed pre-claimed lane 0 for the HEAD
+        // tip, which forced 'newer' onto lane 1 with a `1->0` bend (the
+        // blue-dot-on-lane-1-above-green-HEAD artifact + a stray vertical
+        // stub). The fix pre-claims HEAD's whole FIRST-PARENT SPINE on lane
+        // 0, walking UP through first-parent-children so a newer descendant
+        // (like 'newer') is part of the spine and pinned to lane 0 too.
+        // Every commit must end up on lane 0 with a straight same-lane
+        // line — no bend, no second lane.
+        const commits = [
+          createMockCommit('newer', ['mainline']), // newest, child of HEAD tip
+          createMockCommit('mainline', ['p1']), // HEAD's branch tip
+          createMockCommit('p1', ['p2']),
+          createMockCommit('p2', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('mainline', [{ name: 'mainline', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'mainline');
+
+        for (const node of result) {
+          assert.strictEqual(
+            node.graphColumn,
+            0,
+            `${node.commit.hash} must stay on lane 0 (HEAD-behind-newer must not bend the chain); got ${node.graphColumn}`
+          );
+          for (const line of node.graphLines) {
+            assert.strictEqual(
+              line.fromColumn,
+              line.toColumn,
+              `${node.commit.hash} line must be same-lane (no sideways bend); got ${line.fromColumn}->${line.toColumn}`
+            );
+          }
+        }
+      });
+
+      it('keeps the HEAD mainline spine straight on lane 0 when divergent branches share its ancestors', () => {
+        // Reported via screenshot: with `mainline`, `mainline-clone`, and
+        // `test_squash` all loaded via --all, mainline commits (the shared
+        // ancestors) were dragged onto a side lane because a divergent
+        // branch listed earlier in the topo slice reached the shared parent
+        // FIRST and the main pass allocated it a fresh lane. That rendered a
+        // mainline commit on lane 2 (orange) with the mainline line hooking
+        // sideways into it (green/blue node, orange line).
+        //
+        // Fix: pre-claim HEAD's entire first-parent spine on lane 0, so the
+        // shared ancestors are pinned to lane 0 and the DIVERGENT branches
+        // are the ones that bend into lane 0 (correct IntelliJ behavior).
+        //
+        // Topology (newest-first; test_squash listed before mainline, as
+        // --all topo order tends to interleave):
+        //   t_tip -> t2 -> squash -> base   (test_squash)
+        //   m_tip -> m2 -> base             (mainline / HEAD)
+        //   c_tip -> base                   (mainline-clone)
+        const commits = [
+          createMockCommit('t_tip', ['t2']),
+          createMockCommit('t2', ['squash']),
+          createMockCommit('squash', ['base']),
+          createMockCommit('m_tip', ['m2']),
+          createMockCommit('m2', ['base']),
+          createMockCommit('c_tip', ['base']),
+          createMockCommit('base', ['older']),
+          createMockCommit('older', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('t_tip', [{ name: 'test_squash', type: 'local' }]);
+        branchMap.set('m_tip', [{ name: 'mainline', type: 'local' }]);
+        branchMap.set('c_tip', [{ name: 'mainline-clone', type: 'local' }]);
+
+        const result = generateCommitGraph(commits, branchMap, undefined, undefined, 'mainline');
+        const col = (h: string): number => result.find((n) => n.commit.hash === h)!.graphColumn;
+
+        // The whole HEAD first-parent spine pins to lane 0.
+        for (const h of ['m_tip', 'm2', 'base', 'older']) {
+          assert.strictEqual(col(h), 0, `${h} (mainline spine) must be on lane 0; got ${col(h)}`);
+        }
+        // Divergent branches sit on their own non-zero lanes (they bend INTO
+        // lane 0, not the other way around).
+        assert.notStrictEqual(col('t_tip'), 0, 'test_squash tip must not be on lane 0');
+        assert.notStrictEqual(col('c_tip'), 0, 'mainline-clone tip must not be on lane 0');
+
+        // node/line color match: every commit's own first-parent line is
+        // colored by its own lane (the renderer keys 'commit' edges off the
+        // source column).
+        for (const node of result) {
+          const firstParent = node.graphLines.find((l) => l.type === 'commit');
+          if (firstParent) {
+            assert.strictEqual(
+              firstParent.color,
+              getColumnColor(node.graphColumn),
+              `${node.commit.hash}: first-parent line color must equal node lane color`
+            );
+          }
+        }
+      });
+
+      it('RELEASES a lane when its branch ends so a later branch reuses the column (compact width)', () => {
+        // Reported: with several branches the graph grew wider and wider,
+        // pushing older branches off-screen even with room — because lanes
+        // were never freed (each ended branch left a permanently-reserved
+        // column). Two divergent branches that are NOT alive at the same row
+        // must SHARE a lane: branch A (forks high, rejoins) ends before
+        // branch B begins, so B reuses A's lane instead of taking a new one.
+        //
+        // Topo (newest-first): m0, A(a0 → rejoins m1), m1, B(b0 → rejoins
+        // m2), m2, m3. Branch A is a single commit a0 (row 1) whose line
+        // bends to m1 (row 2); A's lane frees at row 2. Branch B's tip b0
+        // (row 3) starts AFTER A has ended, so it reuses A's freed lane —
+        // both A and B share one side lane. Without release B takes a fresh
+        // lane 2.
+        const commits = [
+          createMockCommit('m0', ['m1']),
+          createMockCommit('a0', ['m1']),
+          createMockCommit('m1', ['m2']),
+          createMockCommit('b0', ['m2']),
+          createMockCommit('m2', ['m3']),
+          createMockCommit('m3', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('m0', [{ name: 'mainline', type: 'local' }]);
+        branchMap.set('a0', [{ name: 'A', type: 'local' }]);
+        branchMap.set('b0', [{ name: 'B', type: 'local' }]);
+
+        const result = generateCommitGraph(
+          commits,
+          branchMap,
+          undefined,
+          undefined,
+          'mainline',
+          'm0'
+        );
+        let maxCol = 0;
+        for (const n of result) {
+          maxCol = Math.max(maxCol, n.graphColumn);
+          for (const l of n.graphLines) {
+            maxCol = Math.max(maxCol, l.fromColumn, l.toColumn);
+          }
+        }
+        // Mainline lane 0 + at most ONE side lane reused by both A and B.
+        // Without release, A=lane1 and B=lane2 → maxCol 2; with release they
+        // share lane 1 → maxCol 1.
+        assert.strictEqual(
+          maxCol,
+          1,
+          `A ends before B starts, so they must SHARE one side lane (maxCol 1); got ${maxCol}`
+        );
+      });
+
+      it('does NOT reuse a lane while a bending line is still in transit (no mid-transit collision)', () => {
+        // The release must wait until the bending line LANDS at its parent
+        // row. Three sibling tips all diving to a shared base are pairwise
+        // concurrent (each one's bezier crosses the next one's row), so they
+        // must get THREE distinct lanes — releasing too early would collapse
+        // them onto one column and overlap their nodes/lines.
+        const commits = [
+          createMockCommit('tipA', ['base']),
+          createMockCommit('tipB', ['base']),
+          createMockCommit('tipC', ['base']),
+          createMockCommit('base', []),
+        ];
+        const result = generateCommitGraph(commits);
+        const lanes = new Set([
+          result[0].graphColumn,
+          result[1].graphColumn,
+          result[2].graphColumn,
+        ]);
+        assert.strictEqual(lanes.size, 3, 'three concurrent tips need three distinct lanes');
+      });
+
       it('without seeding (no headBranchName), preserves the existing first-seen order', () => {
         // The seeding pre-pass is a strict superset: when no
         // headBranchName is provided AND no branchMap is supplied, the

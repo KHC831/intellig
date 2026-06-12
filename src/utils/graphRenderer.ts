@@ -47,12 +47,11 @@ export type ActiveLaneMap = Map<number, Set<number>>;
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
   columnWidth: 20,
   rowHeight: 24,
-  // Increased from 4 to 5 — at 4px the commit dot blended into the
-  // 2px lane line at common display scales, producing the "node not
-  // viewable on some rows" visual reported by users. 5px gives the
-  // dot a clear ~2px halo around the line stroke without growing the
-  // chip rail.
-  nodeRadius: 5,
+  // 4px commit dot — IntelliJ-snug. (Was briefly 5px to keep the dot from
+  // blending into the line, but that read as oversized vs IntelliJ's
+  // tighter nodes — reported. 4px against the 2px line still leaves a clear
+  // ~1px halo while matching IntelliJ's proportions.)
+  nodeRadius: 4,
   padding: 10,
   lineWidth: 2,
 };
@@ -145,24 +144,53 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
         }
       }
 
-      // If we didn't find a matching parent by graphColumn, try to find any parent
-      // at a later row that could be the target (fallback for edge cases)
+      // If we didn't find a parent whose graphColumn matches toColumn, fall
+      // back to the parent that sits on `toColumn` if any, else leave
+      // targetRow at rowIndex (no vertical extent). We deliberately do NOT
+      // pick "any later parent regardless of column" — that mis-attributed
+      // a line to an unrelated parent far down the window and extended the
+      // lane interval across mainline rows it never touched. If no parent
+      // owns toColumn, the line is a short same-row connector (e.g. an
+      // off-window stub) and needs no multi-row interval.
       if (targetRow === rowIndex) {
         for (const parentHash of node.commit.parents) {
           const parentRow = hashToRow.get(parentHash);
-          if (parentRow !== undefined && parentRow > rowIndex) {
+          if (
+            parentRow !== undefined &&
+            parentRow > rowIndex &&
+            nodes[parentRow].graphColumn === line.toColumn
+          ) {
             targetRow = parentRow;
             break;
           }
         }
       }
 
-      // The fromColumn lane is active from this row to the target row
-      if (targetRow > rowIndex) {
-        intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: targetRow });
+      // The fromColumn lane's vertical extent depends on whether the line
+      // BENDS. A same-lane line (fromColumn === toColumn) runs straight
+      // down its column from this row to the parent's row, so fromColumn is
+      // active across the whole span. A BENDING line (fromColumn !==
+      // toColumn) is drawn as a bezier that leaves fromColumn at this row's
+      // center and curves over to toColumn by this row's BOTTOM — the
+      // source lane has NO vertical presence at any later row. Marking
+      // fromColumn active down to the parent's row (the old behaviour)
+      // painted a full-height pass-through stroke for the source lane
+      // through rows where that branch no longer exists — the reported
+      // "orphan vertical line in a side-lane colour running through the
+      // mainline" artifact (and the node-vs-line colour mismatch, since
+      // that stroke is a different colour than those rows' nodes). For a
+      // bending line the source lane is active at the source row ONLY.
+      if (line.fromColumn === line.toColumn) {
+        if (targetRow > rowIndex) {
+          intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: targetRow });
+        }
+      } else {
+        // Bending line: source lane present only at the source row.
+        intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: rowIndex });
       }
 
-      // The toColumn lane is active from this row to the target row
+      // The toColumn lane is active from this row to the target row — the
+      // destination lane genuinely runs down to the parent.
       if (targetRow >= rowIndex) {
         intervals.push({ lane: line.toColumn, startRow: rowIndex, endRow: targetRow });
       }
@@ -294,7 +322,18 @@ export function renderGraphSvg(
   isTerminal: boolean = false,
   isBranchSplitPoint: boolean = false,
   childLanes: Set<number> = new Set(),
-  hasFocusedBranch: boolean = false
+  hasFocusedBranch: boolean = false,
+  /**
+   * Active lanes at the NEXT (lower) row. Used to decide whether a
+   * bezier-target lane also continues below this row as a through-lane: if
+   * it does, the pass-through must be drawn FULL height (the bezier merges
+   * into a continuing line), not truncated to the top half. Without this, a
+   * lane that both receives a merge bezier AND carries a transiting line
+   * down to a far parent got truncated, leaving a visible GAP in the
+   * mainline below a merge commit (reported disconnect). Defaults to an
+   * empty set (no continuation known → previous top-half behaviour).
+   */
+  nextActiveLanes: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -382,7 +421,16 @@ export function renderGraphSvg(
     }
     const x = getColumnX(lane, config);
     const color = getColumnColor(lane);
-    if (bezierTargetLanes.has(lane)) {
+    // A bezier targets this lane (a merge/branch line lands here). Normally
+    // we draw the pass-through top-half only and let the bezier cover the
+    // bottom — avoiding a "2 lines" overlap. BUT if this lane ALSO continues
+    // below (it's active in the next row too), it's a through-lane carrying
+    // a transiting line down to a far parent; truncating it severs the line
+    // and leaves a gap under the merge commit (reported disconnect). In that
+    // case draw the FULL height: the bezier merging in overlaps the through
+    // line harmlessly (same lane, same color).
+    const continuesBelow = nextActiveLanes.has(lane);
+    if (bezierTargetLanes.has(lane) && !continuesBelow) {
       // Draw only the top half of the pass-through (y=0 to y=centerY).
       // The bezier curve provides the visual connection for the bottom half.
       elements.push(
@@ -424,15 +472,24 @@ export function renderGraphSvg(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
     if (sameLaneLines.length > 0) {
-      // Dashed stroke when AT LEAST ONE same-lane line targets an
-      // off-window parent ("history continues below"). A merge whose
-      // first parent is in-window but second parent is off-window
-      // produces TWO same-lane lines; if any is dashed, the visual
-      // stub must be dashed — otherwise the off-window affordance
-      // disappears whenever the in-window line happens to come first.
-      // IntelliJ parity: solid lines connect to scrollable rows;
-      // dashed lines say "more history exists, it just isn't loaded".
-      const isDashed = sameLaneLines.some((l) => l.style === 'dashed');
+      // Dashed stroke ONLY when EVERY same-lane line targets an
+      // off-window parent — i.e. this lane has no in-window continuation
+      // and is purely "history continues below the loaded window".
+      //
+      // The earlier `.some()` rule was wrong for a merge whose FIRST
+      // parent is in-window (same lane) but whose SECOND parent is
+      // off-window: that produces two same-lane lines [solid, dashed],
+      // and `.some()` painted the whole vertical stub dashed — dashing
+      // the SOLID mainline even though it continues straight down to a
+      // real, scrollable row. (Reported: mainline rows rendering with a
+      // dashed segment under merge commits.) The off-window second
+      // parent has no row to land on, so it is visually absorbed into
+      // the solid mainline stub; only when NO same-lane parent is
+      // in-window (`.every()` dashed — e.g. the bottom row of the window
+      // whose sole parent fell off the slice) is the stub drawn dashed.
+      // IntelliJ parity: solid connects to scrollable rows; dashed means
+      // "more history exists, it just isn't loaded".
+      const isDashed = sameLaneLines.every((l) => l.style === 'dashed');
       const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
@@ -454,7 +511,22 @@ export function renderGraphSvg(
     }
     const fromX = getColumnX(line.fromColumn, config);
     const toX = getColumnX(line.toColumn, config);
-    const color = getColumnColor(line.toColumn);
+    // Color a bending edge by its TYPE, matching the algorithm's own
+    // per-line color rule (commitGraph.ts) and L4's spirit:
+    //   - 'commit' (the FIRST-parent line — the commit's mainline
+    //     continuation): use the SOURCE lane color, i.e. the commit's
+    //     OWN node color. A first-parent edge that bends to a parent
+    //     sitting on another lane must still leave the node in the node's
+    //     colour — otherwise you get a blue node with an orange outgoing
+    //     line (reported), or a green node whose own line is orange.
+    //   - 'merge' / 'branch' (a 2nd+ parent): use the DESTINATION lane
+    //     color, so the edge reads as "joining the merged branch", shown
+    //     in that branch's colour.
+    // The earlier unconditional `getColumnColor(line.toColumn)` painted
+    // EVERY bending edge in the destination colour, which mismatched the
+    // node on any first-parent bend.
+    const color =
+      line.type === 'commit' ? getColumnColor(line.fromColumn) : getColumnColor(line.toColumn);
     const dashAttr = line.style === 'dashed' ? ` stroke-dasharray="4,3"` : '';
     elements.push(
       `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
