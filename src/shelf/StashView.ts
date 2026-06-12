@@ -215,7 +215,7 @@ export class StashView implements IStashView {
       // a post-stash refresh failure as a warning toast. The stash
       // itself succeeded, so this is a secondary signal (the user's
       // view may be stale until next list-open). showWarningMessage,
-      // not showErrorMessage. Mirrors ShelfView's Wave 7 policy.
+      // not showErrorMessage.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);
@@ -302,8 +302,8 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // T1-08(a): on conflict, route to the Resolve Conflicts dialog instead
-      // of surfacing a raw error toast.
+      // On conflict, route to the Resolve Conflicts dialog instead of
+      // surfacing a raw error toast.
       if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(
           this._repository
@@ -379,7 +379,7 @@ export class StashView implements IStashView {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // T1-08(a): on conflict, route to the Resolve Conflicts dialog.
+      // On conflict, route to the Resolve Conflicts dialog.
       if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(
           this._repository
@@ -404,7 +404,7 @@ export class StashView implements IStashView {
   }
 
   /**
-   * Create a new branch rooted at the stash and apply it there. T2-09.
+   * Create a new branch rooted at the stash and apply it there.
    *
    * Prompts the user for a branch name, validates it against the standard
    * branch-name regex used elsewhere in the codebase, then delegates to
@@ -456,7 +456,7 @@ export class StashView implements IStashView {
       return { success: true, action: 'branch', stash };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      // Conflicts during apply → Resolve Conflicts dialog (T1-08a pattern).
+      // Conflicts during apply → Resolve Conflicts dialog.
       if (this._conflictResolutionService && this._looksLikeConflictError(errorMessage)) {
         const conflicts = await this._conflictResolutionService.getConflictedFiles(
           this._repository
@@ -484,7 +484,7 @@ export class StashView implements IStashView {
 
   /**
    * Rename a stash by prompting for a new message and delegating to
-   * {@link IGitService.stashRename} (git stash store plumbing). T2-09.
+   * {@link IGitService.stashRename} (git stash store plumbing).
    *
    * After a successful rename, the stash list is refreshed. Note that the
    * renamed entry moves to `stash@{0}` as a side effect of the underlying
@@ -700,7 +700,7 @@ export class StashView implements IStashView {
       return { success: false, error: `Stash not found: stash@{${index}}` };
     }
 
-    // T2-09: menu order matches IntelliJ: Apply, Pop, Drop, View, Rename…,
+    // Menu order matches IntelliJ: Apply, Pop, Drop, View, Rename…,
     // Create Branch from Stash…. Labels that open a prompt use Unicode `…`.
     const actionItems: IStashQuickPickItem[] = [
       {

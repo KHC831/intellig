@@ -1,25 +1,14 @@
 /**
- * Commit Tool Window — T1-04.
+ * Commit Tool Window.
  *
  * A `WebviewViewProvider` that renders the IntelliJ-style Commit tool window
  * inside the `intellig` panel container. Two tabs — **Local Changes** (which
- * shows the T1-06 changelist tree) and **Shelf** (MVP list + diff preview) —
- * with a commit composer below the Local-Changes tab.
+ * shows the changelist tree) and **Shelf** (list + diff preview) — with a
+ * commit composer below the Local-Changes tab.
  *
  * Ships behind the `intellig.useCommitToolWindow` configuration flag (default
  * `false`). When the flag is off, users see zero change: the existing
  * {@link CommitDialog} modal continues to be the commit surface.
- *
- * ### Scope of Phase 1 (this step)
- * - Tabbed layout, active tab persisted per-workspace.
- * - Local Changes tab wired to {@link IChangelistService}.
- * - Shelf tab wired to {@link IShelfService} (list + basic actions).
- * - Commit composer with amend / sign-off checkboxes.
- * - Primary-button dropdown: `Commit` / `Commit and Push`.
- * - Message-history dropdown (workspaceState LRU, 20 entries, deduped).
- * - Gear menu skeleton (disabled items, tooltip "coming soon" — content
- *   lands in T2-06).
- * - `intellig.changelist.*` command set registered by extension.ts.
  *
  * All long string/HTML builders are extracted as pure exports below so unit
  * tests can exercise them without a VS Code host.
@@ -52,7 +41,7 @@ export const ACTIVE_TAB_STATE_KEY = 'intellig.commitToolWindow.activeTab';
 export const RECENT_MESSAGES_STATE_KEY = 'intellig.recentCommitMessages';
 
 /**
- * T3-10: workspaceState key for the Shelf-tab filter toggle.
+ * workspaceState key for the Shelf-tab filter toggle.
  * One of `'shelves' | 'stashes' | 'both'` (default `'both'`).
  */
 export const SHELF_TAB_FILTER_STATE_KEY = 'intellig.commitToolWindow.shelfFilter';
@@ -70,7 +59,7 @@ export const UNVERSIONED_PSEUDO_CHANGELIST_ID = '_unversioned';
 export type CommitToolWindowTab = 'localChanges' | 'shelf';
 
 /**
- * T3-10: which kinds of entries appear in the Shelf tab.
+ * Which kinds of entries appear in the Shelf tab.
  *   - `shelves` — only IDE-managed shelf entries (the legacy view).
  *   - `stashes` — only `git stash` entries.
  *   - `both`    — combined list, newest-first, with a type badge per row.
@@ -78,10 +67,10 @@ export type CommitToolWindowTab = 'localChanges' | 'shelf';
 export type ShelfTabFilter = 'shelves' | 'stashes' | 'both';
 
 /**
- * T3-10: a unified row for the combined Shelf+Stash list. The `kind`
- * discriminator lets the renderer pick a badge + drive the context menu's
- * shape (shelf rows expose Rename…/Restore; stash rows expose
- * Pop/Create Branch…; common actions appear on both).
+ * A unified row for the combined Shelf+Stash list. The `kind` discriminator
+ * lets the renderer pick a badge + drive the context menu's shape (shelf
+ * rows expose Rename…/Restore; stash rows expose Pop/Create Branch…; common
+ * actions appear on both).
  */
 export type IShelfTabEntry =
   | {
@@ -90,7 +79,7 @@ export type IShelfTabEntry =
       name: string;
       timestamp: Date;
       fileCount: number;
-      /** Present when the entry has been Already-Unshelved (T2-10 v2 schema). */
+      /** Present when the entry has been Already-Unshelved. */
       unshelvedAt?: Date;
     }
   | {
@@ -104,10 +93,10 @@ export type IShelfTabEntry =
     };
 
 /**
- * T3-10: imperative bag for Shelf-row context-menu actions. The extension
- * binds this to `ShelfView`'s public methods so the tool window doesn't
- * have to know about QuickPicks / VS Code window APIs itself. Keeping
- * methods optional lets tests pass a minimal stub.
+ * Imperative bag for Shelf-row context-menu actions. The extension binds
+ * this to `ShelfView`'s public methods so the tool window doesn't have to
+ * know about QuickPicks / VS Code window APIs itself. Keeping methods
+ * optional lets tests pass a minimal stub.
  */
 export interface IShelfTabShelfController {
   apply?: (id: string) => Promise<void>;
@@ -120,8 +109,8 @@ export interface IShelfTabShelfController {
 }
 
 /**
- * T3-10: imperative bag for Stash-row context-menu actions. Backed by
- * `StashView` in production; tests pass a minimal stub.
+ * Imperative bag for Stash-row context-menu actions. Backed by `StashView`
+ * in production; tests pass a minimal stub.
  */
 export interface IShelfTabStashController {
   apply?: (index: number) => Promise<void>;
@@ -187,8 +176,8 @@ export function sortChangelistsForDisplay(changelists: readonly IChangelist[]): 
 }
 
 /**
- * T3-10: build the unified Shelf-tab entry list from the two source arrays
- * and apply the requested filter. Pure — a new array is returned. Rows are
+ * Build the unified Shelf-tab entry list from the two source arrays and
+ * apply the requested filter. Pure — a new array is returned. Rows are
  * sorted by timestamp descending (newest first). When both sources are
  * visible, shelves and stashes interleave purely by timestamp, which mirrors
  * IntelliJ's unified pane.
@@ -241,8 +230,8 @@ export function buildShelfTabEntries(
 }
 
 /**
- * T3-10: whitelist valid filter strings. Used when hydrating persisted
- * filter state so a corrupt workspaceState value falls back to `'both'`.
+ * Whitelist valid filter strings. Used when hydrating persisted filter
+ * state so a corrupt workspaceState value falls back to `'both'`.
  */
 export function isShelfTabFilter(value: unknown): value is ShelfTabFilter {
   return value === 'shelves' || value === 'stashes' || value === 'both';
@@ -306,8 +295,8 @@ export function changelistContextMenuLabels(input: {
 }
 
 /**
- * Gear-menu placeholder items for the composer. Content ships in T2-06; these
- * render as disabled with a "coming soon" tooltip until then.
+ * Gear-menu placeholder items for the composer. These render as disabled
+ * with a "coming soon" tooltip until they're wired up.
  */
 export function gearMenuItems(): Array<{ label: string; tooltip: string }> {
   const tooltip = 'Coming soon (T2-06)';
@@ -350,17 +339,17 @@ export interface ICommitToolWebviewMessage {
   collapsed?: boolean;
   action?: ChangelistAction | FileAction | ShelfTabShelfAction | ShelfTabStashAction;
   targetFiles?: string[];
-  /** T3-10: newly-selected Shelf-tab filter from the segmented control. */
+  /** Newly-selected Shelf-tab filter from the segmented control. */
   filter?: ShelfTabFilter;
-  /** T3-10: row kind being operated on when `action` targets a Shelf-tab row. */
+  /** Row kind being operated on when `action` targets a Shelf-tab row. */
   rowKind?: 'shelf' | 'stash';
-  /** T3-10: shelf entry id (when rowKind === 'shelf'). */
+  /** Shelf entry id (when rowKind === 'shelf'). */
   shelfId?: string;
-  /** T3-10: stash index (when rowKind === 'stash'). */
+  /** Stash index (when rowKind === 'stash'). */
   stashIndex?: number;
 }
 
-/** T3-10: shelf-row actions dispatched via the Shelf-tab context menu. */
+/** Shelf-row actions dispatched via the Shelf-tab context menu. */
 export type ShelfTabShelfAction =
   | 'shelfApply'
   | 'shelfDelete'
@@ -370,7 +359,7 @@ export type ShelfTabShelfAction =
   | 'shelfImportPatches'
   | 'shelfCreatePatch';
 
-/** T3-10: stash-row actions dispatched via the Shelf-tab context menu. */
+/** Stash-row actions dispatched via the Shelf-tab context menu. */
 export type ShelfTabStashAction =
   | 'stashApply'
   | 'stashPop'
@@ -380,8 +369,8 @@ export type ShelfTabStashAction =
   | 'stashBranchFromStash';
 
 /**
- * T3-10: menu entries for a Shelf row in the combined tab. Pure — unit-
- * tested directly. `isAlreadyUnshelved` surfaces the Restore entry.
+ * Menu entries for a Shelf row in the combined tab. Pure — unit-tested
+ * directly. `isAlreadyUnshelved` surfaces the Restore entry.
  */
 export function shelfRowContextMenuLabels(input: {
   isAlreadyUnshelved: boolean;
@@ -402,8 +391,8 @@ export function shelfRowContextMenuLabels(input: {
 }
 
 /**
- * T3-10: menu entries for a Stash row in the combined tab. Pure. `Pop` is
- * listed above `Apply` so the right-click default (Enter) matches IntelliJ's
+ * Menu entries for a Stash row in the combined tab. Pure. `Pop` is listed
+ * above `Apply` so the right-click default (Enter) matches IntelliJ's
  * recommended action for stash entries.
  */
 export function stashRowContextMenuLabels(): Array<{
@@ -444,9 +433,9 @@ export class CommitToolWindow extends BaseWebviewView {
 
   private _changelists: IChangelist[] = [];
   private _shelfItems: IShelfItem[] = [];
-  /** T3-10: most recent `git stash list` snapshot. */
+  /** Most recent `git stash list` snapshot. */
   private _stashEntries: IStash[] = [];
-  /** T3-10: active Shelf-tab filter, persisted to workspaceState. */
+  /** Active Shelf-tab filter, persisted to workspaceState. */
   private _shelfTabFilter: ShelfTabFilter = 'both';
   private _selectedFiles: Set<string> = new Set();
 
@@ -458,10 +447,9 @@ export class CommitToolWindow extends BaseWebviewView {
   public readonly onDidCommit = this._onDidCommit.event;
 
   /**
-   * T3-10: imperative controllers for Shelf/Stash row actions. Injected in
+   * Imperative controllers for Shelf/Stash row actions. Injected in
    * extension.ts to avoid importing ShelfView / StashView into this module.
-   * Both default to no-op so unit tests + feature-flag-off shipping are
-   * safe.
+   * Both default to no-op so unit tests + feature-flag-off shipping are safe.
    */
   private _shelfController: IShelfTabShelfController = {};
   private _stashController: IShelfTabStashController = {};
@@ -483,7 +471,7 @@ export class CommitToolWindow extends BaseWebviewView {
       this._activeTab = persistedTab;
     }
 
-    // T3-10: restore persisted Shelf-tab filter (defaults to 'both').
+    // Restore persisted Shelf-tab filter (defaults to 'both').
     const persistedFilter = this._workspaceState.get<unknown>(SHELF_TAB_FILTER_STATE_KEY, 'both');
     if (isShelfTabFilter(persistedFilter)) {
       this._shelfTabFilter = persistedFilter;
@@ -508,7 +496,7 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   /**
-   * T3-10: wire the Shelf/Stash controllers. Called from extension.ts after
+   * Wire the Shelf/Stash controllers. Called from extension.ts after
    * construction so tests can instantiate the window without stash/shelf
    * views. Safe to call multiple times — the last call wins.
    */
@@ -569,16 +557,16 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   /**
-   * T3-10: current Shelf-tab filter (persisted across sessions).
+   * Current Shelf-tab filter (persisted across sessions).
    */
   public getShelfTabFilter(): ShelfTabFilter {
     return this._shelfTabFilter;
   }
 
   /**
-   * T3-10: programmatically change the Shelf-tab filter. Persists to
-   * workspaceState + re-renders. Exposed as `public` so command palette
-   * entries (e.g. a future "Shelf: Show Stashes Only") can toggle it.
+   * Programmatically change the Shelf-tab filter. Persists to workspaceState
+   * + re-renders. Exposed as `public` so command palette entries (e.g. a
+   * future "Shelf: Show Stashes Only") can toggle it.
    */
   public async setShelfTabFilter(filter: ShelfTabFilter): Promise<void> {
     if (this._shelfTabFilter === filter) {
@@ -624,7 +612,7 @@ export class CommitToolWindow extends BaseWebviewView {
         }
         break;
       case 'toggleChangelist':
-        // Persisted in a follow-up step; no-op Phase 1.
+        // No-op for now.
         break;
       case 'updateComposerField':
         if (typeof message.message === 'string') {
@@ -766,8 +754,8 @@ export class CommitToolWindow extends BaseWebviewView {
 
     if (push) {
       // Delegate to the stable command; the concrete `intellig.push` handler
-      // is owned elsewhere (Cluster A T1-01). This keeps us decoupled from
-      // any in-flight API changes.
+      // is owned elsewhere. This keeps us decoupled from any in-flight API
+      // changes.
       try {
         await vscode.commands.executeCommand('intellig.push');
       } catch (err) {
@@ -961,8 +949,8 @@ export class CommitToolWindow extends BaseWebviewView {
     this._changelists = this._changelistService.getChangelists(repo);
     this._shelfItems = this._shelfService.getShelfItems(repo);
 
-    // T3-10: fetch stash list. Failure is non-fatal — the view falls back
-    // to an empty stash array and the filter still works.
+    // Fetch stash list. Failure is non-fatal — the view falls back to an
+    // empty stash array and the filter still works.
     try {
       this._stashEntries = await this._gitService.stashList(repo);
     } catch {
@@ -1060,7 +1048,7 @@ export class CommitToolWindow extends BaseWebviewView {
     });
   }
 
-  // ── T3-10 Shelf-tab message handlers ───────────────────────────────────
+  // ── Shelf-tab message handlers ─────────────────────────────────────────
 
   /**
    * Route a Shelf-tab context-menu action to the appropriate controller.
@@ -1200,11 +1188,11 @@ export class CommitToolWindow extends BaseWebviewView {
  * helper is a pure utility used by the initial HTML render as a fast path.
  */
 function findActiveChangelistId(changelists: readonly IChangelist[]): string | undefined {
-  // In the T1-06 schema, the active changelist is a top-level storage field
-  // accessed via `getActiveChangelist()`. On the render path we don't await
-  // here; caller passes through whatever id was last resolved. For Phase 1,
-  // we fall back to the default changelist so the UI still distinguishes
-  // it visually.
+  // In the current schema, the active changelist is a top-level storage
+  // field accessed via `getActiveChangelist()`. On the render path we don't
+  // await here; the caller passes through whatever id was last resolved. We
+  // fall back to the default changelist so the UI still distinguishes it
+  // visually.
   const def = changelists.find((c) => c.isDefault);
   return def?.id;
 }
@@ -1225,9 +1213,9 @@ export interface IRenderInput {
   activeTab: CommitToolWindowTab;
   changelists: readonly IChangelist[];
   shelfItems: readonly IShelfItem[];
-  /** T3-10: unified shelf+stash entries. Derived from shelfItems + stashes. */
+  /** Unified shelf+stash entries. Derived from shelfItems + stashes. */
   shelfTabEntries?: readonly IShelfTabEntry[];
-  /** T3-10: active Shelf-tab filter, used to render the segmented control. */
+  /** Active Shelf-tab filter, used to render the segmented control. */
   shelfTabFilter?: ShelfTabFilter;
   composer: { message: string; amend: boolean; signOff: boolean };
   activeChangelistId?: string;
@@ -1247,8 +1235,8 @@ export function buildCommitToolWindowBodyParts(input: Omit<IRenderInput, 'cspSou
   script: string;
 } {
   const { activeTab, changelists, shelfItems, composer, activeChangelistId } = input;
-  // T3-10: derive combined entries when not already computed. Callers that
-  // skip the field get a shelf-only view (legacy behavior).
+  // Derive combined entries when not already computed. Callers that skip
+  // the field get a shelf-only view (legacy behavior).
   const shelfTabFilter: ShelfTabFilter = input.shelfTabFilter ?? 'shelves';
   const shelfTabEntries: readonly IShelfTabEntry[] =
     input.shelfTabEntries ?? buildShelfTabEntries(shelfItems, [], shelfTabFilter);
@@ -1361,9 +1349,9 @@ function renderLocalChangesPanel(
 }
 
 /**
- * T3-10: render the combined Shelf+Stash panel. Header shows a segmented
- * filter (Shelves / Stashes / Both) that mirrors the persisted state. Each
- * row carries a type badge so users can tell which storage it came from.
+ * Render the combined Shelf+Stash panel. Header shows a segmented filter
+ * (Shelves / Stashes / Both) that mirrors the persisted state. Each row
+ * carries a type badge so users can tell which storage it came from.
  *
  * Pure w.r.t. its inputs — safe to unit test by feeding a constructed
  * `IShelfTabEntry[]` array.
@@ -1387,8 +1375,8 @@ export function renderShelfTabPanel(
 }
 
 /**
- * T3-10: render the segmented filter control in the tab header. Active
- * button carries `aria-pressed="true"` for assistive tech.
+ * Render the segmented filter control in the tab header. Active button
+ * carries `aria-pressed="true"` for assistive tech.
  */
 function renderShelfTabFilterHeader(filter: ShelfTabFilter): string {
   const btn = (value: ShelfTabFilter, label: string): string =>
@@ -1406,9 +1394,9 @@ function renderShelfTabFilterHeader(filter: ShelfTabFilter): string {
 }
 
 /**
- * T3-10: render a single row in the combined list. The `kind` discriminator
- * drives badge + data-* attributes that the webview's contextmenu handler
- * forwards to the host.
+ * Render a single row in the combined list. The `kind` discriminator drives
+ * badge + data-* attributes that the webview's contextmenu handler forwards
+ * to the host.
  */
 function renderShelfTabRow(entry: IShelfTabEntry): string {
   if (entry.kind === 'shelf') {
