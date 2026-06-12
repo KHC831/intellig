@@ -1,24 +1,23 @@
 /**
  * Tab router for the Git Tool Window webview.
  *
- * The `T1-05` change introduced a tabbed layout (Log / Console / Incoming /
- * Update Info / History) behind the `intellig.useTabbedGitToolWindow`
- * configuration flag. This module owns:
+ * The tabbed layout (Log / Console / Incoming / Update Info / History) sits
+ * behind the `intellig.useTabbedGitToolWindow` configuration flag. This
+ * module owns:
  *
  *   - the canonical list of tab IDs
  *   - the active-tab state
  *   - dispatch of inbound webview messages to per-tab handlers
  *   - publication of the `intellig.toolWindow.activeTab` context key
  *
- * Per design §3.4, all messages may optionally carry a `tab` field; messages
- * without one are treated as implicit `tab: 'log'` (preserving every existing
- * `log.*` / `selectCommit` / `toggleCommitSelection` / filter message shape).
+ * All messages may optionally carry a `tab` field; messages without one are
+ * treated as implicit `tab: 'log'` (preserving every existing `log.*` /
+ * `selectCommit` / `toggleCommitSelection` / filter message shape).
  *
- * Per design §3.6, this router is the sole host-side entry point for tab
- * routing — the existing monolithic `onDidReceiveMessage` switch continues to
- * own per-case business logic. The router prepends tab discrimination and
- * dispatches non-log messages to stub handlers that display "Coming soon"
- * placeholders.
+ * This router is the sole host-side entry point for tab routing — the
+ * existing monolithic `onDidReceiveMessage` switch continues to own per-case
+ * business logic. The router prepends tab discrimination and dispatches
+ * non-log messages to stub handlers that display "Coming soon" placeholders.
  */
 
 import * as vscode from 'vscode';

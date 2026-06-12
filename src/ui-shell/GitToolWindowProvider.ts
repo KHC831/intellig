@@ -1,7 +1,7 @@
 /**
  * Re-export shim for GitToolWindowProvider.
  *
- * T1-05 Phase 1 moved the implementation to `./gitToolWindow/GitToolWindowProvider.ts`.
+ * The implementation lives at `./gitToolWindow/GitToolWindowProvider.ts`.
  * This shim preserves the stable import path `src/services/GitToolWindowProvider`
  * that extension.ts, command handlers, tests, and other modules already use.
  *

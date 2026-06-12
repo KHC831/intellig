@@ -1,5 +1,5 @@
 /**
- * T3-09 — URL builders for external hosting providers.
+ * URL builders for external hosting providers.
  *
  * Given a parsed {@link IRemoteUrl}, build deep-links into the provider's
  * web UI for:

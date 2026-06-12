@@ -1,5 +1,5 @@
 /**
- * Reset Dialog (T1-11).
+ * Reset Dialog.
  *
  * IntelliJ-style "Reset Current Branch to Here…" modal. Replaces the old
  * QuickPick-based reset flow with a webview panel (extends

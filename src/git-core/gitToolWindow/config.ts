@@ -1,9 +1,9 @@
 /**
  * Configuration helpers for the Git Tool Window.
  *
- * T1-05 Phase 1 ships the tabbed layout behind a feature flag so the refactor
+ * The tabbed layout ships behind a feature flag so the refactor
  * can land without regressing the Log-only UI most users see today. The flag
- * defaults to `false` (REVIEW.md §7, locked decision).
+ * defaults to `false`.
  */
 
 import * as vscode from 'vscode';

@@ -1,5 +1,5 @@
 /**
- * Push Dialog (T1-01).
+ * Push Dialog.
  *
  * IntelliJ-style "Push Commits to Remote" dialog. Replaces the old stub with
  * a webview panel (extends {@link BaseWebviewPanel}) that shows:
@@ -98,7 +98,7 @@ export interface IPushRowResult {
 
 /**
  * Is the target branch name protected? Uses the same `intellig.protectedBranches`
- * list that T1-11 introduced for destructive reset modes.
+ * list that destructive reset modes use.
  */
 export function isProtectedTarget(
   targetBranch: string,

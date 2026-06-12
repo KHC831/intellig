@@ -328,7 +328,7 @@ export class StatusBarService implements IStatusBarService {
 
   /**
    * Update the status bar display based on current state.
-   * - 4.1: Display current branch name in status bar
+   * - Display current branch name in status bar
    * - Show ahead/behind counts if the branch has an upstream (e.g., "main ↑2 ↓1")
    */
   private _updateDisplay(): void {

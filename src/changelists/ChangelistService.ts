@@ -491,9 +491,9 @@ export class ChangelistService implements IChangelistService {
   }
 
   /**
-   * Set the description of a changelist (T1-04).
+   * Set the description of a changelist.
    *
-   * The description field was introduced in storage schema v2 (T1-06) but
+   * The description field was introduced in storage schema v2 but
    * had no setter. The Edit Description… UI action on the Commit tool
    * window's changelist tree calls this to persist the new value.
    *

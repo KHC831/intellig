@@ -12,10 +12,10 @@ import * as path from 'path';
  * Inline Blame Provider implementation.
  * Displays commit information at the end of the current line as a decoration.
  *
- * - 9.1: Display blame annotations for file (inline at end of current line)
- * - 9.3: Show commit message on hover
- * - 9.4: Show tooltip with full commit details
- * - 17.12: Use IntelliJ-style annotations
+ * - Display blame annotations for file (inline at end of current line)
+ * - Show commit message on hover
+ * - Show tooltip with full commit details
+ * - Use IntelliJ-style annotations
  */
 export class InlineBlameProvider implements IInlineBlameProvider {
   private _enabled: boolean = false;

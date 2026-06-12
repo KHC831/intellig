@@ -1,5 +1,5 @@
 /**
- * Merge Dialog (T3-02).
+ * Merge Dialog.
  *
  * IntelliJ-style "Merge Branch" modal. Replaces the direct
  * `gitService.mergeBranch(repo, branch)` call with a webview panel
@@ -22,7 +22,7 @@
  *
  * Conflict handoff: on non-success with conflicts, invokes
  * {@link IConflictResolutionService.openResolveConflictsDialog} with
- * `operation: 'merge'`, matching the T1-08(a) caller-invoked pattern.
+ * `operation: 'merge'`, matching the caller-invoked pattern.
  *
  * No destructive-op confirm — merge is recoverable via `git merge --abort`.
  */

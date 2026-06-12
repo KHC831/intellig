@@ -1,5 +1,5 @@
 /**
- * Auto-Fetch Service implementation (T1-03).
+ * Auto-Fetch Service implementation.
  *
  * Runs `git fetch --all --prune` periodically in every open repository while
  * the user works, matching IntelliJ's background-refresh behavior. The

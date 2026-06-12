@@ -60,7 +60,7 @@ export type GitOperationType =
  * Notification Service interface.
  * Manages notifications for Git operations including progress, success, and error messages.
  *
- * - 17.8: Display progress and status notifications similar to IntelliJ
+ * - Display progress and status notifications similar to IntelliJ
  * - Error handling: Provide user-friendly error messages with recovery suggestions
  */
 export interface INotificationService {

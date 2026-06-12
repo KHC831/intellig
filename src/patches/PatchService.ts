@@ -1,8 +1,8 @@
 /**
- * Patch Service implementation (T1-12).
+ * Patch Service implementation.
  *
  * Thin wrapper over `git apply` / `git am` / `git diff`. See `IPatchService`
- * for contract + REVIEW.md §B4 for the conflict-handoff integration point.
+ * for the contract and the conflict-handoff integration point.
  */
 
 import * as fs from 'fs';

@@ -9,7 +9,7 @@ import { IStash, IStashOptions, IDiff, IRepository } from '../../git-core/interf
 /**
  * Stash context menu action types.
  *
- * T2-09 adds `'branch'` (git stash branch) and `'rename'` (rewrite the stash
+ * Includes `'branch'` (git stash branch) and `'rename'` (rewrite the stash
  * message via `git stash store` plumbing).
  */
 export type StashContextAction = 'apply' | 'pop' | 'drop' | 'view' | 'branch' | 'rename';
@@ -74,13 +74,13 @@ export interface IStashViewState {
  * Provides stash management functionality including list display, context menu actions,
  * and stash creation dialog.
  *
- * - 7.1: Create Git stash with optional message
- * - 7.2: Offer options to include untracked files and keep index
- * - 7.3: Display all stashes with messages and timestamps
- * - 7.4: Apply stash contents to working directory
- * - 7.5: Apply and remove stash (pop)
- * - 7.6: Delete stash after confirmation
- * - 7.7: Display stash contents as diff
+ * - Create Git stash with optional message
+ * - Offer options to include untracked files and keep index
+ * - Display all stashes with messages and timestamps
+ * - Apply stash contents to working directory
+ * - Apply and remove stash (pop)
+ * - Delete stash after confirmation
+ * - Display stash contents as diff
  */
 export interface IStashView {
   /**
@@ -162,7 +162,7 @@ export interface IStashView {
 
   /**
    * Create a branch from a stash. Prompts for the branch name, then wraps
-   * {@link IGitService.stashBranch}. T2-09.
+   * {@link IGitService.stashBranch}.
    *
    * @param index - The stash index to branch from
    * @returns Promise resolving to the action result
@@ -171,7 +171,7 @@ export interface IStashView {
 
   /**
    * Rename a stash. Prompts for the new message, then wraps
-   * {@link IGitService.stashRename}. T2-09.
+   * {@link IGitService.stashRename}.
    *
    * @param index - The stash index to rename
    * @returns Promise resolving to the action result

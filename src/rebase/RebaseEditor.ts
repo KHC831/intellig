@@ -52,9 +52,9 @@ interface IWebviewMessage {
  * Rebase Editor class.
  * Provides a webview panel for interactive rebase planning and execution.
  *
- * - 6.1: Display rebase editor showing commits to be rebased
- * - 6.2: Allow reordering commits via drag-and-drop
- * - 6.3: Support pick, reword, edit, squash, fixup, and drop operations
+ * - Display rebase editor showing commits to be rebased
+ * - Allow reordering commits via drag-and-drop
+ * - Support pick, reword, edit, squash, fixup, and drop operations
  */
 export class RebaseEditor {
   private _panel: vscode.WebviewPanel | undefined;

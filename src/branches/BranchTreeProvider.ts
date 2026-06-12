@@ -280,11 +280,11 @@ export class BranchTreeItem extends vscode.TreeItem {
  * Branch Tree Data Provider.
  * Provides tree data for the branches view with local branches, remote branches, and tags.
  *
- * - 5.1: Context menu for local branches
- * - 5.2: Context menu for remote branches
- * - 5.7: Disable checkout for current branch
- * - 5.8: Context menu for tags
- * - 17.6: Organize menu items in logical groupings
+ * - Context menu for local branches
+ * - Context menu for remote branches
+ * - Disable checkout for current branch
+ * - Context menu for tags
+ * - Organize menu items in logical groupings
  */
 export class BranchTreeProvider
   implements vscode.TreeDataProvider<BranchTreeItem>, vscode.Disposable

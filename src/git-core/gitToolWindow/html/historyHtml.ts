@@ -1,5 +1,5 @@
 /**
- * T2-07 — History tab HTML.
+ * History tab HTML.
  *
  * Pure render — no side effects, no DOM APIs used. Takes the tab's state
  * as input and returns the body-level HTML the provider splices into the

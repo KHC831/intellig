@@ -1,5 +1,5 @@
 /**
- * T3-09 — remote-URL parser.
+ * Remote-URL parser.
  *
  * Extracts `{ host, owner, repo }` from a git remote URL. Supports:
  *   - HTTPS:     https://github.com/owner/repo.git

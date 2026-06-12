@@ -1,11 +1,9 @@
 /**
- * Patch Service interface (T1-12).
+ * Patch Service interface.
  *
  * Wraps `git apply`, `git am`, and `git diff` for the Apply Patch and
- * Create Patch from Local Changes dialogs. Design source:
- * `.agent/designs/cluster-B-dialogs-menus.md` §T1-12 and REVIEW.md §B4
- * (apply-patch conflict handoff must route through
- * `IConflictResolutionService.openResolveConflictsDialog`).
+ * Create Patch from Local Changes dialogs. Apply-patch conflict handoff
+ * must route through `IConflictResolutionService.openResolveConflictsDialog`.
  */
 
 import { IRepository } from '../../git-core/interfaces/IGitService';

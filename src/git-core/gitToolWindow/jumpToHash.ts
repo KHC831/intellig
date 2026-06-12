@@ -1,5 +1,5 @@
 /**
- * T3-06 — Jump-to-Hash helpers for the Git tool window Log tab.
+ * Jump-to-Hash helpers for the Git tool window Log tab.
  *
  * Pure, dependency-injected matching logic so unit tests can exercise it
  * without a VS Code host. The extension-side command wires this up to the
@@ -39,7 +39,7 @@ export type JumpToHashMatchKind = 'sha' | 'branch' | 'tag';
  * Returns `undefined` when nothing matches. The caller is responsible for
  * surfacing the "no match" UI.
  *
- * Per T3-06 spec: this helper operates on *currently-loaded* commits only.
+ * This helper operates on *currently-loaded* commits only.
  * It does NOT auto-page / fetch more history on a miss. That policy
  * deliberately keeps the jump action instant.
  */

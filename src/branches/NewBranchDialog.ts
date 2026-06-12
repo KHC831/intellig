@@ -1,5 +1,5 @@
 /**
- * New Branch Dialog (T3-03).
+ * New Branch Dialog.
  *
  * IntelliJ-style "Create New Branch" modal. Replaces the
  * `showInputBox`-based flow with a webview panel (extends
