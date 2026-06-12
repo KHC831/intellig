@@ -107,6 +107,57 @@ lanes ≥ 1000. Property test asserts `getMaxGraphColumn(result) ≤ K + 5`
 where K is the number of distinct branch tips, so the cap is never
 approached in practice.
 
+### §1.5 Far-parent bends (Wave 2 / task #68)
+
+When the **first-parent** of a divergent branch's oldest in-window
+commit lives many rows below on a **different lane**, the bend into
+that lane is drawn at the parent row, NOT at the source row. The
+divergent branch reads as a continuous vertical column running down
+its own lane to the fork point, with the bend hooking into the
+mainline only at the row where the parent itself sits.
+
+```
+  * b0       lane 1   ← side branch tip
+  | * m0     lane 0   ← mainline
+  * | b1     lane 1
+  * | b2     lane 1   ← b2.parents = [m4]; first-parent is m4 (lane 0, row 7)
+  | * m1     lane 0
+  | * m2     lane 0
+  | * m3     lane 0
+  ↘/
+  * m4       lane 0   ← b2's first-parent line BENDS into lane 0 here
+                        (top-half bezier at the parent row, NOT a one-row
+                        diagonal hook from b2's row)
+```
+
+Pre-fix (Wave 1 and earlier): `b2`'s first-parent line was emitted as
+a one-row diagonal `{fromColumn: 1, toColumn: 0}` at b2's own row,
+leaving lane 1 active only at b2's row. The visual effect was a stub
+diving sideways into the mainline at b2's row, with rows m1..m3
+showing only the mainline column — a divergent branch that "vanished"
+into the mainline several rows above its actual fork point.
+
+**Implementation invariant** (the additive `endRow?: number` field on
+`IGraphLine`):
+
+- Set ONLY for a first-parent (`type: 'commit'`) line whose parent is
+  in-window, on a different lane, and **more than one row below** the
+  source commit. Adjacent-row bends and same-lane inheritance are
+  unchanged.
+- When `endRow` is set, the source lane (`fromColumn`) carries
+  straight-down ink at rows `[row .. endRow - 1]`. The bend lives at
+  row `endRow` and is drawn by the renderer as a top-half bezier from
+  `(fromColumnX, 0)` to `(toColumnX, centerY)`, fed by
+  `computeIncomingBendsMap(nodes)`.
+- The source lane is NOT marked active at `endRow` itself — the
+  parent's own `graphColumn` already inks `toColumn` there. This
+  preserves the pre-existing orphan-stroke invariant ("a bending
+  line's source lane is NOT marked at the row where it lands").
+
+Pinned by `snap-far-parent` (synthetic 8-commit topology) and the
+`test/test2 (c0..c4)` acceptance test in `realTopoRegression.test.ts`
+(real anonymized topology, c4 → c5 fork point at rows 4 → 22).
+
 ---
 
 ## §2 Branch chips
@@ -134,7 +185,7 @@ collapses via `:empty { display: none }` so it occupies no margin.
 
 > **Why a separate slot?** Pre-Wave-E the chips were nested INSIDE
 > `.commit-title`, which has `overflow: hidden` + `white-space:
-> nowrap`. At narrow panel widths the message consumed the
+nowrap`. At narrow panel widths the message consumed the
 > available line and the chips clipped — they only appeared when
 > the panel was widened. The Wave E fix moves chips into their
 > own flex slot so they always reserve width.
@@ -380,15 +431,15 @@ unchanged.
 
 #### §2.6.5 Accessibility test coverage matrix (Wave J)
 
-| Layer | Surface | Snap | What it pins |
-| --- | --- | --- | --- |
-| 1 (HTML emit) | HEAD chip | snap-12a | `role="img"`, `aria-label="Current HEAD"`, `codicon-check`, textContent `HEAD` |
-| 1 (HTML emit) | Local chip | snap-12b | `role="img"`, `aria-label="Local branch: …"`, `codicon-git-branch` |
-| 1 (HTML emit) | Remote chip | snap-12c | `role="img"`, `aria-label="Remote branch: …"`, `codicon-cloud` |
-| 1 (HTML emit) | Focused chip | snap-12d | `branch-label-focused` class + `role="img"` BOTH present; `aria-pressed` deliberately absent |
-| 1 (HTML emit) | Codicon prefix | snap-12f | per-variant codicon glyph in HTML |
-| 1 (CSS) | Theme-var contract | snap-12e | local + remote chips use `var(--vscode-gitDecoration-*)` with hex fallback |
-| 1 (CSS) | Cap + icon size | snap-12g | 200px max-width survives icon addition; icon font-size: 11px |
+| Layer         | Surface            | Snap     | What it pins                                                                                 |
+| ------------- | ------------------ | -------- | -------------------------------------------------------------------------------------------- |
+| 1 (HTML emit) | HEAD chip          | snap-12a | `role="img"`, `aria-label="Current HEAD"`, `codicon-check`, textContent `HEAD`               |
+| 1 (HTML emit) | Local chip         | snap-12b | `role="img"`, `aria-label="Local branch: …"`, `codicon-git-branch`                           |
+| 1 (HTML emit) | Remote chip        | snap-12c | `role="img"`, `aria-label="Remote branch: …"`, `codicon-cloud`                               |
+| 1 (HTML emit) | Focused chip       | snap-12d | `branch-label-focused` class + `role="img"` BOTH present; `aria-pressed` deliberately absent |
+| 1 (HTML emit) | Codicon prefix     | snap-12f | per-variant codicon glyph in HTML                                                            |
+| 1 (CSS)       | Theme-var contract | snap-12e | local + remote chips use `var(--vscode-gitDecoration-*)` with hex fallback                   |
+| 1 (CSS)       | Cap + icon size    | snap-12g | 200px max-width survives icon addition; icon font-size: 11px                                 |
 
 ---
 
@@ -456,7 +507,7 @@ Tag chips share the responsive-cap rule with branch chips:
 
 Long tag names like `release/2026-Q1.beta3-rc4` ellipsize rather than
 blowing up the row layout. The chip background is a dedicated
-`.tag-label` rule (separate from the branch-label-* badge-token rule)
+`.tag-label` rule (separate from the branch-label-\* badge-token rule)
 using `var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)`
 — pinned by snap-13f.
 
@@ -470,15 +521,15 @@ when chips become button-shaped — applies equally to tag chips.
 
 #### §2.7.4 Tag chip test coverage matrix (Wave K)
 
-| Layer | Surface | Snap | What it pins |
-| --- | --- | --- | --- |
-| 1 (HTML emit) | Tag chip ordering | snap-13a | HEAD first, then branch chips, then tag chips rightmost (literal HTML) |
-| 1 (HTML emit) | Tag-only commit | snap-13b | wrapper renders even when no HEAD + no branches, only tags |
-| 1 (HTML emit) | Multiple tags | snap-13c | semver + alias render sequentially in array order |
-| 1 (HTML emit) | XSS escape | snap-13d | tag name escaped in textContent + aria-label + data-tag-name |
-| 1 (jsdom layout) | Sibling order | snap-13e | tag chip sibling AFTER branch chips inside `.commit-branches` |
-| 1 (CSS) | Theme var + cap | snap-13f | `var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)` + 200px max-width sharing with branch-label-* |
-| 1 (font face) | codicon-tag glyph | codiconFont-4 | rendered HTML maps `.codicon-tag:before` to `\ea66` |
+| Layer            | Surface           | Snap          | What it pins                                                                                                     |
+| ---------------- | ----------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1 (HTML emit)    | Tag chip ordering | snap-13a      | HEAD first, then branch chips, then tag chips rightmost (literal HTML)                                           |
+| 1 (HTML emit)    | Tag-only commit   | snap-13b      | wrapper renders even when no HEAD + no branches, only tags                                                       |
+| 1 (HTML emit)    | Multiple tags     | snap-13c      | semver + alias render sequentially in array order                                                                |
+| 1 (HTML emit)    | XSS escape        | snap-13d      | tag name escaped in textContent + aria-label + data-tag-name                                                     |
+| 1 (jsdom layout) | Sibling order     | snap-13e      | tag chip sibling AFTER branch chips inside `.commit-branches`                                                    |
+| 1 (CSS)          | Theme var + cap   | snap-13f      | `var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB)` + 200px max-width sharing with branch-label-\* |
+| 1 (font face)    | codicon-tag glyph | codiconFont-4 | rendered HTML maps `.codicon-tag:before` to `\ea66`                                                              |
 
 ---
 
@@ -504,8 +555,8 @@ through `GitToolWindowProvider.setFocusedBranch(name)`.
 ### §3.2 Visual treatment
 
 - **Focused chip**: `branch-label-focused` class — `outline: 1px
-  solid var(--vscode-focusBorder, currentColor)`, `outline-offset:
-  1px`, `font-weight: 600`. Wave D R1 / Senior L-2 swapped raw
+solid var(--vscode-focusBorder, currentColor)`, `outline-offset:
+1px`, `font-weight: 600`. Wave D R1 / Senior L-2 swapped raw
   `currentColor` for the theme-aware `--vscode-focusBorder` so the
   outline reads correctly under high-contrast themes; `currentColor`
   is the fallback when the variable is unavailable.
@@ -541,7 +592,7 @@ parent chains (Trap T-1).
 
 When `getMergeBase` returns `undefined` (no common ancestor or git
 error — Trap T-8), the BFS still walks the loaded ancestry to give
-*some* visual; the chip outline (D2) survives regardless.
+_some_ visual; the chip outline (D2) survives regardless.
 
 ### §3.4 Focus survives a refresh — until the branch is gone
 
@@ -570,10 +621,10 @@ implicitly (see §3.4).
 
 ### §3.6 Webview wire surface
 
-| Surface | Direction | Message |
-|---|---|---|
-| Focus state | host → webview | `{ type: 'updateBranchFocus', focusedBranchName, focusedHash }` |
-| Focus request | webview → host | `{ type: 'focusBranchOnGraph', branchName }` |
+| Surface       | Direction      | Message                                                         |
+| ------------- | -------------- | --------------------------------------------------------------- |
+| Focus state   | host → webview | `{ type: 'updateBranchFocus', focusedBranchName, focusedHash }` |
+| Focus request | webview → host | `{ type: 'focusBranchOnGraph', branchName }`                    |
 
 The render-time `_getBranchLabelsHtml` is the source of truth for
 the focused chip class. The partial-update message exists so a

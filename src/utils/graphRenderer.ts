@@ -354,7 +354,17 @@ export function renderGraphSvg(
    * mainline below a merge commit (reported disconnect). Defaults to an
    * empty set (no continuation known → previous top-half behaviour).
    */
-  nextActiveLanes: Set<number> = new Set()
+  nextActiveLanes: Set<number> = new Set(),
+  /**
+   * Source lanes whose far-parent first-parent line BENDS into THIS row
+   * from above (Wave 2 / task #68). For each such lane, the renderer
+   * emits a TOP-HALF bend `<path>` at this row landing in the commit's
+   * own column. The bend was previously drawn at the source row as a
+   * bottom-half bezier; for far-parent lines it now lives at the parent
+   * row, fed by `computeIncomingBendsMap`. Defaults to empty (no
+   * incoming far-parent bends → no change from the pre-Wave-2 layout).
+   */
+  incomingBendLanes: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -440,6 +450,14 @@ export function renderGraphSvg(
     if (isBranchSplitPoint && childLanes.has(lane)) {
       continue;
     }
+    // Wave 2 / task #68 — incoming far-parent bend: this lane's
+    // straight-down ink stops at this row's top, then bends into the
+    // commit's own column. The dedicated incoming-bend block below
+    // emits the curved top-half path; suppress the straight pass-
+    // through here so we don't double-draw the same lane.
+    if (incomingBendLanes.has(lane)) {
+      continue;
+    }
     const x = getColumnX(lane, config);
     const color = getColumnColor(lane);
     // A bezier targets this lane (a merge/branch line lands here). Normally
@@ -492,7 +510,18 @@ export function renderGraphSvg(
     const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
-    if (sameLaneLines.length > 0) {
+    // Wave 2 / task #68 — far-parent fork-point bend: a first-parent line
+    // leaving THIS commit's lane that bends to a parent many rows below
+    // also implies a straight-down stub at the source row, because the
+    // source lane runs vertically through the rows in between (and the
+    // bend itself lives at the parent row, not here). Without this stub
+    // the source row reads as a hanging dot — the lane stops at the
+    // commit's center with nothing below — even though the algorithm
+    // marks the source lane active across the whole [row..endRow-1] span.
+    const hasFarParentDownward = node.graphLines.some(
+      (l) => l.endRow !== undefined && l.endRow > rowIndex && l.fromColumn === node.graphColumn
+    );
+    if (sameLaneLines.length > 0 || hasFarParentDownward) {
       // Dashed stroke ONLY when EVERY same-lane line targets an
       // off-window parent — i.e. this lane has no in-window continuation
       // and is purely "history continues below the loaded window".
@@ -510,7 +539,10 @@ export function renderGraphSvg(
       // whose sole parent fell off the slice) is the stub drawn dashed.
       // IntelliJ parity: solid connects to scrollable rows; dashed means
       // "more history exists, it just isn't loaded".
-      const isDashed = sameLaneLines.every((l) => l.style === 'dashed');
+      // Dash only when there ARE same-lane lines AND every one is dashed.
+      // A pure far-parent stub (no same-lane line) is always solid — it's
+      // a real in-window edge running down to the fork point.
+      const isDashed = sameLaneLines.length > 0 && sameLaneLines.every((l) => l.style === 'dashed');
       const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
@@ -528,6 +560,15 @@ export function renderGraphSvg(
     }
     if (line.fromColumn === line.toColumn) {
       // Same-lane lines are already handled by the vertical segments
+      continue;
+    }
+    // Wave 2 / task #68 — far-parent fork-point bend. The line is
+    // logically attached to THIS row (the source commit), but its bend
+    // is drawn at the PARENT row by the dedicated incoming-bends block
+    // below. Skip the source-row bottom-half bezier so we don't draw it
+    // twice — the source lane already runs straight down via the stub
+    // emitted above.
+    if (line.endRow !== undefined && line.endRow !== rowIndex) {
       continue;
     }
     const fromX = getColumnX(line.fromColumn, config);
@@ -552,6 +593,30 @@ export function renderGraphSvg(
     elements.push(
       `<path d="M ${fromX},${centerY} C ${fromX},${bottomY} ${toX},${centerY} ${toX},${bottomY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
     );
+  }
+
+  // --- Wave 2 / task #68 — far-parent incoming bends (top half) ---
+  // For each source lane bending INTO this commit's row from above (fed
+  // by `computeIncomingBendsMap`), emit a TOP-HALF cubic bezier landing
+  // at the commit's own column at centerY. The companion source-row
+  // bottom-half bezier is suppressed by the bezier loop above (where
+  // `line.endRow !== rowIndex`); the bend is geometrically split across
+  // two rows so the source lane reads as a straight column down to the
+  // fork point. Colour is the SOURCE lane (first-parent edges always
+  // carry the source-lane colour, matching L4 and the existing same-
+  // lane-bezier rule in the loop above).
+  if (isValidLane(node.graphColumn) && incomingBendLanes.size > 0) {
+    const toX = getColumnX(node.graphColumn, config);
+    for (const sourceLane of incomingBendLanes) {
+      if (!isValidLane(sourceLane) || sourceLane === node.graphColumn) {
+        continue;
+      }
+      const fromX = getColumnX(sourceLane, config);
+      const color = getColumnColor(sourceLane);
+      elements.push(
+        `<path d="M ${fromX},0 C ${fromX},${centerY} ${toX},0 ${toX},${centerY}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+      );
+    }
   }
 
   // --- Draw the commit node icon (on top of everything) ---

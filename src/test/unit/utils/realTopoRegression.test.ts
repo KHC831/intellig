@@ -307,15 +307,35 @@ describe('Real anonymized topology — graph regression pins', () => {
       !(active.get(c5Row) ?? new Set<number>()).has(1),
       `lane 1 must NOT be active at c5's row ${c5Row} — the bend lands here but is inked by lane 0's parent column`
     );
-    // And lane 1 must not leak below c5's row in the immediate stretch
-    // beneath the fork point. (We bound this to rows that don't have
-    // their own unrelated divergent branch — the fixture re-uses lane 1
-    // for other side branches farther down. The orphan-stroke pin covers
-    // the full range.)
+    // No STALE leak from c4's reservation below the fork. Lane 1 is
+    // legitimately re-used below the fork by later divergent branches
+    // (post-release, IntelliJ parity) AND legitimately carries
+    // pass-through ink for OTHER far-parent / same-lane lines spanning
+    // those rows. The load-bearing contract is that every post-fork row
+    // where lane 1 is active has REAL ink there — i.e. the lane shows up
+    // in the ground-truth ink derived from the node geometry. This
+    // catches a stale c4-reservation leak (lane 1 active at a row with
+    // no graphLine spanning it and no graphColumn === 1 occupant) while
+    // remaining immune to the fixture's lane-1 reuse downstream. The
+    // ground-truth helper used here is the same one the orphan-stroke
+    // pin uses, so this assertion is exactly the lane-1 slice of that
+    // invariant scoped to the post-fork window.
+    const groundTruth = groundTruthInk(nodes);
+    for (let r = c5Row; r < nodes.length; r++) {
+      if ((active.get(r) ?? new Set<number>()).has(1)) {
+        assert.ok(
+          (groundTruth.get(r) ?? new Set<number>()).has(1),
+          `row ${r} (${nodes[r].commit.hash}): lane 1 active with no real ink there — ` +
+            `this is the c4-reservation leak the fork-point fix prevents`
+        );
+      }
+    }
+    // Tight smoke check on the immediately-below-fork rows we know are
+    // pure mainline ({0}). Belt-and-braces with the contract loop above.
     for (let r = c5Row + 1; r <= c5Row + 2; r++) {
       assert.ok(
         !(active.get(r) ?? new Set<number>()).has(1),
-        `lane 1 must NOT be active at row ${r} (immediately below c5 fork point)`
+        `lane 1 must NOT be active at row ${r} (immediately below c5 fork point — pure mainline rows)`
       );
     }
     // Lane 0 is active at c5's row.
