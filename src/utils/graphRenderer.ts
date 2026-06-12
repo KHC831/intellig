@@ -47,12 +47,11 @@ export type ActiveLaneMap = Map<number, Set<number>>;
 export const DEFAULT_GRAPH_CONFIG: IGraphRenderConfig = {
   columnWidth: 20,
   rowHeight: 24,
-  // Increased from 4 to 5 — at 4px the commit dot blended into the
-  // 2px lane line at common display scales, producing the "node not
-  // viewable on some rows" visual reported by users. 5px gives the
-  // dot a clear ~2px halo around the line stroke without growing the
-  // chip rail.
-  nodeRadius: 5,
+  // 4px commit dot — IntelliJ-snug. (Was briefly 5px to keep the dot from
+  // blending into the line, but that read as oversized vs IntelliJ's
+  // tighter nodes — reported. 4px against the 2px line still leaves a clear
+  // ~1px halo while matching IntelliJ's proportions.)
+  nodeRadius: 4,
   padding: 10,
   lineWidth: 2,
 };
@@ -323,7 +322,18 @@ export function renderGraphSvg(
   isTerminal: boolean = false,
   isBranchSplitPoint: boolean = false,
   childLanes: Set<number> = new Set(),
-  hasFocusedBranch: boolean = false
+  hasFocusedBranch: boolean = false,
+  /**
+   * Active lanes at the NEXT (lower) row. Used to decide whether a
+   * bezier-target lane also continues below this row as a through-lane: if
+   * it does, the pass-through must be drawn FULL height (the bezier merges
+   * into a continuing line), not truncated to the top half. Without this, a
+   * lane that both receives a merge bezier AND carries a transiting line
+   * down to a far parent got truncated, leaving a visible GAP in the
+   * mainline below a merge commit (reported disconnect). Defaults to an
+   * empty set (no continuation known → previous top-half behaviour).
+   */
+  nextActiveLanes: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -411,7 +421,16 @@ export function renderGraphSvg(
     }
     const x = getColumnX(lane, config);
     const color = getColumnColor(lane);
-    if (bezierTargetLanes.has(lane)) {
+    // A bezier targets this lane (a merge/branch line lands here). Normally
+    // we draw the pass-through top-half only and let the bezier cover the
+    // bottom — avoiding a "2 lines" overlap. BUT if this lane ALSO continues
+    // below (it's active in the next row too), it's a through-lane carrying
+    // a transiting line down to a far parent; truncating it severs the line
+    // and leaves a gap under the merge commit (reported disconnect). In that
+    // case draw the FULL height: the bezier merging in overlaps the through
+    // line harmlessly (same lane, same color).
+    const continuesBelow = nextActiveLanes.has(lane);
+    if (bezierTargetLanes.has(lane) && !continuesBelow) {
       // Draw only the top half of the pass-through (y=0 to y=centerY).
       // The bezier curve provides the visual connection for the bottom half.
       elements.push(

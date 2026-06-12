@@ -2917,6 +2917,10 @@ ${bodyMarkup}
         const isTerminal = terminalNodes.has(commit.hash);
         const isSplitPoint = isBranchSplit(commit.hash, childCountMap);
         const childLanes = childLanesMap.get(commit.hash) || new Set<number>();
+        // Next row's active lanes, so the renderer can tell whether a
+        // bezier-target lane also continues below (a through-lane) and must
+        // be drawn full-height — preventing the gap under a merge commit.
+        const nextActiveLanes = activeLaneMap.get(index + 1) || new Set<number>();
         const graphSvg = renderGraphSvg(
           node,
           index,
@@ -2925,7 +2929,8 @@ ${bodyMarkup}
           isTerminal,
           isSplitPoint,
           childLanes,
-          hasFocusedBranch
+          hasFocusedBranch,
+          nextActiveLanes
         );
 
         // Format fields.
