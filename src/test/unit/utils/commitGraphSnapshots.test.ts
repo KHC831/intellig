@@ -401,6 +401,84 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
       `b2 SVG must include lane-1 downward stub "${lane1Stub}"; got: ${b2Svg}`
     );
   });
+
+  // ─── snap-far-parent-multi: ≥2 incoming bends at one parent row ────
+  it('snap-far-parent-multi: parent row with multiple incoming far-parent bends sizes the SVG to fit ALL source-lane start points', () => {
+    // Synthetic topology — three side branches (lanes 1, 2, 3) all have
+    // their oldest commit's first parent equal to `base` on lane 0 several
+    // rows below. At base's row the renderer draws three top-half bend
+    // paths whose start-X values are getColumnX(1..3, cfg). The pre-fix
+    // CRITICAL bug: renderGraphSvg's `allColumns` accumulation only
+    // considered activeLanes / node.graphColumn / node.graphLines.{from,to}
+    // — none of which include the incoming-bend SOURCE lanes at the parent
+    // row — so svgWidth omitted lanes 1..3 and the bend paths were drawn
+    // OUTSIDE the viewport, clipped under overflow:hidden in the panel.
+    //
+    // Topology (newest-first):
+    //   row 0: m0  parents=[m1]    lane 0 (mainline)
+    //   row 1: m1  parents=[base]  lane 0
+    //   row 2: a0  parents=[a1]    lane 1
+    //   row 3: a1  parents=[base]  lane 1 (far parent — base is row 8)
+    //   row 4: b0  parents=[b1]    lane 2
+    //   row 5: b1  parents=[base]  lane 2
+    //   row 6: c0  parents=[c1]    lane 3
+    //   row 7: c1  parents=[base]  lane 3
+    //   row 8: base parents=[]
+    const commits = [
+      mkCommit('m0', ['m1']),
+      mkCommit('m1', ['base']),
+      mkCommit('a0', ['a1']),
+      mkCommit('a1', ['base']),
+      mkCommit('b0', ['b1']),
+      mkCommit('b1', ['base']),
+      mkCommit('c0', ['c1']),
+      mkCommit('c1', ['base']),
+      mkCommit('base'),
+    ];
+    const result = generateCommitGraph(commits, undefined, undefined, undefined, undefined, 'm0');
+    const baseRow = result.findIndex((n) => n.commit.hash === 'base');
+    const incoming = computeIncomingBendsMap(result);
+    const baseBends = incoming.get('base') ?? new Set<number>();
+    // Sanity — each side branch contributes one source lane bending into base.
+    // (The mainline first-parent doesn't bend; only the divergent branches
+    // hit the >1-row-below + cross-lane condition.)
+    assert.ok(baseBends.size >= 2, `expected ≥2 incoming bends at base; got ${baseBends.size}`);
+
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const active = computeActiveLanes(result);
+    const childCountMap = computeChildCountMap(result);
+    const childLanesMap = computeChildLanesMap(result);
+    const terminals = computeTerminalNodes(result);
+    const baseSvg = renderGraphSvg(
+      result[baseRow],
+      baseRow,
+      active.get(baseRow) ?? new Set<number>(),
+      cfg,
+      terminals.has('base'),
+      isBranchSplit('base', childCountMap),
+      childLanesMap.get('base') ?? new Set<number>(),
+      false,
+      active.get(baseRow + 1) ?? new Set<number>(),
+      baseBends
+    );
+
+    // Extract the SVG width.
+    const widthMatch = baseSvg.match(/width="(\d+)"/);
+    assert.ok(widthMatch, `base SVG must declare a width attribute; got: ${baseSvg}`);
+    const svgWidth = Number(widthMatch[1]);
+
+    // Every bend path's start-X (the source lane's centerX) must fit
+    // inside the viewport. Pre-fix, lanes 2..N landed at x ≥ svgWidth
+    // and were clipped.
+    for (const sourceLane of baseBends) {
+      const startX = getColumnX(sourceLane, cfg);
+      assert.ok(
+        startX < svgWidth,
+        `incoming-bend source lane ${sourceLane} starts at x=${startX} but SVG width is only ${svgWidth} ` +
+          `— bend path is clipped. SVG: ${baseSvg}`
+      );
+    }
+  });
 });
 
 /**

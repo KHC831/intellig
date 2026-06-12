@@ -402,6 +402,18 @@ export function renderGraphSvg(
       allColumns.push(line.toColumn);
     }
   }
+  // Far-parent fork-point bends (incomingBendLanes) land AT this row but
+  // their source lane is in NONE of the above sources — neither in the
+  // commit's own column, nor in any of its graphLines (the line is
+  // attached to the SOURCE row's node, not this parent row's). Without
+  // including these, svgWidth omits the source-lane column and the bend
+  // path's start-X falls outside the viewport (clipped under
+  // overflow:hidden in the panel).
+  for (const lane of incomingBendLanes) {
+    if (isValidLane(lane)) {
+      allColumns.push(lane);
+    }
+  }
 
   const maxCol = allColumns.length > 0 ? Math.max(...allColumns) : 0;
   const svgWidth = (maxCol + 1) * config.columnWidth + config.padding * 2;
