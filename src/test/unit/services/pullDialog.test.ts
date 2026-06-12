@@ -407,6 +407,15 @@ describe('T1-02 PullDialog — pure helpers', () => {
 // ─── End-to-end flow ─────────────────────────────────────────────────────────
 
 describe('T1-02 PullDialog — runPullDialog', () => {
+  it('--prune is always threaded into gitService.pull options (cleans stale remote-tracking refs)', async () => {
+    const h = createHarness({ sourcePick: '$(git-branch) main' });
+    const outcome = await runPullDialog(h.deps);
+
+    assert.strictEqual(outcome.status, 'pulled');
+    assert.strictEqual(h.pullCalls.length, 1);
+    assert.strictEqual(h.pullCalls[0].options?.prune, true, 'runPullDialog must pass prune: true');
+  });
+
   it('happy path: picks source, confirms flags, calls pull, shows info toast', async () => {
     const h = createHarness({ sourcePick: '$(git-branch) main' });
     const outcome = await runPullDialog(h.deps);
@@ -683,5 +692,44 @@ describe('T1-02 GitService.pull — flag arg ordering', () => {
 
     await gitService.pull(repo, { remote: 'origin', branch: 'main' });
     assert.deepStrictEqual(executed[3], ['pull', '--end-of-options', 'origin', 'main']);
+  });
+
+  it('inserts --prune after modifier flags when options.prune is true', async () => {
+    const { GitService } = await import('../../../git-core/GitService');
+    const executed: string[][] = [];
+    const gitCli = {
+      exec: async (args: string[]) => {
+        executed.push([...args]);
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+      invalidateCache: () => {},
+    };
+    const gitService = new GitService();
+    (gitService as unknown as { _gitCli: typeof gitCli })._gitCli = gitCli;
+    const repo = createRepo();
+
+    await gitService.pull(repo, { prune: true, remote: 'origin', branch: 'main' });
+    assert.deepStrictEqual(executed.at(-1), [
+      'pull',
+      '--prune',
+      '--end-of-options',
+      'origin',
+      'main',
+    ]);
+
+    await gitService.pull(repo, {
+      rebase: true,
+      prune: true,
+      remote: 'origin',
+      branch: 'main',
+    });
+    assert.deepStrictEqual(executed.at(-1), [
+      'pull',
+      '--rebase',
+      '--prune',
+      '--end-of-options',
+      'origin',
+      'main',
+    ]);
   });
 });

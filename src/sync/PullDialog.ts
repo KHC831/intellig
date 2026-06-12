@@ -377,6 +377,7 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
     squash: resolvedFlags.squash || undefined,
     noCommit: resolvedFlags.noCommit || undefined,
     noVerify: resolvedFlags.noVerify || undefined,
+    prune: true,
   };
 
   try {

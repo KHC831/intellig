@@ -1865,6 +1865,9 @@ export class GitService implements IGitService, IGitServiceCli {
     if (options?.noVerify) {
       flags.push('--no-verify');
     }
+    if (options?.prune) {
+      flags.push('--prune');
+    }
 
     const refs: string[] = [];
     if (options?.remote) {
