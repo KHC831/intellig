@@ -12,7 +12,7 @@
  * MUST be specific enough to grep for (class + method + trigger), so an
  * extension-host trace pinpoints the offending call site.
  *
- * ### Routing through the Logger (Requirement 5.3, 6.7)
+ * ### Routing through the Logger
  *
  * The rejection is forwarded to `getLogger().error(context, { correlationId }, err)`:
  *
@@ -24,7 +24,7 @@
  *   was in scope when the caller fired the promise.
  * - When called outside any `registerLoggedCommand` frame the captured
  *   cid is `undefined`; the Logger then omits the `correlationId` field
- *   (Requirement 5.5) rather than fabricating one.
+ *   rather than fabricating one.
  * - The Logger's existing OutputChannel sink renders the rejection into
  *   the user-visible `Output → IntelliG` channel uniformly with every
  *   other emission, replacing the bespoke OutputChannel mirror this
@@ -108,7 +108,7 @@ import { getCurrentCorrelationId, getLogger } from './logger';
  */
 export interface ISafeFireAndForgetOptions {
   /**
-   * @deprecated Unused since the Logger consolidation in task 7.1
+   * @deprecated Unused since the Logger consolidation
    *   (see `docs/adr/ADR-011-structured-logger.md`). The Logger's
    *   OutputChannel sink renders every rejection emitted by this helper
    *   into the shared `IntelliG` channel uniformly with the rest of the
@@ -122,7 +122,7 @@ export interface ISafeFireAndForgetOptions {
 /**
  * Fire the given promise without awaiting, routing any rejection through
  * the IntelliG Logger as an error-level record tagged with
- * `context` and the current Correlation_Id (Requirement 5.3, 6.7).
+ * `context` and the current Correlation_Id.
  *
  * The current Correlation_Id is captured *at call time* — i.e. inside the
  * caller's synchronous frame, before the promise's microtask queue runs.
@@ -147,7 +147,7 @@ export function safeFireAndForget(
   // Capture the current Correlation_Id eagerly. Reading inside the
   // `.catch` would observe an empty store once the caller's
   // synchronous frame has unwound, so the cid we want is the one that
-  // is in scope right now (Requirement 5.3).
+  // is in scope right now.
   const cid = getCurrentCorrelationId();
 
   Promise.resolve(promise).catch((err: unknown) => {
@@ -161,7 +161,7 @@ export function safeFireAndForget(
     // The `correlationId` binding is supplied explicitly when present;
     // when absent we omit the field rather than passing `undefined`,
     // so the resulting `LogRecord` follows the "omit when no frame"
-    // convention (Requirement 5.5).
+    // convention.
     const bindings = cid !== undefined ? { correlationId: cid } : undefined;
     getLogger().error(context, bindings, err instanceof Error ? err : undefined);
   });

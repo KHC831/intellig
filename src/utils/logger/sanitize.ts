@@ -4,23 +4,22 @@
  * The Logger emits `LogRecord` objects whose user-facing fields
  * (`message`, `error.message`, `error.stack`, `correlationId`, and
  * every string-valued leaf inside `context`) MUST be scrubbed of
- * credentials and home-dir paths before reaching a `LogSink`
- * (Requirement 4.1). This file is the single recursion-and-walk
+ * credentials and home-dir paths before reaching a `LogSink`.
+ * This file is the single recursion-and-walk
  * point for that scrub: it delegates every string-leaf
  * transformation to `sanitizeGitError` (the existing, ADR-005-pinned
  * helper) and adds the structural concerns the JSON walker needs:
  *
- * - Recursion into arrays and plain objects (Requirement 4.2).
+ * - Recursion into arrays and plain objects.
  * - Cycle detection via a `WeakSet` of visited objects/arrays so a
  *   self-referential `context` substitutes `'[Circular]'` on revisit
- *   instead of throwing or looping (Requirement 7.4).
+ *   instead of throwing or looping.
  * - Silent drop of `Symbol`-keyed entries (consistent with
  *   `JSON.stringify`).
  * - A top-level `try/catch` around the walk so a thrown sanitizer
  *   produces a sentinel result the Logger can recognise without
- *   propagating the throw into caller flow (Requirement 4.5 — the
- *   Logger boundary turns the sentinel into the documented fallback
- *   warn record).
+ *   propagating the throw into caller flow (the Logger boundary turns
+ *   the sentinel into the documented fallback warn record).
  *
  * ### ADR-005 conformance
  *
@@ -50,7 +49,7 @@
  * treats it as a regular object — its enumerable own keys (typically
  * none) are walked. The Logger boundary is responsible for
  * extracting `error.message` / `error.stack` into the dedicated
- * `LogRecord.error` field (Requirement 4.4).
+ * `LogRecord.error` field.
  */
 
 import { sanitizeGitError } from '../../git-core/gitError';
@@ -117,8 +116,8 @@ export type SanitizeResult =
  *
  * Object identity is NOT preserved: every container (object/array)
  * is rebuilt as a fresh value so the Logger never mutates the
- * caller's bag (Requirement 1.6 is enforced at the Logger boundary,
- * but cloning here keeps the contract obvious).
+ * caller's bag (the no-mutation contract is enforced at the Logger
+ * boundary, but cloning here keeps the contract obvious).
  *
  * @param record the input record produced by the Logger emit path
  * @returns an `ok: true` result with the sanitized record, or an
@@ -231,7 +230,7 @@ function sanitizeContextRoot(
 /**
  * Recursively sanitize a `JsonValue`. The `visited` `WeakSet` is
  * threaded through every container traversal so any cycle anywhere
- * in the tree collapses to `'[Circular]'` (Requirement 7.4) instead
+ * in the tree collapses to `'[Circular]'` instead
  * of recursing forever.
  */
 function sanitizeJsonValue(value: JsonValue, visited: WeakSet<object>): JsonValue {

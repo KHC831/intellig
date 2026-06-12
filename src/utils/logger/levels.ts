@@ -16,8 +16,8 @@
  * The resolver does NOT emit log records itself (it has no Logger
  * reference and no sinks). Instead, when an invalid `intellig.log.level`
  * string is observed, `refresh()` returns the offending value the
- * *first* time it's seen so the caller (the Logger lifecycle in task
- * 3.1) can emit the §2.5 fallback warn record exactly once per Logger
+ * *first* time it's seen so the caller (the Logger lifecycle) can
+ * emit the §2.5 fallback warn record exactly once per Logger
  * instance lifetime. The internal `invalidLevelWarned` set provides
  * the de-duplication, so a user repeatedly saving a typo'd setting
  * does not flood the channel.
@@ -33,7 +33,6 @@
  * construction.
  *
  * @see {@link LogLevelResolver}
- * @see Requirement 2.1, 2.2, 2.3, 2.4, 2.5, 2.6 in requirements.md
  */
 
 import * as vscode from 'vscode';
@@ -44,11 +43,11 @@ export type { LogLevel };
 
 /**
  * Configurable severity threshold. Records at strictly lower levels
- * are dropped before allocation (Requirement 7.1, 7.3).
+ * are dropped before allocation.
  *
  * `'off'` is a *threshold* value only — a record itself can never
  * carry `'off'` as its level. When the threshold is `'off'`, the
- * resolver admits no records (Requirement 2.4).
+ * resolver admits no records.
  */
 export type LogThreshold = LogLevel | 'off';
 
@@ -86,14 +85,14 @@ const VALID_THRESHOLDS: ReadonlySet<string> = new Set<LogThreshold>([
 
 /**
  * The configuration section IntelliG reads its `log.*` settings from.
- * Matches `package.json` `contributes.configuration` (task 5.1).
+ * Matches `package.json` `contributes.configuration`.
  */
 const CONFIG_SECTION = 'intellig';
 
 /**
  * Default threshold when the configured value is missing or invalid.
- * Matches Requirement 2.1 (default `"info"`) and 2.5 (invalid →
- * fall back to `"info"`).
+ * The configured default is `"info"`; invalid values also fall back
+ * to `"info"`.
  */
 const DEFAULT_THRESHOLD: LogThreshold = 'info';
 
@@ -122,7 +121,7 @@ const DEFAULT_THRESHOLD: LogThreshold = 'info';
  * the six-string enum. On mismatch (any non-string, or any string
  * outside the enum), the resolver:
  *
- * 1. Sets the cached threshold to `'info'` (Requirement 2.5).
+ * 1. Sets the cached threshold to `'info'`.
  * 2. Records the offending value in `invalidLevelWarned` if not
  *    already present, and returns it from `refresh()` so the Logger
  *    can emit one warn-level record naming the sanitized value.
@@ -148,7 +147,7 @@ export class LogLevelResolver {
   /**
    * `true` iff `intellig.log.console` is the boolean `true`. The
    * `ConsoleSink` consults this to decide whether to mirror records
-   * to `console[level]` (Requirement 3.3, 2.6).
+   * to `console[level]`.
    */
   get consoleEnabled(): boolean {
     return this._consoleEnabled;
@@ -206,7 +205,7 @@ export class LogLevelResolver {
   /**
    * Returns `true` if a record at `level` is admitted by the current
    * threshold. The check is a single numeric comparison — see the
-   * Logger hot-path note on Requirement 7.1 / 7.3.
+   * Logger hot-path note.
    *
    * A record at any level is rejected when the threshold is `'off'`
    * because `LEVEL_RANK['off']` is the maximum (5) and no

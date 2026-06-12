@@ -13,9 +13,9 @@
  * - `'console'` — developer-only mirror that fires `console[level]` when
  *   `intellig.log.console` is `true`.
  *
- * Both sinks share the threshold computed by the Logger's level resolver
- * (Requirement 2). The Logger short-circuits before allocating a
- * `LogRecord` when no sink would admit it (Requirement 7.1, 7.3); even
+ * Both sinks share the threshold computed by the Logger's level
+ * resolver. The Logger short-circuits before allocating a
+ * `LogRecord` when no sink would admit it; even
  * so, every sink's `admits(record)` is consulted at emit time so a
  * future per-sink threshold (e.g. a test sink that only captures
  * warn/error) Just Works without changes to the Logger.
@@ -26,7 +26,7 @@
  * that wrap an externally-owned resource (the `OutputChannelSink`
  * borrows the channel from `initOutputChannel(context)`) MUST detach
  * their own subscription only; the underlying resource remains owned
- * by the original lifecycle owner (Requirement 3.4).
+ * by the original lifecycle owner.
  *
  * ### Scope of this file
  *
@@ -52,7 +52,7 @@ export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 /**
  * JSON-serializable value-space for `LogRecord.context` leaves. The
  * sanitizer recurses into arrays and plain objects and applies
- * `sanitizeGitError` to every string leaf (Requirement 4.2).
+ * `sanitizeGitError` to every string leaf.
  */
 export type JsonValue =
   | string
@@ -63,8 +63,8 @@ export type JsonValue =
   | { readonly [key: string]: JsonValue | undefined };
 
 /**
- * A single emitted log event. Fields match Requirement 1.2 / 1.3 / 5.4
- * and the OutputChannel rendering grammar in Requirement 3.2.
+ * A single emitted log event. Fields match the OutputChannel
+ * rendering grammar.
  *
  * - `timestamp`: ISO-8601 UTC string with millisecond precision.
  * - `level`: the called Logger method's name.
@@ -73,10 +73,9 @@ export type JsonValue =
  * - `message`: the first argument verbatim, after sanitization.
  * - `context`: optional sanitized JSON-shaped bag.
  * - `correlationId`: optional 16-char hex string, present iff a
- *   command-handler frame is on the stack (Requirement 5.5, 14.9).
+ *   command-handler frame is on the stack.
  * - `error`: optional sanitized rendering of an `Error` (message +
- *   stack); the original `Error` object never appears verbatim
- *   (Requirement 4.4).
+ *   stack); the original `Error` object never appears verbatim.
  */
 export interface LogRecord {
   readonly timestamp: string;
@@ -94,7 +93,7 @@ export interface LogRecord {
 /**
  * A consumer of `LogRecord`s. The Logger multicasts every record it
  * emits to every currently-registered sink whose `admits` returns
- * `true` (Requirement 1.7).
+ * `true`.
  *
  * Implementations:
  * - `OutputChannelSink` — the shared `IntelliG` channel.
@@ -128,8 +127,7 @@ export interface LogSink {
   /**
    * Tear down the sink (e.g. detach a channel binding). Idempotent:
    * calling `dispose()` more than once MUST NOT throw. The sink does
-   * NOT dispose externally-owned resources it borrows (Requirement
-   * 3.4).
+   * NOT dispose externally-owned resources it borrows.
    */
   dispose(): void;
 }
