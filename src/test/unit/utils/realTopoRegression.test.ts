@@ -192,32 +192,49 @@ describe('Real anonymized topology — graph regression pins', () => {
     assert.ok(terminals.size > 0, 'expected at least one terminal node');
   });
 
-  it('graph column width accommodates ALL lanes (no clipping of outer branches)', () => {
-    // The `.commit-graph` cell is `width: var(--graph-width)` with
-    // `overflow: hidden`. The provider must publish a --graph-width computed
-    // from the widest row, not leave it at the 80px fallback (which fits
-    // only ~3 lanes and clipped real repos with more branches — the
-    // "older branches pushed out of the tree even when there's space" bug).
+  it('lanes are RELEASED and reused — the graph stays as narrow as concurrently-live branches', () => {
+    // The reported "wasteful empty width" + "older branches pushed off the
+    // tree" both trace to lanes never being released: every ended branch
+    // left a permanently-reserved lane, so each new fork took an ever-higher
+    // index (lane 10 in this real repo) even though only ~2-3 branches are
+    // ever live at one row. With lane release, the max lane index collapses
+    // to the max CONCURRENT lane count, and the computed graph width is tight
+    // (IntelliJ-compact), not a wide band of empty columns.
     const nodes = build();
-    let maxCol = 0;
+    let maxColIndex = 0;
     for (const n of nodes) {
-      maxCol = Math.max(maxCol, n.graphColumn);
+      maxColIndex = Math.max(maxColIndex, n.graphColumn);
       for (const l of n.graphLines) {
-        maxCol = Math.max(maxCol, l.fromColumn, l.toColumn);
+        maxColIndex = Math.max(maxColIndex, l.fromColumn, l.toColumn);
       }
     }
+    // Max concurrently-active lanes across all rows — the true visual width.
+    const active = computeActiveLanes(nodes);
+    let maxConcurrent = 0;
+    for (const set of active.values()) {
+      maxConcurrent = Math.max(maxConcurrent, set.size);
+    }
+
+    // Pre-fix this fixture hit lane index 10 with only ~2 concurrent lanes.
+    // After release, the max lane index must be bounded by the concurrent
+    // count (+ a tiny slack for transient bend reservations), NOT the total
+    // number of branches ever seen.
+    assert.ok(
+      maxColIndex <= maxConcurrent + 1,
+      `max lane index ${maxColIndex} must track concurrent lanes ${maxConcurrent} ` +
+        `(+1 slack), not escalate with total branch count. Pre-fix this was 10.`
+    );
+    // And concretely, this real topology must stay compact (<= 4 lanes),
+    // matching IntelliJ — pre-fix it was 11 columns wide.
+    assert.ok(
+      maxColIndex <= 4,
+      `real topology must render compact (<= 4 lanes); got ${maxColIndex + 1} columns`
+    );
+
+    // The computed graph width follows suit: tight, not a 240px empty band.
     const width = computeGraphWidth(nodes, DEFAULT_GRAPH_CONFIG);
-    // Width must hold every lane: (maxCol+1) columns of columnWidth + padding.
     const needed =
-      (maxCol + 1) * DEFAULT_GRAPH_CONFIG.columnWidth + DEFAULT_GRAPH_CONFIG.padding * 2;
-    assert.ok(
-      width >= needed,
-      `graph width ${width}px must hold all ${maxCol + 1} lanes (needs ${needed}px)`
-    );
-    // Real fixture has 10+ lanes — prove it exceeds the old 80px clip.
-    assert.ok(
-      width > 80,
-      `real multi-branch topology needs > 80px (the old hardcoded fallback); got ${width}px`
-    );
+      (maxColIndex + 1) * DEFAULT_GRAPH_CONFIG.columnWidth + DEFAULT_GRAPH_CONFIG.padding * 2;
+    assert.strictEqual(width, needed, 'width exactly fits the (now compact) lane count');
   });
 });

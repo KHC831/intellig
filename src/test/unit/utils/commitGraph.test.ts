@@ -453,6 +453,79 @@ describe('Commit Graph Generation', () => {
         }
       });
 
+      it('RELEASES a lane when its branch ends so a later branch reuses the column (compact width)', () => {
+        // Reported: with several branches the graph grew wider and wider,
+        // pushing older branches off-screen even with room — because lanes
+        // were never freed (each ended branch left a permanently-reserved
+        // column). Two divergent branches that are NOT alive at the same row
+        // must SHARE a lane: branch A (forks high, rejoins) ends before
+        // branch B begins, so B reuses A's lane instead of taking a new one.
+        //
+        // Topo (newest-first): m0, A(a0 → rejoins m1), m1, B(b0 → rejoins
+        // m2), m2, m3. Branch A is a single commit a0 (row 1) whose line
+        // bends to m1 (row 2); A's lane frees at row 2. Branch B's tip b0
+        // (row 3) starts AFTER A has ended, so it reuses A's freed lane —
+        // both A and B share one side lane. Without release B takes a fresh
+        // lane 2.
+        const commits = [
+          createMockCommit('m0', ['m1']),
+          createMockCommit('a0', ['m1']),
+          createMockCommit('m1', ['m2']),
+          createMockCommit('b0', ['m2']),
+          createMockCommit('m2', ['m3']),
+          createMockCommit('m3', []),
+        ];
+        const branchMap = new Map<string, IBranchRef[]>();
+        branchMap.set('m0', [{ name: 'mainline', type: 'local' }]);
+        branchMap.set('a0', [{ name: 'A', type: 'local' }]);
+        branchMap.set('b0', [{ name: 'B', type: 'local' }]);
+
+        const result = generateCommitGraph(
+          commits,
+          branchMap,
+          undefined,
+          undefined,
+          'mainline',
+          'm0'
+        );
+        let maxCol = 0;
+        for (const n of result) {
+          maxCol = Math.max(maxCol, n.graphColumn);
+          for (const l of n.graphLines) {
+            maxCol = Math.max(maxCol, l.fromColumn, l.toColumn);
+          }
+        }
+        // Mainline lane 0 + at most ONE side lane reused by both A and B.
+        // Without release, A=lane1 and B=lane2 → maxCol 2; with release they
+        // share lane 1 → maxCol 1.
+        assert.strictEqual(
+          maxCol,
+          1,
+          `A ends before B starts, so they must SHARE one side lane (maxCol 1); got ${maxCol}`
+        );
+      });
+
+      it('does NOT reuse a lane while a bending line is still in transit (no mid-transit collision)', () => {
+        // The release must wait until the bending line LANDS at its parent
+        // row. Three sibling tips all diving to a shared base are pairwise
+        // concurrent (each one's bezier crosses the next one's row), so they
+        // must get THREE distinct lanes — releasing too early would collapse
+        // them onto one column and overlap their nodes/lines.
+        const commits = [
+          createMockCommit('tipA', ['base']),
+          createMockCommit('tipB', ['base']),
+          createMockCommit('tipC', ['base']),
+          createMockCommit('base', []),
+        ];
+        const result = generateCommitGraph(commits);
+        const lanes = new Set([
+          result[0].graphColumn,
+          result[1].graphColumn,
+          result[2].graphColumn,
+        ]);
+        assert.strictEqual(lanes.size, 3, 'three concurrent tips need three distinct lanes');
+      });
+
       it('without seeding (no headBranchName), preserves the existing first-seen order', () => {
         // The seeding pre-pass is a strict superset: when no
         // headBranchName is provided AND no branchMap is supplied, the

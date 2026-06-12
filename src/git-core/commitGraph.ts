@@ -144,6 +144,68 @@ interface ILaneState {
   activeLanes: Set<number>;
   /** Next available lane index */
   nextLane: number;
+  /**
+   * Reverse index: lane → set of hashes currently CLAIMED on that lane and
+   * not yet released. A lane is "alive" (off-limits to a new branch) while
+   * its set is non-empty. A lane is RELEASED — returned to
+   * `findNextAvailableLane`'s gap pool — the moment its set empties.
+   *
+   * The lifetime of a claim is "this commit's row UNTIL the row of the
+   * parent its line lands on". Concretely: when commit X (row i) is emitted,
+   * its first-parent line either
+   *   (a) continues straight down X's lane (parent inherits the lane) — the
+   *       lane stays alive via the parent's own claim, OR
+   *   (b) BENDS to a parent already on another lane (a fork rejoining, or a
+   *       branch tip whose parent lives elsewhere) — X's lane must stay
+   *       RESERVED until that parent's row, because the bezier is in transit
+   *       through every row in between and another commit's node must not
+   *       land on the same column mid-transit.
+   * Case (b) is why a naive "release as soon as the commit is emitted" is
+   * wrong: it let two sibling tips diving to a shared base collide on one
+   * lane. We instead release X's lane only when we REACH the parent row that
+   * X's line targeted (tracked in `pendingReleaseAtRow`).
+   *
+   * Without lane release at all, `activeLanes` only grew: every ended branch
+   * left a permanently-reserved lane, so each new fork took an ever-higher
+   * lane index (lane 10+ in real repos) though only ~2 lanes were ever live
+   * at once — a needlessly wide graph column that pushed branches off-screen.
+   * IntelliJ reuses lanes; this is how.
+   */
+  laneClaimants: Map<number, Set<string>>;
+}
+
+/**
+ * Claim `hash` onto `lane`. Idempotent per hash (a merge's later child can
+ * reference an already-claimed parent without double-counting).
+ */
+function claimLane(state: ILaneState, hash: string, lane: number): void {
+  if (state.commitToLane.has(hash)) {
+    return;
+  }
+  state.commitToLane.set(hash, lane);
+  state.activeLanes.add(lane);
+  let set = state.laneClaimants.get(lane);
+  if (!set) {
+    set = new Set();
+    state.laneClaimants.set(lane, set);
+  }
+  set.add(hash);
+}
+
+/**
+ * Release `hash` from `lane` (it's emitted and its line has landed). When the
+ * lane has no remaining claimants it is freed for reuse by a later branch.
+ */
+function releaseClaim(state: ILaneState, hash: string, lane: number): void {
+  const set = state.laneClaimants.get(lane);
+  if (!set) {
+    return;
+  }
+  set.delete(hash);
+  if (set.size === 0) {
+    state.laneClaimants.delete(lane);
+    state.activeLanes.delete(lane);
+  }
 }
 
 /**
@@ -297,6 +359,26 @@ export function generateCommitGraph(
     commitToLane: new Map(),
     activeLanes: new Set(),
     nextLane: 0,
+    laneClaimants: new Map(),
+  };
+
+  // Row index of every in-window commit, so we can defer a lane release to
+  // the row of the parent a bending line lands on.
+  const rowOfHash = new Map<string, number>();
+  commits.forEach((c, i) => rowOfHash.set(c.hash, i));
+
+  // Deferred lane releases keyed by the ROW at which they fire. When we
+  // reach row R we free every (lane, hash) scheduled there — that's the row
+  // where an in-transit line finally lands on its parent, after which the
+  // source lane is genuinely free for reuse.
+  const releaseAtRow = new Map<number, Array<{ lane: number; hash: string }>>();
+  const scheduleRelease = (row: number, lane: number, hash: string): void => {
+    let arr = releaseAtRow.get(row);
+    if (!arr) {
+      arr = [];
+      releaseAtRow.set(row, arr);
+    }
+    arr.push({ lane, hash });
   };
 
   // Helper that allocates a brand-new lane and bumps `nextLane` so the
@@ -482,25 +564,35 @@ export function generateCommitGraph(
     }
 
     // Walk the first-parent chain DOWN from the spine head, pinning every
-    // commit to lane 0.
+    // commit to lane 0. Each spine commit is a distinct claim so the
+    // occupancy counter knows lane 0 stays alive across the whole mainline.
     const lane = allocateLane();
     let spineHash: string | undefined = spineHead;
     const guard = new Set<string>();
     while (spineHash !== undefined && commitsInWindow.has(spineHash) && !guard.has(spineHash)) {
       guard.add(spineHash);
-      state.commitToLane.set(spineHash, lane);
-      // Mark the lane active so a divergent row appearing BEFORE this
-      // spine commit in the input doesn't reuse the reserved column.
-      state.activeLanes.add(lane);
+      claimLane(state, spineHash, lane);
       const c: ICommit | undefined = commitByHash.get(spineHash);
       spineHash = c?.parents[0];
     }
   }
 
   // MAIN PASS — claim lanes + emit graph lines.
-  for (const commit of commits) {
+  for (let rowIndex = 0; rowIndex < commits.length; rowIndex++) {
+    const commit = commits[rowIndex];
     const commitHash = commit.hash;
     const graphLines: IGraphLine[] = [];
+
+    // Fire any lane releases scheduled to land at THIS row: an in-transit
+    // bending line reaches its parent here, so its source lane is now free
+    // for reuse by branches that start at or after this row.
+    const due = releaseAtRow.get(rowIndex);
+    if (due) {
+      for (const { lane, hash } of due) {
+        releaseClaim(state, hash, lane);
+      }
+      releaseAtRow.delete(rowIndex);
+    }
 
     // --- Step A: claim a lane for THIS commit ---
     // If a prior child already pre-claimed our lane (because we were
@@ -510,11 +602,22 @@ export function generateCommitGraph(
       column = state.commitToLane.get(commitHash)!;
     } else {
       column = allocateLane();
-      state.commitToLane.set(commitHash, column);
+      claimLane(state, commitHash, column);
     }
     state.activeLanes.add(column);
 
     // --- Step B: decide each parent's lane and emit a graph line ---
+    // Track how THIS commit's lane (`column`) should be released after the
+    // row is emitted (see the block after the loop):
+    //   - 'inherited' : the first parent took `column` straight down — the
+    //     parent's own claim keeps the lane alive, release X now.
+    //   - 'bendToRow' : the first-parent line bends to a parent on another
+    //     lane at row R — keep `column` reserved (X stays its claimant)
+    //     until R, then free it.
+    //   - 'end'       : no in-window first parent (root / off-window) —
+    //     release `column` now.
+    let firstParentDisposition: 'inherited' | 'end' = 'end';
+    let bendReleaseRow = -1;
     const parents = commit.parents;
     for (let i = 0; i < parents.length; i++) {
       const parentHash = parents[i];
@@ -566,8 +669,20 @@ export function generateCommitGraph(
         } else {
           parentLane = allocateLane();
         }
-        state.commitToLane.set(parentHash, parentLane);
-        state.activeLanes.add(parentLane);
+        claimLane(state, parentHash, parentLane);
+      }
+
+      // Record how the FIRST-parent line disposes of THIS commit's lane.
+      if (i === 0) {
+        if (parentLane === column) {
+          firstParentDisposition = 'inherited';
+        } else {
+          // The line bends from `column` to `parentLane`. Keep `column`
+          // reserved until the parent's row so no other commit's node lands
+          // on it while this bezier is in transit.
+          firstParentDisposition = 'end';
+          bendReleaseRow = rowOfHash.get(parentHash) ?? -1;
+        }
       }
 
       graphLines.push({
@@ -593,6 +708,24 @@ export function generateCommitGraph(
       tags,
       onFocusedBranchPath,
     });
+
+    // LANE RELEASE — dispose of THIS commit's claim on its lane now that the
+    // row is emitted. Three cases (see firstParentDisposition above):
+    if (firstParentDisposition === 'inherited') {
+      // The first parent took `column` straight down and holds its own claim
+      // on it. Drop X's claim; the lane stays alive via the parent. Net: the
+      // lane is continuously occupied down the mainline / branch spine.
+      releaseClaim(state, commitHash, column);
+    } else if (bendReleaseRow > rowIndex) {
+      // The first-parent line bends away to a parent at `bendReleaseRow`.
+      // Keep X as a claimant of `column` (reserving it) until that row, so a
+      // later branch can't grab the column while the bezier is mid-transit.
+      scheduleRelease(bendReleaseRow, column, commitHash);
+    } else {
+      // Branch tip / root / off-window first parent — nothing continues the
+      // lane below this row. Free it immediately for reuse.
+      releaseClaim(state, commitHash, column);
+    }
   }
 
   return result;
