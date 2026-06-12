@@ -196,7 +196,7 @@ export class NewBranchDialog extends BaseWebviewPanel {
   /**
    * Emit the body HTML and the interactive script separately. Used by
    * `_render` so it can splice the script into a nonced `<script>` block
-   * without regex-extracting it from the body (LOW-1 — nested `</script>`
+   * without regex-extracting it from the body (nested `</script>`
    * inside a string literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
@@ -298,7 +298,7 @@ export class NewBranchDialog extends BaseWebviewPanel {
 
   /**
    * Override the base renderer entirely so we can emit the interactive
-   * script with the CSP nonce. LOW-1: we pass body+script as an explicit
+   * script with the CSP nonce. We pass body+script as an explicit
    * tuple from `_getBodyParts()` instead of regex-extracting the script
    * from the serialized body (which would break on nested `</script>`
    * substrings inside string literals).

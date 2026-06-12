@@ -71,7 +71,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
    * AND correctly report the aggregate (any-repo-has-conflicts) state in
    * multi-root workspaces.
    *
-   * LOW-3: the previous single-boolean impl reflected only the last repo
+   * The previous single-boolean impl reflected only the last repo
    * touched, so two repos (one conflicted, one clean) would flip the key
    * whenever either fired — yielding correct aggregate only incidentally.
    * Map keyed by `repo.rootUri.fsPath` → last known active bool; aggregate
@@ -97,7 +97,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
   /**
    * Component-bound Logger emitted on construction and disposal so
    * operational waypoints land in the IntelliG OutputChannel
-   * uniformly with the rest of the service graph (task 9.7).
+   * uniformly with the rest of the service graph.
    */
   private readonly _logger: Logger;
 

@@ -284,7 +284,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private _selectedRepositoryIndex: number = 0;
 
   /**
-   * FU-1 — parsed remote URL for the current repository, cached by repo key.
+   * Parsed remote URL for the current repository, cached by repo key.
    * Populated by {@link _setParsedRemoteForSelectedRepo}. Used by
    * {@link _getDetailsPanelHtml} to turn issue/PR refs in commit messages
    * into clickable links.
@@ -5819,7 +5819,7 @@ ${bodyMarkup}
   }
 
   /**
-   * FU-1 — check whether the `intellig.commitMessageIssueLinks` feature
+   * Check whether the `intellig.commitMessageIssueLinks` feature
    * flag is enabled. Default is `true` (set in package.json contributions).
    * When the flag is off, the details panel renders commit messages with
    * plain HTML-escape and no clickable issue links.
@@ -5836,7 +5836,7 @@ ${bodyMarkup}
   }
 
   /**
-   * FU-1 — parse and cache the first remote URL for the currently selected
+   * Parse and cache the first remote URL for the currently selected
    * repository. Falls back to `origin` when present, otherwise the first
    * remote. Returns `undefined` when the repo has no remotes or when the
    * URL can't be parsed (e.g. custom SCP-style remote we don't know about).

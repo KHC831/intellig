@@ -190,8 +190,7 @@ export interface ILoadAllPanelDataProvider {
 /**
  * Dependencies for {@link loadAllPanelDataCore}, injected so the
  * `activate`-scoped `loadAllPanelData` closure stays a thin delegation and the
- * bounded-loading guarantee can be unit-tested at the fix's call site
- * (Requirement 3.4).
+ * bounded-loading guarantee can be unit-tested at the fix's call site.
  */
 export interface ILoadAllPanelDataDeps {
   discoverAllRepositories: () => Promise<IRepository[]>;
@@ -403,7 +402,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // services calling `getLogger().child({ component: 'X' })` in their
     // constructors (via `ExtensionServices.initialize` below) emit through
     // the registered sinks rather than the no-op pre-init path.
-    // (Requirement 6.6, 8.2)
     initLogger(context);
 
     getLogger().info('extension activating');
@@ -862,7 +860,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         return;
       }
       void vscode.window.showInformationMessage(
-        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the T2-06 gear options.'
+        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the gear options.'
       );
       if (commitToolWindow) {
         await commitToolWindow.show();

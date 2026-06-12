@@ -77,7 +77,7 @@ export class PatchService implements IPatchService {
   /**
    * Component-bound Logger emitted on construction and disposal so
    * operational waypoints land in the IntelliG OutputChannel
-   * uniformly with the rest of the service graph (task 9.8).
+   * uniformly with the rest of the service graph.
    */
   private readonly _logger: Logger;
 

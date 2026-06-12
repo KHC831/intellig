@@ -305,7 +305,7 @@ export class BranchTreeProvider
    * Component-bound Logger emitted on each refresh trigger (debug)
    * and refresh failure (warn) so the BranchTree's lifecycle waypoints
    * land in the IntelliG OutputChannel uniformly with the rest of the
-   * service graph (task 9.9, Requirements 6.4, 6.7).
+   * service graph.
    */
   private readonly _logger: Logger;
 
@@ -391,8 +391,8 @@ export class BranchTreeProvider
    * Refresh the tree view
    */
   refresh(): void {
-    // debug-level waypoint on every refresh trigger
-    // (Requirement 6.4). Fires whenever upstream state changes
+    // debug-level waypoint on every refresh trigger.
+    // Fires whenever upstream state changes
     // (repo switch, init, manual `setRepository`, etc.).
     this._logger.debug('refresh triggered');
     this._onDidChangeTreeData.fire();
@@ -445,8 +445,8 @@ export class BranchTreeProvider
             return [];
         }
       } catch (err) {
-        // warn-level waypoint on refresh failure
-        // (Requirement 6.4). Re-throw so VS Code still surfaces the
+        // warn-level waypoint on refresh failure.
+        // Re-throw so VS Code still surfaces the
         // error to the TreeView host (preserves pre-task observable
         // behaviour).
         this._logger.warn('refresh failed', {

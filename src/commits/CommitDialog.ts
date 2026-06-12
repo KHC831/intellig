@@ -615,9 +615,7 @@ export class CommitDialog {
       await this._handleToggleNoVerify(!this._noVerify);
       this._updateWebview();
     } else if (picked.id === 'beforeCommit') {
-      void vscode.window.showInformationMessage(
-        'Before-commit checks are coming in a later T2-06 step.'
-      );
+      void vscode.window.showInformationMessage('Before-commit checks are coming in a later step.');
     }
   }
 
@@ -1475,7 +1473,7 @@ export class CommitDialog {
         color: var(--vscode-input-placeholderForeground);
       }
 
-      /* T2-06 ─────────────────────────────────────────────────────────── */
+      /* section-header-actions ─────────────────────────────────────────── */
       .section-header-actions {
         display: inline-flex;
         gap: 4px;
@@ -1533,7 +1531,7 @@ export class CommitDialog {
         background: var(--vscode-inputValidation-warningBackground, transparent);
         border-top: 1px solid var(--vscode-panel-border);
       }
-      /* ─── end T2-06 ───────────────────────────────────────────────────── */
+      /* ─── end section-header-actions ──────────────────────────────────── */
 
       .files-section {
         flex: 1;
@@ -1950,7 +1948,7 @@ export class CommitDialog {
         vscode.postMessage({ type: 'deselectAllLinesInHunk', hunkIndex: hunkIndex });
       }
 
-      // ─── T2-06 ─────────────────────────────────────────────────────────
+      // ─── author controls ───────────────────────────────────────────────
       function handleAuthorChange(value) {
         vscode.postMessage({ type: 'authorChange', author: value });
       }
@@ -2167,7 +2165,7 @@ export function buildGearMenuItems(noVerify: boolean): IGearMenuItem[] {
       label: 'Run before-commit checks',
       description: 'Coming soon',
       detail:
-        'T2-06 follow-up will wire Reformat / Optimize Imports / TODO / inspections. Click for details.',
+        'Reformat / Optimize Imports / TODO / inspections are coming soon. Click for details.',
     },
     {
       id: 'noVerify',

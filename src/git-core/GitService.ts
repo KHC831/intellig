@@ -127,7 +127,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * and transient `index.lock` retries. Routed uniformly through the
    * IntelliG OutputChannel via the structured Logger module so every
    * GitService waypoint is correlatable with the rest of the service
-   * graph (task 9.1, Requirements 6.1, 6.2, 6.7).
+   * graph.
    */
   private readonly _logger: Logger;
 
@@ -458,7 +458,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Discover a repository — or a set of nested repositories — at the given
    * path.
    *
-   * (task #204) — previously this only checked `path` itself for
+   * (#204) — previously this only checked `path` itself for
    * `.git/`, which missed the common workspace-with-nested-repos shape
    * (e.g. opening `~/work/` with `~/work/projectA/.git` +
    * `~/work/projectB/.git`). Now it delegates to {@link scanFolderForGitRepos}
@@ -965,7 +965,7 @@ export class GitService implements IGitService, IGitServiceCli {
     try {
       repo = await this._enrollReload(rootPath, this.loadRepository(rootPath));
     } catch (err) {
-      // Watcher-driven refresh failure (Requirement 6.2): warn rather
+      // Watcher-driven refresh failure: warn rather
       // than error because the next watcher event will retry and the
       // failure is typically transient (mid-clone, momentary lock
       // contention, etc.).
@@ -3158,7 +3158,7 @@ export class GitService implements IGitService, IGitServiceCli {
     this._gitCli.dispose();
 
     // Aggregate watcher counts BEFORE teardown so the emitted record
-    // reflects pre-teardown state (Requirement 6.1: watcher teardown
+    // reflects pre-teardown state (watcher teardown
     // during dispose()).
     let watcherCount = 0;
     for (const map of this._watcherMaps) {

@@ -543,7 +543,7 @@ export class PushDialog extends BaseWebviewPanel {
   /**
    * Emit the body HTML and the interactive script separately so `_wrapHtml`
    * can splice the script into a nonced `<script>` block without fragile
-   * regex extraction (LOW-1 — nested `</script>` inside any future string
+   * regex extraction (nested `</script>` inside any future string
    * literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
@@ -621,7 +621,7 @@ export class PushDialog extends BaseWebviewPanel {
       </div>
     `;
 
-    // Script is returned separately (LOW-1) so `_render()` can splice it into
+    // Script is returned separately so `_render()` can splice it into
     // a nonced `<script>` without fragile regex extraction. Contains the
     // Incremental patch handlers (patchRow / patchOverflow) that replace
     // the old full-rerender path.
@@ -643,7 +643,7 @@ export class PushDialog extends BaseWebviewPanel {
         });
         document.getElementById('rows').addEventListener('click', (e) => {
           const el = e.target;
-          // LOW-5: e.target on a click inside #rows is always an HTMLElement,
+          // e.target on a click inside #rows is always an HTMLElement,
           // which always has getAttribute. Drop the defensive guard.
           const action = el.getAttribute('data-action');
           const rowId = el.getAttribute('data-row-id');
@@ -740,7 +740,7 @@ export class PushDialog extends BaseWebviewPanel {
 
   /**
    * Override the base renderer entirely so we emit the interactive script
-   * with the CSP nonce. LOW-1: receives body + script as an explicit tuple
+   * with the CSP nonce. Receives body + script as an explicit tuple
    * from `_getBodyParts()` instead of regex-splicing the body.
    */
   protected override _render(): void {

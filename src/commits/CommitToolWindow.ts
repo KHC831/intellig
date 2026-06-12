@@ -308,7 +308,7 @@ export function changelistContextMenuLabels(input: {
  * with a "coming soon" tooltip until they're wired up.
  */
 export function gearMenuItems(): Array<{ label: string; tooltip: string }> {
-  const tooltip = 'Coming soon (T2-06)';
+  const tooltip = 'Coming soon';
   return [
     { label: 'Reformat code', tooltip },
     { label: 'Optimize imports', tooltip },
@@ -1582,7 +1582,7 @@ function commitToolWindowBehaviorScript(): string {
         const row = e.target.closest('.ctw-changelist-row, .ctw-file-row, .ctw-shelf-row');
         if (!row) return;
         e.preventDefault();
-        // T3-10: shelf/stash rows take precedence — they open a QuickPick
+        // Shelf/stash rows take precedence — they open a QuickPick
         // via a dedicated host message rather than the changelist-flavored
         // context-action.
         if (row.classList.contains('ctw-shelf-row')) {
@@ -1608,7 +1608,7 @@ function commitToolWindowBehaviorScript(): string {
         });
       });
 
-      // T3-10: Shelf-tab filter segmented control.
+      // Shelf-tab filter segmented control.
       document.querySelectorAll('.ctw-shelf-filter-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
           const f = btn.getAttribute('data-shelf-filter');
@@ -1618,7 +1618,7 @@ function commitToolWindowBehaviorScript(): string {
         });
       });
 
-      // T3-10: plain click on a shelf-tab row → selection / preview. For
+      // Plain click on a shelf-tab row → selection / preview. For
       // MVP this is a no-op; kept in the dispatcher so it's easy to hook
       // a diff preview when the UX spec grows.
       document.querySelectorAll('.ctw-shelf-row').forEach(function (row) {

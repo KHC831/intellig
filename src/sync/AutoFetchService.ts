@@ -57,8 +57,8 @@ export class AutoFetchService implements IAutoFetchService {
   private readonly _readIntervalSec: () => number;
 
   /**
-   * Component-bound Logger emitting lifecycle and watcher-style waypoints
-   * (Requirement 6.3, 6.7). Construction and `dispose()` emit info; the
+   * Component-bound Logger emitting lifecycle and watcher-style waypoints.
+   * Construction and `dispose()` emit info; the
    * auth-failure suppressed-toast path that previously used `console.log`
    * now routes through `logger.info`.
    */
@@ -87,7 +87,7 @@ export class AutoFetchService implements IAutoFetchService {
   /**
    * Number of consecutive auth failures observed since the last successful
    * resume. Bumped each time `_pauseForAuth` runs; reset by `resetBackoff`.
-   * Used by LOW-7 to escalate a quiet re-pause into a visible toast.
+   * Used to escalate a quiet re-pause into a visible toast.
    */
   private _consecutiveAuthFailures = 0;
 
@@ -188,7 +188,7 @@ export class AutoFetchService implements IAutoFetchService {
     this._pausedForAuth = false;
     this._authFailureToastShownForSession = false;
     // Leave _consecutiveAuthFailures alone — it resets when a fetch actually
-    // succeeds (see _tick). Keeping it here lets LOW-7 detect an immediate
+    // succeeds (see _tick). Keeping it here lets us detect an immediate
     // re-pause after the user tapped "Re-enable" (resume + re-fail).
     this.reschedule();
   }
@@ -272,12 +272,12 @@ export class AutoFetchService implements IAutoFetchService {
   /**
    * Pause the scheduler on an auth failure and prompt the user to re-enable.
    *
-   * Toast de-duplication (MEDIUM-4): if multiple repos fail to auth in the
+   * Toast de-duplication: if multiple repos fail to auth in the
    * same tick (e.g. expired PAT shared across three repos), only the first
    * one surfaces a toast; the rest are logged silently. Reset when the user
    * acts on the re-enable prompt via `resetBackoff`.
    *
-   * LOW-7 escalation: a silent re-pause within the same session (re-enable
+   * Escalation: a silent re-pause within the same session (re-enable
    * resumed, then immediately auth-failed again) promotes the toast back to
    * visible so the user sees "still failing — credentials likely bad".
    */
@@ -292,7 +292,7 @@ export class AutoFetchService implements IAutoFetchService {
 
     const repoLabel = this._repoLabel(repo);
 
-    // LOW-7: second (or later) failure within the same resume-session after
+    // Second (or later) failure within the same resume-session after
     // the user hit "Re-enable" surfaces a louder error so silent auth loops
     // don't hide behind the first toast.
     if (this._consecutiveAuthFailures >= 2 && !wasAlreadyPaused) {

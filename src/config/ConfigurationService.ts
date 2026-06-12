@@ -82,9 +82,9 @@ export class ConfigurationService implements IConfigurationService {
   /**
    * Component-bound Logger used to emit a debug-level record naming
    * the changed `intellig.*` keys on every configuration change.
-   * Only key names are logged — never values
-   * (Requirement 14.10) — because user-set values may contain
-   * sensitive content (commit-message templates, file colours, etc.).
+   * Only key names are logged — never values — because user-set
+   * values may contain sensitive content (commit-message templates,
+   * file colours, etc.).
    */
   private readonly _logger: Logger;
 
@@ -327,7 +327,7 @@ export class ConfigurationService implements IConfigurationService {
    *
    * Emit one debug-level Logger record naming the
    * `intellig.*` keys whose effective values changed in this
-   * snapshot. Values are deliberately omitted (Requirement 14.10) —
+   * snapshot. Values are deliberately omitted —
    * settings such as `commitMessageTemplate` may contain user content
    * and are not safe to log unconditionally. Computing the diff here
    * (rather than re-deriving it from `e.affectsConfiguration` per
@@ -360,7 +360,7 @@ export class ConfigurationService implements IConfigurationService {
     // Only fire event if configuration actually changed
     if (!this.configurationEquals(oldConfig, this._cachedConfiguration)) {
       // Emit a debug record with ONLY the changed key names — never
-      // the values (Requirement 6.5, 14.10).
+      // the values.
       this._logger.debug('intellig configuration changed', { keys: changedKeys });
       this._onDidChangeConfiguration.fire(this._cachedConfiguration);
     }

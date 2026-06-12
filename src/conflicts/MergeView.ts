@@ -950,8 +950,8 @@ export class MergeView implements IMergeView {
     </div>
     <button class="toolbar-button secondary" onclick="acceptAllCurrent()">Accept All Current</button>
     <button class="toolbar-button secondary" onclick="acceptAllIncoming()">Accept All Incoming</button>
-    <button class="toolbar-button secondary" onclick="applyNonConflictingLeft()" title="T3-04 — auto-resolve conflicts where only the left side changed">← Apply non-conflicting from Left</button>
-    <button class="toolbar-button secondary" onclick="applyNonConflictingRight()" title="T3-04 — auto-resolve conflicts where only the right side changed">→ Apply non-conflicting from Right</button>
+    <button class="toolbar-button secondary" onclick="applyNonConflictingLeft()" title="Auto-resolve conflicts where only the left side changed">← Apply non-conflicting from Left</button>
+    <button class="toolbar-button secondary" onclick="applyNonConflictingRight()" title="Auto-resolve conflicts where only the right side changed">→ Apply non-conflicting from Right</button>
     <button class="toolbar-button primary" onclick="markResolved()" ${allResolved ? '' : 'disabled'}>
       Mark as Resolved
     </button>

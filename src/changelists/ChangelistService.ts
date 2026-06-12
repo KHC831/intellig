@@ -266,8 +266,7 @@ export class ChangelistService implements IChangelistService {
 
   /**
    * Component-bound Logger for ChangelistService lifecycle events,
-   * git-status reconcile failures, and storage I/O failures (task 9.4 /
-   * Requirements 6.3, 6.7).
+   * git-status reconcile failures, and storage I/O failures.
    */
   private readonly _logger: Logger;
 

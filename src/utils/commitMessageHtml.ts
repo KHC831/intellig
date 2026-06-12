@@ -1,5 +1,5 @@
 /**
- * FU-1 — render a commit message as HTML with issue/PR references converted
+ * Render a commit message as HTML with issue/PR references converted
  * to clickable links into the hosting provider's web UI.
  *
  * Keeps the HTML-escape pass and the link-wrap pass separate so the output
