@@ -402,6 +402,90 @@ describe('Wave D / D4-snap — frozen visual snapshots for generateCommitGraph',
     );
   });
 
+  // ─── snap-far-parent-dashed-stub: far-parent + off-window 2nd parent ───
+  it('snap-far-parent-dashed-stub: a far-parent commit with an off-window 2nd parent draws its centerY→bottomY stub SOLID (the dashed-stub-shadowing the far-parent edge bug)', () => {
+    // Topology — a merge commit `m0` on lane 1 whose:
+    //   - first parent is `base`, in-window, on lane 0, several rows below
+    //     (so the line carries endRow + bends at the parent row, NOT here);
+    //   - second parent is OFF-WINDOW on the same lane (a same-lane dashed
+    //     stub line is emitted alongside the far-parent line).
+    //
+    // Pre-fix: the dashed-detection rule was
+    //   sameLaneLines.length > 0 && sameLaneLines.every(l => l.style==='dashed')
+    // which evaluated TRUE here (the only same-lane line is the off-window
+    // 2nd-parent dashed stub) — so the centerY→bottomY stub was drawn
+    // dashed even though the far-parent edge below is SOLID and runs to a
+    // real, scrollable in-window fork.
+    //
+    //   row 0: f0  parents=[base]              lane 0 (mainline ancestor)
+    //   row 1: m0  parents=[base, offwindow]   lane 1 — THE TEST ROW
+    //   row 2: filler1                         lane 2 (separator only — keeps base far)
+    //   row 3: filler2                         lane 2
+    //   row 4: base parents=[]                 lane 0 (the in-window first parent)
+    const commits = [
+      mkCommit('f0', ['base']),
+      mkCommit('m0', ['base', 'offwindow_hash']),
+      mkCommit('filler1'),
+      mkCommit('filler2'),
+      mkCommit('base'),
+    ];
+    const result = generateCommitGraph(commits);
+    const m0 = result.find((n) => n.commit.hash === 'm0');
+    assert.ok(m0, 'm0 node must exist');
+    // Sanity — m0 emits both a far-parent first-parent (endRow=4, lane 1→0)
+    // and a same-lane dashed off-window 2nd-parent stub.
+    assert.strictEqual(m0.graphColumn, 1, `m0 should sit on lane 1; got ${m0.graphColumn}`);
+    assert.strictEqual(
+      m0.graphLines.length,
+      2,
+      `m0 should have 2 graphLines; got ${m0.graphLines.length}`
+    );
+    const farParent = m0.graphLines[0];
+    const offWindow = m0.graphLines[1];
+    assert.strictEqual(farParent.endRow, 4, 'first-parent line carries endRow=4');
+    assert.strictEqual(farParent.fromColumn, 1);
+    assert.strictEqual(farParent.toColumn, 0);
+    assert.strictEqual(offWindow.style, 'dashed', '2nd parent off-window stub is dashed');
+    assert.strictEqual(offWindow.fromColumn, 1);
+    assert.strictEqual(offWindow.toColumn, 1);
+
+    const cfg = DEFAULT_GRAPH_CONFIG;
+    const m0Row = result.indexOf(m0);
+    const active = computeActiveLanes(result);
+    const incoming = computeIncomingBendsMap(result);
+    const childCountMap = computeChildCountMap(result);
+    const childLanesMap = computeChildLanesMap(result);
+    const terminals = computeTerminalNodes(result);
+    const svg = renderGraphSvg(
+      m0,
+      m0Row,
+      active.get(m0Row) ?? new Set<number>(),
+      cfg,
+      terminals.has('m0'),
+      isBranchSplit('m0', childCountMap),
+      childLanesMap.get('m0') ?? new Set<number>(),
+      false,
+      active.get(m0Row + 1) ?? new Set<number>(),
+      incoming.get('m0') ?? new Set<number>()
+    );
+
+    // Locate the centerY→bottomY stub on lane 1 (m0's own lane). It must
+    // exist and must NOT carry stroke-dasharray — the far-parent edge
+    // running below is solid in-window history, not "history continues
+    // off-window".
+    const lane1X = getColumnX(1, cfg);
+    const centerY = cfg.rowHeight / 2;
+    const stubRegex = new RegExp(
+      `<line x1="${lane1X}" y1="${centerY}" x2="${lane1X}" y2="${cfg.rowHeight}"[^/]*/>`
+    );
+    const stubMatch = svg.match(stubRegex);
+    assert.ok(stubMatch, `m0 must emit a centerY→bottomY stub on lane 1; got: ${svg}`);
+    assert.ok(
+      !stubMatch[0].includes('stroke-dasharray'),
+      `m0's centerY→bottomY stub must be SOLID (a far-parent edge runs to a real in-window fork below); got dashed: ${stubMatch[0]}`
+    );
+  });
+
   // ─── snap-far-parent-multi: ≥2 incoming bends at one parent row ────
   it('snap-far-parent-multi: parent row with multiple incoming far-parent bends sizes the SVG to fit ALL source-lane start points', () => {
     // Synthetic topology — three side branches (lanes 1, 2, 3) all have

@@ -551,10 +551,19 @@ export function renderGraphSvg(
       // whose sole parent fell off the slice) is the stub drawn dashed.
       // IntelliJ parity: solid connects to scrollable rows; dashed means
       // "more history exists, it just isn't loaded".
-      // Dash only when there ARE same-lane lines AND every one is dashed.
-      // A pure far-parent stub (no same-lane line) is always solid — it's
-      // a real in-window edge running down to the fork point.
-      const isDashed = sameLaneLines.length > 0 && sameLaneLines.every((l) => l.style === 'dashed');
+      // Dash ONLY when this lane's continuation below is purely "history
+      // continues off-window" — same-lane lines exist AND every one is
+      // dashed AND there is NO far-parent edge running below from this
+      // commit's column. Without the hasFarParentDownward guard, a commit
+      // with both a far-parent first-parent (which leaves sameLaneLines
+      // empty for that edge — it bends, doesn't sit on this lane) and an
+      // off-window dashed 2nd-parent stub painted the centerY→bottomY
+      // stub dashed even though the far-parent edge it shadows runs to a
+      // real in-window fork. A far-parent downward presence forces solid.
+      const isDashed =
+        !hasFarParentDownward &&
+        sameLaneLines.length > 0 &&
+        sameLaneLines.every((l) => l.style === 'dashed');
       const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
