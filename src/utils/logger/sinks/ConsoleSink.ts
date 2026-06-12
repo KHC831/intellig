@@ -39,10 +39,6 @@
  * `false`. This matches the `LogSink` contract documented in
  * `./types.ts` (a sink only detaches its own
  * subscription; it does not dispose externally-owned resources).
- *
- * @see design.md → "Components and Interfaces" → "Logger module location"
- *      and "OutputChannel sink rendering grammar" (final paragraph on
- *      the ConsoleSink)
  */
 
 import { formatRecord } from '../render';

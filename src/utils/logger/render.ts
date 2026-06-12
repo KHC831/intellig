@@ -3,8 +3,7 @@
  *
  * `formatRecord(record)` is the production-side renderer used by the
  * OutputChannel sink to turn an already-sanitized
- * `LogRecord` into the multi-line block defined by
- * design.md → "OutputChannel sink rendering grammar":
+ * `LogRecord` into the multi-line block shown below:
  *
  * ```text
  * [<timestamp>] <LEVEL> <component>: <message>

@@ -16,7 +16,7 @@
  * across the topical-source-tree restructure and across
  * any future internal reorganization of the Logger's pieces.
  *
- * ### Surface (per design.md → "Logger module location")
+ * ### Surface
  *
  * Lifecycle accessors:
  *   - `getLogger()` — lazy singleton accessor.

@@ -39,8 +39,6 @@
  * single block followed by exactly one newline.
  * The Logger guarantees the record is sanitized before reaching this
  * sink, so no further redaction is performed here.
- *
- * @see design.md → "OutputChannel sink rendering grammar"
  */
 
 import { getOutputChannel } from '../../outputChannel';

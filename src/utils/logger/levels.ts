@@ -24,7 +24,7 @@
  *
  * ### Bootstrap order rationale
  *
- * Per design.md → Service-graph integration, the resolver reads
+ * The resolver reads
  * `vscode.workspace.getConfiguration` directly rather than going
  * through `ConfigurationService`. This avoids a bootstrap circular:
  * `ConfigurationService` is constructed by `ExtensionServices`, which
@@ -99,7 +99,7 @@ const DEFAULT_THRESHOLD: LogThreshold = 'info';
 /**
  * Caches the `intellig.log.level` threshold and `intellig.log.console`
  * mirror flag for the structured Logger. The resolver is owned by the
- * Logger module (task 3.1) and refreshed on every
+ * Logger module and refreshed on every
  * `vscode.workspace.onDidChangeConfiguration` event whose
  * `affectsConfiguration` matches the IntelliG section.
  *
@@ -107,7 +107,7 @@ const DEFAULT_THRESHOLD: LogThreshold = 'info';
  * can be unit-tested in isolation against the stubbed
  * `vscode.workspace` from `src/test/mocks/vscode.ts`.
  *
- * #### State (per design.md → LogLevelResolver state)
+ * #### State
  *
  * | Field | Type | Purpose |
  * |---|---|---|

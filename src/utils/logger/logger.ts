@@ -11,8 +11,7 @@
  *   `vscode.workspace.onDidChangeConfiguration` listener disposable,
  *   and the lazy root `Logger` reference.
  * - The lifecycle accessors `getLogger()`, `initLogger(context)`, and
- *   `__resetLoggerForTest()` documented in design.md → "Components and
- *   Interfaces" → "Logger module location".
+ *   `__resetLoggerForTest()`.
  *
  * ### Hot-path discipline
  *
@@ -22,7 +21,7 @@
  * records. At `intellig.log.level = "off"` the per-call cost is one
  * numeric comparison plus the level-method's own call overhead.
  *
- * ### Emission flow (design.md → Logger emission flow)
+ * ### Emission flow
  *
  * 1. Resolver-level admits-check — short-circuit on miss.
  * 2. Build the record: timestamp (`new Date().toISOString()`),
@@ -45,8 +44,7 @@
  * special-cased onto top-level `LogRecord` fields; every other key
  * lands inside `LogRecord.context`.
  *
- * ### Correlation read at emit time (design.md → "Inheritance through
- * child loggers")
+ * ### Correlation read at emit time
  *
  * `child(bindings)` does NOT read the correlation store. The store is
  * read at *emit time* so a child Logger constructed inside one

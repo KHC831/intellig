@@ -7,8 +7,7 @@
  * the current frame at *emit time* (not at `child(bindings)`-time) so
  * a child Logger constructed inside one frame and called inside
  * another correctly attributes records to the *current* frame; this
- * matches the propagation contract documented in
- * `design.md` → Architecture → Correlation-id propagation.
+ * matches the propagation contract.
  *
  * Key properties:
  *

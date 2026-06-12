@@ -3,8 +3,7 @@
  *
  * A `LogSink` accepts already-sanitized `LogRecord` instances from the
  * Logger and renders them somewhere user- or developer-visible. The
- * IntelliG extension ships two sinks today (see design.md → Components
- * and Interfaces → Logger module location):
+ * IntelliG extension ships two sinks today:
  *
  * - `'output-channel'` — backed by the shared `IntelliG`
  *   `vscode.OutputChannel` (the singleton from `src/utils/outputChannel.ts`)
