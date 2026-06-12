@@ -10,6 +10,10 @@ import * as path from 'path';
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
  * with age-based color gradients and click actions.
+ *
+ * - Display blame information in the editor gutter for all visible lines
+ * - Click actions to view commit or copy hash
+ * - Use distinct colors to differentiate commits by age
  */
 export class GutterBlameProvider implements IGutterBlameProvider {
   private _enabled: boolean = false;

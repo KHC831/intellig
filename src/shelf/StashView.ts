@@ -215,7 +215,7 @@ export class StashView implements IStashView {
       // a post-stash refresh failure as a warning toast. The stash
       // itself succeeded, so this is a secondary signal (the user's
       // view may be stale until next list-open). showWarningMessage,
-      // not showErrorMessage.
+      // not showErrorMessage. Mirrors ShelfView's post-stash refresh policy.
       const refreshResult = await this.refresh();
       if (refreshResult.error) {
         void vscode.window.showWarningMessage(`Stash list refresh failed: ${refreshResult.error}`);

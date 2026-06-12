@@ -34,6 +34,9 @@ const DEFAULT_REFRESH_DEBOUNCE_MS = 150;
  * Status Bar Service implementation.
  * Manages the Git status bar item that displays branch and sync information.
  *
+ * - Display current branch name in status bar
+ * - Display progress and status notifications similar to IntelliJ
+ *
  * Subscribes to `onDidFetch` (from AutoFetchService) and
  * `onDidChangeRepository` so the ↑N ↓M badge refreshes after every fetch or
  * repo state mutation. Clicking the badge focuses the Incoming tab in the

@@ -1881,6 +1881,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // and `git rebase --abort`. Together with the pre-existing
   // `intellig.rebase.skip`, these are the three commands the
   // activation-time rebase-paused warning toast can route the user to.
+  // If any of the three is unregistered, the warning toast falls back to
+  // a button-less generic message.
   const rebaseContinueCommand = registerLoggedCommand('intellig.rebase.continue', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');

@@ -21,6 +21,11 @@ interface IBlameCacheEntry {
 /**
  * Blame Service implementation.
  * Provides blame/annotation functionality for files in Git repositories.
+ *
+ * - Display blame annotations for file
+ * - Show commit info (hash, author, date) for each line
+ * - Show commit message on hover
+ * - Navigate to previous revision
  */
 export class BlameService implements IBlameService {
   private _gitCli: GitCli;

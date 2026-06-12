@@ -226,6 +226,13 @@ interface IWebviewMessage {
 /**
  * Commit Dialog class.
  * Provides a webview panel for composing and submitting commits.
+ *
+ * - Display commit message input area and list of staged changes
+ * - Display diff preview when file is selected
+ * - Amend option populates previous commit message
+ * - Sign-off option appends Signed-off-by line
+ * - Prevent commit with empty message
+ * - IntelliJ-style commit dialog layout
  */
 export class CommitDialog {
   private _panel: vscode.WebviewPanel | undefined;

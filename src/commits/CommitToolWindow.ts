@@ -10,6 +10,15 @@
  * `false`). When the flag is off, users see zero change: the existing
  * {@link CommitDialog} modal continues to be the commit surface.
  *
+ * - Tabbed layout, active tab persisted per-workspace.
+ * - Local Changes tab wired to {@link IChangelistService}.
+ * - Shelf tab wired to {@link IShelfService} (list + basic actions).
+ * - Commit composer with amend / sign-off checkboxes.
+ * - Primary-button dropdown: `Commit` / `Commit and Push`.
+ * - Message-history dropdown (workspaceState LRU, 20 entries, deduped).
+ * - Gear menu skeleton (disabled items, tooltip "coming soon").
+ * - `intellig.changelist.*` command set registered by extension.ts.
+ *
  * All long string/HTML builders are extracted as pure exports below so unit
  * tests can exercise them without a VS Code host.
  */
@@ -612,7 +621,7 @@ export class CommitToolWindow extends BaseWebviewView {
         }
         break;
       case 'toggleChangelist':
-        // No-op for now.
+        // Collapsed-state toggle is not persisted; this case is intentionally empty.
         break;
       case 'updateComposerField':
         if (typeof message.message === 'string') {
