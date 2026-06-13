@@ -272,7 +272,8 @@ export class GitService implements IGitService, IGitServiceCli {
     // collaborators; the cli is never captured at construction.
     const ctx: IGitOpsContext = createGitOpsContext(
       () => this._gitCli,
-      (rootPath) => this.invalidateCache(rootPath)
+      (rootPath) => this.invalidateCache(rootPath),
+      (payload) => this._onDidFetch.fire(payload)
     );
     this._staging = new StagingOps(ctx);
     this._diff = new DiffOps(ctx);
