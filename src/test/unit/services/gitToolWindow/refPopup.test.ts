@@ -34,7 +34,7 @@ function bootDom(collapsedBranches: string): {
     `<!doctype html><html><body>
       <div class="graph-panel">
         <span class="branch-label-collapsed" data-collapsed-branches="${collapsedBranches}"
-              role="button" tabindex="0" aria-haspopup="true">+2</span>
+              role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">+2</span>
       </div>
       <div id="ref-popup" class="context-menu" hidden role="menu"></div>
     </body></html>`,
@@ -62,6 +62,11 @@ function clickChip(window: JSDOM['window'], chip: Element): void {
   Object.defineProperty(evt, 'clientX', { value: 50 });
   Object.defineProperty(evt, 'clientY', { value: 60 });
   chip.dispatchEvent(evt);
+}
+
+/** Dispatch a bubbling keydown from a specific element (the focus target). */
+function keydown(window: JSDOM['window'], from: Element, key: string): void {
+  from.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
 
 describe('Collapsed-ref popup (branch-label +N chip)', () => {
@@ -149,5 +154,101 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
     assert.strictEqual(popup.querySelectorAll('img').length, 0, 'no injected <img> element');
     const rows = popup.querySelectorAll('.context-menu-item');
     assert.strictEqual(rows.length, 2, 'two rows including the escaped name');
+  });
+
+  // ─── Keyboard operability (WCAG 2.1.1) ──────────────────────────────
+  it('moves focus to the first row when the popup opens', () => {
+    const { window, document } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    const firstRow = popup.querySelector('.context-menu-item');
+    assert.strictEqual(
+      document.activeElement,
+      firstRow,
+      'opening the popup focuses the first row so a keyboard user lands inside the menu'
+    );
+  });
+
+  it('selects the focused row on Enter — emits branchClick + dismisses (the WCAG 2.1.1 regression)', () => {
+    const { window, document, posted } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
+    // Keyboard activation on the focused row — must navigate, not no-op.
+    keydown(window, firstRow, 'Enter');
+
+    const branchClicks = posted.filter((m) => m.type === 'branchClick');
+    assert.strictEqual(branchClicks.length, 1, 'Enter on a focused row must emit branchClick');
+    assert.strictEqual(branchClicks[0].branchName, 'origin/main');
+    assert.strictEqual(popup.hidden, true, 'selecting via keyboard dismisses the popup');
+  });
+
+  it('selects the focused row on Space too', () => {
+    const { window, document, posted } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
+    keydown(window, firstRow, ' ');
+    assert.strictEqual(posted.filter((m) => m.type === 'branchClick').length, 1, 'Space selects');
+  });
+
+  it('moves focus between rows with ArrowDown / ArrowUp (wrapping)', () => {
+    const { window, document } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    const rows = popup.querySelectorAll<HTMLElement>('.context-menu-item');
+    assert.strictEqual(document.activeElement, rows[0], 'starts on first row');
+
+    keydown(window, rows[0], 'ArrowDown');
+    assert.strictEqual(document.activeElement, rows[1], 'ArrowDown moves to the second row');
+
+    keydown(window, rows[1], 'ArrowDown');
+    assert.strictEqual(document.activeElement, rows[0], 'ArrowDown from last wraps to first');
+
+    keydown(window, rows[0], 'ArrowUp');
+    assert.strictEqual(document.activeElement, rows[1], 'ArrowUp from first wraps to last');
+  });
+
+  it('returns focus to the +N chip on Escape and flips aria-expanded back to false', () => {
+    const { window, document } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    assert.strictEqual(chip.getAttribute('aria-expanded'), 'true', 'chip is expanded while open');
+    const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
+
+    keydown(window, firstRow, 'Escape');
+    assert.strictEqual(popup.hidden, true, 'Escape dismisses');
+    assert.strictEqual(document.activeElement, chip, 'focus returns to the opening +N chip');
+    assert.strictEqual(chip.getAttribute('aria-expanded'), 'false', 'aria-expanded flips back');
+  });
+
+  it('returns focus to the +N chip after selecting a row', () => {
+    const { window, document } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    const firstRow = popup.querySelector<HTMLElement>('.context-menu-item')!;
+    keydown(window, firstRow, 'Enter');
+    assert.strictEqual(document.activeElement, chip, 'focus returns to the opener after select');
+    assert.strictEqual(chip.getAttribute('aria-expanded'), 'false', 'aria-expanded flips back');
+  });
+
+  it('toggles aria-expanded true on open', () => {
+    const { window, document } = bootDom('origin/main|upstream/main');
+    const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
+    assert.strictEqual(chip.getAttribute('aria-expanded'), 'false', 'starts collapsed');
+    clickChip(window, chip);
+    assert.strictEqual(chip.getAttribute('aria-expanded'), 'true', 'aria-expanded true while open');
   });
 });

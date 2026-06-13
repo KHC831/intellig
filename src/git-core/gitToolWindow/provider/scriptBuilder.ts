@@ -227,7 +227,7 @@ export function buildInlineScript(): string {
 
         function scrollToCommit(commitHash) {
           const commitRow = document.querySelector('[data-hash="' + commitHash + '"]');
-          if (!commitRow) { return; }                       // Req 2.3 — not in DOM: no action
+          if (!commitRow) { return; }                       // not in DOM: no action
 
           const panel = commitRow.closest('.graph-panel');
           if (panel) {
@@ -852,9 +852,33 @@ export function buildInlineScript(): string {
         // \`branchClick\` message — no new host handler. The popup clones
         // the commit-context-menu overlay primitive: cursor-positioned with
         // the same viewport-clamp, dismissed by click-outside + Escape.
+        //
+        // Full keyboard operability (WCAG 2.1.1): opening focuses the first
+        // row; ArrowUp/Down move between rows; Enter/Space on a row selects
+        // it; Escape and select return focus to the +N chip that opened the
+        // popup. aria-expanded on the chip tracks open/closed state.
+        let refPopupOpener = null;
+
+        function closeRefPopup(restoreFocus) {
+          const popup = document.getElementById('ref-popup');
+          if (popup) popup.hidden = true;
+          if (refPopupOpener) {
+            refPopupOpener.setAttribute('aria-expanded', 'false');
+            if (restoreFocus && typeof refPopupOpener.focus === 'function') {
+              refPopupOpener.focus();
+            }
+          }
+          refPopupOpener = null;
+        }
+
         function openRefPopup(chip, clientX, clientY) {
           const popup = document.getElementById('ref-popup');
           if (!popup) return;
+          // data-collapsed-branches is a PIPE-delimited list (see the join
+          // in GitToolWindowProvider). A branch name containing a literal
+          // '|' would split into spurious rows; hardening the delimiter
+          // (JSON / NUL) is deferred as a follow-up — pipe is safe for the
+          // common case.
           const raw = chip.getAttribute('data-collapsed-branches') || '';
           const names = raw.split('|').filter(function(n) { return n.length > 0; });
           if (names.length === 0) return;
@@ -882,6 +906,25 @@ export function buildInlineScript(): string {
           popup.style.left = left + 'px';
           popup.style.top = top + 'px';
           popup.hidden = false;
+
+          // Track the opener so dismiss can restore focus + flip
+          // aria-expanded, then move focus to the first row so a keyboard
+          // user lands inside the menu.
+          refPopupOpener = chip;
+          chip.setAttribute('aria-expanded', 'true');
+          const firstRow = popup.querySelector('.context-menu-item');
+          if (firstRow && typeof firstRow.focus === 'function') {
+            firstRow.focus();
+          }
+        }
+
+        // Emit branchClick for a popup row, then dismiss + restore focus.
+        function selectRefRow(row) {
+          const name = row.getAttribute('data-branch-name');
+          if (name) {
+            vscode.postMessage({ type: 'branchClick', branchName: name });
+          }
+          closeRefPopup(true);
         }
 
         // Single click handler for the ref popup, in priority order so the
@@ -904,17 +947,14 @@ export function buildInlineScript(): string {
 
           const row = target ? target.closest('#ref-popup .context-menu-item') : null;
           if (row) {
-            const name = row.getAttribute('data-branch-name');
-            if (name) {
-              vscode.postMessage({ type: 'branchClick', branchName: name });
-            }
-            popup.hidden = true;
+            selectRefRow(row);
             return;
           }
 
-          // Click anywhere outside the popup dismisses it.
+          // Click anywhere outside the popup dismisses it (no focus
+          // restore — the user clicked elsewhere on purpose).
           if (!popup.contains(e.target)) {
-            popup.hidden = true;
+            closeRefPopup(false);
           }
         });
 
@@ -932,11 +972,42 @@ export function buildInlineScript(): string {
           openRefPopup(chip, rect.left, rect.bottom);
         });
 
-        // Dismiss the ref popup on Escape.
+        // Keyboard operation INSIDE the open popup: Enter/Space selects the
+        // focused row; ArrowUp/Down move focus between rows (wrapping);
+        // Escape dismisses + returns focus to the +N chip.
         document.addEventListener('keydown', function(e) {
+          const popup = document.getElementById('ref-popup');
+          if (!popup || popup.hidden) return;
+
           if (e.key === 'Escape') {
-            const popup = document.getElementById('ref-popup');
-            if (popup) popup.hidden = true;
+            e.preventDefault();
+            closeRefPopup(true);
+            return;
+          }
+
+          const row = e.target && e.target.closest
+            ? e.target.closest('#ref-popup .context-menu-item')
+            : null;
+          if (!row) return;
+
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            selectRefRow(row);
+            return;
+          }
+
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const rows = Array.from(popup.querySelectorAll('.context-menu-item'));
+            const idx = rows.indexOf(row);
+            if (idx === -1) return;
+            const nextIdx = e.key === 'ArrowDown'
+              ? (idx + 1) % rows.length
+              : (idx - 1 + rows.length) % rows.length;
+            const next = rows[nextIdx];
+            if (next && typeof next.focus === 'function') {
+              next.focus();
+            }
           }
         });
 

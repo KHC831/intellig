@@ -2887,7 +2887,7 @@ ${bodyMarkup}
       // explaining the focus state. Non-focused chips omit the
       // attribute so SRs don't announce the help text on every chip.
       const ariaDescribedByAttr = isFocused ? ' aria-describedby="focused-branch-help"' : '';
-      // T-10: data-branch-name carries the unescaped name so the inline
+      // data-branch-name carries the unescaped name so the inline
       // script's partial-update handler can match by attribute. The
       // attribute value goes through the same _escapeHtml the chip text
       // uses so reflective injection is impossible.
@@ -2918,18 +2918,25 @@ ${bodyMarkup}
     // popup listing every collapsed ref; each popup row navigates to that
     // branch. role="button" + tabindex="0" make it keyboard-activatable
     // with a visible focus ring (WCAG 1.4.1 — interaction is not
-    // colour-only). The title= tooltip still lists the names on hover,
-    // and data-collapsed-branches carries the pipe-delimited list the
+    // colour-only). aria-haspopup advertises the menu; aria-expanded
+    // starts "false" and the popup handler toggles it as the menu
+    // opens/closes (WCAG 4.1.2 state). The title= tooltip still lists the
+    // names on hover, and data-collapsed-branches carries the names the
     // popup handler consumes.
     let collapsedSummaryHtml = '';
     if (collapsedBranches.length > 0) {
       const tooltipLines = collapsedBranches.map((b) => b.name).join('\n');
       const escapedTooltip = this._escapeHtml(tooltipLines);
+      // data-collapsed-branches is a PIPE-delimited list consumed by the
+      // popup handler's `split('|')`. A branch name containing a literal
+      // '|' would therefore split into spurious rows. Hardening the
+      // delimiter (JSON / NUL) is deferred as a follow-up; pipe is safe for
+      // the overwhelming common case (git permits '|' but it is exotic).
       const dataAttr = this._escapeHtml(collapsedBranches.map((b) => b.name).join('|'));
       const ariaLabel = this._escapeHtml(
         `Show ${collapsedBranches.length} more branch${collapsedBranches.length === 1 ? '' : 'es'}: ${collapsedBranches.map((b) => b.name).join(', ')}`
       );
-      collapsedSummaryHtml = `<span class="branch-label-collapsed" data-collapsed-branches="${dataAttr}" role="button" tabindex="0" aria-label="${ariaLabel}" aria-haspopup="true" title="${escapedTooltip}">+${collapsedBranches.length}</span>`;
+      collapsedSummaryHtml = `<span class="branch-label-collapsed" data-collapsed-branches="${dataAttr}" role="button" tabindex="0" aria-label="${ariaLabel}" aria-haspopup="true" aria-expanded="false" title="${escapedTooltip}">+${collapsedBranches.length}</span>`;
     }
 
     return labels.join('') + collapsedSummaryHtml + tagLabels.join('');
