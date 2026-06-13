@@ -191,6 +191,7 @@ function createMockRebaseService(
       status: 'planning' as const,
     }),
     getRebaseSession: () => undefined,
+    clearSession: () => {},
     updateRebasePlan: () => {},
     executeRebase: async () => ({ success: true, status: 'completed' as const }),
     continueRebase: async () => ({ success: true, status: 'completed' as const }),
