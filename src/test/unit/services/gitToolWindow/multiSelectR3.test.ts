@@ -666,8 +666,8 @@ describe('Wave A R3 — consolidated review fixes', () => {
       // 800-char window covers preceding doc-comment.
       const window = src.substring(Math.max(0, idx - 800), idx + 200);
       assert.ok(
-        /TODO[\s\S]{0,400}WebviewInboundMessage/i.test(window),
-        'expected a TODO comment naming WebviewInboundMessage as the future single union'
+        /TODO\(?post-?[Ww]ave-?C\)?[\s\S]{0,400}WebviewInboundMessage/i.test(window),
+        'expected TODO(post-Wave-C) comment naming WebviewInboundMessage as the future single union'
       );
     });
   });
