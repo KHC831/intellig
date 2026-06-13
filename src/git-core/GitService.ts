@@ -53,14 +53,13 @@ import {
   parseHead,
   parseRepositoryState,
   parseDiff,
-  parseBlame,
   getLogFormat,
   getBranchFormat,
   getTagFormat,
 } from './gitParser';
-import { sortCommitsStable } from './commitSort';
 import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { StagingOps } from './ops/StagingOps';
+import { DiffOps } from './ops/DiffOps';
 import { sanitizeGitError } from './gitError';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
@@ -82,6 +81,7 @@ interface IRepositoryCache {
 export class GitService implements IGitService, IGitServiceCli {
   private _gitCli: GitCli;
   private readonly _staging: StagingOps;
+  private readonly _diff: DiffOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -284,6 +284,7 @@ export class GitService implements IGitService, IGitServiceCli {
       (rootPath) => this.invalidateCache(rootPath)
     );
     this._staging = new StagingOps(ctx);
+    this._diff = new DiffOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -2321,89 +2322,23 @@ export class GitService implements IGitService, IGitServiceCli {
    * can O(1)-look-up a given commit's classification. Errors resolve to an
    * empty map (caller gracefully degrades — the feature is non-critical).
    */
-  async getCherryMarks(
+  getCherryMarks(
     repo: IRepository,
     baseRef: string
   ): Promise<Map<string, import('./interfaces/IGitService').CherryMark>> {
-    const out = new Map<string, import('./interfaces/IGitService').CherryMark>();
-    if (!baseRef) {
-      return out;
-    }
-
-    try {
-      // %m emits one of `<`, `>`, `=`, `+`, `-` per commit per --cherry-mark docs.
-      // `baseRef` is user-controlled; splice via buildGitArgs.
-      const result = await this._gitCli.exec(
-        buildGitArgs(
-          'log',
-          ['--cherry-mark', '--left-right', '--pretty=format:%H %m'],
-          [`HEAD...${baseRef}`]
-        ),
-        {
-          cwd: repo.rootUri.fsPath,
-          throwOnError: false,
-        }
-      );
-      if (result.exitCode !== 0 || !result.stdout) {
-        return out;
-      }
-      const lines = result.stdout.split(/\r?\n/);
-      for (const raw of lines) {
-        const line = raw.trim();
-        if (!line) {
-          continue;
-        }
-        // Format: "<hash> <mark>" — hash is 40 hex, mark is one char.
-        const space = line.indexOf(' ');
-        if (space !== 40) {
-          continue;
-        }
-        const hash = line.substring(0, 40);
-        const mark = line.substring(space + 1).trim();
-        if (isCherryMark(mark)) {
-          out.set(hash, mark);
-        }
-      }
-    } catch {
-      // Swallow — the UI degrades to "no highlights" rather than surfacing
-      // an error toast for a non-essential visual cue.
-    }
-    return out;
+    return this._diff.getCherryMarks(repo, baseRef);
   }
 
   // ============================================
   // Diff Operations
   // ============================================
 
-  async getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff> {
-    const args = ['diff'];
-    if (staged) {
-      args.push('--cached');
-    }
-    args.push('--', path);
-
-    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    const diffs = parseDiff(result.stdout);
-
-    // Return the first diff or an empty diff
-    return (
-      diffs[0] || {
-        path,
-        status: 'modified',
-        hunks: [],
-        binary: false,
-      }
-    );
+  getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff> {
+    return this._diff.getDiff(repo, path, staged);
   }
 
-  async getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
-    // `hash` is user-controlled; splice via buildGitArgs so a
-    // hostile ref like `--upload-pack=evil` cannot land as a flag.
-    const result = await this._gitCli.exec(buildGitArgs('show', ['--format='], [hash]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    return parseDiff(result.stdout);
+  getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
+    return this._diff.getCommitDiff(repo, hash);
   }
 
   /**
@@ -2418,84 +2353,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param commits - Array of commit hashes (can be in any order)
    * @returns Array of diffs representing the combined changes
    */
-  async getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
-    if (commits.length === 0) {
-      return [];
-    }
-
-    // For a single commit, just return its diff
-    if (commits.length === 1) {
-      return this.getCommitDiff(repo, commits[0]);
-    }
-
-    const cwd = repo.rootUri.fsPath;
-
-    // Get commit dates + parents to sort them chronologically.
-    // We need the oldest and newest commits to compute the range, and we
-    // need parent hashes so `sortCommitsStable` can resolve date ties
-    // topologically (parent-before-child) rather than by hash-alphabetical
-    // alone. Same-second timestamps are common in imported histories and
-    // squash-and-rebase flows; ordering a child before its parent would
-    // push the diff "base" past the child and silently drop edits.
-    const commitInfos: { hash: string; commitDate: Date; parents: string[] }[] = [];
-
-    for (const hash of commits) {
-      // `%cI` (commit-date ISO-8601) + `%P` (space-separated parent hashes),
-      // separated by a tab so we can split unambiguously.
-      // `hash` is user-controlled; splice via buildGitArgs.
-      const result = await this._gitCli.exec(
-        buildGitArgs('show', ['-s', '--format=%cI%x09%P'], [hash]),
-        { cwd }
-      );
-      if (result.exitCode === 0 && result.stdout.trim()) {
-        const [iso, parentsLine = ''] = result.stdout.trim().split('\t');
-        const parents = parentsLine.split(/\s+/).filter((p) => p.length > 0);
-        commitInfos.push({
-          hash,
-          commitDate: new Date(iso),
-          parents,
-        });
-      }
-    }
-
-    if (commitInfos.length === 0) {
-      return [];
-    }
-
-    // Deterministic sort: primary by commit date, secondary by
-    // parent-before-child (topological) inside date-tied groups, and only
-    // falling back to hash-alphabetical when no parent edge disambiguates.
-    // See `src/utils/commitSort.ts` for the full rationale.
-    const sortedInfos = sortCommitsStable(commitInfos);
-
-    const oldestCommit = sortedInfos[0].hash;
-    const newestCommit = sortedInfos[sortedInfos.length - 1].hash;
-
-    // Get the parent of the oldest commit to use as the base
-    // If the oldest commit has no parent (initial commit), use the empty tree
-    // `oldestCommit` is user-controlled; splice via buildGitArgs.
-    const parentResult = await this._gitCli.exec(
-      buildGitArgs('rev-parse', [], [`${oldestCommit}^`]),
-      { cwd }
-    );
-
-    let baseRef: string;
-    if (parentResult.exitCode === 0 && parentResult.stdout.trim()) {
-      baseRef = parentResult.stdout.trim();
-    } else {
-      // No parent - use empty tree SHA (Git's magic empty tree)
-      baseRef = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-    }
-
-    // Get the diff between the base and the newest commit.
-    // Both refs are user-controlled (well, baseRef may be a
-    // computed parent SHA; newestCommit is direct user input). Splice
-    // via buildGitArgs.
-    const diffResult = await this._gitCli.exec(buildGitArgs('diff', [], [baseRef, newestCommit]), {
-      cwd,
-    });
-
-    return parseDiff(diffResult.stdout);
+  getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
+    return this._diff.getMultiCommitDiff(repo, commits);
   }
 
   /**
@@ -2503,60 +2362,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * Uses `git diff --name-status -z <ref>` for robust parsing (NUL-delimited,
    * so paths with whitespace or non-ASCII characters are handled correctly).
    */
-  async getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
-    // `ref` is user-controlled; splice via buildGitArgs.
-    const result = await this._gitCli.exec(buildGitArgs('diff', ['--name-status', '-z'], [ref]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    // `git diff --name-status -z` output format:
-    //   <status>\0<path>\0                  for M/A/D/T/U entries
-    // <status>\0<oldPath>\0<newPath>\0 for R/C entries (status can be `R100`, ``, …)
-    const tokens = result.stdout.split('\0').filter((t) => t.length > 0);
-    const files: IRefDiffFile[] = [];
-    let i = 0;
-    while (i < tokens.length) {
-      const rawStatus = tokens[i];
-      const statusChar = rawStatus.charAt(0).toUpperCase();
-      i += 1;
-
-      if (statusChar === 'R' || statusChar === 'C') {
-        const oldPath = tokens[i];
-        const newPath = tokens[i + 1];
-        i += 2;
-        if (newPath) {
-          files.push({
-            path: newPath,
-            status: statusChar,
-            oldPath,
-          });
-        }
-      } else if (
-        statusChar === 'M' ||
-        statusChar === 'A' ||
-        statusChar === 'D' ||
-        statusChar === 'T' ||
-        statusChar === 'U'
-      ) {
-        const filePath = tokens[i];
-        i += 1;
-        if (filePath) {
-          files.push({
-            path: filePath,
-            status: statusChar,
-          });
-        }
-      } else {
-        // Unknown status; skip the following path token to stay aligned.
-        i += 1;
-      }
-    }
-
-    return files;
+  getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
+    return this._diff.getChangedFilesAgainstWorkingTree(repo, ref);
   }
 
   /**
@@ -2578,40 +2385,16 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * Used by the Git tool window's branch-focus feature.
    */
-  async getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
-    try {
-      const result = await this._gitCli.exec(['merge-base', '--end-of-options', refA, refB], {
-        cwd: repo.rootUri.fsPath,
-      });
-      if (result.exitCode !== 0) {
-        return undefined;
-      }
-      const sha = result.stdout.trim();
-      return sha.length > 0 ? sha : undefined;
-    } catch {
-      // Defensive: GitCli throws on spawn errors / disposed repos.
-      // Trap T-8 — caller treats undefined as "no path-to-merge-base".
-      return undefined;
-    }
+  getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
+    return this._diff.getMergeBase(repo, refA, refB);
   }
 
   // ============================================
   // Blame Operations
   // ============================================
 
-  async getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
-    // `path` is user-controlled; splice with `--` separator
-    // via buildGitArgs so a path that starts with `-` cannot collapse
-    // into a flag (e.g., `--git-dir=evil`).
-    const result = await this._gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseBlame(result.stdout);
+  getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
+    return this._diff.getBlame(repo, path);
   }
 
   // ============================================
@@ -3036,11 +2819,6 @@ export class GitService implements IGitService, IGitServiceCli {
  */
 export function createGitService(gitPath?: string): GitService {
   return new GitService(gitPath);
-}
-
-/** Type guard for a single-char `git log --cherry-mark` output. */
-function isCherryMark(value: string): value is import('./interfaces/IGitService').CherryMark {
-  return value === '=' || value === '+' || value === '-' || value === '<' || value === '>';
 }
 
 /**
