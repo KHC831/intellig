@@ -1,4 +1,14 @@
-import { IRepository, ICommitOptions } from '../interfaces/IGitService';
+import * as vscode from 'vscode';
+import {
+  IRepository,
+  ICommitOptions,
+  IFetchOptions,
+  IFetchResult,
+  IFetchRefUpdate,
+  IPullOptions,
+  IPushOptions,
+} from '../interfaces/IGitService';
+import { buildGitArgs } from '../gitCli';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -51,5 +61,198 @@ export class RemoteOps {
 
   async amend(repo: IRepository, message: string): Promise<void> {
     await this.commit(repo, message, { amend: true });
+  }
+
+  async fetch(repo: IRepository, optionsOrRemote?: IFetchOptions | string): Promise<IFetchResult> {
+    // Back-compat: a plain string argument is treated as the remote name.
+    const options: IFetchOptions =
+      typeof optionsOrRemote === 'string' ? { remote: optionsOrRemote } : (optionsOrRemote ?? {});
+
+    const args = ['fetch', '--porcelain'];
+    if (options.prune) {
+      args.push('--prune');
+    }
+    // Resolve tag-fetching policy. User-passed `tags` / `noTags` in
+    // `options` always win over the `intellig.fetchTags` config so
+    // programmatic callers (PushDialog retry, Pull dialog, etc.) can opt
+    // out of the global policy. When neither the option nor the config
+    // dictates a flag ("auto"), we emit no tag-related flag and let git's
+    // own default (follow `remote.<remote>.tagOpt`) apply.
+    if (options.tags) {
+      args.push('--tags');
+    } else if (options.noTags) {
+      args.push('--no-tags');
+    } else {
+      const fetchTagsPolicy = vscode.workspace
+        .getConfiguration('intellig')
+        .get<string>('fetchTags', 'auto');
+      if (fetchTagsPolicy === 'all') {
+        args.push('--tags');
+      } else if (fetchTagsPolicy === 'never') {
+        args.push('--no-tags');
+      }
+      // 'auto' (and any unexpected value) → no flag.
+    }
+    if (options.all) {
+      args.push('--all');
+    } else if (options.remote) {
+      args.push(options.remote);
+    } else {
+      args.push('--all');
+    }
+
+    const cliResult = await this.ctx.gitCli.exec(args, {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
+
+    const result = this._parseFetchPorcelain(cliResult.stdout, cliResult.stderr);
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    this.ctx.fireDidFetch({ repo, result });
+    return result;
+  }
+
+  /**
+   * Parse `git fetch --porcelain` output.
+   *
+   * Each porcelain line has the shape `<flag> <old-sha> <new-sha> <ref>`
+   * (whitespace-separated). We skip lines that do not conform and surface
+   * stderr diagnostics as non-fatal errors.
+   */
+  private _parseFetchPorcelain(stdout: string, stderr: string): IFetchResult {
+    const updatedRefs: IFetchRefUpdate[] = [];
+    const errors: string[] = [];
+
+    for (const rawLine of stdout.split('\n')) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+      const parts = line.split(/\s+/);
+      if (parts.length < 4) {
+        continue;
+      }
+      const oldSha = parts[1];
+      const newSha = parts[2];
+      const ref = parts.slice(3).join(' ');
+      if (!/^[0-9a-f]{40}$/.test(newSha)) {
+        continue;
+      }
+      if (oldSha === newSha) {
+        continue;
+      }
+      updatedRefs.push({ ref, oldSha, newSha });
+    }
+
+    if (stderr) {
+      for (const rawLine of stderr.split('\n')) {
+        const line = rawLine.trim();
+        if (!line) {
+          continue;
+        }
+        // Skip informational lines git emits on stderr.
+        if (/^From\s|^\s*->\s|^\s*\*\s|^\s*\+/.test(line)) {
+          continue;
+        }
+        errors.push(line);
+      }
+    }
+
+    return {
+      updatedRefs,
+      ahead: 0,
+      behind: updatedRefs.length,
+      errors,
+    };
+  }
+
+  async pull(repo: IRepository, options?: IPullOptions): Promise<void> {
+    // Order: git pull [--rebase|--ff-only|--no-ff] [--squash] [--no-commit] [--no-verify] <remote> <branch>
+    // Split flags vs. refs (remote/branch) so buildGitArgs can
+    // splice `--end-of-options` between them; defends against argv
+    // injection through hostile remote/branch names.
+    const flags: string[] = [];
+
+    // Strategy flags are mutually exclusive; first non-empty wins to stay safe
+    // even if the caller hasn't resolved the UI mutex.
+    if (options?.rebase) {
+      flags.push('--rebase');
+    } else if (options?.ffOnly) {
+      flags.push('--ff-only');
+    } else if (options?.noFf) {
+      flags.push('--no-ff');
+    }
+
+    if (options?.squash) {
+      flags.push('--squash');
+    }
+    if (options?.noCommit) {
+      flags.push('--no-commit');
+    }
+    if (options?.noVerify) {
+      flags.push('--no-verify');
+    }
+    if (options?.prune) {
+      flags.push('--prune');
+    }
+
+    const refs: string[] = [];
+    if (options?.remote) {
+      refs.push(options.remote);
+    }
+    if (options?.branch) {
+      refs.push(options.branch);
+    }
+
+    const args = buildGitArgs('pull', flags, refs);
+    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  async push(repo: IRepository, options?: IPushOptions): Promise<void> {
+    // Order: git push [--force|--force-with-lease] [--set-upstream] [--no-verify]
+    //                 [--tags|--follow-tags] <remote> [<refspec>|<branch>]
+    // Split flags vs. refs so buildGitArgs splices
+    // `--end-of-options`; defends against argv injection through hostile
+    // remote / refspec / branch names.
+    const flags: string[] = [];
+
+    // Force flags are mutually exclusive; `force` (bare --force) wins if a
+    // caller sets both so the command can't silently downgrade the user's
+    // explicit request. Safety policy still puts the onus on the UI to
+    // prefer `forceWithLease`.
+    if (options?.force) {
+      flags.push('--force');
+    } else if (options?.forceWithLease) {
+      flags.push('--force-with-lease');
+    }
+    if (options?.setUpstream) {
+      flags.push('--set-upstream');
+    }
+    if (options?.noVerify) {
+      flags.push('--no-verify');
+    }
+    // Tag flags are mutually exclusive; prefer --follow-tags when both set
+    // so we don't accidentally push unrelated tags.
+    if (options?.followTags) {
+      flags.push('--follow-tags');
+    } else if (options?.tags) {
+      flags.push('--tags');
+    }
+
+    const refs: string[] = [];
+    if (options?.remote) {
+      refs.push(options.remote);
+    }
+    // Explicit refspec (`local:target`) takes precedence over positional branch.
+    if (options?.refspec) {
+      refs.push(options.refspec);
+    } else if (options?.branch) {
+      refs.push(options.branch);
+    }
+
+    const args = buildGitArgs('push', flags, refs);
+    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 }
