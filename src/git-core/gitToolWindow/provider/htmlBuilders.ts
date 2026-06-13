@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 import type { IGtwControllerContext } from './IGtwControllerContext';
+import type { IChangedFile, ICommitDetails } from '../../../services/interfaces';
+import { FileStatus } from '../../interfaces/IGitService';
+import { FILE_STATUS_THEME_VARS, INTELLIJ_FILE_STATUS_COLORS } from '../GitToolWindowProvider';
 
 /**
  * Webview HTML view builders for the transient states the Git tool window
@@ -88,4 +91,91 @@ export function buildNoRepositoryHtml(ctx: IGtwControllerContext, webview: vscod
   </script>
 </body>
 </html>`;
+}
+
+/**
+ * Escape HTML special characters.
+ */
+export function escapeHtml(text: string): string {
+  const htmlEscapes: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
+}
+
+/**
+ * Return a `var(--vscode-gitDecoration-*, #hex)` expression
+ * for the given file status, so the colour follows the user's theme
+ * (especially high-contrast) instead of the bare IntelliJ hex. The
+ * Hex literal is retained as the CSS-var fallback (defence
+ * in depth + dev-mode jsdom test surface). Pinned by
+ * `fileStatusTheme-1..8` in detailsPanel.test.ts.
+ */
+export function getFileStatusColor(status: FileStatus): string {
+  const cssVar = FILE_STATUS_THEME_VARS[status];
+  const fallback = INTELLIJ_FILE_STATUS_COLORS[status] || '#FFFFFF';
+  return cssVar ? `var(${cssVar}, ${fallback})` : fallback;
+}
+
+/**
+ * Get status character for file status.
+ */
+export function getFileStatusChar(status: FileStatus): string {
+  const statusChars: Record<FileStatus, string> = {
+    modified: 'M',
+    added: 'A',
+    deleted: 'D',
+    renamed: 'R',
+    copied: 'C',
+    untracked: 'U',
+    ignored: 'I',
+    conflicted: '!',
+  };
+  return statusChars[status] || '?';
+}
+
+/**
+ * Get file name from path.
+ */
+export function getFileName(path: string): string {
+  const parts = path.split('/');
+  return parts[parts.length - 1];
+}
+
+/**
+ * Merge changed files from multiple commit details into a single deduplicated list.
+ * When the same file appears in multiple commits, the last occurrence's status is kept.
+ * Files are sorted alphabetically by path.
+ *
+ * @param commitDetailsList - Array of commit details to merge files from
+ * @returns Deduplicated and sorted array of changed files
+ */
+export function mergeChangedFiles(commitDetailsList: ICommitDetails[]): IChangedFile[] {
+  const fileMap = new Map<string, IChangedFile>();
+
+  for (const details of commitDetailsList) {
+    for (const file of details.changedFiles) {
+      // Later commits override earlier ones for the same path
+      fileMap.set(file.path, { ...file });
+    }
+  }
+
+  // Sort alphabetically by path
+  return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Truncate message to specified length.
+ */
+export function truncateMessage(message: string, maxLength: number): string {
+  // Get first line only
+  const firstLine = message.split('\n')[0];
+  if (firstLine.length <= maxLength) {
+    return firstLine;
+  }
+  return firstLine.substring(0, maxLength - 3) + '...';
 }

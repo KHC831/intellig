@@ -55,7 +55,16 @@ import {
   buildCodiconFontFaceCss,
 } from './provider/stylesBuilder';
 import type { IGtwControllerContext } from './provider/IGtwControllerContext';
-import { buildLoadingHtml, buildNoRepositoryHtml } from './provider/htmlBuilders';
+import {
+  buildLoadingHtml,
+  buildNoRepositoryHtml,
+  escapeHtml,
+  getFileStatusColor,
+  getFileStatusChar,
+  getFileName,
+  truncateMessage,
+  mergeChangedFiles,
+} from './provider/htmlBuilders';
 import {
   handleLoadMoreCommits,
   handlePanelResize,
@@ -2494,34 +2503,28 @@ ${bodyMarkup}
    * `fileStatusTheme-1..8` in detailsPanel.test.ts.
    */
   private _getFileStatusColor(status: FileStatus): string {
-    const cssVar = FILE_STATUS_THEME_VARS[status];
-    const fallback = INTELLIJ_FILE_STATUS_COLORS[status] || '#FFFFFF';
-    return cssVar ? `var(${cssVar}, ${fallback})` : fallback;
+    // this-free forwarder: a test invokes this via
+    // prototype._getFileStatusColor.call({}), so the body must not touch
+    // `this`. Delegates to the free getFileStatusColor in htmlBuilders.ts.
+    return getFileStatusColor(status);
   }
 
   /**
-   * Get status character for file status
+   * Get status character for file status.
+   *
+   * Thin forwarder to {@link getFileStatusChar} (in provider/htmlBuilders.ts).
    */
   private _getFileStatusChar(status: FileStatus): string {
-    const statusChars: Record<FileStatus, string> = {
-      modified: 'M',
-      added: 'A',
-      deleted: 'D',
-      renamed: 'R',
-      copied: 'C',
-      untracked: 'U',
-      ignored: 'I',
-      conflicted: '!',
-    };
-    return statusChars[status] || '?';
+    return getFileStatusChar(status);
   }
 
   /**
-   * Get file name from path
+   * Get file name from path.
+   *
+   * Thin forwarder to {@link getFileName} (in provider/htmlBuilders.ts).
    */
   private _getFileName(path: string): string {
-    const parts = path.split('/');
-    return parts[parts.length - 1];
+    return getFileName(path);
   }
 
   /**
@@ -3196,7 +3199,7 @@ ${bodyMarkup}
     const commitsListHtml = commitDetailsList
       .map((details) => {
         const shortHash = this._escapeHtml(details.hash.substring(0, 7));
-        const message = this._escapeHtml(this._truncateMessage(details.message, 60));
+        const message = this._escapeHtml(truncateMessage(details.message, 60));
         return `
           <div class="multi-commit-item" role="listitem">
             <span class="commit-short-hash">${shortHash}</span>
@@ -3207,7 +3210,7 @@ ${bodyMarkup}
 
     // --- Combined changed files ---
     // Use pre-computed combined files if provided, otherwise merge from individual commits
-    const mergedFiles = combinedChangedFiles ?? this._mergeChangedFiles(commitDetailsList);
+    const mergedFiles = combinedChangedFiles ?? mergeChangedFiles(commitDetailsList);
 
     let changedFilesHtml: string;
     if (mergedFiles.length === 0) {
@@ -3234,40 +3237,6 @@ ${bodyMarkup}
           </div>
         </div>
       </div>`;
-  }
-
-  /**
-   * Merge changed files from multiple commit details into a single deduplicated list.
-   * When the same file appears in multiple commits, the last occurrence's status is kept.
-   * Files are sorted alphabetically by path.
-   *
-   * @param commitDetailsList - Array of commit details to merge files from
-   * @returns Deduplicated and sorted array of changed files
-   */
-  private _mergeChangedFiles(commitDetailsList: ICommitDetails[]): IChangedFile[] {
-    const fileMap = new Map<string, IChangedFile>();
-
-    for (const details of commitDetailsList) {
-      for (const file of details.changedFiles) {
-        // Later commits override earlier ones for the same path
-        fileMap.set(file.path, { ...file });
-      }
-    }
-
-    // Sort alphabetically by path
-    return Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
-  }
-
-  /**
-   * Truncate message to specified length
-   */
-  private _truncateMessage(message: string, maxLength: number): string {
-    // Get first line only
-    const firstLine = message.split('\n')[0];
-    if (firstLine.length <= maxLength) {
-      return firstLine;
-    }
-    return firstLine.substring(0, maxLength - 3) + '...';
   }
 
   /**
@@ -3308,17 +3277,14 @@ ${bodyMarkup}
   }
 
   /**
-   * Escape HTML special characters
+   * Escape HTML special characters.
+   *
+   * Thin forwarder to {@link escapeHtml} (in provider/htmlBuilders.ts), kept
+   * because the deferred graph-cluster builders and other in-class callers
+   * still reach it via `this._escapeHtml`.
    */
   private _escapeHtml(text: string): string {
-    const htmlEscapes: Record<string, string> = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    };
-    return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
+    return escapeHtml(text);
   }
 
   /**
