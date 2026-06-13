@@ -261,9 +261,11 @@ function renderNode(
  *
  * The row carries a `codicon-chevron-down` toggle (expanded by default),
  * `role="treeitem"`, `aria-expanded="true"`, and `aria-controls` referencing
- * the container's id. It has no `data-path` / `data-commit-hash`, so the
- * `dblclick` file-open delegation never matches it. Collapse is driven by the
- * webview script toggling a class on the referenced container.
+ * the container's id. `tabindex="0"` puts it in the tab order so the toggle is
+ * keyboard-operable (the webview script toggles on click and on Enter/Space).
+ * It has no `data-path` / `data-commit-hash`, so the `dblclick` file-open
+ * delegation never matches it. Collapse is driven by the webview script
+ * toggling a class on the referenced container.
  */
 function renderDirectory(
   node: IDirectoryNode,
@@ -277,7 +279,7 @@ function renderDirectory(
   const childrenHtml = renderForest(node.children, depth + 1, deps, ids);
 
   return `
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="${containerId}" style="padding-left: ${padding}px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="${containerId}" tabindex="0" style="padding-left: ${padding}px;">
             <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">${label}</span>
           </div>

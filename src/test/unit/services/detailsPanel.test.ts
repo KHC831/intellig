@@ -1019,12 +1019,12 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
   // but every file leaf carries `data-commit-hash`.
   const EXPECTED_SINGLE_COMMIT_TREE = `<div class="changed-files-list" role="tree" aria-label="Changed Files">
 
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" style="padding-left: 4px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" tabindex="0" style="padding-left: 4px;">
             <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">src/main/java</span>
           </div>
           <div class="changed-dir-children" role="group" id="dir-children-0">
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" style="padding-left: 20px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" tabindex="0" style="padding-left: 20px;">
             <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">util</span>
           </div>
@@ -1096,12 +1096,12 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
   // leaves carry no single commit hash).
   const EXPECTED_COMBINED_TREE = `<div class="changed-files-list" role="tree" aria-label="Changed Files">
 
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" style="padding-left: 4px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" tabindex="0" style="padding-left: 4px;">
             <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">src/main/java</span>
           </div>
           <div class="changed-dir-children" role="group" id="dir-children-0">
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" style="padding-left: 20px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" tabindex="0" style="padding-left: 20px;">
             <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">util</span>
           </div>
@@ -1234,14 +1234,14 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     // src→main→java compacts into one collapsible label at depth 0 (padding-left 4px).
     assert.ok(
       tree.includes(
-        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" style="padding-left: 4px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">src/main/java</span>'
+        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" tabindex="0" style="padding-left: 4px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">src/main/java</span>'
       ),
       'compacted src/main/java directory label must be pinned at padding-left 4px with a down-chevron'
     );
     // util is a nested directory row at depth 1 (padding-left 20px).
     assert.ok(
       tree.includes(
-        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" style="padding-left: 20px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">util</span>'
+        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" tabindex="0" style="padding-left: 20px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">util</span>'
       ),
       'nested util directory row must be pinned at padding-left 20px with a down-chevron'
     );

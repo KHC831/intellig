@@ -188,4 +188,15 @@ describe('renderFileTree() — collapsible directory chevrons', () => {
     assert.ok(html.includes('Helpers.java'));
     assert.ok(html.includes('README.md'));
   });
+
+  it('makes each directory row keyboard-focusable with tabindex="0"', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    // Both directory rows are interactive (toggle on Enter/Space), so each
+    // must be in the tab order — matching the focusable file leaves.
+    const dirRowTabindex = (
+      html.match(/class="changed-dir-item"[^>]*tabindex="0"/g) ?? []
+    ).length;
+    assert.strictEqual(dirRowTabindex, 2, 'each directory row must carry tabindex="0"');
+  });
 });

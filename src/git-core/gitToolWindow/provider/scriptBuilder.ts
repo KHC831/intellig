@@ -383,17 +383,11 @@ export function buildInlineScript(): string {
         });
 
         // Changed Files directory tree collapse/expand (IntelliJ-style).
-        // Clicking a directory row — its chevron OR its name — toggles the
-        // visibility of the .changed-dir-children container it controls and
-        // flips the chevron glyph + aria-expanded. Pure DOM toggle with no
-        // persistence: a re-render (new commit selection) resets every
-        // directory to expanded. The handler is scoped to .changed-dir-item
-        // so it never fires for .changed-file-item rows (whose dblclick opens
-        // the diff), and the chevron itself has no data-path so the file-open
-        // delegation can't match it.
-        document.addEventListener('click', function(e) {
-          const dirItem = e.target.closest('.changed-dir-item[aria-controls]');
-          if (!dirItem) return;
+        // Toggling a directory row flips the visibility of the
+        // .changed-dir-children container it controls, the chevron glyph, and
+        // aria-expanded. Pure DOM toggle with no persistence: a re-render (new
+        // commit selection) resets every directory to expanded.
+        function toggleChangedDir(dirItem) {
           const containerId = dirItem.getAttribute('aria-controls');
           if (!containerId) return;
           const container = document.getElementById(containerId);
@@ -407,6 +401,30 @@ export function buildInlineScript(): string {
             chevron.classList.toggle('codicon-chevron-down', nowExpanded);
             chevron.classList.toggle('codicon-chevron-right', !nowExpanded);
           }
+        }
+
+        // Click anywhere on a directory row — its chevron OR its name —
+        // toggles it. Scoped to .changed-dir-item so it never fires for
+        // .changed-file-item rows (whose dblclick opens the diff); the chevron
+        // has no data-path so the file-open delegation can't match it either.
+        document.addEventListener('click', function(e) {
+          const dirItem = e.target.closest('.changed-dir-item[aria-controls]');
+          if (dirItem) {
+            toggleChangedDir(dirItem);
+          }
+        });
+
+        // Keyboard operability for the focusable directory rows (tabindex=0):
+        // Enter and Space toggle the focused row, matching the click path.
+        // preventDefault on Space stops the row from scrolling the panel.
+        document.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const dirItem = e.target && e.target.closest
+            ? e.target.closest('.changed-dir-item[aria-controls]')
+            : null;
+          if (!dirItem) return;
+          e.preventDefault();
+          toggleChangedDir(dirItem);
         });
 
         // Hide context menu when clicking elsewhere

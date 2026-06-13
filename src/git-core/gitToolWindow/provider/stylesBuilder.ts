@@ -1021,17 +1021,16 @@ export function buildInlineStyles(): string {
         white-space: nowrap;
       }
 
-      /* Rotating twisty for the directory row. The glyph is swapped between
-         codicon-chevron-down (expanded) and codicon-chevron-right (collapsed)
-         by the webview script; the transition smooths the visual flip. The
-         chevron is a fixed-width click target sized to the row height. */
+      /* Twisty for the directory row. The webview script swaps the glyph
+         between codicon-chevron-down (expanded) and codicon-chevron-right
+         (collapsed) on toggle — the two glyphs differ, so no CSS rotation is
+         needed. The chevron is a fixed-width click target sized to the row. */
       .changed-dir-item .dir-chevron {
         flex-shrink: 0;
         width: 16px;
         font-size: 14px;
         margin-right: 2px;
         color: var(--vscode-foreground);
-        transition: transform 0.1s ease;
       }
 
       /* Collapsed subtree: the children container is removed from layout so
