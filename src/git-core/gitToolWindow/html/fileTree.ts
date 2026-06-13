@@ -202,53 +202,97 @@ function paddingLeftPx(depth: number): number {
  * Render a directory forest to the nested Changed Files markup.
  *
  * `depth` starts at 0 for the top level and increases by 1 per directory
- * level. Every row — directory or file — is a sibling in the same
- * `.changed-files-list` container, indented by a depth-derived inline
- * `padding-left`; this preserves the existing `dblclick` event delegation
- * (`.changed-file-item[data-path][data-commit-hash]`) and the flat
- * `role="list"` / `role="listitem"` accessibility semantics.
+ * level. Each file leaf is a `.changed-file-item` row indented by a
+ * depth-derived inline `padding-left`; this preserves the existing `dblclick`
+ * event delegation (`.changed-file-item[data-path][data-commit-hash]`).
  *
- * Pure given `deps`: deterministic string output, no DOM.
+ * Each directory is a collapsible `.changed-dir-item` row (IntelliJ-style):
+ * it carries a chevron toggle, `aria-expanded`, and `aria-controls` pointing
+ * at the `.changed-dir-children` container that wraps its descendants — so a
+ * collapse is a single class toggle on that container. The tree opens fully
+ * expanded; no state is persisted, so a re-render always resets to expanded.
+ *
+ * ARIA: the container is a `role="tree"`, directory and file rows are
+ * `role="treeitem"`, and each directory's children container is a
+ * `role="group"`.
+ *
+ * Pure given `deps`: deterministic string output, no DOM. Directory-children
+ * container ids are assigned by a per-render counter, so they are stable
+ * within one render (sufficient — there is no cross-render persistence).
  */
 export function renderFileTree(
   nodes: readonly FileTreeNode[],
   depth: number,
   deps: IFileTreeRenderDeps
 ): string {
-  return nodes.map((node) => renderNode(node, depth, deps)).join('');
+  return renderForest(nodes, depth, deps, { next: 0 });
 }
 
-/** Render one node (directory row + recursed children, or a file leaf). */
-function renderNode(node: FileTreeNode, depth: number, deps: IFileTreeRenderDeps): string {
+/** Monotonic id source for directory-children container ids within one render. */
+interface IDirIdCounter {
+  next: number;
+}
+
+/** Render a sibling list of nodes, threading the shared id counter. */
+function renderForest(
+  nodes: readonly FileTreeNode[],
+  depth: number,
+  deps: IFileTreeRenderDeps,
+  ids: IDirIdCounter
+): string {
+  return nodes.map((node) => renderNode(node, depth, deps, ids)).join('');
+}
+
+/** Render one node (directory row + children container, or a file leaf). */
+function renderNode(
+  node: FileTreeNode,
+  depth: number,
+  deps: IFileTreeRenderDeps,
+  ids: IDirIdCounter
+): string {
   return node.kind === 'directory'
-    ? renderDirectory(node, depth, deps)
+    ? renderDirectory(node, depth, deps, ids)
     : renderLeaf(node, depth, deps);
 }
 
 /**
- * Emit a directory row followed by its children rendered at `depth + 1`.
- * The row carries `role="listitem"` but no `data-path` /
- * `data-commit-hash`, so the `dblclick` delegation never matches it.
+ * Emit a collapsible directory row followed by a `.changed-dir-children`
+ * container holding its children rendered at `depth + 1`.
+ *
+ * The row carries a `codicon-chevron-down` toggle (expanded by default),
+ * `role="treeitem"`, `aria-expanded="true"`, and `aria-controls` referencing
+ * the container's id. `tabindex="0"` puts it in the tab order so the toggle is
+ * keyboard-operable (the webview script toggles on click and on Enter/Space).
+ * It has no `data-path` / `data-commit-hash`, so the `dblclick` file-open
+ * delegation never matches it. Collapse is driven by the webview script
+ * toggling a class on the referenced container.
  */
-function renderDirectory(node: IDirectoryNode, depth: number, deps: IFileTreeRenderDeps): string {
+function renderDirectory(
+  node: IDirectoryNode,
+  depth: number,
+  deps: IFileTreeRenderDeps,
+  ids: IDirIdCounter
+): string {
   const padding = paddingLeftPx(depth);
   const label = deps.escapeHtml(node.name);
-  const childrenHtml = renderFileTree(node.children, depth + 1, deps);
+  const containerId = `dir-children-${ids.next++}`;
+  const childrenHtml = renderForest(node.children, depth + 1, deps, ids);
 
   return `
-          <div class="changed-dir-item" role="listitem" style="padding-left: ${padding}px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="${containerId}" tabindex="0" style="padding-left: ${padding}px;">
+            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">${label}</span>
-          </div>${childrenHtml}`;
+          </div>
+          <div class="changed-dir-children" role="group" id="${containerId}">${childrenHtml}</div>`;
 }
 
 /**
- * Emit the existing `.changed-file-item` row, unchanged except for the
- * depth-derived indentation and the dropped `.file-directory` segment
- * (directory context now comes from nesting). All existing attributes are
+ * Emit the `.changed-file-item` row. All existing data attributes are
  * preserved: `data-path`, `data-status`, `data-commit-hash` (only when
- * `deps.commitHash` is set), `role="listitem"`, `tabindex="0"`, the
- * color-coded status indicator/letter, the file name, and the `renamed`
- * old-path on the same row.
+ * `deps.commitHash` is set), `tabindex="0"`, the color-coded status
+ * indicator/letter, the file name, and the `renamed` old-path on the same
+ * row. The row carries `role="treeitem"` to match the surrounding directory
+ * tree's `role="tree"` / `role="group"` semantics.
  */
 function renderLeaf(node: IFileLeaf, depth: number, deps: IFileTreeRenderDeps): string {
   const { file } = node;
@@ -272,7 +316,7 @@ function renderLeaf(node: IFileLeaf, depth: number, deps: IFileTreeRenderDeps): 
           <div class="changed-file-item"
                data-path="${deps.escapeHtml(file.path)}"
                data-status="${file.status}"${commitHashAttr}
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: ${padding}px;">
             <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">

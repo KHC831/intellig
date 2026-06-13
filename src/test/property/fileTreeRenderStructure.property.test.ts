@@ -8,19 +8,21 @@
  * Property Description:
  * For any set of changed files, in the output of
  * `renderFileTree(buildFileTree(files), 0, deps)` every emitted row (directory
- * or file) carries `role="listitem"`, every child row's indentation
+ * or file) carries `role="treeitem"`, every child row's indentation
  * (`padding-left`) is strictly greater than that of its parent directory row,
  * and all rows sharing the same parent are emitted at equal indentation.
  *
  *
- * Approach: the renderer emits a flat sequence of sibling rows — each a
- * `.changed-dir-item` or `.changed-file-item` div carrying `role="listitem"`
- * and a depth-derived `padding-left` — in pre-order DFS order (a directory row
- * is immediately followed by its descendants). We parse the emitted rows in
- * order, derive each row's nesting from its `padding-left`, reconstruct the
- * parent of every row with a stack, and check the three sub-properties against
- * that reconstructed structure (no reliance on the source's internal formula
- * beyond reading the rendered `padding-left` values).
+ * Approach: the renderer emits a sequence of rows — each a `.changed-dir-item`
+ * or `.changed-file-item` div carrying `role="treeitem"` and a depth-derived
+ * `padding-left` — in pre-order DFS order (a directory row is immediately
+ * followed by its `.changed-dir-children` container holding its descendants).
+ * We parse the row opening tags in document order, derive each row's nesting
+ * from its `padding-left`, reconstruct the parent of every row with a stack,
+ * and check the three sub-properties against that reconstructed structure (no
+ * reliance on the source's internal formula beyond reading the rendered
+ * `padding-left` values). The `.changed-dir-children` wrapper divs carry no
+ * `padding-left` and are skipped by the row regex.
  */
 
 import * as fc from 'fast-check';
@@ -128,7 +130,7 @@ const deps: IFileTreeRenderDeps = {
 
 interface ParsedRow {
   kind: 'directory' | 'file';
-  hasListitemRole: boolean;
+  hasTreeitemRole: boolean;
   paddingLeft: number;
 }
 
@@ -155,7 +157,7 @@ function parseRows(html: string): ParsedRow[] {
     );
     rows.push({
       kind: className === 'changed-dir-item' ? 'directory' : 'file',
-      hasListitemRole: /role="listitem"/.test(attrs),
+      hasTreeitemRole: /role="treeitem"/.test(attrs),
       paddingLeft: Number(paddingMatch[1]),
     });
   }
@@ -166,7 +168,7 @@ function parseRows(html: string): ParsedRow[] {
 
 describe('Feature: git-view-layout-parity - Changed Files Render Structure', () => {
   describe('Property 4: Rendered rows preserve list semantics and indentation monotonicity', () => {
-    it('Feature: git-view-layout-parity, Property 4: every row is a listitem, children indent strictly beyond their parent, and siblings share equal indentation', () => {
+    it('Feature: git-view-layout-parity, Property 4: every row is a treeitem, children indent strictly beyond their parent, and siblings share equal indentation', () => {
       fc.assert(
         fc.property(changedFilesArb, (files) => {
           const html = renderFileTree(buildFileTree(files), 0, deps);
@@ -188,8 +190,8 @@ describe('Feature: git-view-layout-parity - Changed Files Render Structure', () 
           let nextDirId = 0;
 
           rows.forEach((row, index) => {
-            // 1. Every emitted row carries role="listitem".
-            assert.ok(row.hasListitemRole, `Row ${index} (${row.kind}) is missing role="listitem"`);
+            // 1. Every emitted row carries role="treeitem".
+            assert.ok(row.hasTreeitemRole, `Row ${index} (${row.kind}) is missing role="treeitem"`);
 
             // Pop ancestors that are no longer enclosing this row (any open
             // directory whose indentation is >= this row's is a sibling or

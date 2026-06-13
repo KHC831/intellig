@@ -12,10 +12,13 @@ import '../../setup';
 import * as assert from 'assert';
 import {
   buildFileTree,
+  renderFileTree,
   IDirectoryNode,
   IFileLeaf,
+  IFileTreeRenderDeps,
 } from '../../../git-core/gitToolWindow/html/fileTree';
 import { IChangedFile } from '../../../git-core/interfaces/IGitToolWindowProvider';
+import { FileStatus } from '../../../git-core/interfaces/IGitService';
 
 describe('buildFileTree()', () => {
   describe('empty input', () => {
@@ -99,5 +102,101 @@ describe('buildFileTree()', () => {
         'root leaf should retain the full original path and status'
       );
     });
+  });
+});
+
+/**
+ * Collapsible directory-tree rendering contract.
+ *
+ * IntelliJ-parity: every directory row carries a chevron toggle and wraps its
+ * descendants in a single container so collapse is a one-class/display toggle.
+ * The tree opens fully expanded (chevron pointing down, aria-expanded="true",
+ * no hidden container) with no persistence.
+ */
+describe('renderFileTree() — collapsible directory chevrons', () => {
+  const deps: IFileTreeRenderDeps = {
+    escapeHtml: (s: string): string =>
+      s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;'),
+    statusColor: (status: FileStatus): string => `var(--status-${status})`,
+    statusChar: (status: FileStatus): string => status.charAt(0).toUpperCase(),
+    fileName: (path: string): string => {
+      const segments = path.split('/').filter((s) => s.length > 0);
+      return segments.length === 0 ? path : segments[segments.length - 1];
+    },
+    commitHash: 'deadbeef',
+  };
+
+  const fixture: IChangedFile[] = [
+    { path: 'src/main/java/App.java', status: 'modified' },
+    { path: 'src/main/java/util/Helpers.java', status: 'added' },
+    { path: 'README.md', status: 'modified' },
+  ];
+
+  it('emits a chevron toggle on each directory row (codicon-chevron-down, expanded)', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    // Two directory rows in the fixture: compacted `src/main/java` and `util`.
+    const chevrons = (html.match(/class="dir-chevron[^"]*codicon-chevron-down/g) ?? []).length;
+    assert.strictEqual(chevrons, 2, 'every directory row must carry a down-chevron toggle');
+  });
+
+  it('marks every directory row aria-expanded="true" by default', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    const expanded = (html.match(/aria-expanded="true"/g) ?? []).length;
+    assert.strictEqual(expanded, 2, 'both directory rows default to expanded');
+    assert.ok(
+      !html.includes('aria-expanded="false"'),
+      'no directory row may default to collapsed (no persistence, all-expanded on open)'
+    );
+  });
+
+  it('wraps each directory’s descendants in a single children container', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    // One container per directory so collapse is a single toggle.
+    const containers = (html.match(/class="changed-dir-children"/g) ?? []).length;
+    assert.strictEqual(containers, 2, 'each directory wraps its children in one container');
+  });
+
+  it('uses tree/treeitem a11y roles for the directory tree', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    assert.ok(html.includes('role="treeitem"'), 'directory rows use role="treeitem"');
+    assert.ok(html.includes('role="group"'), 'children container uses role="group"');
+  });
+
+  it('associates each directory with its children via a stable id', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    // Each directory row references the children container it controls.
+    const controls = (html.match(/aria-controls="dir-children-/g) ?? []).length;
+    assert.strictEqual(controls, 2, 'each directory row points at its children container id');
+  });
+
+  it('renders all rows visible on initial render (no collapsed/hidden markup)', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    assert.ok(!html.includes('changed-dir-collapsed'), 'no row is collapsed on initial render');
+    // All three files present in the output.
+    assert.ok(html.includes('App.java'));
+    assert.ok(html.includes('Helpers.java'));
+    assert.ok(html.includes('README.md'));
+  });
+
+  it('makes each directory row keyboard-focusable with tabindex="0"', () => {
+    const html = renderFileTree(buildFileTree(fixture), 0, deps);
+
+    // Both directory rows are interactive (toggle on Enter/Space), so each
+    // must be in the tab order — matching the focusable file leaves.
+    const dirRowTabindex = (
+      html.match(/class="changed-dir-item"[^>]*tabindex="0"/g) ?? []
+    ).length;
+    assert.strictEqual(dirRowTabindex, 2, 'each directory row must carry tabindex="0"');
   });
 });

@@ -333,7 +333,7 @@ export function buildDetailsPanelHtml(
       <div class="details-panel" role="region" aria-label="Commit Details">
         <div class="details-changed-files">
           <h4>Changed Files (${commitDetails.changedFiles.length})</h4>
-          <div class="changed-files-list" role="list" aria-label="Changed Files">
+          <div class="changed-files-list" role="tree" aria-label="Changed Files">
             ${changedFilesHtml}
           </div>
         </div>
@@ -425,7 +425,7 @@ export function buildMultiCommitDetailsPanelHtml(
         </div>
         <div class="details-changed-files">
           <h4>Changed Files (${mergedFiles.length})</h4>
-          <div class="changed-files-list" role="list" aria-label="Changed Files">
+          <div class="changed-files-list" role="tree" aria-label="Changed Files">
             ${changedFilesHtml}
           </div>
         </div>
