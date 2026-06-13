@@ -58,6 +58,7 @@ import {
   toggleCommitSelection as handleToggleCommitSelection,
   selectCommits as handleSelectCommits,
   rangeSelectCommit as handleRangeSelectCommit,
+  addRangeSelectCommit as handleAddRangeSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
@@ -67,7 +68,6 @@ import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
 import {
   computeMenuState,
-  computeRangeSelection,
   type IMenuItemState,
   type IMenuStateNode,
   type MultiSelectMenuAction,
@@ -1120,37 +1120,7 @@ export class GitToolWindowProvider
    * first click still has an effect. Anchor is unchanged.
    */
   public addRangeSelectCommit(hash: string): void {
-    const allHashes = this._extendedLogState.commitNodes.map((n) => n.commit.hash);
-    const range = computeRangeSelection(this._extendedLogState.anchorHash, hash, allHashes);
-
-    if (range.length === 0) {
-      return;
-    }
-
-    const anchorIsValid =
-      this._extendedLogState.anchorHash !== null &&
-      allHashes.indexOf(this._extendedLogState.anchorHash) !== -1;
-
-    if (!anchorIsValid) {
-      // Mirror rangeSelectCommit: stale/null anchor → plain toggle.
-      this.toggleCommitSelection(hash);
-      return;
-    }
-
-    for (const h of range) {
-      this._extendedLogState.selectedCommits.add(h);
-    }
-    this._extendedLogState.expandedCommit = hash;
-
-    // Fire BEFORE the post sequence.
-    this._onDidChangeState.fire();
-    // Partial-update path — see the matching comment block in
-    // `rangeSelectCommit` for the rationale: a full `_updateWebview()`
-    // re-render destroys commit-row focus and breaks the keyboard
-    // Shift+Arrow loop.
-    this._postSyncSelection();
-    this._postDetailsForExpandedCommit();
-    this._postMenuStateUpdate();
+    handleAddRangeSelectCommit(this, hash);
   }
 
   /**

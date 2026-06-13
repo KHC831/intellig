@@ -144,6 +144,46 @@ export function rangeSelectCommit(ctx: IGtwControllerContext, hash: string): voi
 }
 
 /**
+ * Shift+Ctrl+click additive range-select. Adds the inclusive range from the
+ * anchor to `hash` to the existing selection. With a null/stale anchor, falls
+ * back to a single toggle so the first click still has an effect. Anchor is
+ * unchanged.
+ */
+export function addRangeSelectCommit(ctx: IGtwControllerContext, hash: string): void {
+  const allHashes = ctx.extendedLogState.commitNodes.map((n) => n.commit.hash);
+  const range = computeRangeSelection(ctx.extendedLogState.anchorHash, hash, allHashes);
+
+  if (range.length === 0) {
+    return;
+  }
+
+  const anchorIsValid =
+    ctx.extendedLogState.anchorHash !== null &&
+    allHashes.indexOf(ctx.extendedLogState.anchorHash) !== -1;
+
+  if (!anchorIsValid) {
+    // Mirror rangeSelectCommit: stale/null anchor → plain toggle.
+    toggleCommitSelection(ctx, hash);
+    return;
+  }
+
+  for (const h of range) {
+    ctx.extendedLogState.selectedCommits.add(h);
+  }
+  ctx.extendedLogState.expandedCommit = hash;
+
+  // Fire BEFORE the post sequence.
+  ctx.fireDidChangeState();
+  // Partial-update path — see the matching comment block in
+  // `rangeSelectCommit` for the rationale: a full `_updateWebview()`
+  // re-render destroys commit-row focus and breaks the keyboard
+  // Shift+Arrow loop.
+  ctx.postSyncSelection();
+  ctx.postDetailsForExpandedCommit();
+  ctx.postMenuStateUpdate();
+}
+
+/**
  * Toggle commit selection (for multi-select)
  */
 export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string): void {
