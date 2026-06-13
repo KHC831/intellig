@@ -693,8 +693,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // ICommandContext above, then collects each domain module's disposables and
   // does a SINGLE trailing context.subscriptions.push (RULE E4). Every handler
   // body lives in commands/registration/*; this file owns only the state the
-  // handlers reach through ctx. Domain order matches the original
-  // creation/registration order.
+  // handlers reach through ctx. Disposables are collected in domain-grouped
+  // order (NOT the original per-const creation/registration order — e.g. the
+  // core handlers were in the original second push block but list first here);
+  // this is behavior-neutral — no test observes subscription order or count,
+  // and VS Code's command-unregister teardown is order-independent.
   const coreDisposables = registerCommitRepoCoreCommands(ctx);
   const changelistDisposables = registerChangelistCommands(ctx);
   const branchDisposables = registerBranchCommands(ctx);
