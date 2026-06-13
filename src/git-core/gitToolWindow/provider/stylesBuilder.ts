@@ -696,7 +696,10 @@ export function buildInlineStyles(): string {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        width: 120px;
+        /* Width is driven by the panel-level --col-author-width custom
+           property (default 120px) so the column tracks the user's drag and
+           stays aligned with the header divider. */
+        width: var(--col-author-width, 120px);
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
@@ -706,13 +709,117 @@ export function buildInlineStyles(): string {
       }
 
       .commit-date {
-        width: 145px;
+        /* Width is driven by the panel-level --col-date-width custom property
+           (default 145px); see .commit-author. */
+        width: var(--col-date-width, 145px);
         flex-shrink: 0;
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
         text-align: left;
         padding-left: 12px;
         white-space: nowrap;
+      }
+
+      /* Log column header — labels the columns and hosts the drag handles
+         that resize the fixed Author and Date columns. Its cells mirror the
+         row layout (graph spacer + flexible title + fixed author/date) so the
+         labels sit directly above the data they describe. */
+      .log-column-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        height: 22px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+        background-color: var(--vscode-sideBar-background, var(--vscode-editor-background));
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--vscode-descriptionForeground);
+        user-select: none;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+
+      .log-column-header-graph {
+        flex-shrink: 0;
+        width: var(--graph-width, 80px);
+      }
+
+      .log-column-header-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 0 8px;
+      }
+
+      .log-column-header-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+      }
+
+      .log-column-header-author {
+        width: var(--col-author-width, 120px);
+        flex-shrink: 0;
+        text-align: right;
+        padding-right: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .log-column-header-date {
+        width: var(--col-date-width, 145px);
+        flex-shrink: 0;
+        text-align: left;
+        padding-left: 12px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* Drag handle sitting on a column boundary. The 7px-wide hit area
+         straddles the boundary; the visible 1px rule is centred via the
+         pseudo-element so the handle reads as the divider line until hovered
+         or actively dragged, when it brightens to the focus colour. */
+      .log-column-resize-handle {
+        flex-shrink: 0;
+        width: 7px;
+        align-self: stretch;
+        margin: 0 -3px;
+        cursor: col-resize;
+        position: relative;
+        z-index: 2;
+      }
+
+      .log-column-resize-handle::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        left: 3px;
+        width: 1px;
+        background-color: var(--vscode-panel-border);
+      }
+
+      .log-column-resize-handle:hover::after,
+      .log-column-resize-handle.dragging::after,
+      .log-column-resize-handle:focus-visible::after {
+        background-color: var(--vscode-focusBorder);
+        width: 2px;
+        left: 2px;
+      }
+
+      /* While a column drag is in progress the body suppresses text
+         selection and forces the resize cursor everywhere. */
+      body.resizing-column {
+        cursor: col-resize;
+        user-select: none;
       }
 
       /* Branch and Tag Labels */

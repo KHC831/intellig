@@ -31,6 +31,12 @@ import {
   renderGraphSvg,
 } from '../../utils/graphRenderer';
 import { savePanelWidths, loadPanelWidths, DEFAULT_PANEL_WIDTHS } from '../../utils/panelLayout';
+import {
+  saveColumnWidths,
+  loadColumnWidths,
+  clampColumnWidths,
+  DEFAULT_COLUMN_WIDTHS,
+} from '../../utils/columnLayout';
 import { TabRouter, type TabId } from './tabRouter';
 import { isTabbedGitToolWindowEnabled } from './config';
 import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
@@ -299,6 +305,10 @@ export class GitToolWindowProvider
    */
   private _focusedPathHashes: Set<string> = new Set();
   private _panelWidths: [number, number];
+  /** Fixed-column pixel widths for the log rows: [author, date]. The title
+   * column is the flex absorber, so it has no stored width. Persisted to
+   * workspace state so a user's drag survives re-render and commit-switch. */
+  private _columnWidths: [number, number];
   private readonly _workspaceState: vscode.Memento | undefined;
   private _hasRepository: boolean = false;
   private _isLoading: boolean = true;
@@ -480,6 +490,11 @@ export class GitToolWindowProvider
     this._panelWidths = workspaceState
       ? loadPanelWidths(workspaceState)
       : [...DEFAULT_PANEL_WIDTHS];
+
+    // Load persisted log-column widths or use defaults
+    this._columnWidths = workspaceState
+      ? loadColumnWidths(workspaceState)
+      : [...DEFAULT_COLUMN_WIDTHS];
 
     // Register event emitters for disposal
     this._disposables.push(
@@ -1395,6 +1410,11 @@ export class GitToolWindowProvider
           this._handlePanelResize(message.widths);
         }
         break;
+      case 'columnResize':
+        if (message.widths) {
+          this._handleColumnResize(message.widths);
+        }
+        break;
       case 'selectRepository':
         if (message.repositoryIndex !== undefined) {
           this._handleRepositorySelection(message.repositoryIndex);
@@ -1943,6 +1963,35 @@ export class GitToolWindowProvider
   }
 
   /**
+   * Handle a log-column resize message from the webview.
+   *
+   * The webview posts the live [author, date] pixel widths as the user drags
+   * a column-header divider. We clamp them to the per-column min/max (so a
+   * column can never be dragged to zero) and persist, mirroring the panel
+   * splitter's write-and-persist coupling. No re-render is triggered — the
+   * webview already applied the new width to its CSS custom properties live
+   * during the drag; persistence just makes the change survive the next
+   * full re-render (commit-switch, filter, repo-change).
+   *
+   * @param widths - The new [author, date] column widths in pixels.
+   */
+  private _handleColumnResize(widths: [number, number]): void {
+    this._columnWidths = clampColumnWidths(widths);
+    if (this._workspaceState) {
+      saveColumnWidths(this._workspaceState, this._columnWidths);
+    }
+  }
+
+  /**
+   * Get the current log-column widths.
+   *
+   * @returns The current [author, date] column widths in pixels.
+   */
+  public getColumnWidths(): [number, number] {
+    return [...this._columnWidths];
+  }
+
+  /**
    * Set the list of available repositories discovered in the workspace.
    * If the currently selected repository index is out of bounds after the update,
    * it falls back to the first available repository.
@@ -2301,6 +2350,7 @@ ${bodyMarkup}
   <script nonce="${nonce}">
     ${this._getInlineScript()}
     ${this._getDividerDragScript()}
+    ${this._getColumnResizeScript()}
   </script>
 </body>
 </html>`;
@@ -2488,6 +2538,112 @@ ${bodyMarkup}
             return parseFloat(p.style.width) || 0;
           });
           vscode.postMessage({ type: 'panelResize', widths: widths });
+        });
+      })();
+    `;
+  }
+
+  /**
+   * Inline JavaScript for drag-to-resize on the log column headers.
+   *
+   * Handles:
+   * - Mouse down/move/up on the `data-column-resize` handles to resize the
+   *   fixed Author and Date columns live by writing the panel's
+   *   `--col-author-width` / `--col-date-width` custom properties.
+   * - Min/max pixel clamps so a column can never be dragged to zero (or so
+   *   wide it crowds out the flexible Subject column). The clamp mirrors the
+   *   host-side `clampColumnWidths` bounds.
+   * - Keyboard arrow support on a focused handle (10px steps).
+   * - Posting a `columnResize` message so the new widths persist across
+   *   re-renders.
+   *
+   * Re-binds on every render via event delegation on `document`, so the
+   * handlers survive the webview's full-HTML refresh without per-element
+   * listener bookkeeping.
+   *
+   * @returns JavaScript string for column-resize functionality.
+   */
+  private _getColumnResizeScript(): string {
+    return `
+      (function() {
+        const MIN_COL = 40;
+        const MAX_COL = 600;
+        // CSS custom property each handle drives, keyed by data-column-resize.
+        const VAR_BY_COLUMN = { author: '--col-author-width', date: '--col-date-width' };
+
+        function panelFor(el) {
+          return el.closest('.graph-panel');
+        }
+        function currentWidth(panel, column) {
+          const raw = getComputedStyle(panel).getPropertyValue(VAR_BY_COLUMN[column]);
+          const n = parseFloat(raw);
+          return isFinite(n) ? n : (column === 'author' ? 120 : 145);
+        }
+        function clamp(px) {
+          return Math.round(Math.min(MAX_COL, Math.max(MIN_COL, px)));
+        }
+        function applyAndPost(panel, column, px) {
+          const clamped = clamp(px);
+          panel.style.setProperty(VAR_BY_COLUMN[column], clamped + 'px');
+          vscode.postMessage({
+            type: 'columnResize',
+            widths: [currentWidth(panel, 'author'), currentWidth(panel, 'date')],
+          });
+          return clamped;
+        }
+
+        let active = null;     // the handle element being dragged
+        let activePanel = null;
+        let activeColumn = null;
+        let startX = 0;
+        let startWidth = 0;
+
+        document.addEventListener('mousedown', function(e) {
+          const handle = e.target.closest && e.target.closest('.log-column-resize-handle');
+          if (!handle) return;
+          const panel = panelFor(handle);
+          if (!panel) return;
+          e.preventDefault();
+          active = handle;
+          activePanel = panel;
+          activeColumn = handle.getAttribute('data-column-resize');
+          startX = e.clientX;
+          startWidth = currentWidth(panel, activeColumn);
+          document.body.classList.add('resizing-column');
+          handle.classList.add('dragging');
+        });
+
+        // Each handle sits on the LEFT edge of the column it resizes (the
+        // fixed columns are right-anchored), so moving the pointer LEFT widens
+        // the column and moving RIGHT shrinks it — the delta is subtracted.
+        document.addEventListener('mousemove', function(e) {
+          if (!active) return;
+          const delta = e.clientX - startX;
+          applyAndPost(activePanel, activeColumn, startWidth - delta);
+        });
+
+        document.addEventListener('mouseup', function() {
+          if (!active) return;
+          document.body.classList.remove('resizing-column');
+          active.classList.remove('dragging');
+          active = null;
+          activePanel = null;
+          activeColumn = null;
+        });
+
+        // Keyboard support: arrow keys nudge a focused handle by 10px.
+        document.addEventListener('keydown', function(e) {
+          const handle = e.target.closest && e.target.closest('.log-column-resize-handle');
+          if (!handle) return;
+          let step = 0;
+          if (e.key === 'ArrowLeft') step = -10;
+          else if (e.key === 'ArrowRight') step = 10;
+          else return;
+          e.preventDefault();
+          const panel = panelFor(handle);
+          if (!panel) return;
+          const column = handle.getAttribute('data-column-resize');
+          applyAndPost(panel, column, currentWidth(panel, column) + step);
         });
       })();
     `;
@@ -2716,10 +2872,18 @@ ${bodyMarkup}
     // while removing it from sighted layout.
     const focusedBranchHelpHtml = `<span id="focused-branch-help" class="visually-hidden">Currently focused branch — graph is filtered to this branch's history</span>`;
 
+    // Publish the resizable fixed-column widths as CSS custom properties on
+    // the panel so the header and every row read the same value — a single
+    // source of truth keeps them aligned, and embedding the current widths in
+    // the markup means a full re-render rehydrates a user's dragged widths.
+    const [authorWidthPx, dateWidthPx] = this._columnWidths;
+    const columnHeaderHtml = this._getLogColumnHeaderHtml();
+
     return `
-      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px; --col-author-width: ${authorWidthPx}px; --col-date-width: ${dateWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
         ${focusedBranchHelpHtml}
         ${repositorySelectorHtml}
+        ${columnHeaderHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
       </div>`;
@@ -2768,6 +2932,35 @@ ${bodyMarkup}
         ${repositorySelectorHtml}
         ${body}
       </div>`;
+  }
+
+  /**
+   * Build the log column-header row.
+   *
+   * The header sits above the commit rows and labels the three columns —
+   * the flexible Subject column plus the two fixed-width Author and Date
+   * columns. Between the columns sit drag handles (`data-column-resize`):
+   * dragging the Subject↕Author handle resizes the Author column, and the
+   * Author↕Date handle resizes the Date column. The fixed columns size
+   * themselves from the `--col-author-width` / `--col-date-width` custom
+   * properties published on the panel, so the header and every row stay
+   * pixel-aligned. The graph cell's left spacer matches `--graph-width` so
+   * the Subject label lines up with the commit messages below it.
+   *
+   * @returns HTML string for the column-header row.
+   */
+  private _getLogColumnHeaderHtml(): string {
+    return `
+        <div class="log-column-header" role="row" aria-hidden="true">
+          <div class="log-column-header-graph"></div>
+          <div class="log-column-header-info">
+            <div class="log-column-header-title">Subject</div>
+            <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="Resize author column" tabindex="0"></div>
+            <div class="log-column-header-author">Author</div>
+            <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="Resize date column" tabindex="0"></div>
+            <div class="log-column-header-date">Date</div>
+          </div>
+        </div>`;
   }
 
   /**

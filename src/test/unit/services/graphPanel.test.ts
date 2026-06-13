@@ -185,13 +185,17 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('commit-author'), 'Should have commit-author class');
     });
 
-    it('uses a fixed 120px right-aligned author column with ellipsis (closes the author/date dead band)', () => {
+    it('uses a resizable 120px-default right-aligned author column with ellipsis (closes the author/date dead band)', () => {
       // Reach into the inline-style block for the .commit-author rule.
       // The column went through 140px -> max-width:140px -> 100px -> 120px
       // for width, and left-align -> RIGHT-align to close the dead band:
       // a short name now butts against the date column instead of
       // leaving a gap inside its 120px box. See KNOWN-ISSUES.md
       // author/date dead-band entry.
+      //
+      // The width is now driven by the --col-author-width custom property so
+      // the column is drag-resizable; the 120px fallback preserves the
+      // original default render, so the dead-band fix holds out of the box.
       const styles = (provider as unknown as { _getInlineStyles: () => string })._getInlineStyles();
 
       const authorRuleMatch = styles.match(/\.commit-author\s*\{([^}]+)\}/);
@@ -199,8 +203,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       const authorRule = authorRuleMatch[1];
 
       assert.ok(
-        /(^|[^-])\bwidth:\s*120px/.test(authorRule),
-        `.commit-author should declare a fixed width: 120px, got: "${authorRule.trim()}"`
+        /width:\s*var\(--col-author-width,\s*120px\)/.test(authorRule),
+        `.commit-author should declare a var-driven width defaulting to 120px, got: "${authorRule.trim()}"`
       );
       assert.ok(
         authorRule.includes('text-align: right'),
