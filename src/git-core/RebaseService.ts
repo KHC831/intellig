@@ -258,10 +258,11 @@ export class RebaseService implements IRebaseService {
 
     // Reconcile against git reality: if git reports no rebase in progress, the
     // cached session is a phantom (e.g. an abandoned planning session). Clear
-    // it and report completion gracefully instead of surfacing a raw fatal.
+    // it and report the no-op honestly (cleared-stale, not completed) instead
+    // of surfacing a raw fatal — no commits were replayed.
     if (result.exitCode !== 0 && this.isNoRebaseInProgressError(result.combined)) {
       this.clearSession(repo);
-      return { success: true, status: 'completed' };
+      return { success: true, status: 'cleared-stale' };
     }
 
     if (result.exitCode === 0) {
@@ -342,9 +343,10 @@ export class RebaseService implements IRebaseService {
     const result = await this._gitCli.exec(['rebase', '--skip'], { cwd });
 
     // Reconcile against git reality: no rebase in progress → phantom session.
+    // Report the no-op honestly (cleared-stale, not completed).
     if (result.exitCode !== 0 && this.isNoRebaseInProgressError(result.combined)) {
       this.clearSession(repo);
-      return { success: true, status: 'completed' };
+      return { success: true, status: 'cleared-stale' };
     }
 
     if (result.exitCode === 0) {
@@ -662,7 +664,10 @@ ${todoContent}EOF
       return { success: false, status: 'paused' };
     }
 
-    // Continue the rebase after the amend
+    // Continue the rebase after the amend. continueRebase can self-clear a
+    // phantom session and return 'cleared-stale', so reword/squash can
+    // transitively surface that status — the consumer handles it as a no-op
+    // rather than a successful message rewrite.
     return this.continueRebase(repo);
   }
 

@@ -500,6 +500,7 @@ describe('Feature: branch-context-menu - Error and Conflict Notification Propert
               rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
                 success: false,
                 conflicts: conflictFiles,
+                rebaseInProgress: true,
               }),
             });
             const branchTreeProvider = createMockBranchTreeProvider(gitService, currentBranch);

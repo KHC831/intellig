@@ -1700,8 +1700,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
         assert.strictEqual(result.success, false);
         assert.ok(result.conflicts, 'Should have conflicts');
-        assert.ok(result.conflicts.includes('both-modified.ts'));
-        assert.ok(result.conflicts.includes('deleted-by-us.ts'));
+        assert.deepStrictEqual(result.conflicts, ['both-modified.ts', 'deleted-by-us.ts']);
       });
 
       it('reports an exit-0 autostash pop conflict as a non-continuable conflict', async () => {

@@ -1006,6 +1006,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           success: false,
           status: 'conflict' as const,
           conflictedFiles: ['file1.ts', 'file2.ts'],
+          rebaseInProgress: true,
         }),
       });
       const provider = createMockProvider();
@@ -1281,6 +1282,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           success: false,
           status: 'conflict' as const,
           conflictedFiles: ['src/foo.ts'],
+          rebaseInProgress: true,
         }),
       });
       const provider = createMockProvider();
@@ -1302,6 +1304,52 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(
         abortCall,
         'abortRebase MUST be called when provideRewordMessage surfaces a conflict'
+      );
+    });
+
+    it('does NOT claim "Updated commit message" when the reword self-cleared a stale session', async () => {
+      // Transitive edge: provideRewordMessage delegates to continueRebase,
+      // which can self-clear a phantom rebase session and return
+      // {status:'cleared-stale'} — a no-op where no message was rewritten.
+      // Surfacing the unconditional "Updated commit message for…" toast for
+      // that case is the same misleading-success class the cleared-stale
+      // status was introduced to kill. The consumer must report it honestly.
+      const messages = createMessageTrackers();
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('updated message');
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+
+      const rebaseService = createMockRebaseService({
+        executeRebase: async () => ({ success: true, status: 'paused' as const }),
+        provideRewordMessage: async () => ({ success: true, status: 'cleared-stale' as const }),
+      });
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      const updatedToast = messages.info.find((m) =>
+        m.message.startsWith('Updated commit message')
+      );
+      assert.ok(
+        !updatedToast,
+        'MUST NOT show "Updated commit message for…" when the reword self-cleared a stale session'
+      );
+      const honestToast = messages.info.find((m) => /stale session/i.test(m.message));
+      assert.ok(
+        honestToast,
+        'SHOULD surface an honest "cleared a stale session" message instead of a false success'
       );
     });
 

@@ -7,9 +7,20 @@ import { IRepository } from './IGitService';
 export type RebaseAction = 'pick' | 'reword' | 'edit' | 'squash' | 'fixup' | 'drop';
 
 /**
- * Rebase session status
+ * Rebase session status.
+ *
+ * `cleared-stale` is distinct from `completed`: it marks a no-op where a
+ * continue/skip/abort found NO live git rebase and self-cleared a phantom
+ * (stale) cached session. No commits were replayed, so the UI must report it
+ * honestly rather than claiming the rebase completed.
  */
-export type RebaseStatus = 'planning' | 'in-progress' | 'paused' | 'conflict' | 'completed';
+export type RebaseStatus =
+  | 'planning'
+  | 'in-progress'
+  | 'paused'
+  | 'conflict'
+  | 'completed'
+  | 'cleared-stale';
 
 /**
  * Commit in a rebase session
@@ -41,24 +52,47 @@ export interface IRebaseSession {
 }
 
 /**
- * Result of a rebase operation
+ * Conflict-bearing arm of {@link IRebaseResult}.
+ *
+ * Discriminated by `status: 'conflict'`. `rebaseInProgress` is REQUIRED so a
+ * conflict can never be reported without declaring its continuability —
+ * consumers gate the continue/abort affordance on it (`=== true`).
+ *
+ * Continuability is orthogonal to conflict-ness: a mid-replay conflict leaves
+ * a live rebase (`true`, continue/abort apply), while an `--autostash` pop
+ * conflict happens after the rebase already finished (`false`, no rebase in
+ * progress — `git rebase --continue` would dead-end on "no rebase in
+ * progress"). When `false` consumers offer only resolve-and-stage (`git add`).
  */
-export interface IRebaseResult {
-  success: boolean;
-  status: RebaseStatus;
-  conflictedFiles?: string[];
-  /**
-   * Whether a rebase is still in progress when the result carries conflicts.
-   * Continuability is orthogonal to conflict-ness: a mid-replay conflict
-   * leaves a live rebase (`true`, continue/abort apply), while an
-   * `--autostash` pop conflict happens after the rebase already finished
-   * (`false`, no rebase in progress — `git rebase --continue` would dead-end
-   * on "no rebase in progress"). Consumers must gate the continue/abort
-   * affordance on `rebaseInProgress === true`; when `false` they offer only
-   * resolve-and-stage (`git add`). Undefined when there are no conflicts.
-   */
-  rebaseInProgress?: boolean;
+export interface IRebaseConflictResult {
+  success: false;
+  status: 'conflict';
+  conflictedFiles: string[];
+  rebaseInProgress: boolean;
 }
+
+/**
+ * Non-conflict arm of {@link IRebaseResult} (completed / in-progress / paused
+ * / planning). These outcomes carry no conflict files and no continuability
+ * flag — both are forbidden here (`?: never`) so the meaningful
+ * `rebaseInProgress` only ever appears on a genuine conflict, never polluting
+ * a success result.
+ */
+export interface IRebaseOutcomeResult {
+  success: boolean;
+  status: Exclude<RebaseStatus, 'conflict'>;
+  conflictedFiles?: never;
+  rebaseInProgress?: never;
+}
+
+/**
+ * Result of a rebase operation.
+ *
+ * A discriminated union: a `status: 'conflict'` result MUST set
+ * `rebaseInProgress` (see {@link IRebaseConflictResult}); every other outcome
+ * forbids it (see {@link IRebaseOutcomeResult}).
+ */
+export type IRebaseResult = IRebaseConflictResult | IRebaseOutcomeResult;
 
 /**
  * Rebase Service interface for interactive rebase operations.

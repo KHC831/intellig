@@ -240,13 +240,6 @@ export class RebaseEditor {
             this._resolvePromise = undefined;
           }
           this.hide();
-        } else if (result.status === 'conflict') {
-          void vscode.window.showWarningMessage(this._conflictMessage(result));
-          if (this._resolvePromise) {
-            this._resolvePromise({ executed: true, success: false, error: 'Conflicts detected' });
-            this._resolvePromise = undefined;
-          }
-          this.hide();
         }
       } else {
         if (result.status === 'conflict') {

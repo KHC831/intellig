@@ -658,6 +658,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
         success: false,
         status: 'conflict',
         conflictedFiles: ['src/conflicted.ts'],
+        rebaseInProgress: true,
       };
       const rebaseService = createMockRebaseService(tracker);
       const gitService = createMockGitService(repo);
@@ -938,6 +939,7 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
         success: false,
         status: 'conflict',
         conflictedFiles: ['src/conflicted.ts'],
+        rebaseInProgress: true,
       };
       const rebaseService = createMockRebaseService(tracker);
       const gitService = createMockGitService(repo);

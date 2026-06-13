@@ -400,7 +400,9 @@ export class BranchOps {
 
     // Rebase is still running but the next commit hit conflicts. Surface
     // them the same way rebaseBranch does so callers can re-render the
-    // Resolve Conflicts dialog with the new file set.
+    // Resolve Conflicts dialog with the new file set. Reached only via `git
+    // rebase --skip`, so a rebase is necessarily still in progress: the
+    // conflict is continuable.
     const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
       cwd: repo.rootUri.fsPath,
     });
@@ -411,6 +413,7 @@ export class BranchOps {
     return {
       success: false,
       conflicts,
+      rebaseInProgress: true,
     };
   }
 
@@ -467,9 +470,12 @@ export class BranchOps {
       .map((f) => f.path);
 
     if (conflicts.length > 0) {
+      // Reached via `git rebase --continue`, so a rebase is necessarily still
+      // in progress: the conflict is continuable.
       return {
         success: false,
         conflicts,
+        rebaseInProgress: true,
       };
     }
 
