@@ -287,7 +287,7 @@ describe('Wave A R4 — review fixes', () => {
       const window = src.substring(Math.max(0, idx - 1200), idx + 400);
       assert.ok(
         /title=/.test(window) || /tooltip/i.test(window),
-        'JSDoc must mention the title= tooltip surface that R4-1 added'
+        'JSDoc must mention the title= tooltip surface'
       );
     });
   });

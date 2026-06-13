@@ -461,7 +461,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       assert.strictEqual(
         state.squashCommits.reason,
         undefined,
-        'hidden actions must not carry a tooltip-able reason (R4-2)'
+        'hidden actions must not carry a tooltip-able reason'
       );
     });
 
@@ -509,7 +509,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       assert.strictEqual(
         state.compareVersions.reason,
         undefined,
-        'compareVersions has no visible-disabled state, so reason is never populated (R4-2)'
+        'compareVersions has no visible-disabled state, so reason is never populated'
       );
     });
   });

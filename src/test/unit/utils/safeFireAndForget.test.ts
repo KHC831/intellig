@@ -203,7 +203,7 @@ describe('safeFireAndForget — Logger routing', () => {
     assert.strictEqual(
       record.correlationId,
       undefined,
-      'correlationId must be omitted when no frame is on the stack (Requirement 5.5)'
+      'correlationId must be omitted when no frame is on the stack'
     );
   });
 

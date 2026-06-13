@@ -156,7 +156,7 @@ describe('Logger emission-path performance', () => {
       meanMsPerCall < PER_CALL_BUDGET_MS,
       `Logger.info emission path mean per-call duration was ${meanMsPerCall.toFixed(4)}ms ` +
         `(${TIMED_ITERATIONS} samples, total ${totalMs.toFixed(2)}ms); ` +
-        `Requirement 7.2 budget is ${PER_CALL_BUDGET_MS}ms`
+        `Per-call log budget is ${PER_CALL_BUDGET_MS}ms`
     );
   });
 });

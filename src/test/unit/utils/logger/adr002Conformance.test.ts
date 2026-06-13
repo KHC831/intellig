@@ -417,7 +417,7 @@ describe('logger — ADR-002 conformance', () => {
       assert.strictEqual(
         channelDisposeCount,
         0,
-        'disposing the Logger-owned subscriptions must NOT dispose the channel — Requirement 3.4 (sink borrows; initOutputChannel owns)'
+        'disposing the Logger-owned subscriptions must NOT dispose the channel (sink borrows; initOutputChannel owns)'
       );
 
       // Now VS Code disposes the channel via initOutputChannel's

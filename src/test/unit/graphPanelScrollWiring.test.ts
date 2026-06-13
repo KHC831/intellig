@@ -140,7 +140,7 @@ describe('Feature: git-graph-branch-click-scroll - graph panel scroll wiring (js
     assert.strictEqual(
       shouldScrollToRow(fullyVisible),
       false,
-      'fully-visible row should NOT trigger a scroll (Requirement 1.1)'
+      'fully-visible row should NOT trigger a scroll'
     );
   });
 
@@ -161,7 +161,7 @@ describe('Feature: git-graph-branch-click-scroll - graph panel scroll wiring (js
     assert.strictEqual(
       shouldScrollToRow(offscreen),
       true,
-      'off-screen row should trigger a scroll (Requirement 2.1)'
+      'off-screen row should trigger a scroll'
     );
   });
 

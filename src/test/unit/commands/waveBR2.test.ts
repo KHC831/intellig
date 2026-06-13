@@ -340,7 +340,7 @@ describe('Wave B R2 — final review fixes', () => {
         /_onDidRequestLogContextAction\s*=\s*new\s+vscode\.EventEmitter<\{[\s\S]{0,3000}commitNodes/.test(
           src
         ),
-        'event payload type must include commitNodes (R2-4 collapse)'
+        'event payload type must include commitNodes (post-collapse)'
       );
       // The earlier parallel records are gone from the event type.
       // (Either name appearing as a property name on the union type
@@ -356,11 +356,11 @@ describe('Wave B R2 — final review fixes', () => {
       const codeOnly = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       assert.ok(
         !/\bdisplayOrder\s*:/.test(codeOnly),
-        'R2-4: parallel `displayOrder` field on the event must be removed'
+        'parallel `displayOrder` field on the event must be removed'
       );
       assert.ok(
         !/\bparentCounts\s*:/.test(codeOnly),
-        'R2-4: parallel `parentCounts` field on the event must be removed'
+        'parallel `parentCounts` field on the event must be removed'
       );
     });
 
@@ -470,7 +470,7 @@ describe('Wave B R2 — final review fixes', () => {
       const window = src.substring(Math.max(0, idx - 800), idx + 2000);
       assert.ok(
         /end-to-end smoke/.test(window),
-        'R1-2 test block must point at the dedicated end-to-end smoke inversion regression guard'
+        'the initial-commit inversion test block must point at the dedicated end-to-end smoke inversion regression guard'
       );
     });
   });

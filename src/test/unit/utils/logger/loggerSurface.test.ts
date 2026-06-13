@@ -76,7 +76,7 @@ describe('Logger surface', () => {
       assert.strictEqual(
         (root as unknown as Record<string, unknown>)['fatal'],
         undefined,
-        'Logger surface must not expose a `fatal` method (Requirement 1.1)'
+        'Logger surface must not expose a `fatal` method'
       );
 
       // `log` is another common shorthand that this surface intentionally

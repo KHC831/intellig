@@ -414,7 +414,7 @@ describe('Wave A R5 — final review fixes', () => {
         /FU\b[\s\S]{0,200}structural-only|FU\b[\s\S]{0,200}jsdom|FU\b[\s\S]{0,200}runtime witness/i.test(
           window
         ),
-        'R4-1 test block must carry an FU note about structural-only coverage + ext-host runtime witness'
+        'the title-attribute test block must carry an FU note about structural-only coverage + ext-host runtime witness'
       );
     });
   });

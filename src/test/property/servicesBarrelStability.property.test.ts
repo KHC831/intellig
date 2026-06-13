@@ -469,7 +469,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
           outputNames,
           inputNames,
           `Property 14a violation: regeneration changed the SET of ` +
-            `declared barrel-level symbol names (Requirement 10.3, 10.4).\n` +
+            `declared barrel-level symbol names.\n` +
             `  input names:  ${JSON.stringify(inputNames)}\n` +
             `  output names: ${JSON.stringify(outputNames)}\n` +
             `  input content:\n${inputContent}\n` +
@@ -521,7 +521,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
             `Property 14b.1 violation: distinct canonical entries ` +
               `produced the SAME fingerprint. Two entries that differ ` +
               `structurally must produce different fingerprints so the ` +
-              `barrel's public API surface check (Requirement 10.3) ` +
+              `barrel's public API surface check ` +
               `cannot silently equate distinct exports.\n` +
               `  entry 1 (canonical): ${c1}\n` +
               `  entry 2 (canonical): ${c2}\n` +
@@ -573,7 +573,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
           afterFingerprints,
           beforeFingerprints,
           `Property 14b.2 violation: regeneration changed the SET of ` +
-            `entry fingerprints (Requirement 10.3 — byte-identical ` +
+            `entry fingerprints (byte-identical ` +
             `Public_Service_API surface).\n` +
             `  before: ${JSON.stringify(beforeFingerprints)}\n` +
             `  after:  ${JSON.stringify(afterFingerprints)}\n` +
@@ -604,7 +604,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
           twice,
           once,
           `Property 14b.3 violation: a second regeneration produced ` +
-            `different content (Requirement 12.3, 14.5).\n` +
+            `different content.\n` +
             `  first pass:\n${once}\n` +
             `  second pass:\n${twice}`
         );
@@ -638,7 +638,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
       const fingerprints = fingerprintList(liveEntries);
       assert.ok(
         fingerprints.length > 0,
-        `Requirement 10.1 violation: src/services/index.ts produced ` +
+        `Barrel stability violation: src/services/index.ts produced ` +
           `zero export-declaration fingerprints. The Public_Service_API ` +
           `surface must be non-empty.`
       );
@@ -688,7 +688,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
       assert.deepStrictEqual(
         after,
         before,
-        `Requirement 10.3 violation: regenerating the live barrel ` +
+        `Barrel stability violation: regenerating the live barrel ` +
           `changed the fingerprint set. The Public_Service_API ` +
           `surface must be byte-identical before and after the ` +
           `restructure.\n` +
@@ -715,7 +715,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
       assert.deepStrictEqual(
         after,
         before,
-        `Requirement 10.1, 10.5 violation: regenerating the live ` +
+        `Barrel stability violation: regenerating the live ` +
           `barrel changed the SET of declared symbol names.\n` +
           `  before: ${JSON.stringify(before)}\n` +
           `  after:  ${JSON.stringify(after)}`
@@ -740,9 +740,9 @@ describe('Public_Service_API import stability (Property 14)', () => {
       for (const required_name of required) {
         assert.ok(
           names.has(required_name),
-          `Requirement 10.5 violation: the live barrel does not ` +
+          `Barrel stability violation: the live barrel does not ` +
             `declare '${required_name.slice('name:'.length)}'. ` +
-            `Requirement 10.5 names this symbol explicitly as part ` +
+            `the barrel-stability contract names this symbol explicitly as part ` +
             `of the Public_Service_API.`
         );
       }
@@ -759,7 +759,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
       );
       assert.ok(
         hasInterfaceStar,
-        `Requirement 10.5 violation: the live barrel has no ` +
+        `Barrel stability violation: the live barrel has no ` +
           `'export * from <interfaces>' line — the IGitService family ` +
           `re-export path is missing.`
       );
@@ -772,7 +772,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
       const hasFactory = [...names].some((n) => n.startsWith('name:create'));
       assert.ok(
         hasFactory,
-        `Requirement 10.5 violation: the live barrel declares no ` +
+        `Barrel stability violation: the live barrel declares no ` +
           `'create*' factory at all. At least one factory ` +
           `(e.g. createGitService) must be exported.`
       );
@@ -793,7 +793,7 @@ describe('Public_Service_API import stability (Property 14)', () => {
       assert.strictEqual(
         twice,
         once,
-        `Requirement 12.3, 14.5 violation: regenerating the live ` +
+        `Barrel idempotence violation: regenerating the live ` +
           `barrel twice produced different content on the second pass.`
       );
     });

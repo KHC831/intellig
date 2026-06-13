@@ -117,15 +117,15 @@ describe('IntelliJ keymap parity', () => {
       const kb = kbs.find(
         (k) => k.command === 'intellig.shelve.silent' && k.key === 'ctrl+shift+h'
       );
-      assert.ok(kb, 'T2-10 shortcut ctrl+shift+h must still be present');
+      assert.ok(kb, 'shelve.silent shortcut ctrl+shift+h must still be present');
     });
 
-    it('Ctrl+Alt+U → intellig.unshelve.silent (from )', () => {
+    it('Ctrl+Alt+U → intellig.unshelve.silent', () => {
       const kbs = pkg.contributes?.keybindings ?? [];
       const kb = kbs.find(
         (k) => k.command === 'intellig.unshelve.silent' && k.key === 'ctrl+alt+u'
       );
-      assert.ok(kb, 'T2-10 shortcut ctrl+alt+u must still be present');
+      assert.ok(kb, 'unshelve.silent shortcut ctrl+alt+u must still be present');
     });
   });
 });

@@ -570,7 +570,7 @@ describe('ConfigurationService change records carry only keys (Property 12)', ()
           assert.deepStrictEqual(
             ctxKeysActual,
             ['keys'],
-            `Requirement 14.10: change-record context must only ` +
+            `No-PII-in-keys: change-record context must only ` +
               `carry the 'keys' field; got ${JSON.stringify(ctxKeysActual)}`
           );
 
@@ -611,7 +611,7 @@ describe('ConfigurationService change records carry only keys (Property 12)', ()
             }
             assert.ok(
               !continuationBlob.includes(form),
-              `Requirement 14.10 violation: rendered change-record ` +
+              `No-PII-in-keys violation: rendered change-record ` +
                 `continuation lines contain the new value '${form}' ` +
                 `for key '${knob.typedKey}'. lines=${JSON.stringify(continuationLines)}`
             );
@@ -622,7 +622,7 @@ describe('ConfigurationService change records carry only keys (Property 12)', ()
             }
             assert.ok(
               !continuationBlob.includes(form),
-              `Requirement 14.10 violation: rendered change-record ` +
+              `No-PII-in-keys violation: rendered change-record ` +
                 `continuation lines contain the old value '${form}' ` +
                 `for key '${knob.typedKey}'. lines=${JSON.stringify(continuationLines)}`
             );

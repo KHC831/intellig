@@ -152,7 +152,7 @@ describe('logger — OutputChannel sink lifecycle', () => {
     assert.strictEqual(
       channelDisposeCount,
       0,
-      'first sink.dispose() must NOT dispose the underlying channel — ownership stays with initOutputChannel (Requirement 3.4)'
+      'first sink.dispose() must NOT dispose the underlying channel — ownership stays with initOutputChannel'
     );
 
     // Idempotent: a second dispose call must still leave the channel
@@ -212,7 +212,7 @@ describe('logger — OutputChannel sink lifecycle', () => {
     assert.strictEqual(
       channelDisposeCount,
       0,
-      'disposing the Logger-owned subscriptions must not dispose the channel — Requirement 3.4'
+      'disposing the Logger-owned subscriptions must not dispose the channel'
     );
 
     // VS Code disposes the channel via the registration that

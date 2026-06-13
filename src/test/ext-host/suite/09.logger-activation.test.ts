@@ -233,7 +233,7 @@ describe('ext-host smoke — 9. logger activation', function () {
       `Logger emission cost exceeds the per-activation budget: ` +
         `${elapsedMs.toFixed(3)}ms over ${ACTIVATION_BURST_RECORDS} info records ` +
         `(budget ${ACTIVATION_LOGGER_BUDGET_MS}ms). ` +
-        `Requirement 7.5 caps activation overhead at ${ACTIVATION_LOGGER_BUDGET_MS}ms; ` +
+        `Activation logger overhead cap is ${ACTIVATION_LOGGER_BUDGET_MS}ms; ` +
         `something on the hot path is allocating or sanitizing more than expected.`
     );
   });

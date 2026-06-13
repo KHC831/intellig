@@ -304,7 +304,7 @@ describe('Logger correlation-id propagation (Property 10)', () => {
             const firstCid = records[0].correlationId;
             assert.ok(
               firstCid !== undefined,
-              `record emitted inside the handler must carry a correlationId field (Requirement 5.1)`
+              `record emitted inside the handler must carry a correlationId field`
             );
             assert.ok(
               HEX16_RE.test(firstCid),
@@ -314,7 +314,7 @@ describe('Logger correlation-id propagation (Property 10)', () => {
               assert.strictEqual(
                 r.correlationId,
                 firstCid,
-                'every record emitted inside one frame must carry the same cid (Requirement 5.4)'
+                'every record emitted inside one frame must carry the same cid'
               );
               assert.strictEqual(
                 r.component,
@@ -378,7 +378,7 @@ describe('Logger correlation-id propagation (Property 10)', () => {
           assert.notStrictEqual(
             cidA,
             cidB,
-            'two consecutive command invocations must produce two distinct cids (Requirement 5.1)'
+            'two consecutive command invocations must produce two distinct cids'
           );
 
           disposable.dispose();
@@ -436,7 +436,7 @@ describe('Logger correlation-id propagation (Property 10)', () => {
               assert.notStrictEqual(
                 r.correlationId,
                 '',
-                'the absent-cid case must be undefined, not the empty string (Requirement 14.9)'
+                'the absent-cid case must be undefined, not the empty string'
               );
             }
           } finally {
@@ -562,11 +562,7 @@ describe('Logger correlation-id propagation (Property 10)', () => {
         const patch = patchRegisterCommand();
         try {
           // Outside any frame the store is empty.
-          assert.strictEqual(
-            getCurrentCorrelationId(),
-            undefined,
-            'no frame on stack ⇒ undefined (Requirement 5.5 / 14.9)'
-          );
+          assert.strictEqual(getCurrentCorrelationId(), undefined, 'no frame on stack ⇒ undefined');
 
           let cidInsideFrame: string | undefined;
           const disposable = registerLoggedCommand(commandId, () => {
@@ -673,7 +669,7 @@ describe('Logger correlation-id propagation (Property 10)', () => {
             assert.match(
               record.correlationId,
               HEX16_RE,
-              `correlationId must be a 16-char hex string (Requirement 5.1); got ${JSON.stringify(record.correlationId)}`
+              `correlationId must be a 16-char hex string; got ${JSON.stringify(record.correlationId)}`
             );
 
             disposable.dispose();
