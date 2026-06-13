@@ -262,10 +262,9 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
           );
 
           // 4. A date string must be present (the commit-date span should contain text)
-          // The row now uses `formatCommitDate`: relative ("5m", "3d")
-          // for commits under a week old, absolute ("Mar 17 2026")
-          // beyond. We verify the commit-date span exists and is
-          // non-empty.
+          // The row uses `formatCommitDate`, which always emits a
+          // locale-aware absolute timestamp (date + time, no seconds).
+          // We verify the commit-date span exists and is non-empty.
           const datePattern = /class="commit-date"[^>]*>([^<]+)</;
           const dateMatch = html.match(datePattern);
           assert.ok(
@@ -274,9 +273,7 @@ describe('Feature: intellig-layout - Graph Panel Property Tests', () => {
           );
 
           // The span content must EXACTLY equal the formatCommitDate
-          // label for this commit's date. Since the generator spans the
-          // last year, both relative and absolute forms are exercised
-          // across runs.
+          // label (locale-aware absolute timestamp) for this commit's date.
           const dateText = dateMatch[1].trim();
           const { display: expectedDateLabel } = formatCommitDate(commit.authorDate);
           assert.strictEqual(

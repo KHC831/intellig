@@ -2965,10 +2965,11 @@ ${bodyMarkup}
         const fullMessage = this._escapeHtml(commit.message);
         const authorName = this._escapeHtml(commit.author.name);
         const authorEmail = this._escapeHtml(commit.author.email);
-        // IntelliJ-style relative-or-absolute label: a commit under a
-        // week old reads as a relative distance ("3d", "2h"); older
-        // commits show an absolute calendar date. The tooltip always
-        // carries the full timestamp. See `formatCommitDate`.
+        // IntelliJ-style absolute timestamp: the row shows a
+        // locale-aware date + time (no seconds), matching IntelliJ's
+        // log. The inline label never goes stale (no relative "2h"
+        // distance baked into static HTML); the tooltip carries the
+        // full timestamp with seconds. See `formatCommitDate`.
         const { display: dateDisplay, tooltip: dateTooltip } = formatCommitDate(commit.authorDate);
         const commitDate = this._escapeHtml(dateDisplay);
         const fullDate = this._escapeHtml(dateTooltip);
