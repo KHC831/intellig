@@ -584,19 +584,20 @@ describe('Wave A R4 — review fixes', () => {
     });
 
     it('addRangeSelectCommit fires BEFORE the post sequence', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
-        'utf8'
+      // Tail-window check (like rangeSelectCommit): the LAST fire must precede
+      // the LAST post, recognizing both receiver forms so the witness follows
+      // the body whether it is in-class (this._X) or extracted (ctx.X).
+      const body = await readSetterBody('addRangeSelectCommit');
+      const lastFire = Math.max(
+        body.lastIndexOf('this._onDidChangeState.fire()'),
+        body.lastIndexOf('ctx.fireDidChangeState()')
       );
-      const start = src.indexOf('public addRangeSelectCommit(hash: string): void');
-      const end = src.indexOf('\n  }\n', start);
-      const body = src.substring(start, end);
-      const lastFire = body.lastIndexOf('this._onDidChangeState.fire()');
-      const lastPostMenu = body.lastIndexOf('this._postMenuStateUpdate()');
-      const lastPostSync = body.lastIndexOf('this._postSyncSelection()');
-      const lastPost = Math.max(lastPostMenu, lastPostSync);
+      const lastPost = Math.max(
+        body.lastIndexOf('this._postMenuStateUpdate()'),
+        body.lastIndexOf('this._postSyncSelection()'),
+        body.lastIndexOf('ctx.postMenuStateUpdate()'),
+        body.lastIndexOf('ctx.postSyncSelection()')
+      );
       assert.ok(lastFire !== -1 && lastPost !== -1);
       assert.ok(
         lastFire < lastPost,
