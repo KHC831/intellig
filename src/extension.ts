@@ -70,6 +70,7 @@ import { isTabbedGitToolWindowEnabled } from './git-core/gitToolWindow/config';
 import { parseRemoteUrl } from './utils/remoteUrl';
 import { commitUrl } from './utils/hostingLinks';
 import { sanitizeGitError, formatActionFailureToast } from './git-core/gitError';
+import { ICommandContext } from './commands/registration/CommandContext';
 
 /**
  * Global reference to the extension services container.
@@ -602,6 +603,85 @@ export function __registerCommandsForTest(context: vscode.ExtensionContext): voi
 }
 
 function registerCommands(context: vscode.ExtensionContext): void {
+  // Shared read/WRITE bridge to the module-level singletons (RULE E1). Command
+  // handlers extracted into `commands/registration/*` reach state through this
+  // context; get/set accessors forward to the module `let`s so lazy-init
+  // write-back mutates the single owner `getServices()`/`deactivate()` observe.
+  const ctx: ICommandContext = {
+    context,
+    get services() {
+      return extensionServices;
+    },
+    get gitToolWindowProvider() {
+      return gitToolWindowProvider;
+    },
+    get commitContextMenuCommands() {
+      return commitContextMenuCommands;
+    },
+    get commitToolWindow() {
+      return commitToolWindow;
+    },
+    get commitDialog() {
+      return commitDialog;
+    },
+    set commitDialog(v) {
+      commitDialog = v;
+    },
+    get branchPopup() {
+      return branchPopup;
+    },
+    set branchPopup(v) {
+      branchPopup = v;
+    },
+    get stashView() {
+      return stashView;
+    },
+    set stashView(v) {
+      stashView = v;
+    },
+    get shelfView() {
+      return shelfView;
+    },
+    set shelfView(v) {
+      shelfView = v;
+    },
+    get inlineBlameProvider() {
+      return inlineBlameProvider;
+    },
+    set inlineBlameProvider(v) {
+      inlineBlameProvider = v;
+    },
+    get gutterBlameProvider() {
+      return gutterBlameProvider;
+    },
+    set gutterBlameProvider(v) {
+      gutterBlameProvider = v;
+    },
+    get branchComparisonView() {
+      return branchComparisonView;
+    },
+    set branchComparisonView(v) {
+      branchComparisonView = v;
+    },
+    get mergeView() {
+      return mergeView;
+    },
+    set mergeView(v) {
+      mergeView = v;
+    },
+    get rebaseEditor() {
+      return rebaseEditor;
+    },
+    set rebaseEditor(v) {
+      rebaseEditor = v;
+    },
+    getPullDialog: () => _getPullDialog(),
+    openPushDialog: (p) => _openPushDialog(p),
+    openMergeDialog: (p) => _openMergeDialog(p),
+    openNewBranchDialog: (p) => _openNewBranchDialog(p),
+  };
+  void ctx;
+
   // Open Git Tool Window command
   const openGitToolWindowCommand = registerLoggedCommand('intellig.openGitToolWindow', () => {
     // Focus the Git Tool Window view
