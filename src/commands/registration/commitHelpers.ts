@@ -200,11 +200,10 @@ export async function runNewTagFlowFromContext(
   if (!repo || !ctx.services) {
     return;
   }
-  const services = ctx.services;
   await runNewTagFlow(
     {
       repo,
-      gitService: services.gitService,
+      gitService: ctx.services.gitService,
       showInputBox: (options) => vscode.window.showInputBox(options),
       showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
       showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
@@ -212,8 +211,12 @@ export async function runNewTagFlowFromContext(
         // createTag added a ref that drives the
         // tag tree + log-graph tag chip; reload before refresh so the
         // panel reads the post-mutation tag set.
+        // Live read through ctx (matching the original's live
+        // `extensionServices!.gitService` module-global read) so a
+        // deactivation race between createTag and this callback behaves
+        // byte-identically rather than running on a captured-stale service.
         void (async (): Promise<void> => {
-          await services.gitService.reloadRepository(repo);
+          await ctx.services!.gitService.reloadRepository(repo);
           if (ctx.gitToolWindowProvider) {
             ctx.gitToolWindowProvider.refresh();
           }
