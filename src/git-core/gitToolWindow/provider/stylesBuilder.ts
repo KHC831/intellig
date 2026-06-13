@@ -883,6 +883,48 @@ export function buildInlineStyles(): string {
         color: var(--vscode-badge-foreground, white);
       }
 
+      /* Tag name-on-hover (IntelliJ "Tag Names off" default). The tag is an
+         ICON at rest; the name (.tag-label-name) is collapsed to zero
+         width and clipped, then revealed on hover OR keyboard focus — the
+         reveal is never mouse-only (WCAG: focus is the hover-equivalent).
+         The name stays in the DOM at all times (find-in-page +
+         screen-reader textContent + the chip's authoritative aria-label),
+         so an annotated tag remains present AND discoverable (b42b14b
+         guard) — only its always-on visual text is gated behind hover. The
+         resting icon keeps no right margin so the icon-only chip stays
+         tight; the margin returns with the name on reveal. */
+      .tag-label .tag-label-name {
+        display: inline-block;
+        max-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        vertical-align: middle;
+        opacity: 0;
+        transition: max-width 0.12s ease, opacity 0.12s ease;
+      }
+
+      .tag-label:hover .tag-label-name,
+      .tag-label:focus .tag-label-name,
+      .tag-label:focus-within .tag-label-name {
+        max-width: 200px;
+        opacity: 1;
+      }
+
+      .tag-label i.codicon {
+        margin-right: 0;
+      }
+
+      .tag-label:hover i.codicon,
+      .tag-label:focus i.codicon,
+      .tag-label:focus-within i.codicon {
+        margin-right: 4px;
+      }
+
+      .tag-label:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder, currentColor);
+        outline-offset: 1px;
+      }
+
       /* Commit Details Panel */
       .commit-details {
         padding: 12px;

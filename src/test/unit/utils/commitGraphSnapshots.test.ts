@@ -2022,17 +2022,20 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     assert.strictEqual(
       html,
       '<span class="branch-label-head" data-branch-name="main" role="img" aria-label="Current branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
-        '<span class="tag-label" data-tag-name="v1.0" role="img" aria-label="Tag: v1.0"><i class="codicon codicon-tag" aria-hidden="true"></i>v1.0</span>'
+        '<span class="tag-label" data-tag-name="v1.0" role="img" aria-label="Tag: v1.0" title="v1.0" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">v1.0</span></span>'
     );
   });
 
-  it('snap-13b: tag-only commit (no branches, no HEAD) → wrapper non-empty, single tag chip emitted', () => {
+  it('snap-13b: tag-only commit (no branches, no HEAD) → wrapper non-empty, single tag icon-chip emitted', () => {
     const node = nodeWithBranchesAndTags('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', [], ['v0.9']);
     const html = provider._getBranchLabelsHtml(node);
     assert.notStrictEqual(html, '', 'tag-only commit must NOT collapse to empty wrapper');
+    // IntelliJ tag-icon + name-on-hover: the codicon-tag icon is the
+    // resting affordance; the name lives in .tag-label-name (revealed on
+    // hover/focus) but stays in the DOM for find-in-page + SR.
     assert.strictEqual(
       html,
-      '<span class="tag-label" data-tag-name="v0.9" role="img" aria-label="Tag: v0.9"><i class="codicon codicon-tag" aria-hidden="true"></i>v0.9</span>'
+      '<span class="tag-label" data-tag-name="v0.9" role="img" aria-label="Tag: v0.9" title="v0.9" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">v0.9</span></span>'
     );
   });
 
@@ -2045,8 +2048,8 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     const html = provider._getBranchLabelsHtml(node);
     assert.strictEqual(
       html,
-      '<span class="tag-label" data-tag-name="v1.0.0" role="img" aria-label="Tag: v1.0.0"><i class="codicon codicon-tag" aria-hidden="true"></i>v1.0.0</span>' +
-        '<span class="tag-label" data-tag-name="latest" role="img" aria-label="Tag: latest"><i class="codicon codicon-tag" aria-hidden="true"></i>latest</span>'
+      '<span class="tag-label" data-tag-name="v1.0.0" role="img" aria-label="Tag: v1.0.0" title="v1.0.0" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">v1.0.0</span></span>' +
+        '<span class="tag-label" data-tag-name="latest" role="img" aria-label="Tag: latest" title="latest" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">latest</span></span>'
     );
   });
 
@@ -2070,11 +2073,12 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
       /aria-label="Tag:\s+&lt;img\s+src=x[^"]*"/.test(html),
       `aria-label must carry the escaped name; got: ${html}`
     );
-    // And the inner text content (between the </i> and </span>) must be
-    // the escaped form too.
+    // And the inner text content (inside the .tag-label-name span) must be
+    // the escaped form too — the name is hover-revealed but still in the
+    // DOM (discoverability backstop), and always escaped.
     assert.ok(
-      /<\/i>&lt;img\s+src=x[^<]*<\/span>/.test(html),
-      `textContent must be the escaped form; got: ${html}`
+      /<span class="tag-label-name">&lt;img\s+src=x[^<]*<\/span>/.test(html),
+      `textContent must be the escaped form inside .tag-label-name; got: ${html}`
     );
   });
 
@@ -2149,6 +2153,71 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     assert.ok(
       /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground,\s*white\)/.test(fullHtml),
       'inline CSS for .tag-label must keep `white` as the badge-foreground fallback'
+    );
+  });
+
+  it('snap-13g: tag renders as icon + name-on-hover; the name stays in the DOM (b42b14b discoverability guard)', () => {
+    // IntelliJ "Tag Names off" default: the codicon-tag ICON is the
+    // resting affordance; the name is revealed on hover/focus. The
+    // b42b14b discoverability guard (annotated tags are PRESENT +
+    // DISCOVERABLE on the graph) must NOT regress: (1) the tag chip still
+    // renders with its data-tag-name (present), and (2) the name is
+    // reachable via title + aria-label + the in-DOM .tag-label-name span
+    // (discoverable, never removed from the DOM).
+    const node = nodeWithBranchesAndTags(headSha, [], ['v2.5-annotated']);
+    const html = provider._getBranchLabelsHtml(node);
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const chip = dom.window.document.querySelector('.tag-label');
+    assert.ok(chip, 'tag chip is present on the graph (b42b14b: tag is PRESENT)');
+    // The tag glyph is the resting affordance.
+    assert.ok(
+      chip.querySelector('i.codicon.codicon-tag'),
+      'tag chip must render the codicon-tag icon at rest'
+    );
+    // Present: data-tag-name carries the name.
+    assert.strictEqual(chip.getAttribute('data-tag-name'), 'v2.5-annotated');
+    // Discoverable via every backstop: aria-label (SR), title (hover
+    // tooltip), and the in-DOM name span (find-in-page + the CSS
+    // hover-reveal). The name must NOT vanish from the DOM.
+    assert.strictEqual(chip.getAttribute('aria-label'), 'Tag: v2.5-annotated');
+    assert.strictEqual(chip.getAttribute('title'), 'v2.5-annotated');
+    const nameSpan = chip.querySelector('.tag-label-name');
+    assert.ok(nameSpan, 'the tag name span must stay in the DOM (discoverability backstop)');
+    assert.strictEqual(
+      nameSpan.textContent,
+      'v2.5-annotated',
+      'the name text remains in the DOM for find-in-page + screen readers'
+    );
+    // Keyboard-focusable so focus reveals the name (reveal is not
+    // mouse-only — WCAG).
+    assert.strictEqual(chip.getAttribute('tabindex'), '0', 'tag chip is keyboard-focusable');
+  });
+
+  it('snap-13h: inline CSS gates the tag name behind hover/focus (resting icon-only, name on :hover/:focus)', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // Resting state: the name span is collapsed (max-width: 0).
+    assert.ok(
+      /\.tag-label\s+\.tag-label-name\s*\{[^}]*max-width:\s*0/.test(fullHtml),
+      'tag name span must be collapsed (max-width: 0) at rest'
+    );
+    // Reveal on hover AND focus (focus is the hover-equivalent — never
+    // mouse-only, WCAG).
+    assert.ok(
+      /\.tag-label:hover\s+\.tag-label-name[\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'tag name must be revealed on :hover'
+    );
+    assert.ok(
+      /\.tag-label:focus(?:-within)?\s+\.tag-label-name/.test(fullHtml),
+      'tag name must also be revealed on keyboard :focus / :focus-within (not mouse-only)'
     );
   });
 });

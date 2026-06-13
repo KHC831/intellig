@@ -2894,21 +2894,22 @@ ${bodyMarkup}
       return `<span class="${cssClass}" data-branch-name="${escapedName}" role="img" aria-label="${ariaLabel}"${ariaDescribedByAttr}><i class="codicon ${iconClass}" aria-hidden="true"></i>${escapedName}</span>`;
     });
 
-    // Tag chips render LAST (rightmost) so HEAD
-    // branch chips remain in their existing order. Each tag chip carries
-    // the chip-family contract: role="img" + aria-label="Tag: …"
-    // + leading codicon prefix (codicon-tag for the non-color WCAG 1.4.1
-    // affordance, distinct from codicon-git-branch / codicon-cloud /
-    // codicon-check). aria-pressed is intentionally absent — tags are
-    // not interactive yet (chip-as-button is still future work). The
-    // tag name is run through `_escapeHtml` for both the textContent
-    // and the aria-label since tags are user-controlled. data-tag-name
-    // carries the unescaped name for any future click-handler partial-
-    // update path (mirroring the data-branch-name discipline above).
+    // Tag chips render LAST (rightmost) so branch
+    // chips remain in their existing order. Following IntelliJ's "Tag
+    // Names off" default, a tag renders as the codicon-tag ICON at rest;
+    // the NAME is revealed only on hover/focus (the .tag-label-name span,
+    // collapsed by CSS until :hover/:focus). The name stays in the DOM
+    // (find-in-page + textContent) and is always available to screen
+    // readers via the chip's aria-label="Tag: …" (the discoverability
+    // backstop), plus a native title= tooltip. The chip is keyboard-
+    // focusable (tabindex="0") so focus reveals the name too — the
+    // reveal is never mouse-only (WCAG). data-tag-name carries the
+    // unescaped name for any future partial-update path. The tag name is
+    // run through `_escapeHtml` for textContent, aria-label, and title.
     const tagLabels = (node.tags || []).map((tagName) => {
       const escapedName = this._escapeHtml(tagName);
       const ariaLabel = this._escapeHtml(`Tag: ${tagName}`);
-      return `<span class="tag-label" data-tag-name="${escapedName}" role="img" aria-label="${ariaLabel}"><i class="codicon codicon-tag" aria-hidden="true"></i>${escapedName}</span>`;
+      return `<span class="tag-label" data-tag-name="${escapedName}" role="img" aria-label="${ariaLabel}" title="${escapedName}" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">${escapedName}</span></span>`;
     });
 
     // Collapse summary chip: `+N` shown after the inline branch chips
