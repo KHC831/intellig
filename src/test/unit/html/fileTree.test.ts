@@ -194,9 +194,7 @@ describe('renderFileTree() — collapsible directory chevrons', () => {
 
     // Both directory rows are interactive (toggle on Enter/Space), so each
     // must be in the tab order — matching the focusable file leaves.
-    const dirRowTabindex = (
-      html.match(/class="changed-dir-item"[^>]*tabindex="0"/g) ?? []
-    ).length;
+    const dirRowTabindex = (html.match(/class="changed-dir-item"[^>]*tabindex="0"/g) ?? []).length;
     assert.strictEqual(dirRowTabindex, 2, 'each directory row must carry tabindex="0"');
   });
 });
