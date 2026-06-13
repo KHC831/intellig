@@ -427,18 +427,32 @@ export class PushDialog extends BaseWebviewPanel {
   ): void {
     const rows: IPushRow[] = [];
     for (const repo of repos) {
-      const localBranch = repo.head?.name?.replace(/^refs\/heads\//, '') ?? '';
+      const headBranch = repo.head?.name?.replace(/^refs\/heads\//, '') ?? '';
       const upstream = repo.head?.upstream;
-      const targetBranch = upstream?.name ?? localBranch;
       const selected = !preselect || preselect.repo.rootUri.fsPath === repo.rootUri.fsPath;
+
+      // When the user right-clicks a specific branch (preselect.branch on the
+      // selected row), that clicked branch is the SOLE source of the pushed
+      // local ref — never the resolved repo's current HEAD. Seeding from
+      // `repo.head` here would ship HEAD's commits to the clicked branch's
+      // remote ref (a destructive cross-ref push when HEAD ≠ the clicked
+      // branch). The clicked branch's own upstream is only known when it
+      // happens to be the current HEAD; otherwise the target is the branch
+      // itself (push X → X) and a new upstream is set.
+      const isPreselectedBranchRow = Boolean(preselect?.branch) && selected;
+      const localBranch = isPreselectedBranchRow ? preselect!.branch! : headBranch;
+      const clickedIsHead = isPreselectedBranchRow && localBranch === headBranch;
+      const rowUpstream = !isPreselectedBranchRow || clickedIsHead ? upstream : undefined;
+      const targetBranch = rowUpstream?.name ?? localBranch;
+
       rows.push({
         id: repo.rootUri.fsPath,
         selected,
         repo,
         repoLabel: basename(repo.rootUri.fsPath),
         localBranch,
-        targetBranch: preselect?.branch && selected ? preselect.branch : targetBranch,
-        upstreamRemote: upstream?.remote,
+        targetBranch,
+        upstreamRemote: rowUpstream?.remote,
         ahead: repo.head?.ahead ?? 0,
         behind: repo.head?.behind ?? 0,
       });

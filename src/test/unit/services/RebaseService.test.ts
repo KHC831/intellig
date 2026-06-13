@@ -707,48 +707,16 @@ describe('RebaseService', () => {
         disposable.dispose();
       });
 
-      it('should throw error if git rebase --abort fails', async () => {
-        // Create a new mock that properly handles throwOnError
-        class ThrowingMockGitCli extends MockGitCli {
-          override exec(args: string[], options?: unknown): Promise<IGitCommandResult> {
-            const opts = options as { throwOnError?: boolean } | undefined;
-            const argsStr = args.join(' ');
-
-            // Check if this is the abort command that should fail
-            if (argsStr.includes('rebase --abort')) {
-              const result = createMockResult(1, '', 'fatal: No rebase in progress');
-              if (opts?.throwOnError) {
-                return Promise.reject(new Error('Git command failed: git rebase --abort'));
-              }
-              return Promise.resolve(result);
-            }
-
-            return super.exec(args, options);
-          }
-        }
-
-        const throwingMockGitCli = new ThrowingMockGitCli();
-        const throwingRebaseService = new RebaseService(throwingMockGitCli);
-
-        // Set up the session
-        throwingMockGitCli.setExecResult(
-          'rev-parse --abbrev-ref HEAD',
-          createMockResult(0, 'feature-branch\n')
-        );
-        throwingMockGitCli.setExecResult(
-          'log --reverse',
-          createMockResult(0, 'abc123\0First commit\n')
+      it('should throw error if git rebase --abort fails for a genuine reason', async () => {
+        // A "no rebase in progress" fatal is reconciled gracefully (a phantom
+        // session is just cleared). A genuine failure — e.g. a locked worktree
+        // — must still surface as a throw so the caller can report it.
+        mockGitCli.setExecResult(
+          'rebase --abort',
+          createMockResult(1, '', 'error: could not remove worktree lock file')
         );
 
-        await throwingRebaseService.startInteractiveRebase(mockRepo, 'main');
-
-        // The abort should throw because throwOnError is true
-        await assert.rejects(
-          async () => throwingRebaseService.abortRebase(mockRepo),
-          /Git command failed/
-        );
-
-        throwingRebaseService.dispose();
+        await assert.rejects(async () => rebaseService.abortRebase(mockRepo), /Git command failed/);
       });
     });
 
@@ -846,6 +814,93 @@ describe('RebaseService', () => {
         const session = rebaseService.getRebaseSession(mockRepo);
         assert.strictEqual(session, undefined);
       });
+    });
+  });
+
+  describe('stale / phantom session lifecycle (issue #18)', () => {
+    beforeEach(() => {
+      mockGitCli.setExecResult(
+        'rev-parse --abbrev-ref HEAD',
+        createMockResult(0, 'feature-branch\n')
+      );
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+    });
+
+    it('clearSession drops a cached planning session so it cannot poison later ops', async () => {
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+      assert.ok(rebaseService.getRebaseSession(mockRepo), 'session exists before clear');
+
+      rebaseService.clearSession(mockRepo);
+
+      assert.strictEqual(
+        rebaseService.getRebaseSession(mockRepo),
+        undefined,
+        'session is gone after clearSession'
+      );
+    });
+
+    it('clearSession fires onDidChangeRebaseSession(undefined)', async () => {
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+      let fired: IRebaseSession | undefined | null = null;
+      const disposable = rebaseService.onDidChangeRebaseSession((s) => {
+        fired = s;
+      });
+      rebaseService.clearSession(mockRepo);
+      assert.strictEqual(fired, undefined);
+      disposable.dispose();
+    });
+
+    it('continueRebase against a session with no git rebase in progress self-clears and reports completion, not a raw fatal', async () => {
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+      // git has no rebase-merge dir → `git rebase --continue` fatals.
+      mockGitCli.setExecResult(
+        'rebase --continue',
+        createMockResult(128, '', 'fatal: No rebase in progress?')
+      );
+      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+
+      const result = await rebaseService.continueRebase(mockRepo);
+
+      assert.strictEqual(result.success, true, 'must not surface a failure for a phantom session');
+      assert.strictEqual(result.status, 'completed');
+      // The phantom session is gone — it can no longer poison later ops.
+      assert.strictEqual(rebaseService.getRebaseSession(mockRepo), undefined);
+    });
+
+    it('skipCommit against a session with no git rebase in progress self-clears and reports completion', async () => {
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+      mockGitCli.setExecResult(
+        'rebase --skip',
+        createMockResult(128, '', 'fatal: No rebase in progress?')
+      );
+      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+
+      const result = await rebaseService.skipCommit(mockRepo);
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.status, 'completed');
+      assert.strictEqual(rebaseService.getRebaseSession(mockRepo), undefined);
+    });
+
+    it('abortRebase against a "no rebase in progress" git fatal self-clears without throwing', async () => {
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+      mockGitCli.setExecResult(
+        'rebase --abort',
+        createMockResult(128, '', 'fatal: No rebase in progress?')
+      );
+
+      await assert.doesNotReject(async () => rebaseService.abortRebase(mockRepo));
+      assert.strictEqual(rebaseService.getRebaseSession(mockRepo), undefined);
+    });
+
+    it('abortRebase still throws on a genuine (non-phantom) git failure', async () => {
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+      mockGitCli.setExecResult(
+        'rebase --abort',
+        createMockResult(1, '', 'error: could not remove worktree lock file')
+      );
+
+      await assert.rejects(async () => rebaseService.abortRebase(mockRepo));
     });
   });
 

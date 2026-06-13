@@ -217,6 +217,34 @@ export class RebaseService implements IRebaseService {
   }
 
   /**
+   * Discard any cached rebase session for the repository.
+   *
+   * An interactive-rebase session is stored in 'planning' state before any
+   * `git rebase` runs (the editor revises the plan first). If the user
+   * abandons the editor without executing, that session lingers with no git
+   * backing and poisons later branch ops. Callers clear it on abandon.
+   *
+   * @param repo - The repository
+   */
+  clearSession(repo: IRepository): void {
+    const repoKey = this.getRepoKey(repo);
+    if (this._sessions.delete(repoKey)) {
+      this._onDidChangeRebaseSession.fire(undefined);
+    }
+  }
+
+  /**
+   * Does this git error indicate there is simply no rebase in progress (a
+   * phantom/stale session) rather than a genuine failure? git phrases this
+   * as "No rebase in progress?".
+   *
+   * @param message - The combined stderr/stdout from the failed command
+   */
+  private isNoRebaseInProgressError(message: string): boolean {
+    return /no rebase in progress/i.test(message);
+  }
+
+  /**
    * Continue the rebase after resolving conflicts.
    *
    * @param repo - The repository
@@ -227,6 +255,14 @@ export class RebaseService implements IRebaseService {
     const repoKey = this.getRepoKey(repo);
 
     const result = await this._gitCli.exec(['rebase', '--continue'], { cwd });
+
+    // Reconcile against git reality: if git reports no rebase in progress, the
+    // cached session is a phantom (e.g. an abandoned planning session). Clear
+    // it and report completion gracefully instead of surfacing a raw fatal.
+    if (result.exitCode !== 0 && this.isNoRebaseInProgressError(result.combined)) {
+      this.clearSession(repo);
+      return { success: true, status: 'completed' };
+    }
 
     if (result.exitCode === 0) {
       // Check if rebase is complete
@@ -279,7 +315,14 @@ export class RebaseService implements IRebaseService {
     const cwd = repo.rootUri.fsPath;
     const repoKey = this.getRepoKey(repo);
 
-    await this._gitCli.exec(['rebase', '--abort'], { cwd, throwOnError: true });
+    const result = await this._gitCli.exec(['rebase', '--abort'], { cwd });
+
+    // A "no rebase in progress" fatal means the cached session was a phantom
+    // (e.g. an abandoned planning session). Treat it as a successful clear so
+    // it stops poisoning later ops, rather than surfacing the raw fatal.
+    if (result.exitCode !== 0 && !this.isNoRebaseInProgressError(result.combined)) {
+      throw new Error(`Git command failed: git rebase --abort\n${result.combined}`);
+    }
 
     // Clear the session
     this._sessions.delete(repoKey);
@@ -297,6 +340,12 @@ export class RebaseService implements IRebaseService {
     const repoKey = this.getRepoKey(repo);
 
     const result = await this._gitCli.exec(['rebase', '--skip'], { cwd });
+
+    // Reconcile against git reality: no rebase in progress → phantom session.
+    if (result.exitCode !== 0 && this.isNoRebaseInProgressError(result.combined)) {
+      this.clearSession(repo);
+      return { success: true, status: 'completed' };
+    }
 
     if (result.exitCode === 0) {
       // Check if rebase is complete

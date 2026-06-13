@@ -762,6 +762,80 @@ describe('PushDialog — lifecycle', () => {
   });
 });
 
+// ─── Preselected-branch push: clicked branch is the sole source of the ref ───
+
+describe('PushDialog — preselected branch drives the pushed ref (issue #16)', () => {
+  it('right-click Push on branch X while HEAD=Y pushes X, never Y, never the cross-ref Y:X', async () => {
+    installMessageTrackers();
+    // Resolved repo's current HEAD is `main` (Y) — a DIFFERENT branch than the
+    // one the user right-clicked. The clicked branch is dev/cleanup-phase2.3b (X).
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/main',
+      upstream: { remote: 'origin', name: 'main' },
+    });
+    const { dialog, gitService } = makeDialog({
+      repos: [repo],
+      preselect: { repo, branch: 'dev/cleanup-phase2.3b' },
+    });
+    await dialog.waitUntilPopulated();
+
+    // The row must be seeded from the clicked branch, NOT the resolved HEAD.
+    assert.strictEqual(
+      dialog.rows[0].localBranch,
+      'dev/cleanup-phase2.3b',
+      'localBranch must come from the clicked branch, not repo.head'
+    );
+
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+
+    assert.strictEqual(gitService.pushCalls.length, 1);
+    const opts = gitService.pushCalls[0].options;
+    // The pushed local ref is the clicked branch.
+    assert.strictEqual(opts?.branch, 'dev/cleanup-phase2.3b');
+    // Guard: NO cross-ref `main:dev/cleanup-phase2.3b` (or any `main:*`) is ever
+    // produced — that would ship the active repo's HEAD content to the clicked
+    // branch's remote ref (the destructive bug in #16).
+    assert.strictEqual(opts?.refspec, undefined, 'must not produce a cross-ref refspec');
+    assert.notStrictEqual(opts?.branch, 'main', 'must not push the resolved HEAD branch');
+    dialog.dispose();
+  });
+
+  it('preselected branch that IS the current HEAD keeps its tracked upstream', async () => {
+    installMessageTrackers();
+    // When the clicked branch equals HEAD and HEAD has an upstream, the upstream
+    // is preserved so a renamed-target push (refspec) still works as before.
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/feature',
+      upstream: { remote: 'origin', name: 'feature-remote' },
+    });
+    const { dialog, gitService } = makeDialog({
+      repos: [repo],
+      preselect: { repo, branch: 'feature' },
+    });
+    await dialog.waitUntilPopulated();
+    assert.strictEqual(dialog.rows[0].localBranch, 'feature');
+    assert.strictEqual(dialog.rows[0].targetBranch, 'feature-remote');
+
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    const opts = gitService.pushCalls[0].options;
+    // feature → feature-remote is a legitimate, user-tracked refspec.
+    assert.strictEqual(opts?.refspec, 'feature:feature-remote');
+    dialog.dispose();
+  });
+
+  it('no-preselect multi-repo push still seeds each row from its own HEAD', async () => {
+    installMessageTrackers();
+    const repoA = makeRepo('/repo-a', { name: 'refs/heads/a' });
+    const repoB = makeRepo('/repo-b', { name: 'refs/heads/b' });
+    const { dialog, gitService } = makeDialog({ repos: [repoA, repoB] });
+    await dialog.waitUntilPopulated();
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    const branches = gitService.pushCalls.map((c) => c.options?.branch).sort();
+    assert.deepStrictEqual(branches, ['a', 'b'], 'multi-repo path unchanged: branch per repo HEAD');
+    dialog.dispose();
+  });
+});
+
 // ─── SR-5: incremental patch on updateRow / updateOverflow ───────────────────
 
 describe('PushDialog — SR-5 incremental patch (no full re-render)', () => {

@@ -212,6 +212,7 @@ function createErrorThrowingRebaseService(errorMsg: string): IRebaseService {
       throw new Error(errorMsg);
     },
     getRebaseSession: () => undefined,
+    clearSession: () => {},
     updateRebasePlan: () => {},
     executeRebase: async () => {
       throw new Error(errorMsg);

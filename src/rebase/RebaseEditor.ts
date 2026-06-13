@@ -64,6 +64,13 @@ export class RebaseEditor {
   private _repository: IRepository | undefined;
   private _session: IRebaseSession | undefined;
   private _resolvePromise: ((result: IRebaseEditorResult) => void) | undefined;
+  /**
+   * True once the user commits to executing the rebase. Distinguishes a
+   * normal completion (the service drives its own session lifecycle) from an
+   * abandoned editor — a 'planning' session closed before execution, which we
+   * must clear so it can't poison later branch ops.
+   */
+  private _executed = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -88,6 +95,12 @@ export class RebaseEditor {
 
       if (!this._session || this._session.commits.length === 0) {
         void vscode.window.showWarningMessage('No commits to rebase');
+        // This early return is before the panel + onDidDispose cleanup are
+        // wired, so the planning session stored by startInteractiveRebase
+        // (before any git ran) would leak and poison later branch ops. Clear
+        // it on the way out.
+        this._rebaseService.clearSession(repository);
+        this._session = undefined;
         return { executed: false };
       }
     } catch (error) {
@@ -117,6 +130,9 @@ export class RebaseEditor {
       this._panel.onDidDispose(
         () => {
           this._panel = undefined;
+          // The editor closed without executing — clear the abandoned planning
+          // session so it can't poison later branch ops.
+          this._clearAbandonedSession();
           this._dispose();
           if (this._resolvePromise) {
             this._resolvePromise({ executed: false });
@@ -189,6 +205,11 @@ export class RebaseEditor {
     if (!this._repository || !this._session) {
       return;
     }
+
+    // The user committed to running the rebase: from here the service owns the
+    // session lifecycle (completion, pause, conflict). Closing the panel after
+    // this must NOT clear the session as an abandonment.
+    this._executed = true;
 
     try {
       // Update the plan with current commits
@@ -924,6 +945,19 @@ export class RebaseEditor {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Clear a planning session abandoned by closing/cancelling the editor before
+   * the rebase was executed. No-op once the rebase has been executed (the
+   * service then owns the session lifecycle) or when there is no session.
+   */
+  private _clearAbandonedSession(): void {
+    if (this._executed || !this._repository || !this._session) {
+      return;
+    }
+    this._rebaseService.clearSession(this._repository);
+    this._session = undefined;
   }
 
   /**

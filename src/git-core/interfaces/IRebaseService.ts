@@ -80,6 +80,16 @@ export interface IRebaseService {
   updateRebasePlan(repo: IRepository, plan: IRebaseAction[]): void;
 
   /**
+   * Discard any cached rebase session for the repository.
+   *
+   * Used when an interactive-rebase editor is abandoned (cancelled or
+   * closed) before the rebase is executed: the 'planning' session was
+   * stored before git was touched, so it must be dropped or it would
+   * poison later branch operations.
+   */
+  clearSession(repo: IRepository): void;
+
+  /**
    * Execute the rebase with the current plan
    */
   executeRebase(repo: IRepository): Promise<IRebaseResult>;

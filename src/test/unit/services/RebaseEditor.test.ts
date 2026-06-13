@@ -72,6 +72,13 @@ class MockRebaseService implements IRebaseService {
     return Promise.resolve();
   }
 
+  public clearSessionCalls = 0;
+  clearSession(_repo: IRepository): void {
+    this.clearSessionCalls++;
+    this._session = undefined;
+    this._onDidChangeRebaseSession.fire(undefined);
+  }
+
   skipCommit(_repo: IRepository): Promise<IRebaseResult> {
     return Promise.resolve({ success: true, status: 'in-progress' });
   }
@@ -255,6 +262,86 @@ describe('RebaseEditor', () => {
 
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.status, 'paused');
+    });
+  });
+
+  // An interactive-rebase session is stored in 'planning' state BEFORE any
+  // git rebase runs (the editor lets the user revise the plan first). If the
+  // user abandons the editor — cancels or closes the panel — without executing,
+  // that planning session must be cleared so it can't poison later branch ops
+  // (issue #18).
+  describe('abandon cleanup (issue #18)', () => {
+    function panelOf(editor: RebaseEditor): {
+      _fireMessage: (m: unknown) => void;
+      dispose: () => void;
+    } {
+      return (
+        editor as unknown as { _panel: { _fireMessage: (m: unknown) => void; dispose: () => void } }
+      )._panel;
+    }
+
+    // `show()` awaits startInteractiveRebase before creating the panel; yield a
+    // few microtasks so the panel exists before the test drives it.
+    async function untilPanel(editor: RebaseEditor): Promise<void> {
+      for (let i = 0; i < 20; i++) {
+        if ((editor as unknown as { _panel: unknown })._panel) {
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    it('cancelling the editor clears the planning session', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+      assert.strictEqual(mockRebaseService.clearSessionCalls, 0, 'not cleared while editing');
+
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      const result = await showPromise;
+
+      assert.strictEqual(result.executed, false);
+      assert.strictEqual(mockRebaseService.clearSessionCalls, 1, 'cancel clears the session');
+      assert.strictEqual(mockRebaseService.getRebaseSession(mockRepository), undefined);
+    });
+
+    it('closing the editor panel without executing clears the planning session', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+
+      panelOf(rebaseEditor).dispose();
+      const result = await showPromise;
+
+      assert.strictEqual(result.executed, false);
+      assert.strictEqual(mockRebaseService.clearSessionCalls, 1, 'panel close clears the session');
+      assert.strictEqual(mockRebaseService.getRebaseSession(mockRepository), undefined);
+    });
+
+    it('an empty-commits rebase clears the planning session on the early return (no panel)', async () => {
+      // Rebasing onto an up-to-date / ancestor target yields 0 commits. show()
+      // returns early before the panel + onDidDispose cleanup are wired, so the
+      // planning session (stored by startInteractiveRebase before any git ran)
+      // would leak — the exact #18 phantom — unless the early return clears it.
+      mockRebaseService.mockCommits = [];
+
+      const result = await rebaseEditor.show(mockRepository, { onto: 'main' });
+
+      assert.strictEqual(result.executed, false);
+      assert.strictEqual(
+        mockRebaseService.getRebaseSession(mockRepository),
+        undefined,
+        'empty-commits early return must clear the planning session'
+      );
+      assert.strictEqual(mockRebaseService.clearSessionCalls, 1);
+    });
+
+    it('executing the rebase does NOT clear the session as an abandon (it completes normally)', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+      panelOf(rebaseEditor)._fireMessage({ type: 'execute' });
+      await showPromise;
+      // A successful execute completes the rebase through the service's own
+      // completion path — it must not be treated as an abandonment.
+      assert.strictEqual(mockRebaseService.clearSessionCalls, 0);
     });
   });
 
