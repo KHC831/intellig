@@ -343,10 +343,14 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
       ? `<button class="btn secondary" data-action="abort">Abort ${escapeHtml(opLabel)}</button>`
       : '';
 
-    // Skip This Commit — only meaningful during a rebase. Sits between
-    // Abort and Continue to match IntelliJ's Resolve Conflicts layout.
+    // Skip This Commit — only meaningful during a LIVE rebase. Sits between
+    // Abort and Continue to match IntelliJ's Resolve Conflicts layout. Skip's
+    // precondition is identical to Continue's: `git rebase --skip` needs a
+    // rebase in progress, so it is gated on `canContinue` too. For a
+    // post-completion autostash-pop conflict (operation:'rebase' but
+    // canContinue:false) skip would dead-end on "no rebase in progress".
     const skipButton =
-      this._opContext.operation === 'rebase'
+      this._opContext.operation === 'rebase' && this._opContext.canContinue
         ? `<button class="btn secondary" data-action="skip" title="Drop the current commit and move on to the next one in the rebase sequence. The commit's changes will NOT be applied.">Skip This Commit</button>`
         : '';
 
@@ -691,10 +695,13 @@ ${body}
    * the cherry-pick continue loop path.
    */
   private async _handleSkip(): Promise<void> {
-    if (this._opContext.operation !== 'rebase') {
-      // Defensive: skip is rebase-only. Render-side already filters, but
-      // keep the host-side guard so a forged webview message can't take
-      // a non-rebase op down this path.
+    if (this._opContext.operation !== 'rebase' || !this._opContext.canContinue) {
+      // Defensive: skip requires a continuable (in-progress) rebase — its
+      // precondition is identical to Continue's. Render-side already hides
+      // the button for non-rebase ops AND for a completed rebase (an
+      // autostash-pop conflict, where `canContinue` is false), but mirror the
+      // render gate here so a forged webview message can't drive
+      // `git rebase --skip` into a "no rebase in progress" dead-end.
       return;
     }
 

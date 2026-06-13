@@ -530,15 +530,40 @@ export class RebaseProgressView implements vscode.Disposable {
           ${filesHtml || '<p class="no-conflicts">No specific files listed</p>'}
         </div>
         <div class="conflict-help">
-          <p><strong>To resolve conflicts:</strong></p>
-          <ol>
-            <li>Open each conflicted file and resolve the merge conflicts</li>
-            <li>Stage the resolved files using <code>git add</code></li>
-            <li>Click <strong>Continue</strong> to proceed with the rebase</li>
-          </ol>
-          <p>Alternatively, click <strong>Skip</strong> to skip this commit or <strong>Abort</strong> to cancel the rebase.</p>
+          ${this._getConflictHelpText()}
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * Build the conflict-resolution help text, matching the available actions.
+   *
+   * For a continuable conflict the guidance ends in Continue/Skip/Abort,
+   * matching the rendered buttons. For a non-continuable autostash-pop
+   * conflict — where those buttons are correctly hidden because the rebase
+   * already completed — the guidance instead tells the user to resolve and
+   * stage the files, with no continue/skip/abort steps that would dead-end.
+   */
+  private _getConflictHelpText(): string {
+    if (this._rebaseInProgress) {
+      return `
+        <p><strong>To resolve conflicts:</strong></p>
+        <ol>
+          <li>Open each conflicted file and resolve the merge conflicts</li>
+          <li>Stage the resolved files using <code>git add</code></li>
+          <li>Click <strong>Continue</strong> to proceed with the rebase</li>
+        </ol>
+        <p>Alternatively, click <strong>Skip</strong> to skip this commit or <strong>Abort</strong> to cancel the rebase.</p>
+      `;
+    }
+    return `
+      <p><strong>The rebase already completed</strong>, but re-applying your stashed changes conflicted. To resolve:</p>
+      <ol>
+        <li>Open each conflicted file and resolve the merge conflicts</li>
+        <li>Stage the resolved files using <code>git add</code></li>
+      </ol>
+      <p>Do not continue or abort — there is no rebase in progress.</p>
     `;
   }
 

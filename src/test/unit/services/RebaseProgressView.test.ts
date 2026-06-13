@@ -414,6 +414,7 @@ describe('RebaseProgressView', () => {
     interface RebaseProgressViewInternals {
       _handleRebaseResult(result: IRebaseResult): void;
       _getActionsSection(): string;
+      _getConflictSection(): string;
     }
     const internals = (): RebaseProgressViewInternals =>
       rebaseProgressView as unknown as RebaseProgressViewInternals;
@@ -458,6 +459,39 @@ describe('RebaseProgressView', () => {
       assert.ok(
         !actions.includes('skip-button'),
         'skip must NOT be offered for a completed rebase'
+      );
+    });
+
+    it('help text matches continuability — Continue/Skip/Abort only when continuable', async () => {
+      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
+      rebaseProgressView.show(mockRepository);
+
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: true,
+      });
+      const continuableHelp = internals()._getConflictSection();
+      assert.ok(
+        continuableHelp.includes('Continue') && continuableHelp.includes('Abort'),
+        'continuable conflict help should mention Continue/Abort'
+      );
+
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: false,
+      });
+      const popHelp = internals()._getConflictSection();
+      assert.ok(
+        popHelp.includes('rebase already completed'),
+        'pop-conflict help should state the rebase already completed'
+      );
+      assert.ok(
+        popHelp.includes('Do not continue or abort'),
+        'pop-conflict help must steer away from continue/abort'
       );
     });
   });

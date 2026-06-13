@@ -258,6 +258,46 @@ describe('ResolveConflictsDialog', () => {
       assert.ok(!html.includes('data-action="abort"'), 'abort button should not render');
     });
 
+    it('renders Skip This Commit for a continuable rebase conflict', () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'rebase', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const html = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      assert.ok(html.includes('data-action="skip"'), 'skip button should render for a live rebase');
+    });
+
+    it('hides Skip This Commit for a non-continuable rebase conflict (autostash pop)', () => {
+      // A post-completion autostash-pop conflict is operation:'rebase' with
+      // canContinue:false. Skip's precondition is identical to Continue's — a
+      // live in-progress rebase — so `git rebase --skip` would dead-end on "no
+      // rebase in progress". The button must be hidden alongside Abort/Continue.
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'rebase', canAbort: false, canContinue: false },
+        conflictService,
+        mergeView,
+        gitService
+      );
+      const html = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      // Match the rendered <button> elements specifically: the client-side
+      // script references `[data-action="continue"]` via querySelector, so a
+      // bare substring check would false-positive on the script body.
+      assert.ok(!/<button[^>]*data-action="skip"/.test(html), 'skip button must NOT render');
+      assert.ok(!/<button[^>]*data-action="abort"/.test(html), 'abort button must NOT render');
+      assert.ok(
+        !/<button[^>]*data-action="continue"/.test(html),
+        'continue button must NOT render'
+      );
+    });
+
     it('keeps Continue disabled until all rows are resolved', () => {
       dialog = new ResolveConflictsDialog(
         ctx,
@@ -567,6 +607,37 @@ describe('ResolveConflictsDialog', () => {
       );
       assert.ok(spy.calls[0].includes('<redacted>@github.com'), 'host preserved');
       assert.ok(spy.calls[0].startsWith('Failed to skip commit:'), 'prefix preserved');
+    });
+
+    it('host guard: a forged skip message on a non-continuable rebase never calls rebaseSkip', async () => {
+      // The render side hides Skip for a completed rebase (operation:'rebase'
+      // + canContinue:false), but a forged webview message could still arrive.
+      // The host guard must early-return so `git rebase --skip` is never run —
+      // it would dead-end on "no rebase in progress".
+      let rebaseSkipCalls = 0;
+      const trackingGit = {
+        ...gitService,
+        rebaseSkip: async (): Promise<{ success: boolean; conflicts?: string[] }> => {
+          rebaseSkipCalls++;
+          return { success: true };
+        },
+      } as unknown as IGitService;
+
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'rebase', canAbort: false, canContinue: false },
+        conflictService,
+        mergeView,
+        trackingGit
+      );
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'skip',
+      });
+
+      assert.strictEqual(rebaseSkipCalls, 0, 'rebaseSkip must not run for a completed rebase');
     });
   });
 
