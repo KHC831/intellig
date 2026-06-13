@@ -60,6 +60,7 @@ import {
   getTagFormat,
 } from './gitParser';
 import { sortCommitsStable } from './commitSort';
+import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { sanitizeGitError } from './gitError';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
@@ -272,6 +273,16 @@ export class GitService implements IGitService, IGitServiceCli {
     // this line fails CI.
     this._watcherMaps.push(this._fileWatchers);
     this._watcherMaps.push(this._newRepoWatchers);
+
+    // Shared read-through context handed to every *Ops collaborator. The
+    // `ctx.gitCli` getter re-reads `this._gitCli` on EVERY call so the
+    // test-time `(service as any)._gitCli = mock` swap (RULE G1) reaches the
+    // collaborators; the cli is never captured at construction.
+    const ctx: IGitOpsContext = createGitOpsContext(
+      () => this._gitCli,
+      (rootPath) => this.invalidateCache(rootPath)
+    );
+    void ctx;
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
