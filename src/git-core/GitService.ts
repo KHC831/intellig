@@ -35,12 +35,12 @@ import {
   RepositoryState,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
+import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
 import {
-  scanFolderForGitRepos,
-  defaultRepoScanFs,
-  IRepoScanFs,
-  INTERNAL_IGNORED_FOLDERS,
-} from './repoScan';
+  isPathInsideOrEqual,
+  repoRootFromGitDir,
+  isNewRepoPathIgnored,
+} from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
 import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { StagingOps } from './ops/StagingOps';
@@ -580,40 +580,18 @@ export class GitService implements IGitService, IGitServiceCli {
         return;
       }
       // The URI is the `.git` directory itself; the repo root is its parent.
-      const fsPath = uri.fsPath;
-      const lastSep = Math.max(fsPath.lastIndexOf('/'), fsPath.lastIndexOf('\\'));
-      if (lastSep <= 0) {
+      const repoParentDir = repoRootFromGitDir(uri.fsPath);
+      if (repoParentDir === undefined) {
         return;
       }
-      const repoParentDir = fsPath.slice(0, lastSep);
 
       // Filter against ignored folders. Re-read config in case it changed
-      // since `discoverRepository` ran.
+      // since `discoverRepository` ran. The path-topology filter (outside-
+      // folder defense + ancestor-segment ignore match) lives in the
+      // stateless RepositoryDiscovery helper.
       const config = vscode.workspace.getConfiguration('intellig');
       const userIgnored = config.get<string[]>('repositoryScanIgnoredFolders', []);
-      // Apply the same filter the scanner uses: basename of any ancestor
-      // between the workspace folder and the parent dir matching an
-      // ignored name disqualifies this `.git/`.
-      //
-      // (path-prefix string match): use
-      // `path.relative` rather than `repoParentDir.startsWith(folderPath)`.
-      // The string-prefix check incorrectly matched `/workspace/foo` as
-      // inside `/work` because `'/workspace/foo'.startsWith('/work')` is
-      // true. `path.relative` returns `'../workspace/foo'` for that case,
-      // which we detect via the `..` prefix and bail.
-      const rel = path.relative(folderPath, repoParentDir);
-      if (rel.length > 0 && (rel === '..' || rel.startsWith('..' + path.sep))) {
-        // The created `.git/` is OUTSIDE the watched folder. This shouldn't
-        // happen given the RelativePattern glob, but defend against it.
-        return;
-      }
-      if (path.isAbsolute(rel)) {
-        // Different drive on Windows — also outside the watched folder.
-        return;
-      }
-      const segments = rel.split(/[/\\]/).filter((s) => s.length > 0);
-      const allIgnored = new Set<string>([...INTERNAL_IGNORED_FOLDERS, ...userIgnored]);
-      if (segments.some((seg) => allIgnored.has(seg))) {
+      if (isNewRepoPathIgnored(folderPath, repoParentDir, userIgnored)) {
         return;
       }
 
@@ -1064,22 +1042,10 @@ export class GitService implements IGitService, IGitServiceCli {
     // Use `path.relative` rather than string `startsWith(rootPath + sep)`
     // so we correctly distinguish `/work/projectA` (path-child of /work)
     // from `/workspace/other` (sibling that shares only a string prefix).
-    const isInsideOrEqual = (candidate: string): boolean => {
-      if (candidate === rootPath) {
-        return true;
-      }
-      const rel = path.relative(rootPath, candidate);
-      // path.relative returns '..' or starts with '..' + sep when candidate
-      // is OUTSIDE rootPath; absolute path means different drive on Windows.
-      if (rel.length === 0 || rel === '..' || rel.startsWith('..' + path.sep)) {
-        return false;
-      }
-      // Defense against Windows absolute-path pivot (different drive).
-      if (path.isAbsolute(rel)) {
-        return false;
-      }
-      return true;
-    };
+    // The pure path-child predicate lives in the stateless
+    // RepositoryDiscovery helper.
+    const isInsideOrEqual = (candidate: string): boolean =>
+      isPathInsideOrEqual(rootPath, candidate);
 
     // Issue #219: walk EVERY registered watcher-family map uniformly.
     // This method previously hardcoded `_fileWatchers` and a separate
