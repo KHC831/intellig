@@ -7,7 +7,11 @@
  */
 
 import * as assert from 'assert';
-import { sanitizeGitError, formatActionFailureToast } from '../../../git-core/gitError';
+import {
+  sanitizeGitError,
+  formatActionFailureToast,
+  worktreeConflictMessage,
+} from '../../../git-core/gitError';
 
 describe('sanitizeGitError', () => {
   it('passes clean messages through unchanged', () => {
@@ -346,5 +350,66 @@ describe('formatActionFailureToast — Wave 9 R4 helper for inline-ternary sites
     }
     const result = formatActionFailureToast('Push failed', new GitError());
     assert.strictEqual(result, 'Push failed: exit code 128');
+  });
+});
+
+describe('worktreeConflictMessage — translate git worktree-conflict fatal into actionable text', () => {
+  it('returns an actionable message for "is already used by worktree at <path>"', () => {
+    const raw = "fatal: 'feature' is already used by worktree at '/repos/proj-feature'";
+    const msg = worktreeConflictMessage(raw);
+    assert.ok(msg, 'should detect the worktree-conflict error');
+    // Must NOT be the raw fatal dump.
+    assert.ok(!msg.includes('fatal:'), `must not surface the raw fatal; got: "${msg}"`);
+    // Must name the worktree path so the user can find it.
+    assert.ok(msg.includes('/repos/proj-feature'), `should name the worktree path; got: "${msg}"`);
+    // Must communicate "checked out in another worktree".
+    assert.ok(
+      /another worktree|other worktree/i.test(msg),
+      `should mention another worktree; got: "${msg}"`
+    );
+  });
+
+  it('matches the alternative "already checked out at <path>" phrasing', () => {
+    const raw = "fatal: 'main' is already checked out at '/repos/main-wt'";
+    const msg = worktreeConflictMessage(raw);
+    assert.ok(msg, 'should detect the "already checked out at" variant');
+    assert.ok(msg.includes('/repos/main-wt'), `should name the path; got: "${msg}"`);
+  });
+
+  it('sanitizes a leaked home path inside the worktree path', () => {
+    const raw = "fatal: 'dev' is already used by worktree at '/Users/alice/code/proj-dev'";
+    const msg = worktreeConflictMessage(raw);
+    assert.ok(msg, 'should detect the conflict');
+    assert.ok(!msg.includes('/Users/alice'), `home path must be redacted; got: "${msg}"`);
+    assert.ok(msg.includes('~/code/proj-dev'), `should keep sanitized tail; got: "${msg}"`);
+  });
+
+  it('returns undefined for unrelated checkout failures (bad ref)', () => {
+    assert.strictEqual(
+      worktreeConflictMessage('fatal: invalid reference: nonexistent-branch'),
+      undefined
+    );
+  });
+
+  it('returns undefined for the "would be overwritten" dirty-tree failure', () => {
+    assert.strictEqual(
+      worktreeConflictMessage(
+        'error: Your local changes to the following files would be overwritten by checkout'
+      ),
+      undefined
+    );
+  });
+
+  it('returns undefined for empty input', () => {
+    assert.strictEqual(worktreeConflictMessage(''), undefined);
+  });
+
+  it('still detects the conflict when the path cannot be parsed (no quoted path)', () => {
+    // Defensive: if git changes its quoting, we still want the generic
+    // actionable message rather than falling back to the raw fatal.
+    const raw = 'fatal: branch is already used by worktree somewhere';
+    const msg = worktreeConflictMessage(raw);
+    assert.ok(msg, 'should still surface an actionable message without a parsed path');
+    assert.ok(!msg.includes('fatal:'), `must not surface the raw fatal; got: "${msg}"`);
   });
 });

@@ -937,6 +937,143 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
     // positive probe path is covered in `branchContextMenu.fixes.test.ts`.
   });
 
+  // ─── Worktree-conflict checkout: actionable message, not raw fatal ──────
+  //
+  // Checking out a branch that is already checked out in ANOTHER git
+  // worktree makes git refuse atomically:
+  //
+  //   fatal: 'feature' is already used by worktree at '/path/to/wt'
+  //
+  // git won't proceed even with --force, so there's nothing to stash or
+  // retry around (unlike the "would be overwritten" dirty-tree flow). The
+  // handler must translate this dead-end into an actionable message that
+  // names the worktree path — NOT leak the raw "Failed to checkout branch:
+  // ...fatal..." dump. Covers all three checkout entry points.
+  describe('Worktree-conflict checkout surfaces an actionable message (not the raw fatal)', () => {
+    const WORKTREE_FATAL =
+      "fatal: 'feature/test' is already used by worktree at '/repos/proj-feature'";
+
+    function assertActionable(message: string): void {
+      assert.ok(
+        !message.includes('fatal:'),
+        `toast must NOT surface the raw git fatal; got: "${message}"`
+      );
+      assert.ok(
+        /another worktree|other worktree/i.test(message),
+        `toast should explain the branch is checked out in another worktree; got: "${message}"`
+      );
+      assert.ok(
+        message.includes('/repos/proj-feature'),
+        `toast should name the worktree path; got: "${message}"`
+      );
+    }
+
+    it('_handleCheckout: shows an actionable error (no Stash/Force prompt)', async () => {
+      const errorTracker = installErrorMessageTracker();
+      const warningTracker = installWarningMessageTracker(undefined);
+
+      const gitService = createMockGitService({
+        checkout: async () => {
+          throw new Error(WORKTREE_FATAL);
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/test');
+      await invokePrivateHandler(commands, '_handleCheckout', item);
+
+      // git refuses worktree conflicts atomically — Force won't help, so
+      // we must NOT offer the Stash & Switch / Force Checkout warning.
+      assert.strictEqual(
+        warningTracker.calls.length,
+        0,
+        'must NOT show the Stash/Force warning for a worktree conflict'
+      );
+      assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
+      assertActionable(errorTracker.calls[0].message);
+    });
+
+    it('_handleCheckoutAndRebase: shows an actionable error (no Stash/Force prompt)', async () => {
+      const errorTracker = installErrorMessageTracker();
+      const warningTracker = installWarningMessageTracker(undefined);
+
+      const gitService = createMockGitService({
+        checkout: async () => {
+          throw new Error(WORKTREE_FATAL);
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/test');
+      await invokePrivateHandler(commands, '_handleCheckoutAndRebase', item);
+
+      assert.strictEqual(
+        warningTracker.calls.length,
+        0,
+        'must NOT show the Stash/Force warning for a worktree conflict'
+      );
+      assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
+      assertActionable(errorTracker.calls[0].message);
+    });
+
+    it('_handleCheckoutAsLocal: shows an actionable error (no Stash/Force prompt)', async () => {
+      const errorTracker = installErrorMessageTracker();
+      const warningTracker = installWarningMessageTracker(undefined);
+
+      const gitService = createMockGitService({
+        getBranches: async () => [],
+        checkout: async () => {
+          throw new Error("fatal: 'main' is already used by worktree at '/repos/proj-feature'");
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createRemoteBranchTreeItem('origin/main');
+      await invokePrivateHandler(commands, '_handleCheckoutAsLocal', item);
+
+      assert.strictEqual(
+        warningTracker.calls.length,
+        0,
+        'must NOT show the Stash/Force warning for a worktree conflict'
+      );
+      assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
+      const msg = errorTracker.calls[0].message;
+      assert.ok(!msg.includes('fatal:'), `must not surface raw fatal; got: "${msg}"`);
+      assert.ok(
+        /another worktree|other worktree/i.test(msg),
+        `should mention another worktree; got: "${msg}"`
+      );
+    });
+
+    it('_handleCheckout: a bad-ref failure still shows the generic error (no over-broad match)', async () => {
+      const errorTracker = installErrorMessageTracker();
+
+      const gitService = createMockGitService({
+        checkout: async () => {
+          throw new Error('fatal: invalid reference: nonexistent-branch');
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('nonexistent-branch');
+      await invokePrivateHandler(commands, '_handleCheckout', item);
+
+      assert.strictEqual(errorTracker.calls.length, 1, 'expected one error toast');
+      assert.ok(
+        errorTracker.calls[0].message.includes('Failed to checkout branch'),
+        `bad-ref must keep the generic handling; got: "${errorTracker.calls[0].message}"`
+      );
+      assert.ok(
+        errorTracker.calls[0].message.includes('invalid reference'),
+        'generic toast keeps the underlying git reason'
+      );
+    });
+  });
+
   // ─── General Error Handling ─────────────────────────────
 
   describe('General error handling', () => {

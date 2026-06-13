@@ -189,3 +189,60 @@ export function formatActionFailureToast(prefix: string, error: unknown): string
   const raw = error instanceof Error ? error.message : 'Unknown error';
   return `${prefix}: ${sanitizeGitError(raw)}`;
 }
+
+/**
+ * Detect git's "branch is checked out in another worktree" refusal and
+ * translate it into an actionable, user-facing message.
+ *
+ * Checking out a branch that is already checked out in a different git
+ * worktree fails atomically:
+ *
+ *   fatal: 'feature' is already used by worktree at '/path/to/wt'
+ *
+ * (older / alternate phrasing: `'feature' is already checked out at
+ * '/path/to/wt'`). git refuses this even with `--force`, so there is
+ * nothing to stash or retry around — the only useful response is to tell
+ * the user the branch lives in another worktree and where that worktree
+ * is. Surfacing the raw `fatal:` dump is a dead-end.
+ *
+ * Matches ONLY the worktree-conflict phrasing so unrelated failures
+ * (bad ref, dirty tree, etc.) keep their existing handling. When the
+ * quoted worktree path is parseable it is named in the message (run
+ * through {@link sanitizeGitError} so a leaked home dir is redacted).
+ *
+ * @param rawMessage the raw git stderr/error string
+ * @returns an actionable message when the error is a worktree conflict,
+ *   otherwise `undefined`
+ */
+export function worktreeConflictMessage(rawMessage: string): string | undefined {
+  if (!rawMessage) {
+    return undefined;
+  }
+  // git's two known phrasings for the same refusal.
+  if (
+    !rawMessage.includes('is already used by worktree') &&
+    !rawMessage.includes('is already checked out')
+  ) {
+    return undefined;
+  }
+
+  // Pull the worktree path out of git's trailing `at '<path>'` clause.
+  const pathMatch = rawMessage.match(/\bat '([^']+)'/);
+  const branchMatch = rawMessage.match(/'([^']+)' is already (?:used by worktree|checked out)/);
+  const branchClause = branchMatch ? `'${branchMatch[1]}'` : 'This branch';
+
+  if (pathMatch) {
+    const worktreePath = sanitizeGitError(pathMatch[1]);
+    return (
+      `${branchClause} is already checked out in another worktree (${worktreePath}). ` +
+      `Open that worktree, or check out a different branch here.`
+    );
+  }
+
+  // Defensive: git changed its quoting and we couldn't parse the path —
+  // still avoid leaking the raw fatal.
+  return (
+    `${branchClause} is already checked out in another worktree. ` +
+    `Open that worktree, or check out a different branch here.`
+  );
+}
