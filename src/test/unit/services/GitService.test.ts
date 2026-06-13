@@ -1603,7 +1603,7 @@ describe('GitService - Merge and Rebase Operations', () => {
   describe('rebaseBranch()', () => {
     describe('Successful rebase', () => {
       it('should execute git rebase with onto branch', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options main', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
           exitCode: 0,
           stdout: 'Successfully rebased and updated refs/heads/feature.',
           stderr: '',
@@ -1613,11 +1613,19 @@ describe('GitService - Merge and Rebase Operations', () => {
 
         const rebaseCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'rebase');
         assert.ok(rebaseCommand, 'Rebase command should have been executed');
-        assert.deepStrictEqual(rebaseCommand.args, ['rebase', '--end-of-options', 'main']);
+        // `--autostash` is spliced before `--end-of-options` so git stashes a
+        // dirty tree before replaying and re-applies it after, instead of
+        // dead-ending on "cannot rebase: you have unstaged changes".
+        assert.deepStrictEqual(rebaseCommand.args, [
+          'rebase',
+          '--autostash',
+          '--end-of-options',
+          'main',
+        ]);
       });
 
       it('should pass the correct working directory', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options main', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1631,7 +1639,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should return success on successful rebase', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options main', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
           exitCode: 0,
           stdout: 'Successfully rebased and updated refs/heads/feature.',
           stderr: '',
@@ -1644,7 +1652,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should handle rebase with no changes needed', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options main', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
           exitCode: 0,
           stdout: 'Current branch feature is up to date.',
           stderr: '',
@@ -1658,7 +1666,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
     describe('Rebase with conflicts', () => {
       it('should return failure with conflicts when rebase fails', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options main', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
           exitCode: 1,
           stdout: '',
           stderr: 'CONFLICT (content): Merge conflict in file.ts',
@@ -1677,7 +1685,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should detect conflicts with different status codes', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options develop', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options develop', {
           exitCode: 1,
           stdout: '',
           stderr: 'Automatic merge failed',
@@ -1696,8 +1704,54 @@ describe('GitService - Merge and Rebase Operations', () => {
         assert.ok(result.conflicts.includes('deleted-by-us.ts'));
       });
 
+      it('reports an exit-0 autostash pop conflict as a non-continuable conflict', async () => {
+        // With `--autostash`, git stashes a dirty tree, replays cleanly, then
+        // pops the stash. If that pop collides with the rebased changes git
+        // leaves unmerged files in the tree but STILL exits 0. The rebase is
+        // already complete (no rebase in progress), so the conflict is listed
+        // (resolve dialog opens) but marked non-continuable — continue/abort
+        // must not be offered, since they would dead-end.
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
+          exitCode: 0,
+          stdout: 'Applying autostash resulted in conflicts.',
+          stderr: '',
+        });
+        mockGitCli.setMockResult('status --porcelain', {
+          exitCode: 0,
+          stdout: 'UU shared.ts\n',
+          stderr: '',
+        });
+
+        const result = await gitService.rebaseBranch(mockRepo, 'main');
+
+        assert.strictEqual(result.success, false);
+        assert.deepStrictEqual(result.conflicts, ['shared.ts']);
+        assert.strictEqual(result.rebaseInProgress, false);
+        assert.strictEqual(result.failureReason, undefined);
+      });
+
+      it('returns success when rebase exits 0 with a clean tree', async () => {
+        // The exit-0 unmerged-files guard must not regress the common case:
+        // a clean autostash round-trip reports no unmerged files and succeeds.
+        mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
+          exitCode: 0,
+          stdout: 'Successfully rebased and updated refs/heads/feature.',
+          stderr: '',
+        });
+        mockGitCli.setMockResult('status --porcelain', {
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+        const result = await gitService.rebaseBranch(mockRepo, 'main');
+
+        assert.strictEqual(result.success, true);
+        assert.strictEqual(result.conflicts, undefined);
+      });
+
       it('should return empty conflicts array when rebase fails but no conflicts', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options invalid-branch', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options invalid-branch', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: invalid upstream 'invalid-branch'",
@@ -1717,7 +1771,7 @@ describe('GitService - Merge and Rebase Operations', () => {
 
     describe('Rebase with different branch types', () => {
       it('should rebase onto remote branch', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options origin/main', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options origin/main', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1728,11 +1782,16 @@ describe('GitService - Merge and Rebase Operations', () => {
         assert.strictEqual(result.success, true);
         const rebaseCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'rebase');
         assert.ok(rebaseCommand);
-        assert.deepStrictEqual(rebaseCommand.args, ['rebase', '--end-of-options', 'origin/main']);
+        assert.deepStrictEqual(rebaseCommand.args, [
+          'rebase',
+          '--autostash',
+          '--end-of-options',
+          'origin/main',
+        ]);
       });
 
       it('should rebase onto commit hash', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options abc123def456', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options abc123def456', {
           exitCode: 0,
           stdout: '',
           stderr: '',
@@ -1744,7 +1803,7 @@ describe('GitService - Merge and Rebase Operations', () => {
       });
 
       it('should rebase onto tag', async () => {
-        mockGitCli.setMockResult('rebase --end-of-options v1.0.0', {
+        mockGitCli.setMockResult('rebase --autostash --end-of-options v1.0.0', {
           exitCode: 0,
           stdout: '',
           stderr: '',

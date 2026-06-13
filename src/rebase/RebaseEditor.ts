@@ -10,6 +10,7 @@ import {
   IRebaseSession,
   IRebaseCommit,
   IRebaseAction,
+  IRebaseResult,
   RebaseAction,
 } from '../git-core/interfaces/IRebaseService';
 import { IRepository } from '../git-core/interfaces/IGitService';
@@ -219,9 +220,7 @@ export class RebaseEditor {
           }
           this.hide();
         } else if (result.status === 'conflict') {
-          void vscode.window.showWarningMessage(
-            `Rebase has conflicts in: ${result.conflictedFiles?.join(', ')}`
-          );
+          void vscode.window.showWarningMessage(this._conflictMessage(result));
           if (this._resolvePromise) {
             this._resolvePromise({ executed: true, success: false, error: 'Conflicts detected' });
             this._resolvePromise = undefined;
@@ -230,9 +229,7 @@ export class RebaseEditor {
         }
       } else {
         if (result.status === 'conflict') {
-          void vscode.window.showWarningMessage(
-            `Rebase has conflicts in: ${result.conflictedFiles?.join(', ')}`
-          );
+          void vscode.window.showWarningMessage(this._conflictMessage(result));
         } else {
           void vscode.window.showErrorMessage('Rebase failed');
         }
@@ -250,6 +247,23 @@ export class RebaseEditor {
         this._resolvePromise = undefined;
       }
     }
+  }
+
+  /**
+   * Build the conflict warning toast, distinguishing a continuable mid-rebase
+   * conflict from a terminal autostash-pop conflict (rebaseInProgress:false).
+   * The latter has no rebase to continue or abort — the user resolves the
+   * files and `git add`s them.
+   */
+  private _conflictMessage(result: IRebaseResult): string {
+    const files = result.conflictedFiles?.join(', ') ?? '';
+    if (result.rebaseInProgress === false) {
+      return (
+        `Rebase succeeded, but re-applying your stashed changes conflicted in: ${files}. ` +
+        `Resolve them and \`git add\` them. Do not continue or abort — the rebase is already complete.`
+      );
+    }
+    return `Rebase has conflicts in: ${files}`;
   }
 
   /**

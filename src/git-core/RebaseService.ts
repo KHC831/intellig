@@ -257,7 +257,14 @@ export class RebaseService implements IRebaseService {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
       }
-      return { success: false, status: 'conflict', conflictedFiles: conflicts };
+      // Reached from --continue/--skip/amend, so a rebase is necessarily still
+      // in progress: the conflict is continuable.
+      return {
+        success: false,
+        status: 'conflict',
+        conflictedFiles: conflicts,
+        rebaseInProgress: true,
+      };
     }
 
     return { success: false, status: 'paused' };
@@ -320,7 +327,14 @@ export class RebaseService implements IRebaseService {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
       }
-      return { success: false, status: 'conflict', conflictedFiles: conflicts };
+      // Reached from --continue/--skip/amend, so a rebase is necessarily still
+      // in progress: the conflict is continuable.
+      return {
+        success: false,
+        status: 'conflict',
+        conflictedFiles: conflicts,
+        rebaseInProgress: true,
+      };
     }
 
     return { success: false, status: 'paused' };
@@ -363,9 +377,13 @@ ${todoContent}EOF
     atomicWriteFileSync(todoScriptPath, todoScript, { mode: 0o755 });
 
     try {
-      // Start the interactive rebase with our custom sequence editor
-      // The GIT_SEQUENCE_EDITOR will replace the todo file with our plan
-      const result = await this._gitCli.exec(['rebase', '-i', session.onto], {
+      // Start the interactive rebase with our custom sequence editor.
+      // The GIT_SEQUENCE_EDITOR replaces the todo file with our plan.
+      // `--autostash` stashes a dirty working tree before the todo editor
+      // runs and re-applies it after the rebase finishes, so it never
+      // interferes with the custom sequence editor while still letting an
+      // interactive rebase start from a dirty tree.
+      const result = await this._gitCli.exec(['rebase', '-i', '--autostash', session.onto], {
         cwd,
         env: {
           ...process.env,
@@ -401,6 +419,31 @@ ${todoContent}EOF
   ): Promise<IRebaseResult> {
     const repoKey = this.getRepoKey(repo);
 
+    // Check for conflicts first, even on a zero exit code. With `--autostash`
+    // git replays the commits, then re-applies the stashed working tree; if
+    // that re-apply collides with the rebased changes git leaves unmerged
+    // files behind but STILL exits 0. Inspecting unmerged files before the
+    // success path surfaces that pop-conflict instead of reporting a clean
+    // completion.
+    const conflicts = await this.getConflictedFiles(repo);
+    if (conflicts.length > 0) {
+      // Both a continuable mid-rebase conflict and a terminal autostash pop
+      // conflict list the same unmerged files, so both report status
+      // 'conflict' (the resolve dialog opens and lists the files in both
+      // cases). They differ only in continuability, surfaced via the
+      // orthogonal `rebaseInProgress` flag: a genuine replay conflict leaves a
+      // live rebase in progress (.git/rebase-merge or rebase-apply present),
+      // continuable via `git rebase --continue`/`--abort`. The autostash pop
+      // conflict happens AFTER the rebase completes — git has already removed
+      // the rebase metadata, so `--continue` would dead-end on "no rebase in
+      // progress". Consumers gate the continue/abort affordance on
+      // `rebaseInProgress === true`.
+      const rebaseInProgress = this.isRebaseInProgress(repo);
+      session.status = 'conflict';
+      this._onDidChangeRebaseSession.fire(session);
+      return { success: false, status: 'conflict', conflictedFiles: conflicts, rebaseInProgress };
+    }
+
     // Check if rebase completed successfully
     if (result.exitCode === 0) {
       const isComplete = !this.isRebaseInProgress(repo);
@@ -409,14 +452,6 @@ ${todoContent}EOF
         this._onDidChangeRebaseSession.fire(undefined);
         return { success: true, status: 'completed' };
       }
-    }
-
-    // Check for conflicts
-    const conflicts = await this.getConflictedFiles(repo);
-    if (conflicts.length > 0) {
-      session.status = 'conflict';
-      this._onDidChangeRebaseSession.fire(session);
-      return { success: false, status: 'conflict', conflictedFiles: conflicts };
     }
 
     // Check if paused for edit action
@@ -566,7 +601,14 @@ ${todoContent}EOF
       if (conflicts.length > 0) {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
-        return { success: false, status: 'conflict', conflictedFiles: conflicts };
+        // Reached from --continue/--skip/amend, so a rebase is necessarily still
+        // in progress: the conflict is continuable.
+        return {
+          success: false,
+          status: 'conflict',
+          conflictedFiles: conflicts,
+          rebaseInProgress: true,
+        };
       }
       return { success: false, status: 'paused' };
     }
@@ -626,7 +668,14 @@ ${todoContent}EOF
       if (conflicts.length > 0) {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
-        return { success: false, status: 'conflict', conflictedFiles: conflicts };
+        // Reached from --continue/--skip/amend, so a rebase is necessarily still
+        // in progress: the conflict is continuable.
+        return {
+          success: false,
+          status: 'conflict',
+          conflictedFiles: conflicts,
+          rebaseInProgress: true,
+        };
       }
       return { success: false, status: 'paused' };
     }

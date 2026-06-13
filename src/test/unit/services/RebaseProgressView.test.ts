@@ -407,6 +407,95 @@ describe('RebaseProgressView', () => {
     });
   });
 
+  describe('Conflict continuability gating (autostash pop)', () => {
+    // Reach the private result handler + actions renderer. The webview panel
+    // can't be created in the test host, so we drive the state transition and
+    // inspect the rendered actions HTML directly.
+    interface RebaseProgressViewInternals {
+      _handleRebaseResult(result: IRebaseResult): void;
+      _getActionsSection(): string;
+      _getConflictSection(): string;
+    }
+    const internals = (): RebaseProgressViewInternals =>
+      rebaseProgressView as unknown as RebaseProgressViewInternals;
+
+    it('offers continue/abort/skip for a continuable conflict (rebaseInProgress:true)', async () => {
+      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
+      rebaseProgressView.show(mockRepository);
+
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: true,
+      });
+
+      const actions = internals()._getActionsSection();
+      assert.ok(actions.includes('continue-button'), 'continue button should be offered');
+      assert.ok(actions.includes('abort-button'), 'abort button should be offered');
+      assert.ok(actions.includes('skip-button'), 'skip button should be offered');
+    });
+
+    it('suppresses continue/abort/skip for an autostash-pop conflict (rebaseInProgress:false)', async () => {
+      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
+      rebaseProgressView.show(mockRepository);
+
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: false,
+      });
+
+      const actions = internals()._getActionsSection();
+      assert.ok(
+        !actions.includes('continue-button'),
+        'continue must NOT be offered — `git rebase --continue` would dead-end on "no rebase in progress"'
+      );
+      assert.ok(
+        !actions.includes('abort-button'),
+        'abort must NOT be offered for a completed rebase'
+      );
+      assert.ok(
+        !actions.includes('skip-button'),
+        'skip must NOT be offered for a completed rebase'
+      );
+    });
+
+    it('help text matches continuability — Continue/Skip/Abort only when continuable', async () => {
+      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
+      rebaseProgressView.show(mockRepository);
+
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: true,
+      });
+      const continuableHelp = internals()._getConflictSection();
+      assert.ok(
+        continuableHelp.includes('Continue') && continuableHelp.includes('Abort'),
+        'continuable conflict help should mention Continue/Abort'
+      );
+
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: false,
+      });
+      const popHelp = internals()._getConflictSection();
+      assert.ok(
+        popHelp.includes('rebase already completed'),
+        'pop-conflict help should state the rebase already completed'
+      );
+      assert.ok(
+        popHelp.includes('Do not continue or abort'),
+        'pop-conflict help must steer away from continue/abort'
+      );
+    });
+  });
+
   describe('Session State Changes', () => {
     it('should listen to onDidChangeRebaseSession events', async () => {
       let eventCount = 0;

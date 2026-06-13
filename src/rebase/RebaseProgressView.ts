@@ -38,6 +38,14 @@ export class RebaseProgressView implements vscode.Disposable {
   private _repository: IRepository | undefined;
   private _session: IRebaseSession | undefined;
   private _conflictedFiles: string[] = [];
+  /**
+   * Whether the current conflict is continuable (a live rebase is in
+   * progress). `false` for an `--autostash` pop conflict surfaced after the
+   * rebase already completed, where continue/abort would dead-end on "no
+   * rebase in progress". Defaults to `true` so externally-driven shows (which
+   * arise from genuine mid-rebase conflicts) keep the continue/abort UI.
+   */
+  private _rebaseInProgress = true;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -277,9 +285,21 @@ export class RebaseProgressView implements vscode.Disposable {
     } else {
       if (result.status === 'conflict') {
         this._conflictedFiles = result.conflictedFiles || [];
-        void vscode.window.showWarningMessage(
-          `Conflicts detected in: ${this._conflictedFiles.join(', ')}. Resolve conflicts and continue.`
-        );
+        this._rebaseInProgress = result.rebaseInProgress !== false;
+        if (this._rebaseInProgress) {
+          void vscode.window.showWarningMessage(
+            `Conflicts detected in: ${this._conflictedFiles.join(', ')}. Resolve conflicts and continue.`
+          );
+        } else {
+          // Autostash pop conflict after the rebase already completed: there
+          // is no rebase to continue or abort. Tell the user to resolve and
+          // stage the files instead.
+          void vscode.window.showWarningMessage(
+            `Rebase succeeded, but re-applying your stashed changes conflicted in: ` +
+              `${this._conflictedFiles.join(', ')}. Resolve them and \`git add\` them. ` +
+              `Do not continue or abort — the rebase is already complete.`
+          );
+        }
         this._updateWebview();
       }
     }
@@ -510,15 +530,40 @@ export class RebaseProgressView implements vscode.Disposable {
           ${filesHtml || '<p class="no-conflicts">No specific files listed</p>'}
         </div>
         <div class="conflict-help">
-          <p><strong>To resolve conflicts:</strong></p>
-          <ol>
-            <li>Open each conflicted file and resolve the merge conflicts</li>
-            <li>Stage the resolved files using <code>git add</code></li>
-            <li>Click <strong>Continue</strong> to proceed with the rebase</li>
-          </ol>
-          <p>Alternatively, click <strong>Skip</strong> to skip this commit or <strong>Abort</strong> to cancel the rebase.</p>
+          ${this._getConflictHelpText()}
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * Build the conflict-resolution help text, matching the available actions.
+   *
+   * For a continuable conflict the guidance ends in Continue/Skip/Abort,
+   * matching the rendered buttons. For a non-continuable autostash-pop
+   * conflict — where those buttons are correctly hidden because the rebase
+   * already completed — the guidance instead tells the user to resolve and
+   * stage the files, with no continue/skip/abort steps that would dead-end.
+   */
+  private _getConflictHelpText(): string {
+    if (this._rebaseInProgress) {
+      return `
+        <p><strong>To resolve conflicts:</strong></p>
+        <ol>
+          <li>Open each conflicted file and resolve the merge conflicts</li>
+          <li>Stage the resolved files using <code>git add</code></li>
+          <li>Click <strong>Continue</strong> to proceed with the rebase</li>
+        </ol>
+        <p>Alternatively, click <strong>Skip</strong> to skip this commit or <strong>Abort</strong> to cancel the rebase.</p>
+      `;
+    }
+    return `
+      <p><strong>The rebase already completed</strong>, but re-applying your stashed changes conflicted. To resolve:</p>
+      <ol>
+        <li>Open each conflicted file and resolve the merge conflicts</li>
+        <li>Stage the resolved files using <code>git add</code></li>
+      </ol>
+      <p>Do not continue or abort — there is no rebase in progress.</p>
     `;
   }
 
@@ -532,10 +577,16 @@ export class RebaseProgressView implements vscode.Disposable {
     const isPaused = status === 'paused';
     const isInProgress = status === 'in-progress';
 
+    // A non-continuable conflict (autostash pop after the rebase completed)
+    // has no live rebase, so continue/abort/skip would dead-end on "no rebase
+    // in progress". Suppress those affordances — the user resolves and stages
+    // the files instead.
+    const continuable = this._rebaseInProgress;
+
     // Determine which buttons to show
-    const showContinue = isConflict || isPaused;
-    const showSkip = isConflict;
-    const showAbort = isConflict || isPaused || isInProgress;
+    const showContinue = (isConflict || isPaused) && continuable;
+    const showSkip = isConflict && continuable;
+    const showAbort = (isConflict || isPaused || isInProgress) && continuable;
 
     return `
       <div class="actions-section">

@@ -47,6 +47,17 @@ export interface IRebaseResult {
   success: boolean;
   status: RebaseStatus;
   conflictedFiles?: string[];
+  /**
+   * Whether a rebase is still in progress when the result carries conflicts.
+   * Continuability is orthogonal to conflict-ness: a mid-replay conflict
+   * leaves a live rebase (`true`, continue/abort apply), while an
+   * `--autostash` pop conflict happens after the rebase already finished
+   * (`false`, no rebase in progress — `git rebase --continue` would dead-end
+   * on "no rebase in progress"). Consumers must gate the continue/abort
+   * affordance on `rebaseInProgress === true`; when `false` they offer only
+   * resolve-and-stage (`git add`). Undefined when there are no conflicts.
+   */
+  rebaseInProgress?: boolean;
 }
 
 /**

@@ -10,7 +10,14 @@ import {
   IBranchComparison,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
-import { parseBranches, parseStatus, parseLog, getBranchFormat, getLogFormat } from '../gitParser';
+import {
+  parseBranches,
+  parseStatus,
+  parseLog,
+  getBranchFormat,
+  getLogFormat,
+  isConflictedStatus,
+} from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -285,7 +292,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     if (conflicts.length > 0) {
@@ -313,29 +320,48 @@ export class BranchOps {
    * @returns Rebase result with success status and any conflicts
    */
   async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
-    // `onto` is user-controlled; splice via buildGitArgs.
-    const args = buildGitArgs('rebase', [], [onto]);
+    // `onto` is user-controlled; splice via buildGitArgs. `--autostash` makes
+    // git stash a dirty working tree before replaying and re-apply it after,
+    // so a dirty tree no longer dead-ends on "cannot rebase: you have unstaged
+    // changes". buildGitArgs places the flag between the subcommand and
+    // `--end-of-options`, emitting `rebase --autostash --end-of-options <onto>`.
+    const args = buildGitArgs('rebase', ['--autostash'], [onto]);
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
 
-    if (result.exitCode === 0) {
-      return {
-        success: true,
-      };
-    }
-
-    // Check for conflicts
+    // Read the porcelain status regardless of exit code. A clean `--autostash`
+    // round-trip exits 0 with no unmerged files, but when re-applying the
+    // autostash collides with the rebased changes git leaves unmerged files
+    // AND still exits 0. Checking unmerged files unconditionally surfaces that
+    // pop-conflict instead of a false success.
     const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     if (conflicts.length > 0) {
+      // Conflict-ness and continuability are orthogonal: both states list the
+      // same unmerged files, but only a live rebase is continuable. For a
+      // non-interactive `git rebase` the exit code is a faithful proxy for the
+      // rebase-merge/rebase-apply marker the rebase-in-progress check reads:
+      // a mid-replay conflict stops with a non-zero exit AND a live rebase, so
+      // it is continuable via `git rebase --continue`/`--abort`; an autostash
+      // pop conflict happens AFTER the rebase completes (exit 0, HEAD already
+      // moved, no rebase in progress) where `--continue` would dead-end on
+      // "no rebase in progress". (A non-zero exit with no unmerged files never
+      // reaches here — it falls through to the failure-reason path below.)
       return {
         success: false,
         conflicts,
+        rebaseInProgress: result.exitCode !== 0,
+      };
+    }
+
+    if (result.exitCode === 0) {
+      return {
+        success: true,
       };
     }
 
@@ -379,7 +405,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     return {
@@ -437,7 +463,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     if (conflicts.length > 0) {

@@ -71,8 +71,11 @@ function createMockRepo(): IRepository {
 }
 
 describe('GitService.rebaseBranch — failure-reason surfacing', () => {
-  it('returns success=true when git exits 0', async () => {
+  it('returns success=true when git exits 0 and the tree has no unmerged files', async () => {
     const cli = new ScriptedGitCli();
+    // 1. rebase succeeds
+    cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
+    // 2. status --porcelain reports a clean tree (autostash re-applied cleanly)
     cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
 
     const gitService = createGitServiceWithCli(cli);
@@ -80,6 +83,99 @@ describe('GitService.rebaseBranch — failure-reason surfacing', () => {
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.failureReason, undefined);
+  });
+
+  it('reports an exit-0 autostash pop conflict as a non-continuable conflict (rebaseInProgress:false)', async () => {
+    const cli = new ScriptedGitCli();
+    // 1. rebase replays cleanly and exits 0, but re-applying the autostash
+    //    collided with the rebased changes. Because git exits 0, the rebase is
+    //    already complete and NO rebase is in progress — `rebase --continue`
+    //    would dead-end on "no rebase in progress".
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    // 2. status --porcelain reports the unmerged file left by the failed pop.
+    cli.scripted.push({ exitCode: 0, stdout: 'UU src/a.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    // The resolve dialog still opens and lists the files, so `conflicts` is
+    // populated in both cases — only continuability differs.
+    assert.deepStrictEqual(result.conflicts, ['src/a.ts']);
+    assert.strictEqual(
+      result.rebaseInProgress,
+      false,
+      'a completed-rebase autostash pop conflict is NOT continuable — continue/abort must not be offered'
+    );
+    assert.strictEqual(result.failureReason, undefined);
+  });
+
+  it('reports an add/add (AA) exit-0 autostash pop conflict as non-continuable', async () => {
+    // An autostash pop that re-adds a path the rebased commits also added
+    // leaves an `AA` (both-added) unmerged entry, not `UU`. git still exits 0.
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    cli.scripted.push({ exitCode: 0, stdout: 'AA src/added.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    assert.deepStrictEqual(result.conflicts, ['src/added.ts']);
+    assert.strictEqual(result.rebaseInProgress, false);
+    assert.strictEqual(result.failureReason, undefined);
+  });
+
+  it('reports a delete/delete (DD) exit-0 autostash pop conflict as non-continuable', async () => {
+    // Symmetric to the add/add case: a both-deleted unmerged entry (`DD`)
+    // must also be treated as a non-continuable conflict on the zero-exit path.
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    cli.scripted.push({ exitCode: 0, stdout: 'DD src/gone.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    assert.deepStrictEqual(result.conflicts, ['src/gone.ts']);
+    assert.strictEqual(result.rebaseInProgress, false);
+    assert.strictEqual(result.failureReason, undefined);
+  });
+
+  it('reports a non-zero-exit unmerged result as a continuable conflict (rebaseInProgress:true)', async () => {
+    // A mid-replay conflict makes `git rebase` exit NON-zero with a live rebase
+    // still in progress (rebase-merge present). That case IS continuable, so it
+    // must mark rebaseInProgress:true so callers offer continue/abort.
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'CONFLICT (content): Merge conflict in src/a.ts',
+    });
+    cli.scripted.push({ exitCode: 0, stdout: 'UU src/a.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    assert.deepStrictEqual(result.conflicts, ['src/a.ts']);
+    assert.strictEqual(
+      result.rebaseInProgress,
+      true,
+      'a continuable mid-rebase conflict must mark rebaseInProgress:true'
+    );
   });
 
   it('returns conflicts and NO failureReason when status reports unmerged files', async () => {

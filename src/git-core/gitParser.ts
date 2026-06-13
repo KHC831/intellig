@@ -68,6 +68,28 @@ export function parseStatus(output: string): IFileStatus[] {
 }
 
 /**
+ * Decide whether a parsed status entry represents a merge conflict.
+ *
+ * Porcelain v1 marks an unmerged path with `U` in either column, but the
+ * both-added (`AA`) and both-deleted (`DD`) states are also unmerged even
+ * though neither column is `U`. A `U`-only check silently misses add/add and
+ * delete/delete conflicts — a real gap after `git rebase --autostash`, where a
+ * stash re-apply that collides on a newly added or deleted path leaves `AA` or
+ * `DD` while git still exits 0.
+ *
+ * @param file - A parsed status entry from {@link parseStatus}
+ * @returns True if the entry is an unmerged (conflicted) path
+ */
+export function isConflictedStatus(file: IFileStatus): boolean {
+  return (
+    file.indexStatus === 'U' ||
+    file.workTreeStatus === 'U' ||
+    (file.indexStatus === 'A' && file.workTreeStatus === 'A') ||
+    (file.indexStatus === 'D' && file.workTreeStatus === 'D')
+  );
+}
+
+/**
  * Convert status codes to human-readable file status.
  *
  * @param indexStatus - The index status code

@@ -139,19 +139,30 @@ export class CommitContextMenuCommands {
     opContext: {
       operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
       target?: string;
+      /**
+       * Whether a rebase is still in progress. When `false` (an
+       * `--autostash` pop conflict surfaced after the rebase already
+       * finished) the continue/abort affordances are suppressed — `git rebase
+       * --continue`/`--abort` would dead-end on "no rebase in progress". The
+       * drop/squash flows pre-stash, so they never reach the pop-conflict
+       * state, but the flag is honored for a uniform safe default. Defaults to
+       * `true`.
+       */
+      rebaseInProgress?: boolean;
     }
   ): Promise<void> {
     if (!this._conflictResolutionService || conflicts.length === 0) {
       return;
     }
+    const continuable = opContext.rebaseInProgress !== false;
     await this._conflictResolutionService.openResolveConflictsDialog(
       repo,
       conflicts.map((p) => ({ path: p, resolved: false })),
       {
         operation: opContext.operation,
         target: opContext.target,
-        canAbort: true,
-        canContinue: true,
+        canAbort: continuable,
+        canContinue: continuable,
       }
     );
   }
@@ -1829,7 +1840,12 @@ export class CommitContextMenuCommands {
         if (result.success) {
           void vscode.window.showInformationMessage(`Dropped commit ${hash.substring(0, 8)}`);
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          await this._rebaseService.abortRebase(repo);
+          // Only abort a LIVE rebase. A post-completion autostash-pop conflict
+          // (rebaseInProgress === false) has no rebase to abort — `git rebase
+          // --abort` would dead-end on "no rebase in progress".
+          if (result.rebaseInProgress !== false) {
+            await this._rebaseService.abortRebase(repo);
+          }
           if (stashed) {
             await this._unstash(cwd);
           }
@@ -2051,8 +2067,12 @@ export class CommitContextMenuCommands {
           );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
           // 8. Conflict path — abort + unstash, then hand off to the
-          // resolve dialog with operation:'rebase', target:'drop'.
-          await this._rebaseService.abortRebase(repo);
+          // resolve dialog with operation:'rebase', target:'drop'. Only abort
+          // a LIVE rebase: a post-completion autostash-pop conflict has no
+          // rebase to abort, and the dialog suppresses continue/abort for it.
+          if (result.rebaseInProgress !== false) {
+            await this._rebaseService.abortRebase(repo);
+          }
           if (stashed) {
             await this._unstash(cwd);
             stashed = false;
@@ -2060,6 +2080,7 @@ export class CommitContextMenuCommands {
           await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
             operation: 'rebase',
             target: 'drop',
+            rebaseInProgress: result.rebaseInProgress,
           });
           // abortRebase moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
@@ -2343,14 +2364,19 @@ export class CommitContextMenuCommands {
             `${verbCap} partially complete — resume via 'git rebase --continue' or abort via 'git rebase --abort'.`
           );
         } else if (result.conflictedFiles && result.conflictedFiles.length > 0) {
-          // 8. Conflict path — abort + unstash + handoff.
-          await this._rebaseService.abortRebase(repo);
+          // 8. Conflict path — abort + unstash + handoff. Only abort a LIVE
+          // rebase: a post-completion autostash-pop conflict has no rebase to
+          // abort, and the dialog suppresses continue/abort for it.
+          if (result.rebaseInProgress !== false) {
+            await this._rebaseService.abortRebase(repo);
+          }
           if (stashed) {
             await this._unstash(cwd);
           }
           await this._openResolveConflictsDialog(repo, result.conflictedFiles, {
             operation: 'rebase',
             target: 'squash',
+            rebaseInProgress: result.rebaseInProgress,
           });
           // abortRebase moved HEAD; reload before refresh.
           await this._gitService.reloadRepository(repo);
@@ -2692,7 +2718,11 @@ export class CommitContextMenuCommands {
           const result = await this._rebaseService.executeRebase(repo);
 
           if (!result.success && result.conflictedFiles && result.conflictedFiles.length > 0) {
-            await this._rebaseService.abortRebase(repo);
+            // Only abort a LIVE rebase — a post-completion autostash-pop
+            // conflict has no rebase to abort.
+            if (result.rebaseInProgress !== false) {
+              await this._rebaseService.abortRebase(repo);
+            }
             if (stashed) {
               await this._unstash(cwd);
             }
@@ -2730,7 +2760,11 @@ export class CommitContextMenuCommands {
               pausedResult.conflictedFiles &&
               pausedResult.conflictedFiles.length > 0
             ) {
-              await this._rebaseService.abortRebase(repo);
+              // Only abort a LIVE rebase — a post-completion autostash-pop
+              // conflict has no rebase to abort.
+              if (pausedResult.rebaseInProgress !== false) {
+                await this._rebaseService.abortRebase(repo);
+              }
               if (stashed) {
                 await this._unstash(cwd);
               }
