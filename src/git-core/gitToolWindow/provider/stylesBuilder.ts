@@ -805,9 +805,13 @@ export function buildInlineStyles(): string {
       /* Collapsed-summary chip ("+N"): rendered when a commit has more
          branches pointing at it than fit inline. Uses a muted
          description-foreground so it reads as metadata, not as another
-         branch. The native title=tooltip carries the full list of
-         collapsed branch names; a future click-to-expand handler can
-         flip data-collapsed-branches into individual chips inline. */
+         branch. The chip is an interactive BUTTON — clicking (or
+         Enter/Space) opens a popup listing every collapsed ref. cursor:
+         pointer signals the click affordance; the :hover/:focus-visible
+         outline is the non-colour affordance (WCAG 1.4.1) so keyboard
+         users see a focus ring. The native title=tooltip lists the
+         collapsed branch names; data-collapsed-branches carries the
+         pipe-delimited list the popup handler consumes. */
       .branch-label-collapsed {
         background: var(--vscode-badge-background, #3a3a3a);
         color: var(--vscode-descriptionForeground, #888);
@@ -815,7 +819,16 @@ export function buildInlineStyles(): string {
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
-        cursor: help;
+        cursor: pointer;
+      }
+
+      .branch-label-collapsed:hover {
+        color: var(--vscode-foreground, #ccc);
+      }
+
+      .branch-label-collapsed:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder, currentColor);
+        outline-offset: 1px;
       }
 
       /* The remote-chip fallback hex pair is retained as a CSS-var

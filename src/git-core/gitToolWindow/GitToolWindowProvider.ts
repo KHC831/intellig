@@ -2788,70 +2788,52 @@ ${bodyMarkup}
    *   `_getMultiCommitDetailsPanelHtml`, etc.).
    */
   public _getBranchLabelsHtml(node: ICommitNode): string {
-    const headHash = this._extendedLogState.headHash;
-    const isHeadCommit = !!headHash && node.commit.hash === headHash;
     const hasBranches = !!node.branches && node.branches.length > 0;
-    // Tag chips render alongside the existing HEAD/branch
-    // chip family. The empty-string return contract (snap-7d) extends to
-    // the no-tag case here so `.commit-branches:empty` still collapses.
+    // Tag chips render alongside the branch chip family. The
+    // empty-string return contract (snap-7d) extends to the no-tag case
+    // here so `.commit-branches:empty` still collapses.
     const hasTags = !!node.tags && node.tags.length > 0;
 
-    if (!isHeadCommit && !hasBranches && !hasTags) {
+    if (!hasBranches && !hasTags) {
       // CSS `.commit-branches:empty { display: none }` depends
       // on this returning the LITERAL empty string (not whitespace, not
       // an HTML comment) so the empty wrapper collapses with no margin
       // / no flex basis. Pinned by snap-7d in commitGraphSnapshots.test.ts.
+      //
+      // Following IntelliJ, there is no separate "HEAD" badge: the
+      // current branch is conveyed by colouring its own chip yellow (see
+      // below). A detached HEAD with no branch tip therefore produces no
+      // chip at all — matching IntelliJ, where a detached HEAD shows only
+      // the bare commit row.
       return '';
     }
-
-    // HEAD chip is prepended FIRST (leftmost) so it precedes
-    // any branch chips on the same commit. Detached HEAD: chip stands
-    // alone. Pinned by snap-9a..9f.
-    // The HEAD chip carries role="img" + descriptive
-    // aria-label so SR users hear "Current HEAD" rather than just the
-    // bare "HEAD" string. The codicon-check prefix is the non-color
-    // WCAG 1.4.1 affordance — the icon is decorative for AT (the
-    // aria-label is authoritative), so aria-hidden="true" hides it.
-    // Pinned by snap-12a + snap-12f.
-    const headChipHtml = isHeadCommit
-      ? '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>'
-      : '';
 
     const focusedBranchName = this._extendedLogState.focusedBranchName;
     const headBranchName = this._extendedLogState.headBranchName;
     const allBranches = node.branches || [];
-    // Tighter chip collapse (UX request, IntelliJ parity).
+    // Chip collapse rule (IntelliJ parity).
     //
-    // Previously: render up to 2 chips inline, collapse the rest into
-    // a `+N more` summary chip — which was still noisy on hot commits
-    // tagged by many remotes (origin/foo + upstream/foo + fork/foo + …).
+    // Inline up to MAX_INLINE chips. Privileged refs — the current
+    // (HEAD) branch and the focused branch — are pulled to the FRONT of
+    // the inline set so they are never the ones hidden when a commit
+    // carries more refs than fit. The remainder collapses into a single
+    // clickable `+N` summary chip.
     //
-    // Now: when the host has told us which branch HEAD points to OR
-    // a branch is focused, ONLY those two privileged chips stay
-    // inline. Everything else collapses into the summary chip. The
-    // two privileged chips are the ones the user explicitly cares
-    // about; the rest are reachable via the summary chip's tooltip.
-    //
-    // Fallback (no privileged ref known — e.g. detached HEAD with no
-    // focus, or unit tests that drive _getBranchLabelsHtml directly
-    // without populating headBranchName): preserve the prior "top 2
-    // inline, +N collapsed" behaviour so we don't degrade to "all
-    // collapsed" when we have no signal about which chips matter.
-    // This branch matters in the wild only for detached-HEAD-no-focus
-    // — which is a rare state and where the old top-2 cap is fine.
-    const MAX_INLINE_BRANCH_CHIPS_FALLBACK = 2;
-    const havePrivilegedRef = !!headBranchName || !!focusedBranchName;
-    let inlineBranches: IBranchRef[];
-    let collapsedBranches: IBranchRef[];
-    if (havePrivilegedRef) {
-      const isInlineKeepName = (name: string): boolean =>
-        name === headBranchName || name === focusedBranchName;
-      inlineBranches = allBranches.filter((b) => isInlineKeepName(b.name));
-      collapsedBranches = allBranches.filter((b) => !isInlineKeepName(b.name));
-    } else {
-      inlineBranches = allBranches.slice(0, MAX_INLINE_BRANCH_CHIPS_FALLBACK);
-      collapsedBranches = allBranches.slice(MAX_INLINE_BRANCH_CHIPS_FALLBACK);
-    }
+    // This deliberately NEVER hides a lone branch behind a bare `+1`: a
+    // single non-current tip always shows its name, because one chip is
+    // always ≤ MAX_INLINE.
+    const MAX_INLINE_BRANCH_CHIPS = 3;
+    const isPrivileged = (name: string): boolean =>
+      name === headBranchName || name === focusedBranchName;
+    // Stable partition: privileged refs first (in their original
+    // relative order), then the rest. A stable ordering keeps the
+    // snapshot output deterministic.
+    const orderedBranches = [
+      ...allBranches.filter((b) => isPrivileged(b.name)),
+      ...allBranches.filter((b) => !isPrivileged(b.name)),
+    ];
+    const inlineBranches: IBranchRef[] = orderedBranches.slice(0, MAX_INLINE_BRANCH_CHIPS);
+    const collapsedBranches: IBranchRef[] = orderedBranches.slice(MAX_INLINE_BRANCH_CHIPS);
 
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
@@ -2859,7 +2841,16 @@ ${bodyMarkup}
       // IBranch.type / refs-prefix), NOT from a `name.includes('/')` heuristic.
       // A local branch named `feature/foo` is local, not remote.
       const isRemote = branchRef.type === 'remote';
-      const baseClass = isRemote ? 'branch-label-remote' : 'branch-label-local';
+      // The current branch (the one HEAD points at) is coloured YELLOW
+      // via `.branch-label-head`, matching IntelliJ's HEAD convention —
+      // there is no separate "HEAD" badge. Non-current local branches are
+      // green; remote branches are violet.
+      const isCurrent = !!headBranchName && branchName === headBranchName;
+      const baseClass = isCurrent
+        ? 'branch-label-head'
+        : isRemote
+          ? 'branch-label-remote'
+          : 'branch-label-local';
       // `branch-label-focused` is render-time source of
       // truth for the focus outline; the partial-update message handler
       // is just the optimization for selection-changes-without-rerender.
@@ -2878,10 +2869,17 @@ ${bodyMarkup}
       // aria-pressed is deferred to when chips become
       // keyboard-interactive — adding it now would lie about an
       // interaction that doesn't yet exist. Pinned by snap-12b..d, 12f.
+      //
+      // The current (HEAD) branch chip announces "Current branch: …".
+      // With the standalone ✓HEAD badge removed, the yellow colour is the
+      // visual current-branch cue; the aria-label is the non-colour
+      // (WCAG 1.4.1) affordance that tells SR users which ref is HEAD.
       const iconClass = 'codicon-git-branch';
-      const ariaLabelText = isRemote
-        ? `Remote branch: ${branchName}`
-        : `Local branch: ${branchName}`;
+      const ariaLabelText = isCurrent
+        ? `Current branch: ${branchName}`
+        : isRemote
+          ? `Remote branch: ${branchName}`
+          : `Local branch: ${branchName}`;
       const ariaLabel = this._escapeHtml(ariaLabelText);
       // Focused chip carries `aria-describedby` to
       // a visually-hidden help span (rendered once at panel level)
@@ -2914,22 +2912,25 @@ ${bodyMarkup}
 
     // Collapse summary chip: `+N` shown after the inline branch chips
     // (and before the tag chips) when more branches exist than fit
-    // inline. The tooltip lists the collapsed branch names so the user
-    // can discover them on hover; data-collapsed-branches keeps a
-    // pipe-delimited list available for any future click-to-expand
-    // wiring.
+    // inline. The chip is a BUTTON — clicking (or Enter/Space) opens a
+    // popup listing every collapsed ref; each popup row navigates to that
+    // branch. role="button" + tabindex="0" make it keyboard-activatable
+    // with a visible focus ring (WCAG 1.4.1 — interaction is not
+    // colour-only). The title= tooltip still lists the names on hover,
+    // and data-collapsed-branches carries the pipe-delimited list the
+    // popup handler consumes.
     let collapsedSummaryHtml = '';
     if (collapsedBranches.length > 0) {
       const tooltipLines = collapsedBranches.map((b) => b.name).join('\n');
       const escapedTooltip = this._escapeHtml(tooltipLines);
       const dataAttr = this._escapeHtml(collapsedBranches.map((b) => b.name).join('|'));
       const ariaLabel = this._escapeHtml(
-        `${collapsedBranches.length} more branch${collapsedBranches.length === 1 ? '' : 'es'}: ${collapsedBranches.map((b) => b.name).join(', ')}`
+        `Show ${collapsedBranches.length} more branch${collapsedBranches.length === 1 ? '' : 'es'}: ${collapsedBranches.map((b) => b.name).join(', ')}`
       );
-      collapsedSummaryHtml = `<span class="branch-label-collapsed" data-collapsed-branches="${dataAttr}" role="img" aria-label="${ariaLabel}" title="${escapedTooltip}">+${collapsedBranches.length}</span>`;
+      collapsedSummaryHtml = `<span class="branch-label-collapsed" data-collapsed-branches="${dataAttr}" role="button" tabindex="0" aria-label="${ariaLabel}" aria-haspopup="true" title="${escapedTooltip}">+${collapsedBranches.length}</span>`;
     }
 
-    return headChipHtml + labels.join('') + collapsedSummaryHtml + tagLabels.join('');
+    return labels.join('') + collapsedSummaryHtml + tagLabels.join('');
   }
 
   /**
