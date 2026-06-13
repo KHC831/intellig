@@ -62,4 +62,11 @@ export interface IGtwControllerContext {
   postSyncSelection(): void;
   /** Post the recomputed context-menu enable map to the webview. */
   postMenuStateUpdate(): void;
+  /**
+   * Clear the pending changed-files payload + its error together. Exposed as
+   * a single mutation method (not two writable fields) because the two
+   * always clear as a pair — a partial clear would leak a half-loaded
+   * changed-files payload into the next details-panel render.
+   */
+  clearPendingChangedFiles(): void;
 }

@@ -44,6 +44,56 @@ export function selectIfNotSelected(ctx: IGtwControllerContext, hash: string): v
 }
 
 /**
+ * Programmatic selection setter. Replaces the current selection with
+ * `hashes` (dropping any not in the rendered commit nodes), sets the anchor
+ * per the `anchor` argument, focuses the details pane on the first surviving
+ * hash, then renders + fires + posts in the standard order.
+ */
+export function selectCommits(
+  ctx: IGtwControllerContext,
+  hashes: readonly string[],
+  anchor?: string | null
+): void {
+  // Mirror selectCommit's pending-state cleanup so
+  // a programmatic selection doesn't leak a half-loaded changed-files
+  // payload into the next details-panel render.
+  ctx.clearPendingChangedFiles();
+
+  const known = new Set(ctx.extendedLogState.commitNodes.map((n) => n.commit.hash));
+  const filtered = hashes.filter((h) => known.has(h));
+  ctx.extendedLogState.selectedCommits = new Set(filtered);
+
+  if (anchor === undefined) {
+    // No explicit anchor: pick the first surviving hash, or null if empty.
+    ctx.extendedLogState.anchorHash = filtered.length > 0 ? filtered[0] : null;
+  } else if (anchor === null) {
+    ctx.extendedLogState.anchorHash = null;
+  } else {
+    ctx.extendedLogState.anchorHash = known.has(anchor) ? anchor : null;
+  }
+  // For N>=2, focus the details pane on the FIRST
+  // surviving hash so the panel can't show a stale commit that's no
+  // longer in the selection. For N=1, use that single hash. For N=0,
+  // leave whatever was there (the pane will switch to the placeholder
+  // on the next render).
+  if (filtered.length >= 1) {
+    ctx.extendedLogState.expandedCommit = filtered[0];
+  }
+
+  // (HIGH) — render BEFORE posting so the precomputed enable map
+  // anchor sync land on the live document, not the pre-reload one.
+  ctx.updateWebview();
+  // Fire BEFORE the post sequence (matches
+  // selectCommit's ordering).
+  ctx.fireDidChangeState();
+  // belt-and-suspenders — the rendered HTML already
+  // carries data-anchor-hash; syncSelection guards against
+  // interpolation bugs and partial-update extension cases.
+  ctx.postSyncSelection();
+  ctx.postMenuStateUpdate();
+}
+
+/**
  * Toggle commit selection (for multi-select)
  */
 export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string): void {

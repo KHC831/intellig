@@ -56,6 +56,7 @@ import {
   handlePanelResize,
   selectIfNotSelected as handleSelectIfNotSelected,
   toggleCommitSelection as handleToggleCommitSelection,
+  selectCommits as handleSelectCommits,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
@@ -1057,44 +1058,15 @@ export class GitToolWindowProvider
    * `updateMenuEnableState` so the webview stays in sync.
    */
   public selectCommits(hashes: readonly string[], anchor?: string | null): void {
-    // Mirror selectCommit's pending-state cleanup so
-    // a programmatic selection doesn't leak a half-loaded changed-files
-    // payload into the next details-panel render.
+    handleSelectCommits(this, hashes, anchor);
+  }
+
+  // IGtwControllerContext — clear the pending changed-files payload + its
+  // error together (they always clear as a pair, so a single mutation method
+  // keeps the invariant rather than exposing two writable fields).
+  clearPendingChangedFiles(): void {
     this._pendingChangedFiles = undefined;
     this._pendingChangedFilesError = undefined;
-
-    const known = new Set(this._extendedLogState.commitNodes.map((n) => n.commit.hash));
-    const filtered = hashes.filter((h) => known.has(h));
-    this._extendedLogState.selectedCommits = new Set(filtered);
-
-    if (anchor === undefined) {
-      // No explicit anchor: pick the first surviving hash, or null if empty.
-      this._extendedLogState.anchorHash = filtered.length > 0 ? filtered[0] : null;
-    } else if (anchor === null) {
-      this._extendedLogState.anchorHash = null;
-    } else {
-      this._extendedLogState.anchorHash = known.has(anchor) ? anchor : null;
-    }
-    // For N>=2, focus the details pane on the FIRST
-    // surviving hash so the panel can't show a stale commit that's no
-    // longer in the selection. For N=1, use that single hash. For N=0,
-    // leave whatever was there (the pane will switch to the placeholder
-    // on the next render).
-    if (filtered.length >= 1) {
-      this._extendedLogState.expandedCommit = filtered[0];
-    }
-
-    // (HIGH) — render BEFORE posting so the precomputed enable map
-    // anchor sync land on the live document, not the pre-reload one.
-    this._updateWebview();
-    // Fire BEFORE the post sequence (matches
-    // selectCommit's ordering).
-    this._onDidChangeState.fire();
-    // belt-and-suspenders — the rendered HTML already
-    // carries data-anchor-hash; syncSelection guards against
-    // interpolation bugs and partial-update extension cases.
-    this._postSyncSelection();
-    this._postMenuStateUpdate();
   }
 
   /**
