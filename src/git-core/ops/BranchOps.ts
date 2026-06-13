@@ -10,7 +10,14 @@ import {
   IBranchComparison,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
-import { parseBranches, parseStatus, parseLog, getBranchFormat, getLogFormat } from '../gitParser';
+import {
+  parseBranches,
+  parseStatus,
+  parseLog,
+  getBranchFormat,
+  getLogFormat,
+  isConflictedStatus,
+} from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -285,7 +292,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     if (conflicts.length > 0) {
@@ -331,7 +338,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     if (conflicts.length > 0) {
@@ -387,7 +394,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     return {
@@ -445,7 +452,7 @@ export class BranchOps {
       cwd: repo.rootUri.fsPath,
     });
     const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
+      .filter(isConflictedStatus)
       .map((f) => f.path);
 
     if (conflicts.length > 0) {

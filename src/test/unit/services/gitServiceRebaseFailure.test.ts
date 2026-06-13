@@ -105,6 +105,46 @@ describe('GitService.rebaseBranch — failure-reason surfacing', () => {
     assert.strictEqual(result.failureReason, undefined);
   });
 
+  it('returns conflicts for an add/add (AA) autostash pop conflict on exit 0', async () => {
+    // An autostash pop that re-adds a path the rebased commits also added
+    // leaves an `AA` (both-added) unmerged entry, not `UU`. git still exits 0.
+    // A U-only conflict filter would miss this and falsely report success, so
+    // the both-added and both-deleted unmerged states must also count.
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    cli.scripted.push({ exitCode: 0, stdout: 'AA src/added.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    assert.deepStrictEqual(result.conflicts, ['src/added.ts']);
+    assert.strictEqual(result.failureReason, undefined);
+  });
+
+  it('returns conflicts for a delete/delete (DD) autostash pop conflict on exit 0', async () => {
+    // Symmetric to the add/add case: a both-deleted unmerged entry (`DD`)
+    // must also be treated as a conflict on the zero-exit autostash path.
+    const cli = new ScriptedGitCli();
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    cli.scripted.push({ exitCode: 0, stdout: 'DD src/gone.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    assert.deepStrictEqual(result.conflicts, ['src/gone.ts']);
+    assert.strictEqual(result.failureReason, undefined);
+  });
+
   it('returns conflicts and NO failureReason when status reports unmerged files', async () => {
     const cli = new ScriptedGitCli();
     // 1. rebase fails
