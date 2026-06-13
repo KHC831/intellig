@@ -1,5 +1,5 @@
 /**
- * PullDialog — T1-02.
+ * PullDialog.
  *
  * Two-step native QuickPick flow for `git pull`:
  *   1. Pick the remote + branch to pull from (sectioned by remote).
@@ -349,18 +349,17 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
     return { status: 'cancelled', step: 'options' };
   }
 
-  // LOW-8 (tracked): users migrating from IntelliJ expect Enter alone to
-  // submit the flag selection. VS Code's `showQuickPick` with `canPickMany`
-  // returns the current selection set on OK, and there's no per-item "Accept"
-  // button on the classic API — so we require the explicit ▶ Pull terminal
-  // item to be picked, otherwise treat the submission as cancel. This keeps
-  // accidental Enter from silently pulling with a surprise flag set.
+  // Users migrating from IntelliJ expect Enter alone to submit the flag
+  // selection. VS Code's `showQuickPick` with `canPickMany` returns the
+  // current selection set on OK, and there's no per-item "Accept" button on
+  // the classic API — so we require the explicit ▶ Pull terminal item to be
+  // picked, otherwise treat the submission as cancel. This keeps accidental
+  // Enter from silently pulling with a surprise flag set.
   //
-  // TODO(T2): migrate to `vscode.window.createQuickPick()` + a dedicated
-  // accept button (`buttons: [{iconPath, tooltip:'Pull'}]`) so Enter binds
-  // to accept naturally. That API is more involved (manual show/hide, event
-  // plumbing) so we keep the cheaper pattern here until Tier-2 touches this
-  // file.
+  // TODO: migrate to `vscode.window.createQuickPick()` + a dedicated accept
+  // button (`buttons: [{iconPath, tooltip:'Pull'}]`) so Enter binds to accept
+  // naturally. That API is more involved (manual show/hide, event plumbing)
+  // so we keep the cheaper pattern here for now.
   const confirmed = selected.some((it) => it.confirm === true);
   if (!confirmed) {
     return { status: 'cancelled', step: 'options' };
@@ -389,7 +388,7 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     if (isConflictError(message)) {
-      // Hand conflicts off to the T1-08(a) Resolve Conflicts dialog. The
+      // Hand conflicts off to the Resolve Conflicts dialog. The
       // operation union on IConflictResolutionService does not include
       // `'pull'` — a pull produces the same repo state that merge/rebase
       // produce directly, so we map pull-with-rebase → `'rebase'` and any

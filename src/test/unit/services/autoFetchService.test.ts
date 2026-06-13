@@ -1,5 +1,5 @@
 /**
- * Unit tests for AutoFetchService (T1-03).
+ * Unit tests for AutoFetchService.
  *
  * Covers: scheduling, disabled config, backoff, auth-failure pause,
  * workspace-folder reactions, and clean disposal.

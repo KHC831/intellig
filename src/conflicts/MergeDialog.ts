@@ -1,5 +1,5 @@
 /**
- * Merge Dialog (T3-02).
+ * Merge Dialog.
  *
  * IntelliJ-style "Merge Branch" modal. Replaces the direct
  * `gitService.mergeBranch(repo, branch)` call with a webview panel
@@ -22,7 +22,7 @@
  *
  * Conflict handoff: on non-success with conflicts, invokes
  * {@link IConflictResolutionService.openResolveConflictsDialog} with
- * `operation: 'merge'`, matching the T1-08(a) caller-invoked pattern.
+ * `operation: 'merge'`, matching the caller-invoked pattern.
  *
  * No destructive-op confirm — merge is recoverable via `git merge --abort`.
  */
@@ -198,7 +198,7 @@ export class MergeDialog extends BaseWebviewPanel {
   /**
    * Emit the body HTML and the interactive script separately. Used by
    * `_render` so it can splice the script into a nonced `<script>` block
-   * without regex-extracting it from the body (LOW-1 — nested `</script>`
+   * without regex-extracting it from the body (nested `</script>`
    * inside a string literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
@@ -310,7 +310,7 @@ export class MergeDialog extends BaseWebviewPanel {
 
   /**
    * Override the base renderer entirely so we can emit the interactive
-   * script with the CSP nonce. LOW-1: we pass body+script as an explicit
+   * script with the CSP nonce. We pass body+script as an explicit
    * tuple from `_getBodyParts()` instead of regex-extracting the script
    * from the serialized body (which would break on nested `</script>`
    * substrings inside string literals).

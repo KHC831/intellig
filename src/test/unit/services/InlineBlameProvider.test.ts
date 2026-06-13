@@ -503,10 +503,10 @@ describe('InlineBlameProvider', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // FU-1 — hover includes a clickable commit-hash link when the repo has a
+  // hover includes a clickable commit-hash link when the repo has a
   // parseable remote URL. Falls back to plain hash when the parse fails.
   // ────────────────────────────────────────────────────────────────────────
-  describe('hover message — issue-link wiring (FU-1)', () => {
+  describe('hover message — issue-link wiring', () => {
     const sampleBlame: IBlameLine = {
       line: 1,
       commit: 'abc123def456789012345678901234567890abcd',

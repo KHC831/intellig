@@ -1,5 +1,5 @@
 /**
- * Blame options source (T2-08).
+ * Blame options source.
  *
  * Single source of truth for the three persistent blame flags (Ignore
  * Whitespace / Detect Movements Within File / Detect Movements Across Files)

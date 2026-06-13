@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-13 IntelliJ keymap parity.
+ * Unit tests for IntelliJ keymap parity.
  *
  * The tests load package.json and assert that each IntelliJ-preset
  * keybinding is present with the expected command + when clause. Also
@@ -28,7 +28,7 @@ function loadPackageJson(): PackageJson {
   return JSON.parse(raw) as PackageJson;
 }
 
-describe('T3-13 IntelliJ keymap parity', () => {
+describe('IntelliJ keymap parity', () => {
   let pkg: PackageJson;
 
   before(() => {
@@ -90,7 +90,7 @@ describe('T3-13 IntelliJ keymap parity', () => {
     });
 
     it('Ctrl+F (graph-focused) → intellig.toolWindow.jumpToHash', () => {
-      // T3-13 declared a preset-gated stub; T3-01/06 added a universal
+      // declared a preset-gated stub; /06 added a universal
       // binding for the real Jump-to-Commit feature (useful regardless of
       // keymap preset). Both satisfy the parity goal — either must exist
       // and be focused-view-scoped so we don't hijack VS Code's global
@@ -112,20 +112,20 @@ describe('T3-13 IntelliJ keymap parity', () => {
   });
 
   describe('existing silent shelve/unshelve shortcuts are still bound', () => {
-    it('Ctrl+Shift+H → intellig.shelve.silent (from T2-10)', () => {
+    it('Ctrl+Shift+H → intellig.shelve.silent', () => {
       const kbs = pkg.contributes?.keybindings ?? [];
       const kb = kbs.find(
         (k) => k.command === 'intellig.shelve.silent' && k.key === 'ctrl+shift+h'
       );
-      assert.ok(kb, 'T2-10 shortcut ctrl+shift+h must still be present');
+      assert.ok(kb, 'shelve.silent shortcut ctrl+shift+h must still be present');
     });
 
-    it('Ctrl+Alt+U → intellig.unshelve.silent (from T2-10)', () => {
+    it('Ctrl+Alt+U → intellig.unshelve.silent', () => {
       const kbs = pkg.contributes?.keybindings ?? [];
       const kb = kbs.find(
         (k) => k.command === 'intellig.unshelve.silent' && k.key === 'ctrl+alt+u'
       );
-      assert.ok(kb, 'T2-10 shortcut ctrl+alt+u must still be present');
+      assert.ok(kb, 'unshelve.silent shortcut ctrl+alt+u must still be present');
     });
   });
 });

@@ -466,7 +466,7 @@ describe('RebaseService', () => {
     });
   });
 
-  describe('Rebase Control Operations (Task 6.7)', () => {
+  describe('Rebase Control Operations', () => {
     beforeEach(async () => {
       mockGitCli.setExecResult(
         'rev-parse --abbrev-ref HEAD',
@@ -769,7 +769,7 @@ describe('RebaseService', () => {
     });
   });
 
-  describe('Rebase Action Handlers (Task 6.3)', () => {
+  describe('Rebase Action Handlers', () => {
     beforeEach(async () => {
       mockGitCli.setExecResult(
         'rev-parse --abbrev-ref HEAD',

@@ -5,10 +5,10 @@ import * as vscode from 'vscode';
  * Provides inline blame annotations at the end of the current line,
  * showing commit information for the line where the cursor is positioned.
  *
- * - 9.1: Display blame annotations for file (inline at end of current line)
- * - 9.3: Show commit message on hover
- * - 9.4: Show tooltip with full commit details
- * - 17.12: Use IntelliJ-style gutter annotations with age-based color gradients
+ * - Display blame annotations for file (inline at end of current line)
+ * - Show commit message on hover
+ * - Show tooltip with full commit details
+ * - Use IntelliJ-style gutter annotations with age-based color gradients
  */
 export interface IInlineBlameProvider {
   /**

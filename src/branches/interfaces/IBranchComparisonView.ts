@@ -64,12 +64,12 @@ export interface IBranchComparisonActionResult {
  * Provides branch comparison functionality with UI for selecting branches,
  * viewing commits unique to each branch, and viewing file differences.
  *
- * - 15.1: Prompt for target branch to compare
- * - 15.2: Display commits unique to each branch
- * - 15.3: Display files that differ between branches
- * - 15.4: Display diff for selected file
- * - 15.5: Compare with remote tracking branch
- * - 15.6: Show ahead/behind commit counts
+ * - Prompt for target branch to compare
+ * - Display commits unique to each branch
+ * - Display files that differ between branches
+ * - Display diff for selected file
+ * - Compare with remote tracking branch
+ * - Show ahead/behind commit counts
  */
 export interface IBranchComparisonView {
   /**

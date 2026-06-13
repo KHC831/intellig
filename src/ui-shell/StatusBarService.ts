@@ -34,13 +34,14 @@ const DEFAULT_REFRESH_DEBOUNCE_MS = 150;
  * Status Bar Service implementation.
  * Manages the Git status bar item that displays branch and sync information.
  *
- * - 4.1: Display current branch name in status bar
- * - 17.8: Display progress and status notifications similar to IntelliJ
- * - T2-12: Subscribes to `onDidFetch` (from T1-03 AutoFetchService) and
- *   `onDidChangeRepository` so the ↑N ↓M badge refreshes after every fetch
- *   or repo state mutation. Clicking the badge focuses the Incoming tab in
- *   the Git tool window (falls back to opening the tool window when the
- *   focusTab command isn't registered).
+ * - Display current branch name in status bar
+ * - Display progress and status notifications similar to IntelliJ
+ *
+ * Subscribes to `onDidFetch` (from AutoFetchService) and
+ * `onDidChangeRepository` so the ↑N ↓M badge refreshes after every fetch or
+ * repo state mutation. Clicking the badge focuses the Incoming tab in the
+ * Git tool window (falls back to opening the tool window when the focusTab
+ * command isn't registered).
  */
 export class StatusBarService implements IStatusBarService {
   private _statusBarItem: vscode.StatusBarItem;
@@ -98,8 +99,8 @@ export class StatusBarService implements IStatusBarService {
       this._options.alignment,
       this._options.priority
     );
-    // T2-12: click the status-bar badge → focus the Incoming tab in the Git
-    // tool window. `intellig.toolWindow.focusTab` is declared in package.json;
+    // Click the status-bar badge → focus the Incoming tab in the Git tool
+    // window. `intellig.toolWindow.focusTab` is declared in package.json;
     // the extension registers a handler (see extension.ts). When the command
     // isn't available, VS Code silently no-ops — the fallback command
     // (`intellig.openGitToolWindow`) is attempted first by the click handler
@@ -125,9 +126,8 @@ export class StatusBarService implements IStatusBarService {
       })
     );
 
-    // T2-12: listen for fetches so the incoming/outgoing counts reflect the
-    // latest remote-tracking state without waiting for a separate repo-change
-    // event.
+    // Listen for fetches so the incoming/outgoing counts reflect the latest
+    // remote-tracking state without waiting for a separate repo-change event.
     this._disposables.push(
       this._gitService.onDidFetch(({ repo }) => {
         this._scheduleRefresh(repo);
@@ -328,7 +328,7 @@ export class StatusBarService implements IStatusBarService {
 
   /**
    * Update the status bar display based on current state.
-   * - 4.1: Display current branch name in status bar
+   * - Display current branch name in status bar
    * - Show ahead/behind counts if the branch has an upstream (e.g., "main ↑2 ↓1")
    */
   private _updateDisplay(): void {

@@ -105,7 +105,7 @@ export function wrapTabbedBody(input: {
  * The provider receives `tabChange` via the existing `onDidReceiveMessage` and
  * routes it through `TabRouter.dispatch` which re-renders the HTML. Because
  * inactive panels are `display:none`, focus jumps back to the fresh active
- * panel on re-render; no DOM recycling Phase 1.
+ * panel on re-render; no DOM recycling.
  */
 export function tabStripBehaviorScript(): string {
   return `

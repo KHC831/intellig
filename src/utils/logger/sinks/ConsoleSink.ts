@@ -4,23 +4,23 @@
  *
  * This sink is the **one sanctioned production reference to
  * `console.*`** in the IntelliG codebase. The structural guard
- * `scripts/check-no-bare-console.sh` (task 15.2) allowlists this
+ * `scripts/check-no-bare-console.sh` allowlists this
  * single file. Every other production call site routes through the
  * structured Logger, whose `OutputChannelSink` writes to the
  * user-visible `IntelliG` channel and whose optional `ConsoleSink`
  * (this module) provides the developer-mode mirror visible only in
  * the Extension Development Host.
  *
- * ### Behaviour (Requirement 3.3, 2.6)
+ * ### Behaviour
  *
  * - The sink reuses the **same rendered string** the
  *   `OutputChannelSink` would produce, by calling `formatRecord`
  *   directly. This guarantees byte-for-byte parity between the two
  *   sinks (asserted by the property test
- *   `loggerConsoleMirror.property.test.ts`, task 4.13).
+ *   `loggerConsoleMirror.property.test.ts`).
  * - Each record is forwarded to the matching `console[level]` method
- *   with one exception: `trace` → `console.debug` (per Requirement
- *   3.3). The mapping is a frozen lookup table to keep the per-emit
+ *   with one exception: `trace` → `console.debug`. The mapping is a
+ *   frozen lookup table to keep the per-emit
  *   cost predictable.
  * - The sink is **active only when** `LogLevelResolver.consoleEnabled`
  *   is `true` (driven by the `intellig.log.console` setting). When the
@@ -37,13 +37,8 @@
  * `console` global is process-scoped — so disposal merely sets an
  * internal flag that causes subsequent `admits` calls to return
  * `false`. This matches the `LogSink` contract documented in
- * `./types.ts` (Requirement 3.4: a sink only detaches its own
+ * `./types.ts` (a sink only detaches its own
  * subscription; it does not dispose externally-owned resources).
- *
- * @see Requirement 3.3, 2.6 in `requirements.md`
- * @see design.md → "Components and Interfaces" → "Logger module location"
- *      and "OutputChannel sink rendering grammar" (final paragraph on
- *      the ConsoleSink)
  */
 
 import { formatRecord } from '../render';
@@ -54,9 +49,9 @@ import type { LogLevelResolver } from '../levels';
 /**
  * Frozen mapping from record `LogLevel` to the `console` method name
  * the sink invokes. The only non-identity entry is `trace`, which
- * Requirement 3.3 explicitly maps to `console.debug` (the `console`
+ * maps to `console.debug` (the `console`
  * global has a `trace` method but it prepends a stack trace, which is
- * not what the requirement asks for).
+ * not what we want here).
  *
  * The codomain is the discriminated subset of `console`'s method names
  * the Logger ever invokes; narrowing it makes the dispatch in `emit`
@@ -107,7 +102,7 @@ export class ConsoleSink implements LogSink {
   /**
    * Render `record` through the same `formatRecord` the OutputChannel
    * sink uses, then forward the rendered block to `console[level]`
-   * (with `trace` → `console.debug` per Requirement 3.3).
+   * (with `trace` → `console.debug`).
    *
    * The Logger only calls `emit` after `admits(record)` has returned
    * `true`, so this method intentionally does not re-check the

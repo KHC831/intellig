@@ -280,11 +280,11 @@ export class BranchTreeItem extends vscode.TreeItem {
  * Branch Tree Data Provider.
  * Provides tree data for the branches view with local branches, remote branches, and tags.
  *
- * - 5.1: Context menu for local branches
- * - 5.2: Context menu for remote branches
- * - 5.7: Disable checkout for current branch
- * - 5.8: Context menu for tags
- * - 17.6: Organize menu items in logical groupings
+ * - Context menu for local branches
+ * - Context menu for remote branches
+ * - Disable checkout for current branch
+ * - Context menu for tags
+ * - Organize menu items in logical groupings
  */
 export class BranchTreeProvider
   implements vscode.TreeDataProvider<BranchTreeItem>, vscode.Disposable
@@ -305,7 +305,7 @@ export class BranchTreeProvider
    * Component-bound Logger emitted on each refresh trigger (debug)
    * and refresh failure (warn) so the BranchTree's lifecycle waypoints
    * land in the IntelliG OutputChannel uniformly with the rest of the
-   * service graph (task 9.9, Requirements 6.4, 6.7).
+   * service graph.
    */
   private readonly _logger: Logger;
 
@@ -391,8 +391,8 @@ export class BranchTreeProvider
    * Refresh the tree view
    */
   refresh(): void {
-    // debug-level waypoint on every refresh trigger
-    // (Requirement 6.4). Fires whenever upstream state changes
+    // debug-level waypoint on every refresh trigger.
+    // Fires whenever upstream state changes
     // (repo switch, init, manual `setRepository`, etc.).
     this._logger.debug('refresh triggered');
     this._onDidChangeTreeData.fire();
@@ -445,8 +445,8 @@ export class BranchTreeProvider
             return [];
         }
       } catch (err) {
-        // warn-level waypoint on refresh failure
-        // (Requirement 6.4). Re-throw so VS Code still surfaces the
+        // warn-level waypoint on refresh failure.
+        // Re-throw so VS Code still surfaces the
         // error to the TreeView host (preserves pre-task observable
         // behaviour).
         this._logger.warn('refresh failed', {

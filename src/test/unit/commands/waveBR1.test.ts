@@ -232,7 +232,7 @@ describe('Wave B R1 — review fixes', () => {
   afterEach(() => restoreMocks());
 
   // ─── _handleCreatePatchMulti uses isSelectionContiguous helper ───────────
-  describe('R1-3 (TLB-H-1) — _handleCreatePatchMulti uses the multiSelect helper', () => {
+  describe('_handleCreatePatchMulti uses the multiSelect helper', () => {
     it('CommitContextMenuCommands.ts imports isSelectionContiguous from multiSelect', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -266,7 +266,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── getSelectedCommitsOldestFirst sibling ───────────────────────────────
-  describe('R1-5 (TLB-H-3) — getSelectedCommitsOldestFirst()', () => {
+  describe('getSelectedCommitsOldestFirst()', () => {
     it('GitToolWindowProvider exposes getSelectedCommitsOldestFirst as a public method', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -354,7 +354,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── displayOrder threaded through dispatch ──────────────────────────────
-  describe('R1-4 (TLB-H-2) — handlers receive displayOrder via dispatch event', () => {
+  describe('handlers receive displayOrder via dispatch event', () => {
     it('onDidRequestLogContextAction event payload includes commitNodes (R2 collapsed shape)', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -408,7 +408,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── B3 silently drops scrolled-out commits ──────────────────────────────
-  describe('R1-1 (Senior H-1) — B3 aborts on stale hashes', () => {
+  describe('B3 aborts on stale hashes', () => {
     it('toasts the TL-M-4 phrasing and aborts when a hash is not in displayOrder', async () => {
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -525,7 +525,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── hash-format validation ──────────────────────────────────────────────
-  describe('R1-7 (Senior M-2) — hash-format validation in B3 + B4', () => {
+  describe('hash-format validation in B3 + B4', () => {
     it('createPatch rejects malformed hashes silently (defense in depth)', async () => {
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -590,7 +590,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── compareVersions uses git diff oldHash..newHash ──────────────────────
-  describe('R1-6 (TLB-M-1) — compareVersions uses two-dot diff, not cumulative getMultiCommitDiff', () => {
+  describe('compareVersions uses two-dot diff, not cumulative getMultiCommitDiff', () => {
     it('shells out to `git diff --name-only oldHash..newHash` for the file list', async () => {
       const gitService = createMockGitService(repo, {
         // If compareVersions still calls this, our test rejects.
@@ -683,7 +683,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── unreachable swap-fallback gone ──────────────────────────────────────
-  describe('R1-12 (TLB-L-2) — unreachable swap-fallback deleted', () => {
+  describe('unreachable swap-fallback deleted', () => {
     it('CommitContextMenuCommands.ts has no "Fallback: if one of the hashes isn\'t in commitNodes" comment', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -699,7 +699,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── comment cleanup ──────────────────────────────────────────────────────
-  describe('R1-9 (Senior M-4) — "Wait —" inline comment block rewritten', () => {
+  describe('"Wait —" inline comment block rewritten', () => {
     it('CommitContextMenuCommands.ts has no "Wait —" comment in the patch builder', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -715,7 +715,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── rule-of-three follow-up on property mock ────────────────────────────
-  describe('R1-13 (TLB-M-3) — rule-of-three FU on property mocks', () => {
+  describe('rule-of-three FU on property mocks', () => {
     it('commitContextMenuDispatch.property.test.ts has the rule-of-three FU comment', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -744,7 +744,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── ADR-009 §6 ───────────────────────────────────────────────────────────
-  describe('R1-14 (TLB-M-2) — ADR-009 §6 display-order vs replay-order', () => {
+  describe('ADR-009 §6 display-order vs replay-order', () => {
     it('ADR-009 has a §6 section about display-order vs replay-order', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -764,7 +764,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── B3 toast Open Folder affordance ─────────────────────────────────────
-  describe('R1-8 (Senior M-3) — B3 success toast offers "Open Folder"', () => {
+  describe('B3 success toast offers "Open Folder"', () => {
     it('multi-commit success toast includes the "Open Folder" action', async () => {
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -797,7 +797,7 @@ describe('Wave B R1 — review fixes', () => {
   });
 
   // ─── Smoke: dispatch event carries displayOrder end-to-end ───────────────
-  describe('R1-4 (TLB-H-2) — end-to-end smoke', () => {
+  describe('end-to-end smoke', () => {
     it('handlers receive displayOrder from the dispatch payload (no provider call)', async () => {
       // Provider mock has NO getExtendedLogState. If anything in the
       // handler chain still calls it, this throws.

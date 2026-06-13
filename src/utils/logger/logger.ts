@@ -11,10 +11,9 @@
  *   `vscode.workspace.onDidChangeConfiguration` listener disposable,
  *   and the lazy root `Logger` reference.
  * - The lifecycle accessors `getLogger()`, `initLogger(context)`, and
- *   `__resetLoggerForTest()` documented in design.md → "Components and
- *   Interfaces" → "Logger module location" and Requirement 8.1–8.4.
+ *   `__resetLoggerForTest()`.
  *
- * ### Hot-path discipline (Requirement 7.1, 7.3)
+ * ### Hot-path discipline
  *
  * The Logger short-circuits BEFORE any record allocation when the
  * configured threshold rejects the record's level. Sanitization,
@@ -22,20 +21,20 @@
  * records. At `intellig.log.level = "off"` the per-call cost is one
  * numeric comparison plus the level-method's own call overhead.
  *
- * ### Emission flow (design.md → Logger emission flow)
+ * ### Emission flow
  *
  * 1. Resolver-level admits-check — short-circuit on miss.
  * 2. Build the record: timestamp (`new Date().toISOString()`),
  *    effective component, merged context (inherited bindings →
  *    per-call context, per-call wins), correlation id (per-call >
  *    inherited > `_readCorrelationStore()`), optional error split.
- * 3. Pass the record through `sanitizeRecord`. On failure
- *    (Requirement 4.5), fall back to a fixed-content warn record.
+ * 3. Pass the record through `sanitizeRecord`. On failure,
+ *    fall back to a fixed-content warn record.
  * 4. Multicast the (sanitized) record to every registered sink whose
  *    `admits` returns `true`. Catch per-sink `emit` throws; emit a
  *    separate warn naming the failing sink (recursion-guarded).
  *
- * ### Bindings inheritance (Requirement 1.4, 1.5, 1.6)
+ * ### Bindings inheritance
  *
  * `child(bindings)` returns a fresh `Logger` whose internal state is
  * built non-destructively: parent state is **not** mutated, and the
@@ -45,17 +44,13 @@
  * special-cased onto top-level `LogRecord` fields; every other key
  * lands inside `LogRecord.context`.
  *
- * ### Correlation read at emit time (design.md → "Inheritance through
- * child loggers")
+ * ### Correlation read at emit time
  *
  * `child(bindings)` does NOT read the correlation store. The store is
  * read at *emit time* so a child Logger constructed inside one
  * command frame and called inside another correctly attributes
  * records to the *current* frame. An explicit `correlationId` in
  * `bindings` (or in the per-call context) overrides the store read.
- *
- * @see Requirement 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 4.5, 7.1, 7.3,
- *      7.4, 8.1, 8.2, 8.3
  */
 
 import * as vscode from 'vscode';
@@ -74,9 +69,9 @@ import type { JsonValue, LogLevel, LogRecord, LogSink } from './sinks/types';
  * Two keys are special-cased onto top-level `LogRecord` fields:
  *
  * - `component`: rebinds the rendered component name. Most-recent
- *   `child(...)` call wins (Requirement 1.5).
+ *   `child(...)` call wins.
  * - `correlationId`: overrides the `AsyncLocalStorage` read at emit
- *   time (Requirement 5.2). Rarely used in production.
+ *   time. Rarely used in production.
  *
  * Every other string-keyed entry is merged into `LogRecord.context`.
  * Values are restricted to JSON-serializable types so the sanitizer's
@@ -94,8 +89,7 @@ export interface Bindings {
 
 /**
  * Public Logger surface. Created via `getLogger()` (root instance) or
- * `child(bindings)` (descendant instances). Method shape matches
- * Requirement 1.1.
+ * `child(bindings)` (descendant instances).
  *
  * The `error` method has the documented overload: the second argument
  * may be either a `Bindings` context bag OR an `Error` (shorthand for
@@ -240,9 +234,9 @@ class LoggerImpl implements Logger {
   /**
    * Build a new `Logger` whose state is the parent state shallow-
    * merged with `bindings`. Parent state is **not** mutated; the
-   * caller's `bindings` object is **not** mutated (Requirement 1.6).
+   * caller's `bindings` object is **not** mutated.
    *
-   * Resolution rules (Requirement 1.4, 1.5, 5.2):
+   * Resolution rules:
    * - `component`: per-call wins, falls back to inherited, then to
    *   `'root'` (already encoded in the parent's `_component` field).
    * - `correlationId`: per-call wins, falls back to inherited
@@ -252,11 +246,11 @@ class LoggerImpl implements Logger {
    *   per-call wins on conflict.
    */
   child(bindings: Bindings): Logger {
-    // Resolve component (Requirement 1.5: most-recent-wins).
+    // Resolve component (most-recent-wins).
     const newComponent =
       typeof bindings.component === 'string' ? bindings.component : this._component;
 
-    // Resolve correlation override (Requirement 5.2).
+    // Resolve correlation override.
     const newCorrelationOverride =
       typeof bindings.correlationId === 'string'
         ? bindings.correlationId
@@ -286,7 +280,7 @@ class LoggerImpl implements Logger {
 
   /**
    * Single emission entry-point. The first action is the hot-path
-   * resolver check (Requirement 7.1, 7.3): a level-rejected call
+   * resolver check: a level-rejected call
    * exits before any allocation.
    */
   private _emit(
@@ -305,7 +299,7 @@ class LoggerImpl implements Logger {
     // bindings.
     const record = this._buildRecord(level, message, context, error);
 
-    // Sanitize. On failure (Requirement 4.5) the sanitizer returns a
+    // Sanitize. On failure the sanitizer returns a
     // sentinel record we forward as-is; the sanitization-failure
     // branch deliberately bypasses a second sanitize pass.
     const result = sanitizeRecord(record);
@@ -317,10 +311,9 @@ class LoggerImpl implements Logger {
   /**
    * Construct a `LogRecord` from the current Logger state and the
    * per-call arguments. The per-call `context` is applied AFTER the
-   * inherited context so per-call keys win on conflict (Requirement
-   * 1.4).
+   * inherited context so per-call keys win on conflict.
    *
-   * Correlation id resolution (Requirement 5.5, 14.9):
+   * Correlation id resolution:
    *   per-call.correlationId
    *     ?? this._correlationOverride
    *     ?? _readCorrelationStore()?.correlationId
@@ -473,7 +466,7 @@ function _reportSinkFailure(failingSinkName: string, original: LogRecord, _cause
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle accessors (Requirement 8.1, 8.2, 8.3)
+// Lifecycle accessors
 // ---------------------------------------------------------------------------
 
 /**
@@ -511,17 +504,17 @@ export function getLogger(): Logger {
  *    from `vscode.workspace.getConfiguration`).
  * 2. Registers a single `vscode.workspace.onDidChangeConfiguration`
  *    listener that re-runs `refresh()` when an `intellig` setting
- *    changes (Requirement 2.3 — within 100ms; the listener fires
+ *    changes (within 100ms; the listener fires
  *    synchronously). The disposable is pushed onto
  *    `context.subscriptions` for VS Code teardown AND held in the
  *    module-level `_configListenerDisposable` for
  *    `__resetLoggerForTest()`.
  * 3. Constructs the two production sinks (`OutputChannelSink`,
  *    `ConsoleSink`) and registers them in `_sinks`. Both sinks share
- *    the resolver (Requirement 2.6, 3.3).
+ *    the resolver.
  * 4. If the initial `refresh()` reported an invalid
  *    `intellig.log.level` value, emits one warn-level record naming
- *    the offending value (Requirement 2.5).
+ *    the offending value.
  */
 export function initLogger(context: vscode.ExtensionContext): void {
   if (_initialized) {

@@ -227,7 +227,7 @@ function renderNode(node: FileTreeNode, depth: number, deps: IFileTreeRenderDeps
 
 /**
  * Emit a directory row followed by its children rendered at `depth + 1`.
- * The row carries `role="listitem"` (Requirement 2.10) but no `data-path` /
+ * The row carries `role="listitem"` but no `data-path` /
  * `data-commit-hash`, so the `dblclick` delegation never matches it.
  */
 function renderDirectory(node: IDirectoryNode, depth: number, deps: IFileTreeRenderDeps): string {

@@ -46,7 +46,7 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
 
     // Frozen literal — the subject is the ONLY slack track (`minmax(0, 1fr)`)
     // and author/date are capped (`minmax(0, 14ch)` / `minmax(0, 10ch)`) so no
-    // flexible track sits between them (Requirement 1.1, 1.2, 1.4). `gap: 8px`
+    // flexible track sits between them. `gap: 8px`
     // is the single uniform inter-column gap.
     const EXPECTED_ROW_RULE =
       '.history-commit-row { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; }';
@@ -63,7 +63,7 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
     );
   });
 
-  it('snap-history-css: author/date cells are single-line with ellipsis (Requirement 1.5, 1.6, 1.7)', () => {
+  it('snap-history-css: author/date cells are single-line with ellipsis', () => {
     const css = historyTabStyles();
 
     const EXPECTED_AUTHOR_DATE_RULE =
@@ -128,7 +128,7 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
     );
   });
 
-  it('snap-history-row: the four cells appear strictly left-to-right (Requirement 1.3)', () => {
+  it('snap-history-row: the four cells appear strictly left-to-right', () => {
     const commit: ICommit = {
       hash: 'abcdef1234567890abcdef1234567890abcdef12',
       shortHash: 'abcdef1',

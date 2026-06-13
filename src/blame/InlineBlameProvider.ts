@@ -12,10 +12,10 @@ import * as path from 'path';
  * Inline Blame Provider implementation.
  * Displays commit information at the end of the current line as a decoration.
  *
- * - 9.1: Display blame annotations for file (inline at end of current line)
- * - 9.3: Show commit message on hover
- * - 9.4: Show tooltip with full commit details
- * - 17.12: Use IntelliJ-style annotations
+ * - Display blame annotations for file (inline at end of current line)
+ * - Show commit message on hover
+ * - Show tooltip with full commit details
+ * - Use IntelliJ-style annotations
  */
 export class InlineBlameProvider implements IInlineBlameProvider {
   private _enabled: boolean = false;
@@ -29,7 +29,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   private _blameCache: Map<string, IBlameInfo> = new Map();
 
   /**
-   * FU-1 — parsed remote URL cache, keyed by repository root fsPath. Used
+   * Parsed remote URL cache, keyed by repository root fsPath. Used
    * by the hover to turn the commit hash into a clickable link into the
    * hosting provider's web UI. `undefined` entries are stored too so we
    * don't re-parse the same unparseable URL on every hover.
@@ -60,7 +60,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     // Set up event listeners
     this.setupEventListeners();
 
-    // T2-08: re-blame whenever the option source changes (flag toggle or
+    // Re-blame whenever the option source changes (flag toggle or
     // hide/un-hide). Cache is dropped so the new flags take effect.
     if (this._optionsSource) {
       this._disposables.push(
@@ -276,8 +276,8 @@ export class InlineBlameProvider implements IInlineBlameProvider {
         return;
       }
 
-      // FU-1: resolve the repository once so we can feed its first remote
-      // URL into the hover markdown. Failure here is non-fatal — the hover
+      // Resolve the repository once so we can feed its first remote URL
+      // into the hover markdown. Failure here is non-fatal — the hover
       // still renders, just without the external commit link.
       const repo = await this._gitService.getRepository(editor.document.uri);
 
@@ -331,8 +331,8 @@ export class InlineBlameProvider implements IInlineBlameProvider {
 
     // Find the blame line (line numbers in blame are 1-indexed)
     const blameLine = blameInfo.lines.find((bl) => bl.line === line + 1);
-    // T2-08: skip hidden revisions — the inline decoration stays empty so
-    // the user doesn't see annotation for elided commits.
+    // Skip hidden revisions — the inline decoration stays empty so the
+    // user doesn't see annotation for elided commits.
     if (blameLine && this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
       return undefined;
     }
@@ -402,8 +402,8 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   /**
    * Create a hover message with full commit details.
    *
-   * FU-1: when the repository has a parseable remote URL and the provider
-   * is known, the short hash renders as a clickable link into the provider's
+   * When the repository has a parseable remote URL and the provider is
+   * known, the short hash renders as a clickable link into the provider's
    * web UI. On remote-parse failure we fall back to the plain `` `hash` ``
    * markdown so the hover never crashes.
    *
@@ -431,7 +431,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       minute: '2-digit',
     });
 
-    // FU-1: build the provider commit URL if we can. A failure at any step
+    // Build the provider commit URL if we can. A failure at any step
     // (no remotes, unparseable URL, unknown provider) leaves `providerLink`
     // undefined and the hover falls back to the plain hash.
     const providerLink = this._buildCommitProviderLink(repo, blameLine.commit);
@@ -467,7 +467,7 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   }
 
   /**
-   * FU-1 — resolve the repo's first remote URL (preferring `origin`) and
+   * Resolve the repo's first remote URL (preferring `origin`) and
    * build a commit link into the hosting provider's web UI. Caches the
    * parsed remote per repo so we don't re-parse the URL on every hover.
    * Returns `undefined` when any step fails so the hover falls back to a

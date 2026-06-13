@@ -1,7 +1,6 @@
 /**
  * Property 12: ConfigurationService change records carry only keys.
  *
- * **Validates: Requirements 6.5, 14.10**
  *
  * When `ConfigurationService.handleConfigurationChange` detects an
  * effective change in the typed `IExtensionConfiguration` snapshot, it
@@ -9,7 +8,7 @@
  * `getLogger().child({ component: 'ConfigurationService' }).debug(
  *   'intellig configuration changed', { keys: [...] })`.
  *
- * The contract this property pins down (Requirement 6.5, 14.10):
+ * The contract this property pins down:
  *
  * 1. The emitted record's `context.keys` array contains the changed
  *    key name (and only the changed key when one knob flips at a
@@ -74,14 +73,6 @@
  *   as JSON-quoted boundary markers (`"`, `'`). Tokens stay in the
  *   safe alphanumeric subset so the "value does not appear in the
  *   rendered block" check is unambiguous.
- *
- * @see Requirement 6.5 — ConfigurationService SHALL emit one
- *      debug-level Log_Record on each `intellig.*` setting change
- *      with the changed key but NOT the value.
- * @see Requirement 14.10 — No-PII-in-keys discipline: the
- *      ConfigurationService's change-event Log_Records SHALL contain
- *      only the changed key string and SHALL NOT contain the new
- *      value.
  */
 
 import '../setup';
@@ -402,7 +393,7 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
 
 // ─── Property test ──────────────────────────────────────────────────────────
 
-describe('ConfigurationService change records carry only keys (Property 12 / Requirements 6.5, 14.10)', () => {
+describe('ConfigurationService change records carry only keys (Property 12)', () => {
   beforeEach(() => {
     fullReset();
   });
@@ -549,10 +540,10 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
             `expected component='ConfigurationService'; got ${record.component}`
           );
 
-          // The record's context must carry a `keys` array
-          // (Requirement 6.5). The keys list must include the
+          // The record's context must carry a `keys` array.
+          // The keys list must include the
           // typed-key name for the knob we just flipped
-          // (Requirement 14.10 — name only, not value).
+          // (name only, not value).
           assert.ok(
             record.context !== undefined,
             `expected change record to carry a context object; got ${JSON.stringify(record)}`
@@ -579,7 +570,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
           assert.deepStrictEqual(
             ctxKeysActual,
             ['keys'],
-            `Requirement 14.10: change-record context must only ` +
+            `No-PII-in-keys: change-record context must only ` +
               `carry the 'keys' field; got ${JSON.stringify(ctxKeysActual)}`
           );
 
@@ -593,7 +584,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
             `change record must not carry an error payload; got ${JSON.stringify(record.error)}`
           );
 
-          // Requirement 14.10 (substring scan): the value MUST
+          // (substring scan): the value MUST
           // NOT appear anywhere in the rendered context portion
           // of the block. We scan ONLY the continuation lines
           // (`  ctx=...` etc.) rather than the entire block,
@@ -620,7 +611,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
             }
             assert.ok(
               !continuationBlob.includes(form),
-              `Requirement 14.10 violation: rendered change-record ` +
+              `No-PII-in-keys violation: rendered change-record ` +
                 `continuation lines contain the new value '${form}' ` +
                 `for key '${knob.typedKey}'. lines=${JSON.stringify(continuationLines)}`
             );
@@ -631,7 +622,7 @@ describe('ConfigurationService change records carry only keys (Property 12 / Req
             }
             assert.ok(
               !continuationBlob.includes(form),
-              `Requirement 14.10 violation: rendered change-record ` +
+              `No-PII-in-keys violation: rendered change-record ` +
                 `continuation lines contain the old value '${form}' ` +
                 `for key '${knob.typedKey}'. lines=${JSON.stringify(continuationLines)}`
             );

@@ -185,14 +185,14 @@ export interface IExtendedLogState extends ILogState {
   branchMap: Map<string, IBranchRef[]>;
   tagMap: Map<string, string[]>;
   /**
-   * T3-07 — Set of commit hashes marked `=` by `git log --cherry-mark`
+   * Set of commit hashes marked `=` by `git log --cherry-mark`
    * (i.e. equivalent to a commit already on the other side — already
    * cherry-picked). Populated when the extension host fetches marks; the
    * Log tab renders a dim row + ✓ badge for each.
    */
   cherryPickedHashes?: Set<string>;
   /**
-   * T3-07 — The base ref used when computing {@link cherryPickedHashes}
+   * The base ref used when computing {@link cherryPickedHashes}
    * (typically the upstream branch). Surfaced in the tooltip so users know
    * *which* branch the commit has already been cherry-picked to.
    */
@@ -284,7 +284,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private _selectedRepositoryIndex: number = 0;
 
   /**
-   * FU-1 — parsed remote URL for the current repository, cached by repo key.
+   * Parsed remote URL for the current repository, cached by repo key.
    * Populated by {@link _setParsedRemoteForSelectedRepo}. Used by
    * {@link _getDetailsPanelHtml} to turn issue/PR refs in commit messages
    * into clickable links.
@@ -295,7 +295,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private readonly _parsedRemoteCache: Map<string, IRemoteUrl | undefined> = new Map();
 
   /**
-   * T1-05 — host-side tab router.
+   * Host-side tab router.
    *
    * Responsibilities:
    *   - Own active-tab state (default: `log`).
@@ -312,7 +312,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   private readonly _tabRouter: TabRouter;
 
   /**
-   * T2-07 — stateful handler for the History tab. Constructed lazily via
+   * Stateful handler for the History tab. Constructed lazily via
    * `attachGitService()` because the provider predates the service registry.
    */
   private _historyTab: HistoryTab | undefined;
@@ -469,15 +469,15 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
       this._onDidSelectRepository
     );
 
-    // T1-05 — construct the tab router and register per-tab handlers.
-    // The Log handler is intentionally a no-op in Phase 1; the existing
+    // Construct the tab router and register per-tab handlers.
+    // The Log handler is intentionally a no-op; the existing
     // `_handleWebviewMessage` switch continues to own Log dispatch.
     this._tabRouter = new TabRouter({
       onActiveTabChanged: (_tab: TabId): void => {
         // Re-render the webview so the new active panel becomes visible.
         // (Inactive panels use `display: none`; a re-render is the simplest
         // way to update `aria-selected` / `aria-hidden` / `style.display`
-        // consistently in Phase 1. Future phases may flip display in JS.)
+        // consistently. Future iterations may flip display in JS.)
         this._updateWebview();
       },
     });
@@ -493,7 +493,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * T2-07 — attach a GitService to the History tab.
+   * Attach a GitService to the History tab.
    *
    * The provider is constructed before the service registry is wired, so we
    * register a placeholder history handler in the constructor and swap it
@@ -546,7 +546,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * T2-07 — load a file's history into the History tab and reveal it.
+   * Load a file's history into the History tab and reveal it.
    *
    * Called by the `intellig.showHistory` command when the tabbed layout flag
    * is on. Falls back silently when no GitService has been attached yet.
@@ -569,7 +569,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * Read-only accessor for the currently active tab (T1-05 Phase 1).
+   * Read-only accessor for the currently active tab.
    * Primarily intended for unit tests and future integrations.
    */
   public getActiveTab(): TabId {
@@ -832,7 +832,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * T3-07 — Populate the cherry-pick classification for the current log.
+   * Populate the cherry-pick classification for the current log.
    *
    * `hashes` is the set of commit hashes that git considers equivalent
    * (`=` mark) to commits already on {@link baseRef}. The UI renders those
@@ -861,7 +861,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * T3-06 — scroll to the commit currently loaded in the graph that matches
+   * Scroll to the commit currently loaded in the graph that matches
    * the given hash. Extension-level code resolves the user's query (SHA
    * prefix / branch name / tag name) to a full hash via
    * {@link findCommitByQuery} and then hands that hash here.
@@ -1381,7 +1381,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * Handle messages from the webview
    */
   private _handleWebviewMessage(message: IWebviewMessage): void {
-    // T1-05 — intercept router-owned messages (tabChange + non-Log tabs).
+    // Intercept router-owned messages (tabChange + non-Log tabs).
     // This is intentionally a synchronous pre-filter so the existing Log
     // switch below keeps its exact pre-refactor invocation ordering.
     if (this._routeIfNonLog(message)) {
@@ -1519,7 +1519,7 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
   }
 
   /**
-   * T1-05 Phase 1 — pre-filter webview messages through the tab router.
+   * Pre-filter webview messages through the tab router.
    *
    * Returns `true` if the message was consumed (tabChange meta-message, or a
    * non-Log-tab message routed to a stub handler) — in that case the caller
@@ -2021,12 +2021,12 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
    * it falls back to the first available repository.
    * If no repositories are available, the selected index is reset to 0.
    *
-   * L5 invariant — repo selector identity must be stable by **path**, not
+   * Invariant — repo selector identity must be stable by **path**, not
    * by index, across rebuilds that shift the list (e.g. drop-commit
-   * triggering a workspace re-scan). The path-based hardening lands in
-   * Phase 4; this method is the rebuild boundary that hardening will
-   * route through. See `docs/design/git-tool-window-spec.md` §8.L5
-   * and §8.L14 (`normalizeRepoPath` helper).
+   * triggering a workspace re-scan). This method is the rebuild boundary
+   * that path-based hardening routes through. See
+   * `docs/design/git-tool-window-spec.md` §8.L5 and §8.L14
+   * (`normalizeRepoPath` helper).
    *
    * @param repos - Array of discovered repositories
    */
@@ -2320,9 +2320,9 @@ export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWi
     ${commitContextMenuHtml}
   </div>`;
 
-    // T1-05 Phase 1 — when the tabbed-layout flag is ON, wrap the Log body
-    // with the tab strip + stubbed panel shells. When the flag is OFF, emit
-    // exactly the pre-refactor HTML so users see zero UI change.
+    // When the tabbed-layout flag is ON, wrap the Log body with the tab
+    // strip + stubbed panel shells. When the flag is OFF, emit exactly
+    // the pre-refactor HTML so users see zero UI change.
     const flagOn = isTabbedGitToolWindowEnabled();
     const historyState = this._historyTab?.getState();
     const historyActive = flagOn && this._tabRouter.getActiveTab() === 'history';
@@ -2894,7 +2894,7 @@ ${bodyMarkup}
     // graph renders at baseline (no change from).
     const hasFocusedBranch = commitNodes.some((n) => n.onFocusedBranchPath === true);
 
-    // T3-07 — pre-resolve the cherry-picked set once per render to keep the
+    // Pre-resolve the cherry-picked set once per render to keep the
     // per-row check O(1).
     const cherryPickedHashes = this._extendedLogState.cherryPickedHashes;
     const cherryPickBaseRef = this._extendedLogState.cherryPickBaseRef;
@@ -3184,7 +3184,7 @@ ${bodyMarkup}
 
     const labels = inlineBranches.map((branchRef) => {
       const branchName = branchRef.name;
-      // Bug E: classify directly from the branch ref's `type` (sourced from
+      // Classify directly from the branch ref's `type` (sourced from
       // IBranch.type / refs-prefix), NOT from a `name.includes('/')` heuristic.
       // A local branch named `feature/foo` is local, not remote.
       const isRemote = branchRef.type === 'remote';
@@ -3385,9 +3385,9 @@ ${bodyMarkup}
    */
   public _getDetailsPanelHtml(commitDetails: ICommitDetails): string {
     // --- Commit metadata section ---
-    // FU-1: render the commit message and body with issue/PR references
+    // Render the commit message and body with issue/PR references
     // converted to clickable links, gated by the
-    // `intellig.commitMessageIssueLinks` config (default true, from T3-09).
+    // `intellig.commitMessageIssueLinks` config (default true).
     // When the flag is off, or when no remote URL is parseable for the
     // current repository, we fall back to pure HTML-escape as before.
     const issueLinksEnabled = this._isIssueLinkingEnabled();
@@ -5819,7 +5819,7 @@ ${bodyMarkup}
   }
 
   /**
-   * FU-1 — check whether the `intellig.commitMessageIssueLinks` feature
+   * Check whether the `intellig.commitMessageIssueLinks` feature
    * flag is enabled. Default is `true` (set in package.json contributions).
    * When the flag is off, the details panel renders commit messages with
    * plain HTML-escape and no clickable issue links.
@@ -5836,7 +5836,7 @@ ${bodyMarkup}
   }
 
   /**
-   * FU-1 — parse and cache the first remote URL for the currently selected
+   * Parse and cache the first remote URL for the currently selected
    * repository. Falls back to `origin` when present, otherwise the first
    * remote. Returns `undefined` when the repo has no remotes or when the
    * URL can't be parsed (e.g. custom SCP-style remote we don't know about).
@@ -5880,15 +5880,15 @@ interface IWebviewLogFilter {
 /**
  * Message types from the webview.
  *
- * T1-05 added the optional `tab` field for per-tab routing. Legacy
+ * The optional `tab` field is used for per-tab routing. Legacy
  * messages (selectCommit, panelResize, applyLogFilter, etc.) omit `tab`
  * and are treated as implicit `tab: 'log'` by {@link TabRouter}.
  */
 /**
- * Typed envelopes for the four new wire types.
+ * Typed envelopes for the new wire types.
  * Included as a separate union (rather than a refactor of the legacy
  * flat `IWebviewMessage` shape) to keep the scope tight: can
- * extend the union as their messages land.
+ * extend the union as new messages land.
  *
  * Inbound (webview → host):
  *   - rangeSelectCommit       : shift-click range-replace
@@ -5901,9 +5901,8 @@ interface IWebviewLogFilter {
  */
 // TODO(post-Wave-C): fold WaveAInboundMessage / WaveBInboundMessage /
 // WaveCInboundMessage into a single discriminated union
-// `WebviewInboundMessage`. Sub-unions are fine for the wave-by-wave
-// development we're in; long-term this is one type so the
-// `_handleWebviewMessage` switch is exhaustively-checkable.
+// `WebviewInboundMessage` so the `_handleWebviewMessage` switch is
+// exhaustively-checkable.
 export type WaveAInboundMessage =
   // The click anchor travels WITH the message.
   // The host trusts the message anchor for this single operation rather
@@ -5951,7 +5950,7 @@ interface IWebviewMessage {
    * single message it carries; see {@link WaveAInboundMessage}.
    */
   anchorHash?: string | null;
-  /** Optional tab discriminator for T1-05 routing (design §3.4). */
+  /** Optional tab discriminator for tab routing. */
   tab?: TabId;
 }
 

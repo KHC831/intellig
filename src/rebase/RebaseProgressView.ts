@@ -27,9 +27,9 @@ interface IWebviewMessage {
  * Rebase Progress View class.
  * Provides a webview panel for monitoring and controlling an active rebase.
  *
- * - 6.7: Continue rebase after resolving conflicts
- * - 6.8: Abort rebase and restore original state
- * - 6.9: Skip problematic commits
+ * - Continue rebase after resolving conflicts
+ * - Abort rebase and restore original state
+ * - Skip problematic commits
  */
 export class RebaseProgressView implements vscode.Disposable {
   private _panel: vscode.WebviewPanel | undefined;

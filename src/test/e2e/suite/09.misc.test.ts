@@ -49,7 +49,7 @@ describe('e2e — miscellaneous palette commands', function () {
   it('intellig.toolWindow.focusTab — accepts each valid tab id without throwing', async () => {
     // Open first so the provider is live.
     await vscode.commands.executeCommand('intellig.openGitToolWindow');
-    // `updateInfo` is new in T2-12; 'history' is the T3 added one.
+    // `updateInfo` and 'history' are later additions.
     const validTabs = ['log', 'console', 'incoming', 'updateInfo', 'history'];
     for (const tab of validTabs) {
       await vscode.commands.executeCommand('intellig.toolWindow.focusTab', tab);

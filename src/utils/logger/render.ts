@@ -2,9 +2,8 @@
  * `render.ts` — `formatRecord` and `parseRecord` for the IntelliG Logger.
  *
  * `formatRecord(record)` is the production-side renderer used by the
- * OutputChannel sink (task 2.1) to turn an already-sanitized
- * `LogRecord` into the multi-line block defined by Requirement 3.2 and
- * design.md → "OutputChannel sink rendering grammar":
+ * OutputChannel sink to turn an already-sanitized
+ * `LogRecord` into the multi-line block shown below:
  *
  * ```text
  * [<timestamp>] <LEVEL> <component>: <message>
@@ -24,7 +23,7 @@
  *
  * `parseRecord(s)` is the inverse (test-only): given a rendered block
  * it reconstructs a `LogRecord`. The pair is specified to round-trip
- * via sanitization (Requirement 14.1): for any record `R`,
+ * via sanitization: for any record `R`,
  * `sanitize(parseRecord(formatRecord(R))) === sanitize(R)`. The parser
  * is strict — malformed input throws. It is intentionally exported
  * from the same module as `formatRecord` so the two stay in lockstep.
@@ -63,7 +62,7 @@
  * `__*ForTest` prefix) because it pairs with `formatRecord` as a pure
  * helper and contains no module-level state. It is "test-only" in the
  * sense that no production caller invokes it — only the property
- * tests asserting the round-trip property (task 4.7). If the IntelliG
+ * tests asserting the round-trip property. If the IntelliG
  * runtime ever needs to parse rendered log blocks (e.g. an in-process
  * log viewer), this export is the canonical entry point.
  */
@@ -80,7 +79,7 @@ const LEVEL_WIDTH = 5;
 /**
  * Indent prefix applied to every continuation line in a rendered
  * block (`ctx=`, `cid=`, `err=`, and each stack line). Two spaces is
- * the convention captured by the Requirement 3.2 grammar.
+ * the convention captured by the OutputChannel block grammar.
  */
 const CONTINUATION_INDENT = '  ';
 
@@ -124,11 +123,11 @@ function unescapeInline(s: string): string {
 }
 
 /**
- * Render a `LogRecord` to the OutputChannel block grammar
- * (Requirement 3.2). The returned string contains internal `'\n'`
+ * Render a `LogRecord` to the OutputChannel block grammar.
+ * The returned string contains internal `'\n'`
  * separators between continuation lines but does NOT terminate with a
  * newline — `outputChannel.appendLine` supplies the trailing line
- * terminator (task 2.1).
+ * terminator.
  *
  * @param record an already-sanitized `LogRecord`
  * @returns multi-line rendered block (no trailing newline)
@@ -194,7 +193,7 @@ const HEADER_REGEX = /^\[([^\]]+)\] (.{5}) (.+?): (.*)$/;
  * from its rendered block. Strict: malformed input throws.
  *
  * The reconstructed record is not byte-identical to the original
- * record on its own — the round-trip property (Requirement 14.1) is
+ * record on its own — the round-trip property is
  * stated modulo sanitization, and the inline-escape pass collapses
  * literal `\n` / `\r` / `\\` characters. The pair `formatRecord` /
  * `parseRecord` is the only place where the grammar is encoded; keep

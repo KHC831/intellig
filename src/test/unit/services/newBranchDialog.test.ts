@@ -155,7 +155,7 @@ function makeDialog(overrides: Partial<INewBranchDialogOptions> = {}): {
 
 // ─── validateNewBranchName ───────────────────────────────────────────────────
 
-describe('T3-03 validateNewBranchName', () => {
+describe('validateNewBranchName', () => {
   it('rejects empty name', () => {
     assert.ok(validateNewBranchName(''));
   });
@@ -207,7 +207,7 @@ describe('T3-03 validateNewBranchName', () => {
 
 // ─── looksRemoteStartPoint ───────────────────────────────────────────────────
 
-describe('T3-03 looksRemoteStartPoint', () => {
+describe('looksRemoteStartPoint', () => {
   it('undefined → false', () => {
     assert.strictEqual(looksRemoteStartPoint(undefined), false);
   });
@@ -244,7 +244,7 @@ describe('T3-03 looksRemoteStartPoint', () => {
 
 // ─── GitService.createBranch arg construction ────────────────────────────────
 
-describe('T3-03 GitService.createBranch — arg order', () => {
+describe('GitService.createBranch — arg order', () => {
   function installGitService(): { gitService: GitService; executed: string[][] } {
     const gitService = new GitService();
     const executed: string[][] = [];
@@ -384,7 +384,7 @@ describe('T3-03 GitService.createBranch — arg order', () => {
 
 // ─── Dialog lifecycle ────────────────────────────────────────────────────────
 
-describe('T3-03 NewBranchDialog — lifecycle', () => {
+describe('NewBranchDialog — lifecycle', () => {
   it('cancel disposes without invoking git', async () => {
     installMessageTrackers();
     const h = makeDialog({ startPoint: 'main' });

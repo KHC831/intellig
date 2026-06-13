@@ -694,9 +694,9 @@ describe('StatusBarService - Click Actions', () => {
   });
 });
 
-// ─── T2-12: Incoming commits status-bar badge ────────────────────────────────
+// ─── Incoming commits status-bar badge ────────────────────────────────
 
-describe('StatusBarService — T2-12 incoming/outgoing badge', () => {
+describe('StatusBarService — incoming/outgoing badge', () => {
   // The mock's createStatusBarItem returns a captureable stub. We pull
   // `text` / `tooltip` / `command` off that to assert UI state.
 

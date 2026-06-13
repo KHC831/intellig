@@ -330,10 +330,10 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * T2-04 public entry point invoked by the `intellig.commit.dropSelectedChanges`
+   * Public entry point invoked by the `intellig.commit.dropSelectedChanges`
    * palette command. Surfaced on the class (rather than through the
    * webview-dispatcher event) because the LogContextAction union lives in
-   * `gitToolWindow/` which is out of scope for this step.
+   * `gitToolWindow/`.
    *
    * Rewrites the HEAD commit to remove the user-selected files. Refuses
    * on pushed commits or on non-HEAD ancestors. Single destructive-op
@@ -357,8 +357,8 @@ export class CommitContextMenuCommands {
 
     // 1. Safety: must be the HEAD commit. Dropping selected changes from
     //    an ancestor requires interactive rebase with a scripted editor,
-    //    which is out of scope for the T2-04 MVP. Surface an explanatory
-    //    toast so the user knows this is intentional.
+    //    which is out of scope right now. Surface an explanatory toast
+    //    so the user knows this is intentional.
     let isHead = false;
     try {
       const headResult = await this._gitCli.exec(['rev-parse', 'HEAD'], { cwd });
@@ -554,8 +554,8 @@ export class CommitContextMenuCommands {
           `Cherry-picked ${commitHashes.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to the
-        // legacy toast if conflictResolutionService isn't wired yet.
+        // Auto-open the Resolve Conflicts dialog. Falls back to the legacy
+        // toast if conflictResolutionService isn't wired yet.
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'cherryPick',
@@ -863,8 +863,8 @@ export class CommitContextMenuCommands {
   /**
    * Revert the selected commit(s).
    *
-   * T2-04 — when a single commit is passed AND it touches more than one
-   * file, show a multi-select QuickPick so the user can deselect files
+   * When a single commit is passed AND it touches more than one file,
+   * show a multi-select QuickPick so the user can deselect files
    * to exclude from the revert. Default = all files selected. If the
    * user keeps everything (or only one file was in the commit), the
    * flow falls through to the normal `gitService.revert` path exactly
@@ -913,8 +913,8 @@ export class CommitContextMenuCommands {
           `Reverted ${commitHashes.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to the
-        // legacy toast if conflictResolutionService isn't wired yet.
+        // Auto-open the Resolve Conflicts dialog. Falls back to the legacy
+        // toast if conflictResolutionService isn't wired yet.
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'revert',
@@ -959,7 +959,7 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Implements the T2-04 selective-file revert QuickPick.
+   * Implements the selective-file revert QuickPick.
    *
    * Return value:
    *  - `'fallThrough'` — no prompt shown (single-file commit, or diff
@@ -1152,8 +1152,8 @@ export class CommitContextMenuCommands {
 
   /**
    * Reset the current branch to the selected commit.
-   * Opens the T1-11 ResetDialog (webview-based 4-mode picker with
-   * protected-branch guard and single destructive-op confirm).
+   * Opens the ResetDialog (webview-based 4-mode picker with protected-branch
+   * guard and single destructive-op confirm).
    */
   private async _handleResetToHere(commitHashes: string[]): Promise<void> {
     const repo = await this._getRepository();
@@ -2787,8 +2787,8 @@ export class CommitContextMenuCommands {
           `Merged ${hash.substring(0, 8)} into current branch successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to the
-        // legacy toast if conflictResolutionService isn't wired yet.
+        // Auto-open the Resolve Conflicts dialog. Falls back to the legacy
+        // toast if conflictResolutionService isn't wired yet.
         if (this._conflictResolutionService) {
           await this._openResolveConflictsDialog(repo, result.conflicts, {
             operation: 'merge',

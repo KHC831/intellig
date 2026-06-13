@@ -640,10 +640,10 @@ describe('BlameService', () => {
   });
 
   // =========================================================================
-  // T2-08: -w / -M / -C flag forwarding + annotate-previous routing +
+  // -w / -M / -C flag forwarding + annotate-previous routing +
   // previous-filename capture when -M/-C active.
   // =========================================================================
-  describe('T2-08 blame options', () => {
+  describe('blame options', () => {
     beforeEach(() => {
       mockGitCli.setMockResultByPrefix('blame', {
         exitCode: 0,

@@ -227,9 +227,8 @@ describe('Feature: git-graph-branch-click-scroll - Scroll Visibility Decision Pr
    * viewport (`rowTop >= viewportTop` and `rowBottom <= viewportBottom`),
    * `shouldScrollToRow` SHALL return `false`.
    *
-   * Validates: Requirements 1.1, 1.2, 5.1
    */
-  it('Feature: git-graph-branch-click-scroll, Property 1: Fully-visible rows are never scrolled — Validates: Requirements 1.1, 1.2, 5.1', () => {
+  it('Feature: git-graph-branch-click-scroll, Property 1: Fully-visible rows are never scrolled', () => {
     fc.assert(
       fc.property(arbitraryFullyVisibleGeometry(), (g) => {
         // Guard the generator invariant so a generator bug can't mask a real failure.
@@ -258,9 +257,8 @@ describe('Feature: git-graph-branch-click-scroll - Scroll Visibility Decision Pr
    * (`rowBottom > viewportBottom`) — i.e. the row is not fully visible —
    * `shouldScrollToRow` SHALL return `true`.
    *
-   * Validates: Requirements 2.1, 5.2
    */
-  it('Feature: git-graph-branch-click-scroll, Property 2: Off-screen rows are always scrolled — Validates: Requirements 2.1, 5.2', () => {
+  it('Feature: git-graph-branch-click-scroll, Property 2: Off-screen rows are always scrolled', () => {
     fc.assert(
       fc.property(arbitraryOffScreenGeometry(), (g) => {
         // Guard the generator invariants so a generator bug can't mask a real failure.
@@ -292,9 +290,8 @@ describe('Feature: git-graph-branch-click-scroll - Scroll Visibility Decision Pr
    * `!isRowFullyVisible(g)`. This pins the exact inverse relationship between
    * the two predicates so a future refactor cannot make them disagree.
    *
-   * Validates: Requirements 1.1, 2.1
    */
-  it('Feature: git-graph-branch-click-scroll, Property 3: The scroll decision is the exact inverse of full visibility — Validates: Requirements 1.1, 2.1', () => {
+  it('Feature: git-graph-branch-click-scroll, Property 3: The scroll decision is the exact inverse of full visibility', () => {
     fc.assert(
       fc.property(arbitraryGeometry(), (g) => {
         // Guard the generator invariants so a generator bug can't mask a real failure.
@@ -323,9 +320,8 @@ describe('Feature: git-graph-branch-click-scroll - Scroll Visibility Decision Pr
    * never fit entirely within the viewport, so `shouldScrollToRow` SHALL return
    * `true` — we still bring the row into view.
    *
-   * Validates: Requirements 2.1
    */
-  it('Feature: git-graph-branch-click-scroll, Property 4: Rows taller than the viewport are always scrolled into view — Validates: Requirements 2.1', () => {
+  it('Feature: git-graph-branch-click-scroll, Property 4: Rows taller than the viewport are always scrolled into view', () => {
     fc.assert(
       fc.property(arbitraryTallerThanViewportGeometry(), (g) => {
         // Guard the generator invariants so a generator bug can't mask a real failure.
@@ -359,9 +355,8 @@ describe('Feature: git-graph-branch-click-scroll - Scroll Visibility Decision Pr
    * `shouldScrollToRow` SHALL return `false`. This pins the `>=` / `<=`
    * "edge touch counts as visible" convention.
    *
-   * Validates: Requirements 1.1
    */
-  it('Feature: git-graph-branch-click-scroll, Property 5: Boundary-touching rows count as visible (no scroll) — Validates: Requirements 1.1', () => {
+  it('Feature: git-graph-branch-click-scroll, Property 5: Boundary-touching rows count as visible (no scroll)', () => {
     fc.assert(
       fc.property(arbitraryBoundaryTouchingGeometry(), (g) => {
         // Guard the generator invariants so a generator bug can't mask a real failure.

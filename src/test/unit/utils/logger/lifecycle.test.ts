@@ -1,22 +1,21 @@
 /**
  * Unit tests for the structured Logger's lifecycle accessors.
  *
- * Pins the three lifecycle invariants required by Requirement 8.1, 8.2,
- * and 8.3 (and design.md → "Logger module location" → ADR-002 conformance
- * table):
+ * Pins the three lifecycle invariants (also covered by the ADR-002
+ * conformance table):
  *
- * 1. **Lazy singleton (Requirement 8.1)** — `getLogger()` constructs the
+ * 1. **Lazy singleton** — `getLogger()` constructs the
  *    underlying root Logger on first call and returns the SAME instance
  *    on every subsequent call until `__resetLoggerForTest()` drops the
  *    cache.
  *
- * 2. **Disposable registration (Requirement 8.2)** — `initLogger(context)`
+ * 2. **Disposable registration** — `initLogger(context)`
  *    pushes the configuration-change listener disposable AND the sink
  *    subscription disposables onto `context.subscriptions` so VS Code
  *    detaches them at deactivate time. Idempotent re-init does not push
  *    a second copy.
  *
- * 3. **Test-only reset (Requirement 8.3)** — `__resetLoggerForTest()`
+ * 3. **Test-only reset** — `__resetLoggerForTest()`
  *    drops the cached root Logger AND detaches every registered sink
  *    (so subsequent emissions do not write through stale references).
  *    Idempotent: calling it twice does not throw.
@@ -49,7 +48,7 @@ function makeFakeContext(): vscode.ExtensionContext {
   } as unknown as vscode.ExtensionContext;
 }
 
-describe('logger — lifecycle accessors (task 3.7)', () => {
+describe('logger — lifecycle accessors', () => {
   beforeEach(() => {
     // Each test starts from a clean Logger singleton AND a clean
     // OutputChannel singleton so cross-test state cannot leak.
@@ -62,7 +61,7 @@ describe('logger — lifecycle accessors (task 3.7)', () => {
     __resetOutputChannelForTest();
   });
 
-  describe('getLogger() — lazy singleton (Requirement 8.1)', () => {
+  describe('getLogger() — lazy singleton', () => {
     it('lazily constructs the root logger on first call', () => {
       const logger = getLogger();
       assert.ok(logger, 'first getLogger() must return a Logger instance');
@@ -101,7 +100,7 @@ describe('logger — lifecycle accessors (task 3.7)', () => {
       const preInit = getLogger();
       const ctx = makeFakeContext();
       // `initOutputChannel` must run first because the OutputChannelSink
-      // borrows the channel from this module (Requirement 3.4); it is
+      // borrows the channel from this module; it is
       // also what extension.ts does at activation time.
       initOutputChannel(ctx);
       initLogger(ctx);
@@ -115,7 +114,7 @@ describe('logger — lifecycle accessors (task 3.7)', () => {
     });
   });
 
-  describe('initLogger(context) — disposable registration (Requirement 8.2)', () => {
+  describe('initLogger(context) — disposable registration', () => {
     it('pushes the configuration listener and sink subscriptions onto context.subscriptions', () => {
       const ctx = makeFakeContext();
       initOutputChannel(ctx); // pushes the channel itself (one disposable)
@@ -128,7 +127,7 @@ describe('logger — lifecycle accessors (task 3.7)', () => {
 
       initLogger(ctx);
 
-      // initLogger registers (per design.md and logger.ts):
+      // initLogger registers (per logger.ts):
       //   - the onDidChangeConfiguration listener disposable
       //   - the OutputChannelSink dispose-wrapper
       //   - the ConsoleSink dispose-wrapper
@@ -175,7 +174,7 @@ describe('logger — lifecycle accessors (task 3.7)', () => {
 
       // Walk every subscription and dispose it — VS Code does this
       // at deactivate time. None of them must throw, including the
-      // sink dispose wrappers (Requirement 3.4: idempotent disposal).
+      // sink dispose wrappers (idempotent disposal).
       for (const sub of ctx.subscriptions) {
         assert.doesNotThrow(
           () => sub.dispose(),
@@ -185,7 +184,7 @@ describe('logger — lifecycle accessors (task 3.7)', () => {
     });
   });
 
-  describe('__resetLoggerForTest() — singleton drop and sink detach (Requirement 8.3)', () => {
+  describe('__resetLoggerForTest() — singleton drop and sink detach', () => {
     it('drops the cached singleton so the next getLogger() yields a fresh instance', () => {
       const before = getLogger();
       __resetLoggerForTest();

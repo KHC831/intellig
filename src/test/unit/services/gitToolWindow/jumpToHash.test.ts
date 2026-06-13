@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T3-06 Jump-to-Hash helper.
+ * Unit tests for the Jump-to-Hash helper.
  *
  * All tests exercise the pure `findCommitByQuery` (and `classifyQuery` /
  * `isHexString`) helpers from

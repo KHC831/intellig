@@ -1,7 +1,7 @@
 /**
  * Unit test for circular reference handling in `context`.
  *
- * Pins Requirement 7.4: when a `Logger` method is called with a
+ * Pins when a `Logger` method is called with a
  * `context` argument that contains a circular reference, the Logger
  * must render the offending sub-value as the literal string
  * `'[Circular]'` without throwing and without entering an infinite
@@ -27,7 +27,6 @@
  * Logger and OutputChannel via `__resetLoggerForTest()` and
  * `__resetOutputChannelForTest()`.
  *
- * _Validates: Requirement 7.4_
  */
 
 import '../../../setup';
@@ -57,13 +56,13 @@ function makeFakeContext(): vscode.ExtensionContext {
  * The mock from `src/test/mocks/vscode.ts` exposes `_lines` on every
  * channel it creates; the production `OutputChannelSink` writes
  * through `outputChannel.appendLine`, so the rendered block lands in
- * `_lines` as a single entry per record (Requirement 3.2).
+ * `_lines` as a single entry per record.
  */
 function getCapturedLines(): string[] {
   return (getOutputChannel() as unknown as { _lines: string[] })._lines;
 }
 
-describe('logger — circular reference handling (task 3.6 / Requirement 7.4)', () => {
+describe('logger — circular reference handling', () => {
   beforeEach(() => {
     __resetLoggerForTest();
     __resetOutputChannelForTest();

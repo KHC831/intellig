@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T1-09 New Tag flow.
+ * Unit tests for the New Tag flow.
  *
  * Covers:
  *  - `validateTagName` against empty, whitespace, git-rejected chars,
@@ -108,7 +108,7 @@ function createHarness(
 
 // ─── validateTagName ─────────────────────────────────────────────────────────
 
-describe('T1-09 validateTagName', () => {
+describe('validateTagName', () => {
   it('rejects empty name', () => {
     assert.ok(validateTagName(''));
   });
@@ -196,7 +196,7 @@ describe('T1-09 validateTagName', () => {
 
 // ─── runNewTagFlow ───────────────────────────────────────────────────────────
 
-describe('T1-09 runNewTagFlow', () => {
+describe('runNewTagFlow', () => {
   it('creates a lightweight tag when message prompt is empty', async () => {
     const h = createHarness(['v1.0.0', '']);
     await runNewTagFlow(h.deps, undefined);

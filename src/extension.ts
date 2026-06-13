@@ -88,7 +88,7 @@ let gitToolWindowProvider: GitToolWindowProvider | undefined;
 let commitDialog: CommitDialog | undefined;
 
 /**
- * Global reference to the Commit Tool Window (T1-04).
+ * Global reference to the Commit Tool Window.
  * Registered even when the feature flag is off so programmatic callers can
  * still obtain the instance; user-visible mounting is controlled by the
  * `when` clause on the view contribution in package.json.
@@ -131,7 +131,7 @@ let statusBarService: StatusBarService | undefined;
 let notificationService: NotificationService | undefined;
 
 /**
- * Global reference to the T1-02 Pull Dialog. Lazily constructed on first use
+ * Global reference to the Pull Dialog. Lazily constructed on first use
  * so we don't instantiate it before extension services are ready.
  */
 let pullDialog: PullDialog | undefined;
@@ -163,9 +163,9 @@ let rebaseProgressView: RebaseProgressView | undefined;
 
 /**
  * Global reference to the Commit Context Menu Commands instance.
- * T1-07: used by top-level `intellig.commit.*` command handlers to
- * delegate into the existing `_handleAction` dispatcher for reuse
- * (copyHash, checkoutRevision, revert, cherryPick, createPatch).
+ * Used by top-level `intellig.commit.*` command handlers to delegate into
+ * the existing `_handleAction` dispatcher for reuse (copyHash,
+ * checkoutRevision, revert, cherryPick, createPatch).
  */
 let commitContextMenuCommands: CommitContextMenuCommands | undefined;
 
@@ -190,8 +190,7 @@ export interface ILoadAllPanelDataProvider {
 /**
  * Dependencies for {@link loadAllPanelDataCore}, injected so the
  * `activate`-scoped `loadAllPanelData` closure stays a thin delegation and the
- * bounded-loading guarantee can be unit-tested at the fix's call site
- * (Requirement 3.4).
+ * bounded-loading guarantee can be unit-tested at the fix's call site.
  */
 export interface ILoadAllPanelDataDeps {
   discoverAllRepositories: () => Promise<IRepository[]>;
@@ -301,7 +300,7 @@ export interface IRebaseWarningCommandRunner {
 }
 
 /**
- * Bug C follow-up: surface a warning toast when ANY open repository has
+ * Surface a warning toast when ANY open repository has
  * `inProgress.kind === 'rebasing'`, gated on a per-repo warned-set so the
  * same paused rebase isn't re-announced on every `onDidChangeRepository`
  * event.
@@ -403,7 +402,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // services calling `getLogger().child({ component: 'X' })` in their
     // constructors (via `ExtensionServices.initialize` below) emit through
     // the registered sinks rather than the no-op pre-init path.
-    // (Requirement 6.6, 8.2)
     initLogger(context);
 
     getLogger().info('extension activating');
@@ -455,7 +453,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Set up event listeners
     setupEventListeners(context);
 
-    // Start the auto-fetch scheduler (T1-03).
+    // Start the auto-fetch scheduler.
     // Registering in context.subscriptions lets VS Code dispose it on
     // extension deactivation, so no manual cleanup is needed.
     const autoFetchService = extensionServices.autoFetchService;
@@ -516,7 +514,7 @@ export function deactivate(): void {
       commitDialog = undefined;
     }
 
-    // T1-04 — Dispose the Commit Tool Window.
+    // Dispose the Commit Tool Window.
     if (commitToolWindow) {
       commitToolWindow.dispose();
       commitToolWindow = undefined;
@@ -618,8 +616,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
       return;
     }
 
-    // T1-04 — when the Commit Tool Window flag is on, reveal the view
-    // instead of opening the modal CommitDialog.
+    // When the Commit Tool Window flag is on, reveal the view instead of
+    // opening the modal CommitDialog.
     if (isCommitToolWindowEnabled() && commitToolWindow) {
       await commitToolWindow.show();
       return;
@@ -627,8 +625,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     const gitService = extensionServices.gitService;
 
-    // T2-03 — multi-root repo targeting. Prefer the active editor's repo,
-    // fall back to QuickPick in multi-root workspaces.
+    // Multi-root repo targeting. Prefer the active editor's repo, fall
+    // back to QuickPick in multi-root workspaces.
     let repo = await resolveRepo(gitService, {
       preferActive: true,
       pickerTitle: 'Commit — Choose Repository',
@@ -656,7 +654,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     await commitDialog.show(repo);
   });
 
-  // T1-04 — focus the Commit tool window (Alt+0).
+  // Focus the Commit tool window (Alt+0).
   const showCommitToolWindowCommand = registerLoggedCommand(
     'intellig.showCommitToolWindow',
     async () => {
@@ -668,8 +666,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T1-04 — changelist commands. These back the context menu in the Commit
-  // tool window's Local Changes tab.
+  // Changelist commands. These back the context menu in the Commit tool
+  // window's Local Changes tab.
   // every handler routes through `resolveRepo(preferActive)` so
   // changelist ops in multi-root workspaces target the repo owning the
   // active editor, not an arbitrary `repositories[0]`.
@@ -807,7 +805,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       if (newDescription === undefined) {
         return;
       }
-      // setDescription is an additive method shipped with T1-04.
+      // setDescription is a ChangelistService-only addition.
       if (service instanceof ChangelistService) {
         try {
           service.setDescription(repo, changelistId, newDescription);
@@ -862,7 +860,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         return;
       }
       void vscode.window.showInformationMessage(
-        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the T2-06 gear options.'
+        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the gear options.'
       );
       if (commitToolWindow) {
         await commitToolWindow.show();
@@ -915,13 +913,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
     changelistShelveCommand
   );
 
-  // Push command — T1-01 Push dialog (webview table w/ per-row targets,
+  // Push command — Push dialog (webview table w/ per-row targets,
   // force-with-lease default, protected-branch guard, multi-repo submit).
   const pushCommand = registerLoggedCommand('intellig.push', () => {
     _openPushDialog();
   });
 
-  // T3-08: Push All Tags — a standalone palette command that runs
+  // Push All Tags — a standalone palette command that runs
   // `git push --tags` on the active repo. Lives alongside the main Push
   // dialog (which also surfaces the tag push radio) so IntelliJ users get
   // a one-click entry point.
@@ -974,11 +972,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   });
 
-  // Pull command — T1-02 Pull dialog (2-step QuickPick: source then flags).
-  // Bug G.2: branch on the dialog's outcome. The dialog handles its own
-  // pulled/conflict/error toasts internally (see `runPullDialog`); we only
-  // add a debug log on cancellation so a dismissed dialog is observable in
-  // the IntelliG OutputChannel (no toast — cancel is a normal user action).
+  // Pull command — Pull dialog (2-step QuickPick: source then flags). Branch
+  // on the dialog's outcome. The dialog handles its own pulled/conflict/error
+  // toasts internally (see `runPullDialog`); we only add a debug log on
+  // cancellation so a dismissed dialog is observable in the IntelliG
+  // OutputChannel (no toast — cancel is a normal user action).
   const pullCommand = registerLoggedCommand('intellig.pull', async () => {
     const dialog = _getPullDialog();
     if (!dialog) {
@@ -988,7 +986,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     handlePullDialogOutcome(outcome);
   });
 
-  // Fetch command (T1-03). Fetches all remotes for the selected repository,
+  // Fetch command. Fetches all remotes for the selected repository,
   // with a QuickPick when there are multiple repositories in the workspace.
   const fetchCommand = registerLoggedCommand('intellig.fetch', async () => {
     if (!extensionServices) {
@@ -998,9 +996,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     const gitService = extensionServices.gitService;
 
-    // T2-03 — unified multi-root resolver. Replaces the bespoke QuickPick
-    // that lived here; preferActive lets the resolver seed from the file
-    // the user is currently editing.
+    // Unified multi-root resolver; preferActive lets the resolver seed
+    // from the file the user is currently editing.
     const repo = await resolveRepo(gitService, {
       preferActive: true,
       pickerTitle: 'Fetch — Choose Repository',
@@ -1063,7 +1060,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       branchPopup = new BranchPopup(gitService);
     }
 
-    // T2-03 — seed the popup with the repo the user is most likely targeting.
+    // Seed the popup with the repo the user is most likely targeting.
     const repo = await resolveRepo(gitService, {
       preferActive: true,
       pickerTitle: 'Branches — Choose Repository',
@@ -1084,7 +1081,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     const gitService = extensionServices.gitService;
 
-    // T2-03 — resolve repo with active-editor preference.
+    // Resolve repo with active-editor preference.
     let repo = await resolveRepo(gitService, {
       preferActive: true,
       pickerTitle: 'Stash — Choose Repository',
@@ -1120,7 +1117,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     const gitService = extensionServices.gitService;
 
-    // T2-03 — resolve repo with active-editor preference.
+    // Resolve repo with active-editor preference.
     const repo = await resolveRepo(gitService, {
       preferActive: true,
       pickerTitle: 'Stashes — Choose Repository',
@@ -1137,7 +1134,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     await stashView.show(repo);
   });
 
-  // T2-09: Create Branch from Stash — palette entry. Prompts the user to
+  // Create Branch from Stash — palette entry. Prompts the user to
   // pick a stash (QuickPick) and delegates into `StashView.branchFromStash`
   // which in turn prompts for the branch name.
   const stashBranchFromStashCommand = registerLoggedCommand(
@@ -1151,7 +1148,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T2-09: Rename Stash — palette entry. Prompts the user to pick a stash,
+  // Rename Stash — palette entry. Prompts the user to pick a stash,
   // then delegates into `StashView.renameStash` which prompts for the new
   // message.
   const stashRenameCommand = registerLoggedCommand('intellig.stash.rename', async () => {
@@ -1198,7 +1195,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     await shelfView.showShelveDialog(repo);
   });
 
-  // T2-10: helper — ensure shelf view exists and return current repo + view.
+  // Helper — ensure shelf view exists and return current repo + view.
   // Kept local to the silent shelve/unshelve commands so we don't repeat the
   // boilerplate in each handler.
   async function _getShelfContext(): Promise<{ repo: IRepository; view: ShelfView } | undefined> {
@@ -1244,8 +1241,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     return { repo, view: shelfView };
   }
 
-  // T2-10: Silent Shelve (Ctrl+Shift+H). Shelves the active changelist with
-  // no dialog. Fallback name: "WIP <ISO timestamp>".
+  // Silent Shelve (Ctrl+Shift+H). Shelves the active changelist with no
+  // dialog. Fallback name: "WIP <ISO timestamp>".
   const shelveSilentCommand = registerLoggedCommand('intellig.shelve.silent', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1306,9 +1303,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   });
 
-  // T2-10: Silent Unshelve (Ctrl+Alt+U). Applies the most-recent entry
-  // without prompting. If multiple entries exist (all non-unshelved), shows
-  // a QuickPick.
+  // Silent Unshelve (Ctrl+Alt+U). Applies the most-recent entry without
+  // prompting. If multiple entries exist (all non-unshelved), shows a
+  // QuickPick.
   const unshelveSilentCommand = registerLoggedCommand('intellig.unshelve.silent', async () => {
     const ctx = await _getShelfContext();
     if (!ctx) {
@@ -1348,8 +1345,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   });
 
-  // T2-10: Import patches into the shelf. Reachable via command palette and
-  // the shelf list root action.
+  // Import patches into the shelf. Reachable via command palette and the
+  // shelf list root action.
   const shelveImportPatchesCommand = registerLoggedCommand(
     'intellig.shelve.importPatches',
     async () => {
@@ -1491,9 +1488,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage('Git views refreshed');
   });
 
-  // T2-12 / T1-05 Phase 1: focus a specific tab in the Git tool window.
-  // Declared in package.json; bound here so the StatusBarService incoming
-  // badge (and future callers) can jump straight to a tab.
+  // Focus a specific tab in the Git tool window. Declared in package.json;
+  // bound here so the StatusBarService incoming badge (and future callers)
+  // can jump straight to a tab.
   const focusTabCommand = registerLoggedCommand(
     'intellig.toolWindow.focusTab',
     async (tab: string) => {
@@ -1512,7 +1509,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T3-06 — jump to a commit hash / branch / tag within the currently-loaded
+  // Jump to a commit hash / branch / tag within the currently-loaded
   // log. Accepts user input via an InputBox, resolves via `findCommitByQuery`
   // (pure helper, operates only on already-loaded commits per spec), then
   // delegates to `GitToolWindowProvider.scrollToCommit` which posts the
@@ -1765,9 +1762,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // Conflict Resolution commands
-  // T1-08(a): manual entry point for re-opening the Resolve Conflicts dialog.
-  // Used by the status-bar "Unresolved conflicts — click to resolve" prompt
-  // and by the VCS menu `Resolve Conflicts…` item (contributed elsewhere).
+  // Manual entry point for re-opening the Resolve Conflicts dialog. Used by
+  // the status-bar "Unresolved conflicts — click to resolve" prompt and by
+  // the VCS menu `Resolve Conflicts…` item (contributed elsewhere).
   const showResolveConflictsDialogCommand = registerLoggedCommand(
     'intellig.showResolveConflictsDialog',
     async () => {
@@ -1809,10 +1806,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T3-05: Palette entry point — Skip This Commit during an in-progress
-  // rebase. Gated by the same `intellig.conflicts.active` context key the
-  // status-bar prompt uses, so it only appears while a rebase is paused
-  // on conflicts. Destructive; single confirm matches the dialog button.
+  // Palette entry point — Skip This Commit during an in-progress rebase.
+  // Gated by the same `intellig.conflicts.active` context key the status-bar
+  // prompt uses, so it only appears while a rebase is paused on conflicts.
+  // Destructive; single confirm matches the dialog button.
   const rebaseSkipCommand = registerLoggedCommand('intellig.rebase.skip', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1849,7 +1846,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       const res = await gitService.rebaseSkip(repo);
       if (!res.success && res.conflicts && res.conflicts.length > 0) {
         // More conflicts after the skip — reopen the Resolve Conflicts
-        // dialog for the user. Reuses the T1-08 auto-open path.
+        // dialog for the user. Reuses the auto-open path.
         await conflictService.openResolveConflictsDialog(
           repo,
           res.conflicts.map((p) => ({ path: p, resolved: false })),
@@ -1878,13 +1875,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   });
 
-  // Bug C follow-up: palette + activation-warning entry points for
-  // `git rebase --continue` and `git rebase --abort`. Together with the
-  // pre-existing `intellig.rebase.skip`, these are the three commands the
+  // Palette + activation-warning entry points for `git rebase --continue`
+  // and `git rebase --abort`. Together with the pre-existing
+  // `intellig.rebase.skip`, these are the three commands the
   // activation-time rebase-paused warning toast can route the user to.
-  // Without continue/abort registered, the warning had to stay generic
-  // (no actionable button → see KNOWN-ISSUES.md "Rebase recovery"
-  // entry).
+  // If any of the three is unregistered, the warning toast falls back to
+  // a button-less generic message.
   const rebaseContinueCommand = registerLoggedCommand('intellig.rebase.continue', async () => {
     if (!extensionServices) {
       void vscode.window.showErrorMessage('Extension services not initialized');
@@ -1921,8 +1917,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         // Non-conflict failure (unstaged resolution, editor cancelled,
         // etc.). Surface git's reason — already sanitized at the
         // GitService boundary, but re-pipe through `sanitizeGitError`
-        // here so the safety contract is locally evident at the toast
-        // site (TL-72 structural guard).
+        // here so the safety contract is locally evident at the toast site.
         const reason = res.failureReason ?? 'unknown error (no output from git)';
         void vscode.window.showErrorMessage(
           `Failed to continue rebase: ${sanitizeGitError(reason)}`
@@ -2005,13 +2000,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage('Select a file in Local Changes first.');
     }
   );
-  // NOTE: `intellig.toolWindow.jumpToHash` is the real T3-06 implementation
-  // (see `jumpToHashCommand` above). A duplicate stub registration previously
+  // NOTE: `intellig.toolWindow.jumpToHash` is the real implementation (see
+  // `jumpToHashCommand` above). A duplicate stub registration previously
   // lived here and crashed activation (VS Code throws on duplicate
   // registerCommand). The duplicate has since been removed.
 
-  // T1-12: Apply Patch… — opens the ApplyPatchDialog for the active repo.
-  // When invoked with a URI (e.g. from an explorer context menu on a .patch
+  // Apply Patch… — opens the ApplyPatchDialog for the active repo. When
+  // invoked with a URI (e.g. from an explorer context menu on a .patch
   // file), pre-seeds the dialog with that path.
   const applyPatchCommand = registerLoggedCommand(
     'intellig.patch.apply',
@@ -2021,7 +2016,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         return;
       }
       const gitService = extensionServices.gitService;
-      // T2-03 — resolve with active-editor preference.
+      // Resolve with active-editor preference.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
         pickerTitle: 'Apply Patch — Choose Repository',
@@ -2039,7 +2034,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T1-12: Create Patch from Local Changes… — prompts for target (file /
+  // Create Patch from Local Changes… — prompts for target (file /
   // clipboard) and writes the current diff.
   const createPatchFromLocalCommand = registerLoggedCommand(
     'intellig.patch.createFromLocal',
@@ -2049,7 +2044,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
         return;
       }
       const gitService = extensionServices.gitService;
-      // T2-03 — resolve with active-editor preference.
+      // Resolve with active-editor preference.
       const repo = await resolveRepo(gitService, {
         preferActive: true,
         pickerTitle: 'Create Patch — Choose Repository',
@@ -2419,7 +2414,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       const gitService = extensionServices.gitService;
       const rebaseService = extensionServices.rebaseService;
 
-      // T2-03 — unified multi-root resolver.
+      // Unified multi-root resolver.
       let repo = await resolveRepo(gitService, {
         preferActive: true,
         pickerTitle: 'Interactive Rebase — Choose Repository',
@@ -2496,8 +2491,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     const gitService = extensionServices.gitService;
 
-    // T2-03 — resolve via the active editor's file path when available so
-    // multi-root invocations don't silently pick the wrong repo.
+    // Resolve via the active editor's file path when available so multi-root
+    // invocations don't silently pick the wrong repo.
     const activeEditor = vscode.window.activeTextEditor;
     const hintRepoPath =
       activeEditor && activeEditor.document.uri.scheme === 'file'
@@ -2517,10 +2512,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
       ? vscode.workspace.asRelativePath(activeEditor.document.uri)
       : undefined;
 
-    // T2-07 — when the tabbed Git tool window is enabled and we have a
-    // file path, route to the embedded History tab instead of the legacy
-    // QuickPick. Repo-level history (filePath === undefined) still uses
-    // the QuickPick because the tab only supports per-file scope.
+    // When the tabbed Git tool window is enabled and we have a file path,
+    // route to the embedded History tab instead of the legacy QuickPick.
+    // Repo-level history (filePath === undefined) still uses the QuickPick
+    // because the tab only supports per-file scope.
     if (filePath && isTabbedGitToolWindowEnabled() && gitToolWindowProvider) {
       await vscode.commands.executeCommand(`${GIT_TOOL_WINDOW_VIEW_ID}.focus`);
       await gitToolWindowProvider.loadFileHistory(filePath);
@@ -2577,7 +2572,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       return;
     }
 
-    // T2-03 — the revert must land in the repo that owns the active file.
+    // The revert must land in the repo that owns the active file.
     const hintRepoPath =
       activeEditor.document.uri.scheme === 'file' ? activeEditor.document.uri.fsPath : undefined;
     const repo = await resolveRepo(gitService, {
@@ -2959,14 +2954,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // ─── T2-11: Explorer / editor menu parity — new command bridges ──────────
+  // ─── Explorer / editor menu parity — command bridges ────────────────────
 
   function _resolveExplorerFileUri(fileUri: vscode.Uri | undefined): vscode.Uri | undefined {
     return resolveExplorerFileUri(fileUri, vscode.window.activeTextEditor?.document.uri);
   }
 
-  // T2-11 — Add to VCS. Stages the file (equivalent to `git add <path>`), so
-  // it becomes tracked. Shown in the IntelliJ-parity explorer submenu.
+  // Add to VCS. Stages the file (equivalent to `git add <path>`), so it
+  // becomes tracked. Shown in the IntelliJ-parity explorer submenu.
   const explorerAddToVcsCommand = registerLoggedCommand(
     'intellig.explorer.addToVcs',
     async (fileUri?: vscode.Uri) => {
@@ -3003,10 +2998,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T2-11 — Compare with the Same Repository Version.
+  // Compare with the Same Repository Version.
   // Opens a diff tab between the working-tree file and its HEAD revision.
   // Reuses the `intellig-git:` URI scheme registered elsewhere in this file,
-  // matching the pattern shipped by T2-01 for ref-based diffs.
+  // matching the pattern shipped for ref-based diffs.
   const explorerCompareWithRepoVersionCommand = registerLoggedCommand(
     'intellig.explorer.compareWithRepoVersion',
     async (fileUri?: vscode.Uri) => {
@@ -3043,10 +3038,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T2-11 — Create Patch from File.
+  // Create Patch from File.
   // Delegates to PatchService.createPatchFromLocalChanges with a single-file
-  // filter. Matches the behaviour of T1-12's `intellig.patch.createFromLocal`
-  // but scoped to one file.
+  // filter. Matches the behaviour of `intellig.patch.createFromLocal` but
+  // scoped to one file.
   const explorerCreatePatchFromFileCommand = registerLoggedCommand(
     'intellig.explorer.createPatchFromFile',
     async (fileUri?: vscode.Uri) => {
@@ -3376,7 +3371,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
   });
 
   // =========================================================================
-  // T2-08: Blame gutter menu commands.
+  // Blame gutter menu commands.
   //
   // All commands resolve the blame line under the *active editor cursor* —
   // VS Code doesn't expose the gutter click position, so the menu surface
@@ -3564,12 +3559,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T1-09: New Tag — command-palette entry, defaults to HEAD.
+  // New Tag — command-palette entry, defaults to HEAD.
   const newTagCommand = registerLoggedCommand('intellig.tag.new', async () => {
     await _runNewTagFlow(undefined);
   });
 
-  // T1-09: New Tag — invoked from the log commit context menu with a commit arg.
+  // New Tag — invoked from the log commit context menu with a commit arg.
   const commitNewTagCommand = registerLoggedCommand(
     'intellig.commit.newTag',
     async (commitArg?: unknown) => {
@@ -3578,7 +3573,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // ─── T1-07: Log commit right-click menu parity ──────────────────────────
+  // ─── Log commit right-click menu parity ─────────────────────────────────
   //
   // These commands provide the palette- and menu-level surface for the
   // log-commit context menu. Where an existing handler lives in
@@ -3631,10 +3626,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
     (commitArg?: unknown) => _delegateLogAction('resetToHere', commitArg)
   );
 
-  // T2-04: Drop Selected Changes — rewrites the HEAD commit to remove
-  // user-selected files. Refuses on pushed or non-HEAD commits. Single
-  // destructive-op confirm modal. Invoked via the palette or the log-commit
-  // context menu entry declared in package.json.
+  // Drop Selected Changes — rewrites the HEAD commit to remove user-selected
+  // files. Refuses on pushed or non-HEAD commits. Single destructive-op
+  // confirm modal. Invoked via the palette or the log-commit context menu
+  // entry declared in package.json.
   const commitDropSelectedChangesCommand = registerLoggedCommand(
     'intellig.commit.dropSelectedChanges',
     async (commitArg?: unknown) => {
@@ -3653,12 +3648,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // ─── T1-07 NEW commands ──────────────────────────────────────────────────
+  // ─── New-from-commit commands ───────────────────────────────────────────
 
   // New Branch from this commit.
-  // T3-03: route through the New Branch Dialog webview so the user gets
-  // the tracking / overwrite / checkout fields rather than a bare input
-  // box.
+  // Route through the New Branch Dialog webview so the user gets the
+  // tracking / overwrite / checkout fields rather than a bare input box.
   const commitNewBranchCommand = registerLoggedCommand(
     'intellig.commit.newBranch',
     async (commitArg?: unknown) => {
@@ -3798,8 +3792,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // T3-09 — Open this commit on the configured hosting provider (GitHub /
-  // GitLab / Bitbucket, auto-detected from the repo's origin remote URL).
+  // Open this commit on the configured hosting provider (GitHub / GitLab /
+  // Bitbucket, auto-detected from the repo's origin remote URL).
   const commitOpenOnHostCommand = registerLoggedCommand(
     'intellig.commit.openOnHost',
     async (commitArg?: unknown) => {
@@ -3814,7 +3808,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   );
 
-  // ─── T2-05 Cherry-Pick variants ────────────────────────────────────────────
+  // ─── Cherry-Pick variants ──────────────────────────────────────────────
 
   // Cherry-Pick Without Commit: applies the commit to the index + worktree
   // with `--no-commit` so the user can inspect / amend before committing.
@@ -3923,7 +3917,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     explorerStageCommand,
     explorerUnstageCommand,
     explorerShowDiffCommand,
-    // T2-11 — Explorer/editor menu parity
+    // Explorer/editor menu parity
     explorerAddToVcsCommand,
     explorerCompareWithRepoVersionCommand,
     explorerCreatePatchFromFileCommand,
@@ -3932,7 +3926,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     editorShowLineHistoryCommand,
     editorCopyCommitHashCommand,
     editorShowCommitCommand,
-    // T2-08: Blame gutter right-click menu commands
+    // Blame gutter right-click menu commands
     blameShowCommitCommand,
     blameCopyRevisionCommand,
     blameAnnotatePreviousCommand,
@@ -3941,7 +3935,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     blameToggleDetectWithinCommand,
     blameToggleDetectAcrossCommand,
     blameClearHiddenRevisionsCommand,
-    // T1-07 Log commit menu parity
+    // Log commit menu parity
     commitCopyHashCommand,
     commitCheckoutRevisionCommand,
     commitRevertCommand,
@@ -3959,7 +3953,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     commitFileHistoryFromHereCommand,
     rebaseInteractiveFromHereCommand,
     commitOpenOnHostCommand,
-    // T2-04 selective revert + drop
+    // Selective revert + drop
     commitDropSelectedChangesCommand
   );
 }
@@ -3990,8 +3984,8 @@ function registerViews(context: vscode.ExtensionContext): void {
       consoleService.connectToToolWindow(gitToolWindowProvider);
     }
 
-    // T2-07 — wire the History tab to the GitService now that the service
-    // registry is up. Safe to call multiple times (last-writer-wins).
+    // Wire the History tab to the GitService now that the service registry
+    // is up. Safe to call multiple times (last-writer-wins).
     gitToolWindowProvider.attachGitService(extensionServices.gitService);
   }
 
@@ -4007,9 +4001,9 @@ function registerViews(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(gitToolWindowRegistration);
 
-  // T1-04 — register the Commit tool window. The view contribution in
-  // package.json is gated by `config.intellig.useCommitToolWindow`, so when
-  // the flag is off the view slot is hidden and users see zero change.
+  // Register the Commit tool window. The view contribution in package.json
+  // is gated by `config.intellig.useCommitToolWindow`, so when the flag is
+  // off the view slot is hidden and users see zero change.
   if (extensionServices) {
     commitToolWindow = createCommitToolWindow(
       context.extensionUri,
@@ -4019,7 +4013,7 @@ function registerViews(context: vscode.ExtensionContext): void {
       context.workspaceState
     );
 
-    // T3-10: bind shelf/stash row controllers so the combined Shelf tab can
+    // Bind shelf/stash row controllers so the combined Shelf tab can
     // dispatch context-menu actions. ShelfView / StashView already hold the
     // QuickPick + error-handling UX; the controllers are thin adapters.
     const gs = extensionServices.gitService;
@@ -4199,9 +4193,9 @@ function registerViews(context: vscode.ExtensionContext): void {
         });
 
         // Build branch map: commit hash -> branch refs (name + type).
-        // Bug E: carry `branch.type` (local/remote, derived by parseBranches
-        // from the refs/heads vs refs/remotes prefix) instead of guessing
-        // from the name — `feature/foo` is local even though it has a `/`.
+        // Carry `branch.type` (local/remote, derived by parseBranches from
+        // the refs/heads vs refs/remotes prefix) instead of guessing from
+        // the name — `feature/foo` is local even though it has a `/`.
         const branchMap = new Map<string, Array<{ name: string; type: 'local' | 'remote' }>>();
         try {
           const branches = await gitService.getBranches(repo);
@@ -4245,10 +4239,10 @@ function registerViews(context: vscode.ExtensionContext): void {
             headBranchName
           );
 
-          // T3-07 — compute the cherry-mark map in the background and push
-          // it into the provider. We don't block the log render on it —
-          // cherry marks are a visual nicety, and the call is throttled by
-          // git spawn overhead (typically <100ms). Gated by the
+          // Compute the cherry-mark map in the background and push it into
+          // the provider. We don't block the log render on it — cherry marks
+          // are a visual nicety, and the call is throttled by git spawn
+          // overhead (typically <100ms). Gated by the
           // `intellig.log.highlightCherryPicked` flag.
           void loadCherryMarksForRepo(repo);
         }
@@ -4260,7 +4254,7 @@ function registerViews(context: vscode.ExtensionContext): void {
     };
 
     /**
-     * T3-07 — compute `git log --cherry-mark` for the given repo against its
+     * Compute `git log --cherry-mark` for the given repo against its
      * upstream and push the `=`-marked hashes into the Log tab's state.
      * Runs in the background; errors are swallowed so the UI stays calm.
      */
@@ -4574,11 +4568,11 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Register branch context menu commands for the native BRANCHES tree view.
     // These are the actual VS Code command handlers invoked by the tree view context menus.
-    // T1-08(a): pass conflictResolutionService so conflict-producing ops auto-open the dialog.
-    // T1-02: pass pullDialog accessor so pullUsingRebase/pullUsingMerge route through the dialog.
-    // T1-01: pass pushDialog opener so branch.push routes through the dialog.
-    // T3-02 / T3-03: pass merge + new-branch dialog openers so branch.mergeInto and
-    // branch.newBranchFrom / tag.newBranchFrom route through their webview dialogs.
+    // - conflictResolutionService: conflict-producing ops auto-open the dialog.
+    // - pullDialog accessor: pullUsingRebase/pullUsingMerge route through the dialog.
+    // - pushDialog opener: branch.push routes through the dialog.
+    // - merge + new-branch dialog openers: branch.mergeInto and
+    //   branch.newBranchFrom / tag.newBranchFrom route through their webview dialogs.
     const branchContextMenuCommands = createBranchContextMenuCommands(
       gitService,
       branchTreeProvider,
@@ -4592,7 +4586,7 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     // Register commit context menu commands for the Git Graph Panel.
     // These handle right-click actions on commit rows in the graph view.
-    // T1-08(a): pass conflictResolutionService so cherry-pick/revert/merge route
+    // Pass conflictResolutionService so cherry-pick/revert/merge route
     // through the Resolve Conflicts dialog on conflict.
     if (gitToolWindowProvider) {
       commitContextMenuCommands = createCommitContextMenuCommands(
@@ -4621,9 +4615,9 @@ function registerViews(context: vscode.ExtensionContext): void {
     keymapService = new KeymapService(extensionServices.configurationService);
     context.subscriptions.push(keymapService);
 
-    // T1-08(a): eagerly create the MergeView singleton so the Resolve Conflicts
-    // dialog can subscribe to `onDidResolve` from the moment the service is
-    // wired. MergeView is otherwise cheap — it only opens a panel on `show()`.
+    // Eagerly create the MergeView singleton so the Resolve Conflicts dialog
+    // can subscribe to `onDidResolve` from the moment the service is wired.
+    // MergeView is otherwise cheap — it only opens a panel on `show()`.
     if (!mergeView) {
       mergeView = createMergeView(context.extensionUri, gitService);
     }
@@ -4643,12 +4637,12 @@ function registerViews(context: vscode.ExtensionContext): void {
       ).setResolveConflictsDependencies(context, mergeView);
     }
 
-    // Initialize Stash View — T1-08(a): pass conflictResolutionService so that
+    // Initialize Stash View — pass conflictResolutionService so that
     // `apply`/`pop` conflicts route through the Resolve Conflicts dialog.
     stashView = createStashView(gitService, extensionServices.conflictResolutionService);
     context.subscriptions.push(stashView);
 
-    // Initialize Shelf View — T1-08(a): pass conflictResolutionService so that
+    // Initialize Shelf View — pass conflictResolutionService so that
     // unshelve conflicts route through the Resolve Conflicts dialog.
     shelfView = createShelfView(
       extensionServices.shelfService,
@@ -4801,12 +4795,12 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
  * @param context - The VS Code extension context
  */
 function setupEventListeners(context: vscode.ExtensionContext): void {
-  // Bug C follow-up: surface a warning toast for any repository that's
-  // already in a paused-rebase state at activation, plus on every
-  // subsequent `onDidChangeRepository` transition into `rebasing`.
-  // Without this, users who reloaded VS Code mid-rebase saw no signal
-  // until they re-triggered a rebase command. See
-  // `wireRebasePausedWarning` for the implementation contract.
+  // Surface a warning toast for any repository that's already in a paused-
+  // rebase state at activation, plus on every subsequent
+  // `onDidChangeRepository` transition into `rebasing`. Without this, users
+  // who reloaded VS Code mid-rebase saw no signal until they re-triggered a
+  // rebase command. See `wireRebasePausedWarning` for the implementation
+  // contract.
   if (extensionServices) {
     const rebaseWarningDisposables = wireRebasePausedWarning({
       gitService: extensionServices.gitService,
@@ -4840,7 +4834,6 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
   // Listen for configuration changes
   const configurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
     if (event.affectsConfiguration('intellig')) {
-      // TODO: Handle configuration changes in task 1.3
       getLogger().child({ component: 'extension' }).debug('intellig configuration changed');
     }
   });
@@ -4848,7 +4841,7 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
   // Listen for active editor changes (for blame annotations)
   const activeEditorListener = vscode.window.onDidChangeActiveTextEditor((editor) => {
     if (editor) {
-      // TODO: Update blame annotations in task 27.1
+      // Placeholder: blame annotations refresh on editor change is not yet wired.
     }
   });
 
@@ -4877,7 +4870,7 @@ export function getGitToolWindowProvider(): GitToolWindowProvider | undefined {
 }
 
 /**
- * Lazily instantiate the T1-02 Pull Dialog, reusing the singleton after the
+ * Lazily instantiate the Pull Dialog, reusing the singleton after the
  * first call. Returns `undefined` when extension services are unavailable
  * (e.g. before activation has completed).
  */
@@ -4905,7 +4898,7 @@ export function getPullDialog(): PullDialog | undefined {
 }
 
 /**
- * Bug G.2 — handle the outcome of the generic `intellig.pull` PullDialog.
+ * Handle the outcome of the generic `intellig.pull` PullDialog.
  *
  * The dialog (`runPullDialog`) shows its own toasts for the `pulled`,
  * `conflict`, and `error` outcomes, so this helper deliberately does NOT
@@ -4933,7 +4926,7 @@ export function handlePullDialogOutcome(outcome: PullDialogOutcome): void {
   // toast internally (see `runPullDialog`). Nothing more to do here.
 }
 
-// ─── T1-01: Push dialog ──────────────────────────────────────────────────────
+// ─── Push dialog ─────────────────────────────────────────────────────────────
 
 /**
  * Open a fresh Push dialog. Unlike Pull, Push is constructed per-invocation
@@ -4990,7 +4983,7 @@ export function openPushDialog(preselect?: {
   return _openPushDialog(preselect);
 }
 
-// ─── T3-02: Merge Dialog ─────────────────────────────────────────────────────
+// ─── Merge Dialog ────────────────────────────────────────────────────────────
 
 /**
  * Open a fresh Merge Dialog for `sourceBranch` into the current branch of
@@ -5036,7 +5029,7 @@ export function openMergeDialog(preselect: {
   return _openMergeDialog(preselect);
 }
 
-// ─── T3-03: New Branch Dialog ────────────────────────────────────────────────
+// ─── New Branch Dialog ───────────────────────────────────────────────────────
 
 /**
  * Open a fresh New Branch Dialog. `startPoint` defaults to HEAD when
@@ -5073,7 +5066,7 @@ export function openNewBranchDialog(preselect: {
   return _openNewBranchDialog(preselect);
 }
 
-// ─── T1-09: New Tag flow ─────────────────────────────────────────────────────
+// ─── New Tag flow ────────────────────────────────────────────────────────────
 
 /**
  * Validate a git tag name using a subset of git-check-ref-format rules.
@@ -5140,8 +5133,8 @@ async function _pickRepositoryForTag(): Promise<IRepository | undefined> {
     void vscode.window.showErrorMessage('Extension services not initialized');
     return undefined;
   }
-  // T2-03 — delegate to the unified resolver so `intellig.defaultRepo` and
-  // the active-editor heuristic apply here too.
+  // Delegate to the unified resolver so `intellig.defaultRepo` and the
+  // active-editor heuristic apply here too.
   return resolveRepo(extensionServices.gitService, {
     preferActive: true,
     pickerTitle: 'Create Tag — Choose Repository',
@@ -5248,9 +5241,9 @@ async function _runNewTagFlow(targetRef: string | undefined): Promise<void> {
   );
 }
 
-// ─── T1-07 helpers ───────────────────────────────────────────────────────────
+// ─── Log-commit menu helpers ─────────────────────────────────────────────────
 
-// ─── T2-05 Cherry-Pick variant helpers ───────────────────────────────────────
+// ─── Cherry-Pick variant helpers ─────────────────────────────────────────────
 
 /**
  * Pick a subset of files touched by `hash` via a multi-select QuickPick.
@@ -5525,7 +5518,7 @@ export function validateBranchName(value: string): string | undefined {
 /**
  * Internal alias used by the `validateInput` callback shape. Retained for
  * any legacy callers that still use `showInputBox`; current entry points
- * route through the New Branch Dialog webview (T3-03).
+ * route through the New Branch Dialog webview.
  */
 export function _validateBranchName(value: string): string | undefined {
   return validateBranchName(value);
@@ -5562,7 +5555,7 @@ async function _pickRepositoryForCommit(): Promise<IRepository | undefined> {
 }
 
 /**
- * T3-09 — open the given commit on its hosting provider's web UI.
+ * Open the given commit on its hosting provider's web UI.
  *
  * Resolves the repo's `origin` remote, parses the URL, and builds the
  * provider-specific commit URL. If the provider isn't recognised or the
@@ -5650,8 +5643,7 @@ async function _openCommitFileDiff(
  *
  * Used by `compareWithHead` and `compareWith`. Simple implementation: we
  * get the diff of `commitHash` vs its parent and the diff of `target` vs
- * its parent, then merge file lists. Not a proper 3-way diff — matches
- * the scope of T1-07 MVP.
+ * its parent, then merge file lists. Not a proper 3-way diff.
  */
 async function _openRefPairDiffPicker(
   repo: IRepository,
@@ -5730,7 +5722,7 @@ async function _pickRefForComparison(
   return picked.label;
 }
 
-// ─── T2-09 helpers ───────────────────────────────────────────────────────────
+// ─── Stash helpers ───────────────────────────────────────────────────────────
 
 /**
  * Prompt the user to pick a stash for a palette-invoked action (Rename…,
@@ -5787,7 +5779,7 @@ async function _pickStashForAction(
   };
 }
 
-// ─── T2-11 helpers (exported for unit tests) ─────────────────────────────────
+// ─── Explorer-menu helpers (exported for unit tests) ────────────────────────
 
 /**
  * Resolve the target file URI for an explorer-context command invocation.
@@ -5877,7 +5869,7 @@ export function buildCompareWithRepoVersionLeftUri(
 /**
  * Build the diff-tab title used by
  * `intellig.explorer.compareWithRepoVersion`. Mirrors the `<basename> (ref ↔ Working Tree)`
- * convention used by T2-01's `showDiffWithWorkingTree` for consistency.
+ * convention used by `showDiffWithWorkingTree` for consistency.
  *
  * Exported for unit tests.
  */

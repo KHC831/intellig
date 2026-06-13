@@ -1,5 +1,5 @@
 /**
- * Unit tests for ResetDialog (T1-11).
+ * Unit tests for ResetDialog.
  *
  * Covers:
  *  - each mode maps to the correct `git reset` flag (soft/mixed/hard/keep)

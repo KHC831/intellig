@@ -94,14 +94,14 @@ export interface IMergeView {
   acceptAllIncoming(): void;
 
   /**
-   * T3-04 — auto-resolve every conflict where the *right* (incoming) side
+   * Auto-resolve every conflict where the *right* (incoming) side
    * made no meaningful change relative to base by taking the *left*
    * (current) side. True both-sided conflicts stay unresolved.
    */
   applyAllNonConflictingFromLeft(): number;
 
   /**
-   * T3-04 — symmetric to {@link applyAllNonConflictingFromLeft}: auto-
+   * Symmetric to {@link applyAllNonConflictingFromLeft}: auto-
    * resolve every conflict where the *left* side made no meaningful
    * change by taking the *right* side.
    */

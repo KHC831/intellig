@@ -1,7 +1,7 @@
 /**
  * Logger emission-path microbenchmark.
  *
- * Pins the performance budget from Requirement 7.2:
+ * Pins the performance budget from
  *
  *   THE Logger emission path at `intellig.log.level = "info"` SHALL
  *   complete in under 1ms per record on a typical developer machine,
@@ -59,10 +59,6 @@
  * `__resetLoggerForTest()` runs before and after the test so neither
  * a sibling test's leaked sinks nor leftover resolver state can bias
  * the measurement.
- *
- * @see Requirement 7.2 (the named budget) and 7.1, 7.3 (the
- *   short-circuit invariants this test does NOT directly assert
- *   but which the emission-path shape depends on).
  */
 
 import '../setup';
@@ -90,7 +86,7 @@ const WARMUP_ITERATIONS = 1_000;
 const TIMED_ITERATIONS = 1_000;
 
 /**
- * Per-record wall-clock budget from Requirement 7.2. The assertion is
+ * Per-record wall-clock budget from. The assertion is
  * on the mean — a single slow record (e.g. caught in a GC pause) is
  * absorbed by the average across {@link TIMED_ITERATIONS} samples.
  */
@@ -106,7 +102,7 @@ function makeFakeContext(): vscode.ExtensionContext {
   return { subscriptions } as unknown as vscode.ExtensionContext;
 }
 
-describe('Logger emission-path performance (Task 4.14 / Requirement 7.2)', () => {
+describe('Logger emission-path performance', () => {
   beforeEach(() => {
     // Drop both singletons so this benchmark starts from a clean
     // module-level state. Order matters — drop the Logger first so
@@ -160,7 +156,7 @@ describe('Logger emission-path performance (Task 4.14 / Requirement 7.2)', () =>
       meanMsPerCall < PER_CALL_BUDGET_MS,
       `Logger.info emission path mean per-call duration was ${meanMsPerCall.toFixed(4)}ms ` +
         `(${TIMED_ITERATIONS} samples, total ${totalMs.toFixed(2)}ms); ` +
-        `Requirement 7.2 budget is ${PER_CALL_BUDGET_MS}ms`
+        `Per-call log budget is ${PER_CALL_BUDGET_MS}ms`
     );
   });
 });

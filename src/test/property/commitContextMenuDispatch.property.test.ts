@@ -1,6 +1,5 @@
 // Feature: git-graph-context-menu, Property 4: Action dispatch correctness
 /**
- * **Validates: Requirements 7.1**
  *
  * For any valid LogContextAction value and commit hash array, the CommitContextMenuCommands
  * handler should invoke exactly one handler method corresponding to that action, and that
@@ -392,7 +391,6 @@ describe('Feature: git-graph-context-menu - Action Dispatch Property Tests', () 
   // Feature: git-graph-context-menu, Property 4: Action dispatch correctness
   describe('Property 4: Action dispatch correctness', () => {
     /**
-     * **Validates: Requirements 7.1**
      *
      * For any valid LogContextAction value and commit hash array, the
      * CommitContextMenuCommands handler should invoke exactly one handler

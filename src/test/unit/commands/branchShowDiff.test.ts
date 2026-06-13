@@ -1,7 +1,7 @@
 /**
  * Unit tests for BranchContextMenuCommands._handleShowDiffWithWorkingTree.
  *
- * Covers the T2-01 / BUG-17 fix:
+ * Covers the / BUG-17 fix:
  *   - Empty change set → showInformationMessage, no vscode.diff calls.
  *   - Single changed file selected → exactly 1 vscode.diff tab with the correct
  *     URI shape (`intellig-git:<path>?<ref>` on the left, on-disk working-tree
@@ -191,7 +191,7 @@ function makeHarness(opts: {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (T2-01 / BUG-17)', () => {
+describe('BranchContextMenuCommands._handleShowDiffWithWorkingTree (BUG-17)', () => {
   describe('empty change set', () => {
     it('shows an information message and issues no vscode.diff calls', async () => {
       const harness = makeHarness({

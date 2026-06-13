@@ -132,7 +132,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── post→re-render race ────────────────────────────────────────────────
-  describe('R3-1 (HIGH) — postMessage MUST happen after the most recent webview.html reassignment', () => {
+  describe('postMessage MUST happen after the most recent webview.html reassignment', () => {
     function assertPostsAfterHtml(
       events: Array<{ kind: 'html' | 'post'; type?: string }>,
       expectedPostType: string,
@@ -314,7 +314,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── selectCommits clears pending changed files ─────────────────────────
-  describe('R3-2 (MEDIUM) — selectCommits clears _pendingChangedFiles (Senior M-1)', () => {
+  describe('selectCommits clears _pendingChangedFiles', () => {
     it('clears _pendingChangedFiles on entry', () => {
       const internals = provider as unknown as InternalsR3;
       provider.updateLogState([mkCommit('aaa'), mkCommit('bbb', 'b', ['aaa'])]);
@@ -333,7 +333,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── type narrow on JS-supplied anchorHash ──────────────────────────────
-  describe('R3-3 (MEDIUM) — _handleWebviewMessage rejects non-string non-null anchorHash (Senior M-2)', () => {
+  describe('_handleWebviewMessage rejects non-string non-null anchorHash', () => {
     it('does not throw when anchorHash is a number (rogue webview)', () => {
       const internals = provider as unknown as InternalsR3;
       provider.updateLogState([mkCommit('aaa'), mkCommit('bbb', 'b', ['aaa'])]);
@@ -422,7 +422,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── IMenuItemState.reason ──────────────────────────────────────────────
-  describe('R3-4 (MEDIUM) — IMenuItemState.reason populated for disabled actions (TL2-M-3)', () => {
+  describe('IMenuItemState.reason populated for disabled actions', () => {
     function nodes(merged = false): { hash: string; parentCount: number }[] {
       return [
         { hash: 'aaa', parentCount: 1 },
@@ -446,7 +446,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
 
-    it('squashCommits.reason at N=1 is undefined (hidden — R4-2 contract narrowing)', () => {
+    it('squashCommits.reason at N=1 is undefined (hidden — contract narrowing)', () => {
       // This action populated reason="Squash needs at least 2 commits"
       // before the gate was narrowed to `visible && !enabled`. squashCommits
       // is hidden at N=1 (visibility flag), so reason is now undefined.
@@ -461,7 +461,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       assert.strictEqual(
         state.squashCommits.reason,
         undefined,
-        'hidden actions must not carry a tooltip-able reason (R4-2)'
+        'hidden actions must not carry a tooltip-able reason'
       );
     });
 
@@ -492,7 +492,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
 
-    it('compareVersions.reason is undefined when N!=2 (hidden — R4-2 contract narrowing)', () => {
+    it('compareVersions.reason is undefined when N!=2 (hidden — contract narrowing)', () => {
       // This action populated reason="Compare Versions needs exactly 2"
       // before the gate was narrowed to `visible && !enabled`.
       // compareVersions is hidden whenever it's disabled (visibility
@@ -509,13 +509,13 @@ describe('Wave A R3 — consolidated review fixes', () => {
       assert.strictEqual(
         state.compareVersions.reason,
         undefined,
-        'compareVersions has no visible-disabled state, so reason is never populated (R4-2)'
+        'compareVersions has no visible-disabled state, so reason is never populated'
       );
     });
   });
 
   // ─── ADR-009 doc sections ───────────────────────────────────────────────
-  describe('R3-5/6/7 (MEDIUM) — ADR-009 sections updated', () => {
+  describe('/6/7 — ADR-009 sections updated', () => {
     let adr: string;
     before(async () => {
       const fs = await import('fs');
@@ -526,7 +526,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
 
-    it('R3-5 (TL2-M-1) — §3 includes a post-must-follow-html-reassignment rule', () => {
+    it('§3 includes a post-must-follow-html-reassignment rule', () => {
       // Look for explicit language about ordering relative to webview.html.
       const hit =
         /webview\.html[\s\S]{0,200}post|post[\s\S]{0,200}webview\.html|after\s+(?:the\s+)?(?:re-?render|html\s*reassignment|html\s*reload)/i.test(
@@ -538,7 +538,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
 
-    it('R3-6 (TL2-M-2) — §2.1 includes a counter-example', () => {
+    it('§2.1 includes a counter-example', () => {
       assert.ok(
         /counter[- ]example/i.test(adr),
         'ADR-009 §2.1 must include a counter-example so the click-anchor exception is not over-extended'
@@ -549,7 +549,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
 
-    it('R3-7 (TL2-M-4) — new section documents partial-vs-full update flavors', () => {
+    it('new section documents partial-vs-full update flavors', () => {
       assert.ok(
         /partial[\s\S]{0,200}full|full[\s\S]{0,200}partial/i.test(adr),
         'ADR-009 must contrast partial postMessage vs full _updateWebview() update flavors'
@@ -562,7 +562,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── selectCommits expandedCommit fallback ──────────────────────────────
-  describe('R3-8 (LOW) — selectCommits sets expandedCommit to first surviving hash for N>=2 (Senior L-1)', () => {
+  describe('selectCommits sets expandedCommit to first surviving hash for N>=2', () => {
     it('selectCommits([h1, h2]) sets expandedCommit = h1 (first in the new selection)', () => {
       const internals = provider as unknown as InternalsR3;
       provider.updateLogState([
@@ -598,7 +598,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── getSelectedCommits display order ───────────────────────────────────
-  describe('R3-9 (LOW) — getSelectedCommits returns display order (Senior L-3)', () => {
+  describe('getSelectedCommits returns display order', () => {
     it('returns hashes in commitNodes display order, not Set insertion order', () => {
       // updateLogState trusts the topo-ordered input (matching
       // `git log --topo-order`, which is newest-first). Pass commits
@@ -630,7 +630,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── LogContextAction structural comment ────────────────────────────────
-  describe('R3-10 (LOW) — LogContextAction declares its superset relationship (TL2-L-1)', () => {
+  describe('LogContextAction declares its superset relationship', () => {
     it('GitToolWindowProvider.ts contains a "superset" comment on the LogContextAction declaration', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -653,7 +653,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
   });
 
   // ─── typed-message follow-up TODO ───────────────────────────────────────
-  describe('R3-11 (LOW) — post-Wave-C TODO for unified WebviewInboundMessage (TL2-L-2)', () => {
+  describe('post-Wave-C TODO for unified WebviewInboundMessage', () => {
     it('GitToolWindowProvider.ts contains a TODO near WaveAInboundMessage referencing the unification plan', async () => {
       const fs = await import('fs');
       const path = await import('path');

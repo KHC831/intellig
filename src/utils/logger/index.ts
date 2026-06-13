@@ -13,26 +13,26 @@
  * Importing directly from internal files (e.g. `./logger`,
  * `./correlation`, `./sinks/types`) is allowed within the module
  * itself but discouraged elsewhere — the barrel is what stays stable
- * across the topical-source-tree restructure (task 12+) and across
+ * across the topical-source-tree restructure and across
  * any future internal reorganization of the Logger's pieces.
  *
- * ### Surface (per design.md → "Logger module location")
+ * ### Surface
  *
  * Lifecycle accessors:
- *   - `getLogger()` — lazy singleton accessor (Requirement 8.1).
+ *   - `getLogger()` — lazy singleton accessor.
  *   - `initLogger(context)` — registers sinks and the configuration
- *     listener against `context.subscriptions` (Requirement 8.2).
- *   - `__resetLoggerForTest()` — test-only seam (Requirement 8.3).
+ *     listener against `context.subscriptions`.
+ *   - `__resetLoggerForTest()` — test-only seam.
  *     Production references are forbidden by the structural CI guard
- *     `scripts/check-test-only-surface.sh` (Requirement 8.4).
+ *     `scripts/check-test-only-surface.sh`.
  *
  * Correlation-id helpers:
  *   - `registerLoggedCommand(id, handler)` — wrap
  *     `vscode.commands.registerCommand` with a fresh correlation
- *     frame (Requirement 5.1).
+ *     frame.
  *   - `getCurrentCorrelationId()` / `getCurrentCommandId()` — read
  *     the current frame, returning `undefined` when no frame is on
- *     the stack (Requirement 5.5, 14.9).
+ *     the stack.
  *
  * Types:
  *   - `Logger`, `Bindings` — the public Logger surface and the shape
@@ -41,8 +41,6 @@
  *     sink contract.
  *   - `LogLevel`, `LogThreshold` — the five record severities and
  *     the configurable threshold superset (`LogLevel | 'off'`).
- *
- * @see Requirements 1.1, 8.1, 8.2, 8.3
  */
 
 export { getLogger, initLogger, __resetLoggerForTest } from './logger';

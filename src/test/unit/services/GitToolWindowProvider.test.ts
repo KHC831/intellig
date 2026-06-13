@@ -1326,7 +1326,7 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
-  describe('session persistence (Requirement 1.7)', () => {
+  describe('session persistence', () => {
     it('should persist selected repository index across setAvailableRepositories calls when index is valid', () => {
       const repos = [
         createMockRepository('/workspace/a'),

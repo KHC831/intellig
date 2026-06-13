@@ -246,7 +246,7 @@ export interface ICommitOptions {
   allowEmpty?: boolean;
   /**
    * Optional author override in the `Name <email>` format. When set,
-   * the commit is created with `--author="<value>"`. T2-06.
+   * the commit is created with `--author="<value>"`.
    */
   author?: string;
 }
@@ -417,7 +417,7 @@ export interface ILogOptions {
 }
 
 /**
- * Options for {@link IGitService.getFileHistory} (T2-07).
+ * Options for {@link IGitService.getFileHistory}.
  *
  * Kept separate from {@link ILogOptions} because file-history introduces
  * two flags that don't otherwise make sense for a general `git log`:
@@ -427,7 +427,7 @@ export interface ILogOptions {
  * `maxCount` is also exposed so callers can paginate / cap results for UI.
  */
 /**
- * T3-07 — Commit classification returned by `git log --cherry-mark`.
+ * Commit classification returned by `git log --cherry-mark`.
  *
  * The characters are taken verbatim from git's output so consumers can
  * pattern-match without translating. `'='` is the payload the UI cares about
@@ -446,7 +446,7 @@ export interface IFileHistoryOptions {
 }
 
 /**
- * Merge options (T3-02).
+ * Merge options.
  *
  * Mutex semantics enforced in the Merge Dialog UI:
  *  - `ffOnly` clears `noFf` and `squash`.
@@ -494,7 +494,7 @@ export interface IMergeResult {
 }
 
 /**
- * Create-branch options (T3-03).
+ * Create-branch options.
  */
 export interface ICreateBranchOptions {
   /**
@@ -540,7 +540,7 @@ export interface IBasicRebaseResult {
 /**
  * Cherry-pick options.
  *
- * T2-05: adds `noCommit` (stage without creating a commit — IntelliJ's
+ * Adds `noCommit` (stage without creating a commit — IntelliJ's
  * "Cherry-Pick Without Commit") and `files` (restrict to a file subset —
  * IntelliJ's "Apply Selected Changes"). These two combine naturally:
  * `Apply Selected Changes` internally runs cherry-pick-no-commit and then
@@ -765,7 +765,7 @@ export interface IGitService {
    *
    * Drops the commit under the cursor and moves on to the next one. The
    * commit's changes are NOT applied — callers should confirm destructive
-   * intent before invoking (T3-05).
+   * intent before invoking.
    *
    * @returns Result with success status and any new conflicts surfaced by
    *   the next commit in the rebase sequence.
@@ -877,7 +877,7 @@ export interface IGitService {
   ): Promise<ICommit[]>;
 
   /**
-   * T3-07 — Compute `git log --cherry-mark` classifications between `baseRef`
+   * Compute `git log --cherry-mark` classifications between `baseRef`
    * and HEAD. Returns a map keyed by commit hash.
    *
    * Mark values (per git-log docs):
@@ -972,7 +972,7 @@ export interface IGitService {
    *
    * @param repo - The repository
    * @param commits - Array of commit hashes to cherry-pick
-   * @param options - Optional cherry-pick flags (T2-05)
+   * @param options - Optional cherry-pick flags
    * @returns Cherry-pick result with success status and any conflicts
    */
   cherryPick(

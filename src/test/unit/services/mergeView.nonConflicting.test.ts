@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-04 "Apply all non-conflicting changes from Left/Right".
+ * Unit tests for "Apply all non-conflicting changes from Left/Right".
  *
  * The pure helpers (`identifyNonConflictingConflicts`,
  * `identifyNonConflictingHunks`) are exercised here; the MergeView methods
@@ -13,7 +13,7 @@ import {
   identifyNonConflictingHunks,
 } from '../../../conflicts/MergeView';
 
-describe('T3-04 — identifyNonConflictingConflicts', () => {
+describe('identifyNonConflictingConflicts', () => {
   // Shape matching IConflictRegion in the production code, but only the
   // fields the helper reads.
   type TestConflict = {
@@ -80,7 +80,7 @@ describe('T3-04 — identifyNonConflictingConflicts', () => {
   });
 });
 
-describe('T3-04 — identifyNonConflictingHunks (marker-text parser)', () => {
+describe('identifyNonConflictingHunks (marker-text parser)', () => {
   it('parses a single diff3 conflict and reports left-only', () => {
     const text = [
       'line one',

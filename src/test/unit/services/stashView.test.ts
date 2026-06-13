@@ -204,7 +204,7 @@ function makeMockConflictService(conflicts: string[]): IConflictResolutionServic
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('StashView T2-09 — branch from stash + rename', () => {
+describe('StashView — branch from stash + rename', () => {
   describe('branchFromStash()', () => {
     it('prompts for branch name and delegates to gitService.stashBranch', async () => {
       const gitService = makeGitService({ stashes: makeStashes() });

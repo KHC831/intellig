@@ -29,9 +29,9 @@ export interface IRebaseEditorResult {
  * Rebase Editor interface.
  * Provides methods for showing and controlling the interactive rebase editor.
  *
- * - 6.1: Display rebase editor showing commits to be rebased
- * - 6.2: Allow reordering commits via drag-and-drop
- * - 6.3: Support pick, reword, edit, squash, fixup, and drop operations
+ * - Display rebase editor showing commits to be rebased
+ * - Allow reordering commits via drag-and-drop
+ * - Support pick, reword, edit, squash, fixup, and drop operations
  */
 export interface IRebaseEditor {
   /**

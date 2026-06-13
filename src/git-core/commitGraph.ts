@@ -82,8 +82,8 @@ export interface IGraphLine {
  * A branch reference pointing at a commit, carrying the branch's name AND
  * its type. The `type` is sourced from `IBranch.type` (which `parseBranches`
  * derives from the `refs/heads/` vs `refs/remotes/` prefix), NOT guessed from
- * the name. This is the fix for Bug E: local branches with a `/` in their
- * name (`feature/foo`, `fix/bar`) must not be misclassified as remote.
+ * the name. Local branches with a `/` in their name (`feature/foo`,
+ * `fix/bar`) must not be misclassified as remote.
  *
  * Only `'local'` and `'remote'` are carried here — tags travel through the
  * separate `tagMap` and never enter the branch map.

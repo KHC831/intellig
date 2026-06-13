@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T3-12 `intellig.fetchTags` integration.
+ * Unit tests for the `intellig.fetchTags` integration.
  *
  * `GitService.fetch` now reads the `intellig.fetchTags` config and maps:
  *   - 'auto'  → no flag (git default)
@@ -55,7 +55,7 @@ async function setFetchTags(value: 'auto' | 'all' | 'never'): Promise<void> {
   await vscode.workspace.getConfiguration('intellig').update('fetchTags', value);
 }
 
-describe('T3-12 GitService.fetch — intellig.fetchTags config', () => {
+describe('GitService.fetch — intellig.fetchTags config', () => {
   afterEach(async () => {
     // Restore default so state doesn't leak between tests.
     await vscode.workspace.getConfiguration('intellig').update('fetchTags', 'auto');

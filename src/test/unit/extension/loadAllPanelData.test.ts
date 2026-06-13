@@ -1,11 +1,11 @@
 /**
  * Wiring integration test for `loadAllPanelData` (spec git-view-layout-parity,
- * task 5.3 — Requirement 3.4).
+ * ).
  *
- * Requirement 3.4 makes the Loading_State a transient state whose end is bounded
+ * makes the Loading_State a transient state whose end is bounded
  * by the completion of Repository_Detection. The defect was that, in a workspace
  * with no git repository, nothing resolved the loading state and the tool window
- * stayed on the spinner forever. The task 5.1 fix wires detection completion to
+ * stayed on the spinner forever. The fix wires detection completion to
  * `setHasRepository(repositories.length > 0)` inside `loadAllPanelData`.
  *
  * `loadAllPanelData` is a closure inside `activate`, so it can't be invoked in
@@ -56,7 +56,7 @@ function createMockRepository(rootPath: string): IRepository {
   } as unknown as IRepository;
 }
 
-describe('loadAllPanelData wiring — bounded loading guarantee (task 5.3, Req 3.4)', () => {
+describe('loadAllPanelData wiring — bounded loading guarantee (Req 3.4)', () => {
   it('calls setHasRepository(false) when discovery returns no repositories', async () => {
     const provider = new RecordingProvider();
     let loadLogCommitsCalls = 0;

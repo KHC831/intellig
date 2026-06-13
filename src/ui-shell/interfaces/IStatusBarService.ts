@@ -65,8 +65,8 @@ export interface IStatusBarState {
  * Status Bar Service interface.
  * Manages the Git status bar item that displays branch and sync information.
  *
- * - 4.1: Display current branch name in status bar
- * - 17.8: Display progress and status notifications similar to IntelliJ
+ * - Display current branch name in status bar
+ * - Display progress and status notifications similar to IntelliJ
  */
 export interface IStatusBarService {
   /**

@@ -100,7 +100,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── updateLogState fires onDidChangeState BEFORE the post sequence ────
-  describe('R5-1 (MEDIUM) — updateLogState fires onDidChangeState BEFORE the post sequence (TL4-M-1)', () => {
+  describe('updateLogState fires onDidChangeState BEFORE the post sequence', () => {
     it('source order: fire precedes both _post* helpers', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -175,7 +175,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── dead-code cleanup in reason builders ──────────────────────────────
-  describe('R5-2 (LOW) — dead-code cleanup in reason builders (Senior L-1)', () => {
+  describe('dead-code cleanup in reason builders', () => {
     it('multiSelect.ts no longer carries the unreachable squashReason(selectedCount<2) branch', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -274,7 +274,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── invariant comment on apply-loop gate ──────────────────────────────
-  describe('R5-3 (LOW) — invariant comment on applyMenuEnableMap title gate (TL4-L-1)', () => {
+  describe('invariant comment on applyMenuEnableMap title gate', () => {
     it('inline script applyMenuEnableMap carries an INVARIANT comment near the title gate', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -297,7 +297,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── duplicate TODO(post-locale) cleanup ───────────────────────────────
-  describe('R5-4 (LOW) — TODO(post-locale) appears once, on the field (Senior L-4)', () => {
+  describe('TODO(post-locale) appears once, on the field', () => {
     it('multiSelect.ts has exactly one TODO(post-locale) marker', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -336,7 +336,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── follow-up: inline-script extraction trigger ───────────────────────
-  describe('R5-5 (FU) — inline-script extraction trigger comment (TL4-L-2)', () => {
+  describe('inline-script extraction trigger comment', () => {
     it('GitToolWindowProvider.ts contains an FU comment naming the extraction trigger', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -352,7 +352,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── follow-up: recordingWebview extraction in the multiSelectR3 and multiSelectR4 tests ───
-  describe('R5-6 (FU) — recordingWebview extraction comment in both R3 and R4 test files (TL4-L-3)', () => {
+  describe('recordingWebview extraction comment in both R3 and R4 test files', () => {
     async function readTestFile(name: string): Promise<string> {
       const fs = await import('fs');
       const path = await import('path');
@@ -380,7 +380,7 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── follow-up: ADR-009 §3 bifurcation note ────────────────────────────
-  describe('R5-7 (FU) — ADR-009 §3 bifurcation FU (TL4-L-4)', () => {
+  describe('ADR-009 §3 bifurcation FU', () => {
     it('ADR-009 contains an FU note about §3 bifurcation when Wave C lands', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -396,8 +396,8 @@ describe('Wave A R5 — final review fixes', () => {
   });
 
   // ─── follow-up: jsdom behavioural-witness deferral note ─────────────────
-  describe('R5-8 (FU) — jsdom behavioural-witness FU note in multiSelectR4.test.ts (Senior L-3)', () => {
-    it('R4-1 test block carries an FU note about deferring full DOM coverage', async () => {
+  describe('jsdom behavioural-witness FU note in multiSelectR4.test.ts', () => {
+    it('test block carries an FU note about deferring full DOM coverage', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
@@ -414,7 +414,7 @@ describe('Wave A R5 — final review fixes', () => {
         /FU\b[\s\S]{0,200}structural-only|FU\b[\s\S]{0,200}jsdom|FU\b[\s\S]{0,200}runtime witness/i.test(
           window
         ),
-        'R4-1 test block must carry an FU note about structural-only coverage + ext-host runtime witness'
+        'the title-attribute test block must carry an FU note about structural-only coverage + ext-host runtime witness'
       );
     });
   });

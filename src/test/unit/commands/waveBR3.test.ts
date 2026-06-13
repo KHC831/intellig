@@ -20,7 +20,7 @@ import * as assert from 'assert';
 
 describe('Wave B R3 — final review fixes', () => {
   // ─── dispatch-property spy forwards all args ────────────────────────────
-  describe('R3-1 (Senior L-1) — dispatch property spy is now varargs', () => {
+  describe('dispatch property spy is now varargs', () => {
     it('spy wrapper forwards all positional args to the original handler', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -70,7 +70,7 @@ describe('Wave B R3 — final review fixes', () => {
   });
 
   // ─── compareVersions external-caller recipe ─────────────────────────────
-  describe('R3-2 (Senior L-2) — compareVersions comment recipe is accurate', () => {
+  describe('compareVersions comment recipe is accurate', () => {
     let src: string;
     before(async () => {
       const fs = await import('fs');

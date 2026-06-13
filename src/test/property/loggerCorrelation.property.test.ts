@@ -9,32 +9,31 @@
  * 1. **Wrapped-handler propagation.** Every record emitted from inside
  *    a `registerLoggedCommand` handler body carries a `correlationId`
  *    matching `/^[0-9a-f]{16}$/` — the 16-char lowercase hex string
- *    produced by `crypto.randomBytes(8).toString('hex')` per
- *    Requirement 5.1.
+ *    produced by `crypto.randomBytes(8).toString('hex')`.
+ *
  * 2. **Per-invocation distinct cids.** Two consecutive invocations of
  *    the same registered command produce two distinct frames and
- *    therefore two distinct cids — Requirement 5.1's
+ *    therefore two distinct cids — a
  *    "fresh Correlation_Id … per top-level command-handler entry".
  * 3. **Non-fabrication outside any frame.** A record emitted while no
  *    command-handler frame is on the stack (e.g. a watcher callback
  *    firing outside `_store.run(...)`) carries no `correlationId`
- *    field at all — Requirement 5.5 / 14.9 forbid fabrication, so
+ *    field at all — the non-fabrication contract forbids inventing one, so
  *    the field is **absent** rather than the empty string or a fresh
  *    id.
  * 4. **Cid read at emit time, not at child(...) time.** A child
  *    Logger constructed inside one command frame and then called
  *    inside a different command frame attributes its records to the
- *    *current* frame's cid — design.md → "Inheritance through child
- *    loggers" makes the read-at-emit-time guarantee explicit, and
- *    Requirement 5.2 requires `child(bindings)` to preserve the
+ *    *current* frame's cid — the read-at-emit-time guarantee is
+ *    explicit, and requires `child(bindings)` to preserve the
  *    parent's correlation only "unless `bindings` explicitly supplies
  *    a new one" (i.e. the child does not capture a frozen cid at
  *    construction time).
  *
- * Requirement 5.3 (`safeFireAndForget` captures the cid at call time
- * and emits it on rejection) is asserted as Property 10.4 below.
- * Task 7.1 (`safeFireAndForget` rerouted through the structured Logger
- * with `getCurrentCorrelationId()` captured at call time) has landed —
+ * The `safeFireAndForget` cid-capture contract (it captures the cid at
+ * call time and emits it on rejection) is asserted as Property 10.4 below.
+ * `safeFireAndForget` is rerouted through the structured Logger
+ * with `getCurrentCorrelationId()` captured at call time —
  * see `src/utils/safeFireAndForget.ts:151`. The single-shot pin lives
  * in `src/test/unit/utils/safeFireAndForget.test.ts:141`; the property
  * generalises it across arbitrary commandIds and rejection-error
@@ -69,7 +68,6 @@
  * wrapper installs. The original is restored in the property's
  * `finally` block.
  *
- * **Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 14.9**
  */
 
 import '../setup';
@@ -97,7 +95,7 @@ import { safeFireAndForget } from '../../utils/safeFireAndForget';
 /**
  * 16-char lowercase hex string — the format
  * `crypto.randomBytes(8).toString('hex')` produces and the format
- * Requirement 5.1 pins for `Correlation_Id`.
+ * pinned for `Correlation_Id`.
  */
 const HEX16_RE = /^[0-9a-f]{16}$/;
 
@@ -238,7 +236,7 @@ const componentArb: fc.Arbitrary<string> = fc.stringOf(
  * Generator for log messages. We constrain to printable ASCII
  * without `\n` / `\r` / `\\` so the captured-then-parsed records
  * round-trip byte-for-byte (the inline-escape pass is exercised by
- * task 4.7's render round-trip property; here we focus on the
+ * 's render round-trip property; here we focus on the
  * cid plumbing only).
  */
 const messageArb: fc.Arbitrary<string> = fc.stringOf(
@@ -246,7 +244,7 @@ const messageArb: fc.Arbitrary<string> = fc.stringOf(
   { minLength: 1, maxLength: 40 }
 );
 
-describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
+describe('Logger correlation-id propagation (Property 10)', () => {
   beforeEach(() => {
     resetAll();
   });
@@ -293,7 +291,6 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
             // Every captured record (one per generated message) must
             // carry a 16-char lowercase hex correlationId — the
             // signature of crypto.randomBytes(8).toString('hex')
-            // (Requirement 5.1).
             const records = getCapturedRecords();
             assert.strictEqual(
               records.length,
@@ -307,7 +304,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
             const firstCid = records[0].correlationId;
             assert.ok(
               firstCid !== undefined,
-              `record emitted inside the handler must carry a correlationId field (Requirement 5.1)`
+              `record emitted inside the handler must carry a correlationId field`
             );
             assert.ok(
               HEX16_RE.test(firstCid),
@@ -317,7 +314,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
               assert.strictEqual(
                 r.correlationId,
                 firstCid,
-                'every record emitted inside one frame must carry the same cid (Requirement 5.4)'
+                'every record emitted inside one frame must carry the same cid'
               );
               assert.strictEqual(
                 r.component,
@@ -354,7 +351,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
           );
 
           // Two independent invocations. Each MUST establish its own
-          // frame with a freshly-generated cid (Requirement 5.1's
+          // frame with a freshly-generated cid ('s
           // "fresh Correlation_Id … per top-level command-handler
           // entry").
           dispatched();
@@ -381,7 +378,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
           assert.notStrictEqual(
             cidA,
             cidB,
-            'two consecutive command invocations must produce two distinct cids (Requirement 5.1)'
+            'two consecutive command invocations must produce two distinct cids'
           );
 
           disposable.dispose();
@@ -404,7 +401,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
           try {
             // Establish no frame at all — every emission below runs on
             // the bare stack. `getCurrentCorrelationId()` MUST return
-            // `undefined` here (Requirement 5.5 / 14.9: no
+            // `undefined` here (14.9: no
             // fabrication).
             assert.strictEqual(
               getCurrentCorrelationId(),
@@ -439,7 +436,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
               assert.notStrictEqual(
                 r.correlationId,
                 '',
-                'the absent-cid case must be undefined, not the empty string (Requirement 14.9)'
+                'the absent-cid case must be undefined, not the empty string'
               );
             }
           } finally {
@@ -469,8 +466,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
           try {
             // The child Logger is constructed inside frame A but
             // captured here so it can be invoked from inside frame B.
-            // The store is read at *emit time* (design.md →
-            // "Inheritance through child loggers"), so the recorded
+            // The store is read at *emit time*, so the recorded
             // cid must be frame B's, not frame A's.
             let capturedChildLogger: ReturnType<typeof getLogger> | undefined;
             let cidObservedDuringFrameA: string | undefined;
@@ -556,21 +552,17 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
   it('Property 10 (sub): getCurrentCorrelationId() reports undefined outside any frame and a 16-char hex inside one', () => {
     // Operational pin for the readability of the store from arbitrary
     // synchronous call sites — the same primitive `safeFireAndForget`
-    // (task 7.1) will close over at call time. This sub-property
-    // covers the spirit of Requirement 5.3 today; the full
+    // will close over at call time. This sub-property
+    // covers the spirit of today; the full
     // safeFireAndForget rejection-log pin lifts in a follow-up once
-    // task 7.1 lands.
+    // lands.
     fc.assert(
       fc.property(commandIdArb, (commandId) => {
         freshActivation();
         const patch = patchRegisterCommand();
         try {
           // Outside any frame the store is empty.
-          assert.strictEqual(
-            getCurrentCorrelationId(),
-            undefined,
-            'no frame on stack ⇒ undefined (Requirement 5.5 / 14.9)'
-          );
+          assert.strictEqual(getCurrentCorrelationId(), undefined, 'no frame on stack ⇒ undefined');
 
           let cidInsideFrame: string | undefined;
           const disposable = registerLoggedCommand(commandId, () => {
@@ -604,7 +596,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
     );
   });
 
-  // Requirement 5.3 — `safeFireAndForget` cid capture. Task 7.1
+  // `safeFireAndForget` cid capture.
   // (safeFireAndForget rerouted through the structured Logger and
   // capturing `getCurrentCorrelationId()` at call time) has landed:
   // see `src/utils/safeFireAndForget.ts:151` (`const cid =
@@ -677,7 +669,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
             assert.match(
               record.correlationId,
               HEX16_RE,
-              `correlationId must be a 16-char hex string (Requirement 5.1); got ${JSON.stringify(record.correlationId)}`
+              `correlationId must be a 16-char hex string; got ${JSON.stringify(record.correlationId)}`
             );
 
             disposable.dispose();
@@ -692,7 +684,7 @@ describe('Logger correlation-id propagation (task 4.10 / Property 10)', () => {
 
     it('omits the cid field when safeFireAndForget is invoked outside any command frame', async () => {
       // Negative pin: at the boundary, no frame on the stack ⇒ the
-      // helper must NOT fabricate a cid (Requirement 5.5 / 14.9). This
+      // helper must NOT fabricate a cid (14.9). This
       // covers the watcher / activation / event-handler call sites
       // that land outside any `registerLoggedCommand` body.
       await fc.assert(

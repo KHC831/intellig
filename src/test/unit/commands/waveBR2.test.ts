@@ -210,7 +210,7 @@ describe('Wave B R2 — final review fixes', () => {
   afterEach(() => restoreMocks());
 
   // ─── SHA-256 regex cap ────────────────────────────────────────────────────
-  describe('R2-1 (Senior M-2) — HASH_RE accepts 64-char SHA-256 hashes', () => {
+  describe('HASH_RE accepts 64-char SHA-256 hashes', () => {
     it('createPatch with a 64-char hex hash invokes git (no silent rejection)', async () => {
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -273,7 +273,7 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── compareVersions inOrder symmetry check ──────────────────────────────
-  describe('R2-2 (Senior M-3) — compareVersions aborts on stale hash with the TL-M-4 toast', () => {
+  describe('compareVersions aborts on stale hash with the TL-M-4 toast', () => {
     it('toasts the stale-selection phrasing and skips git diff when a hash is not in commitNodes', async () => {
       const gitService = createMockGitService(repo);
       const provider = createMockProvider();
@@ -327,7 +327,7 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── IMenuStateNode payload collapse ─────────────────────────────────────
-  describe('R2-4 (TLBR1-L-1) — dispatch payload uses commitNodes (no parallel records)', () => {
+  describe('dispatch payload uses commitNodes (no parallel records)', () => {
     it('GitToolWindowProvider event emitter declares commitNodes (not displayOrder + parentCounts)', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -340,7 +340,7 @@ describe('Wave B R2 — final review fixes', () => {
         /_onDidRequestLogContextAction\s*=\s*new\s+vscode\.EventEmitter<\{[\s\S]{0,3000}commitNodes/.test(
           src
         ),
-        'event payload type must include commitNodes (R2-4 collapse)'
+        'event payload type must include commitNodes (post-collapse)'
       );
       // The earlier parallel records are gone from the event type.
       // (Either name appearing as a property name on the union type
@@ -356,11 +356,11 @@ describe('Wave B R2 — final review fixes', () => {
       const codeOnly = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       assert.ok(
         !/\bdisplayOrder\s*:/.test(codeOnly),
-        'R2-4: parallel `displayOrder` field on the event must be removed'
+        'parallel `displayOrder` field on the event must be removed'
       );
       assert.ok(
         !/\bparentCounts\s*:/.test(codeOnly),
-        'R2-4: parallel `parentCounts` field on the event must be removed'
+        'parallel `parentCounts` field on the event must be removed'
       );
     });
 
@@ -394,7 +394,7 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── getSelectedCommits readonly return type ─────────────────────────────
-  describe('R2-5 (Senior L-2) — getSelectedCommits returns readonly string[]', () => {
+  describe('getSelectedCommits returns readonly string[]', () => {
     it('declared return type matches the sibling helper', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -411,7 +411,7 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── swap-fallback comment updated ───────────────────────────────────────
-  describe('R2-6 (Senior L-1) — swap-fallback comment notes external-caller behaviour', () => {
+  describe('swap-fallback comment notes external-caller behaviour', () => {
     it('comment in CommitContextMenuCommands.ts mentions external callers + commitNodes', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -432,7 +432,7 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── JSDoc cross-reference ────────────────────────────────────────────────
-  describe('R2-7 (Senior L-4) — _handleCreatePatchMulti JSDoc cross-references ADR-009 §6', () => {
+  describe('_handleCreatePatchMulti JSDoc cross-references ADR-009 §6', () => {
     it('JSDoc near the multi handler mentions ADR-009 §6 and getSelectedCommitsOldestFirst', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -453,8 +453,8 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── diagnostic comment on the initial-commit test ──────────────────────
-  describe('R2-8 (Senior L-3) — R1-2 initial-commit test points at R1-4 inversion guard', () => {
-    it('waveBR1.test.ts R1-2 block references R1-4 as the dedicated inversion regression guard', async () => {
+  describe('initial-commit test points at inversion guard', () => {
+    it('waveBR1.test.ts block references as the dedicated inversion regression guard', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
@@ -470,7 +470,7 @@ describe('Wave B R2 — final review fixes', () => {
       const window = src.substring(Math.max(0, idx - 800), idx + 2000);
       assert.ok(
         /end-to-end smoke/.test(window),
-        'R1-2 test block must point at the dedicated end-to-end smoke inversion regression guard'
+        'the initial-commit inversion test block must point at the dedicated end-to-end smoke inversion regression guard'
       );
     });
   });

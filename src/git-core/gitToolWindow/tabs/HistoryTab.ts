@@ -1,5 +1,5 @@
 /**
- * T2-07 — File History tab (Git tool window, T1-05 Phase 1 stub filled in).
+ * File History tab in the Git tool window.
  *
  * The tab renders the commit history for a single file and supports:
  *
@@ -111,7 +111,7 @@ export const NO_FILE_LOADED_MESSAGE = 'Load a file first — use "Git: Show Hist
 
 /**
  * Build the `intellig-git:` URI for a file at a specific revision.
- * Mirrors the pattern used by T2-01 branchShowDiff.
+ * Mirrors the pattern used by branchShowDiff.
  */
 export function buildFileAtRevisionUri(filePath: string, rev: string): vscode.Uri {
   return vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(rev)}`);
@@ -456,14 +456,14 @@ export class HistoryTab {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Factory — keeps the existing import signature from T1-05 Phase 1 usable.
+// Factory
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Backwards-compatible factory. T1-05 Phase 1 wired the Phase-1 stub by
- * calling `createHistoryTabHandler()` with no arguments. That call site
- * continues to compile because both parameters here are optional — but
- * callers who can supply a GitService + hooks get a fully functional tab.
+ * Backwards-compatible factory. Earlier call sites use
+ * `createHistoryTabHandler()` with no arguments; that continues to compile
+ * because both parameters here are optional. Callers who can supply a
+ * GitService + hooks get a fully functional tab.
  */
 export function createHistoryTabHandler(
   gitService?: IGitService,

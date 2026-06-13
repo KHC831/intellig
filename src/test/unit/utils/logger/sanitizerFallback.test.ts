@@ -1,7 +1,7 @@
 /**
  * Unit test for the sanitizer fallback path.
  *
- * Pins Requirement 4.5: when the `Log_Sanitizer` throws while
+ * Pins when the `Log_Sanitizer` throws while
  * processing a `Log_Record`, the Logger SHALL emit a fallback
  * warn-level record with `message='log sanitization failed'` and
  * `component=` the original component, and SHALL drop the offending
@@ -15,7 +15,7 @@
  * a sentinel record at the same `component` / `timestamp` carrying
  * the fixed message `'log sanitization failed'` and no `context` /
  * `error` / `correlationId` payload. The Logger emit path forwards
- * that sentinel record to the sinks unchanged (Requirement 4.5
+ * that sentinel record to the sinks unchanged (the documented
  * fallback behaviour).
  *
  * To trigger the throw without monkey-patching the sanitize module,
@@ -35,7 +35,6 @@
  * starts and ends with a clean Logger and OutputChannel via
  * `__resetLoggerForTest()` and `__resetOutputChannelForTest()`.
  *
- * _Validates: Requirement 4.5_
  */
 
 import '../../../setup';
@@ -109,7 +108,7 @@ function makePoisonedContext(): Record<string, unknown> {
   return { harmless: 'visible-but-dropped', nested: inner };
 }
 
-describe('logger — sanitizer fallback path (task 3.5 / Requirement 4.5)', () => {
+describe('logger — sanitizer fallback path', () => {
   beforeEach(() => {
     __resetLoggerForTest();
     __resetOutputChannelForTest();
@@ -156,7 +155,7 @@ describe('logger — sanitizer fallback path (task 3.5 / Requirement 4.5)', () =
     );
 
     // The fallback must preserve the component bound on the logger
-    // that emitted the record (Requirement 4.5: `component =` the
+    // that emitted the record (`component =` the
     // original component).
     assert.ok(
       block.includes(`${componentName}: `),
@@ -194,7 +193,7 @@ describe('logger — sanitizer fallback path (task 3.5 / Requirement 4.5)', () =
 
     // The original message must NOT appear in the fallback — the
     // sanitizer never produced a clean version of it, so it must be
-    // dropped entirely (Requirement 4.5: "drops the offending
+    // dropped entirely ("drops the offending
     // record's payload").
     assert.ok(
       !block.includes(originalMessage),

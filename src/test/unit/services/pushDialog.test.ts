@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T1-01 Push Dialog.
+ * Unit tests for the Push Dialog.
  *
  * Covers:
  *  - Pure helpers: `buildPushOptions`, `isProtectedTarget`,
@@ -324,7 +324,7 @@ function makeDialog(
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 
-describe('T1-01 PushDialog — pure helpers', () => {
+describe('PushDialog — pure helpers', () => {
   describe('isProtectedTarget', () => {
     it('returns true when target is in the list', () => {
       assert.strictEqual(isProtectedTarget('main', ['main', 'master']), true);
@@ -522,7 +522,7 @@ describe('T1-01 PushDialog — pure helpers', () => {
 
 // ─── runPushRow ──────────────────────────────────────────────────────────────
 
-describe('T1-01 runPushRow', () => {
+describe('runPushRow', () => {
   it('happy path invokes gitService.push with built options and returns ok:true', async () => {
     const gitService = makeGitService();
     const deps: IRunPushRowDeps = { gitService, protectedBranches: [] };
@@ -564,7 +564,7 @@ describe('T1-01 runPushRow', () => {
 
 // ─── PushDialog lifecycle ────────────────────────────────────────────────────
 
-describe('T1-01 PushDialog — lifecycle', () => {
+describe('PushDialog — lifecycle', () => {
   it('builds a row per repo and preselects per `preselect`', async () => {
     const repoA = makeRepo('/repo-a', { name: 'refs/heads/a' });
     const repoB = makeRepo('/repo-b', { name: 'refs/heads/b' });
@@ -764,7 +764,7 @@ describe('T1-01 PushDialog — lifecycle', () => {
 
 // ─── SR-5: incremental patch on updateRow / updateOverflow ───────────────────
 
-describe('T1-01 PushDialog — SR-5 incremental patch (no full re-render)', () => {
+describe('PushDialog — SR-5 incremental patch (no full re-render)', () => {
   it('updateRow sends a patchRow message and does NOT trigger _render', async () => {
     installMessageTrackers();
     const { dialog } = makeDialog({ repos: [makeRepo('/repo-a')] });

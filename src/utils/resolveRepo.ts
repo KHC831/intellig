@@ -1,5 +1,5 @@
 /**
- * T2-03 — Multi-root repository targeting helper.
+ * Multi-root repository targeting helper.
  *
  * Most `intellig.*` command handlers used to reach for
  * `gitService.getRepositories()[0]`, which is fine in a single-root workspace

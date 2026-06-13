@@ -225,7 +225,7 @@ function createHarness(options: HarnessOptionsWithConflict = {}): HarnessState {
 
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 
-describe('T1-02 PullDialog — pure helpers', () => {
+describe('PullDialog — pure helpers', () => {
   describe('resolveFlagMutex', () => {
     const zero: Record<PullFlagKey, boolean> = {
       rebase: false,
@@ -406,7 +406,7 @@ describe('T1-02 PullDialog — pure helpers', () => {
 
 // ─── End-to-end flow ─────────────────────────────────────────────────────────
 
-describe('T1-02 PullDialog — runPullDialog', () => {
+describe('PullDialog — runPullDialog', () => {
   it('--prune is always threaded into gitService.pull options (cleans stale remote-tracking refs)', async () => {
     const h = createHarness({ sourcePick: '$(git-branch) main' });
     const outcome = await runPullDialog(h.deps);
@@ -635,7 +635,7 @@ describe('T1-02 PullDialog — runPullDialog', () => {
 
 // ─── GitService.pull arg order (via a mock gitCli-like stub) ────────────────
 
-describe('T1-02 GitService.pull — flag arg ordering', () => {
+describe('GitService.pull — flag arg ordering', () => {
   it('builds args in the order [strategy] [modifiers] <remote> <branch>', async () => {
     // Use a lightweight GitService-like harness: we directly test the shape
     // of the command args by invoking pull through a minimal stub. We reuse

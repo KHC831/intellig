@@ -8,8 +8,6 @@
  *   - Remote   (all remote branches, preserved as origin/<name>)
  *   - Tags     (all tags)
  *
- * Favorites section (★) is deferred to T3-01 and intentionally omitted here.
- *
  * On selection:
  *   - Local branch  → secondary action menu (Checkout, Merge into Current, Rebase Current onto …, Compare, etc.)
  *   - Remote branch → secondary action menu (Checkout, Pull into Current Using Merge/Rebase, Compare, Cherry-Pick Commits, …)
@@ -40,7 +38,7 @@ export const RECENT_BRANCHES_MAX = 5;
 export const AUTO_INDENT_MIN_GROUP_SIZE = 3;
 
 /**
- * T3-01 — Workspace-state key under which the favorites list is persisted.
+ * Workspace-state key under which the favorites list is persisted.
  *
  * Shape: `string[]` — branch names (local or remote-qualified), insertion
  * order preserved. Deduplicated. Branches that no longer exist in the repo
@@ -51,8 +49,6 @@ export const FAVORITE_BRANCHES_STATE_KEY = 'intellig.favoriteBranches';
 
 /**
  * Section identifier for an item in the main sectioned QuickPick.
- *
- * T3-01 added `favorites` at the top of the list.
  */
 export type BranchPopupSection = 'favorites' | 'recent' | 'local' | 'remote' | 'tags';
 
@@ -131,7 +127,7 @@ export function updateRecentLru(existing: readonly string[], name: string): stri
 }
 
 /**
- * T3-01 — Add or remove a branch name from the favorites list.
+ * Add or remove a branch name from the favorites list.
  *
  * Insertion order is preserved, duplicates are removed. Pure — returns a new
  * array. Exported for unit tests.
@@ -146,7 +142,7 @@ export function updateFavoritesList(
 }
 
 /**
- * T3-01 — Read the favorites list from workspaceState.
+ * Read the favorites list from workspaceState.
  *
  * Returns a defensive copy so callers can't mutate the stored array by
  * reference. Exported for unit tests and for callers outside this module
@@ -217,7 +213,7 @@ export function buildSectionedItems(input: {
   remoteBranches: IBranch[];
   tags: ITag[];
   recentBranchNames: readonly string[];
-  /** T3-01 — favorite branch names, insertion-order preserved. */
+  /** Favorite branch names, insertion-order preserved. */
   favoriteBranchNames?: readonly string[];
   currentBranchName?: string;
 }): IBranchQuickPickItem[] {
@@ -242,7 +238,7 @@ export function buildSectionedItems(input: {
   // Set of favorite names for quick lookup when emitting star buttons.
   const favoriteSet = new Set(favoriteBranchNames ?? []);
 
-  // ── Favorites (T3-01) ─────────────────────────────────────────────────
+  // ── Favorites ─────────────────────────────────────────────────────────
   //
   // Rendered above Recent so the user's pinned branches are always at the
   // top of the picker. We filter to branches that currently exist (favorites
@@ -808,7 +804,7 @@ export class BranchPopup {
     quickPick.matchOnDescription = true;
     quickPick.matchOnDetail = true;
 
-    // T3-01 — render with the current favorites; `refreshItems` re-invokes
+    // Render with the current favorites; `refreshItems` re-invokes
     // `buildSectionedItems` so star toggles update the UI in-place without
     // dismissing the picker.
     const refreshItems = (): void => {
@@ -852,9 +848,9 @@ export class BranchPopup {
         }
       });
 
-      // T3-01 — star button → toggle favorite for the item's branch and
-      // re-render in-place so the user can star multiple branches without
-      // dismissing the picker.
+      // Star button → toggle favorite for the item's branch and re-render
+      // in-place so the user can star multiple branches without dismissing
+      // the picker.
       quickPick.onDidTriggerItemButton(async ({ item }) => {
         const branch = item.branch;
         if (!branch) {
@@ -876,7 +872,7 @@ export class BranchPopup {
   }
 
   /**
-   * T3-01 — Toggle a branch's favorite status, persisted in workspaceState.
+   * Toggle a branch's favorite status, persisted in workspaceState.
    *
    * Public so extension-level commands / tests can flip favorites without
    * going through the QuickPick UI.
@@ -891,9 +887,8 @@ export class BranchPopup {
   }
 
   /**
-   * T3-01 — Read the current favorites list. Thin wrapper around
-   * {@link getFavorites} so callers with only a `BranchPopup` handle can
-   * inspect the state.
+   * Read the current favorites list. Thin wrapper around {@link getFavorites}
+   * so callers with only a `BranchPopup` handle can inspect the state.
    */
   public getFavorites(): string[] {
     return getFavorites(this._workspaceState);

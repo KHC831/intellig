@@ -170,7 +170,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── reason narrowed to !enabled && visible ────────────────
-  describe('R4-2 (MEDIUM) — reason populated only when !enabled && visible (Senior M-2)', () => {
+  describe('reason populated only when !enabled && visible', () => {
     function nodes(): { hash: string; parentCount: number }[] {
       return [
         { hash: 'aaa', parentCount: 1 },
@@ -227,7 +227,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── getSelectedCommits chronological warning ──────────────
-  describe('R4-3 (MEDIUM) — getSelectedCommits JSDoc carries chronological-direction WARNING', () => {
+  describe('getSelectedCommits JSDoc carries chronological-direction WARNING', () => {
     it('source contains a WARNING block on getSelectedCommits about reverse-chronological replay', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -255,7 +255,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── IMenuItemState JSDoc updated ─────────────────────────────
-  describe('R4-4 (LOW) — IMenuItemState JSDoc reflects R4 reality (TL3-L-2)', () => {
+  describe('IMenuItemState JSDoc reflects R4 reality', () => {
     it('multiSelect.ts JSDoc says reason is populated when visible && !enabled', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -287,13 +287,13 @@ describe('Wave A R4 — review fixes', () => {
       const window = src.substring(Math.max(0, idx - 1200), idx + 400);
       assert.ok(
         /title=/.test(window) || /tooltip/i.test(window),
-        'JSDoc must mention the title= tooltip surface that R4-1 added'
+        'JSDoc must mention the title= tooltip surface'
       );
     });
   });
 
   // ─── _postSyncSelection call-site coverage ──────────────────────
-  describe('R4-5 (LOW) — _postSyncSelection is called from every selection-mutating setter', () => {
+  describe('_postSyncSelection is called from every selection-mutating setter', () => {
     it('each selection-mutating setter calls _postSyncSelection', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -321,7 +321,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── recordingWebview fixture comment ─────────────────────────
-  describe('R4-6 (LOW) — recordingWebview fixture carries call-site-vs-delivery clarification', () => {
+  describe('recordingWebview fixture carries call-site-vs-delivery clarification', () => {
     it('multiSelectR3.test.ts has a NOTE block on recordingWebview', async () => {
       const fs = await import('fs');
       const path = await import('path');
@@ -344,7 +344,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── _onDidChangeState.fire() ordering aligned ────────────────
-  describe('R4-7 (LOW) — _onDidChangeState.fire() fires BEFORE the post sequence in all 5 setters (Senior L-2)', () => {
+  describe('_onDidChangeState.fire() fires BEFORE the post sequence in all 5 setters', () => {
     function indexOfPostSequenceFire(source: string): number {
       // Helper used to locate "fire BEFORE post" callers — N/A here, kept
       // for future docstring matching.
@@ -523,8 +523,8 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── property-test fixture coupling comment ───────────────────
-  describe('R4-8 (LOW) — property-test fixture comment about commitNodes seeding', () => {
-    it('graphPanel.property.test.ts Property 8 carries a comment about R3-9 fixture coupling', async () => {
+  describe('property-test fixture comment about commitNodes seeding', () => {
+    it('graphPanel.property.test.ts Property 8 carries a comment about fixture coupling', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
@@ -546,7 +546,7 @@ describe('Wave A R4 — review fixes', () => {
   });
 
   // ─── TODO(post-locale) on reason ───────────────────────────────
-  describe('R4-9 (FU) — TODO(post-locale) marker near reason field', () => {
+  describe('TODO(post-locale) marker near reason field', () => {
     it('multiSelect.ts contains TODO(post-locale) within 600 chars of the reason field', async () => {
       const fs = await import('fs');
       const path = await import('path');

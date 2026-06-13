@@ -199,7 +199,7 @@ function makeDialog(overrides: Partial<IMergeDialogOptions> = {}): {
 
 // ─── resolveMergeMutex ───────────────────────────────────────────────────────
 
-describe('T3-02 resolveMergeMutex', () => {
+describe('resolveMergeMutex', () => {
   const zero: IMergeFlagState = { ffOnly: false, noFf: false, squash: false, noCommit: false };
 
   it('passes through when no strategy flag is set', () => {
@@ -246,7 +246,7 @@ describe('T3-02 resolveMergeMutex', () => {
 
 // ─── GitService.mergeBranch arg construction ─────────────────────────────────
 
-describe('T3-02 GitService.mergeBranch — arg order', () => {
+describe('GitService.mergeBranch — arg order', () => {
   function installGitService(): { gitService: GitService; executed: string[][] } {
     const gitService = new GitService();
     const executed: string[][] = [];
@@ -342,7 +342,7 @@ describe('T3-02 GitService.mergeBranch — arg order', () => {
 
 // ─── Dialog lifecycle ────────────────────────────────────────────────────────
 
-describe('T3-02 MergeDialog — lifecycle', () => {
+describe('MergeDialog — lifecycle', () => {
   it('cancel disposes without invoking git', async () => {
     installMessageTrackers();
     const h = makeDialog();

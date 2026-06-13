@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T1-05 tab router.
+ * Unit tests for the tab router.
  *
  * These tests exercise dispatch, per-tab handler registration, active-tab
  * state, the `tabChange` meta-message, and context-key publication. They do

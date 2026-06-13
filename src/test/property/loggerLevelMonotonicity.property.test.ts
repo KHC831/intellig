@@ -3,14 +3,13 @@
  *
  * **Property 5: Level admission monotonicity**
  *
- * From requirements.md → Requirement 14.8:
+ * The rule:
  *
  * > WHEN `intellig.log.level` transitions from level L1 to a stricter
  * > level L2 (>), THE Logger SHALL admit a strict subset of the
  * > records it admitted at L1; THE Logger SHALL NOT admit a record at
  * > level L < L2 after the transition.
  *
- * Validates: Requirements 2.2, 2.4, 14.8.
  *
  * ### Approach
  *
@@ -19,7 +18,7 @@
  * (`LogLevelResolver` in `src/utils/logger/levels.ts`) — it is the
  * single component the Logger consults on the hot path (Requirement
  * 7.1, 7.3) and the single component re-read on every
- * `vscode.workspace.onDidChangeConfiguration` event (Requirement 2.3).
+ * `vscode.workspace.onDidChangeConfiguration` event.
  *
  * The test drives transitions by writing
  * `setMockConfigValue('intellig', 'log.level', T)` and calling
@@ -36,7 +35,7 @@
  *   3. **Single-direction stability**: re-applying L1 returns the
  *      original admit set (no resolver-internal hysteresis).
  *
- * The `'off'` threshold deserves its own pin (Requirement 2.4): it
+ * The `'off'` threshold deserves its own pin: it
  * always admits the empty set, satisfying both clauses for any L1.
  *
  * ### Generators
@@ -81,7 +80,7 @@ const RECORD_LEVELS: readonly LogLevel[] = ['trace', 'debug', 'info', 'warn', 'e
 
 /**
  * The six valid `LogThreshold` strings, matching the
- * `package.json` `intellig.log.level` enum and Requirement 2.1.
+ * `package.json` `intellig.log.level` enum.
  */
 const ALL_THRESHOLDS: readonly LogThreshold[] = ['trace', 'debug', 'info', 'warn', 'error', 'off'];
 
@@ -127,7 +126,7 @@ function applyThreshold(resolver: LogLevelResolver, threshold: LogThreshold): vo
   resolver.refresh();
 }
 
-describe('Logger level admission monotonicity (Property 5 / Task 4.5)', () => {
+describe('Logger level admission monotonicity (Property 5)', () => {
   beforeEach(() => {
     resetMockConfiguration();
   });
@@ -137,7 +136,7 @@ describe('Logger level admission monotonicity (Property 5 / Task 4.5)', () => {
     __resetLoggerForTest();
   });
 
-  describe('Strict subset under transition to a stricter threshold (Requirement 14.8)', () => {
+  describe('Strict subset under transition to a stricter threshold', () => {
     it('Property: admit(L2) is a strict subset of admit(L1) when L2 > L1', () => {
       fc.assert(
         fc.property(stricterPairArb, ([l1, l2]) => {
@@ -226,7 +225,7 @@ describe('Logger level admission monotonicity (Property 5 / Task 4.5)', () => {
     });
   });
 
-  describe("Threshold 'off' admits no records (Requirement 2.4)", () => {
+  describe("Threshold 'off' admits no records", () => {
     it("Property: for every record level L, admit at threshold 'off' is false", () => {
       fc.assert(
         fc.property(fc.constantFrom(...RECORD_LEVELS), (level) => {
@@ -263,7 +262,7 @@ describe('Logger level admission monotonicity (Property 5 / Task 4.5)', () => {
     });
   });
 
-  describe('Direct admits semantics (Requirement 2.2)', () => {
+  describe('Direct admits semantics', () => {
     it('Property: a record at level L is admitted iff LEVEL_RANK[L] >= LEVEL_RANK[threshold] AND threshold !== off', () => {
       fc.assert(
         fc.property(thresholdArb, fc.constantFrom(...RECORD_LEVELS), (threshold, level) => {

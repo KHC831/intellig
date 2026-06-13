@@ -3,14 +3,13 @@
  *
  * **Property 6: Invalid threshold fallback**
  *
- * From requirements.md → Requirement 2.5:
+ * The rule:
  *
  * > IF `intellig.log.level` is read and the value is not one of the
  * > six literal strings in 2.1, THEN THE Logger SHALL fall back to
  * > `"info"` and emit one warn-level Log_Record naming the invalid
  * > value (sanitized).
  *
- * **Validates: Requirement 2.5**
  *
  * ### Approach
  *
@@ -67,7 +66,7 @@ import { resetMockConfiguration, setMockConfigValue } from '../mocks/vscode';
 
 /**
  * The six valid `LogThreshold` strings, matching the
- * `package.json` `intellig.log.level` enum and Requirement 2.1.
+ * `package.json` `intellig.log.level` enum.
  * Any string outside this set is "invalid" for the purposes of §2.5.
  */
 const VALID_THRESHOLDS: ReadonlySet<string> = new Set<LogThreshold>([
@@ -114,7 +113,7 @@ function writeLevel(value: string): void {
   setMockConfigValue('intellig', 'log.level', value);
 }
 
-describe('Logger invalid-threshold fallback (Property 6 / Task 4.6)', () => {
+describe('Logger invalid-threshold fallback (Property 6)', () => {
   beforeEach(() => {
     resetMockConfiguration();
   });
@@ -124,7 +123,7 @@ describe('Logger invalid-threshold fallback (Property 6 / Task 4.6)', () => {
     __resetLoggerForTest();
   });
 
-  describe("Threshold falls back to 'info' for any invalid value (Requirement 2.5)", () => {
+  describe("Threshold falls back to 'info' for any invalid value", () => {
     it("Property: any invalid string sets the cached threshold to 'info'", () => {
       fc.assert(
         fc.property(invalidLevelArb, (invalid) => {
@@ -164,7 +163,7 @@ describe('Logger invalid-threshold fallback (Property 6 / Task 4.6)', () => {
     });
   });
 
-  describe('Warn-once semantic via refresh() return value (Requirement 2.5)', () => {
+  describe('Warn-once semantic via refresh() return value', () => {
     it('Property: refresh() returns the offending value the FIRST time it is observed', () => {
       fc.assert(
         fc.property(invalidLevelArb, (invalid) => {
@@ -221,7 +220,7 @@ describe('Logger invalid-threshold fallback (Property 6 / Task 4.6)', () => {
     });
   });
 
-  describe('Distinct invalid values produce fresh signals (Requirement 2.5)', () => {
+  describe('Distinct invalid values produce fresh signals', () => {
     it('Property: a DIFFERENT invalid value produces a fresh report', () => {
       fc.assert(
         fc.property(distinctInvalidPairArb, ([s1, s2]) => {
@@ -286,7 +285,7 @@ describe('Logger invalid-threshold fallback (Property 6 / Task 4.6)', () => {
     });
   });
 
-  describe('Recovery: transitioning to a valid threshold (Requirement 2.5)', () => {
+  describe('Recovery: transitioning to a valid threshold', () => {
     it('Property: writing a valid threshold after an invalid one updates the threshold and reports no further invalidity', () => {
       const validThresholdArb: fc.Arbitrary<LogThreshold> = fc.constantFrom(
         'trace',

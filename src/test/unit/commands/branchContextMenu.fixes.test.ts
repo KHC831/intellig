@@ -228,7 +228,7 @@ function createRemoteBranchTreeItem(fullRef: string): BranchTreeItem {
 
 // ─── Tests: _handleCheckoutAndRebase ─────────────────────────────────────────
 
-describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
+describe('BranchContextMenuCommands — checkoutAndRebase', () => {
   it('happy path: checkout then rebaseBranch with previous branch as onto', async () => {
     const gitService = createMockGitService({ success: true });
     const repo = createMockRepo('main');
@@ -305,7 +305,7 @@ describe('T2-02 BranchContextMenuCommands — checkoutAndRebase', () => {
 
 // ─── Tests: pullUsingRebase / pullUsingMerge ─────────────────────────────────
 
-describe('T2-02 BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () => {
+describe('BranchContextMenuCommands — pullUsingRebase / pullUsingMerge', () => {
   it('pullUsingRebase: skips PullDialog and routes to direct pull with rebase=true', async () => {
     // Bug G.1: the right-click entry already chose the strategy, so the
     // handler must NOT open the PullDialog. A wired dialog accessor's
@@ -914,7 +914,7 @@ describe('Wave-3-R2 BranchContextMenuCommands — probe failure preserves pull e
       );
 
       // Probe error captured via the structured Logger for debugging
-      // (formerly via `console.error`; task 9.10 routed the call through
+      // (formerly via `console.error`; routed the call through
       // the BranchContextMenuCommands child logger). Walk the rendered
       // OutputChannel lines for the probe-error message.
       const records = channel._lines.map((line) => parseRecord(line)).filter((r) => r !== null);

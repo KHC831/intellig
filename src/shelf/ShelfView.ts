@@ -48,12 +48,12 @@ interface IFileQuickPickItem extends vscode.QuickPickItem {
  * Provides shelf management functionality including list display, context menu actions,
  * and shelve dialog.
  *
- * - 8.1: Save selected changes to IDE-managed shelf storage
- * - 8.2: Allow selecting specific files, changelists, or hunks to shelve
- * - 8.3: Display all shelved changesets with names and timestamps
- * - 8.4: Restore shelved changes to working directory
- * - 8.5: Offer options to remove from shelf or keep a copy
- * - 8.6: Display shelved content as diff
+ * - Save selected changes to IDE-managed shelf storage
+ * - Allow selecting specific files, changelists, or hunks to shelve
+ * - Display all shelved changesets with names and timestamps
+ * - Restore shelved changes to working directory
+ * - Offer options to remove from shelf or keep a copy
+ * - Display shelved content as diff
  */
 export class ShelfView implements IShelfView {
   private _shelfService: IShelfService;
@@ -63,10 +63,9 @@ export class ShelfView implements IShelfView {
   private _getStatus: ((repo: IRepository) => Promise<IFileStatus[]>) | undefined;
   private _conflictResolutionService: IConflictResolutionService | undefined;
   /**
-   * T2-10: filter toggle. When `false` (default), entries with
-   * `unshelvedAt != undefined` are elided from the list. When `true`,
-   * they appear with an "(already unshelved)" description and expose the
-   * Restore action.
+   * Filter toggle. When `false` (default), entries with `unshelvedAt !=
+   * undefined` are elided from the list. When `true`, they appear with an
+   * "(already unshelved)" description and expose the Restore action.
    */
   private _showAlreadyUnshelved: boolean = false;
 
@@ -123,9 +122,9 @@ export class ShelfView implements IShelfView {
   /**
    * Update state from shelf items.
    *
-   * T2-10: filters out Already-Unshelved entries when the toggle is off.
-   * The underlying storage still holds those entries — the filter is
-   * purely a view-level concern.
+   * Filters out Already-Unshelved entries when the toggle is off. The
+   * underlying storage still holds those entries — the filter is purely a
+   * view-level concern.
    */
   private _updateStateFromItems(items: IShelfItem[]): void {
     const filtered = this._showAlreadyUnshelved
@@ -387,8 +386,8 @@ export class ShelfView implements IShelfView {
       if (result.success) {
         void vscode.window.showInformationMessage(`Unshelved: "${shelfItem.name}"`);
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // T1-08(a): auto-open Resolve Conflicts dialog. Falls back to toast
-        // when conflictResolutionService isn't wired.
+        // Auto-open the Resolve Conflicts dialog. Falls back to toast when
+        // conflictResolutionService isn't wired.
         if (this._conflictResolutionService) {
           await this._conflictResolutionService.openResolveConflictsDialog(
             this._repository,
@@ -633,8 +632,8 @@ export class ShelfView implements IShelfView {
       return { success: false, error: `Shelf item not found: ${id}` };
     }
 
-    // T2-10: build the action list reactively. Restore is only meaningful
-    // for Already-Unshelved entries; everything else is always available.
+    // Build the action list reactively. Restore is only meaningful for
+    // Already-Unshelved entries; everything else is always available.
     const isAlreadyUnshelved = shelfItem.unshelvedAt !== undefined;
     const actionItems: IShelfQuickPickItem[] = [];
 
@@ -731,13 +730,13 @@ export class ShelfView implements IShelfView {
   }
 
   // ===========================================================================
-  // T2-10 public additions. Each delegates to ShelfService and fires the
-  // existing onDidRequestAction event so downstream listeners can react.
+  // Public additions. Each delegates to ShelfService and fires the existing
+  // onDidRequestAction event so downstream listeners can react.
   // ===========================================================================
 
   /**
    * Unshelve the entry silently — no options dialog, default drop-after.
-   * Still routes conflicts through the Resolve Conflicts dialog (T1-08).
+   * Still routes conflicts through the Resolve Conflicts dialog.
    */
   async unshelveSilent(id: string): Promise<IShelfActionResult> {
     const removeAppliedFiles = vscode.workspace
@@ -1030,11 +1029,11 @@ export class ShelfView implements IShelfView {
         // Create new shelf item
         await this.showShelveDialog(this._repository!);
       } else if (selected.isAction && selected.label.includes('Import Patches')) {
-        // T2-10: Import `.patch`/`.diff` files as shelf entries.
+        // Import `.patch`/`.diff` files as shelf entries.
         await this.importPatches();
         await this._showShelfList();
       } else if (selected.isAction && selected.label.includes('Already Unshelved')) {
-        // T2-10: toggle Already-Unshelved filter and re-show.
+        // Toggle Already-Unshelved filter and re-show.
         this.setShowAlreadyUnshelved(!this._showAlreadyUnshelved);
         await this._showShelfList();
       } else if (selected.shelfItem) {
@@ -1063,7 +1062,7 @@ export class ShelfView implements IShelfView {
       isAction: true,
     });
 
-    // T2-10: root-level Import Patches and filter toggle.
+    // Root-level Import Patches and filter toggle.
     items.push({
       label: '$(cloud-download) Import Patches…',
       description: 'Import .patch / .diff files as new shelf entries',

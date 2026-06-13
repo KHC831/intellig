@@ -1,15 +1,15 @@
 /**
- * Unit tests for T1-07 Log commit right-click menu parity.
+ * Unit tests for Log commit right-click menu parity.
  *
  * Verifies:
  *  - Every command referenced by `view/item/context` with
  *    `viewItem == intellig.logCommit` is also declared as a
  *    `contributes.commands` entry with a user-visible title.
- *  - All T1-07 titles use the unicode ellipsis (U+2026), never
+ *  - All log-commit menu titles use the unicode ellipsis (U+2026), never
  *    three ASCII dots.
  *  - The menu ordering matches the Cluster B design (group labels
  *    `1_copy@1`, `2_create@1`, ... , `9_patch@1`).
- *  - The T1-07 `validateBranchName` helper accepts reasonable
+ *  - The `validateBranchName` helper accepts reasonable
  *    names and rejects empty / invalid-char inputs.
  *
  * No extension activation required — these are pure package.json
@@ -49,7 +49,7 @@ function loadPackageJson(): IPackageJson {
   return JSON.parse(raw) as IPackageJson;
 }
 
-describe('T1-07 Log commit menu parity', () => {
+describe('Log commit menu parity', () => {
   let pkg: IPackageJson;
   let commandsById: Map<string, IPackageJsonCommand>;
   let logCommitMenu: IPackageJsonMenuEntry[];
@@ -91,7 +91,7 @@ describe('T1-07 Log commit menu parity', () => {
       });
     }
 
-    it('category is "IntelliG" for every T1-07 command', () => {
+    it('category is "IntelliG" for every log-commit command', () => {
       for (const { id } of expected) {
         const cmd = commandsById.get(id);
         assert.strictEqual(cmd!.category, 'IntelliG', `${id} must be in IntelliG category`);
@@ -116,7 +116,7 @@ describe('T1-07 Log commit menu parity', () => {
       });
     }
 
-    it('no T1-07 command title contains three ASCII dots', () => {
+    it('no log-commit command title contains three ASCII dots', () => {
       const t107Ids = new Set([
         'intellig.commit.copyHash',
         'intellig.commit.newBranch',
@@ -146,7 +146,7 @@ describe('T1-07 Log commit menu parity', () => {
   });
 
   describe('view/item/context menu wiring', () => {
-    it('every T1-07 log-commit menu entry references a registered command', () => {
+    it('every log-commit menu entry references a registered command', () => {
       for (const entry of logCommitMenu) {
         assert.ok(entry.command, 'entry must have a command');
         assert.ok(
@@ -156,10 +156,10 @@ describe('T1-07 Log commit menu parity', () => {
       }
     });
 
-    it('menu contains all 19 log-commit entries (T1-07 + T2-05 + T2-04 + T3-09)', () => {
-      // T1-07 shipped 14 entries. T2-05 added 3 (cherryPickWithoutCommit,
-      // applySelectedChanges, applyFilesToBranch). T2-04 added 1
-      // (dropSelectedChanges). T3-09 added 1 (openOnHost at 10_external@1).
+    it('menu contains all 19 log-commit entries', () => {
+      // The initial set shipped 14 entries. 3 were added (cherryPickWithoutCommit,
+      // applySelectedChanges, applyFilesToBranch), then 1
+      // (dropSelectedChanges), then 1 (openOnHost at 10_external@1).
       // Groups: 1_copy (1) + 2_create (2) + 3_checkout (1) + 4_reset (1)
       // + 5_modify (6) + 6_view (3) + 7_files (2) + 8_rebase (1) + 9_patch (1)
       // + 10_external (1) = 19
@@ -174,7 +174,7 @@ describe('T1-07 Log commit menu parity', () => {
       { command: 'intellig.commit.resetToHere', group: '4_reset@1' },
       { command: 'intellig.commit.revert', group: '5_modify@1' },
       { command: 'intellig.commit.cherryPick', group: '5_modify@2' },
-      // T2-05 additions:
+      // Later additions:
       { command: 'intellig.commit.cherryPickWithoutCommit', group: '5_modify@3' },
       { command: 'intellig.commit.applySelectedChanges', group: '5_modify@4' },
       { command: 'intellig.commit.applyFilesToBranch', group: '5_modify@5' },
@@ -186,7 +186,7 @@ describe('T1-07 Log commit menu parity', () => {
       { command: 'intellig.commit.fileHistoryFromHere', group: '7_files@2' },
       { command: 'intellig.rebase.interactiveFromHere', group: '8_rebase@1' },
       { command: 'intellig.commit.createPatch', group: '9_patch@1' },
-      // T3-09 addition:
+      // Final addition:
       { command: 'intellig.commit.openOnHost', group: '10_external@1' },
     ];
 
@@ -206,13 +206,13 @@ describe('T1-07 Log commit menu parity', () => {
           const m = g.match(/^(\d+)_/);
           return m ? Number(m[1]) : -1;
         });
-      // Every entry should have a numbered prefix. T3-09 extended the
+      // Every entry should have a numbered prefix. A later change extended the
       // range to 10 (10_external@1 for Open on Host).
       for (const n of groupPrefixes) {
         assert.ok(n >= 1 && n <= 10, 'group prefix in range 1..10');
       }
       // Groups themselves should appear in order (order in package.json
-      // mirrors the design doc §T1-07).
+      // mirrors the design doc).
       for (let i = 1; i < groupPrefixes.length; i++) {
         assert.ok(
           groupPrefixes[i] >= groupPrefixes[i - 1],

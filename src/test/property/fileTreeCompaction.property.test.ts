@@ -19,7 +19,6 @@ import { FileStatus } from '../../git-core/interfaces/IGitService';
  * has exactly one child that is itself a `DirectoryNode` — every such chain
  * has been merged into one node whose label is the `/`-joined segments.
  *
- * Validates: Requirements 2.14
  */
 describe('File Tree Compaction Property Tests', () => {
   /**

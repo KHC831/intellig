@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T2-03 `resolveRepo` / `selectRepo` helper.
+ * Unit tests for the `resolveRepo` / `selectRepo` helper.
  *
  * `selectRepo` is the pure, dependency-injected core — these tests exercise
  * it directly with hand-rolled deps so we can simulate every branch of the

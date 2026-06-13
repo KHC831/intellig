@@ -1,5 +1,5 @@
 /**
- * Unit tests for the `safeFireAndForget` Logger routing (task 7.1).
+ * Unit tests for the `safeFireAndForget` Logger routing.
  *
  * Pins the post-consolidation contract:
  *
@@ -74,7 +74,7 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
-describe('safeFireAndForget — Logger routing (task 7.1)', () => {
+describe('safeFireAndForget — Logger routing', () => {
   beforeEach(() => {
     // Drop the Logger first (which detaches sinks) before resetting
     // the channel so a stray emission cannot race a half-disposed
@@ -203,7 +203,7 @@ describe('safeFireAndForget — Logger routing (task 7.1)', () => {
     assert.strictEqual(
       record.correlationId,
       undefined,
-      'correlationId must be omitted when no frame is on the stack (Requirement 5.5)'
+      'correlationId must be omitted when no frame is on the stack'
     );
   });
 

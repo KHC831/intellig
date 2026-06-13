@@ -67,10 +67,10 @@ interface IStagedFile {
 /**
  * Options for {@link performCommit}.
  *
- * T1-04 extracted the commit-execution body of {@link CommitDialog._handleCommit}
- * into a standalone helper so the new {@link CommitToolWindow} (WebviewView-based
- * Commit surface) can call the exact same code path. Behavior must be identical
- * — only the UI wrapper differs.
+ * Extracted from {@link CommitDialog._handleCommit} into a standalone helper
+ * so {@link CommitToolWindow} (WebviewView-based Commit surface) can call
+ * the exact same code path. Behavior must be identical — only the UI wrapper
+ * differs.
  */
 export interface IPerformCommitOptions {
   /** Non-empty commit message. Caller must validate before invoking. */
@@ -86,12 +86,12 @@ export interface IPerformCommitOptions {
   /**
    * Optional author override in `Name <email>` format. Invalid values
    * cause {@link performCommit} to return `{ success: false, error: … }`
-   * without running any git commands. T2-06.
+   * without running any git commands.
    */
   author?: string;
   /**
    * Skip git commit hooks (`--no-verify`). Mirrors the gear-menu toggle
-   * in the Commit dialog. T2-06.
+   * in the Commit dialog.
    */
   noVerify?: boolean;
 }
@@ -133,8 +133,7 @@ export async function performCommit(
     return { success: false, error: 'No files selected for commit' };
   }
 
-  // T2-06: validate author override (if supplied) before touching the
-  // working tree.
+  // Validate author override (if supplied) before touching the working tree.
   const authorTrimmed = options.author?.trim() ?? '';
   if (authorTrimmed.length > 0 && !isValidAuthorFormat(authorTrimmed)) {
     return {
@@ -180,7 +179,7 @@ export async function performCommit(
 }
 
 /**
- * Author-format regex used by the T2-06 author-override field.
+ * Author-format regex used by the author-override field.
  *
  * Requires `Name <email@domain>` where the name has no angle brackets,
  * the email has no whitespace / angle brackets and contains `@`. Loose
@@ -218,9 +217,9 @@ interface IWebviewMessage {
   hunkIndex?: number;
   lineNumber?: number;
   lines?: number[];
-  /** T2-06: author override payload from the `authorChange` message. */
+  /** Author override payload from the `authorChange` message. */
   author?: string;
-  /** T2-06: gear-menu `--no-verify` toggle payload. */
+  /** Gear-menu `--no-verify` toggle payload. */
   noVerify?: boolean;
 }
 
@@ -228,12 +227,12 @@ interface IWebviewMessage {
  * Commit Dialog class.
  * Provides a webview panel for composing and submitting commits.
  *
- * - 3.1: Display commit message input area and list of staged changes
- * - 3.2: Display diff preview when file is selected
- * - 3.3: Amend option populates previous commit message
- * - 3.4: Sign-off option appends Signed-off-by line
- * - 3.5: Prevent commit with empty message
- * - 17.3: IntelliJ-style commit dialog layout
+ * - Display commit message input area and list of staged changes
+ * - Display diff preview when file is selected
+ * - Amend option populates previous commit message
+ * - Sign-off option appends Signed-off-by line
+ * - Prevent commit with empty message
+ * - IntelliJ-style commit dialog layout
  */
 export class CommitDialog {
   private _panel: vscode.WebviewPanel | undefined;
@@ -253,7 +252,7 @@ export class CommitDialog {
   /** Whether partial staging mode is active */
   private _partialStagingMode: boolean = false;
 
-  // T2-06 state ────────────────────────────────────────────────────────────
+  // Author/gear-toggle state ──────────────────────────────────────────────
   /** Optional workspaceState for persisting recent-messages LRU & gear toggles. */
   private readonly _workspaceState: vscode.Memento | undefined;
   /** Custom author override ("Name <email>" or empty). */
@@ -289,9 +288,9 @@ export class CommitDialog {
     this._amendMode = options?.amend ?? false;
     this._commitMessage = options?.initialMessage ?? '';
 
-    // T2-06: seed author field from `intellig.commitAuthor` config unless
-    // the caller already supplied one. Invalid configured values still
-    // populate the input so the user sees and can fix them.
+    // Seed the author field from `intellig.commitAuthor` config unless the
+    // caller already supplied one. Invalid configured values still populate
+    // the input so the user sees and can fix them.
     if (!this._author) {
       const cfg = vscode.workspace.getConfiguration('intellig');
       const configured = cfg.get<string>(COMMIT_AUTHOR_CONFIG_KEY, '');
@@ -520,7 +519,7 @@ export class CommitDialog {
         }
         break;
 
-      // ─── T2-06 ──────────────────────────────────────────────────────────
+      // ─── Author + gear-menu ─────────────────────────────────────────────
       case 'authorChange':
         this._handleAuthorChange(message.author ?? '');
         break;
@@ -537,8 +536,8 @@ export class CommitDialog {
   }
 
   /**
-   * T2-06: update the in-memory author field and refresh the webview so
-   * validation errors surface below the input.
+   * Update the in-memory author field and refresh the webview so validation
+   * errors surface below the input.
    */
   private _handleAuthorChange(value: string): void {
     this._author = value;
@@ -549,7 +548,7 @@ export class CommitDialog {
   }
 
   /**
-   * T2-06: persist the `--no-verify` gear toggle across dialog sessions.
+   * Persist the `--no-verify` gear toggle across dialog sessions.
    */
   private async _handleToggleNoVerify(value: boolean): Promise<void> {
     this._noVerify = value;
@@ -559,8 +558,8 @@ export class CommitDialog {
   }
 
   /**
-   * T2-06: populate a QuickPick from the recent-messages LRU and, if the
-   * user selects one, pre-fill the commit-message textarea.
+   * Populate a QuickPick from the recent-messages LRU and, if the user
+   * selects one, pre-fill the commit-message textarea.
    *
    * The LRU is shared with {@link CommitToolWindow} via the
    * {@link RECENT_MESSAGES_STATE_KEY} workspaceState key, so picking a
@@ -599,10 +598,9 @@ export class CommitDialog {
   }
 
   /**
-   * T2-06: gear menu. Two entries ship in this step — one disabled stub
-   * ("Run before-commit checks") and one functional toggle (`--no-verify`).
-   * Additional entries (Reformat, Optimize Imports, etc.) land in the
-   * T2-06 follow-up.
+   * Gear menu. Currently two entries — one disabled stub ("Run before-commit
+   * checks") and one functional toggle (`--no-verify`). Additional entries
+   * (Reformat, Optimize Imports, etc.) are planned as follow-ups.
    */
   private async _handleOpenGearMenu(): Promise<void> {
     const items = buildGearMenuItems(this._noVerify);
@@ -617,9 +615,7 @@ export class CommitDialog {
       await this._handleToggleNoVerify(!this._noVerify);
       this._updateWebview();
     } else if (picked.id === 'beforeCommit') {
-      void vscode.window.showInformationMessage(
-        'Before-commit checks are coming in a later T2-06 step.'
-      );
+      void vscode.window.showInformationMessage('Before-commit checks are coming in a later step.');
     }
   }
 
@@ -658,8 +654,8 @@ export class CommitDialog {
     const commitMessage = message.message ?? this._commitMessage;
     const selectedFiles = this._stagedFiles.filter((f) => f.selected).map((f) => f.path);
 
-    // T2-06: validate author format before we do any git work so the
-    // dialog surfaces the error without staging/unstaging first.
+    // Validate author format before we do any git work so the dialog
+    // surfaces the error without staging/unstaging first.
     if (this._author.trim().length > 0 && !isValidAuthorFormat(this._author)) {
       this._authorError = 'Expected "Name <email@example.com>".';
       this._updateWebview();
@@ -669,9 +665,8 @@ export class CommitDialog {
       return;
     }
 
-    // T1-04 — delegate to the shared helper so CommitDialog and
-    // CommitToolWindow go through identical code paths. T2-06 adds
-    // `author` + `noVerify` pass-through.
+    // Delegate to the shared helper so CommitDialog and CommitToolWindow go
+    // through identical code paths, with `author` + `noVerify` passed through.
     const result = await performCommit(this._gitService, this._repository, {
       message: commitMessage,
       selectedFiles,
@@ -689,7 +684,7 @@ export class CommitDialog {
       return;
     }
 
-    // T2-06: push the committed message onto the recent-messages LRU.
+    // Push the committed message onto the recent-messages LRU.
     await this._pushRecentMessage(commitMessage);
 
     void vscode.window.showInformationMessage(
@@ -1042,7 +1037,7 @@ export class CommitDialog {
   }
 
   /**
-   * T2-06: author-override input below the commit-message textarea.
+   * Author-override input below the commit-message textarea.
    */
   private _getAuthorSection(): string {
     const escapedAuthor = this._escapeHtml(this._author);
@@ -1068,8 +1063,8 @@ export class CommitDialog {
   }
 
   /**
-   * T2-06: small chip advertising the `--no-verify` state so the user is
-   * never surprised by a skipped-hook commit.
+   * Small chip advertising the `--no-verify` state so the user is never
+   * surprised by a skipped-hook commit.
    */
   private _getNoVerifyBadge(): string {
     if (!this._noVerify) {
@@ -1478,7 +1473,7 @@ export class CommitDialog {
         color: var(--vscode-input-placeholderForeground);
       }
 
-      /* T2-06 ─────────────────────────────────────────────────────────── */
+      /* section-header-actions ─────────────────────────────────────────── */
       .section-header-actions {
         display: inline-flex;
         gap: 4px;
@@ -1536,7 +1531,7 @@ export class CommitDialog {
         background: var(--vscode-inputValidation-warningBackground, transparent);
         border-top: 1px solid var(--vscode-panel-border);
       }
-      /* ─── end T2-06 ───────────────────────────────────────────────────── */
+      /* ─── end section-header-actions ──────────────────────────────────── */
 
       .files-section {
         flex: 1;
@@ -1953,7 +1948,7 @@ export class CommitDialog {
         vscode.postMessage({ type: 'deselectAllLinesInHunk', hunkIndex: hunkIndex });
       }
 
-      // ─── T2-06 ─────────────────────────────────────────────────────────
+      // ─── author controls ───────────────────────────────────────────────
       function handleAuthorChange(value) {
         vscode.postMessage({ type: 'authorChange', author: value });
       }
@@ -2152,13 +2147,13 @@ export interface IGearMenuItem extends vscode.QuickPickItem {
 }
 
 /**
- * Build the two gear-menu entries that ship in this T2-06 step.
+ * Build the two gear-menu entries.
  *
  * Entry 1: disabled stub `Run before-commit checks` (marked via
  *   `description: 'Coming soon'` — VS Code has no real "disabled" flag
  *   on QuickPick items, so we signal it in the description and the
- *   handler falls through to an informational toast). Follow-up T2-06
- *   steps will wire Reformat / Optimize Imports / TODO / inspections.
+ *   handler falls through to an informational toast). Follow-ups will
+ *   wire Reformat / Optimize Imports / TODO / inspections.
  *
  * Entry 2: functional `--no-verify` toggle. The `$(check)` glyph shows
  *   the current state so the user can see whether hooks will be skipped.
@@ -2170,7 +2165,7 @@ export function buildGearMenuItems(noVerify: boolean): IGearMenuItem[] {
       label: 'Run before-commit checks',
       description: 'Coming soon',
       detail:
-        'T2-06 follow-up will wire Reformat / Optimize Imports / TODO / inspections. Click for details.',
+        'Reformat / Optimize Imports / TODO / inspections are coming soon. Click for details.',
     },
     {
       id: 'noVerify',

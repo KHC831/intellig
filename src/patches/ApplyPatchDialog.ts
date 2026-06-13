@@ -1,5 +1,5 @@
 /**
- * Apply Patch Dialog (T1-12).
+ * Apply Patch Dialog.
  *
  * IntelliJ-style "Apply Patch…" modal. Extends {@link BaseWebviewPanel}.
  * Offers two input modes for the patch source:
@@ -17,7 +17,7 @@
  *     button that issues a `check` pass and surfaces the patch body.
  *   - Apply + Cancel buttons.
  *
- * REVIEW.md §B4: on `--3way` conflicts the dialog delegates to
+ * On `--3way` conflicts the dialog delegates to
  * `IConflictResolutionService.openResolveConflictsDialog(repo, conflicts,
  * { operation: 'applyPatch', … })`. No bespoke conflict surface.
  */
@@ -40,9 +40,9 @@ export interface IApplyPatchDialogOptions {
   /** Patch service used to execute apply. */
   patchService: IPatchService;
   /**
-   * Conflict resolution service used for the post-apply conflict handoff
-   * (REVIEW.md §B4). Optional only to keep construction trivially testable —
-   * production callers always wire this.
+   * Conflict resolution service used for the post-apply conflict handoff.
+   * Optional only to keep construction trivially testable — production
+   * callers always wire this.
    */
   conflictResolutionService?: IConflictResolutionService;
   /**
@@ -220,8 +220,8 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
   /**
    * Emit the body HTML and the interactive script separately so `_render()`
    * can splice the script into a nonced `<script>` block without fragile
-   * regex extraction (LOW-1 — nested `</script>` inside any future string
-   * literal would break the old regex).
+   * regex extraction — nested `</script>` inside any future string literal
+   * would break a regex-based extractor.
    */
   private _getBodyParts(): { body: string; script: string } {
     const escapedPath = escapeHtml(this._patchPath ?? '');
@@ -317,7 +317,7 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
 
         document.getElementById('applyBtn').addEventListener('click', apply);
 
-        // Dialog keyboard contract (spec 5.1 — shared across all dialogs):
+        // Dialog keyboard contract (shared across all dialogs):
         //   Cmd+Enter / Ctrl+Enter → primary action (Apply)
         //   Esc                    → cancel
         document.addEventListener('keydown', (e) => {
@@ -366,8 +366,8 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
 
   /**
    * Override the base renderer entirely so we emit the interactive script
-   * with the CSP nonce. LOW-1: receives body + script as an explicit tuple
-   * from `_getBodyParts()` instead of regex-extracting the script block.
+   * with the CSP nonce. Receives body + script as an explicit tuple from
+   * `_getBodyParts()` instead of regex-extracting the script block.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -515,7 +515,7 @@ ${body}
       return;
     }
 
-    // Conflict path: delegate to T1-08 Resolve Conflicts dialog (REVIEW.md §B4).
+    // Conflict path: delegate to the Resolve Conflicts dialog.
     if (result.conflicts && result.conflicts.length > 0) {
       if (this._conflictResolutionService) {
         await this._conflictResolutionService.openResolveConflictsDialog(

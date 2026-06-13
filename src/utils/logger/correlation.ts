@@ -7,8 +7,7 @@
  * the current frame at *emit time* (not at `child(bindings)`-time) so
  * a child Logger constructed inside one frame and called inside
  * another correctly attributes records to the *current* frame; this
- * matches the propagation contract documented in
- * `design.md` → Architecture → Correlation-id propagation.
+ * matches the propagation contract.
  *
  * Key properties:
  *
@@ -16,21 +15,21 @@
  *   stack (e.g. a watcher event handler firing outside a
  *   `_store.run(...)` callback), `getCurrentCorrelationId()` returns
  *   `undefined`. The Logger omits the `correlationId` field rather
- *   than synthesizing one (Requirement 5.5, 14.9).
+ *   than synthesizing one.
  * - **Capture at call time**: `safeFireAndForget` reads
  *   `getCurrentCorrelationId()` at call time and closes over the
  *   value for its rejection log. The `AsyncLocalStorage` frame may
  *   have already popped by the time the rejection fires; the captured
- *   string still propagates (Requirement 5.3).
+ *   string still propagates.
  * - **No mutation**: the frame object is never mutated; child
  *   loggers cannot rebind `correlationId` on the in-flight frame
- *   (Requirement 5.2 — `child(bindings)` may override the rendered
- *   value, but the underlying store is left alone).
+ *   (`child(bindings)` may override the rendered value, but the
+ *   underlying store is left alone).
  *
  * Scope: this module owns the store and the `registerLoggedCommand`
- * wrapper. The Logger module (task 3.1) consumes
+ * wrapper. The Logger module consumes
  * `_readCorrelationStore()` at emit time. `safeFireAndForget`
- * (task 7.1) consumes `getCurrentCorrelationId()` at call time.
+ * consumes `getCurrentCorrelationId()` at call time.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -75,8 +74,8 @@ const _store = new AsyncLocalStorage<ICorrelationFrame>();
  * command-handler frame is on the stack.
  *
  * Callers MUST treat `undefined` as "no correlation"; they MUST NOT
- * synthesize an id of their own — that breaks Requirement 14.9 (no
- * fabrication).
+ * synthesize an id of their own — that breaks the no-fabrication
+ * contract.
  */
 export function getCurrentCorrelationId(): string | undefined {
   return _store.getStore()?.correlationId;
@@ -137,7 +136,7 @@ export function __resetCorrelationStoreForTest(): void {
  * `correlationId`.
  *
  * `correlationId` is a 16-character lowercase hex string from
- * `crypto.randomBytes(8).toString('hex')` (Requirement 5.1). A new id
+ * `crypto.randomBytes(8).toString('hex')`. A new id
  * is generated per invocation, so two consecutive command runs
  * produce two distinct frames.
  *

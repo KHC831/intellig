@@ -1833,7 +1833,7 @@ describe('Wave J R1 / MED-1 — focused chip carries bold + underline', () => {
  *   codiconFont-3: 3-panel CSP meta tag includes
  *     `font-src ${webview.cspSource}`.
  */
-describe('Wave J R1 / HIGH-1 — codicon font loader', () => {
+describe('Wave J R1 / — codicon font loader', () => {
   let provider: GitToolWindowProvider;
   const extensionUri = Uri.file('/test/extension');
 

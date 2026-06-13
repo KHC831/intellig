@@ -1,14 +1,12 @@
 /**
  * `GitService` Logger waypoint integration tests.
  *
- * Pins each Logger waypoint installed by task 9.1 in
+ * Pins each Logger waypoint installed by in
  * `src/services/GitService.ts` to its expected level and key context
  * fields, exercising the production Logger end-to-end through the
  * shared `IntelliG` `OutputChannel` sink.
  *
- * **Validates: Requirements 6.1, 6.2**
- *
- * The waypoints (per task 9.1) are:
+ * The waypoints are:
  *
  * | # | Trigger                                         | Level | Message                                       | Key context fields           |
  * |---|-------------------------------------------------|-------|-----------------------------------------------|------------------------------|
@@ -362,7 +360,7 @@ function makeFakeRepo(rootPath: string): IRepository {
 
 // ─── Specs ──────────────────────────────────────────────────────────────────
 
-describe('GitService — Logger waypoint integration (task 9.2 / Requirements 6.1, 6.2)', () => {
+describe('GitService — Logger waypoint integration', () => {
   beforeEach(() => {
     fullReset();
   });

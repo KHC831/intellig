@@ -202,7 +202,6 @@ describe('Feature: git-graph-context-menu - Commit Context Menu Property Tests',
   // Feature: git-graph-context-menu, Property 1: No icons in menu output
   describe('Property 1: No icons in menu output', () => {
     /**
-     * **Validates: Requirements 1.1, 1.2**
      *
      * For any call to _getCommitContextMenuHtml(), the returned HTML string
      * should contain zero elements with the class context-menu-icon and zero

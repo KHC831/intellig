@@ -27,7 +27,7 @@ import { Uri } from '../../../mocks/vscode';
 
 // ─── GitService.getCherryMarks ───────────────────────────────────────────────
 
-describe('GitService.getCherryMarks (T3-07)', () => {
+describe('GitService.getCherryMarks', () => {
   function mkRepo(): IRepository {
     return {
       rootUri: Uri.file('/repo'),
@@ -176,7 +176,7 @@ describe('GitService.getCherryMarks (T3-07)', () => {
 
 // ─── GitToolWindowProvider state accessor ────────────────────────────────────
 
-describe('GitToolWindowProvider.setCherryPickedHashes (T3-07)', () => {
+describe('GitToolWindowProvider.setCherryPickedHashes', () => {
   // Construction of the real provider needs an `extensionUri` + optional
   // workspaceState. Our mock `Uri.file` returns a usable object. No
   // `resolveWebviewView` is called — setCherryPickedHashes is pure state.

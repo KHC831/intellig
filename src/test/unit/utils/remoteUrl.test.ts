@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-09 remote-URL parser + hosting-link builders.
+ * Unit tests for remote-URL parser + hosting-link builders.
  */
 
 import '../../setup';
@@ -14,7 +14,7 @@ import {
   ISSUE_REFERENCE_REGEX,
 } from '../../../utils/hostingLinks';
 
-describe('T3-09 — parseRemoteUrl', () => {
+describe('parseRemoteUrl', () => {
   const cases: Array<{
     label: string;
     url: string;
@@ -179,7 +179,7 @@ describe('T3-09 — parseRemoteUrl', () => {
   });
 });
 
-describe('T3-09 — detectProvider', () => {
+describe('detectProvider', () => {
   const rows: Array<[string, 'github' | 'gitlab' | 'bitbucket' | 'unknown']> = [
     ['github.com', 'github'],
     ['enterprise.github.com', 'github'],
@@ -197,7 +197,7 @@ describe('T3-09 — detectProvider', () => {
   }
 });
 
-describe('T3-09 — URL builders', () => {
+describe('URL builders', () => {
   const github: IRemoteUrl = {
     host: 'github.com',
     owner: 'acme',
@@ -276,7 +276,7 @@ describe('T3-09 — URL builders', () => {
   });
 });
 
-describe('T3-09 — findIssueReferences', () => {
+describe('findIssueReferences', () => {
   it('finds a simple #N reference', () => {
     const refs = findIssueReferences('fix: crash on startup (#42)');
     assert.strictEqual(refs.length, 1);

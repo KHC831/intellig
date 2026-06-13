@@ -1,11 +1,10 @@
 /**
  * Property 8: Sanitizer non-leakage.
  *
- * **Validates: Requirements 4.1, 4.2, 4.4, 14.3, 14.4**
  *
  * Two sister contracts the Logger sanitizer must uphold:
  *
- * - **Credentialed URL non-leakage (Requirement 14.3).** For every
+ * **Credentialed URL non-leakage.** For every
  *   input `s` that contains a credentialed HTTP(S) URL, the output
  *   of `sanitizeRecord(s)` SHALL NOT contain the matched user or
  *   password substring. The credential infix (`<user>:<password>@`)
@@ -13,7 +12,7 @@
  *   for; if any field of a `LogRecord` survives the sanitizer with
  *   the infix intact, the redaction has failed.
  *
- * - **Home-path non-leakage (Requirement 14.4).** For every input
+ * **Home-path non-leakage.** For every input
  *   `s` that contains a home-directory prefix in any of the four
  *   shapes pinned by ADR-005 — `/Users/<name>/`, `/home/<name>/`,
  *   `C:\Users\<name>\`, `C:/Users/<name>/` — the output of
@@ -21,10 +20,9 @@
  *   captured by the corresponding regex.
  *
  * The Logger funnels every emission through `sanitizeRecord`
- * (Requirement 4.1) and recurses into context-tree leaves
- * (Requirement 4.2), so the non-leakage property MUST hold across
+ * and recurses into context-tree leaves, so the non-leakage property MUST hold across
  * `message`, `error.message`, `error.stack`, `correlationId`, and
- * every reachable string leaf in `context`. Requirement 4.4 lifts
+ * every reachable string leaf in `context`. The sanitizer also lifts
  * the `error` field from the Logger's API into the same scrub seam,
  * so this test exercises both the dedicated `error` field and
  * `context`-embedded strings.
@@ -46,7 +44,7 @@
  *    redaction triggers across **every relevant field** —
  *    `message`, `context` leaves (top-level, nested, and inside
  *    arrays), `error.message`, `error.stack`, and `correlationId`.
- *    The sanitizer's recursive walker (Requirement 4.2) must
+ * The sanitizer's recursive walker must
  *    redact every reachable leaf, so we walk the sanitized record
  *    via {@link collectStringLeaves} and assert the sentinel does
  *    not appear in the concatenated leaves buffer.
@@ -293,8 +291,8 @@ const levelArb: fc.Arbitrary<LogLevel> = fc.constantFrom<LogLevel>(
 
 // ── Properties ─────────────────────────────────────────────────────────
 
-describe('Property 8 — Sanitizer non-leakage (task 4.8)', () => {
-  // ── Credentialed URL non-leakage (Requirement 14.3) ──────────────────
+describe('Property 8 — Sanitizer non-leakage', () => {
+  // ── Credentialed URL non-leakage ──────────────────
 
   it('credentialed URL: user:password infix never survives sanitization in record.message', () => {
     fc.assert(
@@ -344,7 +342,7 @@ describe('Property 8 — Sanitizer non-leakage (task 4.8)', () => {
     fc.assert(
       fc.property(credentialUrlArb, ({ user, password, url }) => {
         // Place the credentialed URL in EVERY string-valued field
-        // the sanitizer walks (Requirement 4.1, 4.2, 4.4): top-
+        // the sanitizer walks: top-
         // level message, top-level context value, nested context
         // value, array element inside context, correlationId,
         // error.message, and a stack frame line.
@@ -360,7 +358,7 @@ describe('Property 8 — Sanitizer non-leakage (task 4.8)', () => {
               items: [`see ${url}`, url],
             },
           },
-          // correlationId is sanitized too (Requirement 4.1) — a
+          // correlationId is sanitized too — a
           // future regression that injected a credential into the
           // ID would otherwise leak silently.
           correlationId: `cid-${url}`,
@@ -399,7 +397,7 @@ describe('Property 8 — Sanitizer non-leakage (task 4.8)', () => {
     );
   });
 
-  // ── Home-path non-leakage (Requirement 14.4) ─────────────────────────
+  // ── Home-path non-leakage ─────────────────────────
 
   it('POSIX home path /Users/<name>/ and /home/<name>/: username never survives sanitization', () => {
     fc.assert(
@@ -417,7 +415,7 @@ describe('Property 8 — Sanitizer non-leakage (task 4.8)', () => {
         // The matched substring the POSIX home regex captures is
         // the `/Users/<name>/` or `/home/<name>/` prefix; its
         // presence post-sanitization would prove the sanitizer
-        // skipped this field. Requirement 14.4 names "the username
+        // skipped this field. names "the username
         // substring captured by the corresponding regex" — that's
         // the `<name>` segment between the literal prefix and the
         // following `/`.
@@ -514,7 +512,7 @@ describe('Property 8 — Sanitizer non-leakage (task 4.8)', () => {
           // Distribute the three home-path shapes (POSIX +
           // Windows-backslash + Windows-forward-slash) across
           // every reachable string field on a single record.
-          // Requirement 4.2 requires the recursive walker to scrub
+          // requires the recursive walker to scrub
           // every string leaf; this property pins that contract by
           // failing if ANY shape's username survives in ANY field.
           const record: LogRecord = {

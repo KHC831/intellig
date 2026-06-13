@@ -1,5 +1,5 @@
 /**
- * Reset Dialog (T1-11).
+ * Reset Dialog.
  *
  * IntelliJ-style "Reset Current Branch to Here…" modal. Replaces the old
  * QuickPick-based reset flow with a webview panel (extends
@@ -223,7 +223,7 @@ export class ResetDialog extends BaseWebviewPanel {
   /**
    * Emit the body HTML and the interactive script separately. Used by
    * `_wrapHtml` so it can splice the script into a nonced `<script>` block
-   * without regex-extracting it from the body (LOW-1 — nested `</script>`
+   * without regex-extracting it from the body (nested `</script>`
    * inside a string literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
@@ -231,7 +231,7 @@ export class ResetDialog extends BaseWebviewPanel {
     const subject = escapeHtml(this._target.subject);
     const protectedTooltip = 'Protected branch — remove from intellig.protectedBranches to enable';
 
-    // MEDIUM-6: compute the effective default explicitly instead of leaning
+    // Compute the effective default explicitly instead of leaning
     // on the brittle `checked && !disabled` trick. If someone later flips
     // the designated default to Hard, a protected branch will now fall back
     // to the first enabled mode (Soft) rather than render no radio checked.
@@ -310,7 +310,7 @@ export class ResetDialog extends BaseWebviewPanel {
 
   /**
    * Override the base renderer entirely so we can emit the interactive
-   * script with the CSP nonce. LOW-1: we pass body+script as an explicit
+   * script with the CSP nonce. We pass body+script as an explicit
    * tuple from `_getBodyParts()` instead of regex-extracting the script
    * from the serialized body (which would break on nested `</script>`
    * substrings inside string literals).

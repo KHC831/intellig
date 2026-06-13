@@ -27,7 +27,7 @@ import { parseDiff } from '../git-core/gitParser';
  * Increment this when making breaking changes to the storage format.
  *
  * v1: initial format (id, name, timestamp, files).
- * v2 (T2-10): adds optional `unshelvedAt` to mark Already-Unshelved entries.
+ * v2: adds optional `unshelvedAt` to mark Already-Unshelved entries.
  *   Backward-compat: v1 files load as v2 with `unshelvedAt` absent.
  */
 const SHELF_STORAGE_VERSION = 2;
@@ -70,7 +70,7 @@ interface IShelfStorageItem {
   name: string;
   timestamp: number;
   files: IShelfStorageFile[];
-  /** v2 (T2-10): epoch ms of successful unshelve, if the entry is Already-Unshelved. */
+  /** v2: epoch ms of successful unshelve, if the entry is Already-Unshelved. */
   unshelvedAt?: number;
   /**
    * Unknown per-item keys captured during load. Spread back out when
@@ -292,7 +292,7 @@ export class ShelfService implements IShelfService {
   private _onDidChangeShelf: vscode.EventEmitter<IShelfItem[]>;
   private _disposables: vscode.Disposable[] = [];
   /**
-   * Bound child Logger for this service (task 9.5).
+   * Bound child Logger for this service.
    * Component name `'ShelfService'` appears in every emitted record.
    */
   private readonly _logger: Logger;
@@ -422,8 +422,8 @@ export class ShelfService implements IShelfService {
     }
 
     const conflicts: string[] = [];
-    // T2-10: track files that applied cleanly so removeAppliedFiles can
-    // prune just those paths.
+    // Track files that applied cleanly so removeAppliedFiles can prune
+    // just those paths.
     const appliedCleanly: string[] = [];
 
     // Apply each file's diff
@@ -460,9 +460,9 @@ export class ShelfService implements IShelfService {
       }
     }
 
-    // T2-10: honor removeAppliedFiles — prune cleanly-applied files from
-    // the entry and delete the entry if nothing remains. This path takes
-    // precedence over removeFromShelf because it is strictly more granular.
+    // Honor removeAppliedFiles — prune cleanly-applied files from the entry
+    // and delete the entry if nothing remains. This path takes precedence
+    // over removeFromShelf because it is strictly more granular.
     const removeAppliedFiles = options?.removeAppliedFiles === true;
     if (removeAppliedFiles && appliedCleanly.length > 0) {
       const remaining = shelfItem.files
@@ -475,8 +475,8 @@ export class ShelfService implements IShelfService {
       if (removeFromShelf && conflicts.length === 0) {
         this.deleteShelfItem(repo, shelfId);
       } else if (conflicts.length === 0) {
-        // T2-10: kept on shelf but fully applied → mark as
-        // Already-Unshelved so the default filter elides it.
+        // Kept on shelf but fully applied → mark as Already-Unshelved
+        // so the default filter elides it.
         this.markAsUnshelved(repo, shelfId);
       }
     }
@@ -545,8 +545,7 @@ export class ShelfService implements IShelfService {
   }
 
   // ===========================================================================
-  // T2-10 additions: rename / importPatch / markAsUnshelved / restoreShelf /
-  // filterShelfFiles.
+  // rename / importPatch / markAsUnshelved / restoreShelf / filterShelfFiles.
   // ===========================================================================
 
   /**

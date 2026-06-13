@@ -41,9 +41,9 @@ export interface IExtensionServices {
   readonly autoFetchService: IAutoFetchService;
   readonly patchService: IPatchService;
   /**
-   * Persistent source of T2-08 blame options (ignoreWhitespace, detect
-   * movements, hidden revisions). Shared by both blame providers and the
-   * menu-command handlers so flag changes trigger a single re-blame.
+   * Persistent source of blame options (ignoreWhitespace, detect movements,
+   * hidden revisions). Shared by both blame providers and the menu-command
+   * handlers so flag changes trigger a single re-blame.
    */
   readonly blameOptionsSource: BlameOptionsSource;
 
@@ -160,7 +160,7 @@ export class ExtensionServices implements IExtensionServices {
   }
 
   /**
-   * Get the Patch service instance (T1-12).
+   * Get the Patch service instance.
    * @throws Error if services not initialized
    */
   get patchService(): IPatchService {
@@ -169,7 +169,7 @@ export class ExtensionServices implements IExtensionServices {
   }
 
   /**
-   * Get the Blame options source (T2-08).
+   * Get the Blame options source.
    * @throws Error if services not initialized
    */
   get blameOptionsSource(): BlameOptionsSource {
@@ -262,16 +262,16 @@ export class ExtensionServices implements IExtensionServices {
       // Provides conflict detection, resolution, and merge/rebase completion
       this._conflictResolutionService = new ConflictResolutionService(this._gitService);
 
-      // Initialize AutoFetchService (T1-03).
+      // Initialize AutoFetchService.
       // Schedules periodic fetches across all open repositories.
       this._autoFetchService = new AutoFetchService(this._gitService);
 
-      // Initialize PatchService (T1-12).
+      // Initialize PatchService.
       // Wraps git apply / git am / git diff for the Apply Patch + Create
       // Patch from Local Changes dialogs.
       this._patchService = new PatchService(this._gitService);
 
-      // T2-08: blame options source backed by workspaceState for persistent
+      // Blame options source backed by workspaceState for the persistent
       // hidden-revision set + config for flag toggles.
       this._blameOptionsSource = new BlameOptionsSource(context.workspaceState);
 

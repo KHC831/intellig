@@ -1,8 +1,8 @@
 /**
- * Patch Service implementation (T1-12).
+ * Patch Service implementation.
  *
  * Thin wrapper over `git apply` / `git am` / `git diff`. See `IPatchService`
- * for contract + REVIEW.md §B4 for the conflict-handoff integration point.
+ * for the contract and the conflict-handoff integration point.
  */
 
 import * as fs from 'fs';
@@ -77,7 +77,7 @@ export class PatchService implements IPatchService {
   /**
    * Component-bound Logger emitted on construction and disposal so
    * operational waypoints land in the IntelliG OutputChannel
-   * uniformly with the rest of the service graph (task 9.8).
+   * uniformly with the rest of the service graph.
    */
   private readonly _logger: Logger;
 

@@ -10,7 +10,6 @@ import { IShelfItem, IShelveSelection, IUnshelveOptions } from './IShelfService'
 /**
  * Shelf context menu action types
  *
- * T2-10 additions:
  *  - `unshelveSilent`: Ctrl+Alt+U path, applies with default removeFromShelf.
  *  - `rename`: Rename… → prompts for new name.
  *  - `restore`: available only when the entry is Already-Unshelved.
@@ -91,12 +90,12 @@ export interface IShelfViewState {
  * Provides shelf management functionality including list display, context menu actions,
  * and shelve dialog.
  *
- * - 8.1: Save selected changes to IDE-managed shelf storage
- * - 8.2: Allow selecting specific files, changelists, or hunks to shelve
- * - 8.3: Display all shelved changesets with names and timestamps
- * - 8.4: Restore shelved changes to working directory
- * - 8.5: Offer options to remove from shelf or keep a copy
- * - 8.6: Display shelved content as diff
+ * - Save selected changes to IDE-managed shelf storage
+ * - Allow selecting specific files, changelists, or hunks to shelve
+ * - Display all shelved changesets with names and timestamps
+ * - Restore shelved changes to working directory
+ * - Offer options to remove from shelf or keep a copy
+ * - Display shelved content as diff
  */
 export interface IShelfView {
   /**

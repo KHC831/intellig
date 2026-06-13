@@ -3,7 +3,7 @@
  *
  * **Property 1: Record construction shape and content**
  *
- * From design.md → "Property 1: Record construction shape and content":
+ * The contract:
  *
  * > For any level method (`trace`/`debug`/`info`/`warn`/`error`),
  * > component binding (or absence thereof), message string, and
@@ -18,7 +18,6 @@
  * > - `message` equal to `sanitize(input)` for the input message,
  * > - `context` (when supplied) deep-equal to `deepSanitize(input)`.
  *
- * **Validates: Requirements 1.2, 1.3**
  *
  * ### Capture mechanism
  *
@@ -39,7 +38,7 @@
  * 1. **Threshold pinned to `'trace'`.** Set
  *    `intellig.log.level = 'trace'` BEFORE `initLogger` so every
  *    generated level is admitted. The threshold-admission property
- *    is task 4.5 / Property 5; this test must not co-mingle.
+ * is / Property 5; this test must not co-mingle.
  *
  * 2. **Sanitization computed from the production helper.** We do
  *    NOT constrain inputs to "safe" strings and assume sanitize is
@@ -84,7 +83,7 @@ type Level = (typeof LEVELS)[number];
 
 /**
  * ISO-8601 UTC pattern with millisecond precision, exactly as
- * documented by Property 1 in design.md. Anchored at both ends so a
+ * documented by Property 1. Anchored at both ends so a
  * stray prefix or suffix would fail the regex.
  */
 const ISO_UTC_MS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -177,7 +176,7 @@ function expectedContext(inputContext: Record<string, unknown> | undefined): unk
  * plus newlines (which `formatRecord` escapes as `\n` literals) so
  * the rendered block remains parseable. Unicode and other control
  * characters are out of scope for this property — the
- * render-round-trip property (task 4.7) covers them separately.
+ * render-round-trip property covers them separately.
  */
 const messageArb: fc.Arbitrary<string> = fc.string({ minLength: 0, maxLength: 64 });
 
@@ -187,7 +186,7 @@ const messageArb: fc.Arbitrary<string> = fc.string({ minLength: 0, maxLength: 64
  * header line's `<component>` field cannot contain the `': '`
  * separator that `parseRecord`'s lazy match uses as the boundary.
  * This is a structural concern of the renderer, not of the property
- * being tested — the renderer's grammar is asserted by task 4.7.
+ * being tested — the renderer's grammar is asserted separately.
  */
 const componentArb: fc.Arbitrary<string> = fc.stringOf(
   fc.constantFrom(...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.'.split('')),
@@ -232,7 +231,7 @@ const jsonValueArb: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
  * Arbitrary non-empty context bag. Reserved binding keys are
  * filtered out so they do not collide with the special-case
  * top-level fields (`component`, `correlationId`) — that resolution
- * is the subject of the bindings-inheritance property (task 4.2),
+ * is the subject of the bindings-inheritance property,
  * not this one.
  *
  * `minKeys: 1` ensures the Logger emits a `context` field on the
@@ -269,7 +268,7 @@ const optionalComponentArb: fc.Arbitrary<string | undefined> = fc.option(compone
 
 // ─── Property tests ─────────────────────────────────────────────────────────
 
-describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 1.3)', () => {
+describe('Logger record construction (Property 1)', () => {
   beforeEach(() => {
     fullReset();
   });
@@ -329,7 +328,7 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
           }
 
           // Capture and parse the emitted block. Exactly one block
-          // is expected — Requirement 1.7 (multicast) is the next
+          // is expected — (multicast) is the next
           // property's concern.
           const lines = getCapturedLines();
           assert.strictEqual(
@@ -415,8 +414,8 @@ describe('Logger record construction (Property 1 / Task 4.1 / Requirements 1.2, 
           }
 
           // Belt-and-braces: no `correlationId` field when no
-          // command-handler frame is on the stack (Requirement 5.5
-          // / 14.9 — pinned more thoroughly by task 4.10, here we
+          // command-handler frame is on the stack (
+          // 14.9 — pinned more thoroughly by, here we
           // only ensure our generator's lack of any `child(...)`
           // correlation override doesn't accidentally produce one).
           assert.strictEqual(

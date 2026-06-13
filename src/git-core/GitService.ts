@@ -127,7 +127,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * and transient `index.lock` retries. Routed uniformly through the
    * IntelliG OutputChannel via the structured Logger module so every
    * GitService waypoint is correlatable with the rest of the service
-   * graph (task 9.1, Requirements 6.1, 6.2, 6.7).
+   * graph.
    */
   private readonly _logger: Logger;
 
@@ -458,7 +458,7 @@ export class GitService implements IGitService, IGitServiceCli {
    * Discover a repository — or a set of nested repositories — at the given
    * path.
    *
-   * (task #204) — previously this only checked `path` itself for
+   * (#204) — previously this only checked `path` itself for
    * `.git/`, which missed the common workspace-with-nested-repos shape
    * (e.g. opening `~/work/` with `~/work/projectA/.git` +
    * `~/work/projectB/.git`). Now it delegates to {@link scanFolderForGitRepos}
@@ -475,7 +475,7 @@ export class GitService implements IGitService, IGitServiceCli {
    *   `intellig.repositoryScanMaxDepth`).
    */
   private async discoverRepository(rawFolderPath: string): Promise<void> {
-    // TL-99b: normalize before using as a `_newRepoWatchers` map key. On
+    // Normalize before using as a `_newRepoWatchers` map key. On
     // Windows, VS Code's `Uri.fsPath` has known drive-letter case
     // inconsistency across versions (`c:\work` vs `C:\work`); without
     // normalization the watcher-dedup short-circuit (`_newRepoWatchers
@@ -965,7 +965,7 @@ export class GitService implements IGitService, IGitServiceCli {
     try {
       repo = await this._enrollReload(rootPath, this.loadRepository(rootPath));
     } catch (err) {
-      // Watcher-driven refresh failure (Requirement 6.2): warn rather
+      // Watcher-driven refresh failure: warn rather
       // than error because the next watcher event will retry and the
       // failure is typically transient (mid-clone, momentary lock
       // contention, etc.).
@@ -1194,7 +1194,7 @@ export class GitService implements IGitService, IGitServiceCli {
     if (options.allowEmpty) {
       args.push('--allow-empty');
     }
-    // T2-06: `--author="Name <email>"` override.
+    // `--author="Name <email>"` override.
     if (options.author && options.author.trim().length > 0) {
       args.push(`--author=${options.author.trim()}`);
     }
@@ -1244,7 +1244,7 @@ export class GitService implements IGitService, IGitServiceCli {
       throw new Error(`Invalid branch name: ${name}`);
     }
 
-    // T3-03: when `checkout: true`, use `git checkout -[B] <name> <startPoint>`
+    // When `checkout: true`, use `git checkout -[B] <name> <startPoint>`
     // so the branch is created AND switched to in a single atomic command.
     // Using `-B` when force is also set gives us "reset-and-checkout" in one
     // shot — matches IntelliJ's "Overwrite if exists" + "Checkout" combo.
@@ -1303,7 +1303,7 @@ export class GitService implements IGitService, IGitServiceCli {
     // path's argv unchanged and rely on `validateBranchName` (called
     // by createBranch upstream) to reject hostile names.
 
-    // forceCreate path (Bug F): `git checkout -B <ref> [-f] [--track
+    // forceCreate path: `git checkout -B <ref> [-f] [--track
     // <startPoint>]` — "create-or-reset to startpoint". Mirrors the `-b`
     // precedent: `-B` and `<ref>` MUST be adjacent (git parses the token
     // right after `-B` as the branch name). forceCreate WINS over
@@ -1538,7 +1538,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * Skip the current commit during an in-progress rebase (T3-05).
+   * Skip the current commit during an in-progress rebase.
    *
    * Issues `git rebase --skip` which drops the problematic commit and
    * continues with the next one in the sequence. If the next commit also
@@ -1583,8 +1583,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * the `.git/rebase-merge/` (or `rebase-apply/`) metadata. Mirrors the
    * {@link cherryPickAbort} / {@link revertAbort} pattern: `throwOnError`
    * surfaces any git failure to the caller, which is responsible for
-   * routing the message through `sanitizeGitError` before display (Bug C
-   * auto-abort recovery in `_handleRebaseCurrentOnto`).
+   * routing the message through `sanitizeGitError` before display
+   * (auto-abort recovery in `_handleRebaseCurrentOnto`).
    *
    * @param repo - The repository
    */
@@ -1745,7 +1745,7 @@ export class GitService implements IGitService, IGitServiceCli {
     if (options.prune) {
       args.push('--prune');
     }
-    // T3-12: resolve tag-fetching policy. User-passed `tags` / `noTags` in
+    // Resolve tag-fetching policy. User-passed `tags` / `noTags` in
     // `options` always win over the `intellig.fetchTags` config so
     // programmatic callers (PushDialog retry, Pull dialog, etc.) can opt
     // out of the global policy. When neither the option nor the config
@@ -2266,9 +2266,8 @@ export class GitService implements IGitService, IGitServiceCli {
     path: string,
     options?: IFileHistoryOptions
   ): Promise<ICommit[]> {
-    // T2-07 — standalone implementation so we can pass `--follow` and a
-    // branch ref that the generic `getLog()` doesn't understand. Falls back
-    // to the pre-T2-07 behaviour when both flags are absent.
+    // Standalone implementation so we can pass `--follow` and a
+    // branch ref that the generic `getLog()` doesn't understand.
     // `branch` is user-controlled; splice via buildGitArgs so
     // `--end-of-options` separates flag args from the ref.
     const format = getLogFormat();
@@ -2299,7 +2298,7 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
-   * T3-07 — Compute `git log --cherry-mark --left-right` classifications
+   * Compute `git log --cherry-mark --left-right` classifications
    * between `baseRef` and HEAD.
    *
    * Under the hood we invoke:
@@ -2624,7 +2623,7 @@ export class GitService implements IGitService, IGitServiceCli {
       return { success: true };
     }
 
-    // File-subset mode (T2-05 "Apply Selected Changes"): an empty array
+    // File-subset mode ("Apply Selected Changes"): an empty array
     // means "no files picked" — short-circuit rather than erasing the
     // index. Caller should never invoke with an empty list; return success
     // defensively.
@@ -2650,7 +2649,7 @@ export class GitService implements IGitService, IGitServiceCli {
     this.invalidateCache(repo.rootUri.fsPath);
 
     if (result.exitCode !== 0) {
-      // Check for conflicts (keeps pre-T2-05 behavior for plain cherry-pick).
+      // Check for conflicts (plain cherry-pick path).
       const conflicts = await this.getConflictedFiles(repo);
       if (conflicts.length > 0) {
         return {
@@ -3159,7 +3158,7 @@ export class GitService implements IGitService, IGitServiceCli {
     this._gitCli.dispose();
 
     // Aggregate watcher counts BEFORE teardown so the emitted record
-    // reflects pre-teardown state (Requirement 6.1: watcher teardown
+    // reflects pre-teardown state (watcher teardown
     // during dispose()).
     let watcherCount = 0;
     for (const map of this._watcherMaps) {

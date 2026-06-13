@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-10: Combined Stash+Shelf tab in the Commit Tool Window.
+ * Unit tests for Combined Stash+Shelf tab in the Commit Tool Window.
  *
  * Coverage:
  *  - `buildShelfTabEntries` pure helper — filter states + newest-first sort
@@ -46,7 +46,7 @@ import { EventEmitter, Uri } from '../../mocks/vscode';
 
 // ─── pure helpers ────────────────────────────────────────────────────────────
 
-describe('T3-10 — buildShelfTabEntries', () => {
+describe('buildShelfTabEntries', () => {
   const shelfItem = (id: string, name: string, ts: Date, fileCount = 1): IShelfItem => ({
     id,
     name,
@@ -120,7 +120,7 @@ describe('T3-10 — buildShelfTabEntries', () => {
   });
 });
 
-describe('T3-10 — isShelfTabFilter', () => {
+describe('isShelfTabFilter', () => {
   it('whitelists the 3 valid strings', () => {
     assert.strictEqual(isShelfTabFilter('shelves'), true);
     assert.strictEqual(isShelfTabFilter('stashes'), true);
@@ -135,7 +135,7 @@ describe('T3-10 — isShelfTabFilter', () => {
   });
 });
 
-describe('T3-10 — shelfRowContextMenuLabels', () => {
+describe('shelfRowContextMenuLabels', () => {
   it('includes Restore only when isAlreadyUnshelved is true', () => {
     const plain = shelfRowContextMenuLabels({ isAlreadyUnshelved: false });
     assert.strictEqual(
@@ -171,7 +171,7 @@ describe('T3-10 — shelfRowContextMenuLabels', () => {
   });
 });
 
-describe('T3-10 — stashRowContextMenuLabels', () => {
+describe('stashRowContextMenuLabels', () => {
   it('returns Pop + Apply + Show Diff + Rename… + Create Branch…  + Drop', () => {
     const labels = stashRowContextMenuLabels().map((e) => e.action);
     assert.deepStrictEqual(labels, [
@@ -187,7 +187,7 @@ describe('T3-10 — stashRowContextMenuLabels', () => {
 
 // ─── renderShelfTabPanel ─────────────────────────────────────────────────────
 
-describe('T3-10 — renderShelfTabPanel', () => {
+describe('renderShelfTabPanel', () => {
   it('marks the active filter button with ctw-shelf-filter-active', () => {
     const html = renderShelfTabPanel([], 'stashes');
     const matches = html.match(/ctw-shelf-filter-active/g);
@@ -341,7 +341,7 @@ function makeShelfServiceImpl(items: IShelfItem[]) {
   } as unknown as import('../../../shelf/interfaces/IShelfService').IShelfService;
 }
 
-describe('T3-10 — CommitToolWindow filter persistence', () => {
+describe('CommitToolWindow filter persistence', () => {
   it('hydrates the filter from workspaceState on construction', () => {
     const mem = makeMemento();
     mem._store.set(COMMIT_TOOL_WINDOW_SHELF_TAB_FILTER_STATE_KEY, 'stashes');
@@ -415,7 +415,7 @@ describe('T3-10 — CommitToolWindow filter persistence', () => {
   });
 });
 
-describe('T3-10 — CommitToolWindow shelfTabContextAction routing', () => {
+describe('CommitToolWindow shelfTabContextAction routing', () => {
   function makeRig(): {
     ctw: CommitToolWindow;
     shelfCalls: string[];
@@ -542,7 +542,7 @@ describe('T3-10 — CommitToolWindow shelfTabContextAction routing', () => {
 
 // ─── render smoke: renderCommitToolWindowHtml still handles legacy shape ────
 
-describe('T3-10 — renderCommitToolWindowHtml backward compat', () => {
+describe('renderCommitToolWindowHtml backward compat', () => {
   it('works without the new shelfTab* fields (legacy callers)', () => {
     const html = renderCommitToolWindowHtml({
       cspSource: 'vscode-webview://mock',

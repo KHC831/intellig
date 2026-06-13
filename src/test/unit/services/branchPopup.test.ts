@@ -603,10 +603,10 @@ describe('BranchPopup - Branch Data Structures', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// T3-01 — Favorites
+// Favorites
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('BranchPopup — T3-01 updateFavoritesList', () => {
+describe('BranchPopup — updateFavoritesList', () => {
   it('appends a new branch when favorite=true', () => {
     const next = updateFavoritesList(['main'], 'develop', true);
     assert.deepStrictEqual(next, ['main', 'develop']);
@@ -636,7 +636,7 @@ describe('BranchPopup — T3-01 updateFavoritesList', () => {
   });
 });
 
-describe('BranchPopup — T3-01 getFavorites', () => {
+describe('BranchPopup — getFavorites', () => {
   function mkMemento(initial?: unknown): vscode.Memento {
     const store = new Map<string, unknown>();
     if (initial !== undefined) {
@@ -679,7 +679,7 @@ describe('BranchPopup — T3-01 getFavorites', () => {
   });
 });
 
-describe('BranchPopup — T3-01 buildSectionedItems renders Favorites', () => {
+describe('BranchPopup — buildSectionedItems renders Favorites', () => {
   it('emits a `★ Favorites` separator above Recent/Local when favorites exist', () => {
     const items = buildSectionedItems({
       localBranches: [localMain, localDevelop, localFeatureAuth],

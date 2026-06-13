@@ -1,5 +1,5 @@
 /**
- * Unit test for the Logger surface (Requirement 1.1).
+ * Unit test for the Logger surface.
  *
  * Pins the public method shape exposed by `getLogger()` and by
  * `child(bindings)`:
@@ -21,7 +21,6 @@
  * Logger via `__resetLoggerForTest()` so sibling tests cannot leak
  * sinks or cached resolver state into this one.
  *
- * _Validates: Requirement 1.1_
  */
 
 import '../../../setup';
@@ -30,7 +29,7 @@ import { __resetLoggerForTest, getLogger, type Logger } from '../../../../utils/
 
 /**
  * The six method names the Logger surface MUST expose. The order
- * matches Requirement 1.1's enumeration so a reviewer reading the
+ * matches 's enumeration so a reviewer reading the
  * requirement can read this list straight across.
  */
 const LEVEL_METHODS = ['trace', 'debug', 'info', 'warn', 'error'] as const;
@@ -46,7 +45,7 @@ const _surfacePin: LoggerMethodNames[] = ['trace', 'debug', 'info', 'warn', 'err
 // Reference `_surfacePin` so the unused-binding lint does not fire.
 void _surfacePin;
 
-describe('Logger surface (Task 3.3 / Requirement 1.1)', () => {
+describe('Logger surface', () => {
   beforeEach(() => {
     __resetLoggerForTest();
   });
@@ -77,7 +76,7 @@ describe('Logger surface (Task 3.3 / Requirement 1.1)', () => {
       assert.strictEqual(
         (root as unknown as Record<string, unknown>)['fatal'],
         undefined,
-        'Logger surface must not expose a `fatal` method (Requirement 1.1)'
+        'Logger surface must not expose a `fatal` method'
       );
 
       // `log` is another common shorthand that this surface intentionally

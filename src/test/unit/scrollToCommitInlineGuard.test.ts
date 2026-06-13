@@ -18,7 +18,6 @@
  * The smooth animation itself is intentionally retained, so the guard
  * checks for the visibility gate, NOT for the absence of `behavior: 'smooth'`.
  *
- * _Validates: Requirements 1.2, 2.3, 5.1, 5.2_
  */
 
 import '../setup';
@@ -182,10 +181,9 @@ function extractBlockAfter(body: string, headerPattern: RegExp): string | null {
  *
  * This guard pins that contract so a future refactor cannot accidentally move
  * the highlight inside a scroll branch (which would drop the selection emphasis
- * when the target row is already fully visible — Requirement 3.2 — or only
- * highlight after scrolling — Requirement 3.3).
+ * when the target row is already fully visible — or only
+ * highlight after scrolling).
  *
- * _Validates: Requirements 3.2, 3.3_
  */
 describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', () => {
   let provider: GitToolWindowProvider;
@@ -283,7 +281,7 @@ describe('GitToolWindowProvider - inline scrollToCommit highlight-always (D4)', 
  *
  * _Requirements: 4.3, 5.3_
  */
-describe('GitToolWindowProvider - autoScrollOnLoad delegates to scrollToCommit (Task 5.1)', () => {
+describe('GitToolWindowProvider - autoScrollOnLoad delegates to scrollToCommit', () => {
   let provider: GitToolWindowProvider;
   let mockWebview: Webview;
   let html: string;
