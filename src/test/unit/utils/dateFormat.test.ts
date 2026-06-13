@@ -1,18 +1,20 @@
 /**
- * Unit tests for formatCommitDate (Phase 3).
+ * Unit tests for formatCommitDate.
  *
- * Pins the IntelliJ-style relative-or-absolute contract:
- *   - under 60s         -> "now"
- *   - under 60min       -> "Nm"
- *   - under 24h         -> "Nh"
- *   - exactly 1 day     -> "yesterday"
- *   - under 7 days      -> "Nd"
- *   - 7 days or older   -> absolute "MMM dd yyyy" (comma-free)
- *   - future-dated      -> absolute (no negative relative labels)
- * The tooltip is ALWAYS the full toLocaleString() precision regardless
- * of which inline form was chosen.
+ * Contract (post relative-label removal): the commit-row date column
+ * shows a LOCALE-AWARE ABSOLUTE timestamp — never a relative distance.
+ * IntelliJ's log shows an absolute date/time, and a relative label
+ * ("2h") both diverges from IntelliJ AND goes stale because it is baked
+ * into static row HTML at render time with no refresh tick. Rendering an
+ * absolute timestamp fixes both at once: it matches IntelliJ and can
+ * never go out of date.
  *
- * `now` is injected so the tests are deterministic without clock mocking.
+ *   - display -> locale-aware date + time, no seconds (Intl.DateTimeFormat)
+ *   - display -> NEVER a relative token ("now"/"5m"/"2h"/"yesterday"/"3d")
+ *   - tooltip -> full toLocaleString() precision (the seconds live here)
+ *
+ * The display is asserted against a reference Intl formatter rather than
+ * a hardcoded string so the suite is robust across runner locale/timezone.
  */
 
 import * as assert from 'assert';
@@ -23,115 +25,80 @@ const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-// A fixed reference "now" so every case is deterministic.
-const NOW = new Date('2026-06-10T12:00:00.000Z');
+// The reference shape the display MUST match: locale-aware, no seconds.
+const REFERENCE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
 
-function ago(ms: number): Date {
-  return new Date(NOW.getTime() - ms);
+const RELATIVE_TOKENS = ['now', 'yesterday'];
+
+function assertNotRelative(display: string): void {
+  for (const token of RELATIVE_TOKENS) {
+    assert.ok(
+      !display.includes(token),
+      `display must not contain relative token "${token}"; got "${display}"`
+    );
+  }
+  // No bare "<n>m" / "<n>h" / "<n>d" relative distances.
+  assert.ok(
+    !/^\d+[mhd]$/.test(display.trim()),
+    `display must not be a relative distance; got "${display}"`
+  );
 }
 
 describe('formatCommitDate', () => {
-  describe('relative form (under 7 days)', () => {
-    it('emits "now" for under 60 seconds', () => {
-      assert.strictEqual(formatCommitDate(ago(0), NOW).display, 'now');
-      assert.strictEqual(formatCommitDate(ago(59 * SECOND), NOW).display, 'now');
-    });
+  describe('always absolute (no relative labels)', () => {
+    const recentOffsets: Array<[string, number]> = [
+      ['30 seconds ago', 30 * SECOND],
+      ['5 minutes ago', 5 * MINUTE],
+      ['2 hours ago', 2 * HOUR],
+      ['1 day ago', DAY],
+      ['3 days ago', 3 * DAY],
+    ];
 
-    it('emits "Nm" for under 60 minutes', () => {
-      assert.strictEqual(formatCommitDate(ago(MINUTE), NOW).display, '1m');
-      assert.strictEqual(formatCommitDate(ago(5 * MINUTE), NOW).display, '5m');
-      assert.strictEqual(formatCommitDate(ago(59 * MINUTE), NOW).display, '59m');
-    });
-
-    it('emits "Nh" for under 24 hours', () => {
-      assert.strictEqual(formatCommitDate(ago(HOUR), NOW).display, '1h');
-      assert.strictEqual(formatCommitDate(ago(2 * HOUR), NOW).display, '2h');
-      assert.strictEqual(formatCommitDate(ago(23 * HOUR), NOW).display, '23h');
-    });
-
-    it('emits "yesterday" for exactly 1 day', () => {
-      assert.strictEqual(formatCommitDate(ago(DAY), NOW).display, 'yesterday');
-      // Still "yesterday" anywhere in the 1d..<2d window.
-      assert.strictEqual(formatCommitDate(ago(DAY + 5 * HOUR), NOW).display, 'yesterday');
-    });
-
-    it('emits "Nd" for 2..6 days', () => {
-      assert.strictEqual(formatCommitDate(ago(2 * DAY), NOW).display, '2d');
-      assert.strictEqual(formatCommitDate(ago(3 * DAY), NOW).display, '3d');
-      assert.strictEqual(formatCommitDate(ago(6 * DAY), NOW).display, '6d');
-    });
+    for (const [label, offset] of recentOffsets) {
+      it(`renders an absolute timestamp for a commit ${label}`, () => {
+        const date = new Date(Date.now() - offset);
+        const { display } = formatCommitDate(date);
+        assertNotRelative(display);
+        assert.strictEqual(display, REFERENCE_FORMATTER.format(date));
+      });
+    }
   });
 
-  describe('absolute form (7 days or older)', () => {
-    it('emits a comma-free "MMM dd yyyy" shape at exactly 7 days', () => {
-      // The exact day depends on the runner's timezone (NOW is a UTC
-      // instant; the absolute form uses local-time getDate). Pin the
-      // SHAPE (comma-free "MMM DD YYYY") rather than the exact day to
-      // stay timezone-robust. The exact-day cases below use explicit
-      // local-time Date constructors, which are unambiguous.
-      const result = formatCommitDate(ago(7 * DAY), NOW);
-      assert.ok(
-        /^[A-Z][a-z]{2} \d{2} \d{4}$/.test(result.display),
-        `expected comma-free "MMM DD YYYY"; got "${result.display}"`
-      );
-      assert.ok(!result.display.includes(','), 'absolute form must be comma-free');
+  describe('display shape', () => {
+    it('is locale-aware date + time without seconds', () => {
+      const date = new Date(2026, 5, 13, 14, 30, 45);
+      const { display } = formatCommitDate(date);
+      assert.strictEqual(display, REFERENCE_FORMATTER.format(date));
+      // The 45-second component must not leak into the inline label.
+      assert.ok(!display.includes(':45'), `display must omit seconds; got "${display}"`);
     });
 
-    it('emits the absolute form for an old commit', () => {
-      const result = formatCommitDate(new Date(2020, 11, 25, 0, 0, 0), NOW);
-      assert.strictEqual(result.display, 'Dec 25 2020');
-    });
-
-    it('zero-pads the day to two digits', () => {
-      const result = formatCommitDate(new Date(2024, 0, 1, 9, 0, 0), NOW);
-      assert.strictEqual(result.display, 'Jan 01 2024');
-    });
-
-    it('carries no time-of-day component', () => {
-      const result = formatCommitDate(new Date(2024, 0, 1, 14, 30, 0), NOW);
-      assert.ok(
-        !/AM|PM|:/.test(result.display),
-        `absolute form must omit time; got ${result.display}`
-      );
+    it('renders old commits in the same absolute shape (no special-casing by age)', () => {
+      const old = new Date(2020, 11, 25, 9, 5, 0);
+      const { display } = formatCommitDate(old);
+      assert.strictEqual(display, REFERENCE_FORMATTER.format(old));
     });
   });
 
   describe('future-dated commits', () => {
-    it('falls back to the absolute form rather than a negative relative label', () => {
-      // committerDate ahead of the local clock (skew / rebase). A "-3m"
-      // label would be nonsense.
-      const future = new Date(NOW.getTime() + 3 * MINUTE);
-      const result = formatCommitDate(future, NOW);
-      assert.ok(!result.display.startsWith('-'), 'must not emit a negative relative label');
-      // 2026-06-10 -> "Jun 10 2026".
-      assert.strictEqual(result.display, 'Jun 10 2026');
+    it('renders absolute, never a negative relative label', () => {
+      const future = new Date(Date.now() + 3 * MINUTE);
+      const { display } = formatCommitDate(future);
+      assert.ok(!display.startsWith('-'), 'must not emit a negative relative label');
+      assert.strictEqual(display, REFERENCE_FORMATTER.format(future));
     });
   });
 
   describe('tooltip', () => {
-    it('is always the full toLocaleString() precision, regardless of inline form', () => {
-      const recent = ago(5 * MINUTE);
-      assert.strictEqual(formatCommitDate(recent, NOW).tooltip, recent.toLocaleString());
-
-      const old = new Date(2020, 11, 25, 0, 0, 0);
-      assert.strictEqual(formatCommitDate(old, NOW).tooltip, old.toLocaleString());
-    });
-  });
-
-  describe('boundary precision', () => {
-    it('treats the 24h boundary as the relative-day transition', () => {
-      // Just under a day is still hours; exactly a day flips to yesterday.
-      assert.strictEqual(formatCommitDate(ago(DAY - SECOND), NOW).display, '23h');
-      assert.strictEqual(formatCommitDate(ago(DAY), NOW).display, 'yesterday');
-    });
-
-    it('treats the 7-day boundary as the relative/absolute transition', () => {
-      // Just under 7 days is still "6d"; exactly 7 days flips to absolute.
-      assert.strictEqual(formatCommitDate(ago(7 * DAY - SECOND), NOW).display, '6d');
-      assert.ok(
-        /\d{4}$/.test(formatCommitDate(ago(7 * DAY), NOW).display),
-        'flips to absolute at 7d'
-      );
+    it('carries full toLocaleString() precision (including seconds)', () => {
+      const date = new Date(2026, 5, 13, 14, 30, 45);
+      assert.strictEqual(formatCommitDate(date).tooltip, date.toLocaleString());
     });
   });
 });

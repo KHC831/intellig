@@ -11,6 +11,25 @@ import { ICommit } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
 /**
+ * The locale-aware absolute timestamp the commit row is expected to
+ * render, mirroring `formatCommitDate`'s `Intl.DateTimeFormat` config
+ * (date + time, no seconds). Computed from a reference formatter rather
+ * than hardcoded so the assertions stay robust across runner
+ * locale/timezone.
+ */
+const COMMIT_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+function expectedCommitDate(date: Date): string {
+  return COMMIT_DATE_FORMATTER.format(date);
+}
+
+/**
  * Helper to create a minimal ICommit for testing.
  */
 function makeCommit(overrides: Partial<ICommit> = {}): ICommit {
@@ -205,26 +224,27 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('renders the commit date via formatCommitDate (absolute form for an old fixed date)', () => {
-      // Jan 15 2024 is years before any plausible "now", so
-      // formatCommitDate emits its absolute form: "Jan 15 2024".
-      const node = makeCommitNode(
-        {},
-        {
-          authorDate: new Date(2024, 0, 15, 14, 30, 0),
-        }
-      );
+    it('renders the commit date via formatCommitDate (locale-aware absolute timestamp)', () => {
+      // formatCommitDate always emits a locale-aware absolute timestamp
+      // (date + time, no seconds) — never a relative "2h"/"yesterday".
+      const authorDate = new Date(2024, 0, 15, 14, 30, 0);
+      const node = makeCommitNode({}, { authorDate });
       const html = provider._getGraphPanelHtml([node]);
 
       assert.ok(html.includes('commit-date'), 'Should have commit-date class');
       assert.ok(
-        html.includes('Jan 15 2024'),
-        `Should show the absolute "Jan 15 2024" form for an old date; got: ${html}`
+        html.includes(expectedCommitDate(authorDate)),
+        `Should show the locale-aware absolute timestamp; got: ${html}`
       );
       // The legacy "YYYY-MM-DD H:MM AM/PM" form must be gone.
       assert.ok(
         !html.includes('2024-01-15 2:30 PM'),
         'Legacy absolute date format must no longer appear'
+      );
+      // The legacy relative-or-"MMM dd yyyy" form must be gone too.
+      assert.ok(
+        !html.includes('Jan 15 2024'),
+        'Legacy "MMM dd yyyy" absolute form must no longer appear'
       );
     });
 
@@ -413,32 +433,42 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
   });
 
   describe('Absolute date formatting in graph view', () => {
-    // The row renders dates via formatCommitDate: commits older than a
-    // week show the absolute "MMM dd yyyy" form (e.g. "Jun 15 2024").
-    // The fixed dates below are all years before any plausible "now",
-    // so they always take the absolute branch.
-    it('should show absolute date for a 2024 commit', () => {
+    // The row renders dates via formatCommitDate, which always emits a
+    // locale-aware absolute timestamp (date + time, no seconds) — never
+    // a relative "2h"/"yesterday" label, and never the legacy
+    // "MMM dd yyyy" / "YYYY-MM-DD H:MM AM/PM" forms.
+    it('should show the locale-aware absolute timestamp for a 2024 commit', () => {
       const recentDate = new Date(2024, 5, 15, 10, 5, 0); // June 15, 2024
       const node = makeCommitNode({}, { authorDate: recentDate });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('Jun 15 2024'), `Should show "Jun 15 2024"; got: ${html}`);
+      assert.ok(
+        html.includes(expectedCommitDate(recentDate)),
+        `Should show the locale-aware absolute timestamp; got: ${html}`
+      );
       assert.ok(!html.includes('2024-06-15'), 'Legacy YYYY-MM-DD format must no longer appear');
+      assert.ok(!html.includes('Jun 15 2024'), 'Legacy "MMM dd yyyy" form must no longer appear');
     });
 
-    it('should show absolute date for an afternoon commit (no AM/PM in the new form)', () => {
+    it('should include the time component (the new form is date + time)', () => {
       const afternoonDate = new Date(2024, 0, 1, 14, 30, 0); // Jan 1, 2024
       const node = makeCommitNode({}, { authorDate: afternoonDate });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('Jan 01 2024'), `Should show "Jan 01 2024"; got: ${html}`);
-      // The new absolute form carries no time-of-day component.
-      assert.ok(!html.includes('2:30 PM'), 'New absolute form must not carry a time component');
+      assert.ok(
+        html.includes(expectedCommitDate(afternoonDate)),
+        `Should show the locale-aware absolute timestamp; got: ${html}`
+      );
+      assert.ok(!html.includes('Jan 01 2024'), 'Legacy "MMM dd yyyy" form must no longer appear');
     });
 
-    it('should show absolute date for old commits', () => {
-      const oldDate = new Date(2020, 11, 25, 0, 0, 0); // Dec 25, 2020
+    it('should show the locale-aware absolute timestamp for old commits', () => {
+      const oldDate = new Date(2020, 11, 25, 9, 5, 0); // Dec 25, 2020
       const node = makeCommitNode({}, { authorDate: oldDate });
       const html = provider._getGraphPanelHtml([node]);
-      assert.ok(html.includes('Dec 25 2020'), `Should show "Dec 25 2020"; got: ${html}`);
+      assert.ok(
+        html.includes(expectedCommitDate(oldDate)),
+        `Should show the locale-aware absolute timestamp; got: ${html}`
+      );
+      assert.ok(!html.includes('Dec 25 2020'), 'Legacy "MMM dd yyyy" form must no longer appear');
     });
   });
 

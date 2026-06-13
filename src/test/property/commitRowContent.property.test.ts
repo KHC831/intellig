@@ -6,8 +6,8 @@
  *
  * Uses fast-check to verify that the HTML output of _getGraphPanelHtml()
  * contains the commit message first line (or truncated version), the author
- * name, and an absolute date in YYYY-MM-DD H:MM AM/PM format — and does NOT
- * contain relative date strings (e.g. "ago").
+ * name, and the locale-aware absolute timestamp produced by formatCommitDate
+ * — and does NOT contain relative date strings (e.g. "ago").
  */
 
 import '../setup';
@@ -205,7 +205,7 @@ describe('Feature: git-graph-details-improvements - Commit Row Content Property 
      * the HTML output of _getGraphPanelHtml() SHALL contain:
      * - The first line of the commit message (or truncated version if > 60 chars)
      * - The author name
-     * - A date string in YYYY-MM-DD H:MM AM/PM format
+     * - The locale-aware absolute timestamp produced by formatCommitDate
      * - The output does NOT contain "ago" (which would indicate relative date format)
      */
     it('Feature: git-graph-details-improvements, Property 3: Commit row displays title, author, and absolute date — HTML contains message summary, author name, and absolute date', () => {
@@ -228,11 +228,10 @@ describe('Feature: git-graph-details-improvements - Commit Row Content Property 
           );
 
           // 3. The output should contain the date label produced by
-          //    `formatCommitDate` (relative for commits under a week
-          //    old, absolute beyond). The label is HTML-escaped in the
-          //    row, but every form this function produces ("now", "5m",
-          //    "Mar 17 2026", …) is already escape-safe, so a plain
-          //    substring check holds.
+          //    `formatCommitDate` — a locale-aware absolute timestamp
+          //    (date + time, no seconds). The label is HTML-escaped in
+          //    the row; the "/" and ":" separators it produces are
+          //    escape-safe, so a plain substring check holds.
           const { display: expectedDateLabel } = formatCommitDate(commit.authorDate);
           assert.ok(
             html.includes(expectedDateLabel),
@@ -240,10 +239,9 @@ describe('Feature: git-graph-details-improvements - Commit Row Content Property 
           );
 
           // 4. The commit-date span content must EXACTLY equal the
-          //    formatCommitDate label — never the legacy absolute
-          //    "YYYY-MM-DD H:MM AM/PM" form, and never a stray "ago"
-          //    suffix (the relative labels are suffix-free: "3d", not
-          //    "3d ago").
+          //    formatCommitDate label — the locale-aware absolute
+          //    timestamp — never the legacy "YYYY-MM-DD H:MM AM/PM" or
+          //    relative "3d"/"ago" forms.
           const dateSpanRegex = /<span class="commit-date"[^>]*>([^<]*)<\/span>/g;
           let match;
           while ((match = dateSpanRegex.exec(html)) !== null) {
