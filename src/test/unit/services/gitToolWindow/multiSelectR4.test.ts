@@ -445,9 +445,13 @@ describe('Wave A R4 — review fixes', () => {
         }
         return out;
       };
+      // Match the module header on `export function <name>(` alone (not the
+      // first parameter) so it still finds the function when prettier wraps a
+      // long parameter list onto its own lines — the function name is unique,
+      // so this stays unambiguous.
       const bodies = [
         ...collectBodies(methodHeader, `\n  }\n`),
-        ...collectBodies(`export function ${methodName}(ctx: IGtwControllerContext`, `\n}\n`),
+        ...collectBodies(`export function ${methodName}(`, `\n}\n`),
       ];
       assert.ok(bodies.length > 0, `${methodName} body not found in provider or messageHandlers`);
       // The real body is the one carrying the fire call; forwarders have none.
