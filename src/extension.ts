@@ -53,6 +53,7 @@ import { runKeymapMigrationSafe } from './utils/keymapMigration';
 import { resolveRepo } from './utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from './git-core/gitError';
 import { ICommandContext } from './commands/registration/CommandContext';
+import { IViewRegistrationContext } from './registration/ViewRegistrationContext';
 import { registerChangelistCommands } from './commands/registration/changelistCommands';
 import { registerExplorerCommands } from './commands/registration/explorerCommands';
 import { registerRebaseConflictCommands } from './commands/registration/rebaseConflictCommands';
@@ -453,14 +454,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Register commands
     registerCommands(context);
 
+    // Shared read/WRITE bridge to the module-level singletons (RULE E1). The
+    // view-registration functions reach state through this context; get/set
+    // accessors forward to the module `let`s so lazy-init write-back mutates
+    // the single owner `getServices()`/`deactivate()` observe.
+    const viewCtx = createViewRegistrationContext(context);
+
     // Register views and providers
     registerViews(context);
 
     // Register git content provider for showing file content at specific revisions
-    registerGitContentProvider(context);
+    registerGitContentProvider(viewCtx);
 
     // Set up event listeners
-    setupEventListeners(context);
+    setupEventListeners(viewCtx);
 
     // Start the auto-fetch scheduler.
     // Registering in context.subscriptions lets VS Code dispose it on
@@ -717,6 +724,100 @@ function registerCommands(context: vscode.ExtensionContext): void {
     ...explorerDisposables,
     ...commitMenuDisposables
   );
+}
+
+/**
+ * Build the shared read/WRITE bridge to the module-level singletons (RULE
+ * E1), the view-registration analog of the `ICommandContext` built in
+ * `registerCommands`. The relocated view-registration functions reach state
+ * through this context; get/set accessors forward to the module `let`s so
+ * lazy-init write-back mutates the single owner `getServices()` /
+ * `getGitToolWindowProvider()` / `deactivate()` observe.
+ */
+function createViewRegistrationContext(context: vscode.ExtensionContext): IViewRegistrationContext {
+  const ctx: IViewRegistrationContext = {
+    context,
+    get services() {
+      return extensionServices;
+    },
+    get gitToolWindowProvider() {
+      return gitToolWindowProvider;
+    },
+    set gitToolWindowProvider(v) {
+      gitToolWindowProvider = v;
+    },
+    get commitToolWindow() {
+      return commitToolWindow;
+    },
+    set commitToolWindow(v) {
+      commitToolWindow = v;
+    },
+    get stashView() {
+      return stashView;
+    },
+    set stashView(v) {
+      stashView = v;
+    },
+    get shelfView() {
+      return shelfView;
+    },
+    set shelfView(v) {
+      shelfView = v;
+    },
+    get mergeView() {
+      return mergeView;
+    },
+    set mergeView(v) {
+      mergeView = v;
+    },
+    get statusBarService() {
+      return statusBarService;
+    },
+    set statusBarService(v) {
+      statusBarService = v;
+    },
+    get notificationService() {
+      return notificationService;
+    },
+    set notificationService(v) {
+      notificationService = v;
+    },
+    get keymapService() {
+      return keymapService;
+    },
+    set keymapService(v) {
+      keymapService = v;
+    },
+    get gutterBlameProvider() {
+      return gutterBlameProvider;
+    },
+    set gutterBlameProvider(v) {
+      gutterBlameProvider = v;
+    },
+    get branchComparisonView() {
+      return branchComparisonView;
+    },
+    set branchComparisonView(v) {
+      branchComparisonView = v;
+    },
+    get rebaseProgressView() {
+      return rebaseProgressView;
+    },
+    set rebaseProgressView(v) {
+      rebaseProgressView = v;
+    },
+    get commitContextMenuCommands() {
+      return commitContextMenuCommands;
+    },
+    set commitContextMenuCommands(v) {
+      commitContextMenuCommands = v;
+    },
+    getPullDialog: () => _getPullDialog(),
+    openPushDialog: (p) => _openPushDialog(p),
+    openMergeDialog: (p) => _openMergeDialog(p),
+    openNewBranchDialog: (p) => _openNewBranchDialog(p),
+  };
+  return ctx;
 }
 
 /**
@@ -1533,13 +1634,13 @@ export async function provideGitShowContent(
  *
  * Used by the commit diff feature to show file content at parent and current commits.
  */
-function registerGitContentProvider(context: vscode.ExtensionContext): void {
+function registerGitContentProvider(ctx: IViewRegistrationContext): void {
   const provider: vscode.TextDocumentContentProvider = {
     provideTextDocumentContent: async (uri: vscode.Uri): Promise<string> => {
-      if (!extensionServices) {
+      if (!ctx.services) {
         throw new Error('Extension services not initialized');
       }
-      return provideGitShowContent(uri, extensionServices.gitService);
+      return provideGitShowContent(uri, ctx.services.gitService);
     },
   };
 
@@ -1547,7 +1648,7 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
     'intellig-git',
     provider
   );
-  context.subscriptions.push(registration);
+  ctx.context.subscriptions.push(registration);
 }
 
 /**
@@ -1555,20 +1656,20 @@ function registerGitContentProvider(context: vscode.ExtensionContext): void {
  *
  * @param context - The VS Code extension context
  */
-function setupEventListeners(context: vscode.ExtensionContext): void {
+function setupEventListeners(ctx: IViewRegistrationContext): void {
   // Surface a warning toast for any repository that's already in a paused-
   // rebase state at activation, plus on every subsequent
   // `onDidChangeRepository` transition into `rebasing`. Without this, users
   // who reloaded VS Code mid-rebase saw no signal until they re-triggered a
   // rebase command. See `wireRebasePausedWarning` for the implementation
   // contract.
-  if (extensionServices) {
+  if (ctx.services) {
     const rebaseWarningDisposables = wireRebasePausedWarning({
-      gitService: extensionServices.gitService,
+      gitService: ctx.services.gitService,
       window: vscode.window,
       commands: vscode.commands,
     });
-    context.subscriptions.push(...rebaseWarningDisposables);
+    ctx.context.subscriptions.push(...rebaseWarningDisposables);
   }
 
   // Listen for workspace folder changes and update the repository list
@@ -1579,8 +1680,8 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
     });
 
     // Update the repository list when workspace folders change
-    if (extensionServices && gitToolWindowProvider) {
-      const gitService = extensionServices.gitService;
+    if (ctx.services && ctx.gitToolWindowProvider) {
+      const gitService = ctx.services.gitService;
 
       // Discover repositories from all current workspace folders
       for (const folder of event.added) {
@@ -1588,7 +1689,7 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
       }
 
       const repositories = gitService.getRepositories();
-      gitToolWindowProvider.setAvailableRepositories(repositories);
+      ctx.gitToolWindowProvider.setAvailableRepositories(repositories);
     }
   });
 
@@ -1607,7 +1708,11 @@ function setupEventListeners(context: vscode.ExtensionContext): void {
   });
 
   // Register all listeners with the extension context
-  context.subscriptions.push(workspaceFoldersListener, configurationListener, activeEditorListener);
+  ctx.context.subscriptions.push(
+    workspaceFoldersListener,
+    configurationListener,
+    activeEditorListener
+  );
 }
 
 /**
