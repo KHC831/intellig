@@ -278,10 +278,25 @@ describe('Wave A R5 — final review fixes', () => {
     it('inline script applyMenuEnableMap carries an INVARIANT comment near the title gate', async () => {
       const fs = await import('fs');
       const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
-        'utf8'
-      );
+      // `applyMenuEnableMap` lives in the webview inline script, which is
+      // assembled in `GitToolWindowProvider.ts` OR (once extracted) in
+      // `provider/scriptBuilder.ts`. Scan the union of both so the
+      // invariant-comment assertion follows the function to whichever file
+      // currently holds it; absent files are tolerated (the other supplies
+      // the source).
+      const candidatePaths = [
+        'src/git-core/gitToolWindow/GitToolWindowProvider.ts',
+        'src/git-core/gitToolWindow/provider/scriptBuilder.ts',
+      ];
+      const src = candidatePaths
+        .map((rel) => {
+          try {
+            return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+          } catch {
+            return '';
+          }
+        })
+        .join('\n');
       const idx = src.indexOf('function applyMenuEnableMap');
       assert.ok(idx > 0);
       const window = src.substring(idx, idx + 2000);
