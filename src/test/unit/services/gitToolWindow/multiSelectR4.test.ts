@@ -295,12 +295,6 @@ describe('Wave A R4 — review fixes', () => {
   // ─── _postSyncSelection call-site coverage ──────────────────────
   describe('_postSyncSelection is called from every selection-mutating setter', () => {
     it('each selection-mutating setter calls _postSyncSelection', async () => {
-      const fs = await import('fs');
-      const path = await import('path');
-      const src = fs.readFileSync(
-        path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
-        'utf8'
-      );
       // Originally this test counted "belt-and-suspenders" comments as a
       // proxy for "every setter called _postSyncSelection alongside a
       // full _updateWebview()". The Shift+Arrow keyboard-multiselect bug
@@ -312,10 +306,30 @@ describe('Wave A R4 — review fixes', () => {
       // setter must invoke _postSyncSelection (directly or via a
       // partial-update helper). Count the call sites instead of the
       // obsolete prose.
-      const callSites = src.match(/this\._postSyncSelection\(\)/g) || [];
+      //
+      // As setters are extracted into provider/messageHandlers.ts the call
+      // site relocates and its receiver changes (this._postSyncSelection() →
+      // ctx.postSyncSelection()). Count BOTH forms across the union of the
+      // two files so the same calls are still counted wherever they live.
+      const fs = await import('fs');
+      const path = await import('path');
+      const unionSource = [
+        'src/git-core/gitToolWindow/GitToolWindowProvider.ts',
+        'src/git-core/gitToolWindow/provider/messageHandlers.ts',
+      ]
+        .map((rel) => {
+          try {
+            return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+          } catch {
+            return '';
+          }
+        })
+        .join('\n');
+      const callSites =
+        unionSource.match(/(?:this\._postSyncSelection|ctx\.postSyncSelection)\(\)/g) || [];
       assert.ok(
         callSites.length >= 4,
-        `expected at least 4 _postSyncSelection() call sites, found ${callSites.length}`
+        `expected at least 4 postSyncSelection() call sites, found ${callSites.length}`
       );
     });
   });
