@@ -461,7 +461,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const viewCtx = createViewRegistrationContext(context);
 
     // Register views and providers
-    registerViews(context);
+    registerViews(viewCtx);
 
     // Register git content provider for showing file content at specific revisions
     registerGitContentProvider(viewCtx);
@@ -825,35 +825,38 @@ function createViewRegistrationContext(context: vscode.ExtensionContext): IViewR
  *
  * @param context - The VS Code extension context
  */
-function registerViews(context: vscode.ExtensionContext): void {
-  // Hoisted so the second `if (extensionServices)` block — which creates
+function registerViews(ctx: IViewRegistrationContext): void {
+  // Hoisted so the second `if (ctx.services)` block — which creates
   // the BranchTreeProvider — can pass this helper into
   // `wireRepositorySelection(...)` and refresh both the Log/Graph view and
   // the Branches tree view from a single `onDidSelectRepository` event.
   // Bound to the block-local `loadLogCommitsForRepo` inside the first
-  // `if (extensionServices)` block where its closure dependencies
+  // `if (ctx.services)` block where its closure dependencies
   // (gitService, gitToolWindowProvider) are in scope.
   let hoistedLoadLogCommitsForRepo: ((repo: IRepository) => Promise<void>) | undefined;
 
   // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
-  gitToolWindowProvider = new GitToolWindowProvider(context.extensionUri, context.workspaceState);
+  ctx.gitToolWindowProvider = new GitToolWindowProvider(
+    ctx.context.extensionUri,
+    ctx.context.workspaceState
+  );
 
   // Connect the Console Service to the Git Tool Window Provider
   // This enables real-time Git command output display
-  if (extensionServices) {
-    const consoleService = extensionServices.consoleService;
+  if (ctx.services) {
+    const consoleService = ctx.services.consoleService;
     if (consoleService instanceof ConsoleService) {
-      consoleService.connectToToolWindow(gitToolWindowProvider);
+      consoleService.connectToToolWindow(ctx.gitToolWindowProvider);
     }
 
     // Wire the History tab to the GitService now that the service registry
     // is up. Safe to call multiple times (last-writer-wins).
-    gitToolWindowProvider.attachGitService(extensionServices.gitService);
+    ctx.gitToolWindowProvider.attachGitService(ctx.services.gitService);
   }
 
   const gitToolWindowRegistration = vscode.window.registerWebviewViewProvider(
     GIT_TOOL_WINDOW_VIEW_ID,
-    gitToolWindowProvider,
+    ctx.gitToolWindowProvider,
     {
       webviewOptions: {
         retainContextWhenHidden: true,
@@ -861,38 +864,38 @@ function registerViews(context: vscode.ExtensionContext): void {
     }
   );
 
-  context.subscriptions.push(gitToolWindowRegistration);
+  ctx.context.subscriptions.push(gitToolWindowRegistration);
 
   // Register the Commit tool window. The view contribution in package.json
   // is gated by `config.intellig.useCommitToolWindow`, so when the flag is
   // off the view slot is hidden and users see zero change.
-  if (extensionServices) {
-    commitToolWindow = createCommitToolWindow(
-      context.extensionUri,
-      extensionServices.gitService,
-      extensionServices.changelistService,
-      extensionServices.shelfService,
-      context.workspaceState
+  if (ctx.services) {
+    ctx.commitToolWindow = createCommitToolWindow(
+      ctx.context.extensionUri,
+      ctx.services.gitService,
+      ctx.services.changelistService,
+      ctx.services.shelfService,
+      ctx.context.workspaceState
     );
 
     // Bind shelf/stash row controllers so the combined Shelf tab can
     // dispatch context-menu actions. ShelfView / StashView already hold the
     // QuickPick + error-handling UX; the controllers are thin adapters.
-    const gs = extensionServices.gitService;
-    const cs = extensionServices.conflictResolutionService;
-    const shelfSvc = extensionServices.shelfService;
+    const gs = ctx.services.gitService;
+    const cs = ctx.services.conflictResolutionService;
+    const shelfSvc = ctx.services.shelfService;
 
     // Ensure the ShelfView / StashView singletons exist — both are built
     // lazily elsewhere in this file. Re-using them keeps the Shelf tab
     // consistent with the palette commands (same UX, same confirm flow).
-    if (!shelfView) {
-      shelfView = createShelfView(shelfSvc, (r) => gs.getStatus(r), cs);
+    if (!ctx.shelfView) {
+      ctx.shelfView = createShelfView(shelfSvc, (r) => gs.getStatus(r), cs);
     }
-    if (!stashView) {
-      stashView = createStashView(gs, cs);
+    if (!ctx.stashView) {
+      ctx.stashView = createStashView(gs, cs);
     }
-    const shelfViewRef = shelfView;
-    const stashViewRef = stashView;
+    const shelfViewRef = ctx.shelfView;
+    const stashViewRef = ctx.stashView;
 
     // When the user first opens the Commit tool window, neither view has
     // had `.show()` called, so their internal `_repository` is `undefined`.
@@ -926,7 +929,7 @@ function registerViews(context: vscode.ExtensionContext): void {
       return repo;
     };
 
-    commitToolWindow.setShelfTabControllers(
+    ctx.commitToolWindow.setShelfTabControllers(
       {
         apply: async (id): Promise<void> => {
           await bindShelfRepo();
@@ -987,20 +990,20 @@ function registerViews(context: vscode.ExtensionContext): void {
 
     const commitToolWindowRegistration = vscode.window.registerWebviewViewProvider(
       COMMIT_TOOL_WINDOW_VIEW_ID,
-      commitToolWindow,
+      ctx.commitToolWindow,
       {
         webviewOptions: {
           retainContextWhenHidden: true,
         },
       }
     );
-    context.subscriptions.push(commitToolWindowRegistration);
+    ctx.context.subscriptions.push(commitToolWindowRegistration);
   }
 
   // Wire up Log tab data loading
   // When the Log tab becomes active, fetch commits and display the graph
-  if (extensionServices) {
-    const gitService = extensionServices.gitService;
+  if (ctx.services) {
+    const gitService = ctx.services.gitService;
 
     // Helper to discover all repositories from all workspace folders
     const discoverAllRepositories = async (): Promise<IRepository[]> => {
@@ -1029,7 +1032,7 @@ function registerViews(context: vscode.ExtensionContext): void {
     // Kept as a block-local `const` so type narrowing inside this block
     // continues to work. We then bind it to the hoisted
     // `hoistedLoadLogCommitsForRepo` below so the second
-    // `if (extensionServices)` block can pass it into
+    // `if (ctx.services)` block can pass it into
     // `wireRepositorySelection(...)`.
     const loadLogCommitsForRepo = async (
       repo: IRepository,
@@ -1089,11 +1092,11 @@ function registerViews(context: vscode.ExtensionContext): void {
           // Tags are optional for graph rendering
         }
 
-        if (gitToolWindowProvider) {
+        if (ctx.gitToolWindowProvider) {
           // Strip the `refs/heads/` prefix so the chip filter compares
           // against the same shape `IBranchRef.name` carries.
           const headBranchName = repo.head?.name?.replace(/^refs\/heads\//, '');
-          gitToolWindowProvider.updateLogState(
+          ctx.gitToolWindowProvider.updateLogState(
             commits,
             branchMap,
             tagMap,
@@ -1121,7 +1124,7 @@ function registerViews(context: vscode.ExtensionContext): void {
      * Runs in the background; errors are swallowed so the UI stays calm.
      */
     const loadCherryMarksForRepo = async (repo: IRepository): Promise<void> => {
-      if (!gitToolWindowProvider) {
+      if (!ctx.gitToolWindowProvider) {
         return;
       }
       const flagOn =
@@ -1129,7 +1132,7 @@ function registerViews(context: vscode.ExtensionContext): void {
           .getConfiguration('intellig.log')
           .get<boolean>('highlightCherryPicked', true) ?? true;
       if (!flagOn) {
-        gitToolWindowProvider.setCherryPickedHashes(undefined);
+        ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
         return;
       }
       // Resolve the upstream ref for the current branch. If the branch has
@@ -1137,7 +1140,7 @@ function registerViews(context: vscode.ExtensionContext): void {
       // to diff against.
       const headUpstream = repo.head?.upstream;
       if (!headUpstream) {
-        gitToolWindowProvider.setCherryPickedHashes(undefined);
+        ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
         return;
       }
       const baseRef = `${headUpstream.remote}/${headUpstream.name}`;
@@ -1155,7 +1158,7 @@ function registerViews(context: vscode.ExtensionContext): void {
             equivalent.add(hash);
           }
         }
-        gitToolWindowProvider.setCherryPickedHashes(equivalent, baseRef);
+        ctx.gitToolWindowProvider.setCherryPickedHashes(equivalent, baseRef);
       } catch {
         // Swallow — the feature degrades cleanly when git doesn't support
         // --cherry-mark or the repo state is unusual.
@@ -1171,8 +1174,8 @@ function registerViews(context: vscode.ExtensionContext): void {
       searchText?: string;
     }): Promise<void> => {
       // Use the provider's selected repository if available
-      if (gitToolWindowProvider) {
-        const selectedRepo = gitToolWindowProvider.getSelectedRepository();
+      if (ctx.gitToolWindowProvider) {
+        const selectedRepo = ctx.gitToolWindowProvider.getSelectedRepository();
         if (selectedRepo) {
           await loadLogCommitsForRepo(selectedRepo, filter);
           return;
@@ -1213,31 +1216,31 @@ function registerViews(context: vscode.ExtensionContext): void {
       // fills via `loadLogCommits`; no repo → lands in No_Repository_State.
       await loadAllPanelDataCore({
         discoverAllRepositories,
-        provider: gitToolWindowProvider,
+        provider: ctx.gitToolWindowProvider,
         loadLogCommits,
       });
     };
 
     // Wire up onDidRequestInitialData to load all data when webview first opens
-    const initialDataListener = gitToolWindowProvider.onDidRequestInitialData(() => {
+    const initialDataListener = ctx.gitToolWindowProvider.onDidRequestInitialData(() => {
       void loadAllPanelData();
     });
-    context.subscriptions.push(initialDataListener);
+    ctx.context.subscriptions.push(initialDataListener);
 
     // Wire up onDidRequestRefresh to reload all data when repository changes
-    const refreshListener = gitToolWindowProvider.onDidRequestRefresh(() => {
+    const refreshListener = ctx.gitToolWindowProvider.onDidRequestRefresh(() => {
       void loadAllPanelData();
     });
-    context.subscriptions.push(refreshListener);
+    ctx.context.subscriptions.push(refreshListener);
 
     // Auto-refresh the graph when the git repository changes (new commits, branch switches, etc.)
     const repoChangeListener = gitService.onDidChangeRepository(() => {
       void loadAllPanelData();
     });
-    context.subscriptions.push(repoChangeListener);
+    ctx.context.subscriptions.push(repoChangeListener);
 
     // Load commits when log filter changes
-    const filterChangeListener = gitToolWindowProvider.onDidRequestLogFilter((filter) => {
+    const filterChangeListener = ctx.gitToolWindowProvider.onDidRequestLogFilter((filter) => {
       void loadLogCommits(
         filter
           ? {
@@ -1250,22 +1253,22 @@ function registerViews(context: vscode.ExtensionContext): void {
           : undefined
       );
     });
-    context.subscriptions.push(filterChangeListener);
+    ctx.context.subscriptions.push(filterChangeListener);
 
     // The repository-selector wiring (onDidSelectRepository → graph reload +
-    // branch tree refresh) is registered in the second `if (extensionServices)`
+    // branch tree refresh) is registered in the second `if (ctx.services)`
     // block below, where `branchTreeProvider` is in scope. Both wirings live
     // there as a single unit so the dropdown can never update one view while
     // silently desyncing the other.
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
-    const commitSelectListener = gitToolWindowProvider.onDidSelectCommit(async (hash) => {
+    const commitSelectListener = ctx.gitToolWindowProvider.onDidSelectCommit(async (hash) => {
       // prefer the tool-window's selected repo (that's where the
       // commit was clicked), falling back to the active-editor's repo in
       // multi-root workspaces. The cold-start discovery path stays as a
       // last-resort fallback.
       let repo =
-        gitToolWindowProvider?.getSelectedRepository() ??
+        ctx.gitToolWindowProvider?.getSelectedRepository() ??
         (await resolveRepo(gitService, { preferActive: true, silent: true }));
       if (!repo) {
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -1283,26 +1286,26 @@ function registerViews(context: vscode.ExtensionContext): void {
           oldPath: d.oldPath,
           status: d.status || ('modified' as const),
         }));
-        if (gitToolWindowProvider) {
-          gitToolWindowProvider.updateCommitDetails(hash, changedFiles);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.updateCommitDetails(hash, changedFiles);
         }
       } catch (error) {
-        if (gitToolWindowProvider) {
-          gitToolWindowProvider.updateCommitDetails(hash, [], error);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.updateCommitDetails(hash, [], error);
         }
       }
     });
-    context.subscriptions.push(commitSelectListener);
+    ctx.context.subscriptions.push(commitSelectListener);
 
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
-    const commitDiffListener = gitToolWindowProvider.onDidRequestCommitDiff(
+    const commitDiffListener = ctx.gitToolWindowProvider.onDidRequestCommitDiff(
       async ({ commitHash, filePath }) => {
         // prefer the tool-window's selected repo (that's where the
         // diff was requested), falling back to the active-editor's repo in
         // multi-root workspaces. The cold-start discovery path stays as a
         // last-resort fallback.
         let repo =
-          gitToolWindowProvider?.getSelectedRepository() ??
+          ctx.gitToolWindowProvider?.getSelectedRepository() ??
           (await resolveRepo(gitService, { preferActive: true, silent: true }));
         if (!repo) {
           const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -1334,10 +1337,10 @@ function registerViews(context: vscode.ExtensionContext): void {
         }
       }
     );
-    context.subscriptions.push(commitDiffListener);
+    ctx.context.subscriptions.push(commitDiffListener);
 
     // Bind the block-local helper to the hoisted reference so the second
-    // `if (extensionServices)` block (which creates the BranchTreeProvider)
+    // `if (ctx.services)` block (which creates the BranchTreeProvider)
     // can pass it into `wireRepositorySelection(...)`.
     hoistedLoadLogCommitsForRepo = (repo: IRepository): Promise<void> =>
       loadLogCommitsForRepo(repo);
@@ -1347,8 +1350,8 @@ function registerViews(context: vscode.ExtensionContext): void {
   }
 
   // Register branch context menu commands and other services
-  if (extensionServices) {
-    const gitService = extensionServices.gitService;
+  if (ctx.services) {
+    const gitService = ctx.services.gitService;
 
     // Create BranchTreeProvider and tree view for context menu support
     // The tree view is used by CommandTitleProvider to listen for selection changes
@@ -1360,7 +1363,7 @@ function registerViews(context: vscode.ExtensionContext): void {
     });
     // Register the provider too so its EventEmitter
     // onDidChangeRepository subscription are torn down on deactivation.
-    context.subscriptions.push(branchTreeView, branchTreeProvider);
+    ctx.context.subscriptions.push(branchTreeView, branchTreeProvider);
 
     // Wire the repository selector to BOTH downstream views: the Log/Graph
     // (Git) view AND the Branches tree view. Without the branch-tree side,
@@ -1370,35 +1373,35 @@ function registerViews(context: vscode.ExtensionContext): void {
     // is unit-testable end-to-end (see repoSelectionWiring.test.ts).
     //
     // `hoistedLoadLogCommitsForRepo` is bound in the first
-    // `if (extensionServices)` block above. Both blocks share this
+    // `if (ctx.services)` block above. Both blocks share this
     // top-level guard, so the helper is always defined here in production;
     // the `?? noop` fallback keeps the wiring resilient if that invariant
     // is ever broken by a future refactor.
-    if (gitToolWindowProvider) {
+    if (ctx.gitToolWindowProvider) {
       const noopLoadLog = (_repo: IRepository): Promise<void> => Promise.resolve();
       const loadLog = hoistedLoadLogCommitsForRepo ?? noopLoadLog;
       const repoSelectionDisposables = wireRepositorySelection({
-        toolWindowProvider: gitToolWindowProvider,
+        toolWindowProvider: ctx.gitToolWindowProvider,
         branchTreeProvider,
         loadLogCommitsForRepo: loadLog,
       });
-      context.subscriptions.push(...repoSelectionDisposables);
+      ctx.context.subscriptions.push(...repoSelectionDisposables);
     }
 
     // Link native BRANCHES tree view selection to the git graph.
     // When the user clicks a branch in the tree view, scroll the graph
     // panel to that branch's HEAD commit.
-    if (gitToolWindowProvider) {
+    if (ctx.gitToolWindowProvider) {
       const branchSelectionListener = branchTreeView.onDidChangeSelection((e) => {
         if (e.selection.length > 0) {
           const selectedItem = e.selection[0];
           // Only navigate for actual branch items (not category headers)
           if (selectedItem.branch) {
-            gitToolWindowProvider!.navigateToBranch(selectedItem.branch.name);
+            ctx.gitToolWindowProvider!.navigateToBranch(selectedItem.branch.name);
           }
         }
       });
-      context.subscriptions.push(branchSelectionListener);
+      ctx.context.subscriptions.push(branchSelectionListener);
 
       // `intellig.branch.focusOnGraph` inline icon command.
       // Routes the click on the branch tree's eye icon to the provider's
@@ -1415,18 +1418,18 @@ function registerViews(context: vscode.ExtensionContext): void {
           if (typeof branchName !== 'string' || branchName.length === 0) {
             return;
           }
-          const currentName = gitToolWindowProvider!.getFocusedBranchName();
+          const currentName = ctx.gitToolWindowProvider!.getFocusedBranchName();
           const nextTarget = currentName === branchName ? null : branchName;
-          await gitToolWindowProvider!.setFocusedBranch(nextTarget);
+          await ctx.gitToolWindowProvider!.setFocusedBranch(nextTarget);
         }
       );
-      context.subscriptions.push(focusOnGraphCommand);
+      ctx.context.subscriptions.push(focusOnGraphCommand);
     }
 
     // Create and register CommandTitleProvider for dynamic label resolution
     const commandTitleProvider = createCommandTitleProvider(gitService, branchTreeProvider);
-    commandTitleProvider.register(context, branchTreeView);
-    context.subscriptions.push(commandTitleProvider);
+    commandTitleProvider.register(ctx.context, branchTreeView);
+    ctx.context.subscriptions.push(commandTitleProvider);
 
     // Register branch context menu commands for the native BRANCHES tree view.
     // These are the actual VS Code command handlers invoked by the tree view context menus.
@@ -1438,32 +1441,32 @@ function registerViews(context: vscode.ExtensionContext): void {
     const branchContextMenuCommands = createBranchContextMenuCommands(
       gitService,
       branchTreeProvider,
-      extensionServices.conflictResolutionService,
-      _getPullDialog,
-      _openPushDialog,
-      _openMergeDialog,
-      _openNewBranchDialog
+      ctx.services.conflictResolutionService,
+      () => ctx.getPullDialog(),
+      (p) => ctx.openPushDialog(p),
+      (p) => ctx.openMergeDialog(p),
+      (p) => ctx.openNewBranchDialog(p)
     );
-    branchContextMenuCommands.register(context);
+    branchContextMenuCommands.register(ctx.context);
 
     // Register commit context menu commands for the Git Graph Panel.
     // These handle right-click actions on commit rows in the graph view.
     // Pass conflictResolutionService so cherry-pick/revert/merge route
     // through the Resolve Conflicts dialog on conflict.
-    if (gitToolWindowProvider) {
-      commitContextMenuCommands = createCommitContextMenuCommands(
+    if (ctx.gitToolWindowProvider) {
+      ctx.commitContextMenuCommands = createCommitContextMenuCommands(
         gitService,
-        extensionServices.rebaseService,
-        gitToolWindowProvider,
+        ctx.services.rebaseService,
+        ctx.gitToolWindowProvider,
         (gitService as unknown as IGitServiceCli).gitCli,
-        extensionServices.conflictResolutionService
+        ctx.services.conflictResolutionService
       );
-      commitContextMenuCommands.register(context);
+      ctx.commitContextMenuCommands.register(ctx.context);
     }
 
     // Initialize Status Bar Service
-    statusBarService = createStatusBarService(gitService);
-    context.subscriptions.push(statusBarService);
+    ctx.statusBarService = createStatusBarService(gitService);
+    ctx.context.subscriptions.push(ctx.statusBarService);
 
     // Initialize Notification Service. It owns no disposables of its
     // own — the shared `IntelliG` OutputChannel it consumes is
@@ -1471,19 +1474,19 @@ function registerViews(context: vscode.ExtensionContext): void {
     // `initOutputChannel(context)` earlier in activate — so we do NOT
     // push the service itself onto the subscriptions list (it has no
     // `dispose()` to call).
-    notificationService = createNotificationService();
+    ctx.notificationService = createNotificationService();
 
     // Initialize Keymap Service
-    keymapService = new KeymapService(extensionServices.configurationService);
-    context.subscriptions.push(keymapService);
+    ctx.keymapService = new KeymapService(ctx.services.configurationService);
+    ctx.context.subscriptions.push(ctx.keymapService);
 
     // Eagerly create the MergeView singleton so the Resolve Conflicts dialog
     // can subscribe to `onDidResolve` from the moment the service is wired.
     // MergeView is otherwise cheap — it only opens a panel on `show()`.
-    if (!mergeView) {
-      mergeView = createMergeView(context.extensionUri, gitService);
+    if (!ctx.mergeView) {
+      ctx.mergeView = createMergeView(ctx.context.extensionUri, gitService);
     }
-    const conflictService = extensionServices.conflictResolutionService;
+    const conflictService = ctx.services.conflictResolutionService;
     if (
       conflictService &&
       typeof (conflictService as { setResolveConflictsDependencies?: unknown })
@@ -1493,29 +1496,29 @@ function registerViews(context: vscode.ExtensionContext): void {
         conflictService as unknown as {
           setResolveConflictsDependencies: (
             ctx: vscode.ExtensionContext,
-            mv: typeof mergeView
+            mv: MergeView | undefined
           ) => void;
         }
-      ).setResolveConflictsDependencies(context, mergeView);
+      ).setResolveConflictsDependencies(ctx.context, ctx.mergeView);
     }
 
     // Initialize Stash View — pass conflictResolutionService so that
     // `apply`/`pop` conflicts route through the Resolve Conflicts dialog.
-    stashView = createStashView(gitService, extensionServices.conflictResolutionService);
-    context.subscriptions.push(stashView);
+    ctx.stashView = createStashView(gitService, ctx.services.conflictResolutionService);
+    ctx.context.subscriptions.push(ctx.stashView);
 
     // Initialize Shelf View — pass conflictResolutionService so that
     // unshelve conflicts route through the Resolve Conflicts dialog.
-    shelfView = createShelfView(
-      extensionServices.shelfService,
+    ctx.shelfView = createShelfView(
+      ctx.services.shelfService,
       (repo) => gitService.getStatus(repo),
-      extensionServices.conflictResolutionService
+      ctx.services.conflictResolutionService
     );
-    context.subscriptions.push(shelfView);
+    ctx.context.subscriptions.push(ctx.shelfView);
 
     // Initialize Branch Comparison View
-    branchComparisonView = createBranchComparisonView(gitService);
-    context.subscriptions.push(branchComparisonView);
+    ctx.branchComparisonView = createBranchComparisonView(gitService);
+    ctx.context.subscriptions.push(ctx.branchComparisonView);
 
     // late-bind the branch comparison view onto the
     // commit context menu commands so the new "Compare with Branch..."
@@ -1523,24 +1526,24 @@ function registerViews(context: vscode.ExtensionContext): void {
     // constructed AFTER `commitContextMenuCommands` in this activate()
     // sequence, so the constructor injection isn't possible without
     // reshuffling the wiring order.
-    if (commitContextMenuCommands) {
-      commitContextMenuCommands.setBranchComparisonView(branchComparisonView);
+    if (ctx.commitContextMenuCommands) {
+      ctx.commitContextMenuCommands.setBranchComparisonView(ctx.branchComparisonView);
     }
 
     // Initialize Gutter Blame Provider
-    gutterBlameProvider = createGutterBlameProvider(
-      extensionServices.blameService,
+    ctx.gutterBlameProvider = createGutterBlameProvider(
+      ctx.services.blameService,
       gitService,
-      extensionServices.blameOptionsSource
+      ctx.services.blameOptionsSource
     );
-    context.subscriptions.push(gutterBlameProvider);
+    ctx.context.subscriptions.push(ctx.gutterBlameProvider);
 
     // Initialize Rebase Progress View
-    rebaseProgressView = createRebaseProgressView(
-      context.extensionUri,
-      extensionServices.rebaseService
+    ctx.rebaseProgressView = createRebaseProgressView(
+      ctx.context.extensionUri,
+      ctx.services.rebaseService
     );
-    context.subscriptions.push(rebaseProgressView);
+    ctx.context.subscriptions.push(ctx.rebaseProgressView);
   }
 }
 
