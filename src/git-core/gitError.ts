@@ -218,18 +218,23 @@ export function worktreeConflictMessage(rawMessage: string): string | undefined 
   if (!rawMessage) {
     return undefined;
   }
-  // git's two known phrasings for the same refusal.
-  if (
-    !rawMessage.includes('is already used by worktree') &&
-    !rawMessage.includes('is already checked out')
-  ) {
+  // git's two known phrasings for the same refusal. The "already checked
+  // out" phrasing is gated on its full refusal shape — git always emits it
+  // as `is already checked out at '<path>'`, or with an explicit worktree
+  // mention — so a message that merely contains the bare substring (e.g. a
+  // status line, a user's branch description) doesn't false-positive.
+  const isUsedByWorktree = rawMessage.includes('is already used by worktree');
+  const isCheckedOutRefusal =
+    rawMessage.includes('is already checked out at ') ||
+    (rawMessage.includes('is already checked out') && rawMessage.includes('worktree'));
+  if (!isUsedByWorktree && !isCheckedOutRefusal) {
     return undefined;
   }
 
   // Pull the worktree path out of git's trailing `at '<path>'` clause.
   const pathMatch = rawMessage.match(/\bat '([^']+)'/);
   const branchMatch = rawMessage.match(/'([^']+)' is already (?:used by worktree|checked out)/);
-  const branchClause = branchMatch ? `'${branchMatch[1]}'` : 'This branch';
+  const branchClause = branchMatch ? `'${sanitizeGitError(branchMatch[1])}'` : 'This branch';
 
   if (pathMatch) {
     const worktreePath = sanitizeGitError(pathMatch[1]);

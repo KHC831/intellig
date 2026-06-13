@@ -404,6 +404,23 @@ describe('worktreeConflictMessage — translate git worktree-conflict fatal into
     assert.strictEqual(worktreeConflictMessage(''), undefined);
   });
 
+  it('returns undefined when a message merely contains "is already checked out" without the refusal shape', () => {
+    // The bare substring can appear in unrelated text (a branch description,
+    // a status line). Only the real refusal shape — `is already checked out
+    // at '<path>'` or an explicit worktree mention — should translate.
+    assert.strictEqual(
+      worktreeConflictMessage('note: this topic branch is already checked out somewhere by me'),
+      undefined
+    );
+  });
+
+  it('detects the worktree refusal when "checked out" is paired with an explicit worktree mention', () => {
+    const raw = "fatal: 'main' is already checked out in a linked worktree at '/repos/main-wt'";
+    const msg = worktreeConflictMessage(raw);
+    assert.ok(msg, 'should detect the conflict via the worktree mention');
+    assert.ok(msg.includes('/repos/main-wt'), `should name the path; got: "${msg}"`);
+  });
+
   it('still detects the conflict when the path cannot be parsed (no quoted path)', () => {
     // Defensive: if git changes its quoting, we still want the generic
     // actionable message rather than falling back to the raw fatal.
