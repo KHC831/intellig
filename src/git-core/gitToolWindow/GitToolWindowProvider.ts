@@ -51,6 +51,7 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
 import type { IGtwControllerContext } from './provider/IGtwControllerContext';
 import { buildLoadingHtml, buildNoRepositoryHtml } from './provider/htmlBuilders';
+import { handleLoadMoreCommits } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { formatCommitDate } from '../../utils/dateFormat';
@@ -1985,13 +1986,20 @@ export class GitToolWindowProvider
     }
   }
 
+  // IGtwControllerContext — fire-only access to the load-more emitter, so
+  // extracted handlers can request more commits without reaching the emitter
+  // object (which would also expose subscribe + dispose).
+  fireLoadMoreCommits(): void {
+    this._onDidRequestLoadMoreCommits.fire();
+  }
+
   /**
    * Handle the loadMoreCommits message from the webview.
    * Fires the onDidRequestLoadMoreCommits event so that the extension host
    * can fetch the next batch of commits and append them.
    */
   private _handleLoadMoreCommits(): void {
-    this._onDidRequestLoadMoreCommits.fire();
+    handleLoadMoreCommits(this);
   }
 
   /**

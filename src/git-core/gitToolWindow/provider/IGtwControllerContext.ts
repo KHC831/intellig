@@ -15,4 +15,11 @@ export interface IGtwControllerContext {
   getNonce(): string;
   /** The shared inline CSS injected into every webview HTML document. */
   getInlineStyles(): string;
+  /**
+   * Fire the "load more commits" request event. Exposes only the fire
+   * capability — the EventEmitter itself stays private to the provider so
+   * extracted handlers can request more commits without gaining subscribe or
+   * dispose access to the emitter.
+   */
+  fireLoadMoreCommits(): void;
 }
