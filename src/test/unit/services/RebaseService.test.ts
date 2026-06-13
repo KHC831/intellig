@@ -850,7 +850,7 @@ describe('RebaseService', () => {
       disposable.dispose();
     });
 
-    it('continueRebase against a session with no git rebase in progress self-clears and reports completion, not a raw fatal', async () => {
+    it('continueRebase against a session with no git rebase in progress self-clears and reports cleared-stale, not completed', async () => {
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       // git has no rebase-merge dir → `git rebase --continue` fatals.
       mockGitCli.setExecResult(
@@ -862,12 +862,15 @@ describe('RebaseService', () => {
       const result = await rebaseService.continueRebase(mockRepo);
 
       assert.strictEqual(result.success, true, 'must not surface a failure for a phantom session');
-      assert.strictEqual(result.status, 'completed');
+      // A no-op stale-clear is NOT a completed rebase — it gets its own status
+      // so the UI can show an honest message instead of "Rebase completed
+      // successfully!".
+      assert.strictEqual(result.status, 'cleared-stale');
       // The phantom session is gone — it can no longer poison later ops.
       assert.strictEqual(rebaseService.getRebaseSession(mockRepo), undefined);
     });
 
-    it('skipCommit against a session with no git rebase in progress self-clears and reports completion', async () => {
+    it('skipCommit against a session with no git rebase in progress self-clears and reports cleared-stale', async () => {
       await rebaseService.startInteractiveRebase(mockRepo, 'main');
       mockGitCli.setExecResult(
         'rebase --skip',
@@ -878,7 +881,7 @@ describe('RebaseService', () => {
       const result = await rebaseService.skipCommit(mockRepo);
 
       assert.strictEqual(result.success, true);
-      assert.strictEqual(result.status, 'completed');
+      assert.strictEqual(result.status, 'cleared-stale');
       assert.strictEqual(rebaseService.getRebaseSession(mockRepo), undefined);
     });
 

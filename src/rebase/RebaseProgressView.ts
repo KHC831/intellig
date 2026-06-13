@@ -276,6 +276,14 @@ export class RebaseProgressView implements vscode.Disposable {
       if (result.status === 'completed') {
         void vscode.window.showInformationMessage('Rebase completed successfully!');
         this.hide();
+      } else if (result.status === 'cleared-stale') {
+        // The op found no live rebase and self-cleared a phantom (stale)
+        // session — no commits were replayed. Report it honestly instead of
+        // claiming the rebase completed.
+        void vscode.window.showInformationMessage(
+          'No rebase in progress — cleared a stale session.'
+        );
+        this.hide();
       } else if (result.status === 'paused') {
         void vscode.window.showInformationMessage('Rebase paused. Make your changes and continue.');
         this._updateWebview();
@@ -380,6 +388,8 @@ export class RebaseProgressView implements vscode.Disposable {
         return 'Conflicts Detected';
       case 'completed':
         return 'Completed';
+      case 'cleared-stale':
+        return 'Stale Session Cleared';
       default:
         return 'Unknown';
     }
@@ -397,6 +407,8 @@ export class RebaseProgressView implements vscode.Disposable {
       case 'conflict':
         return 'status-conflict';
       case 'completed':
+        return 'status-completed';
+      case 'cleared-stale':
         return 'status-completed';
       default:
         return 'status-unknown';

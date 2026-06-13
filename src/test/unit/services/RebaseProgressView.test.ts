@@ -503,6 +503,54 @@ describe('RebaseProgressView', () => {
     });
   });
 
+  describe('Cleared-stale honest message (issue #21)', () => {
+    // When continue/skip self-clear a phantom (stale) rebase session, the op
+    // returns status:'cleared-stale'. The view must surface an honest "no
+    // rebase in progress — cleared a stale session" message, NOT the
+    // "Rebase completed successfully!" success toast (no real rebase ran).
+    interface RebaseProgressViewInternals {
+      _handleRebaseResult(result: IRebaseResult): void;
+    }
+    const internals = (): RebaseProgressViewInternals =>
+      rebaseProgressView as unknown as RebaseProgressViewInternals;
+
+    function captureInfoToasts(): { infos: string[]; restore: () => void } {
+      const infos: string[] = [];
+      const oInfo = vscode.window.showInformationMessage;
+      (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage = (
+        m: string
+      ): Promise<string | undefined> => {
+        infos.push(m);
+        return Promise.resolve(undefined);
+      };
+      return {
+        infos,
+        restore: (): void => {
+          (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
+            oInfo;
+        },
+      };
+    }
+
+    it('shows an honest stale-clear message, not "Rebase completed successfully"', () => {
+      const { infos, restore } = captureInfoToasts();
+      try {
+        internals()._handleRebaseResult({ success: true, status: 'cleared-stale' });
+        assert.strictEqual(infos.length, 1, 'expected exactly one info toast');
+        assert.ok(
+          !infos[0].includes('Rebase completed successfully'),
+          'must NOT claim the rebase completed — no real rebase ran'
+        );
+        assert.ok(
+          /stale/i.test(infos[0]) && /no rebase in progress/i.test(infos[0]),
+          `message should honestly describe the stale-session clear, got: "${infos[0]}"`
+        );
+      } finally {
+        restore();
+      }
+    });
+  });
+
   describe('Session State Changes', () => {
     it('should listen to onDidChangeRebaseSession events', async () => {
       let eventCount = 0;

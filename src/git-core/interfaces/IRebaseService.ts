@@ -7,9 +7,20 @@ import { IRepository } from './IGitService';
 export type RebaseAction = 'pick' | 'reword' | 'edit' | 'squash' | 'fixup' | 'drop';
 
 /**
- * Rebase session status
+ * Rebase session status.
+ *
+ * `cleared-stale` is distinct from `completed`: it marks a no-op where a
+ * continue/skip/abort found NO live git rebase and self-cleared a phantom
+ * (stale) cached session. No commits were replayed, so the UI must report it
+ * honestly rather than claiming the rebase completed.
  */
-export type RebaseStatus = 'planning' | 'in-progress' | 'paused' | 'conflict' | 'completed';
+export type RebaseStatus =
+  | 'planning'
+  | 'in-progress'
+  | 'paused'
+  | 'conflict'
+  | 'completed'
+  | 'cleared-stale';
 
 /**
  * Commit in a rebase session
