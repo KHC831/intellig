@@ -1331,28 +1331,16 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._remoteOps.push(repo, options);
   }
 
-  async getRemotes(repo: IRepository): Promise<IRemote[]> {
-    const result = await this._gitCli.exec(['remote', '-v'], { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseRemotes(result.stdout);
+  getRemotes(repo: IRepository): Promise<IRemote[]> {
+    return this._remoteOps.getRemotes(repo);
   }
 
-  async addRemote(repo: IRepository, name: string, url: string): Promise<void> {
-    await this._gitCli.exec(['remote', 'add', name, url], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  addRemote(repo: IRepository, name: string, url: string): Promise<void> {
+    return this._remoteOps.addRemote(repo, name, url);
   }
 
-  async removeRemote(repo: IRepository, name: string): Promise<void> {
-    await this._gitCli.exec(['remote', 'remove', name], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  removeRemote(repo: IRepository, name: string): Promise<void> {
+    return this._remoteOps.removeRemote(repo, name);
   }
 
   // ============================================

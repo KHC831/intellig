@@ -7,8 +7,10 @@ import {
   IFetchRefUpdate,
   IPullOptions,
   IPushOptions,
+  IRemote,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
+import { parseRemotes } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -253,6 +255,30 @@ export class RemoteOps {
 
     const args = buildGitArgs('push', flags, refs);
     await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  async getRemotes(repo: IRepository): Promise<IRemote[]> {
+    const result = await this.ctx.gitCli.exec(['remote', '-v'], { cwd: repo.rootUri.fsPath });
+    if (result.exitCode !== 0) {
+      return [];
+    }
+    return parseRemotes(result.stdout);
+  }
+
+  async addRemote(repo: IRepository, name: string, url: string): Promise<void> {
+    await this.ctx.gitCli.exec(['remote', 'add', name, url], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  async removeRemote(repo: IRepository, name: string): Promise<void> {
+    await this.ctx.gitCli.exec(['remote', 'remove', name], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 }
