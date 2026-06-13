@@ -333,7 +333,7 @@ export class BranchOps {
     // round-trip exits 0 with no unmerged files, but when re-applying the
     // autostash collides with the rebased changes git leaves unmerged files
     // AND still exits 0. Checking unmerged files unconditionally surfaces that
-    // pop-conflict as a conflict instead of a false success.
+    // pop-conflict instead of a false success.
     const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
       cwd: repo.rootUri.fsPath,
     });
@@ -342,9 +342,20 @@ export class BranchOps {
       .map((f) => f.path);
 
     if (conflicts.length > 0) {
+      // Conflict-ness and continuability are orthogonal: both states list the
+      // same unmerged files, but only a live rebase is continuable. For a
+      // non-interactive `git rebase` the exit code is a faithful proxy for the
+      // rebase-merge/rebase-apply marker the rebase-in-progress check reads:
+      // a mid-replay conflict stops with a non-zero exit AND a live rebase, so
+      // it is continuable via `git rebase --continue`/`--abort`; an autostash
+      // pop conflict happens AFTER the rebase completes (exit 0, HEAD already
+      // moved, no rebase in progress) where `--continue` would dead-end on
+      // "no rebase in progress". (A non-zero exit with no unmerged files never
+      // reaches here — it falls through to the failure-reason path below.)
       return {
         success: false,
         conflicts,
+        rebaseInProgress: result.exitCode !== 0,
       };
     }
 

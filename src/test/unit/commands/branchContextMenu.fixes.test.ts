@@ -287,6 +287,43 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
     assert.strictEqual(provider._refreshCalls, 1, 'refresh still fires after conflict handoff');
   });
 
+  it('autostash-pop conflict (rebaseInProgress:false): resolve dialog WITHOUT continue/abort', async () => {
+    // The rebase completed but re-applying the autostash conflicted. There is
+    // no live rebase, so the dialog must suppress continue/abort — they would
+    // dead-end on "no rebase in progress".
+    const gitService = createMockGitService({
+      success: false,
+      conflicts: ['src/a.ts'],
+      rebaseInProgress: false,
+    });
+    const crs = createMockConflictResolutionService();
+    const repo = createMockRepo('main');
+    const provider = createMockBranchTreeProvider(repo);
+    const commands = new BranchContextMenuCommands(
+      gitService as unknown as IGitService,
+      provider,
+      crs as unknown as IConflictResolutionService
+    );
+
+    const item = createLocalBranchTreeItem('feature/x');
+    await (
+      commands as unknown as {
+        _handleCheckoutAndRebase(i: BranchTreeItem): Promise<void>;
+      }
+    )._handleCheckoutAndRebase(item);
+
+    assert.strictEqual(crs._calls.openResolveConflictsDialog.length, 1);
+    const [, filesArg, ctxArg] = crs._calls.openResolveConflictsDialog[0].args;
+    assert.strictEqual(filesArg.length, 1);
+    assert.strictEqual(ctxArg.operation, 'rebase');
+    assert.strictEqual(ctxArg.canAbort, false, 'abort must be suppressed for a completed rebase');
+    assert.strictEqual(
+      ctxArg.canContinue,
+      false,
+      'continue must be suppressed — `git rebase --continue` would dead-end'
+    );
+  });
+
   it('returns early when repository is missing', async () => {
     const gitService = createMockGitService();
     const provider = createMockBranchTreeProvider(undefined);

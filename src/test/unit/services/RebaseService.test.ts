@@ -365,11 +365,31 @@ describe('RebaseService', () => {
       );
     });
 
-    it('reports a conflict when the autostash pop leaves unmerged files (exit 0)', async () => {
-      // An interactive rebase can replay cleanly and exit 0, yet leave
-      // unmerged files behind when git re-applies the autostash and it
-      // collides with the rebased changes. The result must surface that as a
-      // conflict rather than reporting a clean completion.
+    it('marks a pop conflict non-continuable (rebaseInProgress:false) when no rebase is in progress', async () => {
+      // An interactive rebase can replay cleanly and exit 0, yet leave unmerged
+      // files behind when git re-applies the autostash and it collides with the
+      // rebased changes. At that point the rebase is COMPLETE — git removed
+      // .git/rebase-merge — so `git rebase --continue` would dead-end on "no
+      // rebase in progress". The result still reports status:'conflict' (so the
+      // resolve dialog opens and lists the files) but marks the conflict
+      // non-continuable so continue/abort is not offered.
+      mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
+      // No .git/rebase-merge or rebase-apply dir exists in tmpRepo, so the
+      // rebase is detected as complete.
+
+      const result = await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.status, 'conflict');
+      assert.deepStrictEqual(result.conflictedFiles, ['shared.ts']);
+      assert.strictEqual(result.rebaseInProgress, false);
+    });
+
+    it('marks a conflict continuable (rebaseInProgress:true) when a rebase is still in progress', async () => {
+      // A genuine mid-replay conflict leaves a live rebase in progress
+      // (.git/rebase-merge present). That state IS continuable, so it stays
+      // status:'conflict' AND rebaseInProgress:true to route to continue/abort.
+      fs.mkdirSync(path.join(tmpRepo, '.git', 'rebase-merge'), { recursive: true });
       mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
 
       const result = await tmpRebaseService.executeRebase(tmpRepoObj);
@@ -377,6 +397,7 @@ describe('RebaseService', () => {
       assert.strictEqual(result.success, false);
       assert.strictEqual(result.status, 'conflict');
       assert.deepStrictEqual(result.conflictedFiles, ['shared.ts']);
+      assert.strictEqual(result.rebaseInProgress, true);
     });
 
     it('completes cleanly when the autostash pop leaves no unmerged files (exit 0)', async () => {

@@ -107,20 +107,69 @@ export class BranchContextMenuCommands {
     opContext: {
       operation: 'merge' | 'rebase' | 'cherryPick' | 'revert';
       target?: string;
+      /**
+       * Whether a rebase is still in progress. When `false` (an
+       * `--autostash` pop conflict after the rebase already finished) the
+       * continue/abort affordances are suppressed — `git rebase
+       * --continue`/`--abort` would dead-end on "no rebase in progress" — and
+       * the dialog offers resolve-and-stage only. Defaults to `true` for the
+       * mid-rebase / merge / cherry-pick / revert callers.
+       */
+      rebaseInProgress?: boolean;
     }
   ): Promise<void> {
     if (!this._conflictResolutionService || conflicts.length === 0) {
       return;
     }
+    const continuable = opContext.rebaseInProgress !== false;
     await this._conflictResolutionService.openResolveConflictsDialog(
       repo,
       conflicts.map((p) => ({ path: p, resolved: false })),
       {
         operation: opContext.operation,
         target: opContext.target,
-        canAbort: true,
-        canContinue: true,
+        canAbort: continuable,
+        canContinue: continuable,
       }
+    );
+  }
+
+  /**
+   * Surface a rebase conflict result, routing by continuability.
+   *
+   * A continuable mid-rebase conflict opens the Resolve Conflicts dialog with
+   * the continue/abort affordances (falling back to a "resolve conflicts"
+   * warning when the dialog isn't wired). A non-continuable conflict — an
+   * `--autostash` pop conflict surfaced after the rebase already finished —
+   * opens the same dialog WITHOUT continue/abort (`git rebase
+   * --continue`/`--abort` would dead-end on "no rebase in progress") and the
+   * fallback warning instead tells the user to resolve and `git add` the
+   * files, since the rebase is already complete.
+   */
+  private async _surfaceRebaseConflicts(
+    repo: IRepository,
+    conflicts: string[],
+    target: string,
+    rebaseInProgress: boolean | undefined
+  ): Promise<void> {
+    if (this._conflictResolutionService) {
+      await this._openResolveConflictsDialog(repo, conflicts, {
+        operation: 'rebase',
+        target,
+        rebaseInProgress,
+      });
+      return;
+    }
+    if (rebaseInProgress === false) {
+      void vscode.window.showWarningMessage(
+        `Rebase onto '${target}' succeeded, but re-applying your stashed changes ` +
+          `conflicted in ${conflicts.length} file(s). Resolve them and \`git add\` them. ` +
+          `Do not continue or abort — the rebase is already complete.`
+      );
+      return;
+    }
+    void vscode.window.showWarningMessage(
+      `Rebase conflicts in ${conflicts.length} file(s). Please resolve conflicts.`
     );
   }
 
@@ -577,19 +626,16 @@ export class BranchContextMenuCommands {
           `Rebased onto '${item.branch.name}' successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // Auto-open Resolve Conflicts dialog when wired; fall back
-        // to a warning toast otherwise.
-        if (this._conflictResolutionService) {
-          conflictDialogOpened = true;
-          await this._openResolveConflictsDialog(repo, result.conflicts, {
-            operation: 'rebase',
-            target: item.branch.name,
-          });
-        } else {
-          void vscode.window.showWarningMessage(
-            `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-          );
-        }
+        // Auto-open Resolve Conflicts dialog when wired; fall back to a
+        // warning toast otherwise. A non-continuable autostash-pop conflict
+        // (rebaseInProgress === false) suppresses continue/abort.
+        conflictDialogOpened = !!this._conflictResolutionService;
+        await this._surfaceRebaseConflicts(
+          repo,
+          result.conflicts,
+          item.branch.name,
+          result.rebaseInProgress
+        );
       } else {
         // Non-conflict failure (e.g. dirty tree, in-progress rebase, refs
         // out of sync, remote ref disappeared, etc.). Surface the underlying
@@ -1025,18 +1071,12 @@ export class BranchContextMenuCommands {
           `Checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // Auto-open Resolve Conflicts dialog when wired; fall back
-        // to a warning toast otherwise.
-        if (this._conflictResolutionService) {
-          await this._openResolveConflictsDialog(repo, result.conflicts, {
-            operation: 'rebase',
-            target: previousCurrentBranch,
-          });
-        } else {
-          void vscode.window.showWarningMessage(
-            `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-          );
-        }
+        await this._surfaceRebaseConflicts(
+          repo,
+          result.conflicts,
+          previousCurrentBranch,
+          result.rebaseInProgress
+        );
       } else {
         // Non-conflict failure: surface the underlying git error.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
@@ -1069,17 +1109,12 @@ export class BranchContextMenuCommands {
                 `Stashed changes, checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
-              // Auto-open Resolve Conflicts dialog when wired.
-              if (this._conflictResolutionService) {
-                await this._openResolveConflictsDialog(repo, result.conflicts, {
-                  operation: 'rebase',
-                  target: previousCurrentBranch,
-                });
-              } else {
-                void vscode.window.showWarningMessage(
-                  `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-                );
-              }
+              await this._surfaceRebaseConflicts(
+                repo,
+                result.conflicts,
+                previousCurrentBranch,
+                result.rebaseInProgress
+              );
             } else {
               // Non-conflict failure: surface the underlying git error.
               const reason = result.failureReason ?? 'unknown error (no output from git)';
@@ -1105,17 +1140,12 @@ export class BranchContextMenuCommands {
                 `Force checked out '${displayName}' and rebased onto '${previousCurrentBranch}'`
               );
             } else if (result.conflicts && result.conflicts.length > 0) {
-              // Auto-open Resolve Conflicts dialog when wired.
-              if (this._conflictResolutionService) {
-                await this._openResolveConflictsDialog(repo, result.conflicts, {
-                  operation: 'rebase',
-                  target: previousCurrentBranch,
-                });
-              } else {
-                void vscode.window.showWarningMessage(
-                  `Rebase conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
-                );
-              }
+              await this._surfaceRebaseConflicts(
+                repo,
+                result.conflicts,
+                previousCurrentBranch,
+                result.rebaseInProgress
+              );
             } else {
               // Non-conflict failure: surface the underlying git error.
               const reason = result.failureReason ?? 'unknown error (no output from git)';

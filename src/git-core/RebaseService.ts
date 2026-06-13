@@ -257,7 +257,14 @@ export class RebaseService implements IRebaseService {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
       }
-      return { success: false, status: 'conflict', conflictedFiles: conflicts };
+      // Reached from --continue/--skip/amend, so a rebase is necessarily still
+      // in progress: the conflict is continuable.
+      return {
+        success: false,
+        status: 'conflict',
+        conflictedFiles: conflicts,
+        rebaseInProgress: true,
+      };
     }
 
     return { success: false, status: 'paused' };
@@ -320,7 +327,14 @@ export class RebaseService implements IRebaseService {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
       }
-      return { success: false, status: 'conflict', conflictedFiles: conflicts };
+      // Reached from --continue/--skip/amend, so a rebase is necessarily still
+      // in progress: the conflict is continuable.
+      return {
+        success: false,
+        status: 'conflict',
+        conflictedFiles: conflicts,
+        rebaseInProgress: true,
+      };
     }
 
     return { success: false, status: 'paused' };
@@ -413,9 +427,21 @@ ${todoContent}EOF
     // completion.
     const conflicts = await this.getConflictedFiles(repo);
     if (conflicts.length > 0) {
+      // Both a continuable mid-rebase conflict and a terminal autostash pop
+      // conflict list the same unmerged files, so both report status
+      // 'conflict' (the resolve dialog opens and lists the files in both
+      // cases). They differ only in continuability, surfaced via the
+      // orthogonal `rebaseInProgress` flag: a genuine replay conflict leaves a
+      // live rebase in progress (.git/rebase-merge or rebase-apply present),
+      // continuable via `git rebase --continue`/`--abort`. The autostash pop
+      // conflict happens AFTER the rebase completes — git has already removed
+      // the rebase metadata, so `--continue` would dead-end on "no rebase in
+      // progress". Consumers gate the continue/abort affordance on
+      // `rebaseInProgress === true`.
+      const rebaseInProgress = this.isRebaseInProgress(repo);
       session.status = 'conflict';
       this._onDidChangeRebaseSession.fire(session);
-      return { success: false, status: 'conflict', conflictedFiles: conflicts };
+      return { success: false, status: 'conflict', conflictedFiles: conflicts, rebaseInProgress };
     }
 
     // Check if rebase completed successfully
@@ -575,7 +601,14 @@ ${todoContent}EOF
       if (conflicts.length > 0) {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
-        return { success: false, status: 'conflict', conflictedFiles: conflicts };
+        // Reached from --continue/--skip/amend, so a rebase is necessarily still
+        // in progress: the conflict is continuable.
+        return {
+          success: false,
+          status: 'conflict',
+          conflictedFiles: conflicts,
+          rebaseInProgress: true,
+        };
       }
       return { success: false, status: 'paused' };
     }
@@ -635,7 +668,14 @@ ${todoContent}EOF
       if (conflicts.length > 0) {
         session.status = 'conflict';
         this._onDidChangeRebaseSession.fire(session);
-        return { success: false, status: 'conflict', conflictedFiles: conflicts };
+        // Reached from --continue/--skip/amend, so a rebase is necessarily still
+        // in progress: the conflict is continuable.
+        return {
+          success: false,
+          status: 'conflict',
+          conflictedFiles: conflicts,
+          rebaseInProgress: true,
+        };
       }
       return { success: false, status: 'paused' };
     }

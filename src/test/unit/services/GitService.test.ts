@@ -1704,12 +1704,13 @@ describe('GitService - Merge and Rebase Operations', () => {
         assert.ok(result.conflicts.includes('deleted-by-us.ts'));
       });
 
-      it('reports conflicts when autostash pop fails even though rebase exits 0', async () => {
+      it('reports an exit-0 autostash pop conflict as a non-continuable conflict', async () => {
         // With `--autostash`, git stashes a dirty tree, replays cleanly, then
         // pops the stash. If that pop collides with the rebased changes git
-        // leaves unmerged files in the tree but STILL exits 0. Treating exit 0
-        // as unconditional success would silently mask the conflict, so the
-        // result must reflect the unmerged files instead.
+        // leaves unmerged files in the tree but STILL exits 0. The rebase is
+        // already complete (no rebase in progress), so the conflict is listed
+        // (resolve dialog opens) but marked non-continuable — continue/abort
+        // must not be offered, since they would dead-end.
         mockGitCli.setMockResult('rebase --autostash --end-of-options main', {
           exitCode: 0,
           stdout: 'Applying autostash resulted in conflicts.',
@@ -1725,11 +1726,8 @@ describe('GitService - Merge and Rebase Operations', () => {
 
         assert.strictEqual(result.success, false);
         assert.deepStrictEqual(result.conflicts, ['shared.ts']);
-        assert.strictEqual(
-          result.failureReason,
-          undefined,
-          'failureReason must NOT be set when conflicts are present — the conflict path owns surfacing'
-        );
+        assert.strictEqual(result.rebaseInProgress, false);
+        assert.strictEqual(result.failureReason, undefined);
       });
 
       it('returns success when rebase exits 0 with a clean tree', async () => {

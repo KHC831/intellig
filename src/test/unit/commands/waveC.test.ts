@@ -970,6 +970,52 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       assert.strictEqual(conflictSvc.calls[0].options.target, 'squash');
     });
 
+    it('autostash-pop conflict (rebaseInProgress:false): does NOT abort, suppresses continue/abort in dialog', async () => {
+      // The squash flow pre-stashes so this is practically unreachable, but the
+      // handler must still honor the flag: a completed rebase has no live
+      // rebase to abort, and `git rebase --abort`/`--continue` would dead-end.
+      const tracker = blankRebaseTracker();
+      tracker.sessionCommits = [
+        { hash: HASH_MID, message: 'mid', action: 'pick' },
+        { hash: HASH_NEWEST, message: 'new', action: 'pick' },
+      ];
+      tracker.executeResult = {
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/conflicted.ts'],
+        rebaseInProgress: false,
+      };
+      const rebaseService = createMockRebaseService(tracker);
+      const gitService = createMockGitService(repo);
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const conflictSvc = createMockConflictResolutionService();
+      const cmds = makeCommands({
+        repo,
+        gitService,
+        gitCli,
+        provider,
+        rebaseService,
+        conflictResolutionService: conflictSvc,
+      });
+      captureMessages();
+
+      await runWithEditor(
+        () =>
+          (cmds as unknown as CommandsInternal)._handleAction(
+            'squashCommits',
+            [HASH_NEWEST, HASH_MID],
+            NODES_4
+          ),
+        (e) => e.simulateSave('combined')
+      );
+
+      assert.strictEqual(tracker.abortCalls, 0, 'must not abort a rebase that already completed');
+      assert.strictEqual(conflictSvc.calls.length, 1);
+      assert.strictEqual(conflictSvc.calls[0].options.canAbort, false);
+      assert.strictEqual(conflictSvc.calls[0].options.canContinue, false);
+    });
+
     it('treats empty save as cancel (R1 Senior L-2 — no error toast, no rebase)', async () => {
       const tracker = blankRebaseTracker();
       tracker.sessionCommits = [
