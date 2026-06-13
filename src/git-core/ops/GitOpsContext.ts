@@ -1,4 +1,5 @@
 import type { GitCli } from '../gitCli';
+import type { IRepository, IFetchResult } from '../interfaces/IGitService';
 
 /**
  * Narrow read-through bridge handed to every *Ops collaborator. It owns NO
@@ -11,6 +12,12 @@ export interface IGitOpsContext {
   readonly gitCli: GitCli;
   /** Forwards to GitService.invalidateCache(rootPath). */
   invalidateCache(rootPath: string): void;
+  /**
+   * Fire the onDidFetch event. The EventEmitter stays private on GitService;
+   * collaborators fire through this so the emitter is never captured/owned by
+   * a collaborator (same vocabulary as the GTWProvider fireX() capabilities).
+   */
+  fireDidFetch(payload: { repo: IRepository; result: IFetchResult }): void;
 }
 
 /**
@@ -27,12 +34,14 @@ export interface IGitOpsContext {
  */
 export function createGitOpsContext(
   getGitCli: () => GitCli,
-  invalidateCache: (rootPath: string) => void
+  invalidateCache: (rootPath: string) => void,
+  fireDidFetch: (payload: { repo: IRepository; result: IFetchResult }) => void
 ): IGitOpsContext {
   return {
     get gitCli(): GitCli {
       return getGitCli();
     },
     invalidateCache,
+    fireDidFetch,
   };
 }

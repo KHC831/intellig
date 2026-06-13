@@ -19,7 +19,6 @@ import {
   IPushOptions,
   IFetchOptions,
   IFetchResult,
-  IFetchRefUpdate,
   IStashOptions,
   ILogOptions,
   IFileHistoryOptions,
@@ -36,12 +35,12 @@ import {
   RepositoryState,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
+import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
 import {
-  scanFolderForGitRepos,
-  defaultRepoScanFs,
-  IRepoScanFs,
-  INTERNAL_IGNORED_FOLDERS,
-} from './repoScan';
+  isPathInsideOrEqual,
+  repoRootFromGitDir,
+  isNewRepoPathIgnored,
+} from './repo/RepositoryDiscovery';
 import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
 import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { StagingOps } from './ops/StagingOps';
@@ -49,6 +48,7 @@ import { DiffOps } from './ops/DiffOps';
 import { CherryPickRevertOps } from './ops/CherryPickRevertOps';
 import { BranchOps } from './ops/BranchOps';
 import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
+import { RemoteOps } from './ops/RemoteOps';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -73,6 +73,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private readonly _cherryRevert: CherryPickRevertOps;
   private readonly _branches: BranchOps;
   private readonly _stashTagHistory: StashTagHistoryOps;
+  private readonly _remoteOps: RemoteOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -272,13 +273,15 @@ export class GitService implements IGitService, IGitServiceCli {
     // collaborators; the cli is never captured at construction.
     const ctx: IGitOpsContext = createGitOpsContext(
       () => this._gitCli,
-      (rootPath) => this.invalidateCache(rootPath)
+      (rootPath) => this.invalidateCache(rootPath),
+      (payload) => this._onDidFetch.fire(payload)
     );
     this._staging = new StagingOps(ctx);
     this._diff = new DiffOps(ctx);
     this._cherryRevert = new CherryPickRevertOps(ctx);
     this._branches = new BranchOps(ctx);
     this._stashTagHistory = new StashTagHistoryOps(ctx);
+    this._remoteOps = new RemoteOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -577,40 +580,18 @@ export class GitService implements IGitService, IGitServiceCli {
         return;
       }
       // The URI is the `.git` directory itself; the repo root is its parent.
-      const fsPath = uri.fsPath;
-      const lastSep = Math.max(fsPath.lastIndexOf('/'), fsPath.lastIndexOf('\\'));
-      if (lastSep <= 0) {
+      const repoParentDir = repoRootFromGitDir(uri.fsPath);
+      if (repoParentDir === undefined) {
         return;
       }
-      const repoParentDir = fsPath.slice(0, lastSep);
 
       // Filter against ignored folders. Re-read config in case it changed
-      // since `discoverRepository` ran.
+      // since `discoverRepository` ran. The path-topology filter (outside-
+      // folder defense + ancestor-segment ignore match) lives in the
+      // stateless RepositoryDiscovery helper.
       const config = vscode.workspace.getConfiguration('intellig');
       const userIgnored = config.get<string[]>('repositoryScanIgnoredFolders', []);
-      // Apply the same filter the scanner uses: basename of any ancestor
-      // between the workspace folder and the parent dir matching an
-      // ignored name disqualifies this `.git/`.
-      //
-      // (path-prefix string match): use
-      // `path.relative` rather than `repoParentDir.startsWith(folderPath)`.
-      // The string-prefix check incorrectly matched `/workspace/foo` as
-      // inside `/work` because `'/workspace/foo'.startsWith('/work')` is
-      // true. `path.relative` returns `'../workspace/foo'` for that case,
-      // which we detect via the `..` prefix and bail.
-      const rel = path.relative(folderPath, repoParentDir);
-      if (rel.length > 0 && (rel === '..' || rel.startsWith('..' + path.sep))) {
-        // The created `.git/` is OUTSIDE the watched folder. This shouldn't
-        // happen given the RelativePattern glob, but defend against it.
-        return;
-      }
-      if (path.isAbsolute(rel)) {
-        // Different drive on Windows — also outside the watched folder.
-        return;
-      }
-      const segments = rel.split(/[/\\]/).filter((s) => s.length > 0);
-      const allIgnored = new Set<string>([...INTERNAL_IGNORED_FOLDERS, ...userIgnored]);
-      if (segments.some((seg) => allIgnored.has(seg))) {
+      if (isNewRepoPathIgnored(folderPath, repoParentDir, userIgnored)) {
         return;
       }
 
@@ -1061,22 +1042,10 @@ export class GitService implements IGitService, IGitServiceCli {
     // Use `path.relative` rather than string `startsWith(rootPath + sep)`
     // so we correctly distinguish `/work/projectA` (path-child of /work)
     // from `/workspace/other` (sibling that shares only a string prefix).
-    const isInsideOrEqual = (candidate: string): boolean => {
-      if (candidate === rootPath) {
-        return true;
-      }
-      const rel = path.relative(rootPath, candidate);
-      // path.relative returns '..' or starts with '..' + sep when candidate
-      // is OUTSIDE rootPath; absolute path means different drive on Windows.
-      if (rel.length === 0 || rel === '..' || rel.startsWith('..' + path.sep)) {
-        return false;
-      }
-      // Defense against Windows absolute-path pivot (different drive).
-      if (path.isAbsolute(rel)) {
-        return false;
-      }
-      return true;
-    };
+    // The pure path-child predicate lives in the stateless
+    // RepositoryDiscovery helper.
+    const isInsideOrEqual = (candidate: string): boolean =>
+      isPathInsideOrEqual(rootPath, candidate);
 
     // Issue #219: walk EVERY registered watcher-family map uniformly.
     // This method previously hardcoded `_fileWatchers` and a separate
@@ -1180,38 +1149,12 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param options - Commit options (amend, signOff, noVerify, allowEmpty)
    * @throws Error if commit message is empty (unless amending or allowEmpty is true)
    */
-  async commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
-    // Validate commit message - prevent empty messages unless amending or allowEmpty
-    const trimmedMessage = message.trim();
-    if (!trimmedMessage && !options.amend && !options.allowEmpty) {
-      throw new Error('Commit message cannot be empty');
-    }
-
-    const args = ['commit', '-m', message];
-
-    if (options.amend) {
-      args.push('--amend');
-    }
-    if (options.signOff) {
-      args.push('--signoff');
-    }
-    if (options.noVerify) {
-      args.push('--no-verify');
-    }
-    if (options.allowEmpty) {
-      args.push('--allow-empty');
-    }
-    // `--author="Name <email>"` override.
-    if (options.author && options.author.trim().length > 0) {
-      args.push(`--author=${options.author.trim()}`);
-    }
-
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
+    return this._remoteOps.commit(repo, message, options);
   }
 
-  async amend(repo: IRepository, message: string): Promise<void> {
-    await this.commit(repo, message, { amend: true });
+  amend(repo: IRepository, message: string): Promise<void> {
+    return this._remoteOps.amend(repo, message);
   }
 
   // ============================================
@@ -1342,221 +1285,28 @@ export class GitService implements IGitService, IGitServiceCli {
   // Remote Operations
   // ============================================
 
-  async fetch(repo: IRepository, optionsOrRemote?: IFetchOptions | string): Promise<IFetchResult> {
-    // Back-compat: a plain string argument is treated as the remote name.
-    const options: IFetchOptions =
-      typeof optionsOrRemote === 'string' ? { remote: optionsOrRemote } : (optionsOrRemote ?? {});
-
-    const args = ['fetch', '--porcelain'];
-    if (options.prune) {
-      args.push('--prune');
-    }
-    // Resolve tag-fetching policy. User-passed `tags` / `noTags` in
-    // `options` always win over the `intellig.fetchTags` config so
-    // programmatic callers (PushDialog retry, Pull dialog, etc.) can opt
-    // out of the global policy. When neither the option nor the config
-    // dictates a flag ("auto"), we emit no tag-related flag and let git's
-    // own default (follow `remote.<remote>.tagOpt`) apply.
-    if (options.tags) {
-      args.push('--tags');
-    } else if (options.noTags) {
-      args.push('--no-tags');
-    } else {
-      const fetchTagsPolicy = vscode.workspace
-        .getConfiguration('intellig')
-        .get<string>('fetchTags', 'auto');
-      if (fetchTagsPolicy === 'all') {
-        args.push('--tags');
-      } else if (fetchTagsPolicy === 'never') {
-        args.push('--no-tags');
-      }
-      // 'auto' (and any unexpected value) → no flag.
-    }
-    if (options.all) {
-      args.push('--all');
-    } else if (options.remote) {
-      args.push(options.remote);
-    } else {
-      args.push('--all');
-    }
-
-    const cliResult = await this._gitCli.exec(args, {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-
-    const result = this._parseFetchPorcelain(cliResult.stdout, cliResult.stderr);
-    this.invalidateCache(repo.rootUri.fsPath);
-    this._onDidFetch.fire({ repo, result });
-    return result;
+  fetch(repo: IRepository, optionsOrRemote?: IFetchOptions | string): Promise<IFetchResult> {
+    return this._remoteOps.fetch(repo, optionsOrRemote);
   }
 
-  /**
-   * Parse `git fetch --porcelain` output.
-   *
-   * Each porcelain line has the shape `<flag> <old-sha> <new-sha> <ref>`
-   * (whitespace-separated). We skip lines that do not conform and surface
-   * stderr diagnostics as non-fatal errors.
-   */
-  private _parseFetchPorcelain(stdout: string, stderr: string): IFetchResult {
-    const updatedRefs: IFetchRefUpdate[] = [];
-    const errors: string[] = [];
-
-    for (const rawLine of stdout.split('\n')) {
-      const line = rawLine.trim();
-      if (!line) {
-        continue;
-      }
-      const parts = line.split(/\s+/);
-      if (parts.length < 4) {
-        continue;
-      }
-      const oldSha = parts[1];
-      const newSha = parts[2];
-      const ref = parts.slice(3).join(' ');
-      if (!/^[0-9a-f]{40}$/.test(newSha)) {
-        continue;
-      }
-      if (oldSha === newSha) {
-        continue;
-      }
-      updatedRefs.push({ ref, oldSha, newSha });
-    }
-
-    if (stderr) {
-      for (const rawLine of stderr.split('\n')) {
-        const line = rawLine.trim();
-        if (!line) {
-          continue;
-        }
-        // Skip informational lines git emits on stderr.
-        if (/^From\s|^\s*->\s|^\s*\*\s|^\s*\+/.test(line)) {
-          continue;
-        }
-        errors.push(line);
-      }
-    }
-
-    return {
-      updatedRefs,
-      ahead: 0,
-      behind: updatedRefs.length,
-      errors,
-    };
+  pull(repo: IRepository, options?: IPullOptions): Promise<void> {
+    return this._remoteOps.pull(repo, options);
   }
 
-  async pull(repo: IRepository, options?: IPullOptions): Promise<void> {
-    // Order: git pull [--rebase|--ff-only|--no-ff] [--squash] [--no-commit] [--no-verify] <remote> <branch>
-    // Split flags vs. refs (remote/branch) so buildGitArgs can
-    // splice `--end-of-options` between them; defends against argv
-    // injection through hostile remote/branch names.
-    const flags: string[] = [];
-
-    // Strategy flags are mutually exclusive; first non-empty wins to stay safe
-    // even if the caller hasn't resolved the UI mutex.
-    if (options?.rebase) {
-      flags.push('--rebase');
-    } else if (options?.ffOnly) {
-      flags.push('--ff-only');
-    } else if (options?.noFf) {
-      flags.push('--no-ff');
-    }
-
-    if (options?.squash) {
-      flags.push('--squash');
-    }
-    if (options?.noCommit) {
-      flags.push('--no-commit');
-    }
-    if (options?.noVerify) {
-      flags.push('--no-verify');
-    }
-    if (options?.prune) {
-      flags.push('--prune');
-    }
-
-    const refs: string[] = [];
-    if (options?.remote) {
-      refs.push(options.remote);
-    }
-    if (options?.branch) {
-      refs.push(options.branch);
-    }
-
-    const args = buildGitArgs('pull', flags, refs);
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  push(repo: IRepository, options?: IPushOptions): Promise<void> {
+    return this._remoteOps.push(repo, options);
   }
 
-  async push(repo: IRepository, options?: IPushOptions): Promise<void> {
-    // Order: git push [--force|--force-with-lease] [--set-upstream] [--no-verify]
-    //                 [--tags|--follow-tags] <remote> [<refspec>|<branch>]
-    // Split flags vs. refs so buildGitArgs splices
-    // `--end-of-options`; defends against argv injection through hostile
-    // remote / refspec / branch names.
-    const flags: string[] = [];
-
-    // Force flags are mutually exclusive; `force` (bare --force) wins if a
-    // caller sets both so the command can't silently downgrade the user's
-    // explicit request. Safety policy still puts the onus on the UI to
-    // prefer `forceWithLease`.
-    if (options?.force) {
-      flags.push('--force');
-    } else if (options?.forceWithLease) {
-      flags.push('--force-with-lease');
-    }
-    if (options?.setUpstream) {
-      flags.push('--set-upstream');
-    }
-    if (options?.noVerify) {
-      flags.push('--no-verify');
-    }
-    // Tag flags are mutually exclusive; prefer --follow-tags when both set
-    // so we don't accidentally push unrelated tags.
-    if (options?.followTags) {
-      flags.push('--follow-tags');
-    } else if (options?.tags) {
-      flags.push('--tags');
-    }
-
-    const refs: string[] = [];
-    if (options?.remote) {
-      refs.push(options.remote);
-    }
-    // Explicit refspec (`local:target`) takes precedence over positional branch.
-    if (options?.refspec) {
-      refs.push(options.refspec);
-    } else if (options?.branch) {
-      refs.push(options.branch);
-    }
-
-    const args = buildGitArgs('push', flags, refs);
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  getRemotes(repo: IRepository): Promise<IRemote[]> {
+    return this._remoteOps.getRemotes(repo);
   }
 
-  async getRemotes(repo: IRepository): Promise<IRemote[]> {
-    const result = await this._gitCli.exec(['remote', '-v'], { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseRemotes(result.stdout);
+  addRemote(repo: IRepository, name: string, url: string): Promise<void> {
+    return this._remoteOps.addRemote(repo, name, url);
   }
 
-  async addRemote(repo: IRepository, name: string, url: string): Promise<void> {
-    await this._gitCli.exec(['remote', 'add', name, url], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
-  }
-
-  async removeRemote(repo: IRepository, name: string): Promise<void> {
-    await this._gitCli.exec(['remote', 'remove', name], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  removeRemote(repo: IRepository, name: string): Promise<void> {
+    return this._remoteOps.removeRemote(repo, name);
   }
 
   // ============================================
