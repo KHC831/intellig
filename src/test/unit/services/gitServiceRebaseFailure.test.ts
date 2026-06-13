@@ -71,14 +71,37 @@ function createMockRepo(): IRepository {
 }
 
 describe('GitService.rebaseBranch — failure-reason surfacing', () => {
-  it('returns success=true when git exits 0', async () => {
+  it('returns success=true when git exits 0 and the tree has no unmerged files', async () => {
     const cli = new ScriptedGitCli();
+    // 1. rebase succeeds
+    cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
+    // 2. status --porcelain reports a clean tree (autostash re-applied cleanly)
     cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' });
 
     const gitService = createGitServiceWithCli(cli);
     const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
 
     assert.strictEqual(result.success, true);
+    assert.strictEqual(result.failureReason, undefined);
+  });
+
+  it('returns conflicts when git exits 0 but the autostash pop left unmerged files', async () => {
+    const cli = new ScriptedGitCli();
+    // 1. rebase replays cleanly and exits 0, but re-applying the autostash
+    //    collided with the rebased changes.
+    cli.scripted.push({
+      exitCode: 0,
+      stdout: 'Applying autostash resulted in conflicts.',
+      stderr: '',
+    });
+    // 2. status --porcelain reports the unmerged file left by the failed pop.
+    cli.scripted.push({ exitCode: 0, stdout: 'UU src/a.ts\n', stderr: '' });
+
+    const gitService = createGitServiceWithCli(cli);
+    const result = await gitService.rebaseBranch(createMockRepo(), 'origin/main');
+
+    assert.strictEqual(result.success, false);
+    assert.deepStrictEqual(result.conflicts, ['src/a.ts']);
     assert.strictEqual(result.failureReason, undefined);
   });
 

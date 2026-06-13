@@ -313,18 +313,20 @@ export class BranchOps {
    * @returns Rebase result with success status and any conflicts
    */
   async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
-    // `onto` is user-controlled; splice via buildGitArgs.
-    const args = buildGitArgs('rebase', [], [onto]);
+    // `onto` is user-controlled; splice via buildGitArgs. `--autostash` makes
+    // git stash a dirty working tree before replaying and re-apply it after,
+    // so a dirty tree no longer dead-ends on "cannot rebase: you have unstaged
+    // changes". buildGitArgs places the flag between the subcommand and
+    // `--end-of-options`, emitting `rebase --autostash --end-of-options <onto>`.
+    const args = buildGitArgs('rebase', ['--autostash'], [onto]);
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
 
-    if (result.exitCode === 0) {
-      return {
-        success: true,
-      };
-    }
-
-    // Check for conflicts
+    // Read the porcelain status regardless of exit code. A clean `--autostash`
+    // round-trip exits 0 with no unmerged files, but when re-applying the
+    // autostash collides with the rebased changes git leaves unmerged files
+    // AND still exits 0. Checking unmerged files unconditionally surfaces that
+    // pop-conflict as a conflict instead of a false success.
     const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
       cwd: repo.rootUri.fsPath,
     });
@@ -336,6 +338,12 @@ export class BranchOps {
       return {
         success: false,
         conflicts,
+      };
+    }
+
+    if (result.exitCode === 0) {
+      return {
+        success: true,
       };
     }
 

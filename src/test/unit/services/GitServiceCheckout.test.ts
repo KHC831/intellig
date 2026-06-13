@@ -470,10 +470,12 @@ describe('GitService - Command Argument Correctness', () => {
       assert.deepStrictEqual(cmds[0].args, ['merge', '--end-of-options', 'feature']);
     });
 
-    it('rebase: git rebase <onto>', async () => {
+    it('rebase: git rebase --autostash <onto>', async () => {
       await gitService.rebaseBranch(mockRepo, 'main');
       const cmds = mockGitCli.getAllCommands();
-      assert.deepStrictEqual(cmds[0].args, ['rebase', '--end-of-options', 'main']);
+      // `--autostash` is spliced between the subcommand and `--end-of-options`
+      // so a dirty tree is stashed and re-applied around the replay.
+      assert.deepStrictEqual(cmds[0].args, ['rebase', '--autostash', '--end-of-options', 'main']);
     });
   });
 
