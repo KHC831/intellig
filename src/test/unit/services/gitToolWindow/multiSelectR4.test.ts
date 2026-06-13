@@ -352,36 +352,107 @@ describe('Wave A R4 — review fixes', () => {
     }
     void indexOfPostSequenceFire;
 
-    function findInBody(
+    // The selection setters are being progressively extracted from
+    // GitToolWindowProvider.ts into provider/messageHandlers.ts. A setter's
+    // body therefore lives EITHER in-class (as `<vis> name(...): void { ... }`,
+    // reading `this._onDidChangeState.fire()` / `this._postX()`) OR in the
+    // module (as `export function name(ctx: IGtwControllerContext, ...): void
+    // { ... }`, reading `ctx.fireDidChangeState()` / `ctx.postX()`). This
+    // helper finds the body wherever it lives and recognizes both receiver
+    // forms, so the fire-before-post invariant follows the body to its home.
+    // The runtime postOrderingInvariant suite remains the primary ordering
+    // guard; this is the secondary structural witness.
+    async function readUnionSource(): Promise<string> {
+      const fs = await import('fs');
+      const path = await import('path');
+      const candidates = [
+        'src/git-core/gitToolWindow/GitToolWindowProvider.ts',
+        'src/git-core/gitToolWindow/provider/messageHandlers.ts',
+      ];
+      return candidates
+        .map((rel) => {
+          try {
+            return fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
+          } catch {
+            return '';
+          }
+        })
+        .join('\n');
+    }
+
+    async function findInBody(
       source: string,
       methodHeader: string
-    ): {
+    ): Promise<{
       firePos: number;
       firstPostPos: number;
-    } {
-      const start = source.indexOf(methodHeader);
-      assert.ok(start > 0, `${methodHeader} not found`);
-      // Find the close brace of the method body. This is fragile in
-      // general, but the methods here are small and we just need
-      // "anywhere in the body".
-      const endHeader = `\n  }\n`;
-      const end = source.indexOf(endHeader, start);
-      assert.ok(end > start, `closing brace for ${methodHeader} not found`);
-      const body = source.substring(start, end);
-      const firePos = body.indexOf('this._onDidChangeState.fire()');
-      const firstPostPos = (() => {
-        const a = body.indexOf('this._postMenuStateUpdate()');
-        const b = body.indexOf('this._postSyncSelection()');
-        // smallest non-negative
-        if (a === -1) {
-          return b;
+    }> {
+      // Extract the method name from the in-class header (the token between
+      // the visibility keyword and the parameter list) so we can also look
+      // for the module-extracted form.
+      const nameMatch = /(?:public|private|protected)?\s*([A-Za-z0-9_]+)\s*\(/.exec(methodHeader);
+      const methodName = nameMatch ? nameMatch[1] : '';
+      // Scan the union of the provider + the extracted handlers module so the
+      // body is found whether the setter has moved yet or not. (The caller
+      // still passes the provider source for backward compatibility; we union
+      // it with the handlers module here.)
+      const unionSource = `${source}\n${await readUnionSource()}`;
+
+      // fire / post token positions within a given body fragment, matching
+      // BOTH receiver forms (in-class `this._X` and module `ctx.X`).
+      const firePosIn = (body: string): number => {
+        const positions = [
+          body.indexOf('this._onDidChangeState.fire()'),
+          body.indexOf('ctx.fireDidChangeState()'),
+        ].filter((p) => p !== -1);
+        return positions.length > 0 ? Math.min(...positions) : -1;
+      };
+      const firstPostPosIn = (body: string): number => {
+        const positions = [
+          body.indexOf('this._postMenuStateUpdate()'),
+          body.indexOf('this._postSyncSelection()'),
+          body.indexOf('ctx.postMenuStateUpdate()'),
+          body.indexOf('ctx.postSyncSelection()'),
+        ].filter((p) => p !== -1);
+        return positions.length > 0 ? Math.min(...positions) : -1;
+      };
+
+      // The setter may appear under the in-class header (real body pre-move,
+      // OR a one-line forwarder post-move) AND/OR the module header (real body
+      // post-move). Collect EVERY candidate body from both header forms and
+      // pick the one that actually carries the fire/post calls — this skips
+      // the thin forwarder (which has neither) and lands on the real body
+      // wherever it lives.
+      //
+      // The body terminator depends on the form: an in-class method closes at
+      // a 2-space-indented brace (`\n  }\n`), while a top-level exported
+      // function closes at a column-0 brace (`\n}\n`). Using the right
+      // terminator per form avoids stopping early on an inner `else { … }`
+      // block (whose close is `\n  }\n` INSIDE a module function).
+      const collectBodies = (header: string, endMarker: string): string[] => {
+        const out: string[] = [];
+        let from = 0;
+        for (;;) {
+          const start = unionSource.indexOf(header, from);
+          if (start < 0) {
+            break;
+          }
+          from = start + header.length;
+          const end = unionSource.indexOf(endMarker, start);
+          if (end > start) {
+            out.push(unionSource.substring(start, end));
+          }
         }
-        if (b === -1) {
-          return a;
-        }
-        return Math.min(a, b);
-      })();
-      return { firePos, firstPostPos };
+        return out;
+      };
+      const bodies = [
+        ...collectBodies(methodHeader, `\n  }\n`),
+        ...collectBodies(`export function ${methodName}(ctx: IGtwControllerContext`, `\n}\n`),
+      ];
+      assert.ok(bodies.length > 0, `${methodName} body not found in provider or messageHandlers`);
+      // The real body is the one carrying the fire call; forwarders have none.
+      const realBody = bodies.find((b) => firePosIn(b) !== -1) ?? bodies[0];
+      return { firePos: firePosIn(realBody), firstPostPos: firstPostPosIn(realBody) };
     }
 
     it('toggleCommitSelection fires onDidChangeState BEFORE _postSyncSelection / _postMenuStateUpdate', async () => {
@@ -391,7 +462,7 @@ describe('Wave A R4 — review fixes', () => {
         path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
-      const { firePos, firstPostPos } = findInBody(
+      const { firePos, firstPostPos } = await findInBody(
         src,
         'public toggleCommitSelection(hash: string): void'
       );
@@ -410,7 +481,7 @@ describe('Wave A R4 — review fixes', () => {
         path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
-      const { firePos, firstPostPos } = findInBody(
+      const { firePos, firstPostPos } = await findInBody(
         src,
         'public selectCommits(hashes: readonly string[], anchor?: string | null): void'
       );
@@ -424,7 +495,7 @@ describe('Wave A R4 — review fixes', () => {
         path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
-      const { firePos, firstPostPos } = findInBody(
+      const { firePos, firstPostPos } = await findInBody(
         src,
         'public rangeSelectCommit(hash: string): void'
       );
@@ -483,7 +554,10 @@ describe('Wave A R4 — review fixes', () => {
         path.join(process.cwd(), 'src/git-core/gitToolWindow/GitToolWindowProvider.ts'),
         'utf8'
       );
-      const { firePos, firstPostPos } = findInBody(src, 'public selectCommit(hash: string): void');
+      const { firePos, firstPostPos } = await findInBody(
+        src,
+        'public selectCommit(hash: string): void'
+      );
       assert.ok(firePos !== -1 && firstPostPos !== -1);
       assert.ok(
         firePos < firstPostPos,
