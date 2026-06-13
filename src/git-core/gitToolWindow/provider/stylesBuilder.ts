@@ -740,13 +740,16 @@ export function buildInlineStyles(): string {
          "this is HEAD" at a glance even when HEAD is on a commit that ALSO
          has branch-tip chips. It lives in the same .commit-branches flex
          slot as branch chips, prepended FIRST (leftmost) so it precedes any
-         branch chips. Theme variable falls back to the IntelliJ shade
-         #d4a017 when --vscode-statusBarItem-warningBackground is absent
-         (older themes). */
+         branch chips. The yellow is a DELIBERATELY hardcoded IntelliJ brand
+         shade (#d4a017), not theme-adaptive — matching the hardcoded green
+         (local) and violet (remote) so each ref kind shows its own
+         IntelliJ colour consistently across themes. Dark text (#1a1a1a)
+         keeps the name legible on the yellow fill. Sanctioned via the
+         themeTokenCompleteness audit allowlist. */
       .branch-label-head {
         display: inline-block;
-        background: var(--vscode-statusBarItem-warningBackground, #d4a017);
-        color: var(--vscode-statusBarItem-warningForeground, #1a1a1a);
+        background: #d4a017;
+        color: #1a1a1a;
         font-size: 11px;
         font-weight: 600;
         padding: 1px 5px;
@@ -782,32 +785,40 @@ export function buildInlineStyles(): string {
         vertical-align: middle;
       }
 
-      /* Chip backgrounds use VS Code's badge-background / badge-foreground
-         semantic tokens (guaranteed available: engines.vscode floor is
-         ^1.85.0). The earlier gitDecoration-stageModifiedResourceForeground /
-         gitDecoration-renamedResourceForeground tokens are FG-tier
-         file-status semantics — themes that override those for the SCM tree
-         would unexpectedly recolor branch chips here. The badge-* family is
-         semantically correct for chip-shaped UI; local vs remote distinction
-         comes from the codicon prefix (cloud vs git-branch) rather than the
-         background colour. Falls back to hex literals when the theme variable
-         is absent. Pinned by snap-12e. */
+      /* Shared chip sizing/spacing for local + remote chips (font, padding,
+         radius, margin). Each chip kind sets its OWN hardcoded IntelliJ
+         background below — local green, remote violet — so the colour is
+         pixel-faithful and theme-independent rather than theme-token-driven
+         (the earlier badge-background token rendered as the theme's grey/blue
+         badge, not green). Pinned by snap-12e. */
       .branch-label-local,
       .branch-label-remote {
-        background: var(--vscode-badge-background, #2d5a1e);
-        color: var(--vscode-badge-foreground, #a5d6a7);
         font-size: 11px;
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
       }
 
+      /* Local-branch chip = IntelliJ GREEN (#499C54). DELIBERATELY hardcoded
+         brand colour, not theme-adaptive — matches the hardcoded violet
+         (remote) and yellow (current) for consistent per-ref-kind IntelliJ
+         colours across themes. White foreground keeps the name legible on
+         the green fill. Sanctioned via the themeTokenCompleteness allowlist. */
+      .branch-label-local {
+        background: #499C54;
+        color: white;
+      }
+
       /* Collapsed-summary chip ("+N"): rendered when a commit has more
          branches pointing at it than fit inline. Uses a muted
          description-foreground so it reads as metadata, not as another
-         branch. The native title=tooltip carries the full list of
-         collapsed branch names; a future click-to-expand handler can
-         flip data-collapsed-branches into individual chips inline. */
+         branch. The chip is an interactive BUTTON — clicking (or
+         Enter/Space) opens a popup listing every collapsed ref. cursor:
+         pointer signals the click affordance; the :hover/:focus-visible
+         outline is the non-colour affordance (WCAG 1.4.1) so keyboard
+         users see a focus ring. The native title=tooltip lists the
+         collapsed branch names; data-collapsed-branches carries the
+         pipe-delimited list the popup handler consumes. */
       .branch-label-collapsed {
         background: var(--vscode-badge-background, #3a3a3a);
         color: var(--vscode-descriptionForeground, #888);
@@ -815,31 +826,30 @@ export function buildInlineStyles(): string {
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
-        cursor: help;
+        cursor: pointer;
       }
 
-      /* The remote-chip fallback hex pair is retained as a CSS-var
-         secondary-fallback so a future theme that defines neither badge-*
-         nor the gitDecoration-* family still gets a visually-readable chip.
-         Themes that DO define badge-* see identical local + remote
-         backgrounds — local vs remote is carried by the icon glyph, not the
-         colour. The remote-only hex (#1a3a5c) is retained inline below for
-         snap-12e and human grep, even though no rule consumes it directly. */
+      .branch-label-collapsed:hover {
+        color: var(--vscode-foreground, #ccc);
+      }
+
+      .branch-label-collapsed:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder, currentColor);
+        outline-offset: 1px;
+      }
+
+      /* Remote-branch chip = IntelliJ VIOLET (#9876AA). This is a
+         DELIBERATELY hardcoded brand colour, not theme-adaptive — chosen
+         for pixel-faithful IntelliJ parity over VS Code theme-token
+         adaptivity. It overrides the shared badge-background rule above so
+         remote chips read violet while local chips stay green and the
+         current branch stays yellow — giving each ref kind its own
+         IntelliJ colour. The standalone hex is sanctioned via the
+         themeTokenCompleteness audit allowlist. White foreground keeps the
+         name legible on the violet fill. */
       .branch-label-remote {
-        /* Fallback hex for the remote chip when neither
-           --vscode-badge-background nor the legacy
-           --vscode-gitDecoration-renamedResourceForeground is defined.
-           The shared .branch-label-local, .branch-label-remote rule above is
-           the primary; this rule only adds the #1a3a5c retention for snap-12e
-           + future hi-contrast drift detection. */
-        background: var(
-          --vscode-badge-background,
-          var(--vscode-gitDecoration-renamedResourceForeground, #1a3a5c)
-        );
-        color: var(
-          --vscode-badge-foreground,
-          var(--vscode-gitDecoration-modifiedResourceForeground, #90caf9)
-        );
+        background: #9876AA;
+        color: white;
       }
 
       /* Codicon prefix sizing on chips. The icon is the non-color WCAG 1.4.1
@@ -879,6 +889,48 @@ export function buildInlineStyles(): string {
       .tag-label {
         background-color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);
         color: var(--vscode-badge-foreground, white);
+      }
+
+      /* Tag name-on-hover (IntelliJ "Tag Names off" default). The tag is an
+         ICON at rest; the name (.tag-label-name) is collapsed to zero
+         width and clipped, then revealed on hover OR keyboard focus — the
+         reveal is never mouse-only (WCAG: focus is the hover-equivalent).
+         The name stays in the DOM at all times (find-in-page +
+         screen-reader textContent + the chip's authoritative aria-label),
+         so an annotated tag remains present AND discoverable (b42b14b
+         guard) — only its always-on visual text is gated behind hover. The
+         resting icon keeps no right margin so the icon-only chip stays
+         tight; the margin returns with the name on reveal. */
+      .tag-label .tag-label-name {
+        display: inline-block;
+        max-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        vertical-align: middle;
+        opacity: 0;
+        transition: max-width 0.12s ease, opacity 0.12s ease;
+      }
+
+      .tag-label:hover .tag-label-name,
+      .tag-label:focus .tag-label-name,
+      .tag-label:focus-within .tag-label-name {
+        max-width: 200px;
+        opacity: 1;
+      }
+
+      .tag-label i.codicon {
+        margin-right: 0;
+      }
+
+      .tag-label:hover i.codicon,
+      .tag-label:focus i.codicon,
+      .tag-label:focus-within i.codicon {
+        margin-right: 4px;
+      }
+
+      .tag-label:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder, currentColor);
+        outline-offset: 1px;
       }
 
       /* Commit Details Panel */

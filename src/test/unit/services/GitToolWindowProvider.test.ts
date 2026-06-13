@@ -1678,51 +1678,97 @@ describe('_getBranchLabelsHtml', () => {
     });
 
     it('collapses chips beyond MAX_INLINE_BRANCH_CHIPS into a +N summary chip', () => {
-      // 4 branches at the same commit. The first 2 render inline; the
-      // remaining 2 collapse into a single `+2` summary chip with the
-      // names available via title=tooltip.
+      // 4 branches at the same commit. The first 3 render inline (cap:
+      // MAX_INLINE_BRANCH_CHIPS = 3); the remaining 1 collapses into a
+      // single `+1` summary chip with the name available via
+      // title=tooltip + data-collapsed-branches.
       const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
       const html = provider._getBranchLabelsHtml(node);
 
-      // Inline: main + develop only.
+      // Inline: main + develop + origin/main.
       const inlineCount =
         (html.match(/branch-label-local/g) || []).length +
         (html.match(/branch-label-remote/g) || []).length;
-      assert.strictEqual(inlineCount, 2, 'Two inline chips (cap: MAX_INLINE_BRANCH_CHIPS = 2)');
+      assert.strictEqual(inlineCount, 3, 'Three inline chips (cap: MAX_INLINE_BRANCH_CHIPS = 3)');
       assert.ok(html.includes('data-branch-name="main"'), 'first branch must render inline');
       assert.ok(html.includes('data-branch-name="develop"'), 'second branch must render inline');
+      assert.ok(html.includes('data-branch-name="origin/main"'), 'third branch must render inline');
 
       // Collapsed summary chip carries the rest.
       const summaryMatch = html.match(/<span class="branch-label-collapsed"[^>]*>\+(\d+)</);
       assert.ok(summaryMatch, 'a +N summary chip must be rendered');
-      assert.strictEqual(summaryMatch[1], '2', 'summary count must be 2 (the collapsed branches)');
+      assert.strictEqual(summaryMatch[1], '1', 'summary count must be 1 (the collapsed branch)');
       assert.ok(
-        html.includes('data-collapsed-branches="origin/main|origin/develop"'),
+        html.includes('data-collapsed-branches="origin/develop"'),
         'collapsed branch names must be carried in data-collapsed-branches'
       );
       assert.ok(
-        html.includes('title="origin/main\norigin/develop"'),
-        'tooltip must list the collapsed branch names so the user can discover them on hover'
+        html.includes('title="origin/develop"'),
+        'tooltip must list the collapsed branch name so the user can discover it on hover'
       );
     });
 
-    it('renders all chips inline when count is below the collapse threshold', () => {
-      const node = makeNode(['main', 'develop']);
+    it('renders all chips inline when count is at the collapse threshold', () => {
+      // Three refs all render inline (MAX_INLINE_BRANCH_CHIPS = 3); no
+      // summary chip until the FOURTH ref.
+      const node = makeNode(['main', 'develop', 'origin/main']);
       const html = provider._getBranchLabelsHtml(node);
 
       assert.ok(html.includes('data-branch-name="main"'));
       assert.ok(html.includes('data-branch-name="develop"'));
+      assert.ok(html.includes('data-branch-name="origin/main"'));
       assert.ok(
         !html.includes('branch-label-collapsed'),
         'no summary chip when count <= MAX_INLINE_BRANCH_CHIPS'
       );
     });
 
+    it('renders the collapsed +N chip as an interactive button (popup affordance)', () => {
+      // The collapsed chip opens a clickable ref popup, so it must be a
+      // keyboard-activatable button (WCAG 1.4.1 — interaction not
+      // colour-only): role="button" + tabindex="0" + aria-haspopup, and
+      // it must carry the pipe-delimited data-collapsed-branches the popup
+      // handler consumes.
+      const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
+      const html = provider._getBranchLabelsHtml(node);
+      const chipMatch = html.match(/<span class="branch-label-collapsed"[^>]*>/);
+      assert.ok(chipMatch, 'collapsed chip is rendered');
+      const chip = chipMatch[0];
+      assert.ok(chip.includes('role="button"'), 'collapsed chip must be role="button"');
+      assert.ok(chip.includes('tabindex="0"'), 'collapsed chip must be keyboard-focusable');
+      assert.ok(chip.includes('aria-haspopup="true"'), 'collapsed chip advertises a popup');
+      assert.ok(
+        chip.includes('data-collapsed-branches="origin/develop"'),
+        'collapsed chip carries the pipe-list the popup consumes'
+      );
+      assert.ok(
+        !chip.includes('role="img"'),
+        'collapsed chip is no longer a decorative role="img"'
+      );
+    });
+
+    it('never hides a lone non-current branch behind a bare +1', () => {
+      // The original bug: a single non-current tip collapsed into "+1".
+      // A lone branch must ALWAYS show its name — one chip is never past
+      // the cap.
+      const node = makeNode(['origin/feature']);
+      const html = provider._getBranchLabelsHtml(node);
+
+      assert.ok(
+        html.includes('data-branch-name="origin/feature"'),
+        'a lone branch must render its name inline, never as a bare +1'
+      );
+      assert.ok(
+        !html.includes('branch-label-collapsed'),
+        'a lone branch must NOT produce a +N summary chip'
+      );
+    });
+
     it('keeps the focused branch visible inline even when it would otherwise be collapsed', () => {
-      // Focus is set on the FOURTH branch — without the focus-pin, it
-      // would land in the +N collapse. With the pin, it bumps the
-      // second inline slot so the user sees the focused chip.
-      const node = makeNode(['main', 'develop', 'origin/main', 'feature/x']);
+      // Focus is set on the FIFTH branch — without the focus-pin, it
+      // would land in the +N collapse. Privileged refs sort to the front
+      // of the inline set so the user always sees the focused chip.
+      const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop', 'feature/x']);
       const internals = provider as unknown as { _extendedLogState: { focusedBranchName: string } };
       internals._extendedLogState.focusedBranchName = 'feature/x';
       const html = provider._getBranchLabelsHtml(node);
@@ -1946,20 +1992,18 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      // Chip backgrounds switched from FG-tier
-      // gitDecoration-* tokens (which themes use for the SCM tree) to
-      // the semantically-correct badge-* family. Local + remote share
-      // the same background; local-vs-remote distinction lives in the
-      // codicon prefix (cloud vs git-branch). The earlier hex literal
-      // (#2d5a1e) is retained as the CSS-var fallback for themes that
-      // don't define badge-*.
+      // Local chip = hardcoded IntelliJ green (#499C54), white foreground —
+      // pixel-faithful parity, NOT theme-adaptive. The earlier
+      // var(--vscode-badge-background) token rendered as the theme's grey/blue
+      // badge rather than green, so each ref kind now sets its own hardcoded
+      // IntelliJ colour (local green / remote violet / current yellow).
       assert.ok(
-        html.includes('background: var(--vscode-badge-background, #2d5a1e)'),
-        'Local label background must use var(--vscode-badge-background) with #2d5a1e fallback'
+        html.includes('background: #499C54'),
+        'Local label background must be the hardcoded IntelliJ green #499C54'
       );
       assert.ok(
-        html.includes('color: var(--vscode-badge-foreground, #a5d6a7)'),
-        'Local label foreground must use var(--vscode-badge-foreground) with #a5d6a7 fallback'
+        /\.branch-label-local\s*\{[^}]*color:\s*white/i.test(html),
+        'Local label foreground must be white for legibility on the green fill'
       );
     });
 
@@ -1982,27 +2026,19 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-remote'),
         'Should include .branch-label-remote CSS class'
       );
-      // Remote chip uses the same badge-* family
-      // as local; the secondary remote-only override block retains the
-      // earlier #1a3a5c / #90caf9 hex pair as a fallback when neither
-      // badge-* nor the legacy gitDecoration-* family is defined. The
-      // hex literals MUST ship (CSS var fallback discipline + future
-      // hi-contrast drift detection).
+      // Remote chip is the hardcoded IntelliJ violet (#9876AA) —
+      // pixel-faithful parity, deliberately NOT theme-adaptive (issue #10
+      // decision A). The standalone hex is sanctioned via the
+      // themeTokenCompleteness audit allowlist.
       assert.ok(
-        html.includes('--vscode-gitDecoration-renamedResourceForeground, #1a3a5c'),
-        'Remote label must retain #1a3a5c hex as legacy fallback'
+        /\.branch-label-remote\s*\{[^}]*background:\s*#9876AA/i.test(html),
+        'Remote label must use the IntelliJ violet #9876AA background'
       );
+      // The earlier theme-blue fallbacks no longer apply to the remote
+      // chip (it left the badge-* family for the brand violet).
       assert.ok(
-        html.includes('--vscode-gitDecoration-modifiedResourceForeground, #90caf9'),
-        'Remote label must retain #90caf9 hex as legacy fallback'
-      );
-      assert.ok(
-        html.includes('var(--vscode-badge-background'),
-        'Remote label must use var(--vscode-badge-background) as primary'
-      );
-      assert.ok(
-        html.includes('var(--vscode-badge-foreground'),
-        'Remote label must use var(--vscode-badge-foreground) as primary'
+        !/\.branch-label-remote\s*\{[^}]*#1a3a5c/i.test(html),
+        'Remote label must no longer carry the #1a3a5c theme fallback'
       );
     });
 
@@ -2026,6 +2062,37 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(html.includes('padding: 1px 5px'), 'Should include padding 1px 5px');
       assert.ok(html.includes('border-radius: 3px'), 'Should include border-radius 3px');
       assert.ok(html.includes('margin-left: 4px'), 'Should include margin-left 4px');
+    });
+
+    it('collapsed chip is clickable (cursor:pointer) and the #ref-popup overlay is rendered', () => {
+      const mockWebview = {
+        html: '',
+        options: {},
+        cspSource: 'https://mock.csp.source',
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        postMessage: () => Promise.resolve(true),
+        asWebviewUri: (uri: Uri) => uri,
+      } as unknown as Webview;
+
+      const html = provider._getThreePanelHtmlContent(
+        mockWebview as unknown as import('vscode').Webview,
+        []
+      );
+
+      // The collapsed chip is now a click target, not a help cursor.
+      assert.ok(
+        /\.branch-label-collapsed[\s\S]*?cursor:\s*pointer/.test(html),
+        'collapsed chip must use cursor:pointer (clickable popup affordance)'
+      );
+      assert.ok(
+        !/\.branch-label-collapsed[\s\S]*?cursor:\s*help/.test(html),
+        'the dead-end cursor:help must be gone'
+      );
+      // The popup overlay element ships in the panel markup.
+      assert.ok(
+        html.includes('id="ref-popup"'),
+        'the #ref-popup overlay element must be rendered for the collapsed-chip popup'
+      );
     });
   });
 

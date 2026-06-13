@@ -720,11 +720,10 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
     );
   });
 
-  it('snap-7c: 3 branches at same commit → 2 inline chips + collapsed +1 summary chip', () => {
-    // The collapse behaviour (UI fix 5) caps inline branch chips at
-    // MAX_INLINE_BRANCH_CHIPS = 2. The third branch lands in a `+1`
-    // summary chip with the full name available via title=tooltip and
-    // data-collapsed-branches.
+  it('snap-7c: 3 branches at same commit → all 3 inline (MAX_INLINE = 3), no collapse', () => {
+    // IntelliJ-parity collapse: inline up to MAX_INLINE_BRANCH_CHIPS = 3
+    // refs. Three refs at a commit therefore all render inline — no `+N`
+    // summary chip. The collapse only kicks in at the FOURTH ref.
     const node = nodeWithBranches('ccc1234567890cccccccccccccccccccccccccccc', [
       'main',
       'develop',
@@ -736,7 +735,7 @@ describe('Wave E / E3 — chip-renderer-stage HTML snapshots', () => {
       [
         '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>',
         '<span class="branch-label-local" data-branch-name="develop" role="img" aria-label="Local branch: develop"><i class="codicon codicon-git-branch" aria-hidden="true"></i>develop</span>',
-        '<span class="branch-label-collapsed" data-collapsed-branches="origin/main" role="img" aria-label="1 more branch: origin/main" title="origin/main">+1</span>',
+        '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>origin/main</span>',
       ].join('')
     );
   });
@@ -1300,34 +1299,36 @@ describe('Wave G / G1 — HEAD chip chip-emit snapshots', () => {
     provider.dispose();
   });
 
-  it('snap-9a: HEAD on commit WITH branch chips → HEAD chip prepended FIRST', () => {
+  it('snap-9a: current branch on commit WITH branch chips → current chip is yellow (.branch-label-head), no separate HEAD badge', () => {
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
+    // The host tells us HEAD points at "main"; that chip is coloured
+    // yellow via .branch-label-head and announces "Current branch: main".
+    internals._extendedLogState.headBranchName = 'main';
     const node = nodeAt(headSha, ['main', 'origin/main']);
     const html = provider._getBranchLabelsHtml(node);
-    // HEAD chip first, then branch chips in branchMap order.
-    // Chips gained `role="img"` + descriptive aria-labels and a
-    // leading codicon prefix (snap-12a..d, 12f). Co-updated baseline.
+    // IntelliJ convention: NO standalone ✓HEAD badge. The current branch
+    // is the yellow chip; the non-current remote keeps its own chip.
     assert.strictEqual(
       html,
-      '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>' +
-        '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
+      '<span class="branch-label-head" data-branch-name="main" role="img" aria-label="Current branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
         '<span class="branch-label-remote" data-branch-name="origin/main" role="img" aria-label="Remote branch: origin/main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>origin/main</span>'
     );
+    // The removed badge: no ✓ codicon-check, no data-head-chip marker.
+    assert.ok(!html.includes('data-head-chip'), 'the standalone ✓HEAD badge must be gone');
+    assert.ok(!html.includes('codicon-check'), 'no codicon-check ✓ glyph remains');
   });
 
-  it('snap-9b: HEAD on commit WITHOUT branch chips (detached) → HEAD chip alone', () => {
+  it('snap-9b: detached HEAD with no branch tip → empty string (no standalone HEAD badge)', () => {
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
     const node = nodeAt(headSha, []);
     const html = provider._getBranchLabelsHtml(node);
-    // ADR-010 Layer 4 — covers detached-HEAD repo state. Cited from
-    // `docs/parity/repo-states.md` §1.5 as the back-reference.
-    // See snap-9a comment.
-    assert.strictEqual(
-      html,
-      '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>'
-    );
+    // ADR-010 Layer 4 — detached-HEAD repo state. With the ✓HEAD badge
+    // removed (IntelliJ parity), a detached HEAD that has no branch tip to
+    // colour yellow renders NOTHING — the empty-string contract that
+    // `.commit-branches:empty { display: none }` relies on (snap-7d).
+    assert.strictEqual(html, '');
   });
 
   it('snap-9c: headHash undefined → no HEAD chip anywhere; branch chips render unchanged', () => {
@@ -1371,35 +1372,39 @@ describe('Wave G / G1 — HEAD chip layout snapshot (jsdom)', () => {
     provider.dispose();
   });
 
-  it('snap-9e: HEAD chip is sibling of .commit-title in .commit-branches slot (Wave E layout invariant holds)', () => {
+  it('snap-9e: current-branch (yellow) chip is sibling of .commit-title in .commit-branches slot (Wave E layout invariant holds)', () => {
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
+    internals._extendedLogState.headBranchName = 'main';
     const node = nodeAt(headSha, ['main']);
     const html = provider._getGraphPanelHtml([node]);
     const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
     const doc = dom.window.document;
 
-    const headChip = doc.querySelector('.branch-label-head');
-    assert.ok(headChip, 'HEAD chip element exists');
+    // The current branch is the yellow .branch-label-head chip (no
+    // standalone ✓HEAD badge — IntelliJ parity).
+    const currentChip = doc.querySelector('.branch-label-head');
+    assert.ok(currentChip, 'current-branch chip element exists');
 
-    // HEAD chip must NOT be inside .commit-title (layout
-    // invariant — chips live in the .commit-branches flex slot).
-    const parent = headChip.parentElement;
-    assert.ok(parent, 'HEAD chip has parent');
+    // Chip must NOT be inside .commit-title (layout invariant — chips
+    // live in the .commit-branches flex slot).
+    const parent = currentChip.parentElement;
+    assert.ok(parent, 'current-branch chip has parent');
     assert.ok(
       !parent.classList.contains('commit-title'),
-      `HEAD chip must NOT be a child of .commit-title; got "${parent.className}"`
+      `current-branch chip must NOT be a child of .commit-title; got "${parent.className}"`
     );
     assert.ok(
       parent.classList.contains('commit-branches'),
-      `HEAD chip should be in .commit-branches sibling slot; got "${parent.className}"`
+      `current-branch chip should be in .commit-branches sibling slot; got "${parent.className}"`
     );
 
-    // HEAD chip is the FIRST child of .commit-branches (prepended).
+    // The current-branch chip is the FIRST child of .commit-branches
+    // (privileged refs sort to the front of the inline set).
     assert.strictEqual(
       parent.firstElementChild,
-      headChip,
-      'HEAD chip must be the first child of .commit-branches'
+      currentChip,
+      'current-branch chip must be the first child of .commit-branches'
     );
   });
 });
@@ -1416,7 +1421,7 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     provider.dispose();
   });
 
-  it('snap-9f: inline <style> embeds .branch-label-head with theme-aware background + max-width 200px', () => {
+  it('snap-9f: inline <style> embeds .branch-label-head with hardcoded IntelliJ yellow + max-width 200px', () => {
     // Probe the full webview HTML which embeds `_getInlineStyles()`.
     const mockWebview = {
       html: '',
@@ -1428,12 +1433,12 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Theme variable + fallback color. Regex-alternation form per the
-    // snap-7h pattern — tolerates either single-rule or combined-rule
-    // declaration as long as the contract holds.
+    // Hardcoded IntelliJ yellow (#d4a017) — deliberately NOT theme-token-driven
+    // (the theme token rendered as the theme's warning colour, not a consistent
+    // IntelliJ yellow). Matches the hardcoded local-green/remote-violet chips.
     assert.ok(
-      /\.branch-label-head[\s,{][\s\S]*?--vscode-statusBarItem-warningBackground/.test(fullHtml),
-      'inline CSS must declare theme-aware HEAD chip background via --vscode-statusBarItem-warningBackground'
+      /\.branch-label-head[\s,{][\s\S]*?background:\s*#d4a017/i.test(fullHtml),
+      'inline CSS must declare the hardcoded IntelliJ HEAD chip yellow (#d4a017)'
     );
     assert.ok(
       /\.branch-label-head[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
@@ -1533,34 +1538,37 @@ describe('Wave J / WJ-1 — chip a11y semantics (role + aria-label)', () => {
     provider.dispose();
   });
 
-  it('snap-12a: HEAD chip emits role="img" + aria-label="Current HEAD" + codicon-check + textContent "HEAD"', () => {
+  it('snap-12a: current-branch chip emits role="img" + aria-label="Current branch: <name>" (no standalone ✓HEAD badge)', () => {
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
-    const node = nodeAt(headSha, []);
+    internals._extendedLogState.headBranchName = 'main';
+    const node = nodeAt(headSha, ['main']);
     const html = provider._getBranchLabelsHtml(node);
-    // HEAD chip a11y contract: a screen reader user must hear
-    // "Current HEAD" — not just the bare letters "HEAD" with no
-    // semantic context. role="img" tells AT this is a single semantic
-    // unit; aria-label overrides the inner textContent for AT.
-    assert.ok(/role="img"/.test(html), `HEAD chip must carry role="img"; got: ${html}`);
+    // IntelliJ parity: no separate "HEAD" badge. The current branch's own
+    // chip is coloured yellow (.branch-label-head) and the aria-label is
+    // the non-colour (WCAG 1.4.1) cue that this ref is HEAD — a screen
+    // reader user hears "Current branch: main".
+    assert.ok(/role="img"/.test(html), `current-branch chip must carry role="img"; got: ${html}`);
     assert.ok(
-      /aria-label="Current HEAD"/.test(html),
-      `HEAD chip must carry aria-label="Current HEAD"; got: ${html}`
+      /aria-label="Current branch: main"/.test(html),
+      `current-branch chip must carry aria-label="Current branch: main"; got: ${html}`
     );
+    // The removed ✓HEAD badge artifacts must be gone.
+    assert.ok(!html.includes('codicon-check'), `no codicon-check ✓ glyph remains; got: ${html}`);
     assert.ok(
-      /<i class="codicon codicon-check"[^>]*aria-hidden="true"[^>]*><\/i>/.test(html),
-      `HEAD chip must include codicon-check with aria-hidden=true; got: ${html}`
+      !/aria-label="Current HEAD"/.test(html),
+      `the standalone "Current HEAD" badge must be gone; got: ${html}`
     );
-    // textContent (per jsdom parse) is "HEAD" — the codicon ligature
-    // resolves to nothing visible-as-text, and the SR overrides via
-    // aria-label.
+    assert.ok(!html.includes('data-head-chip'), `no data-head-chip marker remains; got: ${html}`);
+    // The current chip uses the .branch-label-head (yellow) class and the
+    // standard branch glyph; textContent is the branch name.
     const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
     const chip = dom.window.document.querySelector('.branch-label-head');
-    assert.ok(chip, 'HEAD chip element parses');
+    assert.ok(chip, 'current-branch chip element parses');
     assert.strictEqual(
       chip.textContent,
-      'HEAD',
-      `HEAD chip textContent must be "HEAD"; got "${chip.textContent}"`
+      'main',
+      `current-branch chip textContent must be the branch name "main"; got "${chip.textContent}"`
     );
   });
 
@@ -1632,7 +1640,7 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     provider.dispose();
   });
 
-  it('snap-12e: inline <style> declares `var(--vscode-gitDecoration-*)` for both .branch-label-local and .branch-label-remote with hex fallbacks', () => {
+  it('snap-12e: inline <style> colors the local chip IntelliJ green (#499C54) and the remote chip IntelliJ violet (#9876AA)', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -1643,31 +1651,28 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Chip backgrounds switched to the
-    // semantically-correct `--vscode-badge-*` family. The earlier hex
-    // literals must STILL ship as the CSS-var fallback (defence in
-    // depth + future hi-contrast drift detection); the legacy
-    // gitDecoration-* tokens are retained as a SECONDARY var() fallback
-    // for the remote chip only (snap-12e historically pinned that token).
+    // Local chip is the hardcoded IntelliJ green (#499C54) — pixel-faithful
+    // parity, NOT theme-adaptive (the badge-background token rendered as the
+    // theme's grey/blue badge, not green — issue #10 dogfood fix). Sanctioned
+    // by the themeTokenCompleteness allowlist.
     assert.ok(
-      /\.branch-label-local[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
-      'inline CSS for .branch-label-local must use var(--vscode-badge-background) for theme-aware color'
-    );
-    assert.ok(
-      /\.branch-label-local[\s,{][\s\S]*?#2d5a1e/.test(fullHtml),
-      'inline CSS for .branch-label-local must keep #2d5a1e as the CSS-var fallback'
+      /\.branch-label-local\s*\{[^}]*background:\s*#499C54/i.test(fullHtml),
+      'inline CSS for .branch-label-local must use the hardcoded IntelliJ green #499C54'
     );
 
-    // Remote chip — same primary token (badge-background); legacy
-    // gitDecoration-renamedResourceForeground retained as secondary
-    // fallback so themes that override it still get a sensible chip.
+    // Remote chip is now the hardcoded IntelliJ violet (#9876AA) —
+    // pixel-faithful parity, NOT theme-adaptive (issue #10 decision A).
+    // The standalone hex is sanctioned by the themeTokenCompleteness
+    // allowlist.
     assert.ok(
-      /\.branch-label-remote[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
-      'inline CSS for .branch-label-remote must use var(--vscode-badge-background) for theme-aware color'
+      /\.branch-label-remote\s*\{[^}]*background:\s*#9876AA/i.test(fullHtml),
+      'inline CSS for .branch-label-remote must use the IntelliJ violet #9876AA'
     );
+    // The old theme-blue remote fallback is gone (the remote chip no
+    // longer shares the badge family).
     assert.ok(
-      /\.branch-label-remote[\s,{][\s\S]*?#1a3a5c/.test(fullHtml),
-      'inline CSS for .branch-label-remote must keep #1a3a5c as the CSS-var fallback'
+      !/\.branch-label-remote\s*\{[^}]*#1a3a5c/i.test(fullHtml),
+      'the old #1a3a5c remote fallback must be gone (remote is now violet)'
     );
   });
 });
@@ -1685,26 +1690,29 @@ describe('Wave J / WJ-4 — chip codicon prefix (non-color affordance)', () => {
     provider.dispose();
   });
 
-  it('snap-12f: chip HTML carries codicon-git-branch for both local and remote chips, codicon-check for HEAD', () => {
-    // Local and remote chips now share the same codicon-git-branch
-    // icon (per UX request to drop the cloud-vs-branch distinction).
-    // The CSS class (`branch-label-local` vs `branch-label-remote`)
-    // still differentiates the ref kind for styling and SR labels.
+  it('snap-12f: chip HTML carries codicon-git-branch for local, remote, AND current-branch chips (no codicon-check)', () => {
+    // Local and remote chips share the same codicon-git-branch icon (UX
+    // request to drop the cloud-vs-branch distinction). The current
+    // branch is now the YELLOW .branch-label-head chip — it uses the same
+    // git-branch glyph, NOT the old ✓ codicon-check (the standalone HEAD
+    // badge was removed for IntelliJ parity). The CSS class differentiates
+    // the ref kind for styling + SR labels.
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
+    internals._extendedLogState.headBranchName = 'main';
     const node = nodeAt(headSha, ['main', 'origin/main']);
     const html = provider._getBranchLabelsHtml(node);
     assert.ok(
-      /class="branch-label-head"[^>]*>[\s\S]*?codicon-check/.test(html),
-      `HEAD chip must contain codicon-check; got: ${html}`
-    );
-    assert.ok(
-      /class="branch-label-local"[^>]*>[\s\S]*?codicon-git-branch/.test(html),
-      `local chip must contain codicon-git-branch; got: ${html}`
+      /class="branch-label-head"[^>]*>[\s\S]*?codicon-git-branch/.test(html),
+      `current-branch (yellow) chip must contain codicon-git-branch; got: ${html}`
     );
     assert.ok(
       /class="branch-label-remote"[^>]*>[\s\S]*?codicon-git-branch/.test(html),
       `remote chip must contain codicon-git-branch (same icon as local; per UX request); got: ${html}`
+    );
+    assert.ok(
+      !html.includes('codicon-check'),
+      `the ✓ codicon-check HEAD badge must be gone; got: ${html}`
     );
     assert.ok(
       !html.includes('codicon-cloud'),
@@ -1999,29 +2007,33 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     };
   }
 
-  it('snap-13a: HEAD + branches + tags collocated → literal HTML order (HEAD, branches, tags rightmost)', () => {
+  it('snap-13a: current branch + tags collocated → literal HTML order (branches leftmost, tags rightmost)', () => {
     const internals = provider as unknown as HeadStateInternals;
     internals._extendedLogState.headHash = headSha;
+    internals._extendedLogState.headBranchName = 'main';
     const node = nodeWithBranchesAndTags(headSha, ['main'], ['v1.0']);
     const html = provider._getBranchLabelsHtml(node);
-    // IntelliJ-parity ordering: HEAD chip leftmost, branches
-    // middle, tags rightmost. Pin the literal full string so a future
-    // re-ordering forces a deliberate snapshot diff.
+    // IntelliJ-parity ordering: branch chips first (the current branch is
+    // the yellow .branch-label-head chip — no separate ✓HEAD badge), tags
+    // rightmost. Pin the literal full string so a future re-ordering
+    // forces a deliberate snapshot diff.
     assert.strictEqual(
       html,
-      '<span class="branch-label-head" data-head-chip="true" role="img" aria-label="Current HEAD"><i class="codicon codicon-check" aria-hidden="true"></i>HEAD</span>' +
-        '<span class="branch-label-local" data-branch-name="main" role="img" aria-label="Local branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
-        '<span class="tag-label" data-tag-name="v1.0" role="img" aria-label="Tag: v1.0"><i class="codicon codicon-tag" aria-hidden="true"></i>v1.0</span>'
+      '<span class="branch-label-head" data-branch-name="main" role="img" aria-label="Current branch: main"><i class="codicon codicon-git-branch" aria-hidden="true"></i>main</span>' +
+        '<span class="tag-label" data-tag-name="v1.0" role="img" aria-label="Tag: v1.0" title="v1.0" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">v1.0</span></span>'
     );
   });
 
-  it('snap-13b: tag-only commit (no branches, no HEAD) → wrapper non-empty, single tag chip emitted', () => {
+  it('snap-13b: tag-only commit (no branches, no HEAD) → wrapper non-empty, single tag icon-chip emitted', () => {
     const node = nodeWithBranchesAndTags('bbb1234567890bbbbbbbbbbbbbbbbbbbbbbbbbbbb', [], ['v0.9']);
     const html = provider._getBranchLabelsHtml(node);
     assert.notStrictEqual(html, '', 'tag-only commit must NOT collapse to empty wrapper');
+    // IntelliJ tag-icon + name-on-hover: the codicon-tag icon is the
+    // resting affordance; the name lives in .tag-label-name (revealed on
+    // hover/focus) but stays in the DOM for find-in-page + SR.
     assert.strictEqual(
       html,
-      '<span class="tag-label" data-tag-name="v0.9" role="img" aria-label="Tag: v0.9"><i class="codicon codicon-tag" aria-hidden="true"></i>v0.9</span>'
+      '<span class="tag-label" data-tag-name="v0.9" role="img" aria-label="Tag: v0.9" title="v0.9" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">v0.9</span></span>'
     );
   });
 
@@ -2034,8 +2046,8 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     const html = provider._getBranchLabelsHtml(node);
     assert.strictEqual(
       html,
-      '<span class="tag-label" data-tag-name="v1.0.0" role="img" aria-label="Tag: v1.0.0"><i class="codicon codicon-tag" aria-hidden="true"></i>v1.0.0</span>' +
-        '<span class="tag-label" data-tag-name="latest" role="img" aria-label="Tag: latest"><i class="codicon codicon-tag" aria-hidden="true"></i>latest</span>'
+      '<span class="tag-label" data-tag-name="v1.0.0" role="img" aria-label="Tag: v1.0.0" title="v1.0.0" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">v1.0.0</span></span>' +
+        '<span class="tag-label" data-tag-name="latest" role="img" aria-label="Tag: latest" title="latest" tabindex="0"><i class="codicon codicon-tag" aria-hidden="true"></i><span class="tag-label-name">latest</span></span>'
     );
   });
 
@@ -2059,11 +2071,12 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
       /aria-label="Tag:\s+&lt;img\s+src=x[^"]*"/.test(html),
       `aria-label must carry the escaped name; got: ${html}`
     );
-    // And the inner text content (between the </i> and </span>) must be
-    // the escaped form too.
+    // And the inner text content (inside the .tag-label-name span) must be
+    // the escaped form too — the name is hover-revealed but still in the
+    // DOM (discoverability backstop), and always escaped.
     assert.ok(
-      /<\/i>&lt;img\s+src=x[^<]*<\/span>/.test(html),
-      `textContent must be the escaped form; got: ${html}`
+      /<span class="tag-label-name">&lt;img\s+src=x[^<]*<\/span>/.test(html),
+      `textContent must be the escaped form inside .tag-label-name; got: ${html}`
     );
   });
 
@@ -2138,6 +2151,71 @@ describe('Wave K / WK-4 — tag chip parity (chip-emit + CSS + a11y)', () => {
     assert.ok(
       /\.tag-label\s*\{[^}]*color:\s*var\(--vscode-badge-foreground,\s*white\)/.test(fullHtml),
       'inline CSS for .tag-label must keep `white` as the badge-foreground fallback'
+    );
+  });
+
+  it('snap-13g: tag renders as icon + name-on-hover; the name stays in the DOM (b42b14b discoverability guard)', () => {
+    // IntelliJ "Tag Names off" default: the codicon-tag ICON is the
+    // resting affordance; the name is revealed on hover/focus. The
+    // b42b14b discoverability guard (annotated tags are PRESENT +
+    // DISCOVERABLE on the graph) must NOT regress: (1) the tag chip still
+    // renders with its data-tag-name (present), and (2) the name is
+    // reachable via title + aria-label + the in-DOM .tag-label-name span
+    // (discoverable, never removed from the DOM).
+    const node = nodeWithBranchesAndTags(headSha, [], ['v2.5-annotated']);
+    const html = provider._getBranchLabelsHtml(node);
+    const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
+    const chip = dom.window.document.querySelector('.tag-label');
+    assert.ok(chip, 'tag chip is present on the graph (b42b14b: tag is PRESENT)');
+    // The tag glyph is the resting affordance.
+    assert.ok(
+      chip.querySelector('i.codicon.codicon-tag'),
+      'tag chip must render the codicon-tag icon at rest'
+    );
+    // Present: data-tag-name carries the name.
+    assert.strictEqual(chip.getAttribute('data-tag-name'), 'v2.5-annotated');
+    // Discoverable via every backstop: aria-label (SR), title (hover
+    // tooltip), and the in-DOM name span (find-in-page + the CSS
+    // hover-reveal). The name must NOT vanish from the DOM.
+    assert.strictEqual(chip.getAttribute('aria-label'), 'Tag: v2.5-annotated');
+    assert.strictEqual(chip.getAttribute('title'), 'v2.5-annotated');
+    const nameSpan = chip.querySelector('.tag-label-name');
+    assert.ok(nameSpan, 'the tag name span must stay in the DOM (discoverability backstop)');
+    assert.strictEqual(
+      nameSpan.textContent,
+      'v2.5-annotated',
+      'the name text remains in the DOM for find-in-page + screen readers'
+    );
+    // Keyboard-focusable so focus reveals the name (reveal is not
+    // mouse-only — WCAG).
+    assert.strictEqual(chip.getAttribute('tabindex'), '0', 'tag chip is keyboard-focusable');
+  });
+
+  it('snap-13h: inline CSS gates the tag name behind hover/focus (resting icon-only, name on :hover/:focus)', () => {
+    const mockWebview = {
+      html: '',
+      options: {},
+      cspSource: 'https://mock.csp.source',
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true),
+      asWebviewUri: (uri: import('vscode').Uri) => uri,
+    } as unknown as import('vscode').Webview;
+    const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
+
+    // Resting state: the name span is collapsed (max-width: 0).
+    assert.ok(
+      /\.tag-label\s+\.tag-label-name\s*\{[^}]*max-width:\s*0/.test(fullHtml),
+      'tag name span must be collapsed (max-width: 0) at rest'
+    );
+    // Reveal on hover AND focus (focus is the hover-equivalent — never
+    // mouse-only, WCAG).
+    assert.ok(
+      /\.tag-label:hover\s+\.tag-label-name[\s\S]*?max-width:\s*200px/.test(fullHtml),
+      'tag name must be revealed on :hover'
+    );
+    assert.ok(
+      /\.tag-label:focus(?:-within)?\s+\.tag-label-name/.test(fullHtml),
+      'tag name must also be revealed on keyboard :focus / :focus-within (not mouse-only)'
     );
   });
 });

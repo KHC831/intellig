@@ -201,14 +201,20 @@ export function buildInlineScript(): string {
           // render-time \`_getBranchLabelsHtml\` is the source of truth;
           // this handler exists so the chip outline lands without a full
           // DOM rebuild. Toggles \`branch-label-focused\` on every chip
-          // matching \`data-branch-name\`.
+          // matching \`data-branch-name\`. The selector covers all three
+          // branch-chip kinds — local, remote, AND the current-branch
+          // chip (.branch-label-head). The current branch can also be the
+          // focused branch (focusedBranchName and headBranchName are
+          // independent), so the head chip must participate in the
+          // focus toggle or its outline would go stale on a re-render-less
+          // focus change.
           if (message.type === 'updateBranchFocus') {
             branchFocus = {
               focusedBranchName: typeof message.focusedBranchName === 'string' ? message.focusedBranchName : null,
               focusedHash: typeof message.focusedHash === 'string' ? message.focusedHash : null,
             };
             const focusedName = branchFocus.focusedBranchName;
-            document.querySelectorAll('.branch-label-local[data-branch-name], .branch-label-remote[data-branch-name]').forEach(function(chip) {
+            document.querySelectorAll('.branch-label-local[data-branch-name], .branch-label-remote[data-branch-name], .branch-label-head[data-branch-name]').forEach(function(chip) {
               const name = chip.getAttribute('data-branch-name');
               if (focusedName !== null && name === focusedName) {
                 chip.classList.add('branch-label-focused');
@@ -221,7 +227,7 @@ export function buildInlineScript(): string {
 
         function scrollToCommit(commitHash) {
           const commitRow = document.querySelector('[data-hash="' + commitHash + '"]');
-          if (!commitRow) { return; }                       // Req 2.3 — not in DOM: no action
+          if (!commitRow) { return; }                       // not in DOM: no action
 
           const panel = commitRow.closest('.graph-panel');
           if (panel) {
@@ -836,6 +842,172 @@ export function buildInlineScript(): string {
           if (e.key === 'Escape') {
             const commitContextMenu = document.getElementById('commit-context-menu');
             if (commitContextMenu) commitContextMenu.hidden = true;
+          }
+        });
+
+        // ─── Collapsed-ref popup (branch label "+N" chip) ────────────────
+        // The collapsed-branch chip is a button. Activating it (click or
+        // Enter/Space) opens a popup listing every collapsed ref, one row
+        // per branch. Each row navigates to that branch via the existing
+        // \`branchClick\` message — no new host handler. The popup clones
+        // the commit-context-menu overlay primitive: cursor-positioned with
+        // the same viewport-clamp, dismissed by click-outside + Escape.
+        //
+        // Full keyboard operability (WCAG 2.1.1): opening focuses the first
+        // row; ArrowUp/Down move between rows; Enter/Space on a row selects
+        // it; Escape and select return focus to the +N chip that opened the
+        // popup. aria-expanded on the chip tracks open/closed state.
+        let refPopupOpener = null;
+
+        function closeRefPopup(restoreFocus) {
+          const popup = document.getElementById('ref-popup');
+          if (popup) popup.hidden = true;
+          if (refPopupOpener) {
+            refPopupOpener.setAttribute('aria-expanded', 'false');
+            if (restoreFocus && typeof refPopupOpener.focus === 'function') {
+              refPopupOpener.focus();
+            }
+          }
+          refPopupOpener = null;
+        }
+
+        function openRefPopup(chip, clientX, clientY) {
+          const popup = document.getElementById('ref-popup');
+          if (!popup) return;
+          // data-collapsed-branches is a PIPE-delimited list (see the join
+          // in GitToolWindowProvider). A branch name containing a literal
+          // '|' would split into spurious rows; hardening the delimiter
+          // (JSON / NUL) is deferred as a follow-up — pipe is safe for the
+          // common case.
+          const raw = chip.getAttribute('data-collapsed-branches') || '';
+          const names = raw.split('|').filter(function(n) { return n.length > 0; });
+          if (names.length === 0) return;
+
+          // Build one row per ref. textContent assignment escapes the name,
+          // so a branch name containing markup cannot inject into the popup.
+          popup.innerHTML = '';
+          names.forEach(function(name) {
+            const row = document.createElement('div');
+            row.className = 'context-menu-item';
+            row.setAttribute('role', 'menuitem');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-branch-name', name);
+            row.textContent = name;
+            popup.appendChild(row);
+          });
+
+          // Same clamp math as the commit context menu.
+          const menuWidth = 220;
+          const menuHeight = 400;
+          const viewportWidth = window.innerWidth;
+          const viewportHeight = window.innerHeight;
+          const left = clientX + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : clientX;
+          const top = clientY + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : clientY;
+          popup.style.left = left + 'px';
+          popup.style.top = top + 'px';
+          popup.hidden = false;
+
+          // Track the opener so dismiss can restore focus + flip
+          // aria-expanded, then move focus to the first row so a keyboard
+          // user lands inside the menu.
+          refPopupOpener = chip;
+          chip.setAttribute('aria-expanded', 'true');
+          const firstRow = popup.querySelector('.context-menu-item');
+          if (firstRow && typeof firstRow.focus === 'function') {
+            firstRow.focus();
+          }
+        }
+
+        // Emit branchClick for a popup row, then dismiss + restore focus.
+        function selectRefRow(row) {
+          const name = row.getAttribute('data-branch-name');
+          if (name) {
+            vscode.postMessage({ type: 'branchClick', branchName: name });
+          }
+          closeRefPopup(true);
+        }
+
+        // Single click handler for the ref popup, in priority order so the
+        // open / row-select / dismiss paths never race each other:
+        //   1. click on the collapsed chip   → open the popup
+        //   2. click on a popup row           → navigate + dismiss
+        //   3. click anywhere else            → dismiss
+        document.addEventListener('click', function(e) {
+          const target = e.target && e.target.closest ? e.target : null;
+          const popup = document.getElementById('ref-popup');
+          if (!popup) return;
+
+          const chip = target ? target.closest('.branch-label-collapsed[data-collapsed-branches]') : null;
+          if (chip) {
+            openRefPopup(chip, e.clientX, e.clientY);
+            return;
+          }
+
+          if (popup.hidden) return;
+
+          const row = target ? target.closest('#ref-popup .context-menu-item') : null;
+          if (row) {
+            selectRefRow(row);
+            return;
+          }
+
+          // Click anywhere outside the popup dismisses it (no focus
+          // restore — the user clicked elsewhere on purpose).
+          if (!popup.contains(e.target)) {
+            closeRefPopup(false);
+          }
+        });
+
+        // Open on Enter/Space when the chip is keyboard-focused.
+        document.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const chip = e.target && e.target.closest
+            ? e.target.closest('.branch-label-collapsed[data-collapsed-branches]')
+            : null;
+          if (!chip) return;
+          e.preventDefault();
+          // Anchor the popup at the chip's own position (no pointer coords
+          // for a keyboard activation).
+          const rect = chip.getBoundingClientRect();
+          openRefPopup(chip, rect.left, rect.bottom);
+        });
+
+        // Keyboard operation INSIDE the open popup: Enter/Space selects the
+        // focused row; ArrowUp/Down move focus between rows (wrapping);
+        // Escape dismisses + returns focus to the +N chip.
+        document.addEventListener('keydown', function(e) {
+          const popup = document.getElementById('ref-popup');
+          if (!popup || popup.hidden) return;
+
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            closeRefPopup(true);
+            return;
+          }
+
+          const row = e.target && e.target.closest
+            ? e.target.closest('#ref-popup .context-menu-item')
+            : null;
+          if (!row) return;
+
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            selectRefRow(row);
+            return;
+          }
+
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const rows = Array.from(popup.querySelectorAll('.context-menu-item'));
+            const idx = rows.indexOf(row);
+            if (idx === -1) return;
+            const nextIdx = e.key === 'ArrowDown'
+              ? (idx + 1) % rows.length
+              : (idx - 1 + rows.length) % rows.length;
+            const next = rows[nextIdx];
+            if (next && typeof next.focus === 'function') {
+              next.focus();
+            }
           }
         });
 

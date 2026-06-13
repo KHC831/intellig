@@ -166,14 +166,14 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
      * row HTML should contain a label element for each branch ref in the array.
      */
     it('Feature: git-graph-visual-improvements, Property 5: Branch labels rendered for all branch references', () => {
-      // UI fix 5: when more than `MAX_INLINE_BRANCH_CHIPS` (= 2)
-      // branches point at a commit, branches beyond the cap collapse
+      // IntelliJ-parity collapse: when more than `MAX_INLINE_BRANCH_CHIPS`
+      // (= 3) branches point at a commit, branches beyond the cap collapse
       // into a single `+N` summary chip. Every branch name must still
       // be REACHABLE (either as an inline chip or via the summary
       // chip's title=tooltip / data-collapsed-branches attribute), but
       // the inline-span-per-branch invariant relaxes to inline-cap +
       // optional summary chip.
-      const MAX_INLINE_BRANCH_CHIPS = 2;
+      const MAX_INLINE_BRANCH_CHIPS = 3;
       fc.assert(
         fc.property(arbitraryCommitNodeWithBranches(), (node) => {
           const html = provider._getBranchLabelsHtml(node);
@@ -314,13 +314,13 @@ describe('Feature: git-graph-visual-improvements - Branch Labels Property Tests'
      * labels — counted by the typed classification, not the name shape.
      */
     it('Feature: git-graph-visual-improvements, Property 6: Mixed branches get correct local/remote label counts when below the inline cap', () => {
-      // UI fix 5 introduced an inline cap (`MAX_INLINE_BRANCH_CHIPS = 2`).
+      // The IntelliJ-parity inline cap is `MAX_INLINE_BRANCH_CHIPS = 3`.
       // Beyond the cap, branches collapse into a single `+N` summary
       // chip rather than each rendering a labeled span. To keep this
       // property meaningful, constrain the generator so the total
       // count never exceeds the cap — the per-kind tally only holds
       // for inline-rendered chips.
-      const MAX_INLINE_BRANCH_CHIPS = 2;
+      const MAX_INLINE_BRANCH_CHIPS = 3;
       fc.assert(
         fc.property(
           fc
