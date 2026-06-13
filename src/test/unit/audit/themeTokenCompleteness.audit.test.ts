@@ -8,8 +8,12 @@
  * regression this audit forbids — it pins a color the user's theme can't
  * override, which breaks high-contrast and custom themes (spec 7.2).
  *
- * This is a STATIC source audit: it scans `GitToolWindowProvider.ts` for
- * every `#RGB` / `#RRGGBB` / `#RRGGBBAA` literal and classifies each one.
+ * This is a STATIC source audit: it scans the provider plus its extracted
+ * style/HTML builder modules (`GitToolWindowProvider.ts`, `stylesBuilder.ts`,
+ * `htmlBuilders.ts`) for every `#RGB` / `#RRGGBB` / `#RRGGBBAA` literal and
+ * classifies each one. The CSS that carries the bulk of the hex fallbacks now
+ * lives in the style builder, so the scan reads the union of those files to
+ * keep covering every rendered color after the builders were extracted.
  * A literal is ALLOWED when it appears in one of these load-bearing
  * contexts:
  *
@@ -40,6 +44,32 @@ function repoRoot(): string {
 }
 
 const PANEL_FILE = 'src/git-core/gitToolWindow/GitToolWindowProvider.ts';
+
+/**
+ * The full set of files the audit scans: the provider plus the extracted
+ * style/HTML builder modules the CSS + helper hexes migrated into. Each is
+ * read absent-tolerantly (a not-yet-created module reads as ''), so the audit
+ * stays green whether or not a given builder file exists yet — the scanned
+ * color set is the union of whichever of these are present.
+ */
+const PANEL_FILES = [
+  PANEL_FILE,
+  'src/git-core/gitToolWindow/provider/stylesBuilder.ts',
+  'src/git-core/gitToolWindow/provider/htmlBuilders.ts',
+];
+
+/**
+ * Read a repo-relative file, tolerating absence: a missing file reads as the
+ * empty string so the union scan is robust to a builder module that hasn't
+ * been extracted yet (keeps green-at-every-commit in both directions).
+ */
+function readIfExists(relPath: string): string {
+  try {
+    return fs.readFileSync(path.join(repoRoot(), relPath), 'utf-8');
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Hex literals permitted as STANDALONE values (not inside a var() fallback,
@@ -88,8 +118,10 @@ describe('Theme-token completeness audit (spec 7.1)', () => {
   let lines: string[];
 
   before(() => {
-    const abs = path.join(repoRoot(), PANEL_FILE);
-    lines = fs.readFileSync(abs, 'utf-8').split('\n');
+    // Union of the provider + extracted builder modules (absent-tolerant).
+    // The per-line classifier is position-independent, so concatenating the
+    // files' lines is sound — a hex is judged purely by its own line.
+    lines = PANEL_FILES.flatMap((rel) => readIfExists(rel).split('\n'));
   });
 
   it('every hex literal in the panel is a token fallback, brand-palette entry, or allowlisted', () => {
