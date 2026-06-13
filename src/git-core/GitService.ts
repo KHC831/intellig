@@ -49,6 +49,7 @@ import { DiffOps } from './ops/DiffOps';
 import { CherryPickRevertOps } from './ops/CherryPickRevertOps';
 import { BranchOps } from './ops/BranchOps';
 import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
+import { RemoteOps } from './ops/RemoteOps';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -73,6 +74,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private readonly _cherryRevert: CherryPickRevertOps;
   private readonly _branches: BranchOps;
   private readonly _stashTagHistory: StashTagHistoryOps;
+  private readonly _remoteOps: RemoteOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -280,6 +282,7 @@ export class GitService implements IGitService, IGitServiceCli {
     this._cherryRevert = new CherryPickRevertOps(ctx);
     this._branches = new BranchOps(ctx);
     this._stashTagHistory = new StashTagHistoryOps(ctx);
+    this._remoteOps = new RemoteOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -1181,38 +1184,12 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param options - Commit options (amend, signOff, noVerify, allowEmpty)
    * @throws Error if commit message is empty (unless amending or allowEmpty is true)
    */
-  async commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
-    // Validate commit message - prevent empty messages unless amending or allowEmpty
-    const trimmedMessage = message.trim();
-    if (!trimmedMessage && !options.amend && !options.allowEmpty) {
-      throw new Error('Commit message cannot be empty');
-    }
-
-    const args = ['commit', '-m', message];
-
-    if (options.amend) {
-      args.push('--amend');
-    }
-    if (options.signOff) {
-      args.push('--signoff');
-    }
-    if (options.noVerify) {
-      args.push('--no-verify');
-    }
-    if (options.allowEmpty) {
-      args.push('--allow-empty');
-    }
-    // `--author="Name <email>"` override.
-    if (options.author && options.author.trim().length > 0) {
-      args.push(`--author=${options.author.trim()}`);
-    }
-
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  commit(repo: IRepository, message: string, options: ICommitOptions = {}): Promise<void> {
+    return this._remoteOps.commit(repo, message, options);
   }
 
-  async amend(repo: IRepository, message: string): Promise<void> {
-    await this.commit(repo, message, { amend: true });
+  amend(repo: IRepository, message: string): Promise<void> {
+    return this._remoteOps.amend(repo, message);
   }
 
   // ============================================
