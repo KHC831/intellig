@@ -179,3 +179,76 @@ export function truncateMessage(message: string, maxLength: number): string {
   }
   return firstLine.substring(0, maxLength - 3) + '...';
 }
+
+/**
+ * Get the commit context menu HTML overlay for the Graph Panel.
+ * Renders a context menu with all 7 required options:
+ * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,
+ * Show Repository at Revision, Compare with Local, Reset Current Branch to Here,
+ * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message,
+ * Merge into Current Branch, Interactively Rebase from Here.
+ *
+ * Items are organized into four sections separated by dividers:
+ * Navigation & Inspection, Branch Operations, History Manipulation, Merge & Integration.
+ *
+ * The menu is hidden by default and shown on right-click via JS handlers.
+ * The data-head-hash attribute stores the HEAD commit hash for disabled state logic.
+ *
+ * @returns HTML string for the commit context menu overlay
+ */
+export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
+  const headHash =
+    ctx.extendedLogState.commitNodes.length > 0
+      ? ctx.extendedLogState.commitNodes[0].commit.hash
+      : '';
+
+  // \u2014 A2: items marked with `menu-multi-hidden` default to hidden;
+  // the inline-script `updateContextMenuState` JS toggles the class based
+  // on `selectedCount`. This keeps the visibility rules in one
+  // declarative place rather than string-rebuilding the menu each time.
+  //
+  // Single-only items render the `data-multi-action="single-only"` data
+  // attribute so the JS can locate them without hardcoding the action
+  // list. Multi-only items get `data-multi-action="multi-only"`.
+  return `
+      <div id="commit-context-menu" class="commit-context-menu context-menu" hidden role="menu" aria-label="Commit actions" data-head-hash="${escapeHtml(headHash)}">
+        <div class="context-menu-item" data-action="copyHash" role="menuitem" tabindex="0">Copy Revision Number</div>
+        <div class="context-menu-item" data-action="createPatch" role="menuitem" tabindex="0">Create Patch\u2026</div>
+        <div class="context-menu-item" data-action="cherryPick" role="menuitem" tabindex="0">Cherry-Pick</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="checkoutRevision" data-multi-action="single-only" role="menuitem" tabindex="0">Checkout Revision</div>
+        <div class="context-menu-item" data-action="showRepoAtRevision" data-multi-action="single-only" role="menuitem" tabindex="0">Show Repository at Revision</div>
+        <div class="context-menu-item" data-action="compareWithLocal" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Local</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="compareVersions" data-multi-action="multi-only" role="menuitem" tabindex="0">Compare Versions</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message</div>
+        <div class="context-menu-item context-menu-danger" data-action="resetToHere" data-multi-action="single-only" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
+        <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">Revert Commit</div>
+        <div class="context-menu-item" data-action="undoCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Undo Commit</div>
+        <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
+        <div class="context-menu-item" data-action="fixupWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup with Previous</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="compareWithBranch" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Branch\u2026</div>
+        <div class="context-menu-item" data-action="mergeIntoCurrent" data-multi-action="single-only" role="menuitem" tabindex="0">Merge into Current Branch</div>
+        <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
+      </div>`;
+}
+
+/**
+ * Get placeholder HTML for the Details Panel when no commit is selected.
+ *
+ * a placeholder message indicating that a commit should be selected.
+ *
+ * @returns HTML string for the placeholder state
+ */
+export function buildDetailsPanelPlaceholderHtml(): string {
+  return `
+      <div class="details-panel" role="region" aria-label="Commit Details">
+        <div class="details-placeholder">
+          <p class="placeholder-message">Select a commit to view details</p>
+        </div>
+      </div>`;
+}
