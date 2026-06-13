@@ -2671,6 +2671,12 @@ export class CommitContextMenuCommands {
       const isHead =
         headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
 
+      // Tracks a no-op reword: provideRewordMessage delegates to
+      // continueRebase, which can self-clear a phantom rebase session and
+      // return 'cleared-stale' instead of rewriting a message. We report
+      // that honestly rather than claiming the message was updated.
+      let clearedStale = false;
+
       if (isHead) {
         // HEAD amend: git commit --amend -m only rewrites the commit message.
         // It doesn't touch the working tree or index, so it works even with
@@ -2776,6 +2782,7 @@ export class CommitContextMenuCommands {
               return;
             }
           }
+          clearedStale = pausedResult.status === 'cleared-stale';
         } catch (opError) {
           if (stashed) {
             await this._unstash(cwd);
@@ -2788,9 +2795,17 @@ export class CommitContextMenuCommands {
         }
       }
 
-      void vscode.window.showInformationMessage(
-        `Updated commit message for ${hash.substring(0, 8)}`
-      );
+      if (clearedStale) {
+        // No message was rewritten — the reword self-cleared a phantom
+        // rebase session. Mirror RebaseProgressView's honest wording.
+        void vscode.window.showInformationMessage(
+          'No rebase in progress — cleared a stale session.'
+        );
+      } else {
+        void vscode.window.showInformationMessage(
+          `Updated commit message for ${hash.substring(0, 8)}`
+        );
+      }
       // Reword rewrote history; reload before refresh.
       await this._gitService.reloadRepository(repo);
       this._gitToolWindowProvider.refresh();

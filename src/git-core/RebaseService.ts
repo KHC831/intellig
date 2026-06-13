@@ -664,7 +664,10 @@ ${todoContent}EOF
       return { success: false, status: 'paused' };
     }
 
-    // Continue the rebase after the amend
+    // Continue the rebase after the amend. continueRebase can self-clear a
+    // phantom session and return 'cleared-stale', so reword/squash can
+    // transitively surface that status — the consumer handles it as a no-op
+    // rather than a successful message rewrite.
     return this.continueRebase(repo);
   }
 
