@@ -830,5 +830,16 @@ export function getBranchFormat(): string {
  * @returns The format string
  */
 export function getTagFormat(separator: string = '\x1f'): string {
-  return `%(refname)${separator}%(*objectname)%(objectname)${separator}%(objecttype)${separator}%(taggername)${separator}%(taggeremail)${separator}%(taggerdate:iso)${separator}%(subject)`;
+  // The commit field must resolve to the COMMIT a tag points at. For an
+  // annotated tag git fills BOTH %(objectname) (the tag-object SHA) and
+  // %(*objectname) (the dereferenced commit SHA); for a lightweight tag
+  // only %(objectname) is set. Writing them adjacently
+  // (`%(*objectname)%(objectname)`) concatenated the two SHAs for
+  // annotated tags into an 80-char string that never matched any real
+  // commit hash, so annotated-tag chips silently vanished from the log.
+  // Use git's conditional deref-with-fallback: emit the dereferenced
+  // commit SHA when present, else the object SHA — both kinds yield the
+  // 40-char commit hash.
+  const commitField = '%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)';
+  return `%(refname)${separator}${commitField}${separator}%(objecttype)${separator}%(taggername)${separator}%(taggeremail)${separator}%(taggerdate:iso)${separator}%(subject)`;
 }
