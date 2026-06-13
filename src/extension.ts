@@ -73,6 +73,7 @@ import { registerExplorerCommands } from './commands/registration/explorerComman
 import { registerRebaseConflictCommands } from './commands/registration/rebaseConflictCommands';
 import { registerBlameEditorCommands } from './commands/registration/blameEditorCommands';
 import { registerStashShelfCommands } from './commands/registration/stashShelfCommands';
+import { registerBranchCommands } from './commands/registration/branchCommands';
 // Re-export the relocated explorer helpers so the by-name test-seam import
 // path `from '../../../extension'` is preserved (RULE E2).
 export {
@@ -897,32 +898,11 @@ function registerCommands(context: vscode.ExtensionContext): void {
     }
   });
 
-  // Branch popup command
-  const branchPopupCommand = registerLoggedCommand('intellig.showBranchPopup', async () => {
-    // Get the Git service
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = extensionServices.gitService;
-
-    // Create branch popup if not exists
-    if (!branchPopup) {
-      branchPopup = new BranchPopup(gitService);
-    }
-
-    // Seed the popup with the repo the user is most likely targeting.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Branches — Choose Repository',
-      pickerPlaceholder: 'Select a repository',
-    });
-    if (!repo) {
-      return;
-    }
-    await branchPopup.show(repo);
-  });
+  // Branch popup + branch-comparison commands. Extracted to
+  // `commands/registration/branchCommands.ts`; handler bodies verbatim with
+  // ctx token swaps (extensionServices->ctx.services, branchPopup/
+  // branchComparisonView read+write via ctx).
+  const branchDisposables = registerBranchCommands(ctx);
 
   // Stash + shelf commands. Extracted to
   // `commands/registration/stashShelfCommands.ts`; handler bodies verbatim
@@ -939,52 +919,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // resolveLocalChangesOpenFileTarget moved with the module and is re-exported
   // from extension.ts below (RULE E2).
   const blameEditorDisposables = registerBlameEditorCommands(ctx);
-
-  // Compare with branch command
-  const compareWithBranchCommand = registerLoggedCommand('intellig.compareWithBranch', async () => {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = extensionServices.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Create branch comparison view if not exists and show it
-    if (!branchComparisonView) {
-      branchComparisonView = createBranchComparisonView(gitService);
-    }
-    await branchComparisonView.show(repo);
-  });
-
-  // Compare with remote command
-  const compareWithRemoteCommand = registerLoggedCommand('intellig.compareWithRemote', async () => {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const gitService = extensionServices.gitService;
-    // prefer the active-editor's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-
-    // Create branch comparison view if not exists and compare with remote
-    if (!branchComparisonView) {
-      branchComparisonView = createBranchComparisonView(gitService);
-    }
-    await branchComparisonView.compareWithRemote(repo);
-  });
 
   // Refresh command - refreshes all Git views
   const refreshCommand = registerLoggedCommand('intellig.refresh', () => {
@@ -1720,13 +1654,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
     fetchCommand,
     newTagCommand,
     commitNewTagCommand,
-    branchPopupCommand,
+    // Branch popup + branch comparison commands
+    ...branchDisposables,
     // Stash + shelf commands
     ...stashShelfDisposables,
     // Blame (inline/gutter) + editor context menu + localChanges.openFile
     ...blameEditorDisposables,
-    compareWithBranchCommand,
-    compareWithRemoteCommand,
     refreshCommand,
     focusTabCommand,
     jumpToHashCommand,
