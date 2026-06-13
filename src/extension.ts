@@ -43,7 +43,6 @@ import {
   createCommitToolWindow,
   isCommitToolWindowEnabled,
   COMMIT_TOOL_WINDOW_VIEW_ID,
-  ChangelistService,
   PatchWriteFailed,
 } from './services';
 import type {
@@ -71,6 +70,7 @@ import { parseRemoteUrl } from './utils/remoteUrl';
 import { commitUrl } from './utils/hostingLinks';
 import { sanitizeGitError, formatActionFailureToast } from './git-core/gitError';
 import { ICommandContext } from './commands/registration/CommandContext';
+import { registerChangelistCommands } from './commands/registration/changelistCommands';
 
 /**
  * Global reference to the extension services container.
@@ -680,7 +680,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
     openMergeDialog: (p) => _openMergeDialog(p),
     openNewBranchDialog: (p) => _openNewBranchDialog(p),
   };
-  void ctx;
 
   // Open Git Tool Window command
   const openGitToolWindowCommand = registerLoggedCommand('intellig.openGitToolWindow', () => {
@@ -747,251 +746,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
   );
 
   // Changelist commands. These back the context menu in the Commit tool
-  // window's Local Changes tab.
-  // every handler routes through `resolveRepo(preferActive)` so
-  // changelist ops in multi-root workspaces target the repo owning the
-  // active editor, not an arbitrary `repositories[0]`.
-  const changelistNewCommand = registerLoggedCommand('intellig.changelist.new', async () => {
-    if (!extensionServices) {
-      return;
-    }
-    const repo = await resolveRepo(extensionServices.gitService, {
-      preferActive: true,
-      silent: true,
-    });
-    if (!repo) {
-      void vscode.window.showErrorMessage('No Git repository found');
-      return;
-    }
-    const name = await vscode.window.showInputBox({
-      prompt: 'Enter new changelist name',
-      validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
-    });
-    if (!name) {
-      return;
-    }
-    try {
-      extensionServices.changelistService.createChangelist(repo, name.trim());
-    } catch (err) {
-      const m = err instanceof Error ? err.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Failed to create changelist: ${sanitizeGitError(m)}`);
-    }
-  });
+  // window's Local Changes tab. Extracted to
+  // `commands/registration/changelistCommands.ts`; handler bodies are
+  // verbatim with the `extensionServices`→`ctx.services` /
+  // `commitToolWindow`→`ctx.commitToolWindow` swaps.
+  const changelistDisposables = registerChangelistCommands(ctx);
 
-  const changelistSetActiveCommand = registerLoggedCommand(
-    'intellig.changelist.setActive',
-    async (changelistId?: string) => {
-      if (!extensionServices) {
-        return;
-      }
-      const repo = await resolveRepo(extensionServices.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo || !changelistId) {
-        return;
-      }
-      try {
-        await extensionServices.changelistService.setActiveChangelist(repo, changelistId);
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(
-          `Failed to set active changelist: ${sanitizeGitError(m)}`
-        );
-      }
-    }
-  );
-
-  const changelistRenameCommand = registerLoggedCommand(
-    'intellig.changelist.rename',
-    async (changelistId?: string) => {
-      if (!extensionServices) {
-        return;
-      }
-      const repo = await resolveRepo(extensionServices.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo || !changelistId) {
-        return;
-      }
-      const current = extensionServices.changelistService
-        .getChangelists(repo)
-        .find((cl) => cl.id === changelistId);
-      if (!current) {
-        return;
-      }
-      const newName = await vscode.window.showInputBox({
-        prompt: `Rename changelist '${current.name}' to:`,
-        value: current.name,
-        validateInput: (v) => (v && v.trim() ? undefined : 'Name cannot be empty'),
-      });
-      if (!newName || newName.trim() === current.name) {
-        return;
-      }
-      try {
-        extensionServices.changelistService.renameChangelist(repo, changelistId, newName.trim());
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to rename changelist: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
-
-  const changelistDeleteCommand = registerLoggedCommand(
-    'intellig.changelist.delete',
-    async (changelistId?: string) => {
-      if (!extensionServices) {
-        return;
-      }
-      const repo = await resolveRepo(extensionServices.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo || !changelistId) {
-        return;
-      }
-      try {
-        extensionServices.changelistService.deleteChangelist(repo, changelistId);
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to delete changelist: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
-
-  const changelistEditDescriptionCommand = registerLoggedCommand(
-    'intellig.changelist.editDescription',
-    async (changelistId?: string) => {
-      if (!extensionServices) {
-        return;
-      }
-      const repo = await resolveRepo(extensionServices.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo || !changelistId) {
-        return;
-      }
-      const service = extensionServices.changelistService;
-      const current = service.getChangelists(repo).find((cl) => cl.id === changelistId);
-      if (!current) {
-        return;
-      }
-      const newDescription = await vscode.window.showInputBox({
-        prompt: `Edit description for '${current.name}'`,
-        value: current.description ?? '',
-      });
-      if (newDescription === undefined) {
-        return;
-      }
-      // setDescription is a ChangelistService-only addition.
-      if (service instanceof ChangelistService) {
-        try {
-          service.setDescription(repo, changelistId, newDescription);
-        } catch (err) {
-          const m = err instanceof Error ? err.message : 'Unknown error';
-          void vscode.window.showErrorMessage(
-            `Failed to update description: ${sanitizeGitError(m)}`
-          );
-        }
-      }
-    }
-  );
-
-  const changelistMoveFilesToCommand = registerLoggedCommand(
-    'intellig.changelist.moveFilesTo',
-    async (files?: string[]) => {
-      if (!extensionServices) {
-        return;
-      }
-      const repo = await resolveRepo(extensionServices.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo || !files || files.length === 0) {
-        return;
-      }
-      const service = extensionServices.changelistService;
-      const targets = service.getChangelists(repo).map((cl) => ({ label: cl.name, id: cl.id }));
-      const picked = await vscode.window.showQuickPick(targets, {
-        title: `Move ${files.length} file${files.length === 1 ? '' : 's'} to…`,
-        placeHolder: 'Select target changelist',
-      });
-      if (!picked) {
-        return;
-      }
-      try {
-        service.moveToChangelist(repo, files, picked.id);
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to move files: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
-
-  // "Commit Only This Changelist" and "Shelve Changelist" are MVP stubs that
-  // surface a friendly message — the full wiring lands in follow-up work
-  // alongside the actual commit/shelve flows consuming the changelist filter.
-  const changelistCommitOnlyCommand = registerLoggedCommand(
-    'intellig.changelist.commitOnly',
-    async (changelistId?: string) => {
-      if (!changelistId) {
-        return;
-      }
-      void vscode.window.showInformationMessage(
-        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the gear options.'
-      );
-      if (commitToolWindow) {
-        await commitToolWindow.show();
-      }
-    }
-  );
-
-  const changelistShelveCommand = registerLoggedCommand(
-    'intellig.changelist.shelve',
-    async (changelistId?: string) => {
-      if (!extensionServices || !changelistId) {
-        return;
-      }
-      const repo = await resolveRepo(extensionServices.gitService, {
-        preferActive: true,
-        silent: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const changelist = extensionServices.changelistService
-        .getChangelists(repo)
-        .find((cl) => cl.id === changelistId);
-      if (!changelist) {
-        return;
-      }
-      try {
-        await extensionServices.shelfService.shelve(repo, changelist.name, {
-          files: changelist.files.map((f) => f.path),
-        });
-        void vscode.window.showInformationMessage(
-          `Shelved ${changelist.files.length} file(s) from '${changelist.name}'`
-        );
-      } catch (err) {
-        const m = err instanceof Error ? err.message : 'Unknown error';
-        void vscode.window.showErrorMessage(`Failed to shelve changelist: ${sanitizeGitError(m)}`);
-      }
-    }
-  );
-
-  context.subscriptions.push(
-    showCommitToolWindowCommand,
-    changelistNewCommand,
-    changelistSetActiveCommand,
-    changelistRenameCommand,
-    changelistDeleteCommand,
-    changelistEditDescriptionCommand,
-    changelistMoveFilesToCommand,
-    changelistCommitOnlyCommand,
-    changelistShelveCommand
-  );
+  context.subscriptions.push(showCommitToolWindowCommand, ...changelistDisposables);
 
   // Push command — Push dialog (webview table w/ per-row targets,
   // force-with-lease default, protected-branch guard, multi-repo submit).
