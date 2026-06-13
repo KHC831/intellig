@@ -8,6 +8,9 @@ import {
 import { IRepository } from '../../../git-core/interfaces/IGitService';
 import { GitCli, IGitCommandResult } from '../../../git-core/gitCli';
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 /**
  * Helper to create a mock result with all required fields
@@ -304,6 +307,87 @@ describe('RebaseService', () => {
         () => rebaseService.updateRebasePlan(mockRepo, plan),
         /Commit nonexistent not found/
       );
+    });
+  });
+
+  describe('executeRebase() — autostash', () => {
+    let tmpRepo: string;
+    let tmpRebaseService: RebaseService;
+    let tmpRepoObj: IRepository;
+
+    beforeEach(async () => {
+      // executeRebase writes a sequence-editor script under <cwd>/.git, so the
+      // test needs a real on-disk repo root with a .git directory.
+      tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-autostash-'));
+      fs.mkdirSync(path.join(tmpRepo, '.git'));
+      tmpRepoObj = createMockRepository(tmpRepo);
+      tmpRebaseService = new RebaseService(mockGitCli);
+
+      mockGitCli.setExecResult('rev-parse --abbrev-ref HEAD', createMockResult(0, 'feature\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+      await tmpRebaseService.startInteractiveRebase(tmpRepoObj, 'main');
+      mockGitCli.clearCalls();
+    });
+
+    afterEach(() => {
+      tmpRebaseService.dispose();
+      fs.rmSync(tmpRepo, { recursive: true, force: true });
+    });
+
+    it('passes --autostash to the interactive rebase argv', async () => {
+      await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      const rebaseCall = mockGitCli
+        .getExecCalls()
+        .find((c) => c.args[0] === 'rebase' && c.args.includes('-i'));
+      assert.ok(rebaseCall, 'interactive rebase should have been spawned');
+      // autostash stashes BEFORE the todo editor runs and pops AFTER the
+      // rebase finishes, so it does not interfere with the custom sequence
+      // editor wired below.
+      assert.deepStrictEqual(rebaseCall.args, ['rebase', '-i', '--autostash', 'main']);
+    });
+
+    it('still wires the custom sequence editor when autostash is enabled', async () => {
+      await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      const rebaseCall = mockGitCli
+        .getExecCalls()
+        .find((c) => c.args[0] === 'rebase' && c.args.includes('-i'));
+      assert.ok(rebaseCall);
+      const env = (rebaseCall.options as { env?: NodeJS.ProcessEnv }).env;
+      assert.ok(env, 'rebase must run with an explicit env');
+      assert.ok(
+        typeof env.GIT_SEQUENCE_EDITOR === 'string' &&
+          env.GIT_SEQUENCE_EDITOR.endsWith('rebase-todo-script.sh'),
+        `GIT_SEQUENCE_EDITOR must still point at the generated sequence editor, got: ${String(
+          env.GIT_SEQUENCE_EDITOR
+        )}`
+      );
+    });
+
+    it('reports a conflict when the autostash pop leaves unmerged files (exit 0)', async () => {
+      // An interactive rebase can replay cleanly and exit 0, yet leave
+      // unmerged files behind when git re-applies the autostash and it
+      // collides with the rebased changes. The result must surface that as a
+      // conflict rather than reporting a clean completion.
+      mockGitCli.setExecResult('status --porcelain', createMockResult(0, 'UU shared.ts\n'));
+
+      const result = await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.status, 'conflict');
+      assert.deepStrictEqual(result.conflictedFiles, ['shared.ts']);
+    });
+
+    it('completes cleanly when the autostash pop leaves no unmerged files (exit 0)', async () => {
+      // No-regression guard: a clean autostash round-trip still reports a
+      // completed rebase.
+      mockGitCli.setExecResult('status --porcelain', createMockResult(0, ''));
+
+      const result = await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.status, 'completed');
     });
   });
 
