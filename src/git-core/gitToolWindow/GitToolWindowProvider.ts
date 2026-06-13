@@ -49,6 +49,8 @@ import { createIncomingTabHandler } from './tabs/IncomingTab';
 import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
+import type { IGtwControllerContext } from './provider/IGtwControllerContext';
+import { buildLoadingHtml, buildNoRepositoryHtml } from './provider/htmlBuilders';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { formatCommitDate } from '../../utils/dateFormat';
@@ -257,7 +259,10 @@ export interface IExtendedLogState extends ILogState {
 /**
  * Git Tool Window Provider implementation.
  */
-export class GitToolWindowProvider extends BaseWebviewView implements IGitToolWindowProvider {
+export class GitToolWindowProvider
+  extends BaseWebviewView
+  implements IGitToolWindowProvider, IGtwControllerContext
+{
   private _extendedLogState: IExtendedLogState;
   /**
    * Set of commit hashes on the BFS path from the focused
@@ -2379,47 +2384,21 @@ ${bodyMarkup}
 </html>`;
   }
 
+  // IGtwControllerContext — pure pass-throughs that expose the slice the
+  // extracted builder modules need without handing them the concrete class.
+  getNonce(): string {
+    return this._getNonce();
+  }
+
+  getInlineStyles(): string {
+    return this._getInlineStyles();
+  }
+
   /**
    * Get the loading HTML shown while initial data is being fetched.
    */
   private _getLoadingHtml(webview: vscode.Webview): string {
-    const nonce = this._getNonce();
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <title>Git Tool Window</title>
-  <style>
-    ${this._getInlineStyles()}
-    .loading-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      color: var(--vscode-descriptionForeground);
-      font-size: 13px;
-    }
-    .loading-spinner-icon {
-      font-size: 24px;
-      animation: spin 1.5s linear infinite;
-      margin-bottom: 12px;
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-  </style>
-</head>
-<body>
-  <div class="loading-container">
-    <span class="loading-spinner-icon">&#x27F3;</span>
-    <p>Loading git graph\u2026</p>
-  </div>
-</body>
-</html>`;
+    return buildLoadingHtml(this, webview);
   }
 
   /**
@@ -2429,36 +2408,7 @@ ${bodyMarkup}
    * display a single message prompting the user to initialize a repository.
    */
   private _getNoRepositoryHtml(webview: vscode.Webview): string {
-    const nonce = this._getNonce();
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <title>Git Tool Window</title>
-  <style>
-    ${this._getInlineStyles()}
-  </style>
-</head>
-<body>
-  <div class="no-repository">
-    <p>No Git repository found in this workspace.</p>
-    <button class="init-repo-button" id="init-repo-btn">Initialize Repository</button>
-  </div>
-  <script nonce="${nonce}">
-    (function() {
-      const vscode = acquireVsCodeApi();
-      const btn = document.getElementById('init-repo-btn');
-      if (btn) {
-        btn.addEventListener('click', function() {
-          vscode.postMessage({ type: 'initRepository' });
-        });
-      }
-    })();
-  </script>
-</body>
-</html>`;
+    return buildNoRepositoryHtml(this, webview);
   }
 
   /**

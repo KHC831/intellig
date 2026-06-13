@@ -1,0 +1,18 @@
+/**
+ * The slice of the Git tool window provider that extracted builder and
+ * handler modules need to reach back into. The provider class implements this
+ * interface, so passing `this` to an extracted function gives it a narrowed,
+ * read-only-by-default view — it can call the listed methods but cannot reach
+ * the provider's private fields.
+ *
+ * The interface grows as more code is extracted: a member is added only when
+ * a moved function actually needs it. It currently exposes the two callbacks
+ * the relocated HTML view builders depend on — the per-render nonce and the
+ * shared inline style sheet (whose color literals stay owned by the class).
+ */
+export interface IGtwControllerContext {
+  /** Per-render Content-Security-Policy nonce (from the webview base class). */
+  getNonce(): string;
+  /** The shared inline CSS injected into every webview HTML document. */
+  getInlineStyles(): string;
+}
