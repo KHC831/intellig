@@ -697,6 +697,30 @@ index 1234567,abcdefg..fedcba9
       assert.ok(format.includes('%(objecttype)'));
     });
 
+    it('getTagFormat dereferences annotated tags to the commit (no raw %(*objectname)%(objectname) adjacency)', () => {
+      // BUG: the commit field was `%(*objectname)%(objectname)` with NO
+      // separator between the two atoms. For an ANNOTATED tag git fills
+      // BOTH atoms — %(objectname) is the tag-object SHA and
+      // %(*objectname) is the dereferenced commit SHA — so they
+      // concatenate into an 80-char string that never equals a real
+      // 40-char commit hash. tagMap.get(commit.hash) then misses and the
+      // chip never renders (lightweight tags happen to work because
+      // %(*objectname) is empty for them). The fix uses git's
+      // %(if)%(*objectname)%(then)…%(else)…%(end) deref-with-fallback so
+      // both tag kinds yield the COMMIT SHA.
+      const format = getTagFormat();
+      assert.ok(
+        !format.includes('%(*objectname)%(objectname)'),
+        `format must not place %(*objectname) and %(objectname) adjacently (annotated-tag SHA concatenation bug); got ${format}`
+      );
+      // The deref-with-fallback idiom must be present so annotated tags
+      // resolve to the commit they point at.
+      assert.ok(
+        format.includes('%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)'),
+        `format must dereference annotated tags via %(if)%(*objectname)…; got ${format}`
+      );
+    });
+
     it('Wave I R1 — getTagFormat default separator is `\\x1f` (ASCII Unit Separator)', () => {
       // Pinned by: the previous `|` default collided with
       // tagger names containing `|`. Switching to `\x1f` (an unprintable
