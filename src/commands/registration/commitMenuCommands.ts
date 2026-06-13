@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
-import { sanitizeGitError } from '../../git-core/gitError';
+import { sanitizeGitError, worktreeConflictMessage } from '../../git-core/gitError';
 import { parseRemoteUrl } from '../../utils/remoteUrl';
 import { commitUrl } from '../../utils/hostingLinks';
 import type { IGitService, IRepository } from '../../services';
@@ -509,7 +509,19 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      void vscode.window.showErrorMessage(`Apply Files to Branch failed: ${sanitizeGitError(msg)}`);
+      // The target-branch checkout (`gitService.checkout` above) can hit
+      // git's "already used by another worktree" refusal — surface the
+      // actionable worktree message instead of the raw fatal. The checkout
+      // failed atomically, so HEAD never moved; the finally below returns to
+      // the original branch (a no-op when we never left) and pops the stash.
+      const worktreeMessage = worktreeConflictMessage(msg);
+      if (worktreeMessage) {
+        void vscode.window.showErrorMessage(worktreeMessage);
+      } else {
+        void vscode.window.showErrorMessage(
+          `Apply Files to Branch failed: ${sanitizeGitError(msg)}`
+        );
+      }
     } finally {
       // Always return to the original branch unless we're on the target with
       // unresolved conflicts (already returned above). Pop the stash after

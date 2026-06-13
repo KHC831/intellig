@@ -16,7 +16,7 @@ import type { PullDialog } from '../sync/PullDialog';
 import type { PushDialog } from '../sync/PushDialog';
 import type { MergeDialog } from '../conflicts/MergeDialog';
 import type { NewBranchDialog } from './NewBranchDialog';
-import { sanitizeGitError } from '../git-core/gitError';
+import { sanitizeGitError, worktreeConflictMessage } from '../git-core/gitError';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
@@ -391,7 +391,13 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (
+      const worktreeMessage = worktreeConflictMessage(errorMessage);
+      if (worktreeMessage) {
+        // git refuses a worktree-conflict checkout atomically — there is
+        // nothing to stash or force around, so surface an actionable
+        // message instead of the Stash/Force prompt.
+        void vscode.window.showErrorMessage(worktreeMessage);
+      } else if (
         errorMessage.includes('would be overwritten') ||
         errorMessage.includes('Please commit your changes or stash them')
       ) {
@@ -1086,7 +1092,12 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (
+      const worktreeMessage = worktreeConflictMessage(errorMessage);
+      if (worktreeMessage) {
+        // git refuses a worktree-conflict checkout atomically — surface an
+        // actionable message rather than the Stash/Force prompt.
+        void vscode.window.showErrorMessage(worktreeMessage);
+      } else if (
         errorMessage.includes('would be overwritten') ||
         errorMessage.includes('Please commit your changes or stash them')
       ) {
@@ -1370,7 +1381,12 @@ export class BranchContextMenuCommands {
       this._branchTreeProvider.refresh();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (
+      const worktreeMessage = worktreeConflictMessage(errorMessage);
+      if (worktreeMessage) {
+        // git refuses a worktree-conflict checkout atomically — surface an
+        // actionable message rather than the Stash/Force prompt.
+        void vscode.window.showErrorMessage(worktreeMessage);
+      } else if (
         errorMessage.includes('would be overwritten') ||
         errorMessage.includes('Please commit your changes or stash them')
       ) {
