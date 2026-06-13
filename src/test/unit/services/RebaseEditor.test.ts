@@ -316,6 +316,24 @@ describe('RebaseEditor', () => {
       assert.strictEqual(mockRebaseService.getRebaseSession(mockRepository), undefined);
     });
 
+    it('an empty-commits rebase clears the planning session on the early return (no panel)', async () => {
+      // Rebasing onto an up-to-date / ancestor target yields 0 commits. show()
+      // returns early before the panel + onDidDispose cleanup are wired, so the
+      // planning session (stored by startInteractiveRebase before any git ran)
+      // would leak — the exact #18 phantom — unless the early return clears it.
+      mockRebaseService.mockCommits = [];
+
+      const result = await rebaseEditor.show(mockRepository, { onto: 'main' });
+
+      assert.strictEqual(result.executed, false);
+      assert.strictEqual(
+        mockRebaseService.getRebaseSession(mockRepository),
+        undefined,
+        'empty-commits early return must clear the planning session'
+      );
+      assert.strictEqual(mockRebaseService.clearSessionCalls, 1);
+    });
+
     it('executing the rebase does NOT clear the session as an abandon (it completes normally)', async () => {
       const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
       await untilPanel(rebaseEditor);

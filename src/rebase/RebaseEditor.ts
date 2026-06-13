@@ -95,6 +95,12 @@ export class RebaseEditor {
 
       if (!this._session || this._session.commits.length === 0) {
         void vscode.window.showWarningMessage('No commits to rebase');
+        // This early return is before the panel + onDidDispose cleanup are
+        // wired, so the planning session stored by startInteractiveRebase
+        // (before any git ran) would leak and poison later branch ops. Clear
+        // it on the way out.
+        this._rebaseService.clearSession(repository);
+        this._session = undefined;
         return { executed: false };
       }
     } catch (error) {
