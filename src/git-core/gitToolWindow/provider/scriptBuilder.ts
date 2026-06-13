@@ -382,6 +382,33 @@ export function buildInlineScript(): string {
           }
         });
 
+        // Changed Files directory tree collapse/expand (IntelliJ-style).
+        // Clicking a directory row — its chevron OR its name — toggles the
+        // visibility of the .changed-dir-children container it controls and
+        // flips the chevron glyph + aria-expanded. Pure DOM toggle with no
+        // persistence: a re-render (new commit selection) resets every
+        // directory to expanded. The handler is scoped to .changed-dir-item
+        // so it never fires for .changed-file-item rows (whose dblclick opens
+        // the diff), and the chevron itself has no data-path so the file-open
+        // delegation can't match it.
+        document.addEventListener('click', function(e) {
+          const dirItem = e.target.closest('.changed-dir-item[aria-controls]');
+          if (!dirItem) return;
+          const containerId = dirItem.getAttribute('aria-controls');
+          if (!containerId) return;
+          const container = document.getElementById(containerId);
+          if (!container) return;
+          const expanded = dirItem.getAttribute('aria-expanded') !== 'false';
+          const nowExpanded = !expanded;
+          dirItem.setAttribute('aria-expanded', String(nowExpanded));
+          container.classList.toggle('changed-dir-collapsed', !nowExpanded);
+          const chevron = dirItem.querySelector('.dir-chevron');
+          if (chevron) {
+            chevron.classList.toggle('codicon-chevron-down', nowExpanded);
+            chevron.classList.toggle('codicon-chevron-right', !nowExpanded);
+          }
+        });
+
         // Hide context menu when clicking elsewhere
         document.addEventListener('click', (e) => {
           const contextMenu = document.getElementById('context-menu');

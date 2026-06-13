@@ -1006,12 +1006,38 @@ export function buildInlineStyles(): string {
         align-items: center;
         padding: 3px 4px;
         font-weight: 600;
+        cursor: pointer;
+        user-select: none;
+        border-radius: 3px;
+      }
+
+      .changed-dir-item:hover {
+        background-color: var(--vscode-list-hoverBackground);
       }
 
       .changed-dir-item .dir-name {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      /* Rotating twisty for the directory row. The glyph is swapped between
+         codicon-chevron-down (expanded) and codicon-chevron-right (collapsed)
+         by the webview script; the transition smooths the visual flip. The
+         chevron is a fixed-width click target sized to the row height. */
+      .changed-dir-item .dir-chevron {
+        flex-shrink: 0;
+        width: 16px;
+        font-size: 14px;
+        margin-right: 2px;
+        color: var(--vscode-foreground);
+        transition: transform 0.1s ease;
+      }
+
+      /* Collapsed subtree: the children container is removed from layout so
+         the whole subtree hides in a single class toggle (no per-row work). */
+      .changed-dir-children.changed-dir-collapsed {
+        display: none;
       }
 
       .changed-file-status {
@@ -1294,6 +1320,11 @@ export function buildCodiconFontFaceCss(extensionUri: vscode.Uri, webview: vscod
       .codicon-check:before { content: "\\eab2"; }
       .codicon-git-branch:before { content: "\\ec6f"; }
       .codicon-cloud:before { content: "\\ebaa"; }
+      /* Chevron twisties for the collapsible Changed Files directory tree.
+         Codepoints from @vscode/codicons@0.0.45 dist/codicon.css
+         (.codicon-chevron-down → \\eab4, .codicon-chevron-right → \\eab6). */
+      .codicon-chevron-down:before { content: "\\eab4"; }
+      .codicon-chevron-right:before { content: "\\eab6"; }
       /* codicon-tag glyph for tag chips. Codepoint pulled from
          @vscode/codicons@0.0.45 dist/codicon.css (.codicon-tag:before
          → \\ea66). Pinned by codiconFont-4. */

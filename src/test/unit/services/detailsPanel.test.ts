@@ -309,22 +309,27 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       assert.ok(html.includes('aria-label="Commit Details"'), 'Should have aria-label');
     });
 
-    it('should have role="list" on the changed files container', () => {
+    it('should have role="tree" on the changed files container', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      assert.ok(html.includes('role="list"'), 'Should have list role on files container');
+      // The Changed Files panel is now a collapsible directory tree, so the
+      // container carries tree semantics rather than a flat list.
+      assert.ok(
+        html.includes('class="changed-files-list" role="tree"'),
+        'Should have tree role on files container'
+      );
     });
 
-    it('should have role="listitem" on each changed file', () => {
+    it('should have role="treeitem" on each changed file row', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
       const html = provider._getDetailsPanelHtml(details);
 
-      assert.ok(html.includes('role="listitem"'), 'Should have listitem role on files');
+      assert.ok(html.includes('role="treeitem"'), 'Should have treeitem role on file rows');
     });
 
     it('should escape HTML special characters in commit message', () => {
@@ -992,12 +997,14 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
    * renderer's invisible template whitespace (documented normalization above).
    */
   function extractChangedFilesList(html: string): string {
-    const marker = '<div class="changed-files-list" role="list" aria-label="Changed Files">';
+    const marker = '<div class="changed-files-list" role="tree" aria-label="Changed Files">';
     const startIdx = html.indexOf(marker);
     assert.ok(startIdx >= 0, 'rendered panel must contain the changed-files-list container');
     const after = html.slice(startIdx);
-    // The list `</div>` is immediately followed by the details-changed-files
-    // `</div>` on the next line; this sequence is the unique terminator.
+    // The container `</div>` is immediately followed by the
+    // details-changed-files `</div>` on the next line; this sequence is the
+    // unique terminator. The tree's own nested `.changed-dir-children`
+    // closers are inline (no newline before them), so they don't match.
     const closeSeq = '</div>\n        </div>';
     const endIdx = after.indexOf(closeSeq);
     assert.ok(endIdx >= 0, 'changed-files-list container must be closed');
@@ -1010,19 +1017,23 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
 
   // The single-commit tree: identical structure to the combined tree below,
   // but every file leaf carries `data-commit-hash`.
-  const EXPECTED_SINGLE_COMMIT_TREE = `<div class="changed-files-list" role="list" aria-label="Changed Files">
+  const EXPECTED_SINGLE_COMMIT_TREE = `<div class="changed-files-list" role="tree" aria-label="Changed Files">
 
-          <div class="changed-dir-item" role="listitem" style="padding-left: 4px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" style="padding-left: 4px;">
+            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">src/main/java</span>
           </div>
-          <div class="changed-dir-item" role="listitem" style="padding-left: 20px;">
+          <div class="changed-dir-children" role="group" id="dir-children-0">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" style="padding-left: 20px;">
+            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">util</span>
           </div>
+          <div class="changed-dir-children" role="group" id="dir-children-1">
           <div class="changed-file-item"
                data-path="src/main/java/util/Helpers.java"
                data-status="added"
                data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 36px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-addedResourceForeground, #629755);" title="added">
@@ -1032,12 +1043,12 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
               Helpers.java
             </span>
 
-          </div>
+          </div></div>
           <div class="changed-file-item"
                data-path="src/main/java/App.java"
                data-status="modified"
                data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 20px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
@@ -1052,7 +1063,7 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
                data-path="src/main/java/Renamed.java"
                data-status="renamed"
                data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 20px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-renamedResourceForeground, #6897BB);" title="renamed">
@@ -1062,12 +1073,12 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
               Renamed.java
             </span>
              <span class="rename-arrow">←</span> <span class="old-path" title="src/main/java/Old.java">src/main/java/Old.java</span>
-          </div>
+          </div></div>
           <div class="changed-file-item"
                data-path="README.md"
                data-status="modified"
                data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 4px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
@@ -1083,18 +1094,22 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
   // The combined multi-commit tree: byte-identical to the single-commit tree
   // EXCEPT it has no `data-commit-hash` line on any leaf (the combined view's
   // leaves carry no single commit hash).
-  const EXPECTED_COMBINED_TREE = `<div class="changed-files-list" role="list" aria-label="Changed Files">
+  const EXPECTED_COMBINED_TREE = `<div class="changed-files-list" role="tree" aria-label="Changed Files">
 
-          <div class="changed-dir-item" role="listitem" style="padding-left: 4px;">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" style="padding-left: 4px;">
+            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">src/main/java</span>
           </div>
-          <div class="changed-dir-item" role="listitem" style="padding-left: 20px;">
+          <div class="changed-dir-children" role="group" id="dir-children-0">
+          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" style="padding-left: 20px;">
+            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
             <span class="dir-name">util</span>
           </div>
+          <div class="changed-dir-children" role="group" id="dir-children-1">
           <div class="changed-file-item"
                data-path="src/main/java/util/Helpers.java"
                data-status="added"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 36px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-addedResourceForeground, #629755);" title="added">
@@ -1104,11 +1119,11 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
               Helpers.java
             </span>
 
-          </div>
+          </div></div>
           <div class="changed-file-item"
                data-path="src/main/java/App.java"
                data-status="modified"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 20px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
@@ -1122,7 +1137,7 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
           <div class="changed-file-item"
                data-path="src/main/java/Renamed.java"
                data-status="renamed"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 20px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-renamedResourceForeground, #6897BB);" title="renamed">
@@ -1132,11 +1147,11 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
               Renamed.java
             </span>
              <span class="rename-arrow">←</span> <span class="old-path" title="src/main/java/Old.java">src/main/java/Old.java</span>
-          </div>
+          </div></div>
           <div class="changed-file-item"
                data-path="README.md"
                data-status="modified"
-               role="listitem"
+               role="treeitem"
                tabindex="0"
                style="padding-left: 4px;">
             <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
@@ -1194,20 +1209,20 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     );
   });
 
-  it('snap-tree-4: every emitted row (directory and file) carries role="listitem" (Req 2.10)', () => {
+  it('snap-tree-4: every emitted row (directory and file) carries role="treeitem" (Req 2.10)', () => {
     const html = treeProvider._getDetailsPanelHtml(
       makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
     );
     const tree = extractChangedFilesList(html);
 
-    // 2 directory rows + 4 file rows = 6 rows, each with role="listitem".
-    const dirRows = (tree.match(/class="changed-dir-item" role="listitem"/g) ?? []).length;
+    // 2 directory rows + 4 file rows = 6 rows, each with role="treeitem".
+    const dirRows = (tree.match(/class="changed-dir-item" role="treeitem"/g) ?? []).length;
     const fileRows = (tree.match(/class="changed-file-item"/g) ?? []).length;
-    const listitemCount = (tree.match(/role="listitem"/g) ?? []).length;
+    const treeitemCount = (tree.match(/role="treeitem"/g) ?? []).length;
 
     assert.strictEqual(dirRows, 2, 'fixture must emit 2 directory rows');
     assert.strictEqual(fileRows, 4, 'fixture must emit 4 file rows');
-    assert.strictEqual(listitemCount, 6, 'every directory and file row must carry role="listitem"');
+    assert.strictEqual(treeitemCount, 6, 'every directory and file row must carry role="treeitem"');
   });
 
   it('snap-tree-5: pins the compacted directory label and nested directory row (Req 2.12, 2.14)', () => {
@@ -1216,19 +1231,19 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     );
     const tree = extractChangedFilesList(html);
 
-    // src→main→java compacts into one label at depth 0 (padding-left 4px).
+    // src→main→java compacts into one collapsible label at depth 0 (padding-left 4px).
     assert.ok(
       tree.includes(
-        '<div class="changed-dir-item" role="listitem" style="padding-left: 4px;">\n            <span class="dir-name">src/main/java</span>'
+        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" style="padding-left: 4px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">src/main/java</span>'
       ),
-      'compacted src/main/java directory label must be pinned at padding-left 4px'
+      'compacted src/main/java directory label must be pinned at padding-left 4px with a down-chevron'
     );
     // util is a nested directory row at depth 1 (padding-left 20px).
     assert.ok(
       tree.includes(
-        '<div class="changed-dir-item" role="listitem" style="padding-left: 20px;">\n            <span class="dir-name">util</span>'
+        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" style="padding-left: 20px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">util</span>'
       ),
-      'nested util directory row must be pinned at padding-left 20px'
+      'nested util directory row must be pinned at padding-left 20px with a down-chevron'
     );
   });
 });
