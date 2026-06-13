@@ -15,3 +15,15 @@ import type { IGtwControllerContext } from './IGtwControllerContext';
 export function handleLoadMoreCommits(ctx: IGtwControllerContext): void {
   ctx.fireLoadMoreCommits();
 }
+
+/**
+ * Handle the panelResize message from the webview.
+ * Receives the new graph/details width percentages from the draggable
+ * dividers and applies them. The write + persistence are coupled inside
+ * `setPanelWidths`, so the handler just hands the new widths to the context.
+ *
+ * @param widths - The new panel width percentages [graph, details]
+ */
+export function handlePanelResize(ctx: IGtwControllerContext, widths: [number, number]): void {
+  ctx.setPanelWidths(widths);
+}

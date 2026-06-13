@@ -51,7 +51,7 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
 import type { IGtwControllerContext } from './provider/IGtwControllerContext';
 import { buildLoadingHtml, buildNoRepositoryHtml } from './provider/htmlBuilders';
-import { handleLoadMoreCommits } from './provider/messageHandlers';
+import { handleLoadMoreCommits, handlePanelResize } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { formatCommitDate } from '../../utils/dateFormat';
@@ -2010,6 +2010,13 @@ export class GitToolWindowProvider
    * @param widths - The new panel width percentages [graph, details]
    */
   private _handlePanelResize(widths: [number, number]): void {
+    handlePanelResize(this, widths);
+  }
+
+  // IGtwControllerContext — apply new panel widths. Owns the write + persist
+  // as one atomic operation so extracted handlers never touch _workspaceState
+  // and can't update the widths without persisting them.
+  setPanelWidths(widths: [number, number]): void {
     // Update internal panel widths state
     this._panelWidths = widths;
 

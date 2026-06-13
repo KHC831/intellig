@@ -22,4 +22,13 @@ export interface IGtwControllerContext {
    * dispose access to the emitter.
    */
   fireLoadMoreCommits(): void;
+  /**
+   * Apply new graph/details panel width percentages. Exposed as a mutation
+   * method rather than a writable property because the in-memory write and
+   * the workspace-state persistence are a coupled invariant the provider
+   * owns — a bare setter would let a caller update the widths without
+   * persisting them. The handler states the intent; the provider keeps the
+   * write + persist atomic and keeps workspace state encapsulated.
+   */
+  setPanelWidths(widths: [number, number]): void;
 }
