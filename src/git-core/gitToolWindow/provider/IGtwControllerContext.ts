@@ -8,9 +8,10 @@ import type { IExtendedLogState } from '../GitToolWindowProvider';
 /**
  * The slice of the Git tool window provider that extracted builder and
  * handler modules need to reach back into. The provider class implements this
- * interface, so passing `this` to an extracted function gives it a narrowed,
- * read-only-by-default view — it can call the listed methods but cannot reach
- * the provider's private fields.
+ * interface, so passing `this` to an extracted function gives it a narrowed
+ * view — the read accessors plus the specific mutation, fire, and post
+ * capabilities each extracted handler needs — without exposing the provider's
+ * private fields, emitters, or webview reference.
  *
  * The interface grows as more code is extracted: a member is added only when
  * a moved function actually needs it.
