@@ -10,6 +10,27 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.1.6] - 2026-06-13
+
+### Added
+
+- Drag-to-resize the author and date columns in the commit log; widths persist across reloads.
+- Annotated tags now appear on the commit graph.
+
+### Fixed
+
+- Right-click → Push now pushes the branch you clicked, not the branch HEAD is on.
+- A rebase started from the extension no longer leaves a phantom session that blocked later branch operations.
+- Checking out a branch in use by another worktree now names that worktree instead of surfacing a raw git error.
+- Branch labels match IntelliJ: current branch highlighted, a lone branch is never hidden behind "+1", and collapsed refs are clickable.
+- Local branch labels render green, remote violet, current yellow.
+- The Changed Files tree is now collapsible.
+- Far-parent graph edges no longer cut through unrelated rows.
+
+### Changed
+
+- Commit timestamps now show an absolute date and time instead of a stale relative label.
+
 ## [0.1.5] - 2026-06-11
 
 ### Fixed
