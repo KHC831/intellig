@@ -1,9 +1,10 @@
 /**
  * Unit tests for new command handler error flows.
  *
- * Tests uncommitted changes dialog for Checkout and Rebase,
- * conflict warning for merge/rebase results, and missing repository
- * early return behavior.
+ * Tests the uncommitted-changes dialog for Checkout, smart-stash parity
+ * for Rebase onto (a dirty tree rebases via autostash rather than being
+ * walled off), conflict warnings for merge/rebase results, and
+ * missing-repository early-return behavior.
  */
 
 /*
@@ -24,6 +25,7 @@ import {
   IFetchResult,
   IPushOptions,
   IInProgressOperation,
+  IFileStatus,
 } from '../../git-core/interfaces/IGitService';
 import { EventEmitter, Uri } from '../mocks/vscode';
 import { writableWindow } from '../typed/windowStub';
@@ -756,13 +758,95 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
+    // ─── Smart-stash parity: a dirty tree must NOT block rebase-onto ──────
+    //
+    // IntelliJ rebases a dirty tree silently (auto-stash → rebase →
+    // auto-restore); only a genuine conflict surfaces a dialog. Our handler
+    // must NOT short-circuit with a "commit or stash first" wall — rebaseBranch
+    // already passes --autostash. These pin the parity contract.
+
+    it('_handleRebaseCurrentOnto runs the rebase on a DIRTY tree (no commit-or-stash wall)', async () => {
+      const warningTracker = installWarningMessageTracker();
+      const infoTracker = installInfoMessageTracker();
+
+      let rebaseCalls = 0;
+      const dirtyStatus: IFileStatus[] = [
+        { path: 'wip.ts', indexStatus: ' ', workTreeStatus: 'M' } as IFileStatus,
+      ];
+      const gitService = createMockGitService({
+        // Dirty working tree — the old pre-check short-circuited here.
+        getStatus: async () => dirtyStatus,
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => {
+          rebaseCalls++;
+          return { success: true };
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/rebase-target');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.strictEqual(
+        rebaseCalls,
+        1,
+        'rebaseBranch MUST run on a dirty tree (autostash handles it); the handler must not short-circuit'
+      );
+      // No "commit or stash" wall.
+      const stashWall = warningTracker.calls.find((c) =>
+        /commit or stash|uncommitted changes/i.test(c.message)
+      );
+      assert.strictEqual(stashWall, undefined, 'must NOT show the commit-or-stash warning');
+      // Success toast fired.
+      assert.ok(
+        infoTracker.calls.some((c) => /rebased onto .* successfully/i.test(c.message)),
+        'should show the "Rebased onto X successfully" toast'
+      );
+    });
+
+    it('_handleRebaseCurrentOnto surfaces an autostash-pop conflict on a dirty tree', async () => {
+      const warningTracker = installWarningMessageTracker();
+
+      const dirtyStatus: IFileStatus[] = [
+        { path: 'wip.ts', indexStatus: ' ', workTreeStatus: 'M' } as IFileStatus,
+      ];
+      const gitService = createMockGitService({
+        getStatus: async () => dirtyStatus,
+        // Autostash pop conflicted after the rebase completed — not continuable.
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
+          success: false,
+          conflicts: ['wip.ts'],
+          rebaseInProgress: false,
+        }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createLocalBranchTreeItem('feature/rebase-target');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      // No commit-or-stash wall; the conflict is surfaced instead.
+      const stashWall = warningTracker.calls.find((c) =>
+        /commit or stash|uncommitted changes/i.test(c.message)
+      );
+      assert.strictEqual(
+        stashWall,
+        undefined,
+        'must NOT short-circuit with the commit-or-stash wall'
+      );
+      assert.ok(
+        warningTracker.calls.some((c) => /\b1\b/.test(c.message)),
+        'should surface the conflict (no ConflictResolutionService wired → fallback warning with file count)'
+      );
+    });
+
     // ─── Non-conflict failure surfacing (regression: silent no-op) ────────
     //
     // PR1 (fix/silent-rebase-error-surfacing) pinned the rebase handler's
-    // dirty-tree pre-check + non-conflict failure surfacing + fallback path.
-    // Those three rebase tests are merged on main. PR3 keeps its two unique
-    // tests covering the same regression for `_handleMergeIntoCurrent` and
-    // `_handleCherryPickCommits` — handlers PR1 didn't touch.
+    // non-conflict failure surfacing + fallback path. Those tests are merged
+    // on main. PR3 keeps its two unique tests covering the same regression for
+    // `_handleMergeIntoCurrent` and `_handleCherryPickCommits` — handlers PR1
+    // didn't touch.
 
     it('_handleMergeIntoCurrent surfaces failureReason on non-conflict failure', async () => {
       const errorTracker = installErrorMessageTracker();

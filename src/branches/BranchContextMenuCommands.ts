@@ -567,12 +567,15 @@ export class BranchContextMenuCommands {
   /**
    * Handle rebase current onto command.
    *
-   * Pre-checks the working tree for uncommitted changes BEFORE invoking
-   * `git rebase` so the user gets an actionable "commit or stash first"
-   * toast instead of git's terse "cannot rebase: You have unstaged changes"
-   * one. Skipping the pre-check was the original silent-failure UX bug:
-   * `rebaseBranch` returned `{success:false, conflicts:[]}` and the handler
-   * had no else branch for that shape, so the click looked like a no-op.
+   * Rebases the current branch onto the right-clicked one without walling off
+   * a dirty working tree: `rebaseBranch` passes `--autostash`, so git stashes
+   * any uncommitted changes, replays, and re-applies them (IntelliJ
+   * smart-stash parity). A clean rebase reports success with the changes
+   * restored. An autostash-pop conflict — where re-applying the stash collides
+   * with the rebased changes — is surfaced via the conflicts path with
+   * `rebaseInProgress: false`, so the user resolves and `git add`s the files
+   * (no continue/abort, since the rebase already completed). A genuine
+   * non-conflict failure surfaces git's reason via a `failureReason` toast.
    *
    * After the rebase runs, the handler reloads the repo
    * and inspects `repo.inProgress` (populated from `readInProgressOperation`
@@ -591,17 +594,11 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      // Pre-check: working tree must be clean. Both unstaged changes and a
-      // dirty index will cause `git rebase` to refuse, so we treat any
-      // non-empty status as a hard stop with a friendly toast.
-      const status = await this._gitService.getStatus(repo);
-      if (status.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Cannot rebase onto '${item.branch.name}': you have uncommitted changes. ` +
-            `Commit or stash them first.`
-        );
-        return;
-      }
+      // No dirty-tree pre-check: rebaseBranch passes `--autostash`, so a dirty
+      // tree is stashed and re-applied around the replay (IntelliJ smart-stash
+      // parity). A clean rebase reports success with changes restored; an
+      // autostash-pop conflict surfaces below via the conflicts path. Walling
+      // off dirty trees here would block exactly what autostash handles.
 
       // Snapshot the in-progress operation BEFORE invoking the
       // rebase. This lets us distinguish a rebasing state that OUR call
