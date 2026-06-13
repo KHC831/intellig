@@ -49,4 +49,17 @@ export interface IGtwControllerContext {
   get extendedLogState(): IExtendedLogState;
   /** Single-select the given commit (pass-through to the in-class method). */
   selectCommit(hash: string): void;
+  // The capability methods below each delegate to the matching in-class impl
+  // (or emitter) so the webview reference and the EventEmitter stay
+  // encapsulated on the provider, and so those instance methods remain
+  // patchable — the render-then-post ordering tests reassign them on the
+  // instance and observe the call order through these delegations.
+  /** Re-render the webview document (full template refresh). */
+  updateWebview(): void;
+  /** Fire the onDidChangeState event. */
+  fireDidChangeState(): void;
+  /** Post the host's anchor + selection to the webview's JS-side mirror. */
+  postSyncSelection(): void;
+  /** Post the recomputed context-menu enable map to the webview. */
+  postMenuStateUpdate(): void;
 }

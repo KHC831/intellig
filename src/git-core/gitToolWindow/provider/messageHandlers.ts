@@ -42,3 +42,33 @@ export function selectIfNotSelected(ctx: IGtwControllerContext, hash: string): v
   }
   ctx.selectCommit(hash);
 }
+
+/**
+ * Toggle commit selection (for multi-select)
+ */
+export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string): void {
+  if (ctx.extendedLogState.selectedCommits.has(hash)) {
+    ctx.extendedLogState.selectedCommits.delete(hash);
+  } else {
+    ctx.extendedLogState.selectedCommits.add(hash);
+  }
+  // Ctrl/Cmd-click also moves the anchor to the clicked
+  // commit, matching IntelliJ's selection model.
+  ctx.extendedLogState.anchorHash = hash;
+
+  // (HIGH) — order: render FIRST so the new document exists,
+  // THEN post so postMessage lands on the live page rather than the
+  // pre-reload one (ADR-009 §3 sub-rule). _postSyncSelection mirrors
+  // the host's anchor + selection onto the JS-side mirror so the
+  // freshly-rendered document agrees with state on first paint.
+  ctx.updateWebview();
+  // Fire onDidChangeState BEFORE the wire posts
+  // so subscribers see "selection changed" on the same event-loop
+  // tick the host knows it. Aligns with selectCommit's ordering.
+  ctx.fireDidChangeState();
+  // belt-and-suspenders — the rendered HTML already
+  // carries data-anchor-hash; syncSelection guards against
+  // interpolation bugs and partial-update extension cases.
+  ctx.postSyncSelection();
+  ctx.postMenuStateUpdate();
+}

@@ -55,6 +55,7 @@ import {
   handleLoadMoreCommits,
   handlePanelResize,
   selectIfNotSelected as handleSelectIfNotSelected,
+  toggleCommitSelection as handleToggleCommitSelection,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
@@ -1014,29 +1015,30 @@ export class GitToolWindowProvider
    * Toggle commit selection (for multi-select)
    */
   public toggleCommitSelection(hash: string): void {
-    if (this._extendedLogState.selectedCommits.has(hash)) {
-      this._extendedLogState.selectedCommits.delete(hash);
-    } else {
-      this._extendedLogState.selectedCommits.add(hash);
-    }
-    // Ctrl/Cmd-click also moves the anchor to the clicked
-    // commit, matching IntelliJ's selection model.
-    this._extendedLogState.anchorHash = hash;
+    handleToggleCommitSelection(this, hash);
+  }
 
-    // (HIGH) — order: render FIRST so the new document exists,
-    // THEN post so postMessage lands on the live page rather than the
-    // pre-reload one (ADR-009 §3 sub-rule). _postSyncSelection mirrors
-    // the host's anchor + selection onto the JS-side mirror so the
-    // freshly-rendered document agrees with state on first paint.
+  // IGtwControllerContext — capability methods for extracted handlers. Each is
+  // a one-line dynamic delegation to the in-class impl (or emitter), read off
+  // `this` on every call: the webview reference and the EventEmitter stay
+  // encapsulated on the provider, and the underlying instance methods stay
+  // patchable so the render-then-post ordering tests (which reassign
+  // _updateWebview / _onDidChangeState.fire / _postSyncSelection /
+  // _postMenuStateUpdate on the instance) observe the real call order. Do not
+  // inline these bodies or capture the references — that would hide the patch.
+  updateWebview(): void {
     this._updateWebview();
-    // Fire onDidChangeState BEFORE the wire posts
-    // so subscribers see "selection changed" on the same event-loop
-    // tick the host knows it. Aligns with selectCommit's ordering.
+  }
+
+  fireDidChangeState(): void {
     this._onDidChangeState.fire();
-    // belt-and-suspenders — the rendered HTML already
-    // carries data-anchor-hash; syncSelection guards against
-    // interpolation bugs and partial-update extension cases.
+  }
+
+  postSyncSelection(): void {
     this._postSyncSelection();
+  }
+
+  postMenuStateUpdate(): void {
     this._postMenuStateUpdate();
   }
 
