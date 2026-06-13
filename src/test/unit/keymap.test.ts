@@ -112,7 +112,7 @@ describe('IntelliJ keymap parity', () => {
   });
 
   describe('existing silent shelve/unshelve shortcuts are still bound', () => {
-    it('Ctrl+Shift+H → intellig.shelve.silent (from )', () => {
+    it('Ctrl+Shift+H → intellig.shelve.silent', () => {
       const kbs = pkg.contributes?.keybindings ?? [];
       const kb = kbs.find(
         (k) => k.command === 'intellig.shelve.silent' && k.key === 'ctrl+shift+h'
