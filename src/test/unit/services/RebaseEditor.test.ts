@@ -241,6 +241,7 @@ describe('RebaseEditor', () => {
         success: false,
         status: 'conflict',
         conflictedFiles: ['file1.ts', 'file2.ts'],
+        rebaseInProgress: true,
       };
 
       await mockRebaseService.startInteractiveRebase(mockRepository, 'main');

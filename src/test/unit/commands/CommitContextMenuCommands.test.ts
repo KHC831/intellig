@@ -1006,6 +1006,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           success: false,
           status: 'conflict' as const,
           conflictedFiles: ['file1.ts', 'file2.ts'],
+          rebaseInProgress: true,
         }),
       });
       const provider = createMockProvider();
@@ -1281,6 +1282,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
           success: false,
           status: 'conflict' as const,
           conflictedFiles: ['src/foo.ts'],
+          rebaseInProgress: true,
         }),
       });
       const provider = createMockProvider();

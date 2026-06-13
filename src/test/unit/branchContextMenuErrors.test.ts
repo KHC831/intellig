@@ -692,6 +692,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
           success: false,
           conflicts: ['file1.ts', 'file2.ts', 'file3.ts'],
+          rebaseInProgress: true,
         }),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);
@@ -742,6 +743,7 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
         rebaseBranch: async (): Promise<IBasicRebaseResult> => ({
           success: false,
           conflicts: ['file.ts'],
+          rebaseInProgress: true,
         }),
       });
       const branchTreeProvider = createMockBranchTreeProvider(gitService);

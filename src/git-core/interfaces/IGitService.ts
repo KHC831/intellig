@@ -527,26 +527,49 @@ export interface ICreateBranchOptions {
  * `failureReason` is populated identically here for non-conflict
  * failures so callers never drop the failure silently.
  */
-export interface IBasicRebaseResult {
+/**
+ * Conflict-bearing arm of {@link IBasicRebaseResult}.
+ *
+ * Selected whenever `conflicts` is a non-empty list (the empty-list /
+ * no-conflict outcomes match {@link IBasicRebaseOutcomeResult}, whose
+ * `conflicts` is typed `[]`). `rebaseInProgress` is REQUIRED so a conflict can
+ * never be reported without declaring its continuability.
+ *
+ * Continuability is orthogonal to conflict-ness: a mid-replay conflict leaves
+ * a live rebase (`true`, continue/abort apply), while an `--autostash` pop
+ * conflict happens after the rebase already finished (`false`, no rebase in
+ * progress — `git rebase --continue` would dead-end on "no rebase in
+ * progress"). Consumers gate the continue/abort affordance on
+ * `rebaseInProgress === true`; when `false` they offer only resolve-and-stage
+ * (`git add`).
+ */
+export interface IBasicRebaseConflictResult {
+  success: false;
+  conflicts: string[];
+  rebaseInProgress: boolean;
+  failureReason?: never;
+}
+
+/**
+ * Non-conflict arm of {@link IBasicRebaseResult}: a clean success, or a
+ * non-conflict failure (dirty working tree, in-progress rebase, refs out of
+ * sync, etc.). Carries an optional sanitized `failureReason` for the failure
+ * case and an empty (or absent) `conflicts` list. The continuability flag is
+ * forbidden here (`?: never`) so it only ever appears on a genuine conflict,
+ * never polluting a non-conflict result.
+ */
+export interface IBasicRebaseOutcomeResult {
   success: boolean;
-  conflicts?: string[];
+  conflicts?: [];
   /**
    * Sanitized error reason for non-conflict failures (e.g. "cannot
    * rebase: You have unstaged changes", in-progress rebase, etc.).
    */
   failureReason?: string;
-  /**
-   * Whether a rebase is still in progress when `conflicts` is populated.
-   * Continuability is orthogonal to conflict-ness: a mid-replay conflict
-   * leaves a live rebase (`true`, continue/abort apply), while an
-   * `--autostash` pop conflict happens after the rebase already finished
-   * (`false`, no rebase in progress — `git rebase --continue` would dead-end
-   * on "no rebase in progress"). Consumers must gate the continue/abort
-   * affordance on `rebaseInProgress === true`; when `false` they offer only
-   * resolve-and-stage (`git add`). Undefined when there are no conflicts.
-   */
-  rebaseInProgress?: boolean;
+  rebaseInProgress?: never;
 }
+
+export type IBasicRebaseResult = IBasicRebaseConflictResult | IBasicRebaseOutcomeResult;
 
 /**
  * Cherry-pick options.

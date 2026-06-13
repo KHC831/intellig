@@ -257,6 +257,7 @@ describe('BranchContextMenuCommands — checkoutAndRebase', () => {
     const gitService = createMockGitService({
       success: false,
       conflicts: ['src/a.ts', 'src/b.ts'],
+      rebaseInProgress: true,
     });
     const crs = createMockConflictResolutionService();
     const repo = createMockRepo('main');

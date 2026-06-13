@@ -296,6 +296,7 @@ describe('RebaseProgressView', () => {
           success: false,
           status: 'conflict',
           conflictedFiles: ['file1.ts', 'file2.ts'],
+          rebaseInProgress: true,
         };
 
         const result = await mockRebaseService.continueRebase(mockRepository);
@@ -376,6 +377,7 @@ describe('RebaseProgressView', () => {
           success: false,
           status: 'conflict',
           conflictedFiles: ['another-file.ts'],
+          rebaseInProgress: true,
         };
 
         const result = await mockRebaseService.skipCommit(mockRepository);
@@ -572,6 +574,7 @@ describe('RebaseProgressView', () => {
         success: false,
         status: 'conflict',
         conflictedFiles: ['file.ts'],
+        rebaseInProgress: true,
       };
 
       const continueResult = await mockRebaseService.continueRebase(mockRepository);
@@ -599,6 +602,7 @@ describe('RebaseProgressView', () => {
         success: false,
         status: 'conflict',
         conflictedFiles: ['file.ts'],
+        rebaseInProgress: true,
       };
 
       const continueResult = await mockRebaseService.continueRebase(mockRepository);
