@@ -1723,6 +1723,30 @@ describe('_getBranchLabelsHtml', () => {
       );
     });
 
+    it('renders the collapsed +N chip as an interactive button (popup affordance)', () => {
+      // The collapsed chip opens a clickable ref popup, so it must be a
+      // keyboard-activatable button (WCAG 1.4.1 — interaction not
+      // colour-only): role="button" + tabindex="0" + aria-haspopup, and
+      // it must carry the pipe-delimited data-collapsed-branches the popup
+      // handler consumes.
+      const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
+      const html = provider._getBranchLabelsHtml(node);
+      const chipMatch = html.match(/<span class="branch-label-collapsed"[^>]*>/);
+      assert.ok(chipMatch, 'collapsed chip is rendered');
+      const chip = chipMatch[0];
+      assert.ok(chip.includes('role="button"'), 'collapsed chip must be role="button"');
+      assert.ok(chip.includes('tabindex="0"'), 'collapsed chip must be keyboard-focusable');
+      assert.ok(chip.includes('aria-haspopup="true"'), 'collapsed chip advertises a popup');
+      assert.ok(
+        chip.includes('data-collapsed-branches="origin/develop"'),
+        'collapsed chip carries the pipe-list the popup consumes'
+      );
+      assert.ok(
+        !chip.includes('role="img"'),
+        'collapsed chip is no longer a decorative role="img"'
+      );
+    });
+
     it('never hides a lone non-current branch behind a bare +1', () => {
       // The original bug: a single non-current tip collapsed into "+1".
       // A lone branch must ALWAYS show its name — one chip is never past
@@ -2048,6 +2072,37 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(html.includes('padding: 1px 5px'), 'Should include padding 1px 5px');
       assert.ok(html.includes('border-radius: 3px'), 'Should include border-radius 3px');
       assert.ok(html.includes('margin-left: 4px'), 'Should include margin-left 4px');
+    });
+
+    it('collapsed chip is clickable (cursor:pointer) and the #ref-popup overlay is rendered', () => {
+      const mockWebview = {
+        html: '',
+        options: {},
+        cspSource: 'https://mock.csp.source',
+        onDidReceiveMessage: () => ({ dispose: () => {} }),
+        postMessage: () => Promise.resolve(true),
+        asWebviewUri: (uri: Uri) => uri,
+      } as unknown as Webview;
+
+      const html = provider._getThreePanelHtmlContent(
+        mockWebview as unknown as import('vscode').Webview,
+        []
+      );
+
+      // The collapsed chip is now a click target, not a help cursor.
+      assert.ok(
+        /\.branch-label-collapsed[\s\S]*?cursor:\s*pointer/.test(html),
+        'collapsed chip must use cursor:pointer (clickable popup affordance)'
+      );
+      assert.ok(
+        !/\.branch-label-collapsed[\s\S]*?cursor:\s*help/.test(html),
+        'the dead-end cursor:help must be gone'
+      );
+      // The popup overlay element ships in the panel markup.
+      assert.ok(
+        html.includes('id="ref-popup"'),
+        'the #ref-popup overlay element must be rendered for the collapsed-chip popup'
+      );
     });
   });
 

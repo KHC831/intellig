@@ -2245,6 +2245,7 @@ export class GitToolWindowProvider
       ${detailsPanelHtml}
     </div>
     ${commitContextMenuHtml}
+    <div id="ref-popup" class="context-menu" hidden role="menu" aria-label="Branches at this commit"></div>
   </div>`;
 
     // When the tabbed-layout flag is ON, wrap the Log body with the tab

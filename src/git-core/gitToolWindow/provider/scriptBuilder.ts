@@ -839,6 +839,101 @@ export function buildInlineScript(): string {
           }
         });
 
+        // ─── Collapsed-ref popup (branch label "+N" chip) ────────────────
+        // The collapsed-branch chip is a button. Activating it (click or
+        // Enter/Space) opens a popup listing every collapsed ref, one row
+        // per branch. Each row navigates to that branch via the existing
+        // \`branchClick\` message — no new host handler. The popup clones
+        // the commit-context-menu overlay primitive: cursor-positioned with
+        // the same viewport-clamp, dismissed by click-outside + Escape.
+        function openRefPopup(chip, clientX, clientY) {
+          const popup = document.getElementById('ref-popup');
+          if (!popup) return;
+          const raw = chip.getAttribute('data-collapsed-branches') || '';
+          const names = raw.split('|').filter(function(n) { return n.length > 0; });
+          if (names.length === 0) return;
+
+          // Build one row per ref. textContent assignment escapes the name,
+          // so a branch name containing markup cannot inject into the popup.
+          popup.innerHTML = '';
+          names.forEach(function(name) {
+            const row = document.createElement('div');
+            row.className = 'context-menu-item';
+            row.setAttribute('role', 'menuitem');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-branch-name', name);
+            row.textContent = name;
+            popup.appendChild(row);
+          });
+
+          // Same clamp math as the commit context menu.
+          const menuWidth = 220;
+          const menuHeight = 400;
+          const viewportWidth = window.innerWidth;
+          const viewportHeight = window.innerHeight;
+          const left = clientX + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : clientX;
+          const top = clientY + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : clientY;
+          popup.style.left = left + 'px';
+          popup.style.top = top + 'px';
+          popup.hidden = false;
+        }
+
+        // Single click handler for the ref popup, in priority order so the
+        // open / row-select / dismiss paths never race each other:
+        //   1. click on the collapsed chip   → open the popup
+        //   2. click on a popup row           → navigate + dismiss
+        //   3. click anywhere else            → dismiss
+        document.addEventListener('click', function(e) {
+          const target = e.target && e.target.closest ? e.target : null;
+          const popup = document.getElementById('ref-popup');
+          if (!popup) return;
+
+          const chip = target ? target.closest('.branch-label-collapsed[data-collapsed-branches]') : null;
+          if (chip) {
+            openRefPopup(chip, e.clientX, e.clientY);
+            return;
+          }
+
+          if (popup.hidden) return;
+
+          const row = target ? target.closest('#ref-popup .context-menu-item') : null;
+          if (row) {
+            const name = row.getAttribute('data-branch-name');
+            if (name) {
+              vscode.postMessage({ type: 'branchClick', branchName: name });
+            }
+            popup.hidden = true;
+            return;
+          }
+
+          // Click anywhere outside the popup dismisses it.
+          if (!popup.contains(e.target)) {
+            popup.hidden = true;
+          }
+        });
+
+        // Open on Enter/Space when the chip is keyboard-focused.
+        document.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          const chip = e.target && e.target.closest
+            ? e.target.closest('.branch-label-collapsed[data-collapsed-branches]')
+            : null;
+          if (!chip) return;
+          e.preventDefault();
+          // Anchor the popup at the chip's own position (no pointer coords
+          // for a keyboard activation).
+          const rect = chip.getBoundingClientRect();
+          openRefPopup(chip, rect.left, rect.bottom);
+        });
+
+        // Dismiss the ref popup on Escape.
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            const popup = document.getElementById('ref-popup');
+            if (popup) popup.hidden = true;
+          }
+        });
+
         // Delegate keyboard handling to focused commit
         // rows so the arrow-key range-select works without per-row
         // \`onkeydown\` attributes (which would inflate the rendered HTML).
