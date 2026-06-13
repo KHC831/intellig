@@ -2028,27 +2028,19 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-remote'),
         'Should include .branch-label-remote CSS class'
       );
-      // Remote chip uses the same badge-* family
-      // as local; the secondary remote-only override block retains the
-      // earlier #1a3a5c / #90caf9 hex pair as a fallback when neither
-      // badge-* nor the legacy gitDecoration-* family is defined. The
-      // hex literals MUST ship (CSS var fallback discipline + future
-      // hi-contrast drift detection).
+      // Remote chip is the hardcoded IntelliJ violet (#9876AA) —
+      // pixel-faithful parity, deliberately NOT theme-adaptive (issue #10
+      // decision A). The standalone hex is sanctioned via the
+      // themeTokenCompleteness audit allowlist.
       assert.ok(
-        html.includes('--vscode-gitDecoration-renamedResourceForeground, #1a3a5c'),
-        'Remote label must retain #1a3a5c hex as legacy fallback'
+        /\.branch-label-remote\s*\{[^}]*background:\s*#9876AA/i.test(html),
+        'Remote label must use the IntelliJ violet #9876AA background'
       );
+      // The earlier theme-blue fallbacks no longer apply to the remote
+      // chip (it left the badge-* family for the brand violet).
       assert.ok(
-        html.includes('--vscode-gitDecoration-modifiedResourceForeground, #90caf9'),
-        'Remote label must retain #90caf9 hex as legacy fallback'
-      );
-      assert.ok(
-        html.includes('var(--vscode-badge-background'),
-        'Remote label must use var(--vscode-badge-background) as primary'
-      );
-      assert.ok(
-        html.includes('var(--vscode-badge-foreground'),
-        'Remote label must use var(--vscode-badge-foreground) as primary'
+        !/\.branch-label-remote\s*\{[^}]*#1a3a5c/i.test(html),
+        'Remote label must no longer carry the #1a3a5c theme fallback'
       );
     });
 

@@ -782,16 +782,15 @@ export function buildInlineStyles(): string {
         vertical-align: middle;
       }
 
-      /* Chip backgrounds use VS Code's badge-background / badge-foreground
-         semantic tokens (guaranteed available: engines.vscode floor is
-         ^1.85.0). The earlier gitDecoration-stageModifiedResourceForeground /
-         gitDecoration-renamedResourceForeground tokens are FG-tier
-         file-status semantics — themes that override those for the SCM tree
-         would unexpectedly recolor branch chips here. The badge-* family is
-         semantically correct for chip-shaped UI; local vs remote distinction
-         comes from the codicon prefix (cloud vs git-branch) rather than the
-         background colour. Falls back to hex literals when the theme variable
-         is absent. Pinned by snap-12e. */
+      /* Shared chip sizing/spacing for local + remote chips, plus the
+         LOCAL chip's green background via VS Code's badge-background /
+         badge-foreground semantic tokens (guaranteed available:
+         engines.vscode floor is ^1.85.0). Remote chips override the
+         background below with the hardcoded IntelliJ violet, so the
+         badge-* colour here applies to local chips; the sizing/spacing
+         (font, padding, radius, margin) is shared by both. Falls back to
+         hex literals when the theme variable is absent. Pinned by
+         snap-12e. */
       .branch-label-local,
       .branch-label-remote {
         background: var(--vscode-badge-background, #2d5a1e);
@@ -831,28 +830,18 @@ export function buildInlineStyles(): string {
         outline-offset: 1px;
       }
 
-      /* The remote-chip fallback hex pair is retained as a CSS-var
-         secondary-fallback so a future theme that defines neither badge-*
-         nor the gitDecoration-* family still gets a visually-readable chip.
-         Themes that DO define badge-* see identical local + remote
-         backgrounds — local vs remote is carried by the icon glyph, not the
-         colour. The remote-only hex (#1a3a5c) is retained inline below for
-         snap-12e and human grep, even though no rule consumes it directly. */
+      /* Remote-branch chip = IntelliJ VIOLET (#9876AA). This is a
+         DELIBERATELY hardcoded brand colour, not theme-adaptive — chosen
+         for pixel-faithful IntelliJ parity over VS Code theme-token
+         adaptivity. It overrides the shared badge-background rule above so
+         remote chips read violet while local chips stay green and the
+         current branch stays yellow — giving each ref kind its own
+         IntelliJ colour. The standalone hex is sanctioned via the
+         themeTokenCompleteness audit allowlist. White foreground keeps the
+         name legible on the violet fill. */
       .branch-label-remote {
-        /* Fallback hex for the remote chip when neither
-           --vscode-badge-background nor the legacy
-           --vscode-gitDecoration-renamedResourceForeground is defined.
-           The shared .branch-label-local, .branch-label-remote rule above is
-           the primary; this rule only adds the #1a3a5c retention for snap-12e
-           + future hi-contrast drift detection. */
-        background: var(
-          --vscode-badge-background,
-          var(--vscode-gitDecoration-renamedResourceForeground, #1a3a5c)
-        );
-        color: var(
-          --vscode-badge-foreground,
-          var(--vscode-gitDecoration-modifiedResourceForeground, #90caf9)
-        );
+        background: #9876AA;
+        color: white;
       }
 
       /* Codicon prefix sizing on chips. The icon is the non-color WCAG 1.4.1

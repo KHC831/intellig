@@ -78,8 +78,11 @@ function readIfExists(relPath: string): string {
  * override, so each needs a reason it's acceptable.
  */
 const STANDALONE_HEX_ALLOWLIST: Array<{ hex: string; rationale: string }> = [
-  // (currently empty — every hex in the panel is a token fallback or a
-  // brand-palette entry. New standalone hexes must justify themselves here.)
+  {
+    hex: '#9876AA',
+    rationale:
+      'IntelliJ-parity remote-branch violet — user chose pixel-faithful over theme-token adaptivity (issue #10 decision A)',
+  },
 ];
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;

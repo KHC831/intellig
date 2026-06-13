@@ -1640,7 +1640,7 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     provider.dispose();
   });
 
-  it('snap-12e: inline <style> declares `var(--vscode-gitDecoration-*)` for both .branch-label-local and .branch-label-remote with hex fallbacks', () => {
+  it('snap-12e: inline <style> keeps local chip green (theme badge token) and colors the remote chip IntelliJ violet (#9876AA)', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -1651,12 +1651,8 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Chip backgrounds switched to the
-    // semantically-correct `--vscode-badge-*` family. The earlier hex
-    // literals must STILL ship as the CSS-var fallback (defence in
-    // depth + future hi-contrast drift detection); the legacy
-    // gitDecoration-* tokens are retained as a SECONDARY var() fallback
-    // for the remote chip only (snap-12e historically pinned that token).
+    // Local chip keeps the semantically-correct theme `--vscode-badge-*`
+    // family (green), with #2d5a1e as the CSS-var fallback.
     assert.ok(
       /\.branch-label-local[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
       'inline CSS for .branch-label-local must use var(--vscode-badge-background) for theme-aware color'
@@ -1666,16 +1662,19 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
       'inline CSS for .branch-label-local must keep #2d5a1e as the CSS-var fallback'
     );
 
-    // Remote chip — same primary token (badge-background); legacy
-    // gitDecoration-renamedResourceForeground retained as secondary
-    // fallback so themes that override it still get a sensible chip.
+    // Remote chip is now the hardcoded IntelliJ violet (#9876AA) —
+    // pixel-faithful parity, NOT theme-adaptive (issue #10 decision A).
+    // The standalone hex is sanctioned by the themeTokenCompleteness
+    // allowlist.
     assert.ok(
-      /\.branch-label-remote[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
-      'inline CSS for .branch-label-remote must use var(--vscode-badge-background) for theme-aware color'
+      /\.branch-label-remote\s*\{[^}]*background:\s*#9876AA/i.test(fullHtml),
+      'inline CSS for .branch-label-remote must use the IntelliJ violet #9876AA'
     );
+    // The old theme-blue remote fallback is gone (the remote chip no
+    // longer shares the badge family).
     assert.ok(
-      /\.branch-label-remote[\s,{][\s\S]*?#1a3a5c/.test(fullHtml),
-      'inline CSS for .branch-label-remote must keep #1a3a5c as the CSS-var fallback'
+      !/\.branch-label-remote\s*\{[^}]*#1a3a5c/i.test(fullHtml),
+      'the old #1a3a5c remote fallback must be gone (remote is now violet)'
     );
   });
 });
