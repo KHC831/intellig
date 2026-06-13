@@ -201,14 +201,20 @@ export function buildInlineScript(): string {
           // render-time \`_getBranchLabelsHtml\` is the source of truth;
           // this handler exists so the chip outline lands without a full
           // DOM rebuild. Toggles \`branch-label-focused\` on every chip
-          // matching \`data-branch-name\`.
+          // matching \`data-branch-name\`. The selector covers all three
+          // branch-chip kinds — local, remote, AND the current-branch
+          // chip (.branch-label-head). The current branch can also be the
+          // focused branch (focusedBranchName and headBranchName are
+          // independent), so the head chip must participate in the
+          // focus toggle or its outline would go stale on a re-render-less
+          // focus change.
           if (message.type === 'updateBranchFocus') {
             branchFocus = {
               focusedBranchName: typeof message.focusedBranchName === 'string' ? message.focusedBranchName : null,
               focusedHash: typeof message.focusedHash === 'string' ? message.focusedHash : null,
             };
             const focusedName = branchFocus.focusedBranchName;
-            document.querySelectorAll('.branch-label-local[data-branch-name], .branch-label-remote[data-branch-name]').forEach(function(chip) {
+            document.querySelectorAll('.branch-label-local[data-branch-name], .branch-label-remote[data-branch-name], .branch-label-head[data-branch-name]').forEach(function(chip) {
               const name = chip.getAttribute('data-branch-name');
               if (focusedName !== null && name === focusedName) {
                 chip.classList.add('branch-label-focused');
