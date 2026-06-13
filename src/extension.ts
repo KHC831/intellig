@@ -12,7 +12,6 @@ import {
   createMergeView,
   RebaseEditor,
   InlineBlameProvider,
-  createInlineBlameProvider,
   GutterBlameProvider,
   createGutterBlameProvider,
   StatusBarService,
@@ -72,6 +71,7 @@ import { ICommandContext } from './commands/registration/CommandContext';
 import { registerChangelistCommands } from './commands/registration/changelistCommands';
 import { registerExplorerCommands } from './commands/registration/explorerCommands';
 import { registerRebaseConflictCommands } from './commands/registration/rebaseConflictCommands';
+import { registerBlameEditorCommands } from './commands/registration/blameEditorCommands';
 // Re-export the relocated explorer helpers so the by-name test-seam import
 // path `from '../../../extension'` is preserved (RULE E2).
 export {
@@ -79,6 +79,8 @@ export {
   buildCompareWithRepoVersionLeftUri,
   buildCompareWithRepoVersionTitle,
 } from './commands/registration/explorerCommands';
+// Re-export the relocated local-changes helper (RULE E2).
+export { resolveLocalChangesOpenFileTarget } from './commands/registration/blameEditorCommands';
 
 /**
  * Global reference to the extension services container.
@@ -1231,49 +1233,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
     await shelfView.show(repo);
   });
 
-  // Toggle blame annotations command
-  const toggleBlameCommand = registerLoggedCommand('intellig.toggleBlame', () => {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    // Toggle inline blame
-    if (!inlineBlameProvider) {
-      inlineBlameProvider = createInlineBlameProvider(
-        extensionServices.blameService,
-        extensionServices.gitService,
-        extensionServices.blameOptionsSource
-      );
-    }
-
-    const enabled = inlineBlameProvider.toggle();
-    void vscode.window.showInformationMessage(
-      `Inline blame annotations ${enabled ? 'enabled' : 'disabled'}`
-    );
-  });
-
-  // Toggle gutter blame annotations command
-  const toggleGutterBlameCommand = registerLoggedCommand('intellig.toggleGutterBlame', () => {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    // Toggle gutter blame
-    if (!gutterBlameProvider) {
-      gutterBlameProvider = createGutterBlameProvider(
-        extensionServices.blameService,
-        extensionServices.gitService,
-        extensionServices.blameOptionsSource
-      );
-    }
-
-    const enabled = gutterBlameProvider.toggle();
-    void vscode.window.showInformationMessage(
-      `Gutter blame annotations ${enabled ? 'enabled' : 'disabled'}`
-    );
-  });
+  // Blame (inline + gutter) + editor-context-menu commands +
+  // intellig.localChanges.openFile. Extracted to
+  // `commands/registration/blameEditorCommands.ts`; handler bodies verbatim
+  // with ctx token swaps (extensionServices->ctx.services, inlineBlameProvider
+  // /gutterBlameProvider read+write via ctx). The pure helper
+  // resolveLocalChangesOpenFileTarget moved with the module and is re-exported
+  // from extension.ts below (RULE E2).
+  const blameEditorDisposables = registerBlameEditorCommands(ctx);
 
   // Compare with branch command
   const compareWithBranchCommand = registerLoggedCommand('intellig.compareWithBranch', async () => {
@@ -1508,27 +1475,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // context.extensionUri->ctx.context.extensionUri).
   const rebaseConflictDisposables = registerRebaseConflictCommands(ctx);
 
-  // F4 / Local-Changes "Jump to Source".
-  //
-  // Argument shapes (see `resolveLocalChangesOpenFileTarget`):
-  //   - explicit `vscode.Uri`  (CommitToolWindow when path is already a URI)
-  //   - explicit string path   (CommitToolWindow's normal `message.path`)
-  //   - no argument            (F4 keybinding from a focused context)
-  //
-  // The IChangelistService doesn't yet expose a `getSelection()` API, so
-  // the no-argument case currently falls back to a hint toast rather
-  // than plumbing new selection state through.
-  const localChangesOpenFileCommand = registerLoggedCommand(
-    'intellig.localChanges.openFile',
-    async (arg?: vscode.Uri | string) => {
-      const target = resolveLocalChangesOpenFileTarget(arg, undefined);
-      if (target) {
-        await vscode.commands.executeCommand('vscode.open', target);
-        return;
-      }
-      void vscode.window.showInformationMessage('Select a file in Local Changes first.');
-    }
-  );
   // NOTE: `intellig.toolWindow.jumpToHash` is the real implementation (see
   // `jumpToHashCommand` above). A duplicate stub registration previously
   // lived here and crashed activation (VS Code throws on duplicate
@@ -1769,442 +1715,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
   // helpers resolveExplorerFileUri / buildCompareWithRepoVersion* moved with
   // the module and are re-exported from extension.ts below (RULE E2).
   const explorerDisposables = registerExplorerCommands(ctx);
-
-  // Editor Context Menu Commands
-
-  // Toggle Blame Annotations command for editor context menu
-  const editorToggleBlameCommand = registerLoggedCommand('intellig.editor.toggleBlame', () => {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    // Create inline blame provider if not exists
-    if (!inlineBlameProvider) {
-      inlineBlameProvider = createInlineBlameProvider(
-        extensionServices.blameService,
-        extensionServices.gitService,
-        extensionServices.blameOptionsSource
-      );
-    }
-
-    const enabled = inlineBlameProvider.toggle();
-    void vscode.window.showInformationMessage(
-      `Blame annotations ${enabled ? 'enabled' : 'disabled'}`
-    );
-  });
-
-  // Show Line History command for editor context menu
-  const editorShowLineHistoryCommand = registerLoggedCommand(
-    'intellig.editor.showLineHistory',
-    async () => {
-      if (!extensionServices) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const activeEditor = vscode.window.activeTextEditor;
-      if (!activeEditor) {
-        void vscode.window.showErrorMessage('No active editor');
-        return;
-      }
-
-      const gitService = extensionServices.gitService;
-      const blameService = extensionServices.blameService;
-      // honor the active-editor file's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        hintRepoPath: activeEditor.document.uri.fsPath,
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-      const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
-
-      try {
-        // Get blame info for the current line
-        const blameLine = await blameService.getBlameForLine(repo, filePath, line);
-
-        if (blameLine.commit.startsWith('0000000')) {
-          void vscode.window.showInformationMessage('This line has not been committed yet');
-          return;
-        }
-
-        // Get the file history and filter to commits that modified this line
-        const history = await gitService.getFileHistory(repo, filePath);
-
-        // Show history in a quick pick
-        const items = history.map((commit) => ({
-          label: commit.shortHash,
-          description: commit.message.substring(0, 60),
-          detail: `${commit.author.name} - ${commit.authorDate.toLocaleDateString()}`,
-          commit,
-        }));
-
-        const selected = await vscode.window.showQuickPick(items, {
-          placeHolder: `History for line ${line} in ${filePath}`,
-          title: 'Line History',
-        });
-
-        if (selected) {
-          // sanitize-exempt: non-error-data: selected.commit.message is the user-authored commit subject from `git log`, not git stderr
-          void vscode.window.showInformationMessage(
-            `Commit ${selected.commit.shortHash}: ${selected.commit.message}`
-          );
-        }
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to get line history', error)
-        );
-      }
-    }
-  );
-
-  // Copy Commit Hash command for editor context menu
-  const editorCopyCommitHashCommand = registerLoggedCommand(
-    'intellig.editor.copyCommitHash',
-    async () => {
-      if (!extensionServices) {
-        void vscode.window.showErrorMessage('Extension services not initialized');
-        return;
-      }
-
-      const activeEditor = vscode.window.activeTextEditor;
-      if (!activeEditor) {
-        void vscode.window.showErrorMessage('No active editor');
-        return;
-      }
-
-      const gitService = extensionServices.gitService;
-      const blameService = extensionServices.blameService;
-      // honor the active-editor file's repo in multi-root workspaces.
-      const repo = await resolveRepo(gitService, {
-        hintRepoPath: activeEditor.document.uri.fsPath,
-        preferActive: true,
-      });
-      if (!repo) {
-        return;
-      }
-      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-      const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
-
-      try {
-        // Get blame info for the current line
-        const blameLine = await blameService.getBlameForLine(repo, filePath, line);
-
-        if (blameLine.commit.startsWith('0000000')) {
-          void vscode.window.showInformationMessage('This line has not been committed yet');
-          return;
-        }
-
-        // Copy the commit hash to clipboard
-        await vscode.env.clipboard.writeText(blameLine.commit);
-        void vscode.window.showInformationMessage(
-          `Copied commit hash: ${blameLine.commit.substring(0, 7)}`
-        );
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to copy commit hash', error)
-        );
-      }
-    }
-  );
-
-  // Show Commit command for editor context menu
-  const editorShowCommitCommand = registerLoggedCommand('intellig.editor.showCommit', async () => {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor) {
-      void vscode.window.showErrorMessage('No active editor');
-      return;
-    }
-
-    const gitService = extensionServices.gitService;
-    const blameService = extensionServices.blameService;
-    // honor the active-editor file's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      hintRepoPath: activeEditor.document.uri.fsPath,
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-    const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-    const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
-
-    try {
-      // Get blame info for the current line
-      const blameLine = await blameService.getBlameForLine(repo, filePath, line);
-
-      if (blameLine.commit.startsWith('0000000')) {
-        void vscode.window.showInformationMessage('This line has not been committed yet');
-        return;
-      }
-
-      // Get full commit details
-      const commit = await gitService.getCommit(repo, blameLine.commit);
-
-      // Get the diff for this commit
-      const diffs = await gitService.getCommitDiff(repo, commit.hash);
-
-      // Show commit details in a quick pick with options
-      const items = [
-        {
-          label: '$(git-commit) View Commit Details',
-          description: `${commit.shortHash} - ${commit.message.substring(0, 40)}`,
-          action: 'details',
-        },
-        {
-          label: '$(files) View Changed Files',
-          description: `${diffs.length} file(s) changed`,
-          action: 'files',
-        },
-        {
-          label: '$(clippy) Copy Commit Hash',
-          description: commit.hash,
-          action: 'copy',
-        },
-      ];
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Commit ${commit.shortHash}: ${commit.message.substring(0, 50)}`,
-        title: 'Show Commit',
-      });
-
-      if (selected) {
-        switch (selected.action) {
-          case 'details': {
-            // Show full commit details in an information message
-            const dateStr = commit.authorDate.toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
-            // sanitize-exempt: non-error-data: commit.message + commit.author.name come from `git log`/`git show` output, not git stderr; user-authored content
-            void vscode.window.showInformationMessage(
-              `Commit: ${commit.shortHash}\nAuthor: ${commit.author.name}\nDate: ${dateStr}\n\n${commit.message}`,
-              { modal: true }
-            );
-            break;
-          }
-          case 'files': {
-            // Show changed files in a quick pick
-            const fileItems = diffs.map((d) => ({
-              label: d.path,
-              description: d.status,
-            }));
-            await vscode.window.showQuickPick(fileItems, {
-              placeHolder: `Files changed in ${commit.shortHash}`,
-              title: 'Changed Files',
-            });
-            break;
-          }
-          case 'copy':
-            await vscode.env.clipboard.writeText(commit.hash);
-            void vscode.window.showInformationMessage(`Copied commit hash: ${commit.shortHash}`);
-            break;
-        }
-      }
-    } catch (error) {
-      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to show commit', error));
-    }
-  });
-
-  // =========================================================================
-  // Blame gutter menu commands.
-  //
-  // All commands resolve the blame line under the *active editor cursor* —
-  // VS Code doesn't expose the gutter click position, so the menu surface
-  // uses the current cursor as the anchor. This matches IntelliJ's own
-  // behavior when invoking the annotate menu by keyboard.
-  // =========================================================================
-  /**
-   * Resolve the current editor's repo + file-path + cursor-line + blame line.
-   * Shared by all blame-menu commands. Returns `undefined` when any piece is
-   * missing (no editor / no repo / file not in repo / uncommitted line).
-   */
-  async function _resolveBlameContext(): Promise<
-    | {
-        editor: vscode.TextEditor;
-        repo: import('./services').IRepository;
-        filePath: string;
-        line: number;
-        blameLine: import('./services').IBlameLine;
-      }
-    | undefined
-  > {
-    if (!extensionServices) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return undefined;
-    }
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      void vscode.window.showErrorMessage('No active editor');
-      return undefined;
-    }
-    const gitService = extensionServices.gitService;
-    const blameService = extensionServices.blameService;
-    const repo = await gitService.getRepository(editor.document.uri);
-    if (!repo) {
-      void vscode.window.showErrorMessage('Current file is not in a Git repository');
-      return undefined;
-    }
-    const relative = (await import('path')).relative(
-      repo.rootUri.fsPath,
-      editor.document.uri.fsPath
-    );
-    const line = editor.selection.active.line + 1; // 1-indexed.
-    const blameLine = await blameService.getBlameForLine(
-      repo,
-      relative,
-      line,
-      extensionServices.blameOptionsSource.asBlameOptions()
-    );
-    if (blameLine.commit.startsWith('0000000')) {
-      void vscode.window.showInformationMessage('This line has not been committed yet.');
-      return undefined;
-    }
-    return { editor, repo, filePath: relative, line, blameLine };
-  }
-
-  // Show Commit — delegates to the existing intellig.editor.showCommit.
-  const blameShowCommitCommand = registerLoggedCommand('intellig.blame.showCommit', async () => {
-    await vscode.commands.executeCommand('intellig.editor.showCommit');
-  });
-
-  // Copy Revision Number — delegates to the existing copy-hash command.
-  const blameCopyRevisionCommand = registerLoggedCommand(
-    'intellig.blame.copyRevision',
-    async () => {
-      await vscode.commands.executeCommand('intellig.editor.copyCommitHash');
-    }
-  );
-
-  // Annotate Previous Revision — re-blame the file at <sha>^ (parent of the
-  // blamed commit). Uses the parent SHA recorded by git blame when available.
-  const blameAnnotatePreviousCommand = registerLoggedCommand(
-    'intellig.blame.annotatePrevious',
-    async () => {
-      const ctx = await _resolveBlameContext();
-      if (!ctx || !extensionServices) {
-        return;
-      }
-      try {
-        // Target the filename at the parent revision if git reported a rename.
-        const targetPath = ctx.blameLine.previousFilename ?? ctx.filePath;
-        const info = await extensionServices.blameService.getPreviousRevisionBlame(
-          ctx.repo,
-          targetPath,
-          ctx.blameLine.commit,
-          extensionServices.blameOptionsSource.asBlameOptions()
-        );
-        if (info.lines.length === 0) {
-          void vscode.window.showInformationMessage(
-            'No previous revision available for this line.'
-          );
-          return;
-        }
-        // Resolve the parent SHA for the toast.
-        const shortParent = (ctx.blameLine.previousCommit ?? `${ctx.blameLine.commit}^`).substring(
-          0,
-          7
-        );
-        void vscode.window.showInformationMessage(
-          `Annotated at ${shortParent}: ${info.lines.length} line(s) blamed.`
-        );
-        // Refresh providers so the gutter / inline decorations re-render
-        // against the new cached result; the providers keep HEAD-based blame
-        // as their default view, so we hint refresh here.
-        await gutterBlameProvider?.refresh();
-        await inlineBlameProvider?.refresh();
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Annotate Previous failed', error)
-        );
-      }
-    }
-  );
-
-  // Hide Revision — adds the blamed commit to the hidden-revision set so the
-  // gutter / inline providers skip it on subsequent renders.
-  const blameHideRevisionCommand = registerLoggedCommand(
-    'intellig.blame.hideRevision',
-    async () => {
-      const ctx = await _resolveBlameContext();
-      if (!ctx || !extensionServices) {
-        return;
-      }
-      await extensionServices.blameOptionsSource.hideRevision(ctx.blameLine.commit);
-      void vscode.window.showInformationMessage(
-        `Hiding revision ${ctx.blameLine.commit.substring(0, 7)} from blame.`
-      );
-    }
-  );
-
-  // Options submenu — toggle Ignore Whitespace.
-  const blameToggleIgnoreWhitespaceCommand = registerLoggedCommand(
-    'intellig.blame.toggleIgnoreWhitespace',
-    async () => {
-      if (!extensionServices) {
-        return;
-      }
-      const next = await extensionServices.blameOptionsSource.toggleFlag('ignoreWhitespace');
-      void vscode.window.showInformationMessage(
-        `Blame: Ignore Whitespaces ${next ? 'enabled' : 'disabled'}.`
-      );
-    }
-  );
-
-  // Options submenu — toggle Detect Movements Within File.
-  const blameToggleDetectWithinCommand = registerLoggedCommand(
-    'intellig.blame.toggleDetectMovementsWithinFile',
-    async () => {
-      if (!extensionServices) {
-        return;
-      }
-      const next = await extensionServices.blameOptionsSource.toggleFlag(
-        'detectMovementsWithinFile'
-      );
-      void vscode.window.showInformationMessage(
-        `Blame: Detect Movements Within File ${next ? 'enabled' : 'disabled'}.`
-      );
-    }
-  );
-
-  // Options submenu — toggle Detect Movements Across Files.
-  const blameToggleDetectAcrossCommand = registerLoggedCommand(
-    'intellig.blame.toggleDetectMovementsAcrossFiles',
-    async () => {
-      if (!extensionServices) {
-        return;
-      }
-      const next = await extensionServices.blameOptionsSource.toggleFlag(
-        'detectMovementsAcrossFiles'
-      );
-      void vscode.window.showInformationMessage(
-        `Blame: Detect Movements Across Files ${next ? 'enabled' : 'disabled'}.`
-      );
-    }
-  );
-
-  // Utility — clears the hidden-revision set (surfaced via command palette).
-  const blameClearHiddenRevisionsCommand = registerLoggedCommand(
-    'intellig.blame.clearHiddenRevisions',
-    async () => {
-      if (!extensionServices) {
-        return;
-      }
-      await extensionServices.blameOptionsSource.clearHiddenRevisions();
-      void vscode.window.showInformationMessage('Blame: hidden revisions cleared.');
-    }
-  );
 
   // New Tag — command-palette entry, defaults to HEAD.
   const newTagCommand = registerLoggedCommand('intellig.tag.new', async () => {
@@ -2522,8 +2032,8 @@ function registerCommands(context: vscode.ExtensionContext): void {
     unshelveSilentCommand,
     shelveImportPatchesCommand,
     showShelfListCommand,
-    toggleBlameCommand,
-    toggleGutterBlameCommand,
+    // Blame (inline/gutter) + editor context menu + localChanges.openFile
+    ...blameEditorDisposables,
     compareWithBranchCommand,
     compareWithRemoteCommand,
     refreshCommand,
@@ -2533,27 +2043,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
     unstageSelectedCommand,
     // Merge editor / conflict resolution / rebase recovery commands
     ...rebaseConflictDisposables,
-    localChangesOpenFileCommand,
     applyPatchCommand,
     createPatchFromLocalCommand,
     showHistoryCommand,
     revertFileCommand,
     // File Explorer Context Menu Commands (+ explorer/editor menu parity)
     ...explorerDisposables,
-    // Editor Context Menu Commands
-    editorToggleBlameCommand,
-    editorShowLineHistoryCommand,
-    editorCopyCommitHashCommand,
-    editorShowCommitCommand,
-    // Blame gutter right-click menu commands
-    blameShowCommitCommand,
-    blameCopyRevisionCommand,
-    blameAnnotatePreviousCommand,
-    blameHideRevisionCommand,
-    blameToggleIgnoreWhitespaceCommand,
-    blameToggleDetectWithinCommand,
-    blameToggleDetectAcrossCommand,
-    blameClearHiddenRevisionsCommand,
     // Log commit menu parity
     commitCopyHashCommand,
     commitCheckoutRevisionCommand,
@@ -4398,52 +3893,11 @@ async function _pickStashForAction(
   };
 }
 
-// ─── Explorer-menu helpers (exported for unit tests) ────────────────────────
-
-/**
- * Resolve the target URI for `intellig.localChanges.openFile` (F4 /
- * "Jump to Source" from Local Changes).
- *
- * The command is invoked from three sources:
- *   - CommitToolWindow's webview postMessage (path passed as `string`).
- *   - Future explorer-context entries (URI passed directly).
- *   - The F4 keybinding from a focused Local-Changes view (no argument;
- *     the caller is expected to wire `currentSelection` from whatever
- *     selection state is reachable — until that exists, this case
- *     returns `undefined` and the command handler falls back to a toast
- *     hinting the user to select a file first).
- *
- * Centralised so unit tests can verify the resolution rules without
- * spinning up the full extension host.
- *
- * @param arg - The argument forwarded by VS Code to the command handler.
- *   `vscode.Uri` or string from explicit invocations; `undefined` for
- *   bare keybinding presses.
- * @param currentSelection - The path of the currently-selected
- *   Local-Changes row, when known. Empty strings are treated the same as
- *   `undefined` so an unset selection accessor does not produce a bogus
- *   `Uri.file('')`.
- * @returns The URI to pass to `vscode.open`, or `undefined` when no
- *   target is reachable (caller surfaces a toast).
- */
-export function resolveLocalChangesOpenFileTarget(
-  arg: vscode.Uri | string | undefined,
-  currentSelection: string | undefined
-): vscode.Uri | undefined {
-  if (arg !== undefined) {
-    if (typeof arg === 'string') {
-      if (arg.length === 0) {
-        return undefined;
-      }
-      return vscode.Uri.file(arg);
-    }
-    return arg;
-  }
-  if (currentSelection !== undefined && currentSelection.length > 0) {
-    return vscode.Uri.file(currentSelection);
-  }
-  return undefined;
-}
+// `resolveLocalChangesOpenFileTarget` was relocated verbatim to
+// `commands/registration/blameEditorCommands.ts` (with its consuming
+// `intellig.localChanges.openFile` handler) and is re-exported near the top
+// of this file so the by-name `from '../../../extension'` import path used by
+// `localChangesOpenFile.test.ts` is preserved (RULE E2).
 
 // `resolveExplorerFileUri`, `buildCompareWithRepoVersionLeftUri`, and
 // `buildCompareWithRepoVersionTitle` were relocated verbatim to
