@@ -38,7 +38,35 @@ function repoRoot(): string {
   return path.resolve(__dirname, '..', '..', '..', '..');
 }
 
+// Command handlers used to live exclusively in `src/extension.ts`. The
+// Phase 2.2 split relocated cohesive handler groups into domain modules under
+// `src/commands/registration/` while extension.ts stays the orchestrator that
+// builds the shared context + registers each module. The audit therefore
+// scans the UNION of extension.ts and every registration module so a handler
+// is seen no matter which file owns it (the same single-file-assumption fix
+// the GitService watcher-families TARGET_FILE needed). Each file is extracted
+// independently and the per-file handler arrays are unioned (guards against
+// brace-matching across a file boundary).
 const EXT_FILE = 'src/extension.ts';
+const REGISTRATION_DIR = 'src/commands/registration';
+
+/**
+ * Resolve the full set of source files that may contain
+ * `registerLoggedCommand(...)` handlers: extension.ts plus every `*.ts` under
+ * the registration module directory.
+ */
+function handlerSourceFiles(): string[] {
+  const files = [path.join(repoRoot(), EXT_FILE)];
+  const regDir = path.join(repoRoot(), REGISTRATION_DIR);
+  if (fs.existsSync(regDir)) {
+    for (const entry of fs.readdirSync(regDir)) {
+      if (entry.endsWith('.ts')) {
+        files.push(path.join(regDir, entry));
+      }
+    }
+  }
+  return files;
+}
 
 /**
  * A transparency signal is any substring whose presence in a handler body
@@ -162,8 +190,14 @@ describe('Command-handler transparency audit (spec 8 L3 + L13)', () => {
   let handlers: ExtractedHandler[];
 
   before(() => {
-    const source = fs.readFileSync(path.join(repoRoot(), EXT_FILE), 'utf-8');
-    handlers = extractHandlers(source);
+    // Extract per-file, then union — never brace-match across a file
+    // boundary. extension.ts + every registration module are scanned so a
+    // handler is found wherever it lives post-split.
+    handlers = [];
+    for (const file of handlerSourceFiles()) {
+      const source = fs.readFileSync(file, 'utf-8');
+      handlers.push(...extractHandlers(source));
+    }
   });
 
   it('extracts a meaningful number of command handlers (scan reaches the file)', () => {
@@ -171,8 +205,8 @@ describe('Command-handler transparency audit (spec 8 L3 + L13)', () => {
     // assertion below would vacuously pass. extension.ts registers dozens.
     assert.ok(
       handlers.length >= 30,
-      `expected >= 30 registerLoggedCommand handlers in ${EXT_FILE}; found ${handlers.length}. ` +
-        'The extractor may have broken, or the file moved.'
+      `expected >= 30 registerLoggedCommand handlers across ${EXT_FILE} + ${REGISTRATION_DIR}/*.ts; ` +
+        `found ${handlers.length}. The extractor may have broken, or the files moved.`
     );
   });
 

@@ -12,7 +12,6 @@ import {
   IFileStatus,
   IDiff,
   IHunk,
-  IDiffLine,
   IBlameLine,
   ICommitOptions,
   ICheckoutOptions,
@@ -43,24 +42,13 @@ import {
   IRepoScanFs,
   INTERNAL_IGNORED_FOLDERS,
 } from './repoScan';
-import {
-  parseStatus,
-  parseLog,
-  parseCommit,
-  parseBranches,
-  parseTags,
-  parseStashList,
-  parseRemotes,
-  parseHead,
-  parseRepositoryState,
-  parseDiff,
-  parseBlame,
-  getLogFormat,
-  getBranchFormat,
-  getTagFormat,
-} from './gitParser';
-import { sortCommitsStable } from './commitSort';
-import { sanitizeGitError } from './gitError';
+import { parseRemotes, parseHead, parseRepositoryState } from './gitParser';
+import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
+import { StagingOps } from './ops/StagingOps';
+import { DiffOps } from './ops/DiffOps';
+import { CherryPickRevertOps } from './ops/CherryPickRevertOps';
+import { BranchOps } from './ops/BranchOps';
+import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -80,6 +68,11 @@ interface IRepositoryCache {
  */
 export class GitService implements IGitService, IGitServiceCli {
   private _gitCli: GitCli;
+  private readonly _staging: StagingOps;
+  private readonly _diff: DiffOps;
+  private readonly _cherryRevert: CherryPickRevertOps;
+  private readonly _branches: BranchOps;
+  private readonly _stashTagHistory: StashTagHistoryOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -272,6 +265,20 @@ export class GitService implements IGitService, IGitServiceCli {
     // this line fails CI.
     this._watcherMaps.push(this._fileWatchers);
     this._watcherMaps.push(this._newRepoWatchers);
+
+    // Shared read-through context handed to every *Ops collaborator. The
+    // `ctx.gitCli` getter re-reads `this._gitCli` on EVERY call so the
+    // test-time `(service as any)._gitCli = mock` swap (RULE G1) reaches the
+    // collaborators; the cli is never captured at construction.
+    const ctx: IGitOpsContext = createGitOpsContext(
+      () => this._gitCli,
+      (rootPath) => this.invalidateCache(rootPath)
+    );
+    this._staging = new StagingOps(ctx);
+    this._diff = new DiffOps(ctx);
+    this._cherryRevert = new CherryPickRevertOps(ctx);
+    this._branches = new BranchOps(ctx);
+    this._stashTagHistory = new StashTagHistoryOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -1211,171 +1218,24 @@ export class GitService implements IGitService, IGitServiceCli {
   // Branch Operations
   // ============================================
 
-  async getBranches(repo: IRepository): Promise<IBranch[]> {
-    const format = getBranchFormat();
-    const result = await this._gitCli.exec(['branch', '-a', '--format', format], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseBranches(result.stdout);
+  getBranches(repo: IRepository): Promise<IBranch[]> {
+    return this._branches.getBranches(repo);
   }
 
-  async createBranch(
+  createBranch(
     repo: IRepository,
     name: string,
     startPointOrOptions?: string | ICreateBranchOptions
   ): Promise<void> {
-    // Normalize the legacy string form into an options object so the rest
-    // of the function is a single code path.
-    const options: ICreateBranchOptions =
-      typeof startPointOrOptions === 'string'
-        ? { startPoint: startPointOrOptions }
-        : (startPointOrOptions ?? {});
-
-    // Security: service-boundary reject branch names starting with `-`
-    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
-    // git-check-ref-format). Mirrors the `resetToCommit` isValidRef guard
-    // and defends against upstream callers that skipped validateBranchName.
-    if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${name}`);
-    }
-
-    // When `checkout: true`, use `git checkout -[B] <name> <startPoint>`
-    // so the branch is created AND switched to in a single atomic command.
-    // Using `-B` when force is also set gives us "reset-and-checkout" in one
-    // shot — matches IntelliJ's "Overwrite if exists" + "Checkout" combo.
-    // branch-name validation above rejects `-`-leading names,
-    // so `name` is safe to land positionally. We splice `--end-of-options`
-    // before the unvalidated `startPoint` ref (the user-controlled
-    // injection point).
-    //
-    // For `git checkout -[B|b] <name> --track <startPoint>` the name
-    // must immediately follow `-b` (see GitServiceCheckout.test.ts).
-    // The startPoint ref ALSO must follow git's positional contract:
-    // either bare `<name> <startPoint>` or `<name> --track <startPoint>`.
-    // We build the argv with the structural separator between flag args
-    // and the user-controlled startPoint while preserving git's
-    // positional constraints.
-    if (options.checkout) {
-      const args = ['checkout', options.force ? '-B' : '-b', name];
-      if (options.track) {
-        args.push('--track');
-      }
-      if (options.startPoint) {
-        args.push('--end-of-options', options.startPoint);
-      }
-      await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-      this.invalidateCache(repo.rootUri.fsPath);
-      return;
-    }
-
-    const args = ['branch'];
-    if (options.force) {
-      args.push('-f');
-    }
-    if (options.track) {
-      args.push('--track');
-    }
-    args.push(name);
-    if (options.startPoint) {
-      args.push('--end-of-options', options.startPoint);
-    }
-
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+    return this._branches.createBranch(repo, name, startPointOrOptions);
   }
 
-  async checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void> {
-    // Splice `--end-of-options` between flag args and the ref
-    // to reject argv injection via a hostile branch name (e.g.
-    // `--upload-pack=evil`).
-    //
-    // For `createBranch: true` the layout is
-    //   `git checkout -b <name> [-f] [--track <upstream>]`
-    // where `<name>` MUST immediately follow `-b` (a long-standing
-    // regression class — see GitServiceCheckout.test.ts:103). The
-    // `--end-of-options` separator cannot land between `-b` and the
-    // name without breaking git's parser. We keep the createBranch
-    // path's argv unchanged and rely on `validateBranchName` (called
-    // by createBranch upstream) to reject hostile names.
-
-    // forceCreate path: `git checkout -B <ref> [-f] [--track
-    // <startPoint>]` — "create-or-reset to startpoint". Mirrors the `-b`
-    // precedent: `-B` and `<ref>` MUST be adjacent (git parses the token
-    // right after `-B` as the branch name). forceCreate WINS over
-    // createBranch when both are set — `-B` is strictly more permissive
-    // (succeeds whether or not the branch exists).
-    //
-    // Startpoint design: the `track` value doubles as the single startpoint
-    // positional. git treats `--track <startPoint>` here as both "set this
-    // upstream" and "reset to this commit". `--end-of-options` is NOT used
-    // for the startpoint: with `--track`, git reinterprets a token after
-    // `--end-of-options` as a pathspec and fails ("'--track' cannot be used
-    // with updating paths"). Verified against git 2.50.1. We instead reject
-    // a startpoint that starts with `-`/`.` (mirrors deleteBranch /
-    // setBranchUpstream's leading-token guard). The `<ref>` is safe by
-    // adjacency.
-    if (options?.forceCreate) {
-      if (options.track && (options.track.startsWith('-') || options.track.startsWith('.'))) {
-        throw new Error(`Invalid start point: ${options.track}`);
-      }
-      const args = ['checkout', '-B', ref];
-      if (options.force) {
-        args.push('-f');
-      }
-      if (options.track) {
-        args.push('--track', options.track);
-      }
-      await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-      this.invalidateCache(repo.rootUri.fsPath);
-      return;
-    }
-
-    if (options?.createBranch) {
-      const args = ['checkout', '-b', ref];
-      if (options?.force) {
-        args.push('-f');
-      }
-      if (options?.track) {
-        args.push('--track', options.track);
-      }
-      await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-      this.invalidateCache(repo.rootUri.fsPath);
-      return;
-    }
-
-    // Plain checkout path: the ref is user-controlled, so we splice
-    // `--end-of-options` before it.
-    const flags: string[] = [];
-    if (options?.force) {
-      flags.push('-f');
-    }
-    const trailing: string[] = [];
-    if (options?.track) {
-      trailing.push('--track', options.track);
-    }
-
-    const args = [...buildGitArgs('checkout', flags, [ref]), ...trailing];
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void> {
+    return this._branches.checkout(repo, ref, options);
   }
 
-  async deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
-    // service-boundary reject branch names starting with `-`
-    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
-    // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
-    // `--end-of-options` between the `-d`/`-D` flag and the user-controlled
-    // name as structural defense in depth.
-    if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${name}`);
-    }
-    const args = buildGitArgs('branch', [force ? '-D' : '-d'], [name]);
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
+    return this._branches.deleteBranch(repo, name, force);
   }
 
   /**
@@ -1390,107 +1250,16 @@ export class GitService implements IGitService, IGitServiceCli {
    * the same guard — the form is `<remote>/<branch>` and either segment
    * starting with `-`/`.` is rejected.
    */
-  async setBranchUpstream(
-    repo: IRepository,
-    localName: string,
-    upstreamRef: string
-  ): Promise<void> {
-    if (!localName || localName.startsWith('-') || localName.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${localName}`);
-    }
-    if (!upstreamRef || upstreamRef.startsWith('-') || upstreamRef.startsWith('.')) {
-      throw new Error(`Invalid upstream ref: ${upstreamRef}`);
-    }
-    const args = buildGitArgs('branch', [`--set-upstream-to=${upstreamRef}`], [localName]);
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  setBranchUpstream(repo: IRepository, localName: string, upstreamRef: string): Promise<void> {
+    return this._branches.setBranchUpstream(repo, localName, upstreamRef);
   }
 
-  async renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
-    // service-boundary reject either name starting with `-`
-    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
-    // git-check-ref-format). Mirrors the `createBranch` guard. Also splice
-    // `--end-of-options` between the `-m` flag and the user-controlled
-    // names as structural defense in depth.
-    if (!oldName || oldName.startsWith('-') || oldName.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${oldName}`);
-    }
-    if (!newName || newName.startsWith('-') || newName.startsWith('.')) {
-      throw new Error(`Invalid branch name: ${newName}`);
-    }
-    await this._gitCli.exec(buildGitArgs('branch', ['-m'], [oldName, newName]), {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void> {
+    return this._branches.renameBranch(repo, oldName, newName);
   }
 
-  async mergeBranch(
-    repo: IRepository,
-    branch: string,
-    options?: IMergeOptions
-  ): Promise<IMergeResult> {
-    // Order: git merge [--ff-only|--no-ff] [--squash] [--no-commit] [-m <msg>] <branch>
-    // Strategy flags are CLI-mutex. Precedence when the caller sets several:
-    // ffOnly > noFf > squash. UI enforces the mutex before we get here.
-    const flags: string[] = [];
-    if (options?.ffOnly) {
-      flags.push('--ff-only');
-    } else if (options?.noFf) {
-      flags.push('--no-ff');
-    }
-    if (options?.squash) {
-      flags.push('--squash');
-    }
-    if (options?.noCommit) {
-      flags.push('--no-commit');
-    }
-    if (options?.message && options.message.length > 0) {
-      flags.push('-m', options.message);
-    }
-    // `branch` is user-controlled; splice via buildGitArgs.
-    const args = buildGitArgs('merge', flags, [branch]);
-
-    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      // Get the merge commit hash (note: with --squash or --no-commit, HEAD
-      // hasn't advanced, so we still return the current HEAD — callers
-      // interpret this as "the resulting tip" regardless of whether a new
-      // commit was created).
-      const headResult = await this._gitCli.exec(['rev-parse', 'HEAD'], {
-        cwd: repo.rootUri.fsPath,
-      });
-      return {
-        success: true,
-        mergeCommit: headResult.stdout.trim(),
-      };
-    }
-
-    // Check for conflicts
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => f.path);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure (refused merge, unrelated histories, dirty
-    // tree, etc.). Preserve git's stderr so the caller can surface the
-    // underlying reason instead of a silent no-op.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  mergeBranch(repo: IRepository, branch: string, options?: IMergeOptions): Promise<IMergeResult> {
+    return this._branches.mergeBranch(repo, branch, options);
   }
 
   /**
@@ -1500,41 +1269,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param onto - The branch to rebase onto
    * @returns Rebase result with success status and any conflicts
    */
-  async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
-    // `onto` is user-controlled; splice via buildGitArgs.
-    const args = buildGitArgs('rebase', [], [onto]);
-    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return {
-        success: true,
-      };
-    }
-
-    // Check for conflicts
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => f.path);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure (dirty working tree, in-progress rebase, refs
-    // out of sync, etc.). Preserve git's stderr so the caller can surface
-    // the underlying reason instead of a silent no-op.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
+    return this._branches.rebaseBranch(repo, onto);
   }
 
   /**
@@ -1550,30 +1286,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * palette command) gate with a single confirm modal per safety policy
    * (feedback_data_loss_confirms.md — no double-confirm).
    */
-  async rebaseSkip(repo: IRepository): Promise<IBasicRebaseResult> {
-    const result = await this._gitCli.exec(['rebase', '--skip'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Rebase is still running but the next commit hit conflicts. Surface
-    // them the same way rebaseBranch does so callers can re-render the
-    // Resolve Conflicts dialog with the new file set.
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => f.path);
-
-    return {
-      success: false,
-      conflicts,
-    };
+  rebaseSkip(repo: IRepository): Promise<IBasicRebaseResult> {
+    return this._branches.rebaseSkip(repo);
   }
 
   /**
@@ -1588,12 +1302,8 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  async rebaseAbort(repo: IRepository): Promise<void> {
-    await this._gitCli.exec(['rebase', '--abort'], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  rebaseAbort(repo: IRepository): Promise<void> {
+    return this._branches.rebaseAbort(repo);
   }
 
   /**
@@ -1611,35 +1321,8 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  async rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
-    const result = await this._gitCli.exec(['rebase', '--continue'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    const conflicts = parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => f.path);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  rebaseContinue(repo: IRepository): Promise<IBasicRebaseResult> {
+    return this._branches.rebaseContinue(repo);
   }
 
   /**
@@ -1651,85 +1334,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param branch2 - The second branch to compare against
    * @returns Branch comparison result with commits ahead/behind and changed files
    */
-  async compareBranches(
-    repo: IRepository,
-    branch1: string,
-    branch2: string
-  ): Promise<IBranchComparison> {
-    const cwd = repo.rootUri.fsPath;
-    const format = getLogFormat();
-
-    // Get ahead/behind counts using git rev-list --left-right --count
-    // This returns: "ahead\tbehind"
-    // branch1/branch2 are user-controlled; splice via buildGitArgs.
-    const countResult = await this._gitCli.exec(
-      buildGitArgs('rev-list', ['--left-right', '--count'], [`${branch1}...${branch2}`]),
-      { cwd }
-    );
-
-    let aheadCount = 0;
-    let behindCount = 0;
-
-    if (countResult.exitCode === 0 && countResult.stdout.trim()) {
-      const parts = countResult.stdout.trim().split(/\s+/);
-      if (parts.length >= 2) {
-        aheadCount = parseInt(parts[0], 10) || 0;
-        behindCount = parseInt(parts[1], 10) || 0;
-      }
-    }
-
-    // Get commits unique to branch1 (ahead commits)
-    // git rev-list branch2..branch1 gives commits in branch1 not in branch2
-    // Both branches splice via buildGitArgs.
-    const commitsAhead: ICommit[] = [];
-    if (aheadCount > 0) {
-      const aheadResult = await this._gitCli.exec(
-        buildGitArgs('log', [`--format=${format}`, '-z'], [`${branch2}..${branch1}`]),
-        { cwd }
-      );
-      if (aheadResult.exitCode === 0 && aheadResult.stdout.trim()) {
-        commitsAhead.push(...parseLog(aheadResult.stdout));
-      }
-    }
-
-    // Get commits unique to branch2 (behind commits)
-    // git rev-list branch1..branch2 gives commits in branch2 not in branch1
-    const commitsBehind: ICommit[] = [];
-    if (behindCount > 0) {
-      const behindResult = await this._gitCli.exec(
-        buildGitArgs('log', [`--format=${format}`, '-z'], [`${branch1}..${branch2}`]),
-        { cwd }
-      );
-      if (behindResult.exitCode === 0 && behindResult.stdout.trim()) {
-        commitsBehind.push(...parseLog(behindResult.stdout));
-      }
-    }
-
-    // Get files that differ between branches.
-    // Use `--name-only -z` so paths with whitespace
-    // / non-ASCII characters split unambiguously on `\0` rather than the
-    // old `\n` parse, which lost names containing literal newlines.
-    const diffResult = await this._gitCli.exec(
-      buildGitArgs('diff', ['--name-only', '-z'], [`${branch1}...${branch2}`]),
-      {
-        cwd,
-      }
-    );
-
-    // `-z` separates entries with `\0`, not `\n`, so paths
-    // containing newlines or whitespace round-trip safely.
-    let changedFiles: string[] = [];
-    if (diffResult.exitCode === 0 && diffResult.stdout.length > 0) {
-      changedFiles = diffResult.stdout.split('\0').filter((f) => f.length > 0);
-    }
-
-    return {
-      commitsAhead,
-      commitsBehind,
-      aheadCount,
-      behindCount,
-      changedFiles,
-    };
+  compareBranches(repo: IRepository, branch1: string, branch2: string): Promise<IBranchComparison> {
+    return this._branches.compareBranches(repo, branch1, branch2);
   }
 
   // ============================================
@@ -1957,92 +1563,32 @@ export class GitService implements IGitService, IGitServiceCli {
   // Stash Operations
   // ============================================
 
-  async stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void> {
-    const args = ['stash', 'push'];
-
-    if (message) {
-      args.push('-m', message);
-    }
-    if (options?.includeUntracked) {
-      args.push('--include-untracked');
-    }
-    if (options?.keepIndex) {
-      args.push('--keep-index');
-    }
-
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void> {
+    return this._stashTagHistory.stash(repo, message, options);
   }
 
-  async stashList(repo: IRepository): Promise<IStash[]> {
-    const result = await this._gitCli.exec(['stash', 'list'], { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseStashList(result.stdout);
+  stashList(repo: IRepository): Promise<IStash[]> {
+    return this._stashTagHistory.stashList(repo);
   }
 
-  /**
-   * Validate a stash index before interpolating it into the
-   * `stash@{<index>}` ref., `stashApply` / `stashPop` /
-   * `stashDrop` / `stashShow` interpolated the raw `index` directly,
-   * trusting upstream callers (CommitToolWindow / palette commands) to
-   * pass a valid integer. A non-integer or negative value would
-   * silently produce a malformed git ref like `stash@{NaN}` or
-   * `stash@{undefined}`. The other stash methods (`stashBranch`,
-   * `stashRename`) already validated; this helper reuses the same
-   * predicate so the pattern is uniform across all 6 sites.
-   *
-   * Throws (rather than returns) so the caller can trust `index` is a
-   * non-negative integer for the rest of the call.
-   */
-  private _validateStashIndex(index: number): asserts index is number {
-    if (!Number.isInteger(index) || index < 0) {
-      throw new Error(`Invalid stash index: ${index}`);
-    }
+  stashApply(repo: IRepository, index: number): Promise<void> {
+    return this._stashTagHistory.stashApply(repo, index);
   }
 
-  async stashApply(repo: IRepository, index: number): Promise<void> {
-    this._validateStashIndex(index);
-    await this._gitCli.exec(['stash', 'apply', `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stashPop(repo: IRepository, index: number): Promise<void> {
+    return this._stashTagHistory.stashPop(repo, index);
   }
 
-  async stashPop(repo: IRepository, index: number): Promise<void> {
-    this._validateStashIndex(index);
-    await this._gitCli.exec(['stash', 'pop', `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
-  }
-
-  async stashDrop(repo: IRepository, index: number): Promise<void> {
-    this._validateStashIndex(index);
-    await this._gitCli.exec(['stash', 'drop', `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stashDrop(repo: IRepository, index: number): Promise<void> {
+    return this._stashTagHistory.stashDrop(repo, index);
   }
 
   /**
    * Create a branch rooted at a stashed state and apply the stash into it.
    * See {@link IGitService.stashBranch}.
    */
-  async stashBranch(repo: IRepository, index: number, branchName: string): Promise<void> {
-    if (!branchName || !branchName.trim()) {
-      throw new Error('Branch name cannot be empty');
-    }
-    this._validateStashIndex(index);
-    await this._gitCli.exec(['stash', 'branch', branchName.trim(), `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stashBranch(repo: IRepository, index: number, branchName: string): Promise<void> {
+    return this._stashTagHistory.stashBranch(repo, index, branchName);
   }
 
   /**
@@ -2057,52 +1603,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * No working-tree changes. On step 3 failure we attempt to drop the new
    * top-of-stack entry so we don't leave duplicates.
    */
-  async stashRename(repo: IRepository, index: number, newMessage: string): Promise<void> {
-    this._validateStashIndex(index);
-    if (typeof newMessage !== 'string') {
-      throw new Error('New stash message must be a string');
-    }
-
-    const cwd = repo.rootUri.fsPath;
-
-    // Resolve the stash ref to a commit hash. Fails if the index
-    // doesn't exist.
-    const revParse = await this._gitCli.exec(['rev-parse', `stash@{${index}}`], {
-      cwd,
-      throwOnError: true,
-    });
-    const commitHash = revParse.stdout.trim();
-    if (!commitHash || !/^[a-f0-9]{7,40}$/i.test(commitHash)) {
-      throw new Error(`Could not resolve stash@{${index}} to a commit`);
-    }
-
-    // Store the commit back onto the stash stack with the new
-    // message. This creates a duplicate entry at stash@{0}; the original
-    // shifts to stash@{index+1}.
-    await this._gitCli.exec(['stash', 'store', '-m', newMessage, commitHash], {
-      cwd,
-      throwOnError: true,
-    });
-
-    // Drop the original (now at index+1). If this fails we try to
-    // undo step 2 so the user doesn't end up with a duplicate.
-    try {
-      await this._gitCli.exec(['stash', 'drop', `stash@{${index + 1}}`], {
-        cwd,
-        throwOnError: true,
-      });
-    } catch (error) {
-      // Best-effort rollback of the duplicate.
-      try {
-        await this._gitCli.exec(['stash', 'drop', 'stash@{0}'], { cwd });
-      } catch {
-        // If rollback also fails, leave the state as-is; the error below
-        // still surfaces to the caller.
-      }
-      throw error;
-    }
-
-    this.invalidateCache(cwd);
+  stashRename(repo: IRepository, index: number, newMessage: string): Promise<void> {
+    return this._stashTagHistory.stashRename(repo, index, newMessage);
   }
 
   /**
@@ -2112,189 +1614,48 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param index - The stash index
    * @returns Array of diffs showing the stash contents
    */
-  async stashShow(repo: IRepository, index: number): Promise<IDiff[]> {
-    this._validateStashIndex(index);
-    const result = await this._gitCli.exec(['stash', 'show', '-p', `stash@{${index}}`], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-
-    return parseDiff(result.stdout);
+  stashShow(repo: IRepository, index: number): Promise<IDiff[]> {
+    return this._stashTagHistory.stashShow(repo, index);
   }
 
   // ============================================
   // Tag Operations
   // ============================================
 
-  async getTags(repo: IRepository): Promise<ITag[]> {
-    const format = getTagFormat();
-    const result = await this._gitCli.exec(['tag', '-l', '--format', format], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseTags(result.stdout);
+  getTags(repo: IRepository): Promise<ITag[]> {
+    return this._stashTagHistory.getTags(repo);
   }
 
-  async createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void> {
-    // service-boundary reject tag names starting with `-`
-    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
-    // git-check-ref-format). Mirrors the `createBranch` guard.
-    if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid tag name: ${name}`);
-    }
-    // Splice `--end-of-options` between flags and the
-    // user-controlled `name` (and optional `ref`). Layouts:
-    //   lightweight: `tag --end-of-options <name> [<ref>]`
-    //   annotated  : `tag -a -m <msg> --end-of-options <name> [<ref>]`
-    // Verified: `tag -a --end-of-options <name> -m <msg>` FAILS because
-    // `-m` becomes a non-option arg after `--end-of-options`. We therefore
-    // place `-m <msg>` BEFORE the separator.
-    const flags: string[] = [];
-    if (message) {
-      flags.push('-a', '-m', message);
-    }
-    const refs: string[] = [name];
-    if (ref) {
-      refs.push(ref);
-    }
-    const args = buildGitArgs('tag', flags, refs);
-
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
-    this.invalidateCache(repo.rootUri.fsPath);
+  createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void> {
+    return this._stashTagHistory.createTag(repo, name, message, ref);
   }
 
-  async deleteTag(repo: IRepository, name: string): Promise<void> {
-    // service-boundary reject tag names starting with `-`
-    // (git would parse `-foo` as a CLI flag) or `.` (invalid per
-    // git-check-ref-format). Also splice `--end-of-options` between the
-    // `-d` flag and the user-controlled name as structural defense in
-    // depth.
-    if (!name || name.startsWith('-') || name.startsWith('.')) {
-      throw new Error(`Invalid tag name: ${name}`);
-    }
-    await this._gitCli.exec(buildGitArgs('tag', ['-d'], [name]), {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  deleteTag(repo: IRepository, name: string): Promise<void> {
+    return this._stashTagHistory.deleteTag(repo, name);
   }
 
-  async pushTag(repo: IRepository, name: string, remote?: string): Promise<void> {
-    // `name` (and `remote`) are user-controlled; splice via buildGitArgs.
-    const args = buildGitArgs('push', [], [remote || 'origin', `refs/tags/${name}`]);
-    await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+  pushTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+    return this._stashTagHistory.pushTag(repo, name, remote);
   }
 
   // ============================================
   // History Operations
   // ============================================
 
-  async getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
-    const format = getLogFormat();
-    const args = ['log', `--format=${format}`, '-z'];
-
-    if (options?.maxCount) {
-      args.push(`-n${options.maxCount}`);
-    }
-    if (options?.skip) {
-      args.push(`--skip=${options.skip}`);
-    }
-    if (options?.author) {
-      args.push(`--author=${options.author}`);
-    }
-    if (options?.since) {
-      args.push(`--since=${options.since.toISOString()}`);
-    }
-    if (options?.until) {
-      args.push(`--until=${options.until.toISOString()}`);
-    }
-    if (options?.grep) {
-      args.push(`--grep=${options.grep}`);
-    }
-    if (options?.all) {
-      args.push('--exclude=refs/stash', '--all');
-    }
-    if (options?.topoOrder) {
-      // git's default is date-driven ("show commit, then show its
-      // parents in date order"), which interleaves divergent branches
-      // and breaks graph rendering after history rewrites (rebase /
-      // squash / cherry-pick give commits a "now" committerDate even
-      // when their topology hasn't changed). `--topo-order` walks
-      // ancestry in topological order so consumers can rely on a
-      // commit's parent appearing later in the output. The graph
-      // pipeline sets this; non-graph callers (search, file history)
-      // can leave it off if they want git's default.
-      args.push('--topo-order');
-    }
-    if (options?.path) {
-      args.push('--', options.path);
-    }
-
-    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseLog(result.stdout);
+  getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
+    return this._stashTagHistory.getLog(repo, options);
   }
 
-  async getCommit(repo: IRepository, hash: string): Promise<ICommit> {
-    const format = getLogFormat();
-    // `hash` is user-controlled; splice via buildGitArgs.
-    const result = await this._gitCli.exec(
-      buildGitArgs('show', ['-s', `--format=${format}`, '-z'], [hash]),
-      {
-        cwd: repo.rootUri.fsPath,
-        throwOnError: true,
-      }
-    );
-
-    const commit = parseCommit(result.stdout);
-    if (!commit) {
-      throw new Error(`Failed to parse commit: ${hash}`);
-    }
-
-    return commit;
+  getCommit(repo: IRepository, hash: string): Promise<ICommit> {
+    return this._stashTagHistory.getCommit(repo, hash);
   }
 
-  async getFileHistory(
+  getFileHistory(
     repo: IRepository,
     path: string,
     options?: IFileHistoryOptions
   ): Promise<ICommit[]> {
-    // Standalone implementation so we can pass `--follow` and a
-    // branch ref that the generic `getLog()` doesn't understand.
-    // `branch` is user-controlled; splice via buildGitArgs so
-    // `--end-of-options` separates flag args from the ref.
-    const format = getLogFormat();
-    const flags: string[] = [`--format=${format}`, '-z'];
-
-    if (options?.follow) {
-      flags.push('--follow');
-    }
-    if (options?.maxCount !== undefined && options.maxCount > 0) {
-      flags.push('-n', String(options.maxCount));
-    }
-
-    const refs: string[] = [];
-    if (options?.branch) {
-      // A branch/ref name — git log understands both local and remote refs.
-      refs.push(options.branch);
-    }
-
-    // buildGitArgs writes the trailing `-- <path>` for us when `paths` is
-    // non-undefined.
-    const args = buildGitArgs('log', flags, refs, [path]);
-
-    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return parseLog(result.stdout);
+    return this._stashTagHistory.getFileHistory(repo, path, options);
   }
 
   /**
@@ -2309,89 +1670,23 @@ export class GitService implements IGitService, IGitServiceCli {
    * can O(1)-look-up a given commit's classification. Errors resolve to an
    * empty map (caller gracefully degrades — the feature is non-critical).
    */
-  async getCherryMarks(
+  getCherryMarks(
     repo: IRepository,
     baseRef: string
   ): Promise<Map<string, import('./interfaces/IGitService').CherryMark>> {
-    const out = new Map<string, import('./interfaces/IGitService').CherryMark>();
-    if (!baseRef) {
-      return out;
-    }
-
-    try {
-      // %m emits one of `<`, `>`, `=`, `+`, `-` per commit per --cherry-mark docs.
-      // `baseRef` is user-controlled; splice via buildGitArgs.
-      const result = await this._gitCli.exec(
-        buildGitArgs(
-          'log',
-          ['--cherry-mark', '--left-right', '--pretty=format:%H %m'],
-          [`HEAD...${baseRef}`]
-        ),
-        {
-          cwd: repo.rootUri.fsPath,
-          throwOnError: false,
-        }
-      );
-      if (result.exitCode !== 0 || !result.stdout) {
-        return out;
-      }
-      const lines = result.stdout.split(/\r?\n/);
-      for (const raw of lines) {
-        const line = raw.trim();
-        if (!line) {
-          continue;
-        }
-        // Format: "<hash> <mark>" — hash is 40 hex, mark is one char.
-        const space = line.indexOf(' ');
-        if (space !== 40) {
-          continue;
-        }
-        const hash = line.substring(0, 40);
-        const mark = line.substring(space + 1).trim();
-        if (isCherryMark(mark)) {
-          out.set(hash, mark);
-        }
-      }
-    } catch {
-      // Swallow — the UI degrades to "no highlights" rather than surfacing
-      // an error toast for a non-essential visual cue.
-    }
-    return out;
+    return this._diff.getCherryMarks(repo, baseRef);
   }
 
   // ============================================
   // Diff Operations
   // ============================================
 
-  async getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff> {
-    const args = ['diff'];
-    if (staged) {
-      args.push('--cached');
-    }
-    args.push('--', path);
-
-    const result = await this._gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    const diffs = parseDiff(result.stdout);
-
-    // Return the first diff or an empty diff
-    return (
-      diffs[0] || {
-        path,
-        status: 'modified',
-        hunks: [],
-        binary: false,
-      }
-    );
+  getDiff(repo: IRepository, path: string, staged?: boolean): Promise<IDiff> {
+    return this._diff.getDiff(repo, path, staged);
   }
 
-  async getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
-    // `hash` is user-controlled; splice via buildGitArgs so a
-    // hostile ref like `--upload-pack=evil` cannot land as a flag.
-    const result = await this._gitCli.exec(buildGitArgs('show', ['--format='], [hash]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    return parseDiff(result.stdout);
+  getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
+    return this._diff.getCommitDiff(repo, hash);
   }
 
   /**
@@ -2406,84 +1701,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param commits - Array of commit hashes (can be in any order)
    * @returns Array of diffs representing the combined changes
    */
-  async getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
-    if (commits.length === 0) {
-      return [];
-    }
-
-    // For a single commit, just return its diff
-    if (commits.length === 1) {
-      return this.getCommitDiff(repo, commits[0]);
-    }
-
-    const cwd = repo.rootUri.fsPath;
-
-    // Get commit dates + parents to sort them chronologically.
-    // We need the oldest and newest commits to compute the range, and we
-    // need parent hashes so `sortCommitsStable` can resolve date ties
-    // topologically (parent-before-child) rather than by hash-alphabetical
-    // alone. Same-second timestamps are common in imported histories and
-    // squash-and-rebase flows; ordering a child before its parent would
-    // push the diff "base" past the child and silently drop edits.
-    const commitInfos: { hash: string; commitDate: Date; parents: string[] }[] = [];
-
-    for (const hash of commits) {
-      // `%cI` (commit-date ISO-8601) + `%P` (space-separated parent hashes),
-      // separated by a tab so we can split unambiguously.
-      // `hash` is user-controlled; splice via buildGitArgs.
-      const result = await this._gitCli.exec(
-        buildGitArgs('show', ['-s', '--format=%cI%x09%P'], [hash]),
-        { cwd }
-      );
-      if (result.exitCode === 0 && result.stdout.trim()) {
-        const [iso, parentsLine = ''] = result.stdout.trim().split('\t');
-        const parents = parentsLine.split(/\s+/).filter((p) => p.length > 0);
-        commitInfos.push({
-          hash,
-          commitDate: new Date(iso),
-          parents,
-        });
-      }
-    }
-
-    if (commitInfos.length === 0) {
-      return [];
-    }
-
-    // Deterministic sort: primary by commit date, secondary by
-    // parent-before-child (topological) inside date-tied groups, and only
-    // falling back to hash-alphabetical when no parent edge disambiguates.
-    // See `src/utils/commitSort.ts` for the full rationale.
-    const sortedInfos = sortCommitsStable(commitInfos);
-
-    const oldestCommit = sortedInfos[0].hash;
-    const newestCommit = sortedInfos[sortedInfos.length - 1].hash;
-
-    // Get the parent of the oldest commit to use as the base
-    // If the oldest commit has no parent (initial commit), use the empty tree
-    // `oldestCommit` is user-controlled; splice via buildGitArgs.
-    const parentResult = await this._gitCli.exec(
-      buildGitArgs('rev-parse', [], [`${oldestCommit}^`]),
-      { cwd }
-    );
-
-    let baseRef: string;
-    if (parentResult.exitCode === 0 && parentResult.stdout.trim()) {
-      baseRef = parentResult.stdout.trim();
-    } else {
-      // No parent - use empty tree SHA (Git's magic empty tree)
-      baseRef = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-    }
-
-    // Get the diff between the base and the newest commit.
-    // Both refs are user-controlled (well, baseRef may be a
-    // computed parent SHA; newestCommit is direct user input). Splice
-    // via buildGitArgs.
-    const diffResult = await this._gitCli.exec(buildGitArgs('diff', [], [baseRef, newestCommit]), {
-      cwd,
-    });
-
-    return parseDiff(diffResult.stdout);
+  getMultiCommitDiff(repo: IRepository, commits: string[]): Promise<IDiff[]> {
+    return this._diff.getMultiCommitDiff(repo, commits);
   }
 
   /**
@@ -2491,60 +1710,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * Uses `git diff --name-status -z <ref>` for robust parsing (NUL-delimited,
    * so paths with whitespace or non-ASCII characters are handled correctly).
    */
-  async getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
-    // `ref` is user-controlled; splice via buildGitArgs.
-    const result = await this._gitCli.exec(buildGitArgs('diff', ['--name-status', '-z'], [ref]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    // `git diff --name-status -z` output format:
-    //   <status>\0<path>\0                  for M/A/D/T/U entries
-    // <status>\0<oldPath>\0<newPath>\0 for R/C entries (status can be `R100`, ``, …)
-    const tokens = result.stdout.split('\0').filter((t) => t.length > 0);
-    const files: IRefDiffFile[] = [];
-    let i = 0;
-    while (i < tokens.length) {
-      const rawStatus = tokens[i];
-      const statusChar = rawStatus.charAt(0).toUpperCase();
-      i += 1;
-
-      if (statusChar === 'R' || statusChar === 'C') {
-        const oldPath = tokens[i];
-        const newPath = tokens[i + 1];
-        i += 2;
-        if (newPath) {
-          files.push({
-            path: newPath,
-            status: statusChar,
-            oldPath,
-          });
-        }
-      } else if (
-        statusChar === 'M' ||
-        statusChar === 'A' ||
-        statusChar === 'D' ||
-        statusChar === 'T' ||
-        statusChar === 'U'
-      ) {
-        const filePath = tokens[i];
-        i += 1;
-        if (filePath) {
-          files.push({
-            path: filePath,
-            status: statusChar,
-          });
-        }
-      } else {
-        // Unknown status; skip the following path token to stay aligned.
-        i += 1;
-      }
-    }
-
-    return files;
+  getChangedFilesAgainstWorkingTree(repo: IRepository, ref: string): Promise<IRefDiffFile[]> {
+    return this._diff.getChangedFilesAgainstWorkingTree(repo, ref);
   }
 
   /**
@@ -2566,40 +1733,16 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * Used by the Git tool window's branch-focus feature.
    */
-  async getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
-    try {
-      const result = await this._gitCli.exec(['merge-base', '--end-of-options', refA, refB], {
-        cwd: repo.rootUri.fsPath,
-      });
-      if (result.exitCode !== 0) {
-        return undefined;
-      }
-      const sha = result.stdout.trim();
-      return sha.length > 0 ? sha : undefined;
-    } catch {
-      // Defensive: GitCli throws on spawn errors / disposed repos.
-      // Trap T-8 — caller treats undefined as "no path-to-merge-base".
-      return undefined;
-    }
+  getMergeBase(repo: IRepository, refA: string, refB: string): Promise<string | undefined> {
+    return this._diff.getMergeBase(repo, refA, refB);
   }
 
   // ============================================
   // Blame Operations
   // ============================================
 
-  async getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
-    // `path` is user-controlled; splice with `--` separator
-    // via buildGitArgs so a path that starts with `-` cannot collapse
-    // into a flag (e.g., `--git-dir=evil`).
-    const result = await this._gitCli.exec(buildGitArgs('blame', ['--porcelain'], [], [path]), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseBlame(result.stdout);
+  getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
+    return this._diff.getBlame(repo, path);
   }
 
   // ============================================
@@ -2614,122 +1757,20 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param commits - Array of commit hashes to cherry-pick
    * @returns Cherry-pick result with success status and any conflicts
    */
-  async cherryPick(
+  /**
+   * Cherry-pick one or more commits onto the current branch.
+   * Commits are applied in the order provided.
+   *
+   * @param repo - The repository
+   * @param commits - Array of commit hashes to cherry-pick
+   * @returns Cherry-pick result with success status and any conflicts
+   */
+  cherryPick(
     repo: IRepository,
     commits: string[],
     options?: ICherryPickOptions
   ): Promise<ICherryPickResult> {
-    if (commits.length === 0) {
-      return { success: true };
-    }
-
-    // File-subset mode ("Apply Selected Changes"): an empty array
-    // means "no files picked" — short-circuit rather than erasing the
-    // index. Caller should never invoke with an empty list; return success
-    // defensively.
-    if (options?.files && options.files.length === 0) {
-      return { success: true };
-    }
-
-    // When `files` is set we force --no-commit because we need to mutate
-    // the index afterwards to narrow to the selected file set.
-    const noCommit = options?.noCommit === true || options?.files !== undefined;
-
-    // `commits` are user-controlled; splice via buildGitArgs.
-    const cherryFlags: string[] = [];
-    if (noCommit) {
-      cherryFlags.push('--no-commit');
-    }
-    const args = buildGitArgs('cherry-pick', cherryFlags, commits);
-
-    const result = await this._gitCli.exec(args, {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode !== 0) {
-      // Check for conflicts (plain cherry-pick path).
-      const conflicts = await this.getConflictedFiles(repo);
-      if (conflicts.length > 0) {
-        return {
-          success: false,
-          conflicts,
-        };
-      }
-      // Non-conflict failure (bad object, refused operation, dirty tree
-      // for a non-conflicting reason, etc.). Surface git's stderr so the
-      // caller can show it instead of dropping the failure silently.
-      return {
-        success: false,
-        conflicts: [],
-        failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-      };
-    }
-
-    // Success path: if a file subset was requested, narrow the index +
-    // worktree down to those files. Every file touched by the commits that
-    // is NOT in the subset is unstaged and restored to its HEAD content.
-    if (options?.files && options.files.length > 0) {
-      const touched = await this._collectTouchedFiles(repo, commits);
-      const keep = new Set(options.files);
-      const drop = touched.filter((f) => !keep.has(f));
-      if (drop.length > 0) {
-        await this._restoreFilesToHead(repo, drop);
-      }
-      this.invalidateCache(repo.rootUri.fsPath);
-    }
-
-    return { success: true };
-  }
-
-  /**
-   * Return the union of files touched by each commit (via
-   * `git show --name-only --format=`). Used by the `files` subset path to
-   * determine which files to revert after a `cherry-pick -n`.
-   */
-  private async _collectTouchedFiles(repo: IRepository, commits: string[]): Promise<string[]> {
-    const touched = new Set<string>();
-    for (const commit of commits) {
-      // `commit` is user-controlled; splice via buildGitArgs.
-      const res = await this._gitCli.exec(
-        buildGitArgs('show', ['--name-only', '--format='], [commit]),
-        {
-          cwd: repo.rootUri.fsPath,
-        }
-      );
-      if (res.exitCode !== 0) {
-        continue;
-      }
-      for (const rawLine of res.stdout.split('\n')) {
-        const line = rawLine.trim();
-        if (line.length > 0) {
-          touched.add(line);
-        }
-      }
-    }
-    return [...touched];
-  }
-
-  /**
-   * Unstage + restore a set of files to their HEAD content. Used by the
-   * cherry-pick file-subset path to drop files outside the user's
-   * selection. Batches the `reset` and `checkout` calls (one call each
-   * for the whole set) to avoid N round-trips.
-   */
-  private async _restoreFilesToHead(repo: IRepository, files: string[]): Promise<void> {
-    if (files.length === 0) {
-      return;
-    }
-    // Unstage (may fail if already unstaged; we tolerate that).
-    await this._gitCli.exec(['reset', 'HEAD', '--', ...files], {
-      cwd: repo.rootUri.fsPath,
-    });
-    // Restore working-tree copy.
-    await this._gitCli.exec(['checkout', '--', ...files], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
+    return this._cherryRevert.cherryPick(repo, commits, options);
   }
 
   /**
@@ -2738,12 +1779,8 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  async cherryPickAbort(repo: IRepository): Promise<void> {
-    await this._gitCli.exec(['cherry-pick', '--abort'], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  cherryPickAbort(repo: IRepository): Promise<void> {
+    return this._cherryRevert.cherryPickAbort(repo);
   }
 
   /**
@@ -2752,84 +1789,12 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @returns Cherry-pick result with success status and any new conflicts
    */
-  async cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
-    const result = await this._gitCli.exec(['cherry-pick', '--continue'], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Check for conflicts (there might be more commits to cherry-pick)
-    const conflicts = await this.getConflictedFiles(repo);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure: surface git's stderr so the caller can show
-    // it instead of dropping the failure silently.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
+    return this._cherryRevert.cherryPickContinue(repo);
   }
 
-  /**
-   * Get the list of conflicted files in the repository.
-   *
-   * @param repo - The repository
-   * @returns Array of conflicted file paths
-   */
-  private async getConflictedFiles(repo: IRepository): Promise<string[]> {
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    return parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => f.path);
-  }
-
-  async revert(repo: IRepository, commits: string[]): Promise<IRevertResult> {
-    if (commits.length === 0) {
-      return { success: true };
-    }
-
-    // `commits` are user-controlled; splice via buildGitArgs.
-    const result = await this._gitCli.exec(buildGitArgs('revert', ['--no-edit'], commits), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Check for conflicts
-    const conflicts = await this.getConflictedFiles(repo);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure: surface git's stderr so the caller can show
-    // it instead of dropping the failure silently.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  revert(repo: IRepository, commits: string[]): Promise<IRevertResult> {
+    return this._cherryRevert.revert(repo, commits);
   }
 
   /**
@@ -2838,12 +1803,8 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  async revertAbort(repo: IRepository): Promise<void> {
-    await this._gitCli.exec(['revert', '--abort'], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  revertAbort(repo: IRepository): Promise<void> {
+    return this._cherryRevert.revertAbort(repo);
   }
 
   /**
@@ -2852,66 +1813,24 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
    */
-  async revertContinue(repo: IRepository): Promise<IRevertResult> {
-    const result = await this._gitCli.exec(['revert', '--continue'], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Check for conflicts (there might be more commits to revert)
-    const conflicts = await this.getConflictedFiles(repo);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure: surface git's stderr so the caller can show
-    // it instead of dropping the failure silently.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  revertContinue(repo: IRepository): Promise<IRevertResult> {
+    return this._cherryRevert.revertContinue(repo);
   }
 
   // ============================================
   // Status Operations
   // ============================================
 
-  async getStatus(repo: IRepository): Promise<IFileStatus[]> {
-    const result = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    if (result.exitCode !== 0) {
-      return [];
-    }
-
-    return parseStatus(result.stdout);
+  getStatus(repo: IRepository): Promise<IFileStatus[]> {
+    return this._staging.getStatus(repo);
   }
 
-  async stage(repo: IRepository, paths: string[]): Promise<void> {
-    await this._gitCli.exec(['add', '--', ...paths], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stage(repo: IRepository, paths: string[]): Promise<void> {
+    return this._staging.stage(repo, paths);
   }
 
-  async unstage(repo: IRepository, paths: string[]): Promise<void> {
-    await this._gitCli.exec(['reset', 'HEAD', '--', ...paths], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  unstage(repo: IRepository, paths: string[]): Promise<void> {
+    return this._staging.unstage(repo, paths);
   }
 
   /**
@@ -2921,16 +1840,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param path - The file path
    * @param hunk - The hunk to stage
    */
-  async stageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
-    // Generate a patch for the hunk
-    const patch = this.generateHunkPatch(path, hunk);
-
-    await this._gitCli.exec(['apply', '--cached', '-'], {
-      cwd: repo.rootUri.fsPath,
-      input: patch,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+    return this._staging.stageHunk(repo, path, hunk);
   }
 
   /**
@@ -2942,20 +1853,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param lines - Array of line numbers (1-indexed) in the new file to stage
    * @param hunk - The hunk containing the lines to stage
    */
-  async stageLines(repo: IRepository, path: string, lines: number[], hunk: IHunk): Promise<void> {
-    if (lines.length === 0) {
-      return;
-    }
-
-    // Generate a patch that includes only the specified lines
-    const patch = this.generateLinesPatch(path, lines, hunk);
-
-    await this._gitCli.exec(['apply', '--cached', '-'], {
-      cwd: repo.rootUri.fsPath,
-      input: patch,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  stageLines(repo: IRepository, path: string, lines: number[], hunk: IHunk): Promise<void> {
+    return this._staging.stageLines(repo, path, lines, hunk);
   }
 
   /**
@@ -2966,17 +1865,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param path - The file path
    * @param hunk - The hunk to unstage
    */
-  async unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
-    // Generate a patch for the hunk
-    const patch = this.generateHunkPatch(path, hunk);
-
-    // Apply the patch in reverse to unstage
-    await this._gitCli.exec(['apply', '--cached', '-R', '-'], {
-      cwd: repo.rootUri.fsPath,
-      input: patch,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+    return this._staging.unstageHunk(repo, path, hunk);
   }
 
   /**
@@ -2986,158 +1876,16 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @param path - The file path to revert
    */
-  async revertFile(repo: IRepository, path: string): Promise<void> {
-    // Use git checkout -- <path> to discard changes
-    // This works for both modified and deleted files
-    await this._gitCli.exec(['checkout', '--', path], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  revertFile(repo: IRepository, path: string): Promise<void> {
+    return this._staging.revertFile(repo, path);
   }
 
   /**
    * Reset the current branch to the given target commit using one of the four
    * IntelliJ reset modes.
    */
-  async resetToCommit(repo: IRepository, target: string, mode: ResetMode): Promise<void> {
-    // Security: reject refs starting with `-` (git would treat them as CLI
-    // flags, bypassing the argv-spawn defense) or `.` (invalid per
-    // git-check-ref-format). Mirrors the ResetDialog.isValidRef guard.
-    if (!target || !/^(?![-.])[A-Za-z0-9_./@:~^-]+$/.test(target)) {
-      throw new Error(`Invalid reset target: ${target}`);
-    }
-    const modeFlag = `--${mode}`;
-    await this._gitCli.exec(['reset', modeFlag, target], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
-  }
-
-  /**
-   * Generate a patch string for a single hunk.
-   *
-   * @param path - The file path
-   * @param hunk - The hunk to generate a patch for
-   * @returns The patch string
-   */
-  private generateHunkPatch(path: string, hunk: IHunk): string {
-    const lines: string[] = [
-      `diff --git a/${path} b/${path}`,
-      `--- a/${path}`,
-      `+++ b/${path}`,
-      hunk.header,
-    ];
-
-    for (const line of hunk.lines) {
-      switch (line.type) {
-        case 'add':
-          lines.push(`+${line.content}`);
-          break;
-        case 'delete':
-          lines.push(`-${line.content}`);
-          break;
-        case 'context':
-          lines.push(` ${line.content}`);
-          break;
-      }
-    }
-
-    return lines.join('\n') + '\n';
-  }
-
-  /**
-   * Generate a patch string for specific lines within a hunk.
-   * This creates a patch that only includes the selected lines while
-   * converting unselected additions to context and keeping unselected deletions.
-   *
-   * @param path - The file path
-   * @param selectedLines - Array of line numbers (1-indexed) in the new file to include
-   * @param hunk - The hunk containing the lines
-   * @returns The patch string
-   */
-  private generateLinesPatch(path: string, selectedLines: number[], hunk: IHunk): string {
-    const selectedSet = new Set(selectedLines);
-
-    // Build the new hunk with only selected lines
-    const newLines: IDiffLine[] = [];
-    let currentNewLine = hunk.newStart;
-    let oldLines = 0;
-    let newLinesCount = 0;
-
-    for (const line of hunk.lines) {
-      if (line.type === 'context') {
-        // Context lines are always included
-        newLines.push(line);
-        oldLines++;
-        newLinesCount++;
-        currentNewLine++;
-      } else if (line.type === 'add') {
-        if (selectedSet.has(currentNewLine)) {
-          // Include selected additions
-          newLines.push(line);
-          newLinesCount++;
-        } else {
-          // Convert unselected additions to context (they exist in working copy)
-          // Skip them - they won't be staged
-        }
-        currentNewLine++;
-      } else if (line.type === 'delete') {
-        // For deletions, we need to check if the corresponding line is selected
-        // Deletions don't have a new line number, so we include them if any
-        // adjacent additions are selected, or always include them for simplicity
-        // In practice, line-level staging of deletions is complex
-        // For now, include deletions that are explicitly selected or adjacent to selected lines
-        const lineNumber = line.oldLineNumber;
-        if (lineNumber !== undefined && selectedSet.has(lineNumber)) {
-          newLines.push(line);
-          oldLines++;
-        } else {
-          // Convert unselected deletions to context
-          newLines.push({
-            type: 'context',
-            content: line.content,
-            oldLineNumber: line.oldLineNumber,
-            newLineNumber: currentNewLine,
-          });
-          oldLines++;
-          newLinesCount++;
-        }
-      }
-    }
-
-    // If no lines were actually selected for staging, return empty
-    const hasChanges = newLines.some((l) => l.type === 'add' || l.type === 'delete');
-    if (!hasChanges) {
-      return '';
-    }
-
-    // Generate the new hunk header
-    const newHeader = `@@ -${hunk.oldStart},${oldLines} +${hunk.newStart},${newLinesCount} @@`;
-
-    const patchLines: string[] = [
-      `diff --git a/${path} b/${path}`,
-      `--- a/${path}`,
-      `+++ b/${path}`,
-      newHeader,
-    ];
-
-    for (const line of newLines) {
-      switch (line.type) {
-        case 'add':
-          patchLines.push(`+${line.content}`);
-          break;
-        case 'delete':
-          patchLines.push(`-${line.content}`);
-          break;
-        case 'context':
-          patchLines.push(` ${line.content}`);
-          break;
-      }
-    }
-
-    return patchLines.join('\n') + '\n';
+  resetToCommit(repo: IRepository, target: string, mode: ResetMode): Promise<void> {
+    return this._staging.resetToCommit(repo, target, mode);
   }
 
   // ============================================
@@ -3211,11 +1959,6 @@ export class GitService implements IGitService, IGitServiceCli {
  */
 export function createGitService(gitPath?: string): GitService {
   return new GitService(gitPath);
-}
-
-/** Type guard for a single-char `git log --cherry-mark` output. */
-function isCherryMark(value: string): value is import('./interfaces/IGitService').CherryMark {
-  return value === '=' || value === '+' || value === '-' || value === '<' || value === '>';
 }
 
 /**
