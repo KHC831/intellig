@@ -1,5 +1,5 @@
 /**
- * FU-1 — unit tests for the `renderCommitMessageHtml` helper.
+ * unit tests for the `renderCommitMessageHtml` helper.
  *
  * Covers:
  *  - Recognised refs (`#42`, `GH-101`, `PROJ-7`) become `<a href>` tags.
@@ -26,7 +26,7 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => htmlEscapes[char]);
 }
 
-describe('FU-1 — renderCommitMessageHtml', () => {
+describe('renderCommitMessageHtml', () => {
   const githubRemote = parseRemoteUrl('https://github.com/acme/widgets.git');
   assert.ok(githubRemote, 'precondition: github remote parses');
 

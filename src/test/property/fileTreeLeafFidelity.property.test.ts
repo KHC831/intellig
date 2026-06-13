@@ -14,7 +14,6 @@
  * Consequently the double-click selector
  * `.changed-file-item[data-path][data-commit-hash]` matches every file leaf.
  *
- * Validates: Requirements 2.5, 2.6, 2.9
  *
  * The render dependencies (`escapeHtml`, `statusColor`, `statusChar`,
  * `fileName`) intentionally mirror the provider's real helpers

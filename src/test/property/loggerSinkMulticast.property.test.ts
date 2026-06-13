@@ -1,7 +1,6 @@
 /**
  * Property 4 — Sink multicast filtered by threshold.
  *
- * **Validates: Requirement 1.7**
  *
  * For any registered sink S whose `admits(record)` returns `true`,
  * `emit(record)` is called exactly once per Logger emission. For any
@@ -9,7 +8,7 @@
  *
  * The Logger module's `_sinks` array is module-level/private — there
  * is no public API to inject arbitrary test sinks. Per the task hints
- * in `tasks.md` (task 4.4), this test exercises the property through
+ * in `tasks.md`, this test exercises the property through
  * the **two production sinks** (`OutputChannelSink`, `ConsoleSink`)
  * registered by `initLogger(context)`, controlling their per-record
  * `admits` behaviour through the configuration knobs:
@@ -29,11 +28,8 @@
  *   `console.debug`) exactly once per record, so swapping the four
  *   methods for counting stubs counts emit dispatches.
  *
- * This is the exact correspondence Requirement 1.7 asserts: one emit
+ * This is the exact correspondence the multicast contract asserts: one emit
  * per admitting sink, zero per rejecting sink.
- *
- * @see Requirement 1.7
- * @see design.md → "Logger emission flow"
  */
 
 import '../setup';
@@ -147,7 +143,7 @@ function fullReset(): void {
 
 // ─── Property test ──────────────────────────────────────────────────────────
 
-describe('Logger sink multicast filtered by threshold (Property 4 / Requirement 1.7)', () => {
+describe('Logger sink multicast filtered by threshold (Property 4)', () => {
   beforeEach(() => {
     fullReset();
   });
@@ -159,7 +155,7 @@ describe('Logger sink multicast filtered by threshold (Property 4 / Requirement 
   /**
    * Drive the cross-product (record level × threshold × console
    * mirror flag × message content) and assert per-sink emit counts
-   * exactly match the admit predicate Requirement 1.7 specifies:
+   * exactly match the admit predicate specifies:
    *
    * - OutputChannelSink admits ⇔ resolver admits the record's level.
    * - ConsoleSink admits ⇔ resolver admits AND `intellig.log.console`
@@ -212,11 +208,11 @@ describe('Logger sink multicast filtered by threshold (Property 4 / Requirement 
 
             // Drive one Logger emission. The Logger short-circuits
             // BEFORE allocation when no sink admits the record
-            // (Requirement 7.1, 7.3); emit counts of 0 are still
+            // ; emit counts of 0 are still
             // observable through the spies.
             getLogger()[recordLevel](message);
 
-            // Compute expected admission per Requirement 1.7.
+            // Compute expected admission.
             const recordAdmittedByThreshold = LEVEL_RANK[recordLevel] >= LEVEL_RANK[threshold];
             const expectedOutputChannelEmits = recordAdmittedByThreshold ? 1 : 0;
             const expectedConsoleEmits = recordAdmittedByThreshold && consoleEnabled ? 1 : 0;

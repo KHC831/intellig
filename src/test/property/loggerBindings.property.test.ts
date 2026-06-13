@@ -4,7 +4,6 @@
  * Feature: logging-and-src-restructure, Property 2: Bindings inheritance
  *   and override
  *
- * Validates: Requirements 1.4, 1.5
  *
  * ### What this property pins
  *
@@ -18,9 +17,9 @@
  *
  * with later bag wins on key conflicts. In particular:
  *
- *  - **Requirement 1.4** — per-call `context` shallow-merges on top of
+ *  - per-call `context` shallow-merges on top of
  *    inherited bindings; per-call keys win on conflict.
- *  - **Requirement 1.5** — chained `child(...)` calls: the most-recent
+ *  - chained `child(...)` calls: the most-recent
  *    `child(...)` binding wins for any key on conflict between
  *    ancestors.
  *
@@ -129,7 +128,7 @@ function resetLoggerAndChannel(): void {
  * `LogRecord` fields rather than the `context` map. Generators avoid
  * these names in the main property so the test asserts a clean
  * `context` merge; a separate sub-property covers `component`
- * precedence (Requirement 1.5 explicitly names it).
+ * precedence explicitly.
  */
 const SPECIAL_BINDING_KEYS = new Set<string>(['component', 'correlationId']);
 
@@ -225,7 +224,7 @@ function expectedMerge(
   return out;
 }
 
-describe('Logger bindings inheritance and override (task 4.2 / Property 2)', () => {
+describe('Logger bindings inheritance and override (Property 2)', () => {
   beforeEach(() => {
     resetLoggerAndChannel();
   });
@@ -309,7 +308,7 @@ describe('Logger bindings inheritance and override (task 4.2 / Property 2)', () 
     );
   });
 
-  it('Property: most-recent child() component binding wins on conflict (Requirement 1.5)', () => {
+  it('Property: most-recent child() component binding wins on conflict', () => {
     // The `component` key is special-cased onto a top-level
     // `LogRecord` field rather than `context`. Property 1.5 names it
     // explicitly: the most-recent child(...) component wins. We test
@@ -363,7 +362,7 @@ describe('Logger bindings inheritance and override (task 4.2 / Property 2)', () 
 
   it('Property: per-call component override wins over every inherited child binding', () => {
     // Per-call `context.component` is the last writer in the merge
-    // chain (Requirement 1.4). It must override even the most-recent
+    // chain. It must override even the most-recent
     // child(...) binding. The Logger routes `component` to the
     // top-level record field rather than the `context` map.
     const componentNameArb: fc.Arbitrary<string> = fc.stringOf(

@@ -136,7 +136,7 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── webview branchName injection guard ───────────────────────
-  describe('R1-1 — webview branchName injection (Senior H-2)', () => {
+  describe('webview branchName injection', () => {
     it('drops focusBranchOnGraph for branchName not in branchMap', () => {
       const internals = provider as unknown as R1Internals;
       const branchMap = new Map<string, { name: string; type: 'local' | 'remote' }[]>();
@@ -193,7 +193,7 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── async race generation guard ──────────────────────────────
-  describe('R1-2 — async race generation guard (Senior H-1, TLD-M-2)', () => {
+  describe('async race generation guard (Senior H-1, TLD-M-2)', () => {
     it('rapid focus(A) → focus(B) lands B as the final state even when A resolves last', async () => {
       const internals = provider as unknown as R1Internals;
       stubWebview(provider);
@@ -268,7 +268,7 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── post-then-render ordering (ADR-009 §3) ────────────────────
-  describe('R1-3 — post-then-render ordering (TLD-M-1, ADR-009 §3)', () => {
+  describe('post-then-render ordering (TLD-M-1, ADR-009 §3)', () => {
     it('setFocusedBranch posts updateBranchFocus AFTER the html reassignment', async () => {
       const recorded = stubWebview(provider);
 
@@ -311,7 +311,7 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── focus toggle semantics ────────────────────────────────────
-  describe('R1-4 — focus toggle (Senior M-1)', () => {
+  describe('focus toggle', () => {
     it('getFocusedBranchName returns null initially', () => {
       assert.strictEqual(provider.getFocusedBranchName(), null);
     });
@@ -334,7 +334,7 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── argv hardening for getMergeBase ───────────────────────
-  describe('R1-1 — getMergeBase argv hardening (Senior H-2)', () => {
+  describe('getMergeBase argv hardening', () => {
     it('GitService.getMergeBase passes --end-of-options before the refs', async () => {
       // Defer-load to avoid a top-level import cycle with the mocha
       // setup file when this file is run alone.
@@ -394,7 +394,7 @@ describe('Wave D R1 — review-round fixes', () => {
   });
 
   // ─── selection preservation ────────────────────────────────────
-  describe('R1-5 — setFocusedBranch preserves selection (Senior M-2)', () => {
+  describe('setFocusedBranch preserves selection', () => {
     it('does not clear selectedCommits / anchorHash / expandedCommit', async () => {
       const internals = provider as unknown as R1Internals;
       stubWebview(provider);

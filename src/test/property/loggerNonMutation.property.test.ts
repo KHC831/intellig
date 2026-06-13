@@ -3,12 +3,11 @@
  *
  * **Property 3: Logger does not mutate caller bags**
  *
- * From requirements.md → Requirement 1.6:
+ * The rule:
  *
  * > THE Logger SHALL NOT mutate any object passed as a `context`
  * > argument or as a `bindings` argument.
  *
- * Validates: Requirement 1.6.
  *
  * ### Approach
  *
@@ -44,7 +43,7 @@
  * `ExtensionContext` so the OutputChannel and Console sinks are
  * registered and the full emit path runs. An admitted level
  * (`info`, `warn`, `error`) is used so the hot-path short-circuit
- * (Requirement 7.1) does NOT skip the merge / sanitize step — that
+ * does NOT skip the merge / sanitize step — that
  * skip would trivially preserve the bag and hide a real mutation
  * bug. The default threshold (`'info'`) admits all three.
  *
@@ -116,7 +115,7 @@ const jsonValueArb: fc.Arbitrary<unknown> = fc.letrec((tie) => ({
  * JSON-shaped values. The two reserved binding keys (`component`,
  * `correlationId`) are filtered out so `context` and `bindings`
  * arbitraries don't overlap on the special-case behaviour pinned by
- * the binding-resolution properties (task 4.2).
+ * the binding-resolution properties.
  */
 const contextArb: fc.Arbitrary<Record<string, unknown>> = fc.dictionary(
   fc
@@ -130,7 +129,7 @@ const contextArb: fc.Arbitrary<Record<string, unknown>> = fc.dictionary(
  * Arbitrary for a `bindings` bag passed to `child(...)`. Includes
  * occasional `component` and `correlationId` keys so the special-
  * case binding-resolution path (most-recent-wins and explicit
- * correlation-id override per Requirement 1.5 and 5.2) is exercised
+ * correlation-id override) is exercised
  * without mutation. The base shape is the same as `contextArb`.
  */
 const bindingsArb: fc.Arbitrary<Record<string, unknown>> = fc
@@ -150,7 +149,7 @@ const bindingsArb: fc.Arbitrary<Record<string, unknown>> = fc
     return out;
   });
 
-describe('Logger non-mutation (Property 3 / Task 4.3 / Requirement 1.6)', () => {
+describe('Logger non-mutation (Property 3)', () => {
   beforeEach(() => {
     // Reset every module-level singleton so each test starts from a
     // clean Logger / OutputChannel / mock-config state. Order

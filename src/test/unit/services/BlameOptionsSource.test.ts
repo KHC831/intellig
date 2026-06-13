@@ -1,5 +1,5 @@
 /**
- * Unit tests for `BlameOptionsSource` (T2-08).
+ * Unit tests for `BlameOptionsSource`.
  *
  * Covers:
  * - config-backed flag snapshot + `asBlameOptions()` projection.
@@ -36,7 +36,7 @@ function makeMemento(): vscode.Memento {
   };
 }
 
-describe('BlameOptionsSource (T2-08)', () => {
+describe('BlameOptionsSource', () => {
   let source: BlameOptionsSource | undefined;
   let memento: vscode.Memento;
 

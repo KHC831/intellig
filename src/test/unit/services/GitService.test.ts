@@ -2646,7 +2646,7 @@ diff --git a/src/file2.ts b/src/file2.ts
 
   // ─── ────────────────────────────────────────────────────────────────
 
-  describe('stashBranch() — T2-09', () => {
+  describe('stashBranch()', () => {
     it('runs `git stash branch <name> stash@{<index>}` for the given index', async () => {
       await gitService.stashBranch(mockRepo, 2, 'feature/stashed-work');
 
@@ -2717,7 +2717,7 @@ diff --git a/src/file2.ts b/src/file2.ts
     });
   });
 
-  describe('stashRename() — T2-09', () => {
+  describe('stashRename()', () => {
     /**
      * The implementation uses three git calls:
      *   rev-parse stash@{i} → <hash>

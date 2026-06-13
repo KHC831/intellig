@@ -302,7 +302,7 @@ function installWindowStubs(
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('CommitContextMenuCommands — T2-04 selective revert', () => {
+describe('CommitContextMenuCommands — selective revert', () => {
   const testHash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80123';
 
   it('with zero/one file in the commit → falls through to gitService.revert (unchanged behaviour)', async () => {
@@ -469,7 +469,7 @@ describe('CommitContextMenuCommands — T2-04 selective revert', () => {
   });
 });
 
-describe('CommitContextMenuCommands — T2-04 Drop Selected Changes', () => {
+describe('CommitContextMenuCommands — Drop Selected Changes', () => {
   const testHash = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f80123';
 
   function makeHarness(diffs: IDiff[] = []): {

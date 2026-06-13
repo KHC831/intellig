@@ -124,7 +124,7 @@ function installGitService(): { gitService: GitService; mockGitCli: MockGitCli }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('GitService.cherryPick — T2-05 variants', () => {
+describe('GitService.cherryPick — variants', () => {
   describe('plain cherry-pick (no options)', () => {
     it('passes only the commit hashes to git — no --no-commit', async () => {
       const { gitService, mockGitCli } = installGitService();

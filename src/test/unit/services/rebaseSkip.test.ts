@@ -1,5 +1,5 @@
 /**
- * Unit tests for T3-05 Rebase --skip.
+ * Unit tests for Rebase --skip.
  *
  * Coverage:
  *   - `GitService.rebaseSkip` runs `git rebase --skip` with the right cwd.
@@ -109,7 +109,7 @@ function makeGitServiceScripted(
   return { gitService: svc as unknown as IGitService, calls };
 }
 
-describe('GitService.rebaseSkip (T3-05)', () => {
+describe('GitService.rebaseSkip', () => {
   let repo: IRepository;
   let repoRoot: string;
 
@@ -174,7 +174,7 @@ describe('GitService.rebaseSkip (T3-05)', () => {
   });
 });
 
-describe('ResolveConflictsDialog Skip button (T3-05)', () => {
+describe('ResolveConflictsDialog Skip button', () => {
   let ctx: vscode.ExtensionContext;
   let repo: IRepository;
 

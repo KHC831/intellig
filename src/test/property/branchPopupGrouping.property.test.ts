@@ -1,9 +1,9 @@
 /**
- * Property tests for T3-11 — Auto-group-by-`/` regression coverage.
+ * Property tests for Auto-group-by-`/` regression coverage.
  *
- * The T1-10 Branches popup redesign added an auto-indent behavior for
+ * The Branches popup redesign added an auto-indent behavior for
  * branches that share a `/`-prefix with ≥ AUTO_INDENT_MIN_GROUP_SIZE
- * siblings. T3-11 verifies that behaviour holds over arbitrary branch
+ * siblings. These properties verify that behaviour holds over arbitrary branch
  * sets so a future edit can't silently break it.
  *
  * Properties:
@@ -55,7 +55,7 @@ const branchNameSet = fc
 
 // ─── Property 1: detectIndentablePrefixes threshold invariant ────────────────
 
-describe('T3-11 property — detectIndentablePrefixes', () => {
+describe('property — detectIndentablePrefixes', () => {
   it('returns exactly the set of `<prefix>/` groups with ≥ threshold siblings', () => {
     return fc.assert(
       fc.property(branchNameSet, (names) => {
@@ -115,7 +115,7 @@ describe('T3-11 property — detectIndentablePrefixes', () => {
 
 // ─── Property 2: formatBranchLabel indent invariant ──────────────────────────
 
-describe('T3-11 property — formatBranchLabel', () => {
+describe('property — formatBranchLabel', () => {
   it('indents non-current branches iff their name starts with an indentable prefix', () => {
     return fc.assert(
       fc.property(branchNameSet, (names) => {
@@ -158,7 +158,7 @@ describe('T3-11 property — formatBranchLabel', () => {
 
 // ─── Property 3: mixed-prefix case ───────────────────────────────────────────
 
-describe('T3-11 property — mixed-prefix regression', () => {
+describe('property — mixed-prefix regression', () => {
   it('only indents branches in qualifying groups; sub-threshold groups stay flat', () => {
     return fc.assert(
       fc.property(

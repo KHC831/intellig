@@ -56,7 +56,6 @@ describe('Feature: git-graph-context-menu - Menu Positioning Property Tests', ()
   // Feature: git-graph-context-menu, Property 3: Menu positioning stays within viewport
   describe('Property 3: Menu positioning stays within viewport', () => {
     /**
-     * **Validates: Requirements 6.3**
      *
      * For any cursor position (x, y) and viewport dimensions (width, height),
      * the computed menu position (left, top) should satisfy:

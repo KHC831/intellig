@@ -11,21 +11,18 @@
  *    singleton returned by `getOutputChannel()`. A second
  *    `createOutputChannel('IntelliG')` call would put two duplicate
  *    entries in the `Output → IntelliG` dropdown — the cache and
- *    Requirement 3.5 forbid it.
+ * forbid it.
  *
  * 2. **Sink does not own the channel.** Calling `dispose()` on the
  *    sink (or on the disposable wrapper `initLogger` pushes onto
  *    `context.subscriptions`) must NOT dispose the underlying
  *    `vscode.OutputChannel`. The channel is owned by
- *    `initOutputChannel(context)` per Requirement 3.4 — a sink that
+ * `initOutputChannel(context)` per — a sink that
  *    disposed it would tear down the channel out from under VS
  *    Code's own subscription teardown and break post-deactivate
  *    cleanup.
  *
- * Both properties exercise the channel-ownership boundary documented
- * in design.md → "OutputChannelSink → Channel ownership boundary".
- *
- * @see Requirements 3.1, 3.4, 3.5
+ * Both properties exercise the channel-ownership boundary.
  */
 
 import '../../../setup';
@@ -51,7 +48,7 @@ function makeFakeContext(): vscode.ExtensionContext {
   return { subscriptions } as unknown as vscode.ExtensionContext;
 }
 
-describe('logger — OutputChannel sink lifecycle (task 3.4)', () => {
+describe('logger — OutputChannel sink lifecycle', () => {
   beforeEach(() => {
     // Drop both singletons so each test starts from a clean
     // module-level state. Order matters: drop the Logger first
@@ -182,7 +179,7 @@ describe('logger — OutputChannel sink lifecycle (task 3.4)', () => {
     // that `initLogger(context)` actually pushes onto
     // `context.subscriptions`. This is the path VS Code itself
     // walks when the extension deactivates, so it's the path that
-    // most matters for Requirement 3.4.
+    // most matters for.
     const ctx = makeFakeContext();
     initOutputChannel(ctx);
     const cachedChannel = getOutputChannel();

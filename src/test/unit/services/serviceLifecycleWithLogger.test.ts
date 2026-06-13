@@ -2,8 +2,8 @@
  * Service-lifecycle Logger waypoints (§6.3, §6.4 not
  * covered elsewhere).
  *
- * Pins the Logger waypoints required by Requirements 6.3 and 6.4 for
- * the long-lived services that the §6.1 GitService test (task 9.2) does
+ * Pins the Logger waypoints required for
+ * the long-lived services that the §6.1 GitService test does
  * not cover. The §6.5 ConfigurationService change-key waypoint is
  * already covered by `configurationServiceChangeKeys.property.test.ts`,
  * and the §6.6 extension activate/deactivate path is covered by
@@ -54,7 +54,6 @@
  *   already exercises the failing-getChildren path through the
  *   tree-construction surface; duplicating it here would add no signal.
  *
- * _Validates: Requirements 6.3, 6.4_
  */
 
 import '../../setup';
@@ -165,7 +164,7 @@ function fullReset(): void {
 /**
  * Set the log threshold to `'trace'` BEFORE `initLogger` runs so the
  * resolver picks the value up on its initial refresh and admits every
- * level (Requirement 2.2).
+ * level.
  */
 function pinTraceLevel(): void {
   setMockConfigValue('intellig', 'log.level', 'trace', ConfigurationTarget.Global);
@@ -185,7 +184,7 @@ function initLoggerWiring(): vscode.ExtensionContext {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-describe('service lifecycle Logger waypoints (task 9.11 / Requirements 6.3, 6.4)', () => {
+describe('service lifecycle Logger waypoints', () => {
   beforeEach(() => {
     fullReset();
     pinTraceLevel();
@@ -196,7 +195,7 @@ describe('service lifecycle Logger waypoints (task 9.11 / Requirements 6.3, 6.4)
     fullReset();
   });
 
-  describe('Requirement 6.3 — info on construction and dispose', () => {
+  describe('info on construction and dispose', () => {
     it('BlameService emits info on construction and on dispose()', () => {
       const baseline = captureLines().length;
       const gitService = createMockGitService(attachedRepo());
@@ -424,7 +423,7 @@ describe('service lifecycle Logger waypoints (task 9.11 / Requirements 6.3, 6.4)
     });
   });
 
-  describe('Requirement 6.4 — BranchTreeProvider refresh waypoint', () => {
+  describe('BranchTreeProvider refresh waypoint', () => {
     it('BranchTreeProvider.refresh() emits a debug-level record', () => {
       const gitService = createMockGitService(attachedRepo());
       const provider = new BranchTreeProvider(gitService);

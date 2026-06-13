@@ -5,17 +5,17 @@
  * reference and opens one `vscode.diff` tab per user-selected file.
  *
  * History:
- *  - Pre-T2-01: handler opened a single whole-repo diff against a synthetic
+ *  - Previously: the handler opened a single whole-repo diff against a synthetic
  *    `git-branch://<ref>` URI. The old property tests asserted "exactly one
  *    vscode.diff call" and a URI path containing the branch ref.
- *  - Post-T2-01 (BUG-17): the handler lists changed files via
+ *  - Now: the handler lists changed files via
  *    `GitService.getChangedFilesAgainstWorkingTree`, shows a multi-select
  *    QuickPick, and for each pick opens a `vscode.diff` tab with
  *      left  = `intellig-git:<filePath>?<encodeURIComponent(branchRef)>`
  *      right = `vscode.Uri.file(<repoRoot>/<filePath>)`
  *      title = `<basename> (<branchRef> ↔ Working Tree)`
  *
- * The properties here assert the T2-01 contract. Three classes of invariant:
+ * The properties here assert the per-file diff contract. Three classes of invariant:
  *   (a) Single-file selection → exactly one vscode.diff call with the correct
  *       URI/title shape.
  *   (b) Multi-file selection → N vscode.diff calls, one per pick, each using
@@ -25,8 +25,7 @@
  *
  * NOTE: every `it()` now returns the result of `fc.assert(…)` so Mocha awaits
  * the asyncProperty. Without the `return`, property failures were silently
- * discarded (mocha saw a synchronous `undefined` return and passed). Flagged by
- * coder-T1-10 during T2-01.
+ * discarded (mocha saw a synchronous `undefined` return and passed).
  */
 
 /*
@@ -326,7 +325,7 @@ function installStubs(
 
 // ─── Property Tests ───────────────────────────────────────────────────────────
 
-describe('Feature: branch-context-menu - Show Diff Property Tests (T2-01 per-file flow)', () => {
+describe('Feature: branch-context-menu - Show Diff Property Tests (per-file flow)', () => {
   describe('Property 5: Show Diff uses correct branch reference (single-file select)', () => {
     /**
      * For any branch ref, when Show Diff is invoked and the user picks a
@@ -454,7 +453,7 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (T2-01 per-fil
      * all of them in the multi-select QuickPick, exactly N `vscode.diff`
      * tabs open (one per pick) and every tab embeds the SAME branch ref.
      *
-     * (Pre-T2-01 this test asserted "exactly one call". That invariant no
+     * (Previously this test asserted "exactly one call". That invariant no
      * longer holds because the QuickPick is multi-select.)
      */
     it('opens one vscode.diff tab per selected file, all using the same branch ref', () => {
@@ -577,7 +576,7 @@ describe('Feature: branch-context-menu - Show Diff Property Tests (T2-01 per-fil
 
   describe('Property 5c: URI construction uses intellig-git scheme (never legacy git-branch://)', () => {
     /**
-     * Guard against regression to the pre-T2-01 URI scheme. For any branch
+     * Guard against regression to the legacy URI scheme. For any branch
      * ref and single-file selection, the left URI string must contain
      * `intellig-git:` and MUST NOT contain `git-branch://`.
      */

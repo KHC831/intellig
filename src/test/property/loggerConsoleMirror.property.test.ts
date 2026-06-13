@@ -1,8 +1,8 @@
 /**
  * Property test for the developer-only console mirror.
  *
- * Pins **Requirement 3.3**: when `intellig.log.console` is `true`, the
- * `ConsoleSink` invokes the matching `console.<level>` method (with
+ * Pins the console-mirror contract: when `intellig.log.console` is
+ * `true`, the `ConsoleSink` invokes the matching `console.<level>` method (with
  * `trace` mapped to `console.debug`) with **the same rendered text**
  * the `OutputChannelSink` writes to the shared `IntelliG`
  * `vscode.OutputChannel`.
@@ -29,8 +29,7 @@
  * change ever splits the rendering between the two sinks (e.g. a
  * console-only colour-prefix), the assertion fires immediately. The
  * "exactly one console method invoked" assertion is the
- * complementary discipline that catches the trace→debug mapping bug
- * (Requirement 3.3 is explicit on this).
+ * complementary discipline that catches the trace→debug mapping bug.
  *
  * #### Test isolation
  *
@@ -43,7 +42,6 @@
  * top, then re-installs the configuration the test needs and
  * re-registers the console spies.
  *
- * **Validates: Requirement 3.3**
  */
 
 import '../setup';
@@ -162,7 +160,7 @@ function installConsoleSpy(): { capture: ConsoleCapture; restore: () => void } {
  * mock's `appendLine` pushes the input string verbatim into `_lines`,
  * so the array length matches the number of records emitted to the
  * channel and the entries are the rendered blocks (no trailing
- * newline, per Requirement 3.2).
+ * newline).
  */
 function getCapturedLines(): string[] {
   return (getOutputChannel() as unknown as { _lines: string[] })._lines;
@@ -218,7 +216,7 @@ const arbContext: fc.Arbitrary<Record<string, unknown> | undefined> = fc.option(
   { nil: undefined }
 );
 
-describe('logger console mirror — property test (task 4.13 / Requirement 3.3)', () => {
+describe('logger console mirror — property test', () => {
   beforeEach(() => {
     // Order: drop the Logger first so any in-flight emit cannot race
     // a torn-down channel; then drop the channel; then clear every

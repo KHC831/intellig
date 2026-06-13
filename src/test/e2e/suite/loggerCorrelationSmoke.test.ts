@@ -6,7 +6,7 @@
  * git fixture:
  *
  *   (a) `registerLoggedCommand` establishes a correlation frame at
- *       command-handler entry (Requirement 5.1). The frame's
+ * command-handler entry. The frame's
  *       `correlationId` is generated via
  *       `crypto.randomBytes(8).toString('hex')`, which yields a 16-char
  *       lowercase-hex string.
@@ -16,13 +16,13 @@
  *       `GitService.reloadRepository` (`'reloadRepository entry'` /
  *       `'reloadRepository exit'`) — carry the current frame's
  *       `correlationId` in the rendered OutputChannel block via the
- *       `cid=<hex>` continuation line (Requirement 5.4 + the
+ * `cid=<hex>` continuation line (+ the
  *       OutputChannel grammar in `render.ts`).
  *
  *   (c) Two consecutive command invocations establish two **distinct**
  *       correlation frames, so the rendered `cid=` values across the
- *       two invocations must differ (Requirement 14.9 — non-fabrication
- *       implies a fresh id per frame; Requirement 5.1 — fresh id at
+ * two invocations must differ (non-fabrication
+ * implies a fresh id per frame; — fresh id at
  *       handler entry).
  *
  * ### Choice of triggered command
@@ -52,7 +52,7 @@
  *
  * The Logger's `OutputChannelSink` calls
  * `getOutputChannel().appendLine(block)` once per emitted record (one
- * block per record, terminated by newline — Requirement 3.2). We
+ * block per record, terminated by newline). We
  * monkey-patch `appendLine` on the live `IntelliG` channel for the
  * duration of the test and restore it in `finally`. This is the same
  * harness pattern used by `09.logger-activation.test.ts` in the

@@ -1,7 +1,7 @@
 /**
  * Property test for sanitizer redaction under test mode.
  *
- * Pins Requirement 4.7: "WHERE the test suite is running (NODE_ENV is
+ * Pins "WHERE the test suite is running (NODE_ENV is
  * `'test'` or the `MOCHA_WORKER_ID` environment variable is set), THE
  * Log_Sanitizer SHALL still apply redaction; tests assert against
  * sanitized output."
@@ -24,7 +24,6 @@
  * set, and asserting the sentinels do not appear anywhere in the
  * sanitized output.
  *
- * **Validates: Requirement 4.7**
  */
 
 import * as fc from 'fast-check';
@@ -223,7 +222,7 @@ function withTestModeEnv<T>(fn: () => T): T {
   }
 }
 
-describe('logger sanitizer — test-mode redaction (Requirement 4.7)', () => {
+describe('logger sanitizer — test-mode redaction', () => {
   it('redacts credentialed URLs from message even with NODE_ENV=test and MOCHA_WORKER_ID set', () => {
     withTestModeEnv(() => {
       fc.assert(
@@ -358,7 +357,7 @@ describe('logger sanitizer — test-mode redaction (Requirement 4.7)', () => {
         fc.property(credentialUrlArb, posixHomePathArb, (cred, posix) => {
           // Place the credentialed URL and home-path in EVERY string-
           // valued field of the record so the test pins that the
-          // sanitizer recurses into each one (Requirement 4.1, 4.2).
+          // sanitizer recurses into each one.
           // The sanitizer's contract is: when an input contains a
           // matched credentialed URL or home-path prefix, the matched
           // segment is removed; we therefore assert against the

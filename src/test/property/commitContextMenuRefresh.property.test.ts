@@ -1,6 +1,5 @@
 // Feature: git-graph-context-menu, Property 6: Successful operations refresh graph
 /**
- * **Validates: Requirements 7.4**
  *
  * For any action that modifies repository state (all actions except copyHash and
  * showRepoAtRevision), when the operation completes successfully, the handler
@@ -269,7 +268,6 @@ describe('Feature: git-graph-context-menu - Refresh Graph Property Tests', () =>
   // Feature: git-graph-context-menu, Property 6: Successful operations refresh graph
   describe('Property 6: Successful operations refresh graph', () => {
     /**
-     * **Validates: Requirements 7.4**
      *
      * For any action that modifies repository state (all actions except copyHash
      * and showRepoAtRevision), when the operation completes successfully, the

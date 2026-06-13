@@ -1,5 +1,5 @@
 /**
- * Unit tests for T2-11 — Explorer / editor menu parity.
+ * Unit tests for — Explorer / editor menu parity.
  *
  * Two test surfaces:
  *
@@ -30,7 +30,7 @@ import { Uri } from '../../mocks/vscode';
 
 // ─── resolveExplorerFileUri ──────────────────────────────────────────────────
 
-describe('T2-11 — resolveExplorerFileUri', () => {
+describe('resolveExplorerFileUri', () => {
   it('returns the explicit fileUri when provided', () => {
     const fileUri = Uri.file('/workspace/a/src/foo.ts');
     const activeUri = Uri.file('/workspace/a/src/bar.ts');
@@ -67,7 +67,7 @@ describe('T2-11 — resolveExplorerFileUri', () => {
 
 // ─── buildCompareWithRepoVersionLeftUri ──────────────────────────────────────
 
-describe('T2-11 — buildCompareWithRepoVersionLeftUri', () => {
+describe('buildCompareWithRepoVersionLeftUri', () => {
   it('constructs an `intellig-git:` URI with the file path and encoded ref', () => {
     const uri = buildCompareWithRepoVersionLeftUri('src/foo.ts');
     const str = uri.toString();
@@ -93,7 +93,7 @@ describe('T2-11 — buildCompareWithRepoVersionLeftUri', () => {
 
 // ─── buildCompareWithRepoVersionTitle ────────────────────────────────────────
 
-describe('T2-11 — buildCompareWithRepoVersionTitle', () => {
+describe('buildCompareWithRepoVersionTitle', () => {
   it('formats the title as `<basename> (HEAD ↔ Working Tree)`', () => {
     assert.strictEqual(
       buildCompareWithRepoVersionTitle('src/foo.ts'),
@@ -117,7 +117,7 @@ describe('T2-11 — buildCompareWithRepoVersionTitle', () => {
 
 // ─── package.json contract ──────────────────────────────────────────────────
 
-describe('T2-11 — package.json menu contract', () => {
+describe('package.json menu contract', () => {
   interface MenuEntry {
     command?: string;
     submenu?: string;
@@ -148,7 +148,7 @@ describe('T2-11 — package.json menu contract', () => {
 
   // ── New commands declared ───────────────────────────────────────────────
 
-  it('declares the three new T2-11 commands', () => {
+  it('declares the three new commands', () => {
     for (const id of [
       'intellig.explorer.addToVcs',
       'intellig.explorer.compareWithRepoVersion',

@@ -62,7 +62,7 @@ function installGitService(): { gitService: GitService; executed: string[][] } {
   return { gitService, executed };
 }
 
-describe('T3-08 Push All Tags', () => {
+describe('Push All Tags', () => {
   describe('package.json declaration', () => {
     let commandsById: Map<string, IPackageJsonCommand>;
 

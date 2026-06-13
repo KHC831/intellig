@@ -37,7 +37,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── squash dialog uses untitled-editor + save listener ──────────────────
-  describe('R1-1 (Senior H-1) — squash dialog editor flow', () => {
+  describe('squash dialog editor flow', () => {
     it('CommitContextMenuCommands no longer calls showInputBox in the squash handler', () => {
       const squashIdx = src.indexOf('private async _handleSquashCommits');
       assert.ok(squashIdx > 0, 'expected _handleSquashCommits definition');
@@ -112,7 +112,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── single-drop guards ──────────────────────────────────────────────────
-  describe('R1-2 (Senior M-1) — _handleDropCommit runs allHashesValid + initial-commit guard', () => {
+  describe('_handleDropCommit runs allHashesValid + initial-commit guard', () => {
     it('_handleDropCommit checks allHashesValid before routing', () => {
       const dropIdx = src.indexOf('private async _handleDropCommit(');
       assert.ok(dropIdx > 0, 'expected _handleDropCommit definition');
@@ -136,7 +136,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── squash status: 'paused' guard ───────────────────────────────────────
-  describe('R1-3 (Senior M-2) — squash second-pause false-success edge', () => {
+  describe('squash second-pause false-success edge', () => {
     it("_handleSquashCommits success branch pins to status === 'completed'", () => {
       const squashIdx = src.indexOf('private async _handleSquashCommits');
       const editIdx = src.indexOf('private async _handleEditCommitMessage', squashIdx);
@@ -159,7 +159,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── drop empty-rebase-window guard ──────────────────────────────────────
-  describe('R1-4 (Senior M-3) — drop multi guards against empty / partial rebase windows', () => {
+  describe('drop multi guards against empty / partial rebase windows', () => {
     it('_handleDropCommitMulti aborts when the plan covers fewer commits than selected', () => {
       const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
       const nextIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
@@ -178,7 +178,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── drop modal includes subjects ────────────────────────────────────────
-  describe('R1-5 (Senior M-4) — drop confirm modal includes commit subjects', () => {
+  describe('drop confirm modal includes commit subjects', () => {
     it('_handleDropCommitMulti calls getCommit for each preview row', () => {
       const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
       const nextIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
@@ -191,7 +191,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── post-success unstash error path ─────────────────────────────────────
-  describe('R1-6 (Senior L-1) — post-success unstash error has distinct phrasing', () => {
+  describe('post-success unstash error has distinct phrasing', () => {
     it('_handleDropCommitMulti routes its post-success unstash through _unstashWithErrorReport', () => {
       const handlerIdx = src.indexOf('private async _handleDropCommitMulti');
       const nextIdx = src.indexOf('private async _handleSquashCommits', handlerIdx);
@@ -218,7 +218,7 @@ describe('Wave C R1 — review fixes', () => {
   });
 
   // ─── STALE_SELECTION_TOAST const ──────────────────────────────────────────
-  describe('R1-8 (Senior L-3) — STALE_SELECTION_TOAST is a single const', () => {
+  describe('STALE_SELECTION_TOAST is a single const', () => {
     it('the const is declared once at module scope', () => {
       assert.ok(
         /^const\s+STALE_SELECTION_TOAST\s*=\s*['"]Commit selection changed/m.test(src),

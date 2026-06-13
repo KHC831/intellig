@@ -50,7 +50,6 @@ describe('Feature: git-graph-context-menu - Undo Commit Disabled State Property 
   // Feature: git-graph-context-menu, Property 2: Undo Commit disabled state
   describe('Property 2: Undo Commit disabled state', () => {
     /**
-     * **Validates: Requirements 4.5, 8.1**
      *
      * For any pair of commit hash and HEAD hash, the "Undo Commit" menu item
      * should have the disabled class if and only if the commit hash does not

@@ -1,5 +1,5 @@
 /**
- * T2-10 unit tests for ShelfService additions.
+ * unit tests for ShelfService additions.
  *
  * Covers:
  * - renameShelf persists + fires onDidChangeShelf.
@@ -53,7 +53,7 @@ class MockGitCli {
   dispose(): void {}
 }
 
-describe('ShelfService — T2-10 additions', () => {
+describe('ShelfService — additions', () => {
   let svc: ShelfService;
   let repo: IRepository;
   let repoRoot: string;

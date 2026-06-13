@@ -1,5 +1,5 @@
 /**
- * Unit tests for T2-06 CommitDialog polish:
+ * Unit tests for CommitDialog polish:
  *  - Recent-messages LRU integration (shared with CommitToolWindow).
  *  - Custom author override (validation + --author pass-through).
  *  - Gear-menu items: --no-verify toggle + disabled "Run before-commit
@@ -189,7 +189,7 @@ class InMemoryMemento implements vscode.Memento {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-describe('CommitDialog T2-06 — recent messages + author + gear', () => {
+describe('CommitDialog — recent messages + author + gear', () => {
   describe('isValidAuthorFormat / AUTHOR_FORMAT_REGEX', () => {
     const accept = [
       'Ada Lovelace <ada@example.com>',
@@ -301,7 +301,7 @@ describe('CommitDialog T2-06 — recent messages + author + gear', () => {
     });
 
     it('remains back-compat with callers that supply no new options', async () => {
-      // T1-04 CommitToolWindow calls performCommit with only the original
+      // CommitToolWindow calls performCommit with only the original
       // option set. This test mirrors that shape to guard the contract.
       const gitService = makeGitService();
       const repo = makeRepo();

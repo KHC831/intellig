@@ -10,7 +10,6 @@
  * the schema shape so a future edit to `contributes.configuration`
  * cannot silently drop, rename, or weaken either key.
  *
- * Validates: Requirements 2.1, 2.6.
  *
  * Style mirrors `src/test/unit/packageJson/coherence.test.ts`: each
  * `it(...)` makes assertions with descriptive failure messages so a
@@ -49,7 +48,7 @@ function loadPackageJson(): PackageJson {
 }
 
 // The exact enum the Logger admits as a configured threshold.
-// Mirrors `LogThreshold` from `src/utils/logger/levels.ts` (per design.md).
+// Mirrors `LogThreshold` from `src/utils/logger/levels.ts`.
 const EXPECTED_LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'off'] as const;
 
 // ---------------------------------------------------------------------------
@@ -65,7 +64,7 @@ describe('package.json — intellig.log.* configuration schema', () => {
   });
 
   // -------------------------------------------------------------------------
-  // intellig.log.level — Requirement 2.1
+  // intellig.log.level
   // -------------------------------------------------------------------------
 
   describe('intellig.log.level', () => {
@@ -121,7 +120,7 @@ describe('package.json — intellig.log.* configuration schema', () => {
   });
 
   // -------------------------------------------------------------------------
-  // intellig.log.console — Requirement 2.6
+  // intellig.log.console
   // -------------------------------------------------------------------------
 
   describe('intellig.log.console', () => {

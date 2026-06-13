@@ -746,9 +746,9 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
   });
 
   // ──────────────────────────────────────────────────────────────────────
-  // FU-1 — wire issue-link utilities into the details panel.
+  // wire issue-link utilities into the details panel.
   // ──────────────────────────────────────────────────────────────────────
-  describe('FU-1 — commit message issue links', () => {
+  describe('commit message issue links', () => {
     function makeRepoWithGitHub(): IRepository {
       return {
         rootUri: Uri.file('/test/repo'),
@@ -840,7 +840,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
  * The method is private; we reach it via prototype reflection (same
  * pattern as the chipTheme-* tests in CommitDialog.test.ts).
  */
-describe('Wave J R1 / HIGH-2 — _getFileStatusColor returns gitDecoration-* var() expressions', () => {
+describe('Wave J R1 / — _getFileStatusColor returns gitDecoration-* var() expressions', () => {
   // Cross-check: the existing top-of-file `INTELLIJ_FILE_STATUS_COLORS`
   // import covers the hex side; `FILE_STATUS_THEME_VARS` (new in) is
   // the theme-token map. The two MUST cover the same FileStatus union.
@@ -933,14 +933,14 @@ describe('Wave J R1 / HIGH-2 — _getFileStatusColor returns gitDecoration-* var
 
 /**
  * Visual_Parity_Snapshot for the Changed Files directory tree in BOTH details
- * panels (Task 4.3, git-view-layout-parity — Requirements 2.10, 2.11, 2.12).
+ * panels (git-view-layout-parity).
  *
- * Requirement 2.12 pins the emitted nested directory-tree markup of the Changed
- * Files list. Requirement 2.11 requires the SAME hierarchy in both the
+ * Pins the emitted nested directory-tree markup of the Changed
+ * Files list, and requires the SAME hierarchy in both the
  * single-commit (`_getDetailsPanelHtml`) and multi-commit combined
  * (`_getMultiCommitDetailsPanelHtml`) views — the two frozen literals below are
  * identical except that the single-commit leaves carry `data-commit-hash` and
- * the combined leaves do not. Requirement 2.10 requires `role="listitem"` on
+ * the combined leaves do not. requires `role="listitem"` on
  * every emitted row (directory rows included); the frozen literals carry it on
  * each row and the helper assertions guard it explicitly.
  *
@@ -1009,7 +1009,7 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
   }
 
   // The single-commit tree: identical structure to the combined tree below,
-  // but every file leaf carries `data-commit-hash` (Requirement 2.11).
+  // but every file leaf carries `data-commit-hash`.
   const EXPECTED_SINGLE_COMMIT_TREE = `<div class="changed-files-list" role="list" aria-label="Changed Files">
 
           <div class="changed-dir-item" role="listitem" style="padding-left: 4px;">

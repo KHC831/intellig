@@ -12,7 +12,6 @@
  * (`padding-left`) is strictly greater than that of its parent directory row,
  * and all rows sharing the same parent are emitted at equal indentation.
  *
- * Validates: Requirements 2.2, 2.10
  *
  * Approach: the renderer emits a flat sequence of sibling rows — each a
  * `.changed-dir-item` or `.changed-file-item` div carrying `role="listitem"`
@@ -189,7 +188,7 @@ describe('Feature: git-view-layout-parity - Changed Files Render Structure', () 
           let nextDirId = 0;
 
           rows.forEach((row, index) => {
-            // 1. Every emitted row carries role="listitem" (Requirement 2.10).
+            // 1. Every emitted row carries role="listitem".
             assert.ok(row.hasListitemRole, `Row ${index} (${row.kind}) is missing role="listitem"`);
 
             // Pop ancestors that are no longer enclosing this row (any open
@@ -206,7 +205,7 @@ describe('Feature: git-view-layout-parity - Changed Files Render Structure', () 
             const parentId = parent ? parent.id : ROOT;
 
             // 2. A child row's indentation is strictly greater than that of its
-            //    parent directory row (Requirement 2.2). Top-level rows (no
+            // parent directory row. Top-level rows (no
             //    parent directory) must sit at the base indentation.
             if (parent) {
               assert.ok(
@@ -228,7 +227,7 @@ describe('Feature: git-view-layout-parity - Changed Files Render Structure', () 
           });
 
           // 3. All rows sharing the same parent are emitted at equal
-          //    indentation (Requirement 2.2).
+          // indentation.
           for (const [parentId, paddings] of childrenByParent) {
             const first = paddings[0];
             for (const p of paddings) {

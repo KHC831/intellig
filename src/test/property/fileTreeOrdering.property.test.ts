@@ -12,7 +12,6 @@
  * order by display name (the directory's joined-segment label or the leaf's file
  * name).
  *
- * Validates: Requirements 2.13
  */
 
 import * as fc from 'fast-check';

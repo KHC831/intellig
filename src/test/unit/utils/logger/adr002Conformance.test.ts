@@ -23,7 +23,7 @@
  *      against `context.subscriptions` so VS Code drops it on
  *      deactivate (callers of `getX()` don't think about lifetime).
  *
- * design.md → "Logger module location" lists how `src/utils/logger/`
+ * The design notes list how `src/utils/logger/`
  * satisfies each criterion. This test is the executable counterpart
  * of that table — a pin so a future refactor cannot quietly break one
  * of the criteria without the build going red.
@@ -35,7 +35,6 @@
  * ADR-002 framing so a reviewer reading the ADR can read this test
  * straight across.
  *
- * _Validates: Requirements 8.5, 11.2_
  */
 
 import '../../../setup';
@@ -78,7 +77,7 @@ function getCapturedLines(): string[] {
   return (getOutputChannel() as unknown as { _lines: string[] })._lines;
 }
 
-describe('logger — ADR-002 conformance (task 3.8 / Requirements 8.5, 11.2)', () => {
+describe('logger — ADR-002 conformance', () => {
   beforeEach(() => {
     // Clean both singletons before every test so cross-test state
     // cannot leak. Order matters: drop the Logger first (which
@@ -110,8 +109,7 @@ describe('logger — ADR-002 conformance (task 3.8 / Requirements 8.5, 11.2)', (
       // Each accessor MUST be a function — no class constructors
       // exposed, no factories that need configuration before use.
       // Together they are the entry points the rest of the
-      // extension calls (cf. design.md → "Logger module location"
-      // → public barrel surface).
+      // extension calls (the public barrel surface).
       assert.strictEqual(
         typeof getLogger,
         'function',
@@ -144,7 +142,6 @@ describe('logger — ADR-002 conformance (task 3.8 / Requirements 8.5, 11.2)', (
 
       // The five level methods + child(): the surface every
       // service / provider / command handler binds against
-      // (Requirement 1.1).
       for (const name of ['trace', 'debug', 'info', 'warn', 'error', 'child'] as const) {
         const method = (root as unknown as Record<string, unknown>)[name];
         assert.strictEqual(
@@ -360,8 +357,8 @@ describe('logger — ADR-002 conformance (task 3.8 / Requirements 8.5, 11.2)', (
       initLogger(ctx);
 
       // initLogger must register at least the configuration
-      // listener AND a sink wrapper (the design.md sequence
-      // diagram shows three: listener + OutputChannelSink wrapper
+      // listener AND a sink wrapper (the documented sequence
+      // shows three: listener + OutputChannelSink wrapper
       // + ConsoleSink wrapper — but we pin "at least 2" here so
       // the sink-count detail is not over-constrained).
       const added = ctx.subscriptions.length - baseline;

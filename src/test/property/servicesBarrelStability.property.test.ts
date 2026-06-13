@@ -1,9 +1,8 @@
 /**
  * Property 14: Public_Service_API import stability.
  *
- * **Validates: Requirements 10.1, 10.3, 10.5, 14.7**
  *
- * Property 14 (per requirements.md §10.1, §10.3, §10.5, §14.7):
+ * Property 14:
  *
  *   FOR EVERY symbol `x` exported by `src/services/index.ts` in the
  *   pre-change tree, `x` SHALL be importable in the post-change
@@ -11,7 +10,7 @@
  *   `./services/index`) under the same name. The Public_Service_API
  *   surface is byte-identical before and after the restructure.
  *
- * The barrel regenerator at task 13.6 (`regenerateServicesBarrel`
+ * The barrel regenerator at (`regenerateServicesBarrel`
  * in `scripts/restructure/migrate.mjs`) is the single piece of
  * machinery responsible for re-emitting `src/services/index.ts`
  * after the restructure has rewritten every `from '<path>'`
@@ -42,7 +41,7 @@
  *     namespace export, named-exports clause modulo order, and
  *     module specifier), so a fingerprint-set match is the
  *     byte-identical Public_Service_API surface check that
- *     Requirement 10.3 demands.
+ * demands.
  *
  *   - **Property 14c (Live barrel coverage).** The current
  *     `src/services/index.ts` produces a non-empty fingerprint set
@@ -52,7 +51,7 @@
  *     (idempotence) produces the same content the second time.
  *
  * The actual `regenerateServicesBarrel` function in `migrate.mjs`
- * is exercised end-to-end by `migrateBasic.test.ts` (task 13.8) —
+ * is exercised end-to-end by `migrateBasic.test.ts`
  * that test runs the script in dry-run mode and checks the
  * "would regenerate ... (N export(s))" log line and the export
  * count. This property test is the *static* algorithmic pin: it
@@ -71,10 +70,6 @@
  *   the drift on the fingerprint round-trip and live-barrel
  *   coverage assertions.
  *
- * @see Requirement 10.1 — Public_Service_API symbol preservation.
- * @see Requirement 10.3 — Byte-identical export name set.
- * @see Requirement 10.5 — Type aliases and constants preserved.
- * @see Requirement 14.7 — Public_Service_API stability property.
  * @see scripts/restructure/migrate.mjs `extractExportEntry`,
  *      `renderExportLine`, `fingerprintExportEntry`,
  *      `regenerateServicesBarrel`.
@@ -220,7 +215,7 @@ function regenerateBarrelLines(entries: ReadonlyArray<IExportEntry>): string {
  *     named-clause member, of the form `'name:<exported-name>'`
  *     where `<exported-name>` is the alias if present, otherwise
  *     the original name (this is the name external callers will
- *     `import` by — Requirement 10.1's "same export name").
+ * `import` by — 's "same export name").
  *
  * The prefix tags (`ns:`, `star:`, `name:`) keep the three name
  * spaces disjoint so a file `Foo.ts` exported via `export * as Foo`
@@ -447,14 +442,14 @@ const synthBarrelArb: fc.Arbitrary<IExportEntry[]> = fc
 
 // ─── Property tests ────────────────────────────────────────────────────────
 
-describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 10.3, 10.5, 14.7)', () => {
+describe('Public_Service_API import stability (Property 14)', () => {
   // ── Property 14a — Symbol-set preservation under regeneration ──
 
   /**
    * For any synthetic barrel content `B`, the regenerated content
    * `B'` declares the SAME SET of exported symbol names as `B`.
    * The regenerator only sorts; it never adds, removes, or
-   * substitutes a name (Requirement 10.3, 10.4).
+   * substitutes a name.
    */
   it('Property 14a: regeneration preserves the SET of declared barrel-level symbol names', () => {
     fc.assert(
@@ -558,7 +553,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
    * **14b.2 (round-trip preservation).** For any synthetic barrel
    * `B`, the fingerprint set of the regenerated barrel equals the
    * fingerprint set of the original. This is the byte-identical
-   * Public_Service_API surface check (Requirement 10.3): the
+   * Public_Service_API surface check: the
    * regenerator may re-order lines but must not add, remove, or
    * change any export.
    */
@@ -594,7 +589,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
    * **14b.3 (regeneration idempotence).** Regenerating an
    * already-regenerated barrel produces byte-identical content.
    * This is the regenerator's contribution to the migration's
-   * idempotence guarantee (Requirement 12.3, 14.5): a second
+   * idempotence guarantee: a second
    * `migrate.mjs` run leaves the barrel unchanged.
    */
   it('Property 14b.3: regenerate(regenerate(B)) === regenerate(B) (idempotence)', () => {
@@ -635,7 +630,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
 
     /**
      * The live barrel produces a non-empty fingerprint set. A zero-
-     * export barrel would be a Requirement 10.1 violation in
+     * export barrel would be a violation in
      * spirit — the public API surface would be empty, defeating
      * the purpose of the barrel.
      */
@@ -681,7 +676,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
     /**
      * Re-emitting the live barrel through the regenerator
      * preserves the fingerprint set byte-identically. This is the
-     * end-to-end stability check Requirement 10.3 demands.
+     * end-to-end stability check demands.
      */
     it('regeneration preserves the fingerprint set', () => {
       const before = fingerprintList(liveEntries);
@@ -705,7 +700,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
     /**
      * Regeneration preserves the SET of declared barrel-level
      * symbol names on the live barrel. Specifically, the named
-     * symbols and namespace re-exports survive — Requirement 10.5
+     * symbols and namespace re-exports survive
      * pins type aliases and constants like `GIT_TOOL_WINDOW_VIEW_ID`,
      * `COMMIT_TOOL_WINDOW_VIEW_ID`, `CONTEXT_VALUES`, the
      * `IGitService` family, and every `create*` factory.
@@ -728,14 +723,14 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
     });
 
     /**
-     * Spot-check Requirement 10.5: the named constants and type
+     * Spot-check the named constants and type
      * aliases the requirement calls out by name MUST appear in the
      * declared-name set. This is a regression guard against the
      * barrel author silently dropping one of these — the test
      * names them explicitly so removal would surface as a clear
      * test failure rather than a generic "API set changed".
      */
-    it('declares the symbols Requirement 10.5 names explicitly', () => {
+    it('declares the symbols names explicitly', () => {
       const names = new Set(declaredSymbolNames(liveEntries));
       const required: ReadonlyArray<string> = [
         'name:GIT_TOOL_WINDOW_VIEW_ID',
@@ -788,7 +783,7 @@ describe('Public_Service_API import stability (Property 14 / Requirements 10.1, 
      * again produces byte-identical content. This is the on-disk
      * counterpart of Property 14b.3 — a real `migrate.mjs` re-run
      * over an already-canonical barrel must be a no-op
-     * (Requirement 12.3, 14.5).
+     *
      */
     it('regeneration is idempotent on the live barrel', () => {
       const once = regenerateBarrelLines(liveEntries);

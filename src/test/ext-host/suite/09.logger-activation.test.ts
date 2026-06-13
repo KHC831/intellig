@@ -8,19 +8,19 @@
  *       — i.e. the Logger's emission cost during activation does NOT
  *       inflate the activation path beyond the slack the
  *       `07.post-activate-idle.test.ts` gate already tolerates
- *       (Requirement 7.5).
+ *
  *
  *   (b) The `IntelliG` `vscode.OutputChannel` singleton exists
  *       post-activate. The Logger's `OutputChannelSink` borrows this
- *       channel from `initOutputChannel(context)` (Requirement 3.1,
- *       3.5); a missing channel means either `initOutputChannel` was
- *       skipped or the sink was registered against the wrong target.
+ *       channel from `initOutputChannel(context)`; a missing channel
+ *       means either `initOutputChannel` was skipped or the sink was
+ *       registered against the wrong target.
  *
  *   (c) The Logger has registered an active sink. We prove
  *       registration by intercepting `appendLine` on the shared
  *       `IntelliG` channel, emitting a marker record via
  *       `getLogger().info(...)`, and asserting the marker reached
- *       the channel (Requirement 8.2 — `initLogger(context)` pushes
+ *       the channel (`initLogger(context)` pushes
  *       the OutputChannel sink onto `context.subscriptions` and
  *       attaches it to the Logger). If the Logger were not
  *       registered, the marker would land nowhere — the test
@@ -59,7 +59,7 @@ import { getOutputChannel } from '../../../utils/outputChannel';
 const EXT_ID = 'KaHoChan.intellig';
 
 /**
- * Per-activation budget for Logger emissions (Requirement 7.5).
+ * Per-activation budget for Logger emissions.
  * The number is the absolute ceiling on wall-clock cost contributed
  * by the Logger across the entire activation path.
  */
@@ -182,7 +182,7 @@ describe('ext-host smoke — 9. logger activation', function () {
     }
   });
 
-  it('Logger emission cost during activation stays under the 5ms budget (Requirement 7.5)', () => {
+  it('Logger emission cost during activation stays under the 5ms budget', () => {
     // The post-activate-idle invariant gate (07.*) measures git-spawn
     // count during a 5s idle window — the Logger does NOT contribute
     // git spawns. The complementary contract pinned here is the

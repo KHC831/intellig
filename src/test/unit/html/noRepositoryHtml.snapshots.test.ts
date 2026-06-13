@@ -1,11 +1,11 @@
 /**
  * Visual_Parity_Snapshot for `_getNoRepositoryHtml(webview)`.
  *
- * Task 5.4 (git-view-layout-parity) — Requirements 3.5, 3.6.
+ * (git-view-layout-parity) —.
  *
- * Requirement 3.6 pins the emitted No_Repository_State markup, including the
+ * pins the emitted No_Repository_State markup, including the
  * no-repository message text (`No Git repository found in this workspace.`)
- * and the `Initialize Repository` control. Requirement 3.5 requires the
+ * and the `Initialize Repository` control. requires the
  * no-repository state to convey its status as visible TEXT rather than through
  * the loading spinner, so this file also asserts the absence of the
  * loading-view body markup that `_getLoadingHtml` emits.

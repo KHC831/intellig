@@ -30,7 +30,6 @@ import { FileStatus } from '../../git-core/interfaces/IGitService';
  * by the original `file.path`. The expected set is therefore the input paths
  * normalized the same way (see `normalizePath`).
  *
- * Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.7
  */
 describe('File Tree Reconstruction Property Tests', () => {
   /**

@@ -23,7 +23,6 @@
  *   - selection state matches the resolved tip
  *     (`expandedCommit === tipHash`, `selectedCommits.has(tipHash)`).
  *
- * _Validates: Requirements 1.3, 3.1, 4.1, 4.2_
  */
 
 import '../setup';

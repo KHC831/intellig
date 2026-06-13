@@ -1,6 +1,5 @@
 // Feature: git-graph-context-menu, Property 5: Error handling shows notification
 /**
- * **Validates: Requirements 7.3**
  *
  * For any action where the underlying git operation throws an error, the
  * CommitContextMenuCommands handler should call vscode.window.showErrorMessage
@@ -30,7 +29,7 @@ import { writableWindow } from '../typed/windowStub';
  * Actions that call git service methods and can produce errors.
  * Excludes copyHash (clipboard API) and actions not yet implemented.
  *
- * `resetToHere` is intentionally excluded: since T1-11 it routes through
+ * `resetToHere` is intentionally excluded: it routes through
  * the webview-based ResetDialog (which requires a wired extension context)
  * before any git call, so the error surfaced here is a dialog-availability
  * message rather than the underlying git error. Its behaviour is covered
@@ -319,7 +318,6 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
   // Feature: git-graph-context-menu, Property 5: Error handling shows notification
   describe('Property 5: Error handling shows notification', () => {
     /**
-     * **Validates: Requirements 7.3**
      *
      * For any action where the underlying git operation throws an error,
      * the CommitContextMenuCommands handler should call

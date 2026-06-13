@@ -1,5 +1,5 @@
 /**
- * Unit tests for the T1-04 Commit Tool Window.
+ * Unit tests for the Commit Tool Window.
  *
  * Covers the pure helpers (`updateRecentMessagesLru`,
  * `sortChangelistsForDisplay`, `fileContextMenuLabels`,
@@ -458,7 +458,7 @@ describe('CommitToolWindow — host behavior', () => {
       deleteShelfItem: () => {},
       getShelfDiff: async () => [],
 
-      // Newly-required by the dropped cast (T2-10 additions that the
+      // Newly-required by the dropped cast (additions that the
       // previous stub silently omitted). CommitToolWindow does not
       // call these, so throw-on-call keeps test intent honest.
       renameShelf: notImplemented('renameShelf'),

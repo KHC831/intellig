@@ -338,7 +338,7 @@ describe('ShelfService', () => {
       const content = fs.readFileSync(storagePath, 'utf8');
       const storage = JSON.parse(content) as { version: number; items: { name: string }[] };
 
-      // T2-10: storage schema bumped to v2 (adds optional unshelvedAt).
+      // storage schema bumped to v2 (adds optional unshelvedAt).
       assert.strictEqual(storage.version, 2, 'Storage version should be 2');
       assert.strictEqual(storage.items.length, 1, 'Should have one item');
       assert.strictEqual(storage.items[0].name, 'Storage Test', 'Item name should match');

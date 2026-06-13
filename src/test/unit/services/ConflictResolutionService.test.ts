@@ -436,7 +436,7 @@ describe('ConflictResolutionService', () => {
   });
 
   describe('per-repo conflicts-active state (multi-root)', () => {
-    // LOW-3 regression: the aggregate `intellig.conflicts.active` context key
+    // regression: the aggregate `intellig.conflicts.active` context key
     // must reflect "any repo conflicted" across multiple roots. A single-bool
     // impl would let one repo's clean state stomp another repo's conflicted
     // state depending on watcher firing order.

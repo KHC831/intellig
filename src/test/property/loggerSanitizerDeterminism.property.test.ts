@@ -1,20 +1,19 @@
 /**
  * Property 9: Sanitizer determinism / idempotence.
  *
- * **Validates: Requirements 4.6, 14.2**
  *
  * The structured Logger funnels every emission through
  * `sanitizeRecord` (`src/utils/logger/sanitize.ts`) so credentials
  * and home-dir paths never reach a `LogSink`. Two algebraic
  * properties must hold for that scrub:
  *
- * - **Determinism (Requirement 4.6).** For any input value, repeated
+ * **Determinism.** For any input value, repeated
  *   invocations of the sanitizer SHALL produce byte-identical output.
  *   Two calls to `sanitizeRecord(R)` on the same record MUST yield
  *   structurally identical sanitized records, regardless of when the
  *   calls happen or whether other records were sanitized in between.
  *
- * - **Idempotence (Requirement 14.2).** For any string `s` reachable
+ * **Idempotence.** For any string `s` reachable
  *   as a field of any `LogRecord`,
  *   `sanitize(sanitize(s)) === sanitize(s)`. Lifting that to the
  *   record-shape sanitizer: feeding a sanitized record back through
@@ -59,7 +58,7 @@
  *
  * The test deliberately exercises only the SUCCESS branch
  * (`result.ok === true`). The sanitizer's failure path
- * (Requirement 4.5) is owned by `sanitizerFallback.test.ts`; mixing
+ * is owned by `sanitizerFallback.test.ts`; mixing
  * the failure-sentinel into the determinism check would muddy what
  * "byte-identical" means for a failure result that captures a
  * `cause` field with an `Error` instance.
@@ -257,7 +256,7 @@ function sanitizeOrFail(record: LogRecord): LogRecord {
 
 // ── Properties ─────────────────────────────────────────────────────────
 
-describe('Property 9 — Sanitizer determinism / idempotence (task 4.9)', () => {
+describe('Property 9 — Sanitizer determinism / idempotence', () => {
   // ── String-leaf level ────────────────────────────────────────────────
 
   it('determinism: sanitize(record-with-string-leaf) is byte-identical across repeated calls', () => {

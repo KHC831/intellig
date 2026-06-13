@@ -8,7 +8,6 @@
  * In other words: the only work the Logger may perform on a rejected
  * call is the level admission check itself.
  *
- * **Validates: Requirements 7.1, 7.3**
  *
  * ### Detection strategy
  *
@@ -56,7 +55,7 @@ const LOG_LEVELS: ReadonlyArray<LogLevel> = ['trace', 'debug', 'info', 'warn', '
 
 /**
  * The six configurable thresholds, including the dedicated `'off'`
- * value that rejects every record level (Requirement 2.4).
+ * value that rejects every record level.
  */
 const LOG_THRESHOLDS: ReadonlyArray<LogThreshold> = [
   'trace',
@@ -87,7 +86,7 @@ function isAdmitted(level: LogLevel, threshold: LogThreshold): boolean {
  */
 type LevelDispatchableLogger = Record<LogLevel, (message: string, context?: Bindings) => void>;
 
-describe('Logger hot-path short-circuit — Property 11 (Task 4.11)', () => {
+describe('Logger hot-path short-circuit — Property 11', () => {
   beforeEach(() => {
     __resetLoggerForTest();
     resetMockConfiguration();
@@ -99,7 +98,6 @@ describe('Logger hot-path short-circuit — Property 11 (Task 4.11)', () => {
   });
 
   it('Property 11: below-threshold level calls do not access context getters', () => {
-    // Validates: Requirements 7.1, 7.3
     fc.assert(
       fc.property(
         fc.constantFrom(...LOG_LEVELS),
@@ -135,7 +133,7 @@ describe('Logger hot-path short-circuit — Property 11 (Task 4.11)', () => {
           (logger as unknown as LevelDispatchableLogger)[level]('hot-path probe', ctx as Bindings);
 
           if (!isAdmitted(level, threshold)) {
-            // The whole point of Requirement 7.1 / 7.3: a rejected call
+            // The whole point of / 7.3: a rejected call
             // performs zero context-side work. Sanitizer never runs;
             // record is never allocated; getters are not touched.
             assert.strictEqual(
@@ -156,7 +154,6 @@ describe('Logger hot-path short-circuit — Property 11 (Task 4.11)', () => {
   });
 
   it('Property 11: threshold "off" rejects every level — context is never inspected', () => {
-    // Validates: Requirements 7.1, 7.3 (with explicit Requirement 2.4
     // coverage for the 'off' boundary).
     fc.assert(
       fc.property(fc.constantFrom(...LOG_LEVELS), (level) => {
@@ -193,7 +190,6 @@ describe('Logger hot-path short-circuit — Property 11 (Task 4.11)', () => {
   });
 
   it('Property 11: a throwing context getter is never tripped on below-threshold calls', () => {
-    // Validates: Requirements 7.1, 7.3 (stronger formulation — the
     // getter signals access by throwing, so a successful call
     // operationally PROVES the Logger never reached for the value).
     fc.assert(

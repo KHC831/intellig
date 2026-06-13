@@ -1,5 +1,5 @@
 /**
- * Unit tests for PatchService + ApplyPatchDialog (T1-12).
+ * Unit tests for PatchService + ApplyPatchDialog.
  *
  * Coverage:
  * - PatchService.applyPatch: argv for patchPath + strip + baseDir + reverse.

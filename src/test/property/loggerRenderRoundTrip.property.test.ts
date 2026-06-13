@@ -17,9 +17,8 @@ import type { JsonValue, LogLevel, LogRecord } from '../../utils/logger/sinks/ty
  *   - sanitize(R) deep-equal sanitize(R').
  *
  * That is, the OutputChannel rendering grammar is a faithful round-trip
- * modulo sanitization (Requirement 14.1).
+ * modulo sanitization.
  *
- * **Validates: Requirements 3.2, 14.1**
  *
  * ### Generator constraints
  *
@@ -238,7 +237,6 @@ describe('Logger Render Round-Trip Property Tests', () => {
 
   describe('Property 7: OutputChannel render round-trip via sanitization', () => {
     /**
-     * **Validates: Requirements 3.2, 14.1**
      *
      * For any LogRecord R:
      *   - parseRecord(formatRecord(R)) succeeds (no throw)

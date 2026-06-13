@@ -1,6 +1,6 @@
 /**
  * Unit tests for `ResolveConflictsDialog` + `ConflictResolutionService`
- * extensions added in T1-08(a).
+ * extensions added in (a).
  *
  * Coverage:
  * - Dialog renders file list matching the conflicts input.
@@ -236,7 +236,7 @@ describe('ResolveConflictsDialog', () => {
       assert.ok(html.includes('src/a.ts'), 'row for src/a.ts should render');
       assert.ok(html.includes('src/b.ts'), 'row for src/b.ts should render');
       assert.ok(html.includes('Resolve Conflicts'), 'title should include Resolve Conflicts');
-      // Title is HTML-escaped so the apostrophe renders as &#39; (LOW-6:
+      // Title is HTML-escaped so the apostrophe renders as &#39; (
       // codebase-wide the apostrophe entity is the short form).
       assert.ok(
         html.includes('Merge from &#39;feature/x&#39;') || html.includes("Merge from 'feature/x'"),
@@ -578,7 +578,7 @@ describe('ResolveConflictsDialog', () => {
     }> = [
       {
         op: 'merge',
-        // MEDIUM-2: continue now uses `git merge --continue` (was `git commit
+        // continue now uses `git merge --continue` (was `git commit
         // --no-edit`), which is the idiomatic git ≥ 2.12 flow and honors
         // merge-specific hooks / MERGE_MSG correctly.
         expectedContinue: (g) =>
@@ -650,7 +650,7 @@ describe('ResolveConflictsDialog', () => {
   });
 });
 
-describe('ConflictResolutionService — T1-08(a) additions', () => {
+describe('ConflictResolutionService — (a) additions', () => {
   let ctx: vscode.ExtensionContext;
   let gitService: ReturnType<typeof makeMockGitService>;
   let mergeView: ReturnType<typeof makeMockMergeView>;

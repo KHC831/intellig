@@ -1,5 +1,5 @@
 /**
- * T2-10 unit tests for ShelfView.
+ * unit tests for ShelfView.
  *
  * Covers:
  * - Already-Unshelved filter hides / shows entries.
@@ -160,7 +160,7 @@ function makeRepo(): IRepository {
   } as unknown as IRepository;
 }
 
-describe('ShelfView — T2-10', () => {
+describe('ShelfView', () => {
   let svc: ReturnType<typeof makeMockShelfService>;
   let view: ShelfView;
   let repo: IRepository;
