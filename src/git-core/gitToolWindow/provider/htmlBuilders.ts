@@ -96,7 +96,7 @@ export function buildNoRepositoryHtml(ctx: IGtwControllerContext, webview: vscod
 }
 
 /**
- * Escape HTML special characters.
+ * Escape HTML special characters
  */
 export function escapeHtml(text: string): string {
   const htmlEscapes: Record<string, string> = {
@@ -124,7 +124,7 @@ export function getFileStatusColor(status: FileStatus): string {
 }
 
 /**
- * Get status character for file status.
+ * Get status character for file status
  */
 export function getFileStatusChar(status: FileStatus): string {
   const statusChars: Record<FileStatus, string> = {
@@ -141,7 +141,7 @@ export function getFileStatusChar(status: FileStatus): string {
 }
 
 /**
- * Get file name from path.
+ * Get file name from path
  */
 export function getFileName(path: string): string {
   const parts = path.split('/');
@@ -171,7 +171,7 @@ export function mergeChangedFiles(commitDetailsList: ICommitDetails[]): IChanged
 }
 
 /**
- * Truncate message to specified length.
+ * Truncate message to specified length
  */
 export function truncateMessage(message: string, maxLength: number): string {
   // Get first line only
