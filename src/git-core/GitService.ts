@@ -60,6 +60,7 @@ import {
 import { IGitOpsContext, createGitOpsContext } from './ops/GitOpsContext';
 import { StagingOps } from './ops/StagingOps';
 import { DiffOps } from './ops/DiffOps';
+import { CherryPickRevertOps } from './ops/CherryPickRevertOps';
 import { sanitizeGitError } from './gitError';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
@@ -82,6 +83,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private _gitCli: GitCli;
   private readonly _staging: StagingOps;
   private readonly _diff: DiffOps;
+  private readonly _cherryRevert: CherryPickRevertOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -285,6 +287,7 @@ export class GitService implements IGitService, IGitServiceCli {
     );
     this._staging = new StagingOps(ctx);
     this._diff = new DiffOps(ctx);
+    this._cherryRevert = new CherryPickRevertOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -2409,122 +2412,20 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param commits - Array of commit hashes to cherry-pick
    * @returns Cherry-pick result with success status and any conflicts
    */
-  async cherryPick(
+  /**
+   * Cherry-pick one or more commits onto the current branch.
+   * Commits are applied in the order provided.
+   *
+   * @param repo - The repository
+   * @param commits - Array of commit hashes to cherry-pick
+   * @returns Cherry-pick result with success status and any conflicts
+   */
+  cherryPick(
     repo: IRepository,
     commits: string[],
     options?: ICherryPickOptions
   ): Promise<ICherryPickResult> {
-    if (commits.length === 0) {
-      return { success: true };
-    }
-
-    // File-subset mode ("Apply Selected Changes"): an empty array
-    // means "no files picked" — short-circuit rather than erasing the
-    // index. Caller should never invoke with an empty list; return success
-    // defensively.
-    if (options?.files && options.files.length === 0) {
-      return { success: true };
-    }
-
-    // When `files` is set we force --no-commit because we need to mutate
-    // the index afterwards to narrow to the selected file set.
-    const noCommit = options?.noCommit === true || options?.files !== undefined;
-
-    // `commits` are user-controlled; splice via buildGitArgs.
-    const cherryFlags: string[] = [];
-    if (noCommit) {
-      cherryFlags.push('--no-commit');
-    }
-    const args = buildGitArgs('cherry-pick', cherryFlags, commits);
-
-    const result = await this._gitCli.exec(args, {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode !== 0) {
-      // Check for conflicts (plain cherry-pick path).
-      const conflicts = await this.getConflictedFiles(repo);
-      if (conflicts.length > 0) {
-        return {
-          success: false,
-          conflicts,
-        };
-      }
-      // Non-conflict failure (bad object, refused operation, dirty tree
-      // for a non-conflicting reason, etc.). Surface git's stderr so the
-      // caller can show it instead of dropping the failure silently.
-      return {
-        success: false,
-        conflicts: [],
-        failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-      };
-    }
-
-    // Success path: if a file subset was requested, narrow the index +
-    // worktree down to those files. Every file touched by the commits that
-    // is NOT in the subset is unstaged and restored to its HEAD content.
-    if (options?.files && options.files.length > 0) {
-      const touched = await this._collectTouchedFiles(repo, commits);
-      const keep = new Set(options.files);
-      const drop = touched.filter((f) => !keep.has(f));
-      if (drop.length > 0) {
-        await this._restoreFilesToHead(repo, drop);
-      }
-      this.invalidateCache(repo.rootUri.fsPath);
-    }
-
-    return { success: true };
-  }
-
-  /**
-   * Return the union of files touched by each commit (via
-   * `git show --name-only --format=`). Used by the `files` subset path to
-   * determine which files to revert after a `cherry-pick -n`.
-   */
-  private async _collectTouchedFiles(repo: IRepository, commits: string[]): Promise<string[]> {
-    const touched = new Set<string>();
-    for (const commit of commits) {
-      // `commit` is user-controlled; splice via buildGitArgs.
-      const res = await this._gitCli.exec(
-        buildGitArgs('show', ['--name-only', '--format='], [commit]),
-        {
-          cwd: repo.rootUri.fsPath,
-        }
-      );
-      if (res.exitCode !== 0) {
-        continue;
-      }
-      for (const rawLine of res.stdout.split('\n')) {
-        const line = rawLine.trim();
-        if (line.length > 0) {
-          touched.add(line);
-        }
-      }
-    }
-    return [...touched];
-  }
-
-  /**
-   * Unstage + restore a set of files to their HEAD content. Used by the
-   * cherry-pick file-subset path to drop files outside the user's
-   * selection. Batches the `reset` and `checkout` calls (one call each
-   * for the whole set) to avoid N round-trips.
-   */
-  private async _restoreFilesToHead(repo: IRepository, files: string[]): Promise<void> {
-    if (files.length === 0) {
-      return;
-    }
-    // Unstage (may fail if already unstaged; we tolerate that).
-    await this._gitCli.exec(['reset', 'HEAD', '--', ...files], {
-      cwd: repo.rootUri.fsPath,
-    });
-    // Restore working-tree copy.
-    await this._gitCli.exec(['checkout', '--', ...files], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
+    return this._cherryRevert.cherryPick(repo, commits, options);
   }
 
   /**
@@ -2533,12 +2434,8 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  async cherryPickAbort(repo: IRepository): Promise<void> {
-    await this._gitCli.exec(['cherry-pick', '--abort'], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  cherryPickAbort(repo: IRepository): Promise<void> {
+    return this._cherryRevert.cherryPickAbort(repo);
   }
 
   /**
@@ -2547,84 +2444,12 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @returns Cherry-pick result with success status and any new conflicts
    */
-  async cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
-    const result = await this._gitCli.exec(['cherry-pick', '--continue'], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Check for conflicts (there might be more commits to cherry-pick)
-    const conflicts = await this.getConflictedFiles(repo);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure: surface git's stderr so the caller can show
-    // it instead of dropping the failure silently.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  cherryPickContinue(repo: IRepository): Promise<ICherryPickResult> {
+    return this._cherryRevert.cherryPickContinue(repo);
   }
 
-  /**
-   * Get the list of conflicted files in the repository.
-   *
-   * @param repo - The repository
-   * @returns Array of conflicted file paths
-   */
-  private async getConflictedFiles(repo: IRepository): Promise<string[]> {
-    const statusResult = await this._gitCli.exec(['status', '--porcelain'], {
-      cwd: repo.rootUri.fsPath,
-    });
-    return parseStatus(statusResult.stdout)
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => f.path);
-  }
-
-  async revert(repo: IRepository, commits: string[]): Promise<IRevertResult> {
-    if (commits.length === 0) {
-      return { success: true };
-    }
-
-    // `commits` are user-controlled; splice via buildGitArgs.
-    const result = await this._gitCli.exec(buildGitArgs('revert', ['--no-edit'], commits), {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Check for conflicts
-    const conflicts = await this.getConflictedFiles(repo);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure: surface git's stderr so the caller can show
-    // it instead of dropping the failure silently.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  revert(repo: IRepository, commits: string[]): Promise<IRevertResult> {
+    return this._cherryRevert.revert(repo, commits);
   }
 
   /**
@@ -2633,12 +2458,8 @@ export class GitService implements IGitService, IGitServiceCli {
    *
    * @param repo - The repository
    */
-  async revertAbort(repo: IRepository): Promise<void> {
-    await this._gitCli.exec(['revert', '--abort'], {
-      cwd: repo.rootUri.fsPath,
-      throwOnError: true,
-    });
-    this.invalidateCache(repo.rootUri.fsPath);
+  revertAbort(repo: IRepository): Promise<void> {
+    return this._cherryRevert.revertAbort(repo);
   }
 
   /**
@@ -2647,34 +2468,8 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param repo - The repository
    * @returns Revert result with success status and any new conflicts
    */
-  async revertContinue(repo: IRepository): Promise<IRevertResult> {
-    const result = await this._gitCli.exec(['revert', '--continue'], {
-      cwd: repo.rootUri.fsPath,
-    });
-
-    this.invalidateCache(repo.rootUri.fsPath);
-
-    if (result.exitCode === 0) {
-      return { success: true };
-    }
-
-    // Check for conflicts (there might be more commits to revert)
-    const conflicts = await this.getConflictedFiles(repo);
-
-    if (conflicts.length > 0) {
-      return {
-        success: false,
-        conflicts,
-      };
-    }
-
-    // Non-conflict failure: surface git's stderr so the caller can show
-    // it instead of dropping the failure silently.
-    return {
-      success: false,
-      conflicts: [],
-      failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
-    };
+  revertContinue(repo: IRepository): Promise<IRevertResult> {
+    return this._cherryRevert.revertContinue(repo);
   }
 
   // ============================================
