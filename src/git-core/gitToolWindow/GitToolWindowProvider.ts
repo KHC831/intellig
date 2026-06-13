@@ -42,7 +42,6 @@ import {
   historyTabStyles,
   historyTabBehaviorScript,
 } from './html/historyHtml';
-import { buildFileTree, renderFileTree } from './html/fileTree';
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
 import { createIncomingTabHandler } from './tabs/IncomingTab';
@@ -60,12 +59,10 @@ import {
   buildNoRepositoryHtml,
   buildCommitContextMenuHtml,
   buildDetailsPanelPlaceholderHtml,
+  buildDetailsPanelHtml,
+  buildMultiCommitDetailsPanelHtml,
   escapeHtml,
   getFileStatusColor,
-  getFileStatusChar,
-  getFileName,
-  truncateMessage,
-  mergeChangedFiles,
 } from './provider/htmlBuilders';
 import {
   handleLoadMoreCommits,
@@ -78,7 +75,6 @@ import {
   selectCommit as handleSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
-import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { formatCommitDate } from '../../utils/dateFormat';
 import { normalizeRepoPath } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
@@ -2503,30 +2499,16 @@ ${bodyMarkup}
    * Hex literal is retained as the CSS-var fallback (defence
    * in depth + dev-mode jsdom test surface). Pinned by
    * `fileStatusTheme-1..8` in detailsPanel.test.ts.
+   *
+   * Public + `this`-free: the builders that used to call it have moved to
+   * htmlBuilders.ts, so its only remaining reach is the reflective test that
+   * invokes `prototype._getFileStatusColor.call({}, status)`. Public so the
+   * reflection-only surface satisfies noUnusedLocals (same convention as the
+   * other test-reflected underscore methods); `this`-free so the `.call({})`
+   * binding still works. Delegates to the free getFileStatusColor.
    */
-  private _getFileStatusColor(status: FileStatus): string {
-    // this-free forwarder: a test invokes this via
-    // prototype._getFileStatusColor.call({}), so the body must not touch
-    // `this`. Delegates to the free getFileStatusColor in htmlBuilders.ts.
+  public _getFileStatusColor(status: FileStatus): string {
     return getFileStatusColor(status);
-  }
-
-  /**
-   * Get status character for file status.
-   *
-   * Thin forwarder to {@link getFileStatusChar} (in provider/htmlBuilders.ts).
-   */
-  private _getFileStatusChar(status: FileStatus): string {
-    return getFileStatusChar(status);
-  }
-
-  /**
-   * Get file name from path.
-   *
-   * Thin forwarder to {@link getFileName} (in provider/htmlBuilders.ts).
-   */
-  private _getFileName(path: string): string {
-    return getFileName(path);
   }
 
   /**
@@ -3036,86 +3018,7 @@ ${bodyMarkup}
    * @returns HTML string for the details panel content
    */
   public _getDetailsPanelHtml(commitDetails: ICommitDetails): string {
-    // --- Commit metadata section ---
-    // Render the commit message and body with issue/PR references
-    // converted to clickable links, gated by the
-    // `intellig.commitMessageIssueLinks` config (default true).
-    // When the flag is off, or when no remote URL is parseable for the
-    // current repository, we fall back to pure HTML-escape as before.
-    const issueLinksEnabled = this._isIssueLinkingEnabled();
-    const remote = issueLinksEnabled ? this._getSelectedRepoRemote() : undefined;
-    const escape = (s: string): string => this._escapeHtml(s);
-    const messageHtml = issueLinksEnabled
-      ? renderCommitMessageHtml(commitDetails.message, remote, escape)
-      : this._escapeHtml(commitDetails.message);
-    const bodyHtml = commitDetails.body
-      ? issueLinksEnabled
-        ? renderCommitMessageHtml(commitDetails.body, remote, escape)
-        : this._escapeHtml(commitDetails.body)
-      : '';
-    const fullHash = this._escapeHtml(commitDetails.hash);
-    const authorName = this._escapeHtml(commitDetails.author.name);
-    const authorEmail = this._escapeHtml(commitDetails.author.email);
-    const dateStr = commitDetails.date.toLocaleString();
-
-    // Parent hashes
-    const parentsHtml =
-      commitDetails.parents.length > 0
-        ? commitDetails.parents
-            .map(
-              (p) =>
-                `<span class="parent-hash" data-parent-hash="${this._escapeHtml(p)}" title="${this._escapeHtml(p)}">${this._escapeHtml(p.substring(0, 7))}</span>`
-            )
-            .join(', ')
-        : '<span class="no-parents">None (root commit)</span>';
-
-    // --- Changed files section ---
-    let changedFilesHtml: string;
-    if (commitDetails.changedFilesError) {
-      changedFilesHtml = `<p class="empty-message error-message">Failed to load changed files: ${this._escapeHtml(commitDetails.changedFilesError)}</p>`;
-    } else if (commitDetails.changedFiles.length === 0) {
-      changedFilesHtml = '<p class="empty-message">No changed files</p>';
-    } else {
-      changedFilesHtml = renderFileTree(buildFileTree(commitDetails.changedFiles), 0, {
-        escapeHtml: (s) => this._escapeHtml(s),
-        statusColor: (st) => this._getFileStatusColor(st),
-        statusChar: (st) => this._getFileStatusChar(st),
-        fileName: (p) => this._getFileName(p),
-        commitHash: commitDetails.hash,
-      });
-    }
-
-    return `
-      <div class="details-panel" role="region" aria-label="Commit Details">
-        <div class="details-changed-files">
-          <h4>Changed Files (${commitDetails.changedFiles.length})</h4>
-          <div class="changed-files-list" role="list" aria-label="Changed Files">
-            ${changedFilesHtml}
-          </div>
-        </div>
-        <div class="details-metadata">
-          <div class="detail-row message-row">
-            <span class="detail-label">Message:</span>
-            <pre class="detail-value commit-full-message">${messageHtml}${bodyHtml ? '\n\n' + bodyHtml : ''}</pre>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Hash:</span>
-            <span class="detail-value hash-value" data-copy-text="${fullHash}" title="Click to copy">${fullHash}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Author:</span>
-            <span class="detail-value">${authorName} &lt;${authorEmail}&gt;</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Date:</span>
-            <span class="detail-value">${dateStr}</span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Parents:</span>
-            <span class="detail-value">${parentsHtml}</span>
-          </div>
-        </div>
-      </div>`;
+    return buildDetailsPanelHtml(this, commitDetails);
   }
 
   /**
@@ -3150,53 +3053,7 @@ ${bodyMarkup}
     commitDetailsList: ICommitDetails[],
     combinedChangedFiles?: IChangedFile[]
   ): string {
-    const commitCount = commitDetailsList.length;
-
-    // --- Header section: "N commits selected" ---
-    const headerHtml = `<h3 class="multi-commit-header">${commitCount} commit${commitCount !== 1 ? 's' : ''} selected</h3>`;
-
-    // --- Selected commits list ---
-    const commitsListHtml = commitDetailsList
-      .map((details) => {
-        const shortHash = this._escapeHtml(details.hash.substring(0, 7));
-        const message = this._escapeHtml(truncateMessage(details.message, 60));
-        return `
-          <div class="multi-commit-item" role="listitem">
-            <span class="commit-short-hash">${shortHash}</span>
-            <span class="commit-summary">${message}</span>
-          </div>`;
-      })
-      .join('');
-
-    // --- Combined changed files ---
-    // Use pre-computed combined files if provided, otherwise merge from individual commits
-    const mergedFiles = combinedChangedFiles ?? mergeChangedFiles(commitDetailsList);
-
-    let changedFilesHtml: string;
-    if (mergedFiles.length === 0) {
-      changedFilesHtml = '<p class="empty-message">No changed files</p>';
-    } else {
-      changedFilesHtml = renderFileTree(buildFileTree(mergedFiles), 0, {
-        escapeHtml: (s) => this._escapeHtml(s),
-        statusColor: (st) => this._getFileStatusColor(st),
-        statusChar: (st) => this._getFileStatusChar(st),
-        fileName: (p) => this._getFileName(p),
-      });
-    }
-
-    return `
-      <div class="details-panel multi-commit-details" role="region" aria-label="Multi-Commit Details" data-selected-count="${commitCount}">
-        ${headerHtml}
-        <div class="multi-commit-list" role="list" aria-label="Selected Commits">
-          ${commitsListHtml}
-        </div>
-        <div class="details-changed-files">
-          <h4>Changed Files (${mergedFiles.length})</h4>
-          <div class="changed-files-list" role="list" aria-label="Changed Files">
-            ${changedFilesHtml}
-          </div>
-        </div>
-      </div>`;
+    return buildMultiCommitDetailsPanelHtml(commitDetailsList, combinedChangedFiles);
   }
 
   /**
