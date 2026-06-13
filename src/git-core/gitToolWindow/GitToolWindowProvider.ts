@@ -3333,6 +3333,25 @@ ${bodyMarkup}
     this._parsedRemoteCache.set(key, parsed);
     return parsed;
   }
+
+  /**
+   * Controller-context view over the issue-linking config flag. Delegates to
+   * the in-class config read so the flag lookup stays on the provider while
+   * extracted HTML builders can gate on it through the context.
+   */
+  public isIssueLinkingEnabled(): boolean {
+    return this._isIssueLinkingEnabled();
+  }
+
+  /**
+   * Controller-context view over the selected repository's parsed remote.
+   * Delegates to the in-class accessor so the parsed-remote cache stays
+   * owned by the provider while extracted HTML builders can resolve issue/PR
+   * link targets through the context.
+   */
+  public getSelectedRepoRemote(): IRemoteUrl | undefined {
+    return this._getSelectedRepoRemote();
+  }
 }
 
 /**

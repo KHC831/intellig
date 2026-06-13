@@ -4,6 +4,7 @@
 // stay `import type` to keep it erasable.
 import type { ICommitDetails } from '../../../services/interfaces';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
+import type { IRemoteUrl } from '../../../utils/remoteUrl';
 
 /**
  * The slice of the Git tool window provider that extracted builder and
@@ -96,4 +97,18 @@ export interface IGtwControllerContext {
   getDetailsPanelHtml(details: ICommitDetails): string;
   /** Render the empty/placeholder details-panel HTML. */
   getDetailsPanelPlaceholderHtml(): string;
+  /**
+   * Whether issue/PR auto-linking is enabled. Delegates to the provider's
+   * config read so the `intellig.commitMessageIssueLinks` flag lookup stays
+   * encapsulated; the details-panel builder consults it to decide whether to
+   * turn commit-message refs into links or fall back to plain escaping.
+   */
+  isIssueLinkingEnabled(): boolean;
+  /**
+   * The parsed remote URL for the currently-selected repository, or undefined
+   * when there is none / it can't be parsed. Delegates to the provider so the
+   * parsed-remote cache keyed on the repo root stays owned by the provider;
+   * the details-panel builder uses it to resolve issue/PR link targets.
+   */
+  getSelectedRepoRemote(): IRemoteUrl | undefined;
 }
