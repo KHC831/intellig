@@ -57,6 +57,7 @@ import {
   selectIfNotSelected as handleSelectIfNotSelected,
   toggleCommitSelection as handleToggleCommitSelection,
   selectCommits as handleSelectCommits,
+  rangeSelectCommit as handleRangeSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
@@ -1101,46 +1102,14 @@ export class GitToolWindowProvider
    * can keep extending the range from the same anchor.
    */
   public rangeSelectCommit(hash: string): void {
-    const allHashes = this._extendedLogState.commitNodes.map((n) => n.commit.hash);
-    const range = computeRangeSelection(this._extendedLogState.anchorHash, hash, allHashes);
+    handleRangeSelectCommit(this, hash);
+  }
 
-    if (range.length === 0) {
-      // Click target not in the rendered list; nothing to do.
-      return;
-    }
-
-    const anchorIsValid =
-      this._extendedLogState.anchorHash !== null &&
-      allHashes.indexOf(this._extendedLogState.anchorHash) !== -1;
-
-    if (!anchorIsValid) {
-      // Anchor-null OR stale anchor (TL-C-1): behave like a plain-click —
-      // set anchor + selection to the clicked hash. Mirrors the
-      // applyRangeSelectionDom JS behavior so the host doesn't drift.
-      this.selectCommit(hash);
-      return;
-    }
-
-    this._pendingChangedFiles = undefined;
-    this._pendingChangedFilesError = undefined;
-
-    this._extendedLogState.selectedCommits = new Set(range);
-    this._extendedLogState.expandedCommit = hash;
-    // Anchor unchanged — shift-click does not move the anchor.
-
-    // Fire BEFORE the post sequence.
-    this._onDidChangeState.fire();
-    // Partial-update path — sync selection + details panel without
-    // a full HTML re-render. Bug fix: the previous `_updateWebview()`
-    // call rebuilt the entire panel HTML, which destroyed the
-    // currently-focused commit-row DOM element. The webview JS keys
-    // its keyboard handler off `e.target.closest('.commit-row')`, so
-    // after a re-render no row is focused and the next Shift+Arrow
-    // press finds no target — the user-visible "Shift+Arrow stops
-    // responding after 1-2 commits" symptom.
-    this._postSyncSelection();
+  // IGtwControllerContext — dynamic delegation to the in-class details-panel
+  // post (keeps the webview ref encapsulated + the method patchable for the
+  // ordering tests, same as the other postX delegations).
+  postDetailsForExpandedCommit(): void {
     this._postDetailsForExpandedCommit();
-    this._postMenuStateUpdate();
   }
 
   /**

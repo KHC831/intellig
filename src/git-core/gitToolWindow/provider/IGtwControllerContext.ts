@@ -62,6 +62,8 @@ export interface IGtwControllerContext {
   postSyncSelection(): void;
   /** Post the recomputed context-menu enable map to the webview. */
   postMenuStateUpdate(): void;
+  /** Post the details-panel payload for the currently-expanded commit. */
+  postDetailsForExpandedCommit(): void;
   /**
    * Clear the pending changed-files payload + its error together. Exposed as
    * a single mutation method (not two writable fields) because the two

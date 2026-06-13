@@ -1,3 +1,4 @@
+import { computeRangeSelection } from '../multiSelect';
 import type { IGtwControllerContext } from './IGtwControllerContext';
 
 /**
@@ -90,6 +91,55 @@ export function selectCommits(
   // carries data-anchor-hash; syncSelection guards against
   // interpolation bugs and partial-update extension cases.
   ctx.postSyncSelection();
+  ctx.postMenuStateUpdate();
+}
+
+/**
+ * Shift+click range-select. Replaces the selection with the inclusive range
+ * from the current anchor to `hash` (display order). When the anchor is null
+ * or has scrolled out of the rendered list, falls back to selectCommit + the
+ * anchor is left to that path. Anchor is intentionally NOT moved — IntelliJ
+ * semantics so the user can keep extending the range from the same anchor.
+ */
+export function rangeSelectCommit(ctx: IGtwControllerContext, hash: string): void {
+  const allHashes = ctx.extendedLogState.commitNodes.map((n) => n.commit.hash);
+  const range = computeRangeSelection(ctx.extendedLogState.anchorHash, hash, allHashes);
+
+  if (range.length === 0) {
+    // Click target not in the rendered list; nothing to do.
+    return;
+  }
+
+  const anchorIsValid =
+    ctx.extendedLogState.anchorHash !== null &&
+    allHashes.indexOf(ctx.extendedLogState.anchorHash) !== -1;
+
+  if (!anchorIsValid) {
+    // Anchor-null OR stale anchor (TL-C-1): behave like a plain-click —
+    // set anchor + selection to the clicked hash. Mirrors the
+    // applyRangeSelectionDom JS behavior so the host doesn't drift.
+    ctx.selectCommit(hash);
+    return;
+  }
+
+  ctx.clearPendingChangedFiles();
+
+  ctx.extendedLogState.selectedCommits = new Set(range);
+  ctx.extendedLogState.expandedCommit = hash;
+  // Anchor unchanged — shift-click does not move the anchor.
+
+  // Fire BEFORE the post sequence.
+  ctx.fireDidChangeState();
+  // Partial-update path — sync selection + details panel without
+  // a full HTML re-render. Bug fix: the previous `_updateWebview()`
+  // call rebuilt the entire panel HTML, which destroyed the
+  // currently-focused commit-row DOM element. The webview JS keys
+  // its keyboard handler off `e.target.closest('.commit-row')`, so
+  // after a re-render no row is focused and the next Shift+Arrow
+  // press finds no target — the user-visible "Shift+Arrow stops
+  // responding after 1-2 commits" symptom.
+  ctx.postSyncSelection();
+  ctx.postDetailsForExpandedCommit();
   ctx.postMenuStateUpdate();
 }
 
