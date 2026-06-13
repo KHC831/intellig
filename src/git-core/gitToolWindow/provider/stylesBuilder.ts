@@ -740,13 +740,16 @@ export function buildInlineStyles(): string {
          "this is HEAD" at a glance even when HEAD is on a commit that ALSO
          has branch-tip chips. It lives in the same .commit-branches flex
          slot as branch chips, prepended FIRST (leftmost) so it precedes any
-         branch chips. Theme variable falls back to the IntelliJ shade
-         #d4a017 when --vscode-statusBarItem-warningBackground is absent
-         (older themes). */
+         branch chips. The yellow is a DELIBERATELY hardcoded IntelliJ brand
+         shade (#d4a017), not theme-adaptive — matching the hardcoded green
+         (local) and violet (remote) so each ref kind shows its own
+         IntelliJ colour consistently across themes. Dark text (#1a1a1a)
+         keeps the name legible on the yellow fill. Sanctioned via the
+         themeTokenCompleteness audit allowlist. */
       .branch-label-head {
         display: inline-block;
-        background: var(--vscode-statusBarItem-warningBackground, #d4a017);
-        color: var(--vscode-statusBarItem-warningForeground, #1a1a1a);
+        background: #d4a017;
+        color: #1a1a1a;
         font-size: 11px;
         font-weight: 600;
         padding: 1px 5px;
@@ -782,23 +785,28 @@ export function buildInlineStyles(): string {
         vertical-align: middle;
       }
 
-      /* Shared chip sizing/spacing for local + remote chips, plus the
-         LOCAL chip's green background via VS Code's badge-background /
-         badge-foreground semantic tokens (guaranteed available:
-         engines.vscode floor is ^1.85.0). Remote chips override the
-         background below with the hardcoded IntelliJ violet, so the
-         badge-* colour here applies to local chips; the sizing/spacing
-         (font, padding, radius, margin) is shared by both. Falls back to
-         hex literals when the theme variable is absent. Pinned by
-         snap-12e. */
+      /* Shared chip sizing/spacing for local + remote chips (font, padding,
+         radius, margin). Each chip kind sets its OWN hardcoded IntelliJ
+         background below — local green, remote violet — so the colour is
+         pixel-faithful and theme-independent rather than theme-token-driven
+         (the earlier badge-background token rendered as the theme's grey/blue
+         badge, not green). Pinned by snap-12e. */
       .branch-label-local,
       .branch-label-remote {
-        background: var(--vscode-badge-background, #2d5a1e);
-        color: var(--vscode-badge-foreground, #a5d6a7);
         font-size: 11px;
         padding: 1px 5px;
         border-radius: 3px;
         margin-left: 4px;
+      }
+
+      /* Local-branch chip = IntelliJ GREEN (#499C54). DELIBERATELY hardcoded
+         brand colour, not theme-adaptive — matches the hardcoded violet
+         (remote) and yellow (current) for consistent per-ref-kind IntelliJ
+         colours across themes. White foreground keeps the name legible on
+         the green fill. Sanctioned via the themeTokenCompleteness allowlist. */
+      .branch-label-local {
+        background: #499C54;
+        color: white;
       }
 
       /* Collapsed-summary chip ("+N"): rendered when a commit has more

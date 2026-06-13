@@ -1992,20 +1992,18 @@ describe('_getBranchLabelsHtml', () => {
         html.includes('.branch-label-local'),
         'Should include .branch-label-local CSS class'
       );
-      // Chip backgrounds switched from FG-tier
-      // gitDecoration-* tokens (which themes use for the SCM tree) to
-      // the semantically-correct badge-* family. Local + remote share
-      // the same background; local-vs-remote distinction lives in the
-      // codicon prefix (cloud vs git-branch). The earlier hex literal
-      // (#2d5a1e) is retained as the CSS-var fallback for themes that
-      // don't define badge-*.
+      // Local chip = hardcoded IntelliJ green (#499C54), white foreground —
+      // pixel-faithful parity, NOT theme-adaptive. The earlier
+      // var(--vscode-badge-background) token rendered as the theme's grey/blue
+      // badge rather than green, so each ref kind now sets its own hardcoded
+      // IntelliJ colour (local green / remote violet / current yellow).
       assert.ok(
-        html.includes('background: var(--vscode-badge-background, #2d5a1e)'),
-        'Local label background must use var(--vscode-badge-background) with #2d5a1e fallback'
+        html.includes('background: #499C54'),
+        'Local label background must be the hardcoded IntelliJ green #499C54'
       );
       assert.ok(
-        html.includes('color: var(--vscode-badge-foreground, #a5d6a7)'),
-        'Local label foreground must use var(--vscode-badge-foreground) with #a5d6a7 fallback'
+        /\.branch-label-local\s*\{[^}]*color:\s*white/i.test(html),
+        'Local label foreground must be white for legibility on the green fill'
       );
     });
 

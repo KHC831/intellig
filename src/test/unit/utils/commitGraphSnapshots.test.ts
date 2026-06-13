@@ -1421,7 +1421,7 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     provider.dispose();
   });
 
-  it('snap-9f: inline <style> embeds .branch-label-head with theme-aware background + max-width 200px', () => {
+  it('snap-9f: inline <style> embeds .branch-label-head with hardcoded IntelliJ yellow + max-width 200px', () => {
     // Probe the full webview HTML which embeds `_getInlineStyles()`.
     const mockWebview = {
       html: '',
@@ -1433,12 +1433,12 @@ describe('Wave G / G1 — HEAD chip CSS contract', () => {
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Theme variable + fallback color. Regex-alternation form per the
-    // snap-7h pattern — tolerates either single-rule or combined-rule
-    // declaration as long as the contract holds.
+    // Hardcoded IntelliJ yellow (#d4a017) — deliberately NOT theme-token-driven
+    // (the theme token rendered as the theme's warning colour, not a consistent
+    // IntelliJ yellow). Matches the hardcoded local-green/remote-violet chips.
     assert.ok(
-      /\.branch-label-head[\s,{][\s\S]*?--vscode-statusBarItem-warningBackground/.test(fullHtml),
-      'inline CSS must declare theme-aware HEAD chip background via --vscode-statusBarItem-warningBackground'
+      /\.branch-label-head[\s,{][\s\S]*?background:\s*#d4a017/i.test(fullHtml),
+      'inline CSS must declare the hardcoded IntelliJ HEAD chip yellow (#d4a017)'
     );
     assert.ok(
       /\.branch-label-head[\s,{][\s\S]*?max-width:\s*200px/.test(fullHtml),
@@ -1640,7 +1640,7 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     provider.dispose();
   });
 
-  it('snap-12e: inline <style> keeps local chip green (theme badge token) and colors the remote chip IntelliJ violet (#9876AA)', () => {
+  it('snap-12e: inline <style> colors the local chip IntelliJ green (#499C54) and the remote chip IntelliJ violet (#9876AA)', () => {
     const mockWebview = {
       html: '',
       options: {},
@@ -1651,15 +1651,13 @@ describe('Wave J / WJ-3 — chip theme-variable colors (gitDecoration-* family)'
     } as unknown as import('vscode').Webview;
     const fullHtml = provider._getThreePanelHtmlContent(mockWebview, []);
 
-    // Local chip keeps the semantically-correct theme `--vscode-badge-*`
-    // family (green), with #2d5a1e as the CSS-var fallback.
+    // Local chip is the hardcoded IntelliJ green (#499C54) — pixel-faithful
+    // parity, NOT theme-adaptive (the badge-background token rendered as the
+    // theme's grey/blue badge, not green — issue #10 dogfood fix). Sanctioned
+    // by the themeTokenCompleteness allowlist.
     assert.ok(
-      /\.branch-label-local[\s,{][\s\S]*?var\(--vscode-badge-background/.test(fullHtml),
-      'inline CSS for .branch-label-local must use var(--vscode-badge-background) for theme-aware color'
-    );
-    assert.ok(
-      /\.branch-label-local[\s,{][\s\S]*?#2d5a1e/.test(fullHtml),
-      'inline CSS for .branch-label-local must keep #2d5a1e as the CSS-var fallback'
+      /\.branch-label-local\s*\{[^}]*background:\s*#499C54/i.test(fullHtml),
+      'inline CSS for .branch-label-local must use the hardcoded IntelliJ green #499C54'
     );
 
     // Remote chip is now the hardcoded IntelliJ violet (#9876AA) —

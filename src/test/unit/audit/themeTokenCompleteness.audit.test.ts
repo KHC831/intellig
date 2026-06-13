@@ -83,6 +83,16 @@ const STANDALONE_HEX_ALLOWLIST: Array<{ hex: string; rationale: string }> = [
     rationale:
       'IntelliJ-parity remote-branch violet — user chose pixel-faithful over theme-token adaptivity (issue #10 decision A)',
   },
+  {
+    hex: '#499C54',
+    rationale:
+      'IntelliJ-parity local-branch green — hardcoded pixel-faithful over theme-token adaptivity; the badge-background token rendered the theme grey, not green (issue #10 dogfood fix)',
+  },
+  {
+    hex: '#d4a017',
+    rationale:
+      'IntelliJ-parity current-branch yellow — hardcoded pixel-faithful over the statusBarItem-warning token, matching the local-green/remote-violet hardcodes (issue #10 dogfood fix)',
+  },
 ];
 
 const HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
