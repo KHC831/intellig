@@ -2,6 +2,7 @@
 // at compile time, so the provider importing this interface while this file
 // imports the provider's type is NOT a runtime cycle — both directions must
 // stay `import type` to keep it erasable.
+import type { ICommitDetails } from '../../../services/interfaces';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
 
 /**
@@ -71,4 +72,27 @@ export interface IGtwControllerContext {
    * changed-files payload into the next details-panel render.
    */
   clearPendingChangedFiles(): void;
+  /**
+   * Whether a webview view is currently attached. Lets handlers gate the
+   * graph-row + details-panel posts on a live view without exposing the
+   * webview reference itself.
+   */
+  hasView(): boolean;
+  /**
+   * Send a raw message to the attached webview. Only the send routes through
+   * the context — the message objects are constructed by the handler — so the
+   * webview reference stays encapsulated on the provider while the payload
+   * shape stays at the call site.
+   */
+  postToWebview(msg: unknown): void;
+  /**
+   * Fire the onDidSelectCommit event with the single-selected hash. Exposes
+   * only the fire capability so handlers can announce the click-driven
+   * selection without gaining subscribe or dispose access to the emitter.
+   */
+  fireDidSelectCommit(hash: string): void;
+  /** Render the details-panel HTML for the given commit. */
+  getDetailsPanelHtml(details: ICommitDetails): string;
+  /** Render the empty/placeholder details-panel HTML. */
+  getDetailsPanelPlaceholderHtml(): string;
 }

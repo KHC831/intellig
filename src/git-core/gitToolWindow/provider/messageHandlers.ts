@@ -1,4 +1,5 @@
 import { computeRangeSelection } from '../multiSelect';
+import type { ICommitDetails } from '../../../services/interfaces';
 import type { IGtwControllerContext } from './IGtwControllerContext';
 
 /**
@@ -181,6 +182,72 @@ export function addRangeSelectCommit(ctx: IGtwControllerContext, hash: string): 
   ctx.postSyncSelection();
   ctx.postDetailsForExpandedCommit();
   ctx.postMenuStateUpdate();
+}
+
+/**
+ * Single-select a commit in the log view. Clears any pending changed-files
+ * payload, replaces the selection with `hash`, sets it as both the expanded
+ * commit and the multi-select anchor (plain-click moves the anchor), fires the
+ * select + state-change events, then posts a partial details-panel update so
+ * the graph scroll position is preserved instead of a full re-render. The
+ * graph-row highlight + details-panel posts run only when a view is attached,
+ * with the details payload built from the matching commit node (or a
+ * placeholder when the hash is not among the rendered nodes).
+ */
+export function selectCommit(ctx: IGtwControllerContext, hash: string): void {
+  // Clear pending changed files when selecting a new commit
+  ctx.clearPendingChangedFiles();
+
+  ctx.extendedLogState.selectedCommits.clear();
+  ctx.extendedLogState.selectedCommits.add(hash);
+  ctx.extendedLogState.expandedCommit = hash;
+  // plain-click sets the multi-select anchor.
+  ctx.extendedLogState.anchorHash = hash;
+
+  // Fire onDidChangeState BEFORE the post sequence
+  // so subscribers see "selection changed" on the same event-loop
+  // tick the host knows it.
+  ctx.fireDidSelectCommit(hash);
+  ctx.fireDidChangeState();
+  ctx.postMenuStateUpdate();
+
+  // Send a partial update to the details panel via postMessage
+  // instead of a full _updateWebview() to preserve graph scroll position.
+  // Also update the graph row selection highlighting and scroll to the commit.
+  if (ctx.hasView()) {
+    // Update graph row selection
+    ctx.postToWebview({
+      type: 'selectGraphRow',
+      commitHash: hash,
+    });
+
+    const node = ctx.extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
+    if (node) {
+      const commitDetails: ICommitDetails = {
+        hash: node.commit.hash,
+        message: node.commit.message,
+        body: node.commit.body,
+        author: { name: node.commit.author.name, email: node.commit.author.email },
+        date: node.commit.authorDate,
+        parents: node.commit.parents || [],
+        branches: (node.branches || []).map((ref) => ref.name),
+        tags: node.tags || [],
+        changedFiles: [],
+      };
+      const detailsHtml = ctx.getDetailsPanelHtml(commitDetails);
+      ctx.postToWebview({
+        type: 'updateDetailsPanel',
+        html: detailsHtml,
+      });
+    } else {
+      // Commit not found — show placeholder
+      const placeholderHtml = ctx.getDetailsPanelPlaceholderHtml();
+      ctx.postToWebview({
+        type: 'updateDetailsPanel',
+        html: placeholderHtml,
+      });
+    }
+  }
 }
 
 /**

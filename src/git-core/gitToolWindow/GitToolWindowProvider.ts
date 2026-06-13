@@ -59,6 +59,7 @@ import {
   selectCommits as handleSelectCommits,
   rangeSelectCommit as handleRangeSelectCommit,
   addRangeSelectCommit as handleAddRangeSelectCommit,
+  selectCommit as handleSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
@@ -913,60 +914,7 @@ export class GitToolWindowProvider
    * Select a commit in the log view
    */
   public selectCommit(hash: string): void {
-    // Clear pending changed files when selecting a new commit
-    this._pendingChangedFiles = undefined;
-    this._pendingChangedFilesError = undefined;
-
-    this._extendedLogState.selectedCommits.clear();
-    this._extendedLogState.selectedCommits.add(hash);
-    this._extendedLogState.expandedCommit = hash;
-    // plain-click sets the multi-select anchor.
-    this._extendedLogState.anchorHash = hash;
-
-    // Fire onDidChangeState BEFORE the post sequence
-    // so subscribers see "selection changed" on the same event-loop
-    // tick the host knows it.
-    this._onDidSelectCommit.fire(hash);
-    this._onDidChangeState.fire();
-    this._postMenuStateUpdate();
-
-    // Send a partial update to the details panel via postMessage
-    // instead of a full _updateWebview() to preserve graph scroll position.
-    // Also update the graph row selection highlighting and scroll to the commit.
-    if (this._view) {
-      // Update graph row selection
-      void this._view.webview.postMessage({
-        type: 'selectGraphRow',
-        commitHash: hash,
-      });
-
-      const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === hash);
-      if (node) {
-        const commitDetails: ICommitDetails = {
-          hash: node.commit.hash,
-          message: node.commit.message,
-          body: node.commit.body,
-          author: { name: node.commit.author.name, email: node.commit.author.email },
-          date: node.commit.authorDate,
-          parents: node.commit.parents || [],
-          branches: (node.branches || []).map((ref) => ref.name),
-          tags: node.tags || [],
-          changedFiles: [],
-        };
-        const detailsHtml = this._getDetailsPanelHtml(commitDetails);
-        void this._view.webview.postMessage({
-          type: 'updateDetailsPanel',
-          html: detailsHtml,
-        });
-      } else {
-        // Commit not found — show placeholder
-        const placeholderHtml = this._getDetailsPanelPlaceholderHtml();
-        void this._view.webview.postMessage({
-          type: 'updateDetailsPanel',
-          html: placeholderHtml,
-        });
-      }
-    }
+    handleSelectCommit(this, hash);
   }
 
   /**
@@ -1068,6 +1016,31 @@ export class GitToolWindowProvider
   clearPendingChangedFiles(): void {
     this._pendingChangedFiles = undefined;
     this._pendingChangedFilesError = undefined;
+  }
+
+  // IGtwControllerContext — capability methods for the single-select handler.
+  // Each is a dynamic delegation read off `this` on every call (never a
+  // captured reference), so the webview reference and the onDidSelectCommit
+  // emitter stay encapsulated on the provider and the underlying instance
+  // methods stay patchable for the render-then-post ordering tests.
+  hasView(): boolean {
+    return !!this._view;
+  }
+
+  postToWebview(msg: unknown): void {
+    void this._view?.webview.postMessage(msg);
+  }
+
+  fireDidSelectCommit(hash: string): void {
+    this._onDidSelectCommit.fire(hash);
+  }
+
+  getDetailsPanelHtml(details: ICommitDetails): string {
+    return this._getDetailsPanelHtml(details);
+  }
+
+  getDetailsPanelPlaceholderHtml(): string {
+    return this._getDetailsPanelPlaceholderHtml();
   }
 
   /**
