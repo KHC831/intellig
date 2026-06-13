@@ -380,6 +380,41 @@ describe('Wave A R4 — review fixes', () => {
         .join('\n');
     }
 
+    // Return the source body of a setter by NAME, found under either the
+    // in-class header `public <name>(` (terminated at the 2-space method brace
+    // `\n  }\n`) or the module header `export function <name>(` (terminated at
+    // the column-0 function brace `\n}\n`), preferring whichever body carries
+    // a fire call so the thin in-class forwarder is skipped. Used by the
+    // bespoke tail-window range-method assertions, which need the raw body to
+    // run their own lastIndexOf logic.
+    async function readSetterBody(methodName: string): Promise<string> {
+      const unionSource = await readUnionSource();
+      const collect = (header: string, endMarker: string): string[] => {
+        const out: string[] = [];
+        let from = 0;
+        for (;;) {
+          const start = unionSource.indexOf(header, from);
+          if (start < 0) {
+            break;
+          }
+          from = start + header.length;
+          const end = unionSource.indexOf(endMarker, start);
+          if (end > start) {
+            out.push(unionSource.substring(start, end));
+          }
+        }
+        return out;
+      };
+      const carriesFire = (b: string): boolean =>
+        b.includes('this._onDidChangeState.fire()') || b.includes('ctx.fireDidChangeState()');
+      const bodies = [
+        ...collect(`public ${methodName}(`, `\n  }\n`),
+        ...collect(`export function ${methodName}(`, `\n}\n`),
+      ];
+      assert.ok(bodies.length > 0, `${methodName} body not found in provider or messageHandlers`);
+      return bodies.find(carriesFire) ?? bodies[0];
+    }
+
     async function findInBody(
       source: string,
       methodHeader: string
@@ -509,16 +544,22 @@ describe('Wave A R4 — review fixes', () => {
       // structure means there's exactly one fire at the bottom and one
       // postMenuStateUpdate above it. The check still holds: in the tail
       // section, fire must precede post. Recompute via tail-only window.
-      const start = src.indexOf('public rangeSelectCommit(hash: string): void');
-      const end = src.indexOf('\n  }\n', start);
-      const body = src.substring(start, end);
+      const body = await readSetterBody('rangeSelectCommit');
       // The only valid fire / post pair is the tail one (after the
       // anchorIsValid guard). Find the LAST fire and the LAST first-post
-      // and verify ordering.
-      const lastFire = body.lastIndexOf('this._onDidChangeState.fire()');
-      const lastPostMenu = body.lastIndexOf('this._postMenuStateUpdate()');
-      const lastPostSync = body.lastIndexOf('this._postSyncSelection()');
-      const lastPost = Math.max(lastPostMenu, lastPostSync);
+      // and verify ordering. Recognize both receiver forms so the witness
+      // follows the body whether it is in-class (this._X) or extracted into
+      // the handler module (ctx.X).
+      const lastFire = Math.max(
+        body.lastIndexOf('this._onDidChangeState.fire()'),
+        body.lastIndexOf('ctx.fireDidChangeState()')
+      );
+      const lastPost = Math.max(
+        body.lastIndexOf('this._postMenuStateUpdate()'),
+        body.lastIndexOf('this._postSyncSelection()'),
+        body.lastIndexOf('ctx.postMenuStateUpdate()'),
+        body.lastIndexOf('ctx.postSyncSelection()')
+      );
       assert.ok(lastFire !== -1 && lastPost !== -1);
       assert.ok(
         lastFire < lastPost,
