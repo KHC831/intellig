@@ -51,7 +51,11 @@ import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
 import type { IGtwControllerContext } from './provider/IGtwControllerContext';
 import { buildLoadingHtml, buildNoRepositoryHtml } from './provider/htmlBuilders';
-import { handleLoadMoreCommits, handlePanelResize } from './provider/messageHandlers';
+import {
+  handleLoadMoreCommits,
+  handlePanelResize,
+  selectIfNotSelected as handleSelectIfNotSelected,
+} from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
 import { renderCommitMessageHtml } from '../../utils/commitMessageHtml';
 import { formatCommitDate } from '../../utils/dateFormat';
@@ -1100,10 +1104,14 @@ export class GitToolWindowProvider
    * selected commits.
    */
   public selectIfNotSelected(hash: string): void {
-    if (this._extendedLogState.selectedCommits.has(hash)) {
-      return;
-    }
-    this.selectCommit(hash);
+    handleSelectIfNotSelected(this, hash);
+  }
+
+  // IGtwControllerContext — the LIVE extended log state. Returns the single
+  // class-owned field by reference (not a copy) so extracted handlers read +
+  // mutate exactly the state the class holds.
+  get extendedLogState(): IExtendedLogState {
+    return this._extendedLogState;
   }
 
   /**

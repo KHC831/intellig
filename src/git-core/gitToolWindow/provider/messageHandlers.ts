@@ -27,3 +27,18 @@ export function handleLoadMoreCommits(ctx: IGtwControllerContext): void {
 export function handlePanelResize(ctx: IGtwControllerContext, widths: [number, number]): void {
   ctx.setPanelWidths(widths);
 }
+
+/**
+ * Select the given commit only if it is not already part of the current
+ * selection — "right-clicking an unselected commit moves selection to that
+ * commit". No-op when the hash is already selected, so the multi-select stays
+ * intact and the action targets all selected commits. Reads the live
+ * selection set off the context and delegates the actual mutation to
+ * selectCommit.
+ */
+export function selectIfNotSelected(ctx: IGtwControllerContext, hash: string): void {
+  if (ctx.extendedLogState.selectedCommits.has(hash)) {
+    return;
+  }
+  ctx.selectCommit(hash);
+}
