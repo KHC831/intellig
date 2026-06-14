@@ -113,6 +113,7 @@ const DELEGATOR_ALLOWLIST: Record<string, string> = {
   // own success/error toasts.
   'intellig.push': '_openPushDialog() opens PushDialog which renders + toasts',
   'intellig.pull': 'pull flow opens a dialog / progress + toasts on result',
+  'intellig.rebase.interactive': '_openRebaseDialog() opens RebaseDialog which renders + toasts',
   'intellig.tag.new': '_runNewTagFlow() prompts via showInputBox + toasts',
   // Conflict-navigation delegators: mergeView.nextConflict/previousConflict
   // move the editor selection (observable) and are covered by MergeView

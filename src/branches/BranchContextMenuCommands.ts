@@ -15,6 +15,7 @@ import { IConflictResolutionService } from '../conflicts/interfaces/IConflictRes
 import type { PullDialog } from '../sync/PullDialog';
 import type { PushDialog } from '../sync/PushDialog';
 import type { MergeDialog } from '../conflicts/MergeDialog';
+import type { RebaseDialog } from '../rebase/RebaseDialog';
 import type { NewBranchDialog } from './NewBranchDialog';
 import { sanitizeGitError, worktreeConflictMessage } from '../git-core/gitError';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
@@ -42,6 +43,17 @@ export type MergeDialogOpener = (preselect: {
 }) => MergeDialog | undefined;
 
 /**
+ * Open the unified Rebase Dialog for `repo`, preselecting `onto` as the
+ * rebase target. Async because the opener fetches the branch list for the
+ * dropdown at open time.
+ */
+export type RebaseDialogOpener = (preselect: {
+  repo: IRepository;
+  onto?: string;
+  interactiveDefault?: boolean;
+}) => Promise<RebaseDialog | undefined>;
+
+/**
  * Open a fresh New Branch Dialog with the given start point.
  */
 export type NewBranchDialogOpener = (preselect: {
@@ -61,6 +73,7 @@ export class BranchContextMenuCommands {
   private _pullDialogAccessor?: PullDialogAccessor;
   private _pushDialogOpener?: PushDialogOpener;
   private _mergeDialogOpener?: MergeDialogOpener;
+  private _rebaseDialogOpener?: RebaseDialogOpener;
   private _newBranchDialogOpener?: NewBranchDialogOpener;
   private _disposables: vscode.Disposable[] = [];
 
@@ -71,7 +84,8 @@ export class BranchContextMenuCommands {
     pullDialogAccessor?: PullDialogAccessor,
     pushDialogOpener?: PushDialogOpener,
     mergeDialogOpener?: MergeDialogOpener,
-    newBranchDialogOpener?: NewBranchDialogOpener
+    newBranchDialogOpener?: NewBranchDialogOpener,
+    rebaseDialogOpener?: RebaseDialogOpener
   ) {
     this._gitService = gitService;
     this._branchTreeProvider = branchTreeProvider;
@@ -80,6 +94,7 @@ export class BranchContextMenuCommands {
     this._pushDialogOpener = pushDialogOpener;
     this._mergeDialogOpener = mergeDialogOpener;
     this._newBranchDialogOpener = newBranchDialogOpener;
+    this._rebaseDialogOpener = rebaseDialogOpener;
   }
 
   /**
@@ -596,6 +611,20 @@ export class BranchContextMenuCommands {
   private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
     const repo = this._getRepository();
     if (!repo || !item.branch) {
+      return;
+    }
+
+    // Canonical surface: route through the unified Rebase dialog (onto =
+    // the clicked branch, Interactive unchecked by default). The dialog owns
+    // the same conflict + orphan-recovery handling ported from the inline
+    // path below. The inline path remains the fallback when no opener is
+    // wired (legacy construction / focused unit tests).
+    if (this._rebaseDialogOpener) {
+      await this._rebaseDialogOpener({
+        repo,
+        onto: item.branch.name,
+        interactiveDefault: false,
+      });
       return;
     }
 
@@ -1880,7 +1909,8 @@ export function createBranchContextMenuCommands(
   pullDialogAccessor?: PullDialogAccessor,
   pushDialogOpener?: PushDialogOpener,
   mergeDialogOpener?: MergeDialogOpener,
-  newBranchDialogOpener?: NewBranchDialogOpener
+  newBranchDialogOpener?: NewBranchDialogOpener,
+  rebaseDialogOpener?: RebaseDialogOpener
 ): BranchContextMenuCommands {
   return new BranchContextMenuCommands(
     gitService,
@@ -1889,6 +1919,7 @@ export function createBranchContextMenuCommands(
     pullDialogAccessor,
     pushDialogOpener,
     mergeDialogOpener,
-    newBranchDialogOpener
+    newBranchDialogOpener,
+    rebaseDialogOpener
   );
 }

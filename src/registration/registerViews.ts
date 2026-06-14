@@ -658,7 +658,8 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       () => ctx.getPullDialog(),
       (p) => ctx.openPushDialog(p),
       (p) => ctx.openMergeDialog(p),
-      (p) => ctx.openNewBranchDialog(p)
+      (p) => ctx.openNewBranchDialog(p),
+      (p) => ctx.openRebaseDialog(p)
     );
     branchContextMenuCommands.register(ctx.context);
 

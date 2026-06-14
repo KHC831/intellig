@@ -15,6 +15,8 @@ import type {
   PullDialog,
   PushDialog,
   MergeDialog,
+  RebaseDialog,
+  IRebaseDialogPreselect,
   NewBranchDialog,
   IRepository,
 } from '../services';
@@ -73,6 +75,7 @@ export interface IViewRegistrationContext {
   getPullDialog(): PullDialog | undefined;
   openPushDialog(preselect?: { repo: IRepository; branch?: string }): PushDialog | undefined;
   openMergeDialog(preselect: { repo: IRepository; sourceBranch: string }): MergeDialog | undefined;
+  openRebaseDialog(preselect: IRebaseDialogPreselect): Promise<RebaseDialog | undefined>;
   openNewBranchDialog(preselect: {
     repo: IRepository;
     startPoint?: string;
