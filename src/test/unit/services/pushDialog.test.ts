@@ -836,6 +836,103 @@ describe('PushDialog — preselected branch drives the pushed ref (issue #16)', 
   });
 });
 
+// ─── Preselected non-HEAD branch keeps its OWN tracking (issue #19) ───────────
+
+describe('PushDialog — preselected non-HEAD branch keeps its own upstream (issue #19)', () => {
+  it('threads the clicked branch upstream so an already-tracking branch is not re-set-upstream', async () => {
+    installMessageTrackers();
+    // HEAD is `main` (tracks origin/main). The user right-clicks a DIFFERENT
+    // local branch `dev/feature-x` that already tracks `origin/dev/feature-x`.
+    // The clicked branch's OWN upstream must drive the row — not be discarded
+    // (the #16 fix correctly stopped seeding from HEAD, but dropped the clicked
+    // branch's tracking, forcing --set-upstream against the fallback remote).
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/main',
+      upstream: { remote: 'origin', name: 'main' },
+    });
+    const { dialog, gitService } = makeDialog({
+      repos: [repo],
+      preselect: {
+        repo,
+        branch: 'dev/feature-x',
+        upstream: { remote: 'origin', name: 'dev/feature-x' },
+      },
+    });
+    await dialog.waitUntilPopulated();
+
+    assert.strictEqual(dialog.rows[0].localBranch, 'dev/feature-x');
+    assert.strictEqual(
+      dialog.rows[0].upstreamRemote,
+      'origin',
+      "row must carry the clicked branch's own upstream remote, not undefined"
+    );
+    assert.strictEqual(dialog.rows[0].targetBranch, 'dev/feature-x');
+
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    const opts = gitService.pushCalls[0].options;
+    assert.strictEqual(opts?.remote, 'origin', 'pushes to the tracked remote, not the fallback');
+    assert.strictEqual(opts?.branch, 'dev/feature-x');
+    assert.strictEqual(
+      opts?.setUpstream,
+      undefined,
+      'must NOT force --set-upstream on a branch that already tracks a remote'
+    );
+    assert.strictEqual(opts?.refspec, undefined, 'same target name → no refspec');
+    dialog.dispose();
+  });
+
+  it('a renamed tracked upstream pushes the tracked refspec (local:tracked)', async () => {
+    installMessageTrackers();
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/main',
+      upstream: { remote: 'origin', name: 'main' },
+    });
+    const { dialog, gitService } = makeDialog({
+      repos: [repo],
+      preselect: {
+        repo,
+        branch: 'dev/feature-x',
+        upstream: { remote: 'upstream', name: 'renamed-x' },
+      },
+    });
+    await dialog.waitUntilPopulated();
+    assert.strictEqual(dialog.rows[0].upstreamRemote, 'upstream');
+    assert.strictEqual(dialog.rows[0].targetBranch, 'renamed-x');
+
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    const opts = gitService.pushCalls[0].options;
+    assert.strictEqual(opts?.remote, 'upstream');
+    assert.strictEqual(
+      opts?.refspec,
+      'dev/feature-x:renamed-x',
+      'tracked rename → refspec local:tracked'
+    );
+    assert.strictEqual(opts?.setUpstream, undefined);
+    dialog.dispose();
+  });
+
+  it('a non-HEAD branch with NO upstream still sets upstream (issue #16 behavior preserved)', async () => {
+    installMessageTrackers();
+    const repo = makeRepo('/repo-a', {
+      name: 'refs/heads/main',
+      upstream: { remote: 'origin', name: 'main' },
+    });
+    const { dialog, gitService } = makeDialog({
+      repos: [repo],
+      preselect: { repo, branch: 'dev/brand-new' }, // no upstream threaded
+    });
+    await dialog.waitUntilPopulated();
+    assert.strictEqual(dialog.rows[0].upstreamRemote, undefined);
+
+    await dialog.simulateMessage({ type: 'submit', action: 'push' });
+    const opts = gitService.pushCalls[0].options;
+    assert.strictEqual(opts?.setUpstream, true, 'a never-pushed branch still gets --set-upstream');
+    assert.strictEqual(opts?.branch, 'dev/brand-new');
+    assert.strictEqual(opts?.remote, 'origin', 'falls back to the default remote');
+    dialog.dispose();
+  });
+});
+
 // ─── SR-5: incremental patch on updateRow / updateOverflow ───────────────────
 
 describe('PushDialog — SR-5 incremental patch (no full re-render)', () => {
