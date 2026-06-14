@@ -1699,12 +1699,26 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(summaryMatch, 'a +N summary chip must be rendered');
       assert.strictEqual(summaryMatch[1], '1', 'summary count must be 1 (the collapsed branch)');
       assert.ok(
-        html.includes('data-collapsed-branches="origin/develop"'),
-        'collapsed branch names must be carried in data-collapsed-branches'
+        html.includes('data-collapsed-branches="[&quot;origin/develop&quot;]"'),
+        'collapsed branch names must be carried as a JSON array in data-collapsed-branches'
       );
       assert.ok(
         html.includes('title="origin/develop"'),
         'tooltip must list the collapsed branch name so the user can discover it on hover'
+      );
+    });
+
+    it('JSON-encodes a collapsed branch name containing a pipe (issue #23)', () => {
+      // A literal '|' was the old join/split delimiter. The collapsed-ref
+      // attribute must carry it as JSON so the popup handler parses it as a
+      // single ref, not two. `feat|x` is the 4th branch → it collapses.
+      const node = makeNode(['main', 'develop', 'origin/main', 'feat|x']);
+      const html = provider._getBranchLabelsHtml(node);
+
+      // The name rides inside a JSON array; the literal pipe survives.
+      assert.ok(
+        html.includes('data-collapsed-branches="[&quot;feat|x&quot;]"'),
+        'a pipe-bearing name must be JSON-encoded (single-element array), pipe intact'
       );
     });
 
@@ -1727,7 +1741,7 @@ describe('_getBranchLabelsHtml', () => {
       // The collapsed chip opens a clickable ref popup, so it must be a
       // keyboard-activatable button (WCAG 1.4.1 — interaction not
       // colour-only): role="button" + tabindex="0" + aria-haspopup, and
-      // it must carry the pipe-delimited data-collapsed-branches the popup
+      // it must carry the JSON-encoded data-collapsed-branches the popup
       // handler consumes.
       const node = makeNode(['main', 'develop', 'origin/main', 'origin/develop']);
       const html = provider._getBranchLabelsHtml(node);
@@ -1738,8 +1752,8 @@ describe('_getBranchLabelsHtml', () => {
       assert.ok(chip.includes('tabindex="0"'), 'collapsed chip must be keyboard-focusable');
       assert.ok(chip.includes('aria-haspopup="true"'), 'collapsed chip advertises a popup');
       assert.ok(
-        chip.includes('data-collapsed-branches="origin/develop"'),
-        'collapsed chip carries the pipe-list the popup consumes'
+        chip.includes('data-collapsed-branches="[&quot;origin/develop&quot;]"'),
+        'collapsed chip carries the JSON-encoded ref list the popup consumes'
       );
       assert.ok(
         !chip.includes('role="img"'),
