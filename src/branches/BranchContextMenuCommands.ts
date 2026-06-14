@@ -13,7 +13,7 @@ import {
 import { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import type { PullDialog } from '../sync/PullDialog';
-import type { PushDialog } from '../sync/PushDialog';
+import type { PushDialog, IPushPreselect } from '../sync/PushDialog';
 import type { MergeDialog } from '../conflicts/MergeDialog';
 import type { NewBranchDialog } from './NewBranchDialog';
 import { sanitizeGitError, worktreeConflictMessage } from '../git-core/gitError';
@@ -27,10 +27,7 @@ export type PullDialogAccessor = () => PullDialog | undefined;
  * Push dialogs are not singletons (row table reflects current state), so this
  * is a one-shot opener rather than a getter.
  */
-export type PushDialogOpener = (preselect: {
-  repo: IRepository;
-  branch?: string;
-}) => PushDialog | undefined;
+export type PushDialogOpener = (preselect: IPushPreselect) => PushDialog | undefined;
 
 /**
  * Open a fresh Merge Dialog for `repo` merging `sourceBranch` into
@@ -899,7 +896,14 @@ export class BranchContextMenuCommands {
     // branch guard. Falls back to a direct push (original behaviour) when
     // the opener is absent — e.g. in unit tests that don't wire the dialog.
     if (this._pushDialogOpener) {
-      this._pushDialogOpener({ repo, branch: item.branch.name });
+      // Thread the clicked branch's OWN upstream so a non-HEAD branch that
+      // already tracks a remote keeps it in the dialog instead of being forced
+      // to --set-upstream against the fallback remote (issue #19).
+      this._pushDialogOpener({
+        repo,
+        branch: item.branch.name,
+        upstream: item.branch.upstream,
+      });
       return;
     }
 
