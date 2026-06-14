@@ -925,7 +925,7 @@ export function buildInlineStyles(): string {
          outline is the non-colour affordance (WCAG 1.4.1) so keyboard
          users see a focus ring. The native title=tooltip lists the
          collapsed branch names; data-collapsed-branches carries the
-         pipe-delimited list the popup handler consumes. */
+         JSON-encoded list the popup handler consumes. */
       .branch-label-collapsed {
         background: var(--vscode-badge-background, #3a3a3a);
         color: var(--vscode-descriptionForeground, #888);

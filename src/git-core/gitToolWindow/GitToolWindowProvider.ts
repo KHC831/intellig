@@ -3030,12 +3030,13 @@ ${bodyMarkup}
     if (collapsedBranches.length > 0) {
       const tooltipLines = collapsedBranches.map((b) => b.name).join('\n');
       const escapedTooltip = this._escapeHtml(tooltipLines);
-      // data-collapsed-branches is a PIPE-delimited list consumed by the
-      // popup handler's `split('|')`. A branch name containing a literal
-      // '|' would therefore split into spurious rows. Hardening the
-      // delimiter (JSON / NUL) is deferred as a follow-up; pipe is safe for
-      // the overwhelming common case (git permits '|' but it is exotic).
-      const dataAttr = this._escapeHtml(collapsedBranches.map((b) => b.name).join('|'));
+      // data-collapsed-branches is a JSON array of the collapsed ref names,
+      // consumed by the popup handler's `JSON.parse`. JSON lets a name
+      // contain ANY character — including a literal '|' (git permits it) —
+      // without the delimiter collision a pipe-join had. _escapeHtml then
+      // makes the JSON safe inside the double-quoted attribute; the browser
+      // decodes the entities back to valid JSON before the handler reads it.
+      const dataAttr = this._escapeHtml(JSON.stringify(collapsedBranches.map((b) => b.name)));
       const ariaLabel = this._escapeHtml(
         `Show ${collapsedBranches.length} more branch${collapsedBranches.length === 1 ? '' : 'es'}: ${collapsedBranches.map((b) => b.name).join(', ')}`
       );

@@ -14,6 +14,7 @@ import '../../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import { buildInlineScript } from '../../../../git-core/gitToolWindow/provider/scriptBuilder';
+import { escapeHtml } from '../../../../git-core/gitToolWindow/provider/htmlBuilders';
 
 interface PostedMessage {
   type: string;
@@ -21,11 +22,22 @@ interface PostedMessage {
 }
 
 /**
+ * Encode collapsed ref names exactly as the producer
+ * (GitToolWindowProvider) does: a JSON array, then HTML-escaped so it is
+ * safe inside the double-quoted `data-collapsed-branches` attribute. The
+ * jsdom parser decodes the entities back to valid JSON, mirroring how the
+ * real webview hands the string to the inline `JSON.parse`.
+ */
+function encodeCollapsed(names: string[]): string {
+  return escapeHtml(JSON.stringify(names));
+}
+
+/**
  * Spin up a jsdom document carrying a collapsed chip + the #ref-popup
  * overlay, then execute the real inline script against it. Returns the
  * window/document plus the captured postMessage log.
  */
-function bootDom(collapsedBranches: string): {
+function bootDom(branchNames: string[]): {
   window: JSDOM['window'];
   document: Document;
   posted: PostedMessage[];
@@ -33,8 +45,8 @@ function bootDom(collapsedBranches: string): {
   const dom = new JSDOM(
     `<!doctype html><html><body>
       <div class="graph-panel">
-        <span class="branch-label-collapsed" data-collapsed-branches="${collapsedBranches}"
-              role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">+2</span>
+        <span class="branch-label-collapsed" data-collapsed-branches="${encodeCollapsed(branchNames)}"
+              role="button" tabindex="0" aria-haspopup="true" aria-expanded="false">+${branchNames.length}</span>
       </div>
       <div id="ref-popup" class="context-menu" hidden role="menu"></div>
     </body></html>`,
@@ -71,7 +83,7 @@ function keydown(window: JSDOM['window'], from: Element, key: string): void {
 
 describe('Collapsed-ref popup (branch-label +N chip)', () => {
   it('opens the popup with one row per collapsed ref on chip click', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -90,7 +102,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('opens the popup on Enter when the chip is keyboard-focused', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -101,7 +113,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('emits branchClick for the chosen ref and dismisses the popup on row click', () => {
-    const { window, document, posted } = bootDom('origin/main|upstream/main');
+    const { window, document, posted } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -117,7 +129,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('dismisses the popup on click-outside', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -131,7 +143,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('dismisses the popup on Escape', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -144,21 +156,40 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('renders ref names via textContent so markup in a branch name cannot inject', () => {
-    const { window, document } = bootDom('a|&lt;img src=x onerror=alert(1)&gt;');
+    const { window, document } = bootDom(['a', '<img src=x onerror=alert(1)>']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
     clickChip(window, chip);
-    // The chip's data attribute carries the already-escaped name; the popup
-    // assigns it via textContent, so no <img> element is ever created.
+    // The name round-trips raw through JSON; the popup assigns it via
+    // textContent, so no <img> element is ever created.
     assert.strictEqual(popup.querySelectorAll('img').length, 0, 'no injected <img> element');
     const rows = popup.querySelectorAll('.context-menu-item');
-    assert.strictEqual(rows.length, 2, 'two rows including the escaped name');
+    assert.strictEqual(rows.length, 2, 'two rows including the markup-bearing name');
+    assert.strictEqual(
+      rows[1].getAttribute('data-branch-name'),
+      '<img src=x onerror=alert(1)>',
+      'the raw name round-trips intact through JSON (no double-escaping, no injection)'
+    );
+  });
+
+  it('keeps a branch name containing a literal pipe as ONE row (issue #23)', () => {
+    // A pipe was the old join/split delimiter. A branch like `feat|x` must
+    // now round-trip as a single ref, not split into two spurious rows.
+    const { window, document } = bootDom(['origin/main', 'feat|x']);
+    const chip = document.querySelector('.branch-label-collapsed')!;
+    const popup = document.getElementById('ref-popup')!;
+
+    clickChip(window, chip);
+    const rows = popup.querySelectorAll('.context-menu-item');
+    assert.strictEqual(rows.length, 2, 'a pipe in a name must NOT create an extra row');
+    assert.strictEqual(rows[1].getAttribute('data-branch-name'), 'feat|x');
+    assert.strictEqual(rows[1].textContent, 'feat|x', 'the pipe survives intact in the row');
   });
 
   // ─── Keyboard operability (WCAG 2.1.1) ──────────────────────────────
   it('moves focus to the first row when the popup opens', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -172,7 +203,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('selects the focused row on Enter — emits branchClick + dismisses (the WCAG 2.1.1 regression)', () => {
-    const { window, document, posted } = bootDom('origin/main|upstream/main');
+    const { window, document, posted } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -188,7 +219,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('selects the focused row on Space too', () => {
-    const { window, document, posted } = bootDom('origin/main|upstream/main');
+    const { window, document, posted } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -199,7 +230,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('moves focus between rows with ArrowDown / ArrowUp (wrapping)', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -218,7 +249,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('returns focus to the +N chip on Escape and flips aria-expanded back to false', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -233,7 +264,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('returns focus to the +N chip after selecting a row', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
     const popup = document.getElementById('ref-popup')!;
 
@@ -245,7 +276,7 @@ describe('Collapsed-ref popup (branch-label +N chip)', () => {
   });
 
   it('toggles aria-expanded true on open', () => {
-    const { window, document } = bootDom('origin/main|upstream/main');
+    const { window, document } = bootDom(['origin/main', 'upstream/main']);
     const chip = document.querySelector<HTMLElement>('.branch-label-collapsed')!;
     assert.strictEqual(chip.getAttribute('aria-expanded'), 'false', 'starts collapsed');
     clickChip(window, chip);

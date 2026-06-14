@@ -874,13 +874,21 @@ export function buildInlineScript(): string {
         function openRefPopup(chip, clientX, clientY) {
           const popup = document.getElementById('ref-popup');
           if (!popup) return;
-          // data-collapsed-branches is a PIPE-delimited list (see the join
-          // in GitToolWindowProvider). A branch name containing a literal
-          // '|' would split into spurious rows; hardening the delimiter
-          // (JSON / NUL) is deferred as a follow-up — pipe is safe for the
-          // common case.
+          // data-collapsed-branches is a JSON array of the collapsed ref
+          // names (see the JSON.stringify in GitToolWindowProvider). Parsing
+          // JSON round-trips a name containing any character, including a
+          // literal '|'. A malformed or missing attribute yields no rows
+          // rather than throwing.
           const raw = chip.getAttribute('data-collapsed-branches') || '';
-          const names = raw.split('|').filter(function(n) { return n.length > 0; });
+          let names = [];
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              names = parsed.filter(function(n) { return typeof n === 'string' && n.length > 0; });
+            }
+          } catch (err) {
+            names = [];
+          }
           if (names.length === 0) return;
 
           // Build one row per ref. textContent assignment escapes the name,
