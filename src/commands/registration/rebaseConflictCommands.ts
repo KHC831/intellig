@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
-import { createMergeView, createRebaseEditor } from '../../services';
+import { createMergeView } from '../../services';
 import type { ICommandContext } from './CommandContext';
 
 /**
@@ -11,11 +11,12 @@ import type { ICommandContext } from './CommandContext';
  * `intellig.showResolveConflictsDialog`) extracted verbatim from
  * extension.ts's registerCommands.
  *
- * Reaches shared state through {@link ICommandContext}. Two singletons are
- * lazily written back here — `ctx.mergeView` (openMergeView) and
- * `ctx.rebaseEditor` (interactive rebase) — both through the read/WRITE ctx
- * accessors so the single owner in extension.ts is mutated (RULE E1). Returns
- * its disposables; extension.ts owns the single push (RULE E4).
+ * Reaches shared state through {@link ICommandContext}. The `ctx.mergeView`
+ * singleton (openMergeView) is lazily written back here through the
+ * read/WRITE ctx accessor so the single owner in extension.ts is mutated
+ * (RULE E1). Interactive rebase now opens the unified Rebase dialog via
+ * `ctx.openRebaseDialog` (the dialog owns the rebase-editor lifecycle).
+ * Returns its disposables; extension.ts owns the single push (RULE E4).
  */
 export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Disposable[] {
   // Merge View commands
@@ -640,17 +641,21 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
-  // Interactive Rebase command
+  // Interactive Rebase command — opens the unified Rebase dialog with the
+  // Interactive checkbox pre-checked. `arg.onto` lets callers (e.g.
+  // "Interactive Rebase from Here") preselect a commit/branch target; the
+  // bare-palette invocation leaves it unset and the dialog defaults to the
+  // first available branch. Branch selection now lives in the dialog's Onto
+  // dropdown, so this handler no longer runs its own QuickPick.
   const interactiveRebaseCommand = registerLoggedCommand(
     'intellig.rebase.interactive',
-    async () => {
+    async (arg?: { onto?: string }) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
 
       const gitService = ctx.services.gitService;
-      const rebaseService = ctx.services.rebaseService;
 
       // Unified multi-root resolver.
       let repo = await resolveRepo(gitService, {
@@ -671,52 +676,11 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
         }
       }
 
-      // Get branches for the user to select the target
-      const branches = await gitService.getBranches(repo);
-      const branchItems = branches
-        .filter((b) => !b.isHead)
-        .map((b) => ({
-          label: b.name,
-          description: b.type === 'remote' ? 'Remote' : 'Local',
-          detail: b.commit.substring(0, 7),
-        }));
-
-      // Also add recent commits as options
-      const commits = await gitService.getLog(repo, { maxCount: 20 });
-      const commitItems = commits.map((c) => ({
-        label: c.shortHash,
-        description: c.message.substring(0, 50),
-        detail: `${c.author.name} - ${c.authorDate.toLocaleDateString()}`,
-      }));
-
-      const allItems = [
-        { label: 'Branches', kind: vscode.QuickPickItemKind.Separator },
-        ...branchItems,
-        { label: 'Recent Commits', kind: vscode.QuickPickItemKind.Separator },
-        ...commitItems,
-      ];
-
-      const selected = await vscode.window.showQuickPick(allItems as vscode.QuickPickItem[], {
-        placeHolder: 'Select a branch or commit to rebase onto',
-        title: 'Interactive Rebase',
+      await ctx.openRebaseDialog({
+        repo,
+        onto: arg?.onto,
+        interactiveDefault: true,
       });
-
-      if (!selected || selected.kind === vscode.QuickPickItemKind.Separator) {
-        return;
-      }
-
-      // Create rebase editor if not exists
-      if (!ctx.rebaseEditor) {
-        ctx.rebaseEditor = createRebaseEditor(ctx.context.extensionUri, rebaseService);
-      }
-
-      try {
-        await ctx.rebaseEditor.show(repo, { onto: selected.label });
-      } catch (error) {
-        void vscode.window.showErrorMessage(
-          formatActionFailureToast('Failed to start interactive rebase', error)
-        );
-      }
     }
   );
 

@@ -760,6 +760,51 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       assert.ok(msg.includes('1'), `Warning should contain conflict count 1, got: "${msg}"`);
     });
 
+    // ─── #25: branch-menu rebase routes through the unified dialog ────────
+    //
+    // When a rebase-dialog opener is wired (production), the branch-menu
+    // "Rebase Current onto X" must DELEGATE to it (onto = the clicked
+    // branch, Interactive unchecked) and NOT run the inline rebaseBranch
+    // path. The inline path remains only as the no-opener fallback the
+    // other tests in this file exercise.
+    it('_handleRebaseCurrentOnto delegates to the rebase dialog opener when wired (no direct rebaseBranch)', async () => {
+      const gitService = createMockGitService({
+        rebaseBranch: async (): Promise<IBasicRebaseResult> => {
+          throw new Error('rebaseBranch must NOT run when the dialog opener is wired');
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const openerCalls: Array<{ onto?: string; interactiveDefault?: boolean }> = [];
+      const commands = new BranchContextMenuCommands(
+        gitService,
+        branchTreeProvider,
+        undefined, // conflictResolutionService
+        undefined, // pullDialogAccessor
+        undefined, // pushDialogOpener
+        undefined, // mergeDialogOpener
+        undefined, // newBranchDialogOpener
+        async (preselect: { onto?: string; interactiveDefault?: boolean }) => {
+          openerCalls.push(preselect);
+          return undefined;
+        }
+      );
+
+      const item = createLocalBranchTreeItem('feature/rebase-test');
+      await invokePrivateHandler(commands, '_handleRebaseCurrentOnto', item);
+
+      assert.strictEqual(openerCalls.length, 1, 'rebase dialog opener invoked exactly once');
+      assert.strictEqual(
+        openerCalls[0].onto,
+        'feature/rebase-test',
+        'preselects the clicked branch as the onto target'
+      );
+      assert.strictEqual(
+        openerCalls[0].interactiveDefault,
+        false,
+        'branch-menu rebase defaults to non-interactive'
+      );
+    });
+
     // ─── Smart-stash parity: a dirty tree must NOT block rebase-onto ──────
     //
     // IntelliJ rebases a dirty tree silently (auto-stash → rebase →

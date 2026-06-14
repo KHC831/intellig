@@ -225,7 +225,7 @@
       },
       {
         "command": "intellig.branch.rebaseCurrentOnto",
-        "title": "Rebase Current onto This",
+        "title": "Rebase Current onto This…",
         "category": "IntelliG"
       },
       {

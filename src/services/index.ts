@@ -53,6 +53,7 @@ export type {
   PushErrorKind,
 } from '../sync/PushDialog';
 export type { IRebaseEditorOptions, IRebaseEditorResult } from '../rebase/RebaseEditor';
+export type { IRebaseDialogOptions, IRebaseDialogPreselect } from '../rebase/RebaseDialog';
 export { ApplyPatchDialog, showApplyPatchDialog } from '../patches/ApplyPatchDialog';
 export { AutoFetchService, createAutoFetchService } from '../sync/AutoFetchService';
 export { BlameOptionsSource } from '../blame/BlameOptionsSource';
@@ -129,6 +130,7 @@ export { PatchService, createPatchService, PatchWriteFailed } from '../patches/P
 export { PullDialog, createPullDialog } from '../sync/PullDialog';
 export { PushDialog, showPushDialog } from '../sync/PushDialog';
 export { RebaseEditor, createRebaseEditor } from '../rebase/RebaseEditor';
+export { RebaseDialog, showRebaseDialog } from '../rebase/RebaseDialog';
 export { RebaseProgressView, createRebaseProgressView } from '../rebase/RebaseProgressView';
 export { RebaseService, createRebaseService } from '../git-core/RebaseService';
 export {

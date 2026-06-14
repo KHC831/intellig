@@ -8,6 +8,9 @@ import {
   BranchPopup,
   MergeView,
   RebaseEditor,
+  createRebaseEditor,
+  RebaseDialog,
+  showRebaseDialog,
   InlineBlameProvider,
   GutterBlameProvider,
   StatusBarService,
@@ -27,7 +30,7 @@ import {
   showNewBranchDialog,
   CommitToolWindow,
 } from './services';
-import type { IRepository, IPushPreselect } from './services';
+import type { IRepository, IPushPreselect, IRebaseDialogPreselect } from './services';
 import { CommitContextMenuCommands } from './commits';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
@@ -493,6 +496,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     getPullDialog: () => _getPullDialog(),
     openPushDialog: (p) => _openPushDialog(p),
     openMergeDialog: (p) => _openMergeDialog(p),
+    openRebaseDialog: (p) => _openRebaseDialog(p),
     openNewBranchDialog: (p) => _openNewBranchDialog(p),
   };
 
@@ -615,6 +619,7 @@ function createViewRegistrationContext(context: vscode.ExtensionContext): IViewR
     getPullDialog: () => _getPullDialog(),
     openPushDialog: (p) => _openPushDialog(p),
     openMergeDialog: (p) => _openMergeDialog(p),
+    openRebaseDialog: (p) => _openRebaseDialog(p),
     openNewBranchDialog: (p) => _openNewBranchDialog(p),
   };
   return ctx;
@@ -769,6 +774,65 @@ export function openMergeDialog(preselect: {
   sourceBranch: string;
 }): MergeDialog | undefined {
   return _openMergeDialog(preselect);
+}
+
+/**
+ * Open the unified Rebase Dialog. Resolves the branch list for the Onto
+ * dropdown (excluding the current branch — you cannot rebase onto HEAD) and
+ * the editor factory, then constructs one dialog instance. Async because the
+ * branch list is fetched at open time so the dropdown reflects current refs.
+ */
+export async function _openRebaseDialog(
+  preselect: IRebaseDialogPreselect
+): Promise<RebaseDialog | undefined> {
+  if (!extensionServices || !extensionContext) {
+    void vscode.window.showErrorMessage('Extension services not initialized');
+    return undefined;
+  }
+  const gitService = extensionServices.gitService;
+  const rebaseService = extensionServices.rebaseService;
+  const branches = await gitService.getBranches(preselect.repo);
+  const branchChoices = branches.filter((b) => !b.isHead).map((b) => b.name);
+
+  // Default onto = the explicit preselect, else the first available branch.
+  const onto = preselect.onto ?? branchChoices[0];
+  if (!onto) {
+    void vscode.window.showErrorMessage('No other branch or ref to rebase onto.');
+    return undefined;
+  }
+
+  return showRebaseDialog(extensionContext, {
+    repo: preselect.repo,
+    onto,
+    branchChoices,
+    interactiveDefault: preselect.interactiveDefault,
+    gitService,
+    createRebaseEditor: () => {
+      // Reuse the module singleton so deactivate() disposes the same editor.
+      if (!rebaseEditor) {
+        rebaseEditor = createRebaseEditor(extensionContext!.extensionUri, rebaseService);
+      }
+      return rebaseEditor;
+    },
+    conflictResolutionService: extensionServices.conflictResolutionService,
+    onComplete: () => {
+      // Reload before refresh so the panel sees fresh `repo.head.commit`
+      // after the rebase moves HEAD (mirrors the merge opener).
+      void (async (): Promise<void> => {
+        await gitService.reloadRepository(preselect.repo);
+        if (gitToolWindowProvider) {
+          gitToolWindowProvider.refresh();
+        }
+      })();
+    },
+  });
+}
+
+/** Cross-module entry point for callers that need the rebase opener. */
+export function openRebaseDialog(
+  preselect: IRebaseDialogPreselect
+): Promise<RebaseDialog | undefined> {
+  return _openRebaseDialog(preselect);
 }
 
 // ─── New Branch Dialog ───────────────────────────────────────────────────────
