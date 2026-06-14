@@ -3,7 +3,7 @@ out/
 dist/
 
 # Dependencies
-node_modules/
+node_modules
 
 # VS Code test environment
 .vscode-test/
