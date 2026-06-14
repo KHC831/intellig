@@ -27,7 +27,7 @@ import {
   showNewBranchDialog,
   CommitToolWindow,
 } from './services';
-import type { IRepository } from './services';
+import type { IRepository, IPushPreselect } from './services';
 import { CommitContextMenuCommands } from './commits';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
@@ -684,10 +684,7 @@ export function getPullDialog(): PullDialog | undefined {
  * @param preselect - Optional single-repo/branch pre-selection. When omitted,
  *   all workspace repos are shown with the active-editor repo pre-selected.
  */
-export function _openPushDialog(preselect?: {
-  repo: IRepository;
-  branch?: string;
-}): PushDialog | undefined {
+export function _openPushDialog(preselect?: IPushPreselect): PushDialog | undefined {
   if (!extensionServices || !extensionContext) {
     void vscode.window.showErrorMessage('Extension services not initialized');
     return undefined;
@@ -724,10 +721,7 @@ export function _openPushDialog(preselect?: {
 }
 
 /** Cross-module entry point — used by branch context menu, etc. */
-export function openPushDialog(preselect?: {
-  repo: IRepository;
-  branch?: string;
-}): PushDialog | undefined {
+export function openPushDialog(preselect?: IPushPreselect): PushDialog | undefined {
   return _openPushDialog(preselect);
 }
 

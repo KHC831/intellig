@@ -43,6 +43,7 @@ export type {
 } from '../sync/PullDialog';
 export type {
   IPushDialogOptions,
+  IPushPreselect,
   IPushOverflowState,
   IPushRow,
   IPushRowError,

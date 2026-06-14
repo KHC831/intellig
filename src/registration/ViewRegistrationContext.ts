@@ -14,6 +14,7 @@ import type {
   RebaseProgressView,
   PullDialog,
   PushDialog,
+  IPushPreselect,
   MergeDialog,
   NewBranchDialog,
   IRepository,
@@ -71,7 +72,7 @@ export interface IViewRegistrationContext {
   // (which read extensionContext + lazily assign pullDialog) — unchanged
   // behavior.
   getPullDialog(): PullDialog | undefined;
-  openPushDialog(preselect?: { repo: IRepository; branch?: string }): PushDialog | undefined;
+  openPushDialog(preselect?: IPushPreselect): PushDialog | undefined;
   openMergeDialog(preselect: { repo: IRepository; sourceBranch: string }): MergeDialog | undefined;
   openNewBranchDialog(preselect: {
     repo: IRepository;

@@ -32,7 +32,12 @@
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { sanitizeGitError } from '../git-core/gitError';
-import { IGitService, IPushOptions, IRepository } from '../git-core/interfaces/IGitService';
+import {
+  IGitService,
+  IPushOptions,
+  IRepository,
+  IUpstream,
+} from '../git-core/interfaces/IGitService';
 import type { PullDialog } from './PullDialog';
 import { getLogger } from '../utils/logger';
 
@@ -313,12 +318,24 @@ export async function runPushRow(
 
 // ─── Dialog options + messages ───────────────────────────────────────────────
 
+/**
+ * A single repo/branch to pre-select when the dialog is opened from a specific
+ * context (e.g. right-click Push on a branch row). `branch` names the clicked
+ * local ref; `upstream` carries that ref's OWN tracking so a non-HEAD branch
+ * keeps its remote instead of being forced to --set-upstream (issue #19).
+ */
+export interface IPushPreselect {
+  repo: IRepository;
+  branch?: string;
+  upstream?: IUpstream;
+}
+
 /** Options for constructing a {@link PushDialog}. */
 export interface IPushDialogOptions {
   /** The repositories to offer in the row table. */
   repos: ReadonlyArray<IRepository>;
   /** Optional single repo / branch to preselect; all other rows unselected. */
-  preselect?: { repo: IRepository; branch?: string };
+  preselect?: IPushPreselect;
   /** Initial primary-button action. Defaults to `push` (computed from divergence). */
   preselectForce?: 'force-with-lease' | 'force';
   /** GitService — used for `.push` and for per-repo upstream/branch discovery. */
@@ -421,10 +438,7 @@ export class PushDialog extends BaseWebviewPanel {
 
   // ─── Row bootstrap ─────────────────────────────────────────────────────────
 
-  private _populateRows(
-    repos: ReadonlyArray<IRepository>,
-    preselect?: { repo: IRepository; branch?: string }
-  ): void {
+  private _populateRows(repos: ReadonlyArray<IRepository>, preselect?: IPushPreselect): void {
     const rows: IPushRow[] = [];
     for (const repo of repos) {
       const headBranch = repo.head?.name?.replace(/^refs\/heads\//, '') ?? '';
@@ -436,13 +450,16 @@ export class PushDialog extends BaseWebviewPanel {
       // local ref — never the resolved repo's current HEAD. Seeding from
       // `repo.head` here would ship HEAD's commits to the clicked branch's
       // remote ref (a destructive cross-ref push when HEAD ≠ the clicked
-      // branch). The clicked branch's own upstream is only known when it
-      // happens to be the current HEAD; otherwise the target is the branch
-      // itself (push X → X) and a new upstream is set.
+      // branch). When the clicked branch IS the current HEAD we use HEAD's
+      // upstream; otherwise we use the clicked branch's OWN upstream threaded
+      // in via `preselect.upstream` (issue #19) so an already-tracking branch
+      // keeps its remote instead of being forced to --set-upstream against the
+      // fallback. A clicked branch with no upstream still falls through to a
+      // new-upstream push (target = branch itself).
       const isPreselectedBranchRow = Boolean(preselect?.branch) && selected;
       const localBranch = isPreselectedBranchRow ? preselect!.branch! : headBranch;
       const clickedIsHead = isPreselectedBranchRow && localBranch === headBranch;
-      const rowUpstream = !isPreselectedBranchRow || clickedIsHead ? upstream : undefined;
+      const rowUpstream = !isPreselectedBranchRow || clickedIsHead ? upstream : preselect?.upstream;
       const targetBranch = rowUpstream?.name ?? localBranch;
 
       rows.push({
