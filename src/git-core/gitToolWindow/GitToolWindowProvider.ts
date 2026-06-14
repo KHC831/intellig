@@ -20,7 +20,6 @@ import {
   generateCommitGraph,
   computeTerminalNodes,
   computeChildCountMap,
-  isBranchSplit,
   computeChildLanesMap,
   computeIncomingBendsMap,
 } from '../commitGraph';
@@ -28,7 +27,6 @@ import {
   computeActiveLanes,
   computeGraphWidth,
   DEFAULT_GRAPH_CONFIG,
-  renderGraphSvg,
 } from '../../utils/graphRenderer';
 import { savePanelWidths, loadPanelWidths, DEFAULT_PANEL_WIDTHS } from '../../utils/panelLayout';
 import {
@@ -54,6 +52,7 @@ import { createIncomingTabHandler } from './tabs/IncomingTab';
 import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
+import { buildCommitRows } from './provider/graphClusterBuilder';
 import {
   buildInlineStyles,
   buildThreePanelStyles,
@@ -81,7 +80,6 @@ import {
   selectCommit as handleSelectCommit,
 } from './provider/messageHandlers';
 import { parseRemoteUrl, type IRemoteUrl } from '../../utils/remoteUrl';
-import { formatCommitDate } from '../../utils/dateFormat';
 import { normalizeRepoPath } from '../../utils/normalizeRepoPath';
 import { BaseWebviewView } from '../../utils/BaseWebviewView';
 import { getLogger } from '../../utils/logger';
@@ -2739,106 +2737,18 @@ ${bodyMarkup}
     const graphColumnWidthPx = Math.max(80, computeGraphWidth(commitNodes, DEFAULT_GRAPH_CONFIG));
 
     // Build commit rows
-    const rowsHtml = commitNodes
-      .map((node, index) => {
-        const commit = node.commit;
-        const isSelected = selected.has(commit.hash);
-        const isCherryPicked = cherryPickedHashes?.has(commit.hash) ?? false;
-
-        // Generate SVG graph for this row
-        const activeLanes = activeLaneMap.get(index) || new Set<number>();
-        const isTerminal = terminalNodes.has(commit.hash);
-        const isSplitPoint = isBranchSplit(commit.hash, childCountMap);
-        const childLanes = childLanesMap.get(commit.hash) || new Set<number>();
-        // Next row's active lanes, so the renderer can tell whether a
-        // bezier-target lane also continues below (a through-lane) and must
-        // be drawn full-height — preventing the gap under a merge commit.
-        const nextActiveLanes = activeLaneMap.get(index + 1) || new Set<number>();
-        // Source lanes whose far-parent first-parent
-        // line lands at THIS row from above. The renderer draws a top-half
-        // bend per lane.
-        const incomingBendLanes = incomingBendsMap.get(commit.hash) || new Set<number>();
-        const graphSvg = renderGraphSvg(
-          node,
-          index,
-          activeLanes,
-          DEFAULT_GRAPH_CONFIG,
-          isTerminal,
-          isSplitPoint,
-          childLanes,
-          hasFocusedBranch,
-          nextActiveLanes,
-          incomingBendLanes
-        );
-
-        // Format fields.
-        //
-        // Emit the FULL first line of the commit message
-        // and let CSS `.commit-title { overflow: hidden; text-overflow:
-        // ellipsis; white-space: nowrap }` truncate responsively based on
-        // the panel's actual flex-allocated width. The call to
-        // `_truncateMessage(…, 60)` hard-capped the row text at 60 chars
-        // regardless of available space, so a 1200px-wide panel still
-        // showed `"…"` on a 70-char subject. The tooltip (`title=` below)
-        // still carries the full multi-line message so hover still
-        // reveals everything.
-        //
-        // `_truncateMessage` is preserved at :3149 — still used by
-        // `_getMultiCommitDetailsPanelHtml` at :3057 for the
-        // details-panel preview, where a hard char cap IS desired
-        // (no flex container, no responsive ellipsis behind it).
-        const messageFirstLine = commit.message.split('\n')[0];
-        const messageSummary = this._escapeHtml(messageFirstLine);
-        const fullMessage = this._escapeHtml(commit.message);
-        const authorName = this._escapeHtml(commit.author.name);
-        const authorEmail = this._escapeHtml(commit.author.email);
-        // IntelliJ-style absolute timestamp: the row shows a
-        // locale-aware date + time (no seconds), matching IntelliJ's
-        // log. The inline label never goes stale (no relative "2h"
-        // distance baked into static HTML); the tooltip carries the
-        // full timestamp with seconds. See `formatCommitDate`.
-        const { display: dateDisplay, tooltip: dateTooltip } = formatCommitDate(commit.authorDate);
-        const commitDate = this._escapeHtml(dateDisplay);
-        const fullDate = this._escapeHtml(dateTooltip);
-
-        // Generate branch labels HTML
-        const branchLabelsHtml = this._getBranchLabelsHtml(node);
-
-        // `✓` badge + title tooltip for already-cherry-picked commits.
-        const cherryBadgeHtml = isCherryPicked
-          ? `<span class="commit-cherry-badge" title="${
-              cherryPickBaseRef
-                ? `Already cherry-picked to ${this._escapeHtml(cherryPickBaseRef)}`
-                : 'Already cherry-picked'
-            }" aria-label="already cherry-picked">✓</span>`
-          : '';
-
-        const rowClasses = [
-          'commit-row',
-          isSelected ? 'selected' : '',
-          isCherryPicked ? 'commit-row-cherry-picked' : '',
-        ]
-          .filter(Boolean)
-          .join(' ');
-
-        return `
-        <div class="${rowClasses}"
-             data-hash="${this._escapeHtml(commit.hash)}"
-             role="option"
-             tabindex="0"
-             aria-selected="${isSelected}">
-          <div class="commit-graph">
-            ${graphSvg}${cherryBadgeHtml}
-          </div>
-          <div class="commit-info">
-            <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
-            <div class="commit-branches">${branchLabelsHtml}</div>
-            <span class="commit-author" title="${authorEmail}">${authorName}</span>
-            <span class="commit-date" title="${fullDate}">${commitDate}</span>
-          </div>
-        </div>`;
-      })
-      .join('');
+    const rowsHtml = buildCommitRows(commitNodes, {
+      selected,
+      cherryPickedHashes,
+      cherryPickBaseRef,
+      activeLaneMap,
+      terminalNodes,
+      childCountMap,
+      childLanesMap,
+      incomingBendsMap,
+      hasFocusedBranch,
+      branchLabelsFor: (node) => this._getBranchLabelsHtml(node),
+    });
 
     // Determine if more commits are available for incremental loading
     const loaded = loadedCount ?? commitNodes.length;
