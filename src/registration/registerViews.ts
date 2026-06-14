@@ -31,6 +31,7 @@ import {
   wireRebasePausedWarning,
   provideGitShowContent,
 } from './wiring';
+import { createInProgressStatusBar } from '../ui-shell/InProgressStatusBar';
 
 /**
  * Register views and view providers.
@@ -804,6 +805,17 @@ export function setupEventListeners(ctx: IViewRegistrationContext): void {
       commands: vscode.commands,
     });
     ctx.context.subscriptions.push(...rebaseWarningDisposables);
+
+    // Persistent companion to the transient rebase toast: a status-bar item
+    // that stays visible for ANY in-progress op (merge / rebase / cherry-pick
+    // / revert) until it's resolved, clicking through to the unified
+    // Resolve-Conflicts surface (#28).
+    ctx.context.subscriptions.push(
+      createInProgressStatusBar({
+        getRepositories: () => ctx.services!.gitService.getRepositories(),
+        onDidChangeRepository: ctx.services.gitService.onDidChangeRepository,
+      })
+    );
   }
 
   // Listen for workspace folder changes and update the repository list
