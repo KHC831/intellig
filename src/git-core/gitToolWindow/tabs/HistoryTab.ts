@@ -103,7 +103,7 @@ export function createInitialHistoryTabState(): IHistoryTabState {
  * set yet (e.g. the user invoked the History tab without first selecting a
  * file). Exported so tests can assert on the exact string.
  */
-export const NO_FILE_LOADED_MESSAGE = 'Load a file first — use "Git: Show History" on a file.';
+export const NO_FILE_LOADED_MESSAGE = 'Load a file first — use "Show History" on a file.';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure helpers

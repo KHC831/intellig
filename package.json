@@ -545,7 +545,7 @@
       },
       {
         "command": "intellig.explorer.showHistory",
-        "title": "Git: Show History",
+        "title": "Show History",
         "category": "IntelliG",
         "icon": "$(history)"
       },
@@ -557,25 +557,25 @@
       },
       {
         "command": "intellig.explorer.revert",
-        "title": "Git: Revert",
+        "title": "Revert",
         "category": "IntelliG",
         "icon": "$(discard)"
       },
       {
         "command": "intellig.explorer.stage",
-        "title": "Git: Stage",
+        "title": "Stage",
         "category": "IntelliG",
         "icon": "$(add)"
       },
       {
         "command": "intellig.explorer.unstage",
-        "title": "Git: Unstage",
+        "title": "Unstage",
         "category": "IntelliG",
         "icon": "$(remove)"
       },
       {
         "command": "intellig.explorer.showDiff",
-        "title": "Git: Show Diff",
+        "title": "Show Diff",
         "category": "IntelliG",
         "icon": "$(diff)"
       },
@@ -611,25 +611,25 @@
       },
       {
         "command": "intellig.editor.toggleBlame",
-        "title": "Git: Toggle Blame Annotations",
+        "title": "Toggle Blame Annotations",
         "category": "IntelliG",
         "icon": "$(git-commit)"
       },
       {
         "command": "intellig.editor.showLineHistory",
-        "title": "Git: Show Line History",
+        "title": "Show Line History",
         "category": "IntelliG",
         "icon": "$(history)"
       },
       {
         "command": "intellig.editor.copyCommitHash",
-        "title": "Git: Copy Commit Hash",
+        "title": "Copy Commit Hash",
         "category": "IntelliG",
         "icon": "$(clippy)"
       },
       {
         "command": "intellig.editor.showCommit",
-        "title": "Git: Show Commit",
+        "title": "Show Commit",
         "category": "IntelliG",
         "icon": "$(git-commit)"
       },
