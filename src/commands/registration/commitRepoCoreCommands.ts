@@ -17,6 +17,7 @@ import {
 } from '../../services';
 import type { ICommandContext } from './CommandContext';
 import { extractCommitHash, runNewTagFlowFromContext } from './commitHelpers';
+import { updateProjectBlockedReason } from '../../sync/updateProject';
 
 /**
  * Handle the outcome of the generic `intellig.pull` PullDialog.
@@ -277,6 +278,60 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     }
 
     void vscode.window.showInformationMessage('Git views refreshed');
+  });
+
+  // Update Project — IntelliJ's Vcs.UpdateProject. Preflight-guards
+  // (no rebase/merge in progress, no unmerged files — GitUpdateProcess
+  // parity), then fetches and pulls (rebase by default, the common IntelliJ
+  // update strategy). The multi-repo orchestration + update-info log tab are
+  // follow-ups; this updates the resolved repository.
+  const updateProjectCommand = registerLoggedCommand('intellig.updateProject', async () => {
+    if (!ctx.services) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+    const gitService = ctx.services.gitService;
+    const repo = await resolveRepo(gitService, {
+      preferActive: true,
+      pickerTitle: 'Update Project — Choose Repository',
+      pickerPlaceholder: 'Select a repository to update',
+    });
+    if (!repo) {
+      return;
+    }
+
+    const status = await gitService.getStatus(repo);
+    const hasUnmergedFiles = status.some((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U');
+    const blocked = updateProjectBlockedReason({
+      inProgressKind: repo.inProgress?.kind,
+      hasUnmergedFiles,
+    });
+    if (blocked) {
+      void vscode.window.showErrorMessage(`Cannot update project: ${blocked}`);
+      return;
+    }
+
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Updating project…',
+          cancellable: false,
+        },
+        async () => {
+          await gitService.fetch(repo, { all: true, prune: true });
+          await gitService.pull(repo, { rebase: true });
+        }
+      );
+      await gitService.reloadRepository(repo);
+      if (ctx.gitToolWindowProvider) {
+        ctx.gitToolWindowProvider.refresh();
+      }
+      void vscode.window.showInformationMessage('Project updated');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Update failed: ${sanitizeGitError(msg)}`);
+    }
   });
 
   // Focus a specific tab in the Git tool window. Declared in package.json;
@@ -689,6 +744,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     pushAllTagsCommand,
     pullCommand,
     fetchCommand,
+    updateProjectCommand,
     refreshCommand,
     focusTabCommand,
     jumpToHashCommand,
