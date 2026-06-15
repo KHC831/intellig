@@ -406,6 +406,7 @@ describe('CommitToolWindow — host behavior', () => {
       createTag: notImplemented('createTag'),
       deleteTag: notImplemented('deleteTag'),
       pushTag: notImplemented('pushTag'),
+      deleteRemoteTag: notImplemented('deleteRemoteTag'),
       getLog: notImplemented('getLog'),
       getCommit: notImplemented('getCommit'),
       getFileHistory: notImplemented('getFileHistory'),

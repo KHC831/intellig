@@ -272,6 +272,21 @@ export class StashTagHistoryOps {
     await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
   }
 
+  /**
+   * Delete a tag on the remote (`git push <remote> :refs/tags/<name>`) —
+   * IntelliJ GitDeleteRemoteTagOperation. The colon-prefixed refspec is git's
+   * "push nothing to this ref" delete form. Guards the tag name against a
+   * leading dash so it can't smuggle a CLI flag into the refspec.
+   */
+  async deleteRemoteTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+    if (!name || name.startsWith('-') || name.startsWith('.')) {
+      throw new Error(`Invalid tag name: ${name}`);
+    }
+    const args = buildGitArgs('push', [], [remote || 'origin', `:refs/tags/${name}`]);
+    await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
   async getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]> {
     const format = getLogFormat();
     const args = ['log', `--format=${format}`, '-z'];

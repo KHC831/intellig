@@ -4277,6 +4277,35 @@ describe('GitService - Tag Operations', () => {
     });
   });
 
+  describe('deleteRemoteTag() (#P3 delete tag from remote)', () => {
+    it('pushes a colon-prefixed tag ref to delete it on the default remote', async () => {
+      await gitService.deleteRemoteTag(mockRepo, 'v1.0.0');
+      assert.deepStrictEqual(mockGitCli.getLastCommand()!.args, [
+        'push',
+        '--end-of-options',
+        'origin',
+        ':refs/tags/v1.0.0',
+      ]);
+    });
+
+    it('targets the specified remote', async () => {
+      await gitService.deleteRemoteTag(mockRepo, 'v1.0.0', 'upstream');
+      assert.deepStrictEqual(mockGitCli.getLastCommand()!.args, [
+        'push',
+        '--end-of-options',
+        'upstream',
+        ':refs/tags/v1.0.0',
+      ]);
+    });
+
+    it('rejects a flag-like tag name (argv-injection guard)', async () => {
+      await assert.rejects(
+        async () => gitService.deleteRemoteTag(mockRepo, '-x'),
+        /invalid tag name/i
+      );
+    });
+  });
+
   describe('checkout() with tags', () => {
     describe('Checkout tag in detached HEAD state', () => {
       it('should execute git checkout with tag name', async () => {

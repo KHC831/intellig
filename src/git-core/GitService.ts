@@ -1411,6 +1411,10 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._stashTagHistory.pushTag(repo, name, remote);
   }
 
+  deleteRemoteTag(repo: IRepository, name: string, remote?: string): Promise<void> {
+    return this._stashTagHistory.deleteRemoteTag(repo, name, remote);
+  }
+
   // ============================================
   // History Operations
   // ============================================

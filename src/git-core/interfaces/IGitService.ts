@@ -962,6 +962,8 @@ export interface IGitService {
   ): Promise<void>;
   deleteTag(repo: IRepository, name: string): Promise<void>;
   pushTag(repo: IRepository, name: string, remote?: string): Promise<void>;
+  /** Delete a tag on the remote (`git push <remote> :refs/tags/<name>`). */
+  deleteRemoteTag(repo: IRepository, name: string, remote?: string): Promise<void>;
 
   // History operations
   getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]>;
