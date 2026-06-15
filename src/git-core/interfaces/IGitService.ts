@@ -1102,6 +1102,12 @@ export interface IGitService {
   unstageHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void>;
 
   /**
+   * Revert (discard) a single hunk in the working tree (`git apply -R`,
+   * no `--cached`). Mirrors IntelliJ's "Revert Chunk".
+   */
+  revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void>;
+
+  /**
    * Revert (discard) uncommitted changes to a file.
    * This restores the file to its last committed state.
    *

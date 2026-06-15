@@ -1272,6 +1272,44 @@ describe('GitService - Hunk and Line Staging Operations', () => {
     });
   });
 
+  describe('revertHunk() (#P2 working-tree discard hunk)', () => {
+    const hunk = {
+      oldStart: 1,
+      oldLines: 2,
+      newStart: 1,
+      newLines: 3,
+      header: '@@ -1,2 +1,3 @@',
+      lines: [
+        { type: 'context' as const, content: 'line 1' },
+        { type: 'add' as const, content: 'added line' },
+        { type: 'context' as const, content: 'line 2' },
+      ],
+    };
+
+    it('reverse-applies to the WORKING TREE (no --cached, unlike unstageHunk)', async () => {
+      await gitService.revertHunk(mockRepo, 'src/file.ts', hunk);
+
+      const lastCommand = mockGitCli.getLastCommand();
+      assert.ok(lastCommand, 'Command should have been executed');
+      // IntelliJ "Revert Chunk" discards the working-tree change: git apply -R
+      // WITHOUT --cached (that distinguishes it from unstageHunk).
+      assert.deepStrictEqual(lastCommand.args, ['apply', '-R', '-']);
+    });
+
+    it('passes the repo root as cwd', async () => {
+      await gitService.revertHunk(mockRepo, 'src/file.ts', hunk);
+      const lastCommand = mockGitCli.getLastCommand();
+      assert.strictEqual((lastCommand!.options as { cwd: string }).cwd, '/test/repo');
+    });
+
+    it('feeds the same hunk patch that stageHunk generates', async () => {
+      await gitService.revertHunk(mockRepo, 'src/file.ts', hunk);
+      const input = (mockGitCli.getLastCommand()!.options as { input: string }).input;
+      assert.ok(input.includes('diff --git a/src/file.ts b/src/file.ts'), 'has diff header');
+      assert.ok(input.includes('+added line'), 'has the added line (reversed on apply)');
+    });
+  });
+
   describe('stageLines()', () => {
     describe('Basic line staging', () => {
       it('should execute git apply --cached with patch input', async () => {

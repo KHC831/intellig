@@ -1625,6 +1625,14 @@ export class GitService implements IGitService, IGitServiceCli {
   }
 
   /**
+   * Revert (discard) a single hunk in the working tree (IntelliJ "Revert
+   * Chunk"). Delegates to {@link StagingOps.revertHunk}.
+   */
+  revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+    return this._staging.revertHunk(repo, path, hunk);
+  }
+
+  /**
    * Revert (discard) uncommitted changes to a file.
    * This restores the file to its last committed state.
    *

@@ -104,6 +104,29 @@ export class StagingOps {
   }
 
   /**
+   * Revert (discard) a single hunk in the WORKING TREE.
+   *
+   * IntelliJ's "Revert Chunk" discards one hunk's working-tree change without
+   * staging anything. This reverse-applies the hunk patch to the working tree
+   * — `git apply -R` WITHOUT `--cached`, the one difference from
+   * {@link unstageHunk} (which reverse-applies to the index).
+   *
+   * @param repo - The repository
+   * @param path - The file path
+   * @param hunk - The hunk to discard
+   */
+  async revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+    const patch = this.generateHunkPatch(path, hunk);
+
+    await this.ctx.gitCli.exec(['apply', '-R', '-'], {
+      cwd: repo.rootUri.fsPath,
+      input: patch,
+      throwOnError: true,
+    });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  /**
    * Revert (discard) uncommitted changes to a file.
    * This restores the file to its last committed state.
    *

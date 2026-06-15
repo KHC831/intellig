@@ -493,6 +493,11 @@ export class CommitDialog {
           await this._handleUnstageHunk(message.hunkIndex);
         }
         break;
+      case 'revertHunk':
+        if (message.hunkIndex !== undefined) {
+          await this._handleRevertHunk(message.hunkIndex);
+        }
+        break;
       case 'toggleLine':
         if (message.hunkIndex !== undefined && message.lineNumber !== undefined) {
           this._handleToggleLine(message.hunkIndex, message.lineNumber);
@@ -847,6 +852,44 @@ export class CommitDialog {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(
         `Failed to unstage hunk: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * Handle reverting (discarding) a single hunk in the working tree — IntelliJ
+   * "Revert Chunk". Discards uncommitted work, so a modal confirm gates it
+   * (data-loss-confirm policy).
+   */
+  private async _handleRevertHunk(hunkIndex: number): Promise<void> {
+    if (!this._repository || !this._selectedFilePath || !this._currentDiff) {
+      return;
+    }
+
+    const hunk = this._currentDiff.hunks[hunkIndex];
+    if (!hunk) {
+      return;
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+      `Revert this hunk in ${this._selectedFilePath}? The change will be discarded.`,
+      { modal: true },
+      'Revert Hunk'
+    );
+    if (choice !== 'Revert Hunk') {
+      return;
+    }
+
+    try {
+      await this._gitService.revertHunk(this._repository, this._selectedFilePath, hunk);
+      // Refresh the diff to show updated state
+      await this._handleFileSelect(this._selectedFilePath);
+      await this._loadStagedFiles();
+      void vscode.window.showInformationMessage('Hunk reverted successfully');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to revert hunk: ${sanitizeGitError(errorMessage)}`
       );
     }
   }
@@ -1296,9 +1339,13 @@ export class CommitDialog {
     // is a number (caller-controlled), but the data-action pattern
     // brings the same uniform CSP-safe shape as the path-based handlers
     // above. Matches GitToolWindowProvider:4523.
+    // For unstaged hunks, offer a "Revert Hunk" alongside "Stage Hunk" —
+    // IntelliJ's "Revert Chunk" discards the hunk's working-tree change. It's
+    // destructive (loses uncommitted work), so the handler confirms first.
     const stageButton = isStaged
       ? `<button class="hunk-button unstage-hunk" data-action="unstageHunk" data-hunk-index="${hunkIndex}" title="Unstage this hunk">− Unstage Hunk</button>`
-      : `<button class="hunk-button stage-hunk" data-action="stageHunk" data-hunk-index="${hunkIndex}" title="Stage this hunk">+ Stage Hunk</button>`;
+      : `<button class="hunk-button stage-hunk" data-action="stageHunk" data-hunk-index="${hunkIndex}" title="Stage this hunk">+ Stage Hunk</button>` +
+        `<button class="hunk-button revert-hunk" data-action="revertHunk" data-hunk-index="${hunkIndex}" title="Discard this hunk's changes">↶ Revert Hunk</button>`;
 
     // Line selection controls (only shown in partial staging mode)
     const lineSelectionControls = this._partialStagingMode
@@ -1928,6 +1975,10 @@ export class CommitDialog {
         vscode.postMessage({ type: 'unstageHunk', hunkIndex: hunkIndex });
       }
 
+      function revertHunk(hunkIndex) {
+        vscode.postMessage({ type: 'revertHunk', hunkIndex: hunkIndex });
+      }
+
       function toggleLine(hunkIndex, lineNumber) {
         vscode.postMessage({ type: 'toggleLine', hunkIndex: hunkIndex, lineNumber: lineNumber });
       }
@@ -1997,6 +2048,7 @@ export class CommitDialog {
           unstageFile: () => { e.stopPropagation(); unstageFile(path); },
           stageHunk: () => stageHunk(Number(hunkIndex)),
           unstageHunk: () => unstageHunk(Number(hunkIndex)),
+          revertHunk: () => revertHunk(Number(hunkIndex)),
           stageSelectedLines: () => stageSelectedLines(Number(hunkIndex)),
           selectAllLinesInHunk: () => selectAllLinesInHunk(Number(hunkIndex)),
           deselectAllLinesInHunk: () => deselectAllLinesInHunk(Number(hunkIndex)),

@@ -418,6 +418,7 @@ describe('CommitToolWindow — host behavior', () => {
       stageHunk: notImplemented('stageHunk'),
       stageLines: notImplemented('stageLines'),
       unstageHunk: notImplemented('unstageHunk'),
+      revertHunk: notImplemented('revertHunk'),
       revertFile: notImplemented('revertFile'),
       resetToCommit: notImplemented('resetToCommit'),
       dispose: () => {},

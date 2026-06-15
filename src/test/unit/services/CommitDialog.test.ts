@@ -413,3 +413,53 @@ describe('Wave J / WJ-5 — CommitDialog toggleLine data-action delegation', () 
     );
   });
 });
+
+describe('#P2 — CommitDialog Revert Hunk (IntelliJ Revert Chunk)', () => {
+  interface RenderHunkProto {
+    _renderHunkWithControls: (
+      this: {
+        _escapeHtml: (s: string) => string;
+        _selectedLines: Map<number, Set<number>>;
+        _partialStagingMode: boolean;
+      },
+      hunk: {
+        oldStart: number;
+        oldLines: number;
+        newStart: number;
+        newLines: number;
+        header: string;
+        lines: Array<{ type: string; content: string }>;
+      },
+      hunkIndex: number,
+      isStaged: boolean
+    ) => string;
+  }
+
+  const proto = (CommitDialog as unknown as { prototype: RenderHunkProto }).prototype;
+  const stub = {
+    _escapeHtml: (s: string): string => s,
+    _selectedLines: new Map<number, Set<number>>(),
+    _partialStagingMode: false,
+  };
+  const hunk = {
+    oldStart: 1,
+    oldLines: 2,
+    newStart: 1,
+    newLines: 3,
+    header: '@@ -1,2 +1,3 @@',
+    lines: [{ type: 'add', content: 'new line' }],
+  };
+
+  it('emits a Revert Hunk button (data-action, no inline onclick) for an UNSTAGED hunk', () => {
+    const html = proto._renderHunkWithControls.call(stub, hunk, 0, false);
+    assert.ok(/data-action="revertHunk"/.test(html), 'revert-hunk button present when unstaged');
+    assert.ok(/data-hunk-index="0"/.test(html), 'carries the hunk index');
+    assert.ok(!/onclick="revertHunk\(/.test(html), 'no inline onclick (CSP-safe)');
+  });
+
+  it('does NOT offer Revert Hunk for a STAGED hunk (only Unstage)', () => {
+    const html = proto._renderHunkWithControls.call(stub, hunk, 0, true);
+    assert.ok(!/data-action="revertHunk"/.test(html), 'no revert button on staged hunks');
+    assert.ok(/data-action="unstageHunk"/.test(html), 'staged hunk still offers Unstage');
+  });
+});
