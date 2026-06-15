@@ -280,6 +280,9 @@ export class CommitContextMenuCommands {
       case 'copyHash':
         await this._handleCopyHash(commitHashes);
         break;
+      case 'copyCommitMessage':
+        await this._handleCopyCommitMessage(commitHashes);
+        break;
       case 'cherryPick':
         await this._handleCherryPick(commitHashes);
         break;
@@ -539,6 +542,40 @@ export class CommitContextMenuCommands {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to copy hash: ${sanitizeGitError(errorMessage)}`);
+    }
+  }
+
+  /**
+   * Copy the full commit message(s) to the clipboard (IntelliJ
+   * Vcs.Log.CopySubjectText / copy-commit-message). For multiple selected
+   * commits the messages are joined with a blank line so they paste as
+   * separated blocks. Order is preserved as supplied (newest-first per the
+   * webview's DOM order).
+   */
+  private async _handleCopyCommitMessage(commitHashes: string[]): Promise<void> {
+    if (commitHashes.length === 0) {
+      return;
+    }
+    const repo = await this._getRepository();
+    if (!repo) {
+      return;
+    }
+    try {
+      const messages: string[] = [];
+      for (const hash of commitHashes) {
+        messages.push((await this._gitService.getCommit(repo, hash)).message);
+      }
+      await vscode.env.clipboard.writeText(messages.join('\n\n'));
+      void vscode.window.showInformationMessage(
+        commitHashes.length === 1
+          ? 'Copied commit message to clipboard'
+          : `Copied ${commitHashes.length} commit messages to clipboard`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to copy commit message: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 

@@ -177,6 +177,7 @@ export type LocalChangesContextAction =
  */
 export type LogContextAction =
   | 'copyHash'
+  | 'copyCommitMessage'
   | 'createPatch'
   | 'cherryPick'
   | 'checkoutRevision'

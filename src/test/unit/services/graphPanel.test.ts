@@ -745,12 +745,22 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // Added two multi-select-only items: squashCommits + compareVersions.
       // Added three single-only items: squashWithPrevious
       // fixupWithPrevious and compareWithBranch. 15 + 3 = 18.
-      assert.strictEqual(menuItemCount, 18, 'Should have 18 menu items with role="menuitem"');
+      // Plus Copy Commit Message (#P3 Vcs.Log.CopySubjectText) = 19.
+      assert.strictEqual(menuItemCount, 19, 'Should have 19 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
       const html = provider._getCommitContextMenuHtml();
       assert.ok(html.includes('aria-label="Commit actions"'), 'Should have aria-label');
+    });
+
+    it('includes Copy Commit Message (#P3 Vcs.Log.CopySubjectText)', () => {
+      const html = provider._getCommitContextMenuHtml();
+      assert.ok(
+        html.includes('data-action="copyCommitMessage"'),
+        'Should expose the copyCommitMessage action'
+      );
+      assert.ok(html.includes('>Copy Commit Message<'), 'Should label it');
     });
 
     it('should mark Reset Current Branch to Here as a danger action', () => {

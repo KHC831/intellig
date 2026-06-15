@@ -30,6 +30,7 @@ import { writableWindow, writableWorkspace, writableCommands } from '../typed/wi
  */
 const IMPLEMENTED_ACTIONS: LogContextAction[] = [
   'copyHash',
+  'copyCommitMessage',
   'cherryPick',
   'revert',
   'checkoutRevision',
@@ -81,6 +82,7 @@ function arbitraryCommitHashes(): fc.Arbitrary<string[]> {
  */
 const ACTION_TO_HANDLER: Record<string, string> = {
   copyHash: '_handleCopyHash',
+  copyCommitMessage: '_handleCopyCommitMessage',
   cherryPick: '_handleCherryPick',
   revert: '_handleRevert',
   checkoutRevision: '_handleCheckoutRevision',
