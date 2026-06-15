@@ -21,6 +21,46 @@ import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
 
 /**
+ * git's error when a `reset` (esp. `--keep`/`--merge`) would clobber
+ * uncommitted work — the trigger for IntelliJ's Smart Reset proposal.
+ */
+export function isLocalChangesOverwriteError(message: string): boolean {
+  return /local changes.*would be overwritten|would be overwritten by (?:checkout|merge|reset)/i.test(
+    message
+  );
+}
+
+/** The user's choice when a reset would overwrite local changes. */
+export type SmartResetChoice = 'stash' | 'force' | 'cancel';
+
+/**
+ * IntelliJ "Smart Reset" (GitResetOperation.proposeSmartReset): when a reset
+ * fails because local changes would be overwritten, offer to stash them
+ * (stash → reset → unstash), force (`reset --hard`, discarding), or cancel.
+ * Pure orchestration over injected ops so it is unit-testable; the dialog wires
+ * the real prompt + git calls.
+ */
+export async function runSmartReset(
+  mode: ResetMode,
+  ops: {
+    prompt: () => Promise<SmartResetChoice>;
+    stash: () => Promise<void>;
+    reset: (mode: ResetMode) => Promise<void>;
+    unstash: () => Promise<void>;
+  }
+): Promise<SmartResetChoice> {
+  const choice = await ops.prompt();
+  if (choice === 'stash') {
+    await ops.stash();
+    await ops.reset(mode);
+    await ops.unstash();
+  } else if (choice === 'force') {
+    await ops.reset('hard');
+  }
+  return choice;
+}
+
+/**
  * Target commit descriptor passed into the dialog.
  */
 export interface IResetTarget {
@@ -410,21 +450,66 @@ ${body}
         throw new Error(`Invalid commit reference: ${this._target.hash}`);
       }
       await this._gitService.resetToCommit(this._repo, this._target.hash, mode);
-      const shortHash = this._target.hash.substring(0, 8);
-      void vscode.window.showInformationMessage(`Reset to ${shortHash}`);
-      if (this._onResetComplete) {
-        try {
-          this._onResetComplete();
-        } catch (err) {
-          getLogger()
-            .child({ component: 'ResetDialog' })
-            .error('onResetComplete callback threw', err instanceof Error ? err : undefined);
-        }
-      }
-      this.dispose();
+      this._finishReset();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // Smart Reset: if the reset failed because local changes would be
+      // overwritten, propose stashing them rather than just erroring (IntelliJ).
+      if (isLocalChangesOverwriteError(errorMessage)) {
+        await this._proposeSmartReset(mode);
+        return;
+      }
       void vscode.window.showErrorMessage(`Failed to reset: ${sanitizeGitError(errorMessage)}`);
+      this._busy = false;
+    }
+  }
+
+  /** Success path shared by a plain reset and a smart (stashed/forced) reset. */
+  private _finishReset(): void {
+    const shortHash = this._target.hash.substring(0, 8);
+    void vscode.window.showInformationMessage(`Reset to ${shortHash}`);
+    if (this._onResetComplete) {
+      try {
+        this._onResetComplete();
+      } catch (err) {
+        getLogger()
+          .child({ component: 'ResetDialog' })
+          .error('onResetComplete callback threw', err instanceof Error ? err : undefined);
+      }
+    }
+    this.dispose();
+  }
+
+  /**
+   * The reset was blocked by local changes — offer Stash and Reset / Force /
+   * Cancel (IntelliJ Smart Reset). Stash → reset → unstash; Force → hard reset.
+   */
+  private async _proposeSmartReset(mode: ResetMode): Promise<void> {
+    const STASH = 'Stash and Reset';
+    const FORCE = 'Force (discard changes)';
+    try {
+      const choice = await runSmartReset(mode, {
+        prompt: async () => {
+          const pick = await vscode.window.showWarningMessage(
+            'Local changes would be overwritten by this reset.',
+            { modal: true },
+            STASH,
+            FORCE
+          );
+          return pick === STASH ? 'stash' : pick === FORCE ? 'force' : 'cancel';
+        },
+        stash: () => this._gitService.stash(this._repo),
+        reset: (m) => this._gitService.resetToCommit(this._repo, this._target.hash, m),
+        unstash: () => this._gitService.stashPop(this._repo, 0),
+      });
+      if (choice === 'cancel') {
+        this._busy = false;
+        return;
+      }
+      this._finishReset();
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to reset: ${sanitizeGitError(msg)}`);
       this._busy = false;
     }
   }
