@@ -78,6 +78,13 @@ const SILENT_WHEN_ABSENT_ALLOWLIST: Record<string, string> = {
   // touches services — but it emits no toast/log, so it's allowlisted as a
   // pure view-focus delegator.
   'intellig.openGitToolWindow': 'pure executeCommand(view.focus) — no services touched',
+  // VCS Operations Popup shows a QuickPick of common Git commands and routes
+  // the picked one via executeCommand. It never touches services; in degraded
+  // mode it shows the QuickPick (observable, but the harness tracks toasts +
+  // executeCommand, not showQuickPick) and — when the mock QuickPick returns
+  // undefined — correctly no-ops. Pure command-router delegator, same class as
+  // openGitToolWindow.
+  'intellig.vcsOperationsPopup': 'pure QuickPick → executeCommand router — no services touched',
 
   // ── Required-argument guards ───────────────────────────────────────────
   // These handlers are dispatched from a context menu / tree row that

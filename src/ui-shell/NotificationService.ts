@@ -9,6 +9,8 @@ import {
   INotificationService,
   IProgressOptions,
   IProgressReport,
+  INotificationDeepLink,
+  IStructuredNotification,
   NotificationAction,
   GitOperationType,
 } from './interfaces/INotificationService';
@@ -441,6 +443,84 @@ export class NotificationService implements INotificationService {
   ): vscode.Disposable {
     return vscode.window.setStatusBarMessage(message, timeout);
   }
+
+  /**
+   * Show a structured Git-operation result notification with deep-link action
+   * buttons. The buttons execute their `commandId` when selected — typically a
+   * tool-window tab focus (`intellig.toolWindow.focusTab`) — matching
+   * IntelliJ's notification action links.
+   */
+  async showStructuredResult(notification: IStructuredNotification): Promise<NotificationAction> {
+    const links = notification.deepLinks ?? [];
+    const labels = links.map((l) => l.label);
+
+    let result: NotificationAction;
+    switch (notification.severity) {
+      case 'error':
+        result = await vscode.window.showErrorMessage(notification.message, ...labels);
+        break;
+      case 'warning':
+        result = await vscode.window.showWarningMessage(notification.message, ...labels);
+        break;
+      case 'info':
+      default:
+        result = await vscode.window.showInformationMessage(notification.message, ...labels);
+        break;
+    }
+
+    if (result) {
+      const link = links.find((l) => l.label === result);
+      if (link) {
+        try {
+          await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? []));
+        } catch (cmdError) {
+          this.logError(cmdError instanceof Error ? cmdError : new Error(String(cmdError)));
+        }
+      }
+    }
+    return result;
+  }
+}
+
+// ─── Pure structured-notification builders ───────────────────────────────────
+
+/** Deep-link that focuses a Git tool-window tab. */
+export function focusTabDeepLink(label: string, tab: string): INotificationDeepLink {
+  return { label, commandId: 'intellig.toolWindow.focusTab', commandArgs: [tab] };
+}
+
+/**
+ * Build the structured notification for a push result. Success carries a
+ * "Show Log" deep-link; failure surfaces the error with the same jump so the
+ * user can inspect state. Pure — exported for tests and reuse by the push
+ * dialog / command.
+ *
+ * @param ok      whether the push succeeded
+ * @param summary a one-line, already-sanitized headline
+ */
+export function buildPushNotification(ok: boolean, summary: string): IStructuredNotification {
+  return {
+    severity: ok ? 'info' : 'error',
+    message: summary,
+    deepLinks: [focusTabDeepLink('Show Log', 'log')],
+  };
+}
+
+/**
+ * Build the structured notification for an Update Project result.
+ *
+ * @param allClean whether every repo finished cleanly
+ * @param headline a one-line, already-sanitized outcome headline
+ */
+export function buildUpdateNotification(
+  allClean: boolean,
+  headline: string
+): IStructuredNotification {
+  return {
+    severity: allClean ? 'info' : 'warning',
+    message: headline,
+    deepLinks: [focusTabDeepLink('Show Update Info', 'updateInfo')],
+  };
 }
 
 /**

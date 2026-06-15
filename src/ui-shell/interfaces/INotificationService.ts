@@ -38,6 +38,35 @@ export interface IProgressReport {
 export type NotificationAction = string | undefined;
 
 /**
+ * A deep-link action on a structured notification. The `label` is the button
+ * text; selecting it executes `commandId` with `commandArgs`. Mirrors
+ * IntelliJ's notification action links (e.g. "Show Log", "Show Update Info")
+ * that jump the user to the relevant tool-window surface.
+ */
+export interface INotificationDeepLink {
+  /** Button label shown in the notification. */
+  label: string;
+  /** VS Code command id to run when the link is clicked. */
+  commandId: string;
+  /** Optional positional args passed to the command. */
+  commandArgs?: unknown[];
+}
+
+/**
+ * A structured Git-operation result notification. Severity drives the toast
+ * kind; the deep-links become action buttons that route to a tool-window tab
+ * or other surface.
+ */
+export interface IStructuredNotification {
+  /** `info` for success, `warning` for partial/conflict, `error` for failure. */
+  severity: NotificationType;
+  /** The headline message (already human-readable / sanitized by the caller). */
+  message: string;
+  /** Deep-link action buttons, in display order. */
+  deepLinks?: INotificationDeepLink[];
+}
+
+/**
  * Git operation types for progress notifications
  */
 export type GitOperationType =
@@ -173,4 +202,16 @@ export interface INotificationService {
    * @returns Disposable to hide the message early
    */
   showStatusMessage(message: string, timeout?: number): vscode.Disposable;
+
+  /**
+   * Show a structured Git-operation result notification with deep-link action
+   * buttons. Used by push / Update Project to surface the outcome with jumps
+   * to the relevant tool-window tab (IntelliJ-parity notification links).
+   *
+   * Selecting a deep-link executes its `commandId`. Returns the selected
+   * deep-link label, or undefined when the toast was dismissed.
+   *
+   * @param notification - The structured notification model
+   */
+  showStructuredResult(notification: IStructuredNotification): Promise<NotificationAction>;
 }

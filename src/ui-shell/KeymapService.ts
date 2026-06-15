@@ -20,7 +20,9 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [
     when: '!inDebugMode && !terminalFocus',
   },
   {
-    command: 'intellig.pull',
+    // Ctrl+T → Update Project (IntelliJ `Vcs.UpdateProject`), not a bare
+    // pull. Fixed in the C-shell keymap-semantics pass.
+    command: 'intellig.updateProject',
     key: 'ctrl+t',
     mac: 'cmd+t',
     when: '!inDebugMode && !terminalFocus',
@@ -50,9 +52,11 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [
     when: '!inDebugMode && !terminalFocus',
   },
   {
+    // Unstage moved off Ctrl+Alt+Z (reserved for Rollback/Revert) to
+    // Ctrl+Alt+Shift+Z — resolves the double-binding with revertFile.
     command: 'intellig.unstageSelected',
-    key: 'ctrl+alt+z',
-    mac: 'cmd+alt+z',
+    key: 'ctrl+alt+shift+z',
+    mac: 'cmd+alt+shift+z',
     when: '!inDebugMode && !terminalFocus',
   },
 ];
@@ -68,9 +72,10 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [
  *
  * IntelliJ Default Git Keybindings mirrored below:
  * - Commit: Ctrl+K (same as default, not preset-gated)
+ * - Commit and Push: Ctrl+Alt+K (IntelliJ-gated)
  * - Push: Ctrl+Shift+K (same as default)
- * - Update Project (Pull): Ctrl+T (same as default)
- * - VCS Operations Popup: Alt+` (backtick)
+ * - Update Project: Ctrl+T (same as default; `Vcs.UpdateProject`)
+ * - VCS Operations Popup: Alt+` (backtick) — distinct from the branch popup
  * - Annotate (Blame): Ctrl+Alt+Shift+A
  * - Show History: Ctrl+H
  * - Compare with Branch: Ctrl+D
@@ -94,18 +99,35 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     mac: 'cmd+shift+k',
     when: '!inDebugMode && !terminalFocus',
   },
-  // Same as default - Update Project (Pull): Ctrl+T
+  // Same as default - Update Project: Ctrl+T (`Vcs.UpdateProject`)
   {
-    command: 'intellig.pull',
+    command: 'intellig.updateProject',
     key: 'ctrl+t',
     mac: 'cmd+t',
     when: '!inDebugMode && !terminalFocus',
   },
-  // VCS Operations Popup: Alt+` (backtick)
+  // Commit and Push: Ctrl+Alt+K — IntelliJ-gated in package.json.
   {
-    command: 'intellig.showBranchPopup',
+    command: 'intellig.commitAndPush',
+    key: 'ctrl+alt+k',
+    mac: 'cmd+alt+k',
+    when: '!inDebugMode && !terminalFocus',
+  },
+  // VCS Operations Popup: Alt+` (backtick). Distinct from the branch popup
+  // (Ctrl+Shift+`) — the popup is a quick-list of common VCS actions.
+  {
+    command: 'intellig.vcsOperationsPopup',
     key: 'alt+`',
     mac: 'alt+`',
+    when: '!inDebugMode',
+  },
+  // Branch popup: Ctrl+Shift+` — same as default. Listed here so the IntelliJ
+  // reference mirror is complete and stays distinct from the VCS Operations
+  // Popup above.
+  {
+    command: 'intellig.showBranchPopup',
+    key: 'ctrl+shift+`',
+    mac: 'cmd+shift+`',
     when: '!inDebugMode',
   },
   // Annotate (Blame): Ctrl+Alt+Shift+A

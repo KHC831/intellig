@@ -264,14 +264,14 @@ describe('getDefaultKeymap', () => {
     assert.strictEqual(pushBinding.mac, 'cmd+shift+k');
   });
 
-  it('should include pull keybinding', () => {
+  it('should bind Ctrl+T to Update Project (IntelliJ Vcs.UpdateProject)', () => {
     const keymap = getDefaultKeymap();
-    const pullBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.pull'
+    const updateBinding = keymap.keybindings.find(
+      (kb: IKeybinding) => kb.command === 'intellig.updateProject'
     );
-    assert.ok(pullBinding);
-    assert.strictEqual(pullBinding.key, 'ctrl+t');
-    assert.strictEqual(pullBinding.mac, 'cmd+t');
+    assert.ok(updateBinding);
+    assert.strictEqual(updateBinding.key, 'ctrl+t');
+    assert.strictEqual(updateBinding.mac, 'cmd+t');
   });
 
   it('should return a copy (not the same reference)', () => {
@@ -299,10 +299,20 @@ describe('getIntelliJKeymap', () => {
   it('should include VCS Operations Popup keybinding with Alt+`', () => {
     const keymap = getIntelliJKeymap();
     const vcsPopupBinding = keymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.showBranchPopup'
+      (kb: IKeybinding) => kb.command === 'intellig.vcsOperationsPopup'
     );
     assert.ok(vcsPopupBinding);
     assert.strictEqual(vcsPopupBinding.key, 'alt+`');
+  });
+
+  it('should include Commit and Push keybinding with Ctrl+Alt+K', () => {
+    const keymap = getIntelliJKeymap();
+    const binding = keymap.keybindings.find(
+      (kb: IKeybinding) => kb.command === 'intellig.commitAndPush'
+    );
+    assert.ok(binding);
+    assert.strictEqual(binding.key, 'ctrl+alt+k');
+    assert.strictEqual(binding.mac, 'cmd+alt+k');
   });
 
   it('should include Annotate (Blame) keybinding with Ctrl+Alt+Shift+A', () => {
@@ -413,36 +423,38 @@ describe('IntelliJ Keymap Keybindings', () => {
     assert.strictEqual(defaultPush.key, intellijPush.key);
   });
 
-  it('should have same pull keybinding as default (Ctrl+T)', () => {
+  it('should have same Update Project keybinding as default (Ctrl+T)', () => {
     const defaultKeymap = getDefaultKeymap();
     const intellijKeymap = getIntelliJKeymap();
 
-    const defaultPull = defaultKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.pull'
+    const defaultUpdate = defaultKeymap.keybindings.find(
+      (kb: IKeybinding) => kb.command === 'intellig.updateProject'
     );
-    const intellijPull = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.pull'
+    const intellijUpdate = intellijKeymap.keybindings.find(
+      (kb: IKeybinding) => kb.command === 'intellig.updateProject'
     );
 
-    assert.ok(defaultPull);
-    assert.ok(intellijPull);
-    assert.strictEqual(defaultPull.key, intellijPull.key);
+    assert.ok(defaultUpdate);
+    assert.ok(intellijUpdate);
+    assert.strictEqual(defaultUpdate.key, intellijUpdate.key);
   });
 
-  it('should have different branch popup keybinding (Alt+` vs Ctrl+Shift+`)', () => {
-    const defaultKeymap = getDefaultKeymap();
+  it('should keep the branch popup (Ctrl+Shift+`) distinct from the VCS Operations Popup (Alt+`)', () => {
     const intellijKeymap = getIntelliJKeymap();
 
-    const defaultPopup = defaultKeymap.keybindings.find(
+    // The branch popup keeps its dedicated Ctrl+Shift+` binding in both
+    // presets; Alt+` belongs to the (distinct) VCS Operations Popup.
+    const branchPopup = intellijKeymap.keybindings.find(
       (kb: IKeybinding) => kb.command === 'intellig.showBranchPopup'
     );
-    const intellijPopup = intellijKeymap.keybindings.find(
-      (kb: IKeybinding) => kb.command === 'intellig.showBranchPopup'
+    const vcsPopup = intellijKeymap.keybindings.find(
+      (kb: IKeybinding) => kb.command === 'intellig.vcsOperationsPopup'
     );
 
-    assert.ok(defaultPopup);
-    assert.ok(intellijPopup);
-    assert.strictEqual(defaultPopup.key, 'ctrl+shift+`');
-    assert.strictEqual(intellijPopup.key, 'alt+`');
+    assert.ok(branchPopup);
+    assert.ok(vcsPopup);
+    assert.strictEqual(branchPopup.key, 'ctrl+shift+`');
+    assert.strictEqual(vcsPopup.key, 'alt+`');
+    assert.notStrictEqual(branchPopup.key, vcsPopup.key);
   });
 });

@@ -180,6 +180,18 @@
         "icon": "$(sync)"
       },
       {
+        "command": "intellig.commitAndPush",
+        "title": "Commit and Push…",
+        "category": "IntelliG",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "intellig.vcsOperationsPopup",
+        "title": "VCS Operations Popup",
+        "category": "IntelliG",
+        "icon": "$(menu)"
+      },
+      {
         "command": "intellig.showBranchPopup",
         "title": "Show Branch Popup",
         "category": "IntelliG",
@@ -940,7 +952,38 @@
           "group": "10_external@1"
         }
       ],
-      "view/title": [],
+      "view/title": [
+        {
+          "command": "intellig.updateProject",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@1"
+        },
+        {
+          "command": "intellig.fetch",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@2"
+        },
+        {
+          "command": "intellig.pull",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@3"
+        },
+        {
+          "command": "intellig.push",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@4"
+        },
+        {
+          "command": "intellig.showBranchPopup",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@5"
+        },
+        {
+          "command": "intellig.refresh",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@6"
+        }
+      ],
       "explorer/context": [
         {
           "submenu": "intellig.explorerSubmenu",
@@ -1359,7 +1402,7 @@
         "when": "!inDebugMode && !terminalFocus"
       },
       {
-        "command": "intellig.pull",
+        "command": "intellig.updateProject",
         "key": "ctrl+t",
         "mac": "cmd+t",
         "when": "!inDebugMode && !terminalFocus"
@@ -1396,8 +1439,8 @@
       },
       {
         "command": "intellig.unstageSelected",
-        "key": "ctrl+alt+z",
-        "mac": "cmd+alt+z",
+        "key": "ctrl+alt+shift+z",
+        "mac": "cmd+alt+shift+z",
         "when": "!inDebugMode && !terminalFocus"
       },
       {
@@ -1426,7 +1469,7 @@
         "when": "activeWebviewPanelId == 'intellig.mergeView'"
       },
       {
-        "command": "intellig.showBranchPopup",
+        "command": "intellig.vcsOperationsPopup",
         "key": "alt+`",
         "mac": "alt+`",
         "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
@@ -1470,6 +1513,12 @@
         "command": "intellig.changelist.moveFilesTo",
         "key": "f6",
         "when": "!inDebugMode && config.intellig.keymapPreset == 'intellij'"
+      },
+      {
+        "command": "intellig.commitAndPush",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "!inDebugMode && !terminalFocus && config.intellig.keymapPreset == 'intellij'"
       }
     ]
   },

@@ -39,9 +39,9 @@ const DEFAULT_REFRESH_DEBOUNCE_MS = 150;
  *
  * Subscribes to `onDidFetch` (from AutoFetchService) and
  * `onDidChangeRepository` so the ↑N ↓M badge refreshes after every fetch or
- * repo state mutation. Clicking the badge focuses the Incoming tab in the
- * Git tool window (falls back to opening the tool window when the focusTab
- * command isn't registered).
+ * repo state mutation. Clicking the badge opens the actionable branch popup
+ * (`intellig.showBranchPopup`), falling back to opening the Git tool window
+ * when the popup command isn't registered yet.
  */
 export class StatusBarService implements IStatusBarService {
   private _statusBarItem: vscode.StatusBarItem;
@@ -99,15 +99,15 @@ export class StatusBarService implements IStatusBarService {
       this._options.alignment,
       this._options.priority
     );
-    // Click the status-bar badge → focus the Incoming tab in the Git tool
-    // window. `intellig.toolWindow.focusTab` is declared in package.json;
-    // the extension registers a handler (see extension.ts). When the command
-    // isn't available, VS Code silently no-ops — the fallback command
-    // (`intellig.openGitToolWindow`) is attempted first by the click handler
-    // via executeClickCommand(), but for the status-bar item itself we set
-    // the primary focusTab command and let the handler figure it out.
+    // Click the status-bar branch widget → open the actionable branch popup
+    // (checkout / new branch / merge / rebase / compare …), matching IntelliJ's
+    // status-bar Git widget. The click routes through `intellig.statusBar.click`
+    // which dispatches to `intellig.showBranchPopup`, falling back to opening
+    // the Git tool window when the popup command isn't registered yet. The
+    // primary action is configurable via {@link setClickAction}; the default
+    // installed here is the branch popup.
     this._statusBarItem.command = {
-      title: 'Show Incoming Commits',
+      title: 'Manage Branches',
       command: 'intellig.statusBar.click',
       arguments: [],
     };
@@ -141,16 +141,21 @@ export class StatusBarService implements IStatusBarService {
   }
 
   /**
-   * Register the status-bar click dispatch command — tries `focusTab` with
-   * the `incoming` tab, then falls back to `openGitToolWindow`. Registered
-   * defensively so a duplicate registration (hot-reload or test) doesn't
-   * break the constructor.
+   * Register the status-bar click dispatch command — opens the actionable
+   * branch popup (`intellig.showBranchPopup`), falling back to opening the Git
+   * tool window when the popup command isn't registered yet (e.g. during
+   * activation before branch commands are wired). Registered defensively so a
+   * duplicate registration (hot-reload or test) doesn't break the constructor.
+   *
+   * This is the IntelliJ-parity behaviour: clicking the status-bar Git widget
+   * pops a menu of branch actions (checkout, new branch, merge, rebase,
+   * compare …) rather than merely focusing a read-only Incoming list.
    */
   private _registerClickDispatch(): void {
     try {
       const disposable = vscode.commands.registerCommand('intellig.statusBar.click', async () => {
         try {
-          await vscode.commands.executeCommand('intellig.toolWindow.focusTab', 'incoming');
+          await vscode.commands.executeCommand('intellig.showBranchPopup');
         } catch {
           await vscode.commands.executeCommand('intellig.openGitToolWindow');
         }

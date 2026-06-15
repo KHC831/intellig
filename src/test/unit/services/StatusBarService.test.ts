@@ -998,7 +998,7 @@ describe('StatusBarService — incoming/outgoing badge', () => {
       }
     });
 
-    it('click dispatch invokes intellig.toolWindow.focusTab with "incoming"', async () => {
+    it('click dispatch opens the actionable branch popup', async () => {
       const h = makeHarness();
       const originalExecute = vscode.commands.executeCommand;
       try {
@@ -1017,10 +1017,10 @@ describe('StatusBarService — incoming/outgoing badge', () => {
         };
 
         await dispatch();
-        // First call should be focusTab.
+        // First call should open the branch popup (IntelliJ-parity actionable
+        // widget, not a read-only Incoming tab focus).
         assert.strictEqual(calls.length >= 1, true, `got ${calls.length} calls`);
-        assert.strictEqual(calls[0].command, 'intellig.toolWindow.focusTab');
-        assert.strictEqual(calls[0].args[0], 'incoming');
+        assert.strictEqual(calls[0].command, 'intellig.showBranchPopup');
       } finally {
         (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =
           originalExecute;
@@ -1028,22 +1028,22 @@ describe('StatusBarService — incoming/outgoing badge', () => {
       }
     });
 
-    it('falls back to openGitToolWindow when focusTab throws', async () => {
+    it('falls back to openGitToolWindow when the branch popup command throws', async () => {
       const h = makeHarness();
       const originalExecute = vscode.commands.executeCommand;
       try {
         const dispatch = h.registeredCommands.get('intellig.statusBar.click');
         assert.ok(dispatch);
 
-        // Override executeCommand to throw on the first call (focusTab) and
-        // record the fallback.
+        // Override executeCommand to throw on the first call (showBranchPopup)
+        // and record the fallback.
         const calls: Array<{ command: string; args: unknown[] }> = [];
         (vscode.commands as unknown as { executeCommand: unknown }).executeCommand = async (
           command: string,
           ...args: unknown[]
         ) => {
           calls.push({ command, args });
-          if (command === 'intellig.toolWindow.focusTab') {
+          if (command === 'intellig.showBranchPopup') {
             throw new Error('command not registered');
           }
           return undefined;
@@ -1051,9 +1051,9 @@ describe('StatusBarService — incoming/outgoing badge', () => {
 
         await dispatch();
 
-        // Should have tried focusTab, then fallen back to openGitToolWindow.
+        // Should have tried the popup, then fallen back to openGitToolWindow.
         assert.strictEqual(calls.length, 2);
-        assert.strictEqual(calls[0].command, 'intellig.toolWindow.focusTab');
+        assert.strictEqual(calls[0].command, 'intellig.showBranchPopup');
         assert.strictEqual(calls[1].command, 'intellig.openGitToolWindow');
       } finally {
         (vscode.commands as unknown as { executeCommand: unknown }).executeCommand =
