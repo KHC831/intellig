@@ -51,6 +51,13 @@ export class CherryPickRevertOps {
     if (noCommit) {
       cherryFlags.push('--no-commit');
     }
+    // `-x` appends "(cherry picked from commit <hash>)" to each new commit
+    // message (IntelliJ addCherryPickedFromSuffix). It only applies when a
+    // commit is actually created — with --no-commit (or a file subset, which
+    // forces --no-commit) there is no message to annotate, so suppress it.
+    if (options?.addCherryPickedFrom && !noCommit) {
+      cherryFlags.push('-x');
+    }
     const args = buildGitArgs('cherry-pick', cherryFlags, commits);
 
     const result = await this.ctx.gitCli.exec(args, {

@@ -4535,6 +4535,33 @@ describe('GitService - Cherry-Pick Operations', () => {
         assert.strictEqual(result.conflicts.length, 0);
       });
     });
+
+    describe('-x cherry-picked-from suffix (#P2)', () => {
+      it('adds -x before the ref guard when addCherryPickedFrom is set', async () => {
+        await gitService.cherryPick(mockRepo, ['abc123'], { addCherryPickedFrom: true });
+        assert.deepStrictEqual(mockGitCli.getLastCommand()!.args, [
+          'cherry-pick',
+          '-x',
+          '--end-of-options',
+          'abc123',
+        ]);
+      });
+
+      it('omits -x by default (legacy behavior unchanged)', async () => {
+        await gitService.cherryPick(mockRepo, ['abc123']);
+        assert.ok(!mockGitCli.getLastCommand()!.args.includes('-x'));
+      });
+
+      it('does NOT add -x when --no-commit is in effect (no commit to annotate)', async () => {
+        await gitService.cherryPick(mockRepo, ['abc123'], {
+          addCherryPickedFrom: true,
+          noCommit: true,
+        });
+        const args = mockGitCli.getLastCommand()!.args;
+        assert.ok(args.includes('--no-commit'), 'no-commit present');
+        assert.ok(!args.includes('-x'), '-x suppressed when not committing');
+      });
+    });
   });
 
   describe('cherryPickAbort()', () => {

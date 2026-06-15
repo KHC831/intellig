@@ -625,6 +625,13 @@ export interface ICherryPickOptions {
    * "no subset filter — apply all files from the commit".
    */
   files?: string[];
+  /**
+   * `-x`. Append a `(cherry picked from commit <hash>)` line to each new
+   * commit message — IntelliJ's `addCherryPickedFromSuffix`. Ignored when the
+   * pick does not commit (`noCommit` or a `files` subset), since there is no
+   * commit message to annotate.
+   */
+  addCherryPickedFrom?: boolean;
 }
 
 /**
