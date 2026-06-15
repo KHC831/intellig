@@ -24,6 +24,7 @@ import {
   IFileHistoryOptions,
   ICreateBranchOptions,
   IMergeOptions,
+  IRebaseOptions,
   IMergeResult,
   IBasicRebaseResult,
   ICherryPickOptions,
@@ -1212,8 +1213,12 @@ export class GitService implements IGitService, IGitServiceCli {
    * @param onto - The branch to rebase onto
    * @returns Rebase result with success status and any conflicts
    */
-  rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
-    return this._branches.rebaseBranch(repo, onto);
+  rebaseBranch(
+    repo: IRepository,
+    onto: string,
+    options?: IRebaseOptions
+  ): Promise<IBasicRebaseResult> {
+    return this._branches.rebaseBranch(repo, onto, options);
   }
 
   /**

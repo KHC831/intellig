@@ -7,6 +7,7 @@ import {
   IMergeOptions,
   IMergeResult,
   IBasicRebaseResult,
+  IRebaseOptions,
   IBranchComparison,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
@@ -20,6 +21,36 @@ import {
 } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
 import { IGitOpsContext } from './GitOpsContext';
+
+/**
+ * Translate {@link IRebaseOptions} into git flags, in IntelliJ git4idea's
+ * `GitRebaseOption` declaration order (rebase-merges, keep-empty, root,
+ * update-refs, autosquash). `--root` is a flag here; its effect on the
+ * upstream ref is handled by the caller. Returns `[]` when no options are set,
+ * so a legacy `rebaseBranch(repo, onto)` call is byte-for-byte unchanged.
+ */
+function rebaseOptionFlags(options?: IRebaseOptions): string[] {
+  if (!options) {
+    return [];
+  }
+  const flags: string[] = [];
+  if (options.rebaseMerges) {
+    flags.push('--rebase-merges');
+  }
+  if (options.keepEmpty) {
+    flags.push('--keep-empty');
+  }
+  if (options.root) {
+    flags.push('--root');
+  }
+  if (options.updateRefs) {
+    flags.push('--update-refs');
+  }
+  if (options.autosquash) {
+    flags.push('--autosquash');
+  }
+  return flags;
+}
 
 /**
  * Branch lifecycle operations (create / checkout / delete / rename /
@@ -319,13 +350,23 @@ export class BranchOps {
    * @param onto - The branch to rebase onto
    * @returns Rebase result with success status and any conflicts
    */
-  async rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult> {
+  async rebaseBranch(
+    repo: IRepository,
+    onto: string,
+    options?: IRebaseOptions
+  ): Promise<IBasicRebaseResult> {
     // `onto` is user-controlled; splice via buildGitArgs. `--autostash` makes
     // git stash a dirty working tree before replaying and re-apply it after,
     // so a dirty tree no longer dead-ends on "cannot rebase: you have unstaged
-    // changes". buildGitArgs places the flag between the subcommand and
-    // `--end-of-options`, emitting `rebase --autostash --end-of-options <onto>`.
-    const args = buildGitArgs('rebase', ['--autostash'], [onto]);
+    // changes". The optional git4idea-parity flags follow, in GitRebaseOption
+    // declaration order. buildGitArgs places all flags between the subcommand
+    // and `--end-of-options`, emitting e.g.
+    // `rebase --autostash --update-refs --end-of-options <onto>`.
+    const flags = ['--autostash', ...rebaseOptionFlags(options)];
+    // `--root` rebases from the root commit, so no upstream/onto ref is passed
+    // (git4idea disables the upstream field when ROOT is selected).
+    const refs = options?.root ? [] : [onto];
+    const args = buildGitArgs('rebase', flags, refs);
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
 

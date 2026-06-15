@@ -476,6 +476,30 @@ export interface IMergeOptions {
 }
 
 /**
+ * Non-interactive rebase options — IntelliJ git4idea `GitRebaseOption`
+ * parity (the flag-only members of `REBASE_FLAGS`). All default to off, so a
+ * legacy `rebaseBranch(repo, onto)` call emits the same argv as before.
+ *
+ * The flags are spliced (in this declaration order, matching git4idea's enum)
+ * between the `rebase` subcommand and the `--end-of-options <onto>` ref guard.
+ */
+export interface IRebaseOptions {
+  /** `--rebase-merges`. Recreate merge commits instead of flattening them. */
+  rebaseMerges?: boolean;
+  /** `--keep-empty`. Keep commits that start empty. */
+  keepEmpty?: boolean;
+  /**
+   * `--root`. Rebase all commits reachable from HEAD, back to the root.
+   * When set, NO upstream/onto ref is passed (git4idea disables that field).
+   */
+  root?: boolean;
+  /** `--update-refs`. Advance any branch refs that point at rebased commits. */
+  updateRefs?: boolean;
+  /** `--autosquash`. Reorder `fixup!`/`squash!` commits under their targets. */
+  autosquash?: boolean;
+}
+
+/**
  * Merge result.
  *
  * Failure shapes (mutually exclusive at the call site):
@@ -800,7 +824,11 @@ export interface IGitService {
    * `(repo, branch)`; new callers may pass {@link IMergeOptions}.
    */
   mergeBranch(repo: IRepository, branch: string, options?: IMergeOptions): Promise<IMergeResult>;
-  rebaseBranch(repo: IRepository, onto: string): Promise<IBasicRebaseResult>;
+  rebaseBranch(
+    repo: IRepository,
+    onto: string,
+    options?: IRebaseOptions
+  ): Promise<IBasicRebaseResult>;
 
   /**
    * Skip the current commit during an in-progress rebase (`git rebase --skip`).

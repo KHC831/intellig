@@ -29,7 +29,7 @@
 
 import * as vscode from 'vscode';
 import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
-import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
+import { IGitService, IRepository, IRebaseOptions } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { RebaseEditor } from './RebaseEditor';
 import { sanitizeGitError } from '../git-core/gitError';
@@ -72,7 +72,50 @@ interface IRebaseDialogMessage {
   type: 'rebase' | 'cancel';
   onto?: string;
   interactive?: boolean;
+  rebaseMerges?: boolean;
+  keepEmpty?: boolean;
+  updateRefs?: boolean;
+  autosquash?: boolean;
 }
+
+/**
+ * The non-interactive rebase options surfaced as checkboxes, in git4idea's
+ * `GitRebaseOption` declaration order. `--root` is intentionally omitted from
+ * the dialog: it discards the chosen onto target (rebase-from-root), which the
+ * "Rebase onto X" framing here would make confusing — it stays reachable
+ * through the {@link IRebaseOptions} API for callers that need it.
+ */
+const REBASE_OPTION_CHECKBOXES: ReadonlyArray<{
+  id: keyof Pick<IRebaseOptions, 'rebaseMerges' | 'keepEmpty' | 'updateRefs' | 'autosquash'>;
+  flag: string;
+  title: string;
+  desc: string;
+}> = [
+  {
+    id: 'rebaseMerges',
+    flag: '--rebase-merges',
+    title: 'Rebase merges',
+    desc: 'Recreate merge commits instead of flattening them.',
+  },
+  {
+    id: 'updateRefs',
+    flag: '--update-refs',
+    title: 'Update refs',
+    desc: 'Advance any branch that points at a rebased commit (stacked branches).',
+  },
+  {
+    id: 'keepEmpty',
+    flag: '--keep-empty',
+    title: 'Keep empty commits',
+    desc: 'Keep commits that begin empty rather than dropping them.',
+  },
+  {
+    id: 'autosquash',
+    flag: '--autosquash',
+    title: 'Auto-squash',
+    desc: 'Reorder fixup!/squash! commits under the commits they target.',
+  },
+];
 
 const VIEW_TYPE = 'intellig.rebaseDialog';
 const TITLE = 'Rebase';
@@ -143,6 +186,23 @@ export class RebaseDialog extends BaseWebviewPanel {
         font-size: 0.9em;
         color: var(--vscode-descriptionForeground);
       }
+      label.flag .label-text .title-line code {
+        font-weight: 400;
+        font-size: 0.85em;
+        color: var(--vscode-descriptionForeground);
+      }
+      fieldset.rebase-options {
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 4px;
+        padding: 10px 12px 0;
+        margin: 0 0 14px;
+      }
+      fieldset.rebase-options.disabled { opacity: 0.5; }
+      fieldset.rebase-options .rebase-options-legend {
+        padding: 0 4px;
+        font-size: 0.9em;
+        color: var(--vscode-descriptionForeground);
+      }
       .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
       button {
         font-family: inherit;
@@ -197,6 +257,20 @@ export class RebaseDialog extends BaseWebviewPanel {
         </span>
       </label>
 
+      <fieldset id="rebase-options" class="rebase-options">
+        <legend class="rebase-options-legend">Options</legend>
+        ${REBASE_OPTION_CHECKBOXES.map(
+          (o) => `
+        <label class="flag" data-flag="${o.id}">
+          <input type="checkbox" id="flag-${o.id}" />
+          <span class="label-text">
+            <span class="title-line">${escapeHtml(o.title)} <code>${escapeHtml(o.flag)}</code></span>
+            <span class="desc">${escapeHtml(o.desc)}</span>
+          </span>
+        </label>`
+        ).join('')}
+      </fieldset>
+
       <div class="actions">
         <button id="cancel-btn" class="secondary" type="button">Cancel</button>
         <button id="rebase-btn" type="button">Rebase</button>
@@ -206,12 +280,31 @@ export class RebaseDialog extends BaseWebviewPanel {
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
+        const optionIds = ${JSON.stringify(REBASE_OPTION_CHECKBOXES.map((o) => o.id))};
+        const interactiveBox = document.getElementById('flag-interactive');
+        const optionsFieldset = document.getElementById('rebase-options');
+        // The flag options apply to the non-interactive rebase only; the
+        // interactive path hands off to the todo editor. Disable them while
+        // Interactive is checked so the UI never implies they'd take effect.
+        const syncOptionsEnabled = () => {
+          const disabled = interactiveBox.checked;
+          optionsFieldset.classList.toggle('disabled', disabled);
+          for (const id of optionIds) {
+            document.getElementById('flag-' + id).disabled = disabled;
+          }
+        };
+        interactiveBox.addEventListener('change', syncOptionsEnabled);
+        syncOptionsEnabled();
         const submit = () => {
-          vscode.postMessage({
+          const msg = {
             type: 'rebase',
             onto: document.getElementById('onto-select').value,
-            interactive: document.getElementById('flag-interactive').checked,
-          });
+            interactive: interactiveBox.checked,
+          };
+          for (const id of optionIds) {
+            msg[id] = document.getElementById('flag-' + id).checked;
+          }
+          vscode.postMessage(msg);
         };
         const cancel = () => {
           vscode.postMessage({ type: 'cancel' });
@@ -294,7 +387,13 @@ ${body}
         if (msg.interactive === true) {
           await this._executeInteractive(onto);
         } else {
-          await this._executeNonInteractive(onto);
+          const options: IRebaseOptions = {
+            rebaseMerges: msg.rebaseMerges === true,
+            keepEmpty: msg.keepEmpty === true,
+            updateRefs: msg.updateRefs === true,
+            autosquash: msg.autosquash === true,
+          };
+          await this._executeNonInteractive(onto, options);
         }
         return;
       }
@@ -326,7 +425,7 @@ ${body}
    * `_handleRebaseCurrentOnto` so routing through the dialog keeps every
    * safety net.
    */
-  private async _executeNonInteractive(onto: string): Promise<void> {
+  private async _executeNonInteractive(onto: string, options?: IRebaseOptions): Promise<void> {
     this._busy = true;
     try {
       // Snapshot the in-progress kind BEFORE the call so we can tell a
@@ -334,7 +433,7 @@ ${body}
       // from one the user already had paused.
       const beforeKind = this._repo.inProgress?.kind;
 
-      const result = await this._gitService.rebaseBranch(this._repo, onto);
+      const result = await this._gitService.rebaseBranch(this._repo, onto, options);
 
       let conflictDialogOpened = false;
       let nonConflictFailure = false;

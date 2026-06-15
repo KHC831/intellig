@@ -28,6 +28,7 @@ import {
   IGitService,
   IRepository,
   IBasicRebaseResult,
+  IRebaseOptions,
 } from '../../../git-core/interfaces/IGitService';
 import {
   IConflictResolutionService,
@@ -67,6 +68,7 @@ function makeRepo(headName: string = 'main', inProgressKind?: string): IReposito
 interface RebaseCall {
   repo: IRepository;
   onto: string;
+  options?: IRebaseOptions;
 }
 
 interface GitServiceStub extends IGitService {
@@ -85,8 +87,12 @@ function makeGitService(
     _rebaseCalls: rebaseCalls,
     _abortCalls: 0,
     _reloadResult: reloadResult,
-    rebaseBranch: async (repo: IRepository, onto: string): Promise<IBasicRebaseResult> => {
-      rebaseCalls.push({ repo, onto });
+    rebaseBranch: async (
+      repo: IRepository,
+      onto: string,
+      options?: IRebaseOptions
+    ): Promise<IBasicRebaseResult> => {
+      rebaseCalls.push({ repo, onto, options });
       if (shouldThrow) {
         throw shouldThrow;
       }
@@ -350,5 +356,54 @@ describe('RebaseDialog — body structure (#25)', () => {
     assert.ok(/id="flag-interactive"[^>]*checked/.test(checked.dialog.bodyHtml()));
     const unchecked = makeDialog({ interactiveDefault: false });
     assert.ok(!/id="flag-interactive"[^>]*checked/.test(unchecked.dialog.bodyHtml()));
+  });
+
+  it('emits the four git4idea rebase-option checkboxes (#P2)', () => {
+    installMessageTrackers();
+    const body = makeDialog({}).dialog.bodyHtml();
+    assert.ok(body.includes('id="flag-rebaseMerges"'), 'rebase-merges checkbox');
+    assert.ok(body.includes('id="flag-updateRefs"'), 'update-refs checkbox');
+    assert.ok(body.includes('id="flag-keepEmpty"'), 'keep-empty checkbox');
+    assert.ok(body.includes('id="flag-autosquash"'), 'autosquash checkbox');
+    // Options start unchecked (off by default — legacy behavior).
+    assert.ok(!/id="flag-rebaseMerges"[^>]*checked/.test(body), 'options default to off');
+  });
+});
+
+describe('RebaseDialog — rebase options threading (#P2)', () => {
+  beforeEach(() => {
+    installMessageTrackers();
+  });
+
+  it('forwards the selected options to rebaseBranch on the non-interactive path', async () => {
+    const h = makeDialog({ branchChoices: ['main', 'develop'] });
+    await h.dialog.simulateMessage({
+      type: 'rebase',
+      onto: 'develop',
+      interactive: false,
+      rebaseMerges: true,
+      updateRefs: true,
+      keepEmpty: false,
+      autosquash: false,
+    });
+    const call = h.gitService._rebaseCalls[0];
+    assert.strictEqual(call.onto, 'develop');
+    assert.deepStrictEqual(call.options, {
+      rebaseMerges: true,
+      keepEmpty: false,
+      updateRefs: true,
+      autosquash: false,
+    });
+  });
+
+  it('passes all-false options when none are selected', async () => {
+    const h = makeDialog({ branchChoices: ['main', 'develop'] });
+    await h.dialog.simulateMessage({ type: 'rebase', onto: 'develop', interactive: false });
+    assert.deepStrictEqual(h.gitService._rebaseCalls[0].options, {
+      rebaseMerges: false,
+      keepEmpty: false,
+      updateRefs: false,
+      autosquash: false,
+    });
   });
 });
