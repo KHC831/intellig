@@ -2,7 +2,31 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { BranchPopup, createBranchComparisonView } from '../../services';
+import type { IncomingOutgoingFetcher } from '../../branches/BranchPopup';
 import type { ICommandContext } from './CommandContext';
+import type { IRepository } from '../../git-core/interfaces/IGitService';
+import type { IIncomingOutgoing } from '../../git-core/ops/IncomingOutgoingOps';
+
+/**
+ * Duck-type guard: check whether the gitService has `getIncomingOutgoingForBranch`
+ * (it lives on the concrete GitService class, not the frozen IGitService interface
+ * per ADR-001). Returns the method as an {@link IncomingOutgoingFetcher} when
+ * present, undefined when not (e.g. in unit-test stubs).
+ */
+function getIncomingOutgoingFetcher(gitService: unknown): IncomingOutgoingFetcher | undefined {
+  if (
+    typeof gitService === 'object' &&
+    gitService !== null &&
+    'getIncomingOutgoingForBranch' in gitService &&
+    typeof (gitService as Record<string, unknown>).getIncomingOutgoingForBranch === 'function'
+  ) {
+    const svc = gitService as {
+      getIncomingOutgoingForBranch(repo: IRepository, branch: string): Promise<IIncomingOutgoing>;
+    };
+    return (repo: IRepository, branch: string) => svc.getIncomingOutgoingForBranch(repo, branch);
+  }
+  return undefined;
+}
 
 /**
  * Branch-popup + branch-comparison command handlers extracted verbatim from
@@ -30,9 +54,16 @@ export function registerBranchCommands(ctx: ICommandContext): vscode.Disposable[
 
     const gitService = ctx.services.gitService;
 
-    // Create branch popup if not exists
+    // Create branch popup if not exists. Wire the incoming/outgoing fetcher
+    // when the concrete GitService exposes it so the popup shows ↓N/↑N
+    // badges next to each tracked branch (ADR-001: the method is not on the
+    // frozen IGitService interface, so we detect it via duck-typing).
     if (!ctx.branchPopup) {
-      ctx.branchPopup = new BranchPopup(gitService);
+      ctx.branchPopup = new BranchPopup(
+        gitService,
+        ctx.context.workspaceState,
+        getIncomingOutgoingFetcher(gitService)
+      );
     }
 
     // Seed the popup with the repo the user is most likely targeting.

@@ -20,9 +20,22 @@
 
 import * as vscode from 'vscode';
 import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/IGitService';
+import type { IIncomingOutgoing } from '../git-core/ops/IncomingOutgoingOps';
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { sanitizeGitError } from '../git-core/gitError';
+
+/**
+ * Fetcher contract injected into {@link enrichBranchesWithIncomingOutgoing}.
+ * Mirrors the `IncomingOutgoingOps.getForBranch` signature so callers can
+ * pass the concrete service method without an extra wrapper:
+ *
+ *   (repo, branchName) => gitService.getIncomingOutgoingForBranch(repo, branchName)
+ */
+export type IncomingOutgoingFetcher = (
+  repo: IRepository,
+  branch: string
+) => Promise<IIncomingOutgoing>;
 
 /**
  * Workspace-state key under which the recent-branches LRU map is persisted.
@@ -199,6 +212,69 @@ export function formatBranchLabel(
     }
   }
   return name;
+}
+
+/**
+ * Enrich a list of branches with live incoming/outgoing counts from git.
+ *
+ * Called by {@link BranchPopup._showSectionedPicker} before building the
+ * sectioned QuickPick so each local branch that has a configured tracking
+ * upstream shows ↓N (behind = incoming) and ↑N (ahead = outgoing) indicators
+ * — IntelliJ's `GitBranchIncomingOutgoingManager` parity
+ * (`git4idea/backend/src/branch/GitBranchIncomingOutgoingManager.java`).
+ *
+ * Key design points:
+ *   - Branches without a configured upstream are left untouched (their
+ *     `ahead` / `behind` remain `undefined`).
+ *   - Individual fetch failures are swallowed and treated as 0/0 so a
+ *     single unavailable remote can't abort the whole popup load.
+ *   - The original {@link IBranch} objects are never mutated; the function
+ *     returns shallow clones with updated counts.
+ *   - All upstream-bearing fetches run in parallel (`Promise.all`).
+ *
+ * @param repo       - Repository to query.
+ * @param branches   - Flat list of branches (local + remote).
+ * @param fetcher    - Service method to retrieve incoming/outgoing counts.
+ *
+ * @returns New array of IBranch — clones with `ahead` / `behind` populated
+ *          for tracked branches, originals for the rest.
+ */
+export async function enrichBranchesWithIncomingOutgoing(
+  repo: IRepository,
+  branches: IBranch[],
+  fetcher: IncomingOutgoingFetcher
+): Promise<IBranch[]> {
+  // Build enrichment tasks only for branches with a configured upstream.
+  const tasks: Array<{ index: number; task: Promise<IIncomingOutgoing> }> = [];
+  for (let i = 0; i < branches.length; i++) {
+    if (branches[i].upstream) {
+      tasks.push({
+        index: i,
+        task: fetcher(repo, branches[i].name).catch(
+          (): IIncomingOutgoing => ({
+            branch: branches[i].name,
+            incoming: 0,
+            outgoing: 0,
+            noUpstream: true,
+          })
+        ),
+      });
+    }
+  }
+
+  // Resolve all fetches in parallel.
+  const results = await Promise.all(tasks.map((t) => t.task));
+
+  // Build the output — copy each branch, applying counts for fetched ones.
+  const out: IBranch[] = branches.map((b) => ({ ...b }));
+  for (let ti = 0; ti < tasks.length; ti++) {
+    const { index } = tasks[ti];
+    const io = results[ti];
+    // Map: incoming (upstream → local) = behind; outgoing (local → upstream) = ahead.
+    out[index] = { ...out[index], behind: io.incoming, ahead: io.outgoing };
+  }
+
+  return out;
 }
 
 /**
@@ -625,10 +701,27 @@ export class BranchPopup {
   private _disposables: vscode.Disposable[] = [];
   private _currentRepository: IRepository | undefined;
   private _workspaceState: vscode.Memento | undefined;
+  /**
+   * Optional incoming/outgoing fetcher injected at construction time.
+   * When present, each local branch with a configured upstream is enriched
+   * with ahead/behind counts before the picker renders (IntelliJ
+   * `GitBranchIncomingOutgoingManager` parity). When absent (default) the
+   * picker loads without the async per-branch git queries so the popup
+   * opens immediately even if the service hasn't exposed the method.
+   *
+   * Wired in `extension.ts`:
+   *   `(repo, branch) => gitService.getIncomingOutgoingForBranch(repo, branch)`
+   */
+  private _incomingOutgoingFetcher: IncomingOutgoingFetcher | undefined;
 
-  constructor(gitService: IGitService, workspaceState?: vscode.Memento) {
+  constructor(
+    gitService: IGitService,
+    workspaceState?: vscode.Memento,
+    incomingOutgoingFetcher?: IncomingOutgoingFetcher
+  ) {
     this._gitService = gitService;
     this._workspaceState = workspaceState;
+    this._incomingOutgoingFetcher = incomingOutgoingFetcher;
 
     // Create status bar item for current branch display
     this._statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -786,11 +879,24 @@ export class BranchPopup {
 
   /** Show the main sectioned branch picker. */
   private async _showSectionedPicker(repo: IRepository): Promise<IBranchPopupResult> {
-    // Load branches + tags in parallel
-    const [branches, tags] = await Promise.all([
+    // Load branches + tags in parallel.
+    const [rawBranches, tags] = await Promise.all([
       this._gitService.getBranches(repo),
       this._safeGetTags(repo),
     ]);
+
+    // Enrich local branches with incoming/outgoing counts when the fetcher
+    // is wired (IntelliJ GitBranchIncomingOutgoingManager parity — ↓N behind
+    // and ↑N ahead badges next to each branch in the list). Falls back to the
+    // raw branch list when no fetcher is present so the popup still opens
+    // without the async git queries.
+    const branches = this._incomingOutgoingFetcher
+      ? await enrichBranchesWithIncomingOutgoing(
+          repo,
+          rawBranches,
+          this._incomingOutgoingFetcher
+        ).catch(() => rawBranches) // swallow enrichment failures; never block the popup
+      : rawBranches;
 
     const localBranches = branches.filter((b) => b.type === 'local');
     const remoteBranches = branches.filter((b) => b.type === 'remote');
@@ -1035,11 +1141,14 @@ export class BranchPopup {
  *
  * @param gitService - The Git service to use
  * @param workspaceState - Optional Memento for persisting the Recent LRU
+ * @param incomingOutgoingFetcher - Optional fetcher for per-branch ahead/behind
+ *   counts (IntelliJ GitBranchIncomingOutgoingManager parity).
  * @returns A new BranchPopup instance
  */
 export function createBranchPopup(
   gitService: IGitService,
-  workspaceState?: vscode.Memento
+  workspaceState?: vscode.Memento,
+  incomingOutgoingFetcher?: IncomingOutgoingFetcher
 ): BranchPopup {
-  return new BranchPopup(gitService, workspaceState);
+  return new BranchPopup(gitService, workspaceState, incomingOutgoingFetcher);
 }

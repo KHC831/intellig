@@ -334,6 +334,12 @@ export class BranchContextMenuCommands {
       )
     );
 
+    this._disposables.push(
+      registerLoggedCommand('intellig.tag.deleteRemote', (item: BranchTreeItem) =>
+        this._handleTagDeleteRemote(item)
+      )
+    );
+
     // Refresh command
     this._disposables.push(
       registerLoggedCommand('intellig.branches.refresh', () => this._branchTreeProvider.refresh())
@@ -1874,6 +1880,45 @@ export class BranchContextMenuCommands {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to push tag: ${sanitizeGitError(errorMessage)}`);
+    }
+  }
+
+  /**
+   * Handle delete-remote-tag command — IntelliJ GitDeleteRemoteTagOperation parity
+   * (`git4idea/backend/src/ui/GitTagDialog.java` and
+   * `StashTagHistoryOps.deleteRemoteTag`).
+   *
+   * Prompts for confirmation then calls
+   * `git push <remote> :refs/tags/<name>` via the existing
+   * {@link StashTagHistoryOps.deleteRemoteTag} op. Errors route through
+   * {@link sanitizeGitError} so credentials in remote URLs are stripped.
+   */
+  private async _handleTagDeleteRemote(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.tag) {
+      return;
+    }
+
+    const confirm = await vscode.window.showWarningMessage(
+      `Delete remote tag '${item.tag.name}' from origin?`,
+      { modal: true },
+      'Delete from Remote'
+    );
+
+    if (confirm !== 'Delete from Remote') {
+      return;
+    }
+
+    try {
+      await this._gitService.deleteRemoteTag(repo, item.tag.name);
+      void vscode.window.showInformationMessage(
+        `Deleted remote tag '${item.tag.name}' from origin`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to delete remote tag: ${sanitizeGitError(errorMessage)}`
+      );
     }
   }
 
