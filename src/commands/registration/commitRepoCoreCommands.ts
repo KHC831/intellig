@@ -376,7 +376,10 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     // The full Update Info tab rendering is wired by the Log/Graph workstream
     // (see UpdateInfoTab.setSummary); the notification's deep-link focuses that
     // tab via intellig.toolWindow.focusTab.
-    const notification = buildUpdateNotification(summary.allClean, sanitizeGitError(updateInfoHeadline(summary)));
+    const notification = buildUpdateNotification(
+      summary.allClean,
+      sanitizeGitError(updateInfoHeadline(summary))
+    );
     const labels = (notification.deepLinks ?? []).map((l) => l.label);
     const choice =
       notification.severity === 'warning'

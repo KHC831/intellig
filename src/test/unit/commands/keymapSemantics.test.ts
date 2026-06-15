@@ -111,9 +111,9 @@ describe('Workstream C Item 1 — keymap conflict / semantics fixes', () => {
   it('ctrl+alt+k triggers Commit and Push (IntelliJ-gated)', () => {
     const binding = keybindings().find((kb) => kb.key === 'ctrl+alt+k');
     assert.ok(binding, 'a ctrl+alt+k binding exists');
-    assert.strictEqual(binding!.command, 'intellig.commitAndPush');
+    assert.strictEqual(binding.command, 'intellig.commitAndPush');
     assert.ok(
-      (binding!.when ?? '').includes("keymapPreset == 'intellij'"),
+      (binding.when ?? '').includes("keymapPreset == 'intellij'"),
       'Commit and Push is gated to the IntelliJ preset'
     );
   });
@@ -138,12 +138,12 @@ describe('Workstream C Item 1 — keymap conflict / semantics fixes', () => {
   it('unstage moved off ctrl+alt+z to avoid the revert double-binding', () => {
     const unstage = keybindings().find((kb) => kb.command === 'intellig.unstageSelected');
     assert.ok(unstage);
-    assert.notStrictEqual(unstage!.key, 'ctrl+alt+z', 'unstage must not use the revert chord');
-    assert.strictEqual(unstage!.key, 'ctrl+alt+shift+z');
+    assert.notStrictEqual(unstage.key, 'ctrl+alt+z', 'unstage must not use the revert chord');
+    assert.strictEqual(unstage.key, 'ctrl+alt+shift+z');
 
     // revert keeps ctrl+alt+z (IntelliJ Rollback semantics).
     const revert = keybindings().find((kb) => kb.command === 'intellig.revertFile');
     assert.ok(revert);
-    assert.strictEqual(revert!.key, 'ctrl+alt+z');
+    assert.strictEqual(revert.key, 'ctrl+alt+z');
   });
 });

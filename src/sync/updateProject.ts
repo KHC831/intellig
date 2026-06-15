@@ -150,9 +150,13 @@ export interface IUpdateGitService {
   getStatus(repo: IRepository): Promise<Array<{ indexStatus?: string; workTreeStatus?: string }>>;
   fetch(repo: IRepository, options?: { all?: boolean; prune?: boolean }): Promise<unknown>;
   pull(repo: IRepository, options?: IPullOptions): Promise<void>;
-  getIncomingOutgoing(
-    repo: IRepository
-  ): Promise<{ branch: string; upstream?: string; incoming: number; outgoing: number; noUpstream: boolean }>;
+  getIncomingOutgoing(repo: IRepository): Promise<{
+    branch: string;
+    upstream?: string;
+    incoming: number;
+    outgoing: number;
+    noUpstream: boolean;
+  }>;
   reloadRepository(repo: IRepository): Promise<unknown>;
 }
 
@@ -197,15 +201,21 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
 
     // Preflight per-repo.
     const status = await deps.gitService.getStatus(repo);
-    const hasUnmergedFiles = status.some(
-      (f) => f.indexStatus === 'U' || f.workTreeStatus === 'U'
-    );
+    const hasUnmergedFiles = status.some((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U');
     const blocked = updateProjectBlockedReason({
       inProgressKind: repo.inProgress?.kind,
       hasUnmergedFiles,
     });
     if (blocked) {
-      results.push({ name, rootPath, branch, rebase, incoming: 0, status: 'error', detail: blocked });
+      results.push({
+        name,
+        rootPath,
+        branch,
+        rebase,
+        incoming: 0,
+        status: 'error',
+        detail: blocked,
+      });
       continue;
     }
 

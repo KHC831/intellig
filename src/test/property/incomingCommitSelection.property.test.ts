@@ -1,10 +1,7 @@
 import * as fc from 'fast-check';
 import * as assert from 'assert';
 import type { ICommit } from '../../git-core/interfaces/IGitService';
-import {
-  headHashSet,
-  selectIncomingCommits,
-} from '../../git-core/gitToolWindow/tabs/IncomingTab';
+import { headHashSet, selectIncomingCommits } from '../../git-core/gitToolWindow/tabs/IncomingTab';
 
 /**
  * Property-based tests for the Incoming tab's commit selection (Workstream C

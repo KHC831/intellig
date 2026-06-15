@@ -73,10 +73,7 @@ describe('repoDisplayName', () => {
 // ─── summarizeUpdate ─────────────────────────────────────────────────────────
 
 describe('summarizeUpdate', () => {
-  const r = (
-    status: IUpdateRepoResult['status'],
-    incoming: number
-  ): IUpdateRepoResult => ({
+  const r = (status: IUpdateRepoResult['status'], incoming: number): IUpdateRepoResult => ({
     name: 'x',
     rootPath: '/x',
     branch: 'main',
@@ -91,7 +88,10 @@ describe('summarizeUpdate', () => {
     assert.strictEqual(s.allClean, true);
   });
   it('allClean is false when any repo conflicts or errors', () => {
-    assert.strictEqual(summarizeUpdate('merge', [r('updated', 1), r('conflict', 0)]).allClean, false);
+    assert.strictEqual(
+      summarizeUpdate('merge', [r('updated', 1), r('conflict', 0)]).allClean,
+      false
+    );
     assert.strictEqual(summarizeUpdate('merge', [r('error', 0)]).allClean, false);
   });
 });
@@ -256,10 +256,14 @@ describe('runUpdateProject', () => {
 // ─── UpdateInfoTab ───────────────────────────────────────────────────────────
 
 describe('updateInfoHeadline', () => {
-  const result = (
-    status: IUpdateRepoResult['status'],
-    incoming = 0
-  ): IUpdateRepoResult => ({ name: 'r', rootPath: '/r', branch: 'main', rebase: false, incoming, status });
+  const result = (status: IUpdateRepoResult['status'], incoming = 0): IUpdateRepoResult => ({
+    name: 'r',
+    rootPath: '/r',
+    branch: 'main',
+    rebase: false,
+    incoming,
+    status,
+  });
 
   it('reports up to date for a single in-sync repo', () => {
     const s = summarizeUpdate('merge', [result('up-to-date', 0)]);
