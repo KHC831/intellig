@@ -58,18 +58,26 @@ const DEFAULT_KEYBINDINGS: IKeybinding[] = [
 ];
 
 /**
- * IntelliJ IDEA keymap keybindings
- * These match IntelliJ IDEA's default Git keybindings
+ * IntelliJ IDEA keymap keybindings — reference mirror of the IntelliJ-preset
+ * bindings declared in `package.json` (`contributes.keybindings` entries
+ * gated by `config.intellig.keymapPreset == 'intellij'`). package.json is the
+ * SOURCE OF TRUTH for what actually binds; this list is the display /
+ * reference copy surfaced by the keymap command. The two are pinned together
+ * by `KeymapService.packageCoherence.test.ts` (Phase 0c de-drift) so a new or
+ * changed IntelliJ-preset binding in package.json can't silently diverge here.
  *
- * IntelliJ Default Git Keybindings:
- * - Commit: Ctrl+K
- * - Push: Ctrl+Shift+K
- * - Update Project (Pull): Ctrl+T
+ * IntelliJ Default Git Keybindings mirrored below:
+ * - Commit: Ctrl+K (same as default, not preset-gated)
+ * - Push: Ctrl+Shift+K (same as default)
+ * - Update Project (Pull): Ctrl+T (same as default)
  * - VCS Operations Popup: Alt+` (backtick)
  * - Annotate (Blame): Ctrl+Alt+Shift+A
  * - Show History: Ctrl+H
  * - Compare with Branch: Ctrl+D
  * - Rollback (Revert): Ctrl+Alt+Z
+ * - Unshelve / Show Shelf: Ctrl+Shift+U
+ * - Jump to Source (Open File): F4
+ * - Move to Another Changelist: F6
  */
 const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
   // Same as default - Commit: Ctrl+K
@@ -148,6 +156,25 @@ const INTELLIJ_KEYBINDINGS: IKeybinding[] = [
     key: 'ctrl+alt+a',
     mac: 'cmd+alt+a',
     when: '!inDebugMode && !terminalFocus',
+  },
+  // Show Shelf (Unshelve…): Ctrl+Shift+U — IntelliJ-gated in package.json.
+  {
+    command: 'intellig.showShelfList',
+    key: 'ctrl+shift+u',
+    mac: 'cmd+shift+u',
+    when: 'editorTextFocus',
+  },
+  // Open File from Local Changes: F4 — IntelliJ's "Jump to Source".
+  {
+    command: 'intellig.localChanges.openFile',
+    key: 'f4',
+    when: '!inDebugMode',
+  },
+  // Move Files to Another Changelist: F6 — IntelliJ's "Move…" mnemonic.
+  {
+    command: 'intellig.changelist.moveFilesTo',
+    key: 'f6',
+    when: '!inDebugMode',
   },
 ];
 

@@ -175,6 +175,7 @@ describe('Commit State Update Property Tests', () => {
           id: 'default',
           name: 'Default Changelist',
           isDefault: true,
+          isActive: true,
           files: [],
         };
         this._changelists.set(defaultChangelist.id, defaultChangelist);

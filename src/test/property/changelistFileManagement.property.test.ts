@@ -112,6 +112,7 @@ describe('Changelist File Management Property Tests', () => {
         id: DEFAULT_CHANGELIST_ID,
         name: DEFAULT_CHANGELIST_NAME,
         isDefault: true,
+        isActive: true,
         files: [],
       });
     }
@@ -145,6 +146,7 @@ describe('Changelist File Management Property Tests', () => {
         id,
         name: trimmedName,
         isDefault: false,
+        isActive: false,
         files: [],
       };
 

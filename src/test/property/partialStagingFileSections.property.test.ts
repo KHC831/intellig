@@ -295,6 +295,7 @@ describe('Partial Staging File Sections Property Tests', () => {
           id: `${changelistId}-staged`,
           name: `${changelistName} (Staged)`,
           isDefault: false,
+          isActive: false,
           files: stagedFiles,
         });
       }
@@ -304,6 +305,7 @@ describe('Partial Staging File Sections Property Tests', () => {
           id: `${changelistId}-unstaged`,
           name: `${changelistName} (Unstaged)`,
           isDefault: true,
+          isActive: true,
           files: unstagedFiles,
         });
       }

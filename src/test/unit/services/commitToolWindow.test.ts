@@ -97,9 +97,9 @@ describe('CommitToolWindow — updateRecentMessagesLru', () => {
 
 describe('CommitToolWindow — sortChangelistsForDisplay', () => {
   const cls: IChangelist[] = [
-    { id: 'c', name: 'refactor', isDefault: false, files: [] },
-    { id: 'a', name: 'feature', isDefault: false, files: [] },
-    { id: 'def', name: 'Default', isDefault: true, files: [] },
+    { id: 'c', name: 'refactor', isDefault: false, isActive: false, files: [] },
+    { id: 'a', name: 'feature', isDefault: false, isActive: false, files: [] },
+    { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [] },
   ];
   it('places the default changelist first', () => {
     const sorted = sortChangelistsForDisplay(cls);
@@ -247,6 +247,7 @@ describe('CommitToolWindow — renderCommitToolWindowHtml', () => {
           id: 'x',
           name: '<script>alert(1)</script>',
           isDefault: false,
+          isActive: false,
           files: [],
         },
       ],
@@ -437,7 +438,7 @@ describe('CommitToolWindow — host behavior', () => {
       setActiveChangelist: async () => {},
       createChangelist: (...args: unknown[]) => {
         calls.push({ method: 'createChangelist', args });
-        return { id: 'new', name: String(args[1]), isDefault: false, files: [] };
+        return { id: 'new', name: String(args[1]), isDefault: false, isActive: false, files: [] };
       },
       deleteChangelist: (...args: unknown[]) => {
         calls.push({ method: 'deleteChangelist', args });
@@ -545,6 +546,7 @@ describe('CommitToolWindow — host behavior', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [
           { path: 'src/a.ts', status: 'modified', staged: true },
           { path: 'src/b.ts', status: 'modified', staged: false },
@@ -594,6 +596,7 @@ describe('CommitToolWindow — host behavior', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [{ path: 'src/a.ts', status: 'modified', staged: true }],
       },
     ];
@@ -634,6 +637,7 @@ describe('CommitToolWindow — host behavior', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [{ path: 'src/a.ts', status: 'modified', staged: true }],
       },
     ];
@@ -730,8 +734,8 @@ describe('CommitToolWindow — host behavior', () => {
     const memento = createMockMemento();
     const repo = createMockRepo();
     const changelists: IChangelist[] = [
-      { id: 'def', name: 'Default', isDefault: true, files: [] },
-      { id: 'feat', name: 'feature-x', isDefault: false, files: [] },
+      { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [] },
+      { id: 'feat', name: 'feature-x', isDefault: false, isActive: false, files: [] },
     ];
     const services = createMockServices(repo, changelists);
     // Service stub so the `isActive` lookup inside the contextOpen handler
@@ -798,6 +802,7 @@ describe('CommitToolWindow — host behavior', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [{ path: 'src/a.ts', status: 'modified', staged: false }],
       },
     ];
@@ -872,6 +877,7 @@ describe('CommitToolWindow — host behavior', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [{ path: 'src/a.ts', status: 'modified', staged: true }],
       },
     ];

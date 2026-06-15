@@ -319,8 +319,16 @@ export class ChangelistService implements IChangelistService {
       this.saveChangelistStorage(repo, storage);
     }
 
+    // Resolve the active id once for the whole list. A stored id that no
+    // longer references an existing changelist (manual JSON edit, migration
+    // glitch) falls back to the default so exactly one changelist ends up
+    // marked `isActive` — mirroring getActiveChangelist's fallback.
+    const activeId = this.resolveActiveChangelistId(storage);
+
     // Convert to IChangelist format
-    const changelists = storage.changelists.map((item) => this.storageItemToChangelist(item));
+    const changelists = storage.changelists.map((item) =>
+      this.storageItemToChangelist(item, activeId)
+    );
 
     // Update cache
     this._changelistCache.set(repoKey, changelists);
@@ -372,8 +380,12 @@ export class ChangelistService implements IChangelistService {
     const repoKey = this.getRepoKey(repo);
     this._changelistCache.delete(repoKey);
 
-    // Create the changelist object
-    const changelist = this.storageItemToChangelist(storageItem);
+    // Create the changelist object. A freshly-created changelist is never
+    // the active one, so resolve against the unchanged stored active id.
+    const changelist = this.storageItemToChangelist(
+      storageItem,
+      this.resolveActiveChangelistId(storage)
+    );
 
     // Fire change event
     const changelists = this.getChangelists(repo);
@@ -787,16 +799,45 @@ export class ChangelistService implements IChangelistService {
   }
 
   /**
+   * Resolve the effective active changelist id for a storage blob.
+   *
+   * Returns `storage.activeChangelistId` when it references an existing
+   * changelist; otherwise falls back to the default changelist's id (or, in
+   * the degenerate case of no changelists at all, the constant default id).
+   * Keeps the `isActive` marker on {@link storageItemToChangelist} in lockstep
+   * with {@link getActiveChangelist}'s own dangling-id fallback.
+   *
+   * @param storage - The in-memory storage blob
+   * @returns The id that should be treated as active
+   */
+  private resolveActiveChangelistId(storage: IChangelistStorage): string {
+    const active = storage.changelists.find((cl) => cl.id === storage.activeChangelistId);
+    if (active) {
+      return active.id;
+    }
+    const defaultCl = storage.changelists.find((cl) => cl.isDefault);
+    return defaultCl?.id ?? DEFAULT_CHANGELIST_ID;
+  }
+
+  /**
    * Convert a storage item to a changelist.
    *
    * @param storageItem - The storage item
+   * @param activeChangelistId - The resolved active changelist id, used to
+   *   set the item's `isActive` flag. Resolve via
+   *   {@link resolveActiveChangelistId} so a dangling stored id falls back to
+   *   the default.
    * @returns The changelist
    */
-  private storageItemToChangelist(storageItem: IChangelistStorageItem): IChangelist {
+  private storageItemToChangelist(
+    storageItem: IChangelistStorageItem,
+    activeChangelistId: string
+  ): IChangelist {
     return {
       id: storageItem.id,
       name: storageItem.name,
       isDefault: storageItem.isDefault,
+      isActive: storageItem.id === activeChangelistId,
       description: storageItem.description ?? '',
       files: storageItem.files.map((filePath) => this.createFileChange(filePath)),
     };

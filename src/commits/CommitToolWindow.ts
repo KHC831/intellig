@@ -1201,19 +1201,22 @@ export class CommitToolWindow extends BaseWebviewView {
 /**
  * Find the currently-active changelist's id, if any.
  *
- * `IChangelist` doesn't surface an `isActive` field via the interface yet
- * (the data lives in storage); callers that need the marker can instead
- * compare against {@link IChangelistService.getActiveChangelist}. This
- * helper is a pure utility used by the initial HTML render as a fast path.
+ * Reads the `isActive` marker the {@link IChangelistService} now sets on every
+ * model (Phase 0b). The service guarantees exactly one changelist is active,
+ * falling back to the default when the stored active id dangles, so this is a
+ * synchronous render-path fast path that no longer has to fake active=default
+ * or await {@link IChangelistService.getActiveChangelist}. Falls back to the
+ * default changelist's id only if — defensively — no model carries the marker.
  */
 function findActiveChangelistId(changelists: readonly IChangelist[]): string | undefined {
-  // In the current schema, the active changelist is a top-level storage
-  // field accessed via `getActiveChangelist()`. On the render path we don't
-  // await here; the caller passes through whatever id was last resolved. We
-  // fall back to the default changelist so the UI still distinguishes it
-  // visually.
-  const def = changelists.find((c) => c.isDefault);
-  return def?.id;
+  const active = changelists.find((c) => c.isActive);
+  if (active) {
+    return active.id;
+  }
+  // Defensive fallback: a model list assembled without the service (e.g. a
+  // narrow test fixture) may carry no active marker. Keep the default
+  // visually distinguished rather than rendering no active row.
+  return changelists.find((c) => c.isDefault)?.id;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

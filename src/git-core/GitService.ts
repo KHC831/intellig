@@ -50,6 +50,7 @@ import { CherryPickRevertOps } from './ops/CherryPickRevertOps';
 import { BranchOps } from './ops/BranchOps';
 import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
+import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -75,6 +76,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private readonly _branches: BranchOps;
   private readonly _stashTagHistory: StashTagHistoryOps;
   private readonly _remoteOps: RemoteOps;
+  private readonly _incomingOutgoing: IncomingOutgoingOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -283,6 +285,7 @@ export class GitService implements IGitService, IGitServiceCli {
     this._branches = new BranchOps(ctx);
     this._stashTagHistory = new StashTagHistoryOps(ctx);
     this._remoteOps = new RemoteOps(ctx);
+    this._incomingOutgoing = new IncomingOutgoingOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -1324,6 +1327,32 @@ export class GitService implements IGitService, IGitServiceCli {
 
   renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void> {
     return this._remoteOps.renameRemote(repo, oldName, newName);
+  }
+
+  // ============================================
+  // Incoming / Outgoing
+  // ============================================
+  //
+  // New capability landed on the GitService class (NOT the frozen IGitService
+  // composite — ADR-001). Consumers depend on the concrete `GitService` or the
+  // forthcoming `IGitIncomingOutgoing` role interface, mirroring how the
+  // `gitCli` escape hatch and other post-freeze additions are exposed.
+
+  /**
+   * Incoming (behind) / outgoing (ahead) commit counts for an explicit branch
+   * against its tracking upstream. See {@link IncomingOutgoingOps.getForBranch}.
+   */
+  getIncomingOutgoingForBranch(repo: IRepository, branch: string): Promise<IIncomingOutgoing> {
+    return this._incomingOutgoing.getForBranch(repo, branch);
+  }
+
+  /**
+   * Incoming (behind) / outgoing (ahead) commit counts for the current HEAD
+   * branch against its upstream. See
+   * {@link IncomingOutgoingOps.getForCurrentBranch}.
+   */
+  getIncomingOutgoing(repo: IRepository): Promise<IIncomingOutgoing> {
+    return this._incomingOutgoing.getForCurrentBranch(repo);
   }
 
   // ============================================

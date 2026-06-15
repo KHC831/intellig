@@ -19,6 +19,17 @@ export interface IChangelist {
   name: string;
   isDefault: boolean;
   /**
+   * True when this changelist is the repository's currently-active one —
+   * the default target for new file assignments made through the UI. Derived
+   * from the storage-level `activeChangelistId` when the model is built, so
+   * exactly one changelist in a repo's list carries `isActive: true` (the
+   * active id always resolves to an existing changelist, falling back to the
+   * default). Lets the tree render the active marker without a separate async
+   * {@link IChangelistService.getActiveChangelist} round-trip on the render
+   * path.
+   */
+  isActive: boolean;
+  /**
    * Optional free-form description shown in the changelist tree / edit dialog.
    * Introduced in storage schema v2. Absent when migrating from v1 storage
    * until the first save after migration.
