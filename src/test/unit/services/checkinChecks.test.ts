@@ -86,6 +86,28 @@ describe('gatherCheckinContext', () => {
     ]);
   });
 
+  it('classifies AA / DD / UU as conflicted (not just U on one side)', async () => {
+    const statuses: IFileStatus[] = [
+      { path: 'both-added.ts', indexStatus: 'A', workTreeStatus: 'A' },
+      { path: 'both-deleted.ts', indexStatus: 'D', workTreeStatus: 'D' },
+      { path: 'both-unmerged.ts', indexStatus: 'U', workTreeStatus: 'U' },
+      // A plain added file (A + space) must NOT be classified as conflicted.
+      { path: 'plain-add.ts', indexStatus: 'A', workTreeStatus: ' ' },
+    ];
+    const git = makeGitServiceWithCli(statuses, { userName: 'Kit', userEmail: 'k@e.com' });
+    const ctx = await gatherCheckinContext(git, makeRepo(), [
+      'both-added.ts',
+      'both-deleted.ts',
+      'both-unmerged.ts',
+      'plain-add.ts',
+    ]);
+    const byPath = new Map(ctx.files.map((f) => [f.path, f.status]));
+    assert.strictEqual(byPath.get('both-added.ts'), 'conflicted');
+    assert.strictEqual(byPath.get('both-deleted.ts'), 'conflicted');
+    assert.strictEqual(byPath.get('both-unmerged.ts'), 'conflicted');
+    assert.strictEqual(byPath.get('plain-add.ts'), 'added');
+  });
+
   it('treats empty user.name as unset', async () => {
     const git = makeGitServiceWithCli([], { userName: '', userEmail: 'k@e.com' });
     const ctx = await gatherCheckinContext(git, makeRepo(), []);

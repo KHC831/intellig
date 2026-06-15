@@ -51,12 +51,24 @@ interface IGitServiceWithCli extends IGitService {
 
 /**
  * Resolve the most relevant {@link FileStatus} for a status entry. Conflict
- * (`U` on either side, or `DD`/`AA`/`UU` etc.) wins because the unresolved-
- * merge check keys on `conflicted`.
+ * wins because the unresolved-merge check keys on `conflicted`.
+ *
+ * git's porcelain unmerged set is `DD AU UD UA DU AA UU` — i.e. EITHER side
+ * is `U`, OR both sides are the same letter in {A, D} (`AA` both-added,
+ * `DD` both-deleted). A naive `=== 'U'` check misses `AA`/`DD`, letting an
+ * add/add or delete/delete conflict slip past the unresolved-merge check.
  */
+function isUnmergedStatus(index: StatusCode, workTree: StatusCode): boolean {
+  if (index === 'U' || workTree === 'U') {
+    return true;
+  }
+  // Both-added (AA) and both-deleted (DD) are conflicts even though neither
+  // side is literally `U`.
+  return (index === 'A' && workTree === 'A') || (index === 'D' && workTree === 'D');
+}
+
 function resolveFileStatus(entry: IFileStatus): FileStatus {
-  const isUnmerged = (c: StatusCode): boolean => c === 'U';
-  if (isUnmerged(entry.indexStatus) || isUnmerged(entry.workTreeStatus)) {
+  if (isUnmergedStatus(entry.indexStatus, entry.workTreeStatus)) {
     return 'conflicted';
   }
   // The unresolved-merge check only cares about `conflicted`; everything

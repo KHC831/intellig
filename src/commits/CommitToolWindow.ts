@@ -1994,7 +1994,7 @@ function commitToolWindowBehaviorScript(): string {
           pane.appendChild(err);
           return;
         }
-        if (!diff || diff.binary) {
+        if (!diff || diff.binary || !diff.hunks || diff.hunks.length === 0) {
           const note = document.createElement('div');
           note.className = 'ctw-diff-preview-empty';
           note.textContent = diff && diff.binary ? 'Binary file' : 'No changes';
