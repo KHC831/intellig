@@ -17,7 +17,12 @@ import {
 } from '../../services';
 import type { ICommandContext } from './CommandContext';
 import { extractCommitHash, runNewTagFlowFromContext } from './commitHelpers';
-import { updateProjectBlockedReason } from '../../sync/updateProject';
+import {
+  runUpdateProject,
+  type IUpdateGitService,
+  type UpdateMethod,
+} from '../../sync/updateProject';
+import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
 
 /**
  * Handle the outcome of the generic `intellig.pull` PullDialog.
@@ -280,57 +285,106 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     void vscode.window.showInformationMessage('Git views refreshed');
   });
 
-  // Update Project — IntelliJ's Vcs.UpdateProject. Preflight-guards
-  // (no rebase/merge in progress, no unmerged files — GitUpdateProcess
-  // parity), then fetches and pulls (rebase by default, the common IntelliJ
-  // update strategy). The multi-repo orchestration + update-info log tab are
-  // follow-ups; this updates the resolved repository.
+  // Update Project — IntelliJ's Vcs.UpdateProject (GitUpdateOptionsDialog +
+  // GitUpdateProcess parity). Asks the user for an update method
+  // (Merge / Rebase / Branch default), updates ALL repositories in the
+  // workspace (multi-root), and produces an Update Info summary. Each repo:
+  // preflight-guard → fetch --all --prune → pull with the resolved strategy.
   const updateProjectCommand = registerLoggedCommand('intellig.updateProject', async () => {
     if (!ctx.services) {
       void vscode.window.showErrorMessage('Extension services not initialized');
       return;
     }
     const gitService = ctx.services.gitService;
-    const repo = await resolveRepo(gitService, {
-      preferActive: true,
-      pickerTitle: 'Update Project — Choose Repository',
-      pickerPlaceholder: 'Select a repository to update',
-    });
-    if (!repo) {
+
+    const repos = gitService.getRepositories();
+    if (repos.length === 0) {
+      void vscode.window.showErrorMessage('No Git repository found in workspace');
       return;
     }
 
-    const status = await gitService.getStatus(repo);
-    const hasUnmergedFiles = status.some((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U');
-    const blocked = updateProjectBlockedReason({
-      inProgressKind: repo.inProgress?.kind,
-      hasUnmergedFiles,
+    // Step 1 — choose the update method (GitUpdateOptionsDialog).
+    interface IMethodItem extends vscode.QuickPickItem {
+      method: UpdateMethod;
+    }
+    const methodItems: IMethodItem[] = [
+      {
+        label: '$(git-merge) Merge',
+        description: 'git pull (merge fetched commits)',
+        method: 'merge',
+      },
+      {
+        label: '$(git-pull-request) Rebase',
+        description: 'git pull --rebase (replay local commits on top)',
+        method: 'rebase',
+      },
+      {
+        label: '$(settings-gear) Branch default',
+        description: "use the branch's configured pull strategy",
+        method: 'branch-default',
+      },
+    ];
+    const pickedMethod = await vscode.window.showQuickPick(methodItems, {
+      title:
+        repos.length > 1
+          ? `Update ${repos.length} Repositories — Choose Method`
+          : 'Update Project — Choose Method',
+      placeHolder: 'How should fetched commits be integrated?',
+      matchOnDescription: true,
     });
-    if (blocked) {
-      void vscode.window.showErrorMessage(`Cannot update project: ${blocked}`);
+    if (!pickedMethod) {
       return;
     }
 
+    const pullRebaseDefault = vscode.workspace
+      .getConfiguration('intellig')
+      .get<boolean>('pullRebase', false);
+
+    // The 0a getIncomingOutgoing lives on the concrete GitService (ADR-001 —
+    // not the frozen IGitService composite). The runtime instance is always a
+    // GitService, so we narrow to the IUpdateGitService role interface.
+    const updateGit = gitService as unknown as IUpdateGitService;
+
+    let summary;
     try {
-      await vscode.window.withProgress(
+      summary = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Updating project…',
+          title: repos.length > 1 ? `Updating ${repos.length} repositories…` : 'Updating project…',
           cancellable: false,
         },
-        async () => {
-          await gitService.fetch(repo, { all: true, prune: true });
-          await gitService.pull(repo, { rebase: true });
-        }
+        () =>
+          runUpdateProject({
+            repos,
+            gitService: updateGit,
+            method: pickedMethod.method,
+            pullRebaseDefault,
+          })
       );
-      await gitService.reloadRepository(repo);
-      if (ctx.gitToolWindowProvider) {
-        ctx.gitToolWindowProvider.refresh();
-      }
-      void vscode.window.showInformationMessage('Project updated');
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Update failed: ${sanitizeGitError(msg)}`);
+      return;
+    }
+
+    if (ctx.gitToolWindowProvider) {
+      ctx.gitToolWindowProvider.refresh();
+    }
+
+    // Surface the structured outcome. The full Update Info tab rendering is
+    // wired by the Log/Graph workstream (see UpdateInfoTab.setSummary); this
+    // command emits the headline + a deep-link to open the tool window.
+    const headline = updateInfoHeadline(summary);
+    if (!summary.allClean) {
+      const choice = await vscode.window.showWarningMessage(
+        sanitizeGitError(headline),
+        'Show Update Info'
+      );
+      if (choice === 'Show Update Info') {
+        await vscode.commands.executeCommand('intellig.toolWindow.focusTab', 'updateInfo');
+      }
+    } else {
+      void vscode.window.showInformationMessage(headline);
     }
   });
 
