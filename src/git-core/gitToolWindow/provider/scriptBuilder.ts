@@ -285,6 +285,10 @@ export function buildInlineScript(): string {
         // handlers. Route each data-action to the existing window.* filter
         // functions, which read/post through the shared vscode instance.
         document.addEventListener('click', function(e) {
+          // Guard non-Element targets — document/text-node clicks have no
+          // .closest. (This listener fires on the whole document, unlike the
+          // commit-row handlers below whose targets are always elements.)
+          if (!(e.target instanceof Element)) return;
           const filterAction = e.target.closest('[data-action]');
           if (!filterAction) return;
           const action = filterAction.getAttribute('data-action');
@@ -299,8 +303,11 @@ export function buildInlineScript(): string {
           }
         });
 
-        // Enter inside any filter input applies the filter.
+        // Enter inside any filter input applies the filter. Guards
+        // non-Element targets — a document-level keydown (e.g. Escape with no
+        // focused element) has no .closest.
         document.addEventListener('keydown', function(e) {
+          if (!(e.target instanceof Element)) return;
           const input = e.target.closest('#log-filter-bar [data-action="filterKeydown"]');
           if (input && e.key === 'Enter') {
             e.preventDefault();

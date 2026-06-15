@@ -14,6 +14,7 @@ import {
 import { IRepository } from './interfaces/IGitService';
 import { GitCli, createGitCli, IGitCommandResult } from './gitCli';
 import { IGitService } from './interfaces/IGitService';
+import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
 
 /**
  * Rebase Service implementation.
@@ -412,14 +413,26 @@ export class RebaseService implements IRebaseService {
       throw new Error('Rebase is not in planning state');
     }
 
-    // Generate the todo content with all actions
-    const todoContent = this.generateTodoContent(session.commits);
+    // The user's plan: action + (optional) new message, in the planned order.
+    // It is applied to git's REAL todo by the sequence editor — NOT rebuilt
+    // from scratch — so git's structural lines (update-ref/label/reset/merge/
+    // exec) survive (see rebaseTodo.ts / IntelliJ git4idea parity).
+    const plan: IRebaseAction[] = session.commits.map((c) => ({
+      hash: c.hash,
+      action: c.action,
+      newMessage: c.message,
+    }));
 
-    // Create a temporary script that will write our todo content
+    // The sequence editor is a `.sh` shim that runs our Node editor entry on
+    // git's todo file. Node is reached via the current binary
+    // (`process.execPath` — under VS Code that's Electron, so
+    // ELECTRON_RUN_AS_NODE=1 makes it behave as plain node). The editor reads
+    // the plan from INTELLIG_REBASE_PLAN and rewrites the todo in place.
     const todoScriptPath = path.join(cwd, '.git', 'rebase-todo-script.sh');
+    const editorJsPath = path.join(__dirname, 'rebaseTodoEditor.js');
+    const nodeBin = process.execPath;
     const todoScript = `#!/bin/sh
-cat << 'EOF' > "$1"
-${todoContent}EOF
+ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPath)} "$1"
 `;
 
     // Write the script file atomically (write-to-temp + rename).
@@ -429,7 +442,7 @@ ${todoContent}EOF
 
     try {
       // Start the interactive rebase with our custom sequence editor.
-      // The GIT_SEQUENCE_EDITOR replaces the todo file with our plan.
+      // The GIT_SEQUENCE_EDITOR transforms git's todo with our plan.
       // `--autostash` stashes a dirty working tree before the todo editor
       // runs and re-applies it after the rebase finishes, so it never
       // interferes with the custom sequence editor while still letting an
@@ -439,6 +452,7 @@ ${todoContent}EOF
         env: {
           ...process.env,
           GIT_SEQUENCE_EDITOR: todoScriptPath,
+          [REBASE_PLAN_ENV]: JSON.stringify(plan),
         },
       });
 
@@ -452,6 +466,15 @@ ${todoContent}EOF
       this.cleanupTempFile(todoScriptPath);
       throw error;
     }
+  }
+
+  /**
+   * Single-quote a path for safe interpolation into the POSIX `sh` shim
+   * (handles spaces and shell metacharacters in install paths). Embedded
+   * single quotes are escaped via the standard `'\''` idiom.
+   */
+  private shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
   }
 
   /**
@@ -938,22 +961,6 @@ ${todoContent}EOF
       default:
         return 'pick';
     }
-  }
-
-  /**
-   * Generate todo file content from commits.
-   *
-   * @param commits - The commits with their actions
-   * @returns The todo file content
-   */
-  private generateTodoContent(commits: IRebaseCommit[]): string {
-    const lines: string[] = [];
-
-    for (const commit of commits) {
-      lines.push(`${commit.action} ${commit.hash} ${commit.message}`);
-    }
-
-    return lines.join('\n') + '\n';
   }
 
   /**
