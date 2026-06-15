@@ -401,11 +401,13 @@ describe('GitService - Command Argument Correctness', () => {
       assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', '--all']);
     });
 
-    it('fetch specific remote: git fetch --porcelain <remote>', async () => {
+    it('fetch specific remote: git fetch --porcelain --end-of-options <remote>', async () => {
       await gitService.fetch(mockRepo, 'origin');
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', 'origin']);
+      // The remote name is user-controlled (`.git/config`), so it's spliced
+      // behind `--end-of-options` to defend against argv injection.
+      assert.deepStrictEqual(cmd.args, ['fetch', '--porcelain', '--end-of-options', 'origin']);
     });
   });
 

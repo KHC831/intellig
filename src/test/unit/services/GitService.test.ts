@@ -3471,7 +3471,13 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['fetch', '--porcelain', 'origin']);
+        // Remote name is user-controlled, so it sits behind --end-of-options.
+        assert.deepStrictEqual(lastCommand.args, [
+          'fetch',
+          '--porcelain',
+          '--end-of-options',
+          'origin',
+        ]);
       });
 
       it('should fetch from upstream remote', async () => {
@@ -3479,11 +3485,16 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
 
         const lastCommand = mockGitCli.getLastCommand();
         assert.ok(lastCommand, 'Command should have been executed');
-        assert.deepStrictEqual(lastCommand.args, ['fetch', '--porcelain', 'upstream']);
+        assert.deepStrictEqual(lastCommand.args, [
+          'fetch',
+          '--porcelain',
+          '--end-of-options',
+          'upstream',
+        ]);
       });
 
       it('should throw on error when fetching from non-existent remote', async () => {
-        mockGitCli.setMockResult('fetch --porcelain nonexistent', {
+        mockGitCli.setMockResult('fetch --porcelain --end-of-options nonexistent', {
           exitCode: 128,
           stdout: '',
           stderr: "fatal: 'nonexistent' does not appear to be a git repository",

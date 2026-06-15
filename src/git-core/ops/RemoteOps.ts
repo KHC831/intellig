@@ -70,9 +70,13 @@ export class RemoteOps {
     const options: IFetchOptions =
       typeof optionsOrRemote === 'string' ? { remote: optionsOrRemote } : (optionsOrRemote ?? {});
 
-    const args = ['fetch', '--porcelain'];
+    // Split flags vs. the remote ref so buildGitArgs can splice
+    // `--end-of-options` between them; defends against argv injection
+    // through a hostile remote name (the auto-fetch loop runs unattended
+    // and remote names come from `.git/config`).
+    const flags: string[] = ['--porcelain'];
     if (options.prune) {
-      args.push('--prune');
+      flags.push('--prune');
     }
     // Resolve tag-fetching policy. User-passed `tags` / `noTags` in
     // `options` always win over the `intellig.fetchTags` config so
@@ -81,28 +85,30 @@ export class RemoteOps {
     // dictates a flag ("auto"), we emit no tag-related flag and let git's
     // own default (follow `remote.<remote>.tagOpt`) apply.
     if (options.tags) {
-      args.push('--tags');
+      flags.push('--tags');
     } else if (options.noTags) {
-      args.push('--no-tags');
+      flags.push('--no-tags');
     } else {
       const fetchTagsPolicy = vscode.workspace
         .getConfiguration('intellig')
         .get<string>('fetchTags', 'auto');
       if (fetchTagsPolicy === 'all') {
-        args.push('--tags');
+        flags.push('--tags');
       } else if (fetchTagsPolicy === 'never') {
-        args.push('--no-tags');
+        flags.push('--no-tags');
       }
       // 'auto' (and any unexpected value) → no flag.
     }
+    const refs: string[] = [];
     if (options.all) {
-      args.push('--all');
+      flags.push('--all');
     } else if (options.remote) {
-      args.push(options.remote);
+      refs.push(options.remote);
     } else {
-      args.push('--all');
+      flags.push('--all');
     }
 
+    const args = buildGitArgs('fetch', flags, refs);
     const cliResult = await this.ctx.gitCli.exec(args, {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
