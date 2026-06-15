@@ -405,6 +405,14 @@ export interface ILogOptions {
   grep?: string;
   all?: boolean;
   /**
+   * Restrict the log to a single revision/ref (e.g. a branch like
+   * `origin/feature`) instead of the current HEAD — used to scope the
+   * cherry-pick picker to the commits ON the selected branch rather than the
+   * repo's global HEAD history. Git refnames can't start with `-`, so it is
+   * spliced as a positional revision arg.
+   */
+  ref?: string;
+  /**
    * Force `git log --topo-order`. Default (false) leaves git's default
    * date-driven ordering, which is wrong for graph rendering after
    * history-rewrites (rebase, squash, cherry-pick) — committer dates

@@ -590,6 +590,16 @@ export class CommitToolWindow extends BaseWebviewView {
    * Read-only accessor for the recent-messages LRU. Exposed so the legacy
    * {@link CommitDialog} (or future callers) can reuse the same history.
    */
+  /**
+   * Prefill the commit composer's message field and re-render. Used by Undo
+   * Commit to restore the undone commit's message so the user can re-commit
+   * without retyping it (IntelliJ GitUncommitAction parity).
+   */
+  public prefillComposerMessage(message: string): void {
+    this._composerMessage = message;
+    this._render();
+  }
+
   public getRecentMessages(): string[] {
     return [...this._readRecentMessages()];
   }

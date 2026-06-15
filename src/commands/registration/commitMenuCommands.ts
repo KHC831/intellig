@@ -20,6 +20,51 @@ import { extractCommitHash, pickRepositoryForCommit } from './commitHelpers';
  * write-back in this domain. Returns its disposables; extension.ts owns the
  * single push (RULE E4).
  */
+/**
+ * Decide which parent a commit's diff is taken against. A normal commit diffs
+ * vs its sole parent; a root commit vs the empty tree (`<hash>~1`). A merge
+ * commit (2+ parents) defers to `pickMergeParent` so the user chooses which
+ * parent line to diff against — IntelliJ shows the same parent popup — instead
+ * of silently always using the first parent. Returns undefined when the user
+ * cancels the picker.
+ */
+export async function resolveDiffParent(
+  hash: string,
+  parents: string[],
+  pickMergeParent: (parents: string[]) => Promise<string | undefined>
+): Promise<string | undefined> {
+  if (parents.length === 0) {
+    return `${hash}~1`;
+  }
+  if (parents.length === 1) {
+    return parents[0];
+  }
+  return pickMergeParent(parents);
+}
+
+/** QuickPick glue: list a merge commit's parents (hash + subject) to diff against. */
+async function _pickMergeParent(
+  repo: IRepository,
+  parents: string[],
+  gitService: IGitService
+): Promise<string | undefined> {
+  const items = await Promise.all(
+    parents.map(async (parent, i) => {
+      let subject = '';
+      try {
+        subject = (await gitService.getCommit(repo, parent)).message.split('\n')[0];
+      } catch {
+        subject = '';
+      }
+      return { label: `Parent ${i + 1}: ${parent.slice(0, 8)}`, description: subject, parent };
+    })
+  );
+  const choice = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Merge commit — choose which parent to diff against',
+  });
+  return choice?.parent;
+}
+
 export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposable[] {
   // Delegate to an existing CommitContextMenuCommands action.
   async function _delegateLogAction(action: LogContextAction, commitArg: unknown): Promise<void> {
@@ -106,7 +151,7 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
     }
   );
 
-  // Show diff of this commit vs its first parent.
+  // Show diff of this commit vs a parent (merge commits prompt for which parent).
   const commitShowDiffCommand = registerLoggedCommand(
     'intellig.commit.showDiff',
     async (commitArg?: unknown) => {
@@ -121,7 +166,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
       try {
         const gitService = ctx.services.gitService;
         const commit = await gitService.getCommit(repo, hash);
-        const parent = commit.parents.length > 0 ? commit.parents[0] : `${hash}~1`;
+        const parent = await resolveDiffParent(hash, commit.parents, (parents) =>
+          _pickMergeParent(repo, parents, gitService)
+        );
+        if (parent === undefined) {
+          return; // user cancelled the merge-parent picker
+        }
         await _openCommitFileDiff(repo, hash, parent, gitService);
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';

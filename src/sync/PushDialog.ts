@@ -328,6 +328,13 @@ export interface IPushPreselect {
   repo: IRepository;
   branch?: string;
   upstream?: IUpstream;
+  /**
+   * The clicked branch's OWN ahead/behind vs its upstream. Used so a
+   * non-HEAD preselected row shows the branch's divergence (and the
+   * force-with-lease auto-flip fires) instead of HEAD's counts (issue #19b).
+   */
+  ahead?: number;
+  behind?: number;
 }
 
 /** Options for constructing a {@link PushDialog}. */
@@ -462,6 +469,13 @@ export class PushDialog extends BaseWebviewPanel {
       const rowUpstream = !isPreselectedBranchRow || clickedIsHead ? upstream : preselect?.upstream;
       const targetBranch = rowUpstream?.name ?? localBranch;
 
+      // A clicked non-HEAD branch reports its OWN divergence (threaded via
+      // preselect), not the resolved HEAD's — otherwise a diverged non-HEAD
+      // branch shows 0/0 and the force-with-lease auto-flip never fires (#19b).
+      const fromClickedBranch = isPreselectedBranchRow && !clickedIsHead;
+      const ahead = fromClickedBranch ? (preselect?.ahead ?? 0) : (repo.head?.ahead ?? 0);
+      const behind = fromClickedBranch ? (preselect?.behind ?? 0) : (repo.head?.behind ?? 0);
+
       rows.push({
         id: repo.rootUri.fsPath,
         selected,
@@ -470,8 +484,8 @@ export class PushDialog extends BaseWebviewPanel {
         localBranch,
         targetBranch,
         upstreamRemote: rowUpstream?.remote,
-        ahead: repo.head?.ahead ?? 0,
-        behind: repo.head?.behind ?? 0,
+        ahead,
+        behind,
       });
     }
     this._rows = rows;

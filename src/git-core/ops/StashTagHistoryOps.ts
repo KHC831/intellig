@@ -79,7 +79,9 @@ export class StashTagHistoryOps {
 
   async stashApply(repo: IRepository, index: number): Promise<void> {
     this._validateStashIndex(index);
-    await this.ctx.gitCli.exec(['stash', 'apply', `stash@{${index}}`], {
+    // `--index` reinstates the staged/unstaged split; without it git returns
+    // previously-staged changes as unstaged (IntelliJ parity: GitStashUtils).
+    await this.ctx.gitCli.exec(['stash', 'apply', '--index', `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });
@@ -88,7 +90,7 @@ export class StashTagHistoryOps {
 
   async stashPop(repo: IRepository, index: number): Promise<void> {
     this._validateStashIndex(index);
-    await this.ctx.gitCli.exec(['stash', 'pop', `stash@{${index}}`], {
+    await this.ctx.gitCli.exec(['stash', 'pop', '--index', `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });
@@ -297,8 +299,20 @@ export class StashTagHistoryOps {
       // can leave it off if they want git's default.
       args.push('--topo-order');
     }
+    if (options?.ref) {
+      // A single revision/ref (e.g. `origin/feature`) scopes the log to that
+      // branch instead of HEAD. Refnames can't start with `-`, and exec passes
+      // argv (no shell), so a positional push is injection-safe. Must precede
+      // any `--`/pathspec below.
+      args.push(options.ref);
+    }
     if (options?.path) {
-      args.push('--', options.path);
+      // Path-filtered history: --full-history keeps commits that touched the
+      // path even off the simplified first-parent line (merges, side
+      // branches), and --simplify-merges then prunes merges made redundant by
+      // that filtering — matching IntelliJ's complete file history. Without
+      // these, git's default simplification silently drops real history.
+      args.push('--full-history', '--simplify-merges', '--', options.path);
     }
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });

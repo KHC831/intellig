@@ -473,6 +473,39 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
+  // ─── undoCommit ─────────────────────────────────────────────────────────────
+
+  describe('_handleUndoCommit (#9 preserve message)', () => {
+    it('soft-resets HEAD and prefills the composer with the undone commit message', async () => {
+      const repo = createMockRepo(testHash); // head.commit === testHash → HEAD guard passes
+      const gitService = createMockGitService(repo, {
+        getCommit: async () => ({
+          hash: testHash,
+          shortHash: 'abc1234',
+          message: 'feat: original subject\n\noriginal body',
+          author: { name: '', email: '' },
+          committer: { name: '', email: '' },
+          parents: ['parent'],
+          authorDate: new Date(),
+          commitDate: new Date(),
+        }),
+      });
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+      const prefilled: string[] = [];
+      commands.setCommitComposer({ prefillComposerMessage: (m: string) => prefilled.push(m) });
+
+      await commands._handleAction('undoCommit', [testHash]);
+
+      const reset = gitCli.calls.find((c: CallTracker) => (c.args[0] as string[])?.[0] === 'reset');
+      assert.ok(reset, 'a git reset was executed');
+      assert.deepStrictEqual(reset.args[0], ['reset', '--soft', 'HEAD~1']);
+      assert.deepStrictEqual(prefilled, ['feat: original subject\n\noriginal body']);
+    });
+  });
+
   // ─── resetToHere ──────────────────────────────────────────────────────────
 
   describe('_handleResetToHere', () => {

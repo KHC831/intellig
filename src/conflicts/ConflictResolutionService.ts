@@ -447,16 +447,23 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   async acceptCurrent(repo: IRepository, filePath: string): Promise<IConflictResolutionResult> {
     try {
-      // Use git checkout --ours to accept current version
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
       const options: IGitCommandOptions = {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       };
-      await gitCli.exec(['checkout', '--ours', '--', filePath], options);
-
-      // Stage the file to mark as resolved
-      await this._gitService.stage(repo, [filePath]);
+      const status = await this._getUnmergedStatus(repo, filePath);
+      // Delete/modify conflict where OUR side deleted the file (index 'D',
+      // i.e. DU/DD): there is no "ours" blob to check out, so `checkout --ours`
+      // errors. Accepting our side means removing the file — `git rm` resolves
+      // it (IntelliJ's GitMergeProvider routes deletions to rm, not checkout).
+      if (status?.index === 'D') {
+        await gitCli.exec(['rm', '--', filePath], options);
+      } else {
+        await gitCli.exec(['checkout', '--ours', '--', filePath], options);
+        // Stage the file to mark as resolved.
+        await this._gitService.stage(repo, [filePath]);
+      }
 
       // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
@@ -470,6 +477,30 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
+   * Look up the porcelain unmerged status (index X / work-tree Y) of a single
+   * file, used to distinguish a normal both-modified conflict from a
+   * delete/modify one. Returns undefined if the file is absent from
+   * `git status` (callers then take the default checkout path).
+   */
+  private async _getUnmergedStatus(
+    repo: IRepository,
+    filePath: string
+  ): Promise<{ index: string; workTree: string } | undefined> {
+    const file = (await this._statusByPath(repo)).get(filePath);
+    return file ? { index: file.indexStatus, workTree: file.workTreeStatus } : undefined;
+  }
+
+  /** path → porcelain X/Y status for the repo, for routing bulk accept-all ops. */
+  private async _statusByPath(
+    repo: IRepository
+  ): Promise<Map<string, { indexStatus: string; workTreeStatus: string }>> {
+    const status = await this._gitService.getStatus(repo);
+    return new Map(
+      status.map((f) => [f.path, { indexStatus: f.indexStatus, workTreeStatus: f.workTreeStatus }])
+    );
+  }
+
+  /**
    * Accept incoming (theirs) version for a file and mark as resolved
    *
    * @param repo - The repository
@@ -478,16 +509,22 @@ export class ConflictResolutionService implements IConflictResolutionService {
    */
   async acceptIncoming(repo: IRepository, filePath: string): Promise<IConflictResolutionResult> {
     try {
-      // Use git checkout --theirs to accept incoming version
       const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
       const options: IGitCommandOptions = {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       };
-      await gitCli.exec(['checkout', '--theirs', '--', filePath], options);
-
-      // Stage the file to mark as resolved
-      await this._gitService.stage(repo, [filePath]);
+      const status = await this._getUnmergedStatus(repo, filePath);
+      // Delete/modify conflict where THEIR side deleted the file (work-tree 'D',
+      // i.e. UD/DD): no "theirs" blob exists, so `checkout --theirs` errors.
+      // Accepting their side means removing the file — `git rm` resolves it.
+      if (status?.workTree === 'D') {
+        await gitCli.exec(['rm', '--', filePath], options);
+      } else {
+        await gitCli.exec(['checkout', '--theirs', '--', filePath], options);
+        // Stage the file to mark as resolved.
+        await this._gitService.stage(repo, [filePath]);
+      }
 
       // Fire change event
       const conflicts = await this.getConflictedFiles(repo);
@@ -520,14 +557,22 @@ export class ConflictResolutionService implements IConflictResolutionService {
         throwOnError: true,
       };
 
-      // Accept current version for all conflicted files
+      // Accept current version for all conflicted files. Ours-deleted files
+      // (index 'D') have no blob to check out — remove them with `git rm`.
+      const statusByPath = await this._statusByPath(repo);
+      const toStage: string[] = [];
       for (const conflict of conflicts) {
-        await gitCli.exec(['checkout', '--ours', '--', conflict.path], options);
+        if (statusByPath.get(conflict.path)?.indexStatus === 'D') {
+          await gitCli.exec(['rm', '--', conflict.path], options);
+        } else {
+          await gitCli.exec(['checkout', '--ours', '--', conflict.path], options);
+          toStage.push(conflict.path);
+        }
       }
-
-      // Stage all files to mark as resolved
-      const filePaths = conflicts.map((c) => c.path);
-      await this._gitService.stage(repo, filePaths);
+      // Stage the checked-out files to mark as resolved (rm already staged its removals).
+      if (toStage.length > 0) {
+        await this._gitService.stage(repo, toStage);
+      }
 
       // Fire change event
       const remainingConflicts = await this.getConflictedFiles(repo);
@@ -560,14 +605,22 @@ export class ConflictResolutionService implements IConflictResolutionService {
         throwOnError: true,
       };
 
-      // Accept incoming version for all conflicted files
+      // Accept incoming version for all conflicted files. Theirs-deleted files
+      // (work-tree 'D') have no blob to check out — remove them with `git rm`.
+      const statusByPath = await this._statusByPath(repo);
+      const toStage: string[] = [];
       for (const conflict of conflicts) {
-        await gitCli.exec(['checkout', '--theirs', '--', conflict.path], options);
+        if (statusByPath.get(conflict.path)?.workTreeStatus === 'D') {
+          await gitCli.exec(['rm', '--', conflict.path], options);
+        } else {
+          await gitCli.exec(['checkout', '--theirs', '--', conflict.path], options);
+          toStage.push(conflict.path);
+        }
       }
-
-      // Stage all files to mark as resolved
-      const filePaths = conflicts.map((c) => c.path);
-      await this._gitService.stage(repo, filePaths);
+      // Stage the checked-out files to mark as resolved (rm already staged its removals).
+      if (toStage.length > 0) {
+        await this._gitService.stage(repo, toStage);
+      }
 
       // Fire change event
       const remainingConflicts = await this.getConflictedFiles(repo);

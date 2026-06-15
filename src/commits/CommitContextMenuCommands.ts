@@ -84,6 +84,7 @@ export class CommitContextMenuCommands {
   private _gitToolWindowProvider: GitToolWindowProvider;
   private _gitCli: GitCli;
   private _conflictResolutionService: IConflictResolutionService | undefined;
+  private _commitComposer?: { prefillComposerMessage(message: string): void };
   // late-bound by extension.ts via {@link setBranchComparisonView}
   // because BranchComparisonView is constructed AFTER this commands class
   // in the activate() order. The compareWithBranch handler guards on
@@ -116,6 +117,14 @@ export class CommitContextMenuCommands {
    */
   setConflictResolutionService(service: IConflictResolutionService): void {
     this._conflictResolutionService = service;
+  }
+
+  /**
+   * Late-bind the commit composer so Undo Commit can restore the undone
+   * commit's message into the message field (IntelliJ GitUncommitAction).
+   */
+  setCommitComposer(composer: { prefillComposerMessage(message: string): void }): void {
+    this._commitComposer = composer;
   }
 
   /**
@@ -1712,12 +1721,24 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // Capture the message BEFORE the reset so it can be restored to the
+    // composer afterward (IntelliJ repopulates the message on uncommit).
+    let undoneMessage = '';
+    try {
+      undoneMessage = (await this._gitService.getCommit(repo, hash)).message;
+    } catch {
+      undoneMessage = '';
+    }
+
     try {
       await this._gitCli.exec(['reset', '--soft', 'HEAD~1'], {
         cwd: repo.rootUri.fsPath,
         throwOnError: true,
       });
 
+      if (undoneMessage) {
+        this._commitComposer?.prefillComposerMessage(undoneMessage);
+      }
       void vscode.window.showInformationMessage('Commit undone. Changes restored to staging area.');
       // soft-reset moved HEAD; reload before refresh.
       await this._gitService.reloadRepository(repo);

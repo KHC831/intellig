@@ -211,6 +211,94 @@ describe('ConflictResolutionService', () => {
     });
   });
 
+  describe('accept ours/theirs — delete/modify conflicts (P1: git rm, not checkout)', () => {
+    function recordExec(): string[][] {
+      const calls: string[][] = [];
+      mockGitCli.exec = (args: string[]): Promise<IGitCommandResult> => {
+        calls.push(args);
+        return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', combined: '' });
+      };
+      return calls;
+    }
+
+    it('acceptCurrent on an ours-deleted file (DU) runs git rm, not checkout --ours', async () => {
+      const calls = recordExec();
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'gone.txt', indexStatus: 'D', workTreeStatus: 'U' } as IFileStatus,
+        ]);
+
+      const result = await conflictService.acceptCurrent(mockRepo, 'gone.txt');
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(calls[0], ['rm', '--', 'gone.txt']);
+      assert.ok(
+        !calls.some((a) => a[0] === 'checkout'),
+        'must not checkout an ours-side blob that does not exist'
+      );
+    });
+
+    it('acceptIncoming on a theirs-deleted file (UD) runs git rm, not checkout --theirs', async () => {
+      const calls = recordExec();
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'gone.txt', indexStatus: 'U', workTreeStatus: 'D' } as IFileStatus,
+        ]);
+
+      const result = await conflictService.acceptIncoming(mockRepo, 'gone.txt');
+      assert.strictEqual(result.success, true);
+      assert.deepStrictEqual(calls[0], ['rm', '--', 'gone.txt']);
+      assert.ok(
+        !calls.some((a) => a[0] === 'checkout'),
+        'must not checkout a theirs-side blob that does not exist'
+      );
+    });
+
+    it('acceptIncoming on a both-modified file (UU) still uses checkout --theirs', async () => {
+      const calls = recordExec();
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'both.txt', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+        ]);
+
+      const result = await conflictService.acceptIncoming(mockRepo, 'both.txt');
+      assert.strictEqual(result.success, true);
+      assert.ok(calls.some((a) => a[0] === 'checkout' && a[1] === '--theirs'));
+      assert.ok(!calls.some((a) => a[0] === 'rm'));
+    });
+
+    it('acceptAllCurrent rm-s ours-deleted files and checks out the rest', async () => {
+      const calls = recordExec();
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'gone.txt', indexStatus: 'D', workTreeStatus: 'U' } as IFileStatus,
+          { path: 'both.txt', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+        ]);
+
+      const result = await conflictService.acceptAllCurrent(mockRepo);
+      assert.strictEqual(result.success, true);
+      assert.ok(calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'));
+      assert.ok(calls.some((a) => a[0] === 'checkout' && a[1] === '--ours' && a[3] === 'both.txt'));
+      assert.deepStrictEqual(stagedFiles, ['both.txt'], 'only the checked-out file is staged');
+    });
+
+    it('acceptAllIncoming rm-s theirs-deleted files and checks out the rest', async () => {
+      const calls = recordExec();
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'gone.txt', indexStatus: 'U', workTreeStatus: 'D' } as IFileStatus,
+          { path: 'both.txt', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+        ]);
+
+      const result = await conflictService.acceptAllIncoming(mockRepo);
+      assert.strictEqual(result.success, true);
+      assert.ok(calls.some((a) => a[0] === 'rm' && a[2] === 'gone.txt'));
+      assert.ok(
+        calls.some((a) => a[0] === 'checkout' && a[1] === '--theirs' && a[3] === 'both.txt')
+      );
+      assert.deepStrictEqual(stagedFiles, ['both.txt'], 'only the checked-out file is staged');
+    });
+  });
+
   describe('acceptAllCurrent()', () => {
     it('should accept current for all conflicted files', async () => {
       const checkedOutFiles: string[] = [];

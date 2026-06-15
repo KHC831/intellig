@@ -597,6 +597,48 @@ describe('PushDialog — lifecycle', () => {
     dialog.dispose();
   });
 
+  it('non-HEAD preselected row shows the clicked branch divergence, not HEAD (#19b)', async () => {
+    // HEAD = feature, not diverged (0/0). The user right-clicked a DIFFERENT
+    // branch 'other' that IS diverged — its own counts must drive the row and
+    // the force-with-lease auto-flip, not HEAD's 0/0.
+    const repo = makeRepo('/repo-a', { name: 'refs/heads/feature', ahead: 0, behind: 0 });
+    const { dialog } = makeDialog({
+      repos: [repo],
+      preselect: {
+        repo,
+        branch: 'other',
+        upstream: { remote: 'origin', name: 'other' },
+        ahead: 2,
+        behind: 1,
+      },
+    });
+    await dialog.waitUntilPopulated();
+    const row = dialog.rows[0];
+    assert.strictEqual(row.localBranch, 'other');
+    assert.strictEqual(row.ahead, 2, 'shows the clicked branch ahead, not HEAD 0');
+    assert.strictEqual(row.behind, 1, 'shows the clicked branch behind, not HEAD 0');
+    assert.strictEqual(
+      dialog.primaryAction,
+      'forceWithLease',
+      'a diverged non-HEAD clicked branch flips the default to force-with-lease'
+    );
+    dialog.dispose();
+  });
+
+  it('preselected HEAD branch still uses HEAD divergence, not stale preselect counts (#19b)', async () => {
+    const repo = makeRepo('/repo-a', { name: 'refs/heads/feature', ahead: 4, behind: 2 });
+    const { dialog } = makeDialog({
+      repos: [repo],
+      // Clicked branch IS HEAD → ignore the preselect counts, use HEAD's live ones.
+      preselect: { repo, branch: 'feature', ahead: 0, behind: 0 },
+    });
+    await dialog.waitUntilPopulated();
+    const row = dialog.rows[0];
+    assert.strictEqual(row.ahead, 4);
+    assert.strictEqual(row.behind, 2);
+    dialog.dispose();
+  });
+
   it('multi-repo submit invokes gitService.push once per selected row in parallel', async () => {
     const repoA = makeRepo('/repo-a', { name: 'refs/heads/a' });
     const repoB = makeRepo('/repo-b', { name: 'refs/heads/b' });

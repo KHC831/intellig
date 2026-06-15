@@ -932,6 +932,10 @@ export class BranchContextMenuCommands {
         repo,
         branch: item.branch.name,
         upstream: item.branch.upstream,
+        // Thread the clicked branch's OWN divergence so a non-HEAD row shows
+        // its real ahead/behind and the force-with-lease flip fires (#19b).
+        ahead: item.branch.ahead,
+        behind: item.branch.behind,
       });
       return;
     }
@@ -1483,14 +1487,14 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      // Get commits from the remote branch
+      // Scope the log to the SELECTED branch (e.g. `origin/feature`), not the
+      // repo's global HEAD history — otherwise the picker lists HEAD's recent
+      // commits and the user cherry-picks the wrong commits.
       const commits = await this._gitService.getLog(repo, {
         maxCount: 50,
-        path: undefined,
+        ref: item.branch.name,
       });
 
-      // Filter commits that are on the remote branch
-      // For simplicity, show recent commits and let user select
       const commitItems = commits.map((commit) => ({
         label: commit.shortHash,
         description: commit.message.split('\n')[0],

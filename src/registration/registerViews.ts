@@ -677,6 +677,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         ctx.services.conflictResolutionService
       );
       ctx.commitContextMenuCommands.register(ctx.context);
+      // Late-bind the commit composer so Undo Commit restores the message.
+      if (ctx.commitToolWindow) {
+        ctx.commitContextMenuCommands.setCommitComposer(ctx.commitToolWindow);
+      }
     }
 
     // Initialize Status Bar Service

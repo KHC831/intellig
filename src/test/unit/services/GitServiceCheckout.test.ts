@@ -545,18 +545,18 @@ describe('GitService - Command Argument Correctness', () => {
       assert.ok(cmd.args.includes('--keep-index'));
     });
 
-    it('stash apply: git stash apply stash@{N}', async () => {
+    it('stash apply: git stash apply --index stash@{N} (reinstates staged split)', async () => {
       await gitService.stashApply(mockRepo, 2);
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['stash', 'apply', 'stash@{2}']);
+      assert.deepStrictEqual(cmd.args, ['stash', 'apply', '--index', 'stash@{2}']);
     });
 
-    it('stash pop: git stash pop stash@{N}', async () => {
+    it('stash pop: git stash pop --index stash@{N} (reinstates staged split)', async () => {
       await gitService.stashPop(mockRepo, 0);
       const cmd = mockGitCli.getLastCommand();
       assert.ok(cmd);
-      assert.deepStrictEqual(cmd.args, ['stash', 'pop', 'stash@{0}']);
+      assert.deepStrictEqual(cmd.args, ['stash', 'pop', '--index', 'stash@{0}']);
     });
 
     it('stash drop: git stash drop stash@{N}', async () => {
