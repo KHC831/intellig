@@ -105,6 +105,34 @@ interface IResetDialogMessage {
 const VIEW_TYPE = 'intellig.resetDialog';
 const TITLE = 'Reset Current Branch';
 
+/** globalState key under which the last-used reset mode is persisted. */
+export const RESET_MODE_STATE_KEY = 'intellig.reset.lastMode';
+
+/**
+ * Minimal Memento subset (ExtensionContext.globalState shape) used to persist
+ * the preferred reset mode. Declared narrowly so the pure helpers below are
+ * testable against an in-memory store.
+ */
+export interface IResetModeStore {
+  get<T>(key: string, defaultValue: T): T;
+  update(key: string, value: unknown): Thenable<void>;
+}
+
+/**
+ * Load the user's last-used reset mode (IntelliJ GitVcsSettings.getResetMode
+ * parity). Falls back to `'mixed'` (git's + IntelliJ's default) when nothing
+ * is stored or the stored value is not a valid {@link ResetMode}.
+ */
+export function loadPreferredResetMode(store: IResetModeStore): ResetMode {
+  const stored = store.get<unknown>(RESET_MODE_STATE_KEY, undefined);
+  return isResetMode(stored) ? stored : 'mixed';
+}
+
+/** Persist the chosen reset mode so the next dialog pre-selects it. */
+export function savePreferredResetMode(store: IResetModeStore, mode: ResetMode): Thenable<void> {
+  return store.update(RESET_MODE_STATE_KEY, mode);
+}
+
 /**
  * Validation guard for commit-hash-ish strings passed to `git reset`.
  * Matches the guard used in {@link GitService.resetToCommit}.
@@ -276,7 +304,11 @@ export class ResetDialog extends BaseWebviewPanel {
     // the designated default to Hard, a protected branch will now fall back
     // to the first enabled mode (Soft) rather than render no radio checked.
     const disabledSet = new Set<ResetMode>(this.isProtected ? ['hard', 'keep'] : []);
-    const effectiveDefault = resolveDefaultMode('mixed', disabledSet);
+    // Preselect the user's last-used mode (IntelliJ persists this per project),
+    // falling back through resolveDefaultMode if it's disabled on a protected
+    // branch.
+    const preferred = loadPreferredResetMode(this._context.globalState);
+    const effectiveDefault = resolveDefaultMode(preferred, disabledSet);
 
     const radio = (mode: ResetMode, label: string, desc: string, warn: boolean): string => {
       const disabled = disabledSet.has(mode);
@@ -450,6 +482,8 @@ ${body}
         throw new Error(`Invalid commit reference: ${this._target.hash}`);
       }
       await this._gitService.resetToCommit(this._repo, this._target.hash, mode);
+      // Remember the chosen mode so the next reset dialog pre-selects it.
+      void savePreferredResetMode(this._context.globalState, mode);
       this._finishReset();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -506,6 +540,7 @@ ${body}
         this._busy = false;
         return;
       }
+      void savePreferredResetMode(this._context.globalState, mode);
       this._finishReset();
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
