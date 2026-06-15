@@ -2788,11 +2788,13 @@ ${bodyMarkup}
     // the markup means a full re-render rehydrates a user's dragged widths.
     const [authorWidthPx, dateWidthPx] = this._columnWidths;
     const columnHeaderHtml = this._getLogColumnHeaderHtml();
+    const logFilterBarHtml = this._getLogFilterBarHtml();
 
     return `
       <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px; --col-author-width: ${authorWidthPx}px; --col-date-width: ${dateWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
         ${focusedBranchHelpHtml}
         ${repositorySelectorHtml}
+        ${logFilterBarHtml}
         ${columnHeaderHtml}
         ${rowsHtml}
         ${loadingIndicatorHtml}
@@ -2871,6 +2873,90 @@ ${bodyMarkup}
             <div class="log-column-header-date">Date</div>
           </div>
         </div>`;
+  }
+
+  /**
+   * Build the log filter bar — IntelliJ's Git-log filter set
+   * (text/author/path/date), wired to the host's already-live
+   * `applyLogFilter` pipeline.
+   *
+   * The webview CSP is `script-src 'nonce-<nonce>'` with no
+   * `unsafe-inline`, so the bar uses `data-action` attributes (routed by
+   * the delegated click/keydown listeners in the inline script), never
+   * inline `onclick=`/`onkeyup=`. The toggle button lives at the top so a
+   * user can open the bar without it stealing vertical space when closed.
+   *
+   * The bar starts `hidden`; `toggleLogFilters` flips it. The inputs are
+   * rehydrated from `_extendedLogState.filter` so a full re-render (which
+   * the host does on every refresh) preserves what the user typed. All
+   * values are HTML-escaped — they land in `value="…"` attributes and are
+   * user-controlled, so an unescaped quote would break out of the
+   * attribute.
+   *
+   * @returns HTML string for the toggle button + `#log-filter-bar`.
+   * @internal Public for direct snapshot/DOM tests; the `_` prefix flags
+   *   "not for production callers outside this class", matching the
+   *   existing `_get*Html` testability pattern.
+   */
+  public _getLogFilterBarHtml(): string {
+    const filter = this._extendedLogState.filter;
+    const search = this._escapeHtml(filter?.searchText ?? '');
+    const author = this._escapeHtml(filter?.author ?? '');
+    const path = this._escapeHtml(filter?.path ?? '');
+    const since = this._toDateInputValue(filter?.since);
+    const until = this._toDateInputValue(filter?.until);
+    const active = filter !== undefined;
+
+    return `
+        <div class="log-filter-toolbar">
+          <button type="button" class="log-filter-toggle${active ? ' active' : ''}" data-action="toggleLogFilters" aria-label="Toggle log filters" aria-expanded="${active}" title="Filter commits">Filter</button>
+        </div>
+        <div id="log-filter-bar" class="log-filter-bar"${active ? '' : ' hidden'} role="group" aria-label="Log filters">
+          <div class="log-filter-row">
+            <div class="log-filter-group">
+              <label class="log-filter-label" for="filter-search">Message / Hash</label>
+              <input type="text" id="filter-search" class="log-filter-input" data-action="filterKeydown" placeholder="Subject or commit hash" value="${search}" />
+            </div>
+            <div class="log-filter-group">
+              <label class="log-filter-label" for="filter-author">Author</label>
+              <input type="text" id="filter-author" class="log-filter-input" data-action="filterKeydown" placeholder="Author name or email" value="${author}" />
+            </div>
+            <div class="log-filter-group">
+              <label class="log-filter-label" for="filter-path">Path</label>
+              <input type="text" id="filter-path" class="log-filter-input" data-action="filterKeydown" placeholder="File or directory path" value="${path}" />
+            </div>
+          </div>
+          <div class="log-filter-row">
+            <div class="log-filter-group log-filter-group-date">
+              <label class="log-filter-label" for="filter-since">Since</label>
+              <input type="date" id="filter-since" class="log-filter-input log-filter-date" data-action="filterKeydown" value="${since}" />
+            </div>
+            <div class="log-filter-group log-filter-group-date">
+              <label class="log-filter-label" for="filter-until">Until</label>
+              <input type="date" id="filter-until" class="log-filter-input log-filter-date" data-action="filterKeydown" value="${until}" />
+            </div>
+          </div>
+          <div class="log-filter-actions">
+            <button type="button" class="log-filter-button log-filter-clear" data-action="clearLogFilter">Clear</button>
+            <button type="button" class="log-filter-button log-filter-apply" data-action="applyLogFilter">Apply</button>
+          </div>
+        </div>`;
+  }
+
+  /**
+   * Format a filter date for an `<input type="date">` value (YYYY-MM-DD).
+   * Uses UTC parts so the rendered day matches the stored instant rather
+   * than shifting under the host's local timezone. Returns '' for an
+   * absent or invalid date.
+   */
+  private _toDateInputValue(date: Date | undefined): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return '';
+    }
+    const yyyy = date.getUTCFullYear().toString().padStart(4, '0');
+    const mm = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+    const dd = date.getUTCDate().toString().padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   /**

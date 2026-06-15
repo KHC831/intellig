@@ -725,6 +725,51 @@ describe('Log View', () => {
       assert.strictEqual(extendedState.filter?.author, 'Developer');
     });
   });
+
+  describe('_getLogFilterBarHtml (#5 filter-bar UI)', () => {
+    it('emits the filter bar with the five wired inputs', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="log-filter-bar"'), 'has filter bar container');
+      assert.ok(html.includes('id="filter-search"'), 'has search input');
+      assert.ok(html.includes('id="filter-author"'), 'has author input');
+      assert.ok(html.includes('id="filter-path"'), 'has path input');
+      assert.ok(html.includes('id="filter-since"'), 'has since input');
+      assert.ok(html.includes('id="filter-until"'), 'has until input');
+    });
+
+    it('wires Apply/Clear via data-action (CSP blocks inline onclick)', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('data-action="applyLogFilter"'), 'apply uses data-action');
+      assert.ok(html.includes('data-action="clearLogFilter"'), 'clear uses data-action');
+      assert.ok(!/onclick=/i.test(html), 'no inline onclick handlers');
+      assert.ok(!/onkeyup=|onkeydown=/i.test(html), 'no inline key handlers');
+    });
+
+    it('is hidden until toggled open', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(/id="log-filter-bar"[^>]*\shidden/.test(html), 'filter bar starts hidden');
+    });
+
+    it('rehydrates the inputs from an active filter so a re-render keeps the values', () => {
+      provider.setLogFilter({ author: 'Jane Smith', searchText: 'refactor', path: 'src/' });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('value="Jane Smith"'), 'author value rehydrated');
+      assert.ok(html.includes('value="refactor"'), 'search value rehydrated');
+      assert.ok(html.includes('value="src/"'), 'path value rehydrated');
+    });
+
+    it('escapes filter values to prevent attribute-injection', () => {
+      provider.setLogFilter({ searchText: '"><img src=x>' });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(!html.includes('"><img src=x>'), 'raw injection payload not present');
+      assert.ok(html.includes('&quot;&gt;&lt;img'), 'value is HTML-escaped');
+    });
+
+    it('emits a toolbar toggle button wired to toggleLogFilters', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('data-action="toggleLogFilters"'), 'toggle button present');
+    });
+  });
 });
 
 describe('Initial Data Request and No-Repository State', () => {

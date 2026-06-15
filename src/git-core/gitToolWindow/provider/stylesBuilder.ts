@@ -428,6 +428,38 @@ export function buildInlineStyles(): string {
       }
 
       /* Log Filter Bar Styles*/
+      .log-filter-toolbar {
+        display: flex;
+        align-items: center;
+        padding: 4px 8px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+
+      .log-filter-toggle {
+        padding: 2px 10px;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        font-size: 12px;
+        cursor: pointer;
+        background-color: transparent;
+        color: var(--vscode-foreground);
+      }
+
+      .log-filter-toggle:hover {
+        background-color: var(--vscode-toolbar-hoverBackground);
+      }
+
+      .log-filter-toggle:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+      }
+
+      .log-filter-toggle.active {
+        background-color: var(--vscode-inputOption-activeBackground);
+        border-color: var(--vscode-inputOption-activeBorder);
+        color: var(--vscode-inputOption-activeForeground);
+      }
+
       .log-filter-bar {
         padding: 8px;
         background-color: var(--vscode-input-background);

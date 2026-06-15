@@ -278,6 +278,36 @@ export function buildInlineScript(): string {
           }
         });
 
+        // ─── Log filter bar ──────────────────────────────────────────────
+        // The filter bar (toggle button + #log-filter-bar inputs/buttons)
+        // is emitted with data-action attributes, NOT inline onclick — the
+        // CSP (script-src 'nonce-…', no unsafe-inline) blocks inline
+        // handlers. Route each data-action to the existing window.* filter
+        // functions, which read/post through the shared vscode instance.
+        document.addEventListener('click', function(e) {
+          const filterAction = e.target.closest('[data-action]');
+          if (!filterAction) return;
+          const action = filterAction.getAttribute('data-action');
+          if (action === 'toggleLogFilters') {
+            window.toggleLogFilters();
+          } else if (action === 'applyLogFilter') {
+            window.applyLogFilters();
+          } else if (action === 'clearLogFilter' && filterAction.closest('#log-filter-bar')) {
+            // Scoped to the bar's Clear button; the empty-state Clear
+            // button is handled above (it lives outside #log-filter-bar).
+            window.clearLogFilters();
+          }
+        });
+
+        // Enter inside any filter input applies the filter.
+        document.addEventListener('keydown', function(e) {
+          const input = e.target.closest('#log-filter-bar [data-action="filterKeydown"]');
+          if (input && e.key === 'Enter') {
+            e.preventDefault();
+            window.applyLogFilters();
+          }
+        });
+
         // ─── Event delegation for commit rows ────────────────────────────
 
         // Commit row click → handleCommitClick
@@ -528,24 +558,10 @@ export function buildInlineScript(): string {
           if (sinceInput) sinceInput.value = '';
           if (untilInput) untilInput.value = '';
 
-          vscode.postMessage({ 
-            type: 'applyLogFilter', 
-            filter: null 
+          vscode.postMessage({
+            type: 'applyLogFilter',
+            filter: null
           });
-        };
-
-        window.handleFilterKeyup = function(event) {
-          // Apply filters on Enter key
-          if (event.key === 'Enter') {
-            applyLogFilters();
-          }
-        };
-
-        window.handleFilterSearchKeyup = function(event) {
-          // Apply filters on Enter key for search
-          if (event.key === 'Enter') {
-            applyLogFilters();
-          }
         };
 
         // Log context menu
