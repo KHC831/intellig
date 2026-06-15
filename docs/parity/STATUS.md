@@ -8,8 +8,9 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
 - `main` carries the R1 correctness pass + Phase-0 foundations + workstreams **A** and **C**.
 - Three tracks merged via PR on 2026-06-15 in the recommended conflict-minimizing order:
   **#42** (crash fix) → **#43** (workstream C) → **#44** (workstream A).
-- **Next up:** the 🔴 `RemoteOps.fetch` argv-injection fix (+ CI grep gate), then the UX quick
-  wins and unwired front-doors batch — see `NORTHSTAR.md` section 7.
+- **Next up:** the unwired front-doors batch (command+menu over tested backends), then
+  workstream B (native merge editor) — see `NORTHSTAR.md` section 7. The 🔴 fetch
+  argv-injection and the UX label cleanup landed on `dev/fetch-argv-fix` (pending merge).
 
 ## Landing log
 
@@ -17,6 +18,9 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-15 | UX label cleanup — drop redundant `Git:` prefix from 9 explorer/editor command titles | da9eec9 | on `dev/fetch-argv-fix`, pending merge |
+| 2026-06-15 | 🔴 fetch argv-injection — route `fetch` through `buildGitArgs` (`--end-of-options` ahead of the remote name) + `check:remote-ops-eoo` CI guard | 316b640 | on `dev/fetch-argv-fix`, pending merge |
+| 2026-06-15 | Build fix — `IChangelist.isActive` on the unversioned pseudo-node + 5 fixtures, README/schema config drift (left broken by #44) | bb43ac0 | on `dev/fetch-argv-fix`, pending merge |
 | 2026-06-15 | Workstream A — commit/changelists (changelist-driven commit, before-commit checks, Add-to-VCS fix, Local Changes grouping + Unversioned node, diff-preview, tool-window default-on, AA/DD detection) | #44 | merged |
 | 2026-06-15 | Workstream C — shell/menus/sync (keymap fixes, status-bar branch popup, view/title toolbar, Incoming tab, Update Project dialog, structured notifications) | #43 | merged |
 | 2026-06-15 | Crash fix — cap git output capture at 64 MiB (stops extension-host RangeError on multi-GB repos) | #42 | merged |
@@ -36,5 +40,6 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
   `incoming-tab.md`, `update-project.md`.
 
 ## Open risk carried forward
-- 🔴 `RemoteOps.fetch` argv-injection — still open, not addressed by any landed track (NORTHSTAR section 5).
 - R2 review predates the A/C/phase-0 merges — re-verify findings against the merged tree.
+- Two R2 UX quick wins (branch-focus highlight, log column headers) were re-checked against the
+  merged tree and found **already fixed** — only the `Git:` label cleanup remained, now done.
