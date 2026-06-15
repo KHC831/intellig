@@ -682,6 +682,9 @@ export const window = {
   onDidChangeTextEditorSelection(_listener: (e: unknown) => void): { dispose: () => void } {
     return { dispose: () => {} };
   },
+  onDidChangeTextEditorVisibleRanges(_listener: (e: unknown) => void): { dispose: () => void } {
+    return { dispose: () => {} };
+  },
   registerWebviewViewProvider(
     _viewId: string,
     _provider: WebviewViewProvider,

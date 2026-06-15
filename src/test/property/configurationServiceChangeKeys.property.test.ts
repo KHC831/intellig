@@ -379,7 +379,9 @@ const knobs: ReadonlyArray<IKnobDescriptor<keyof IExtensionConfiguration>> = [
     typedKey: 'blameAnnotationStyle',
     settingName: 'blameAnnotationStyle',
     valueArb: fc
-      .constantFrom<IExtensionConfiguration['blameAnnotationStyle']>('inline', 'gutter', 'both')
+      .constantFrom<
+        IExtensionConfiguration['blameAnnotationStyle']
+      >('inline', 'gutter', 'both', 'off')
       .filter((v) => v !== defaults.blameAnnotationStyle),
   } as IKnobDescriptor<'blameAnnotationStyle'>,
   {

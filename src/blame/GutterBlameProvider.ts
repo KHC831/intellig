@@ -4,40 +4,35 @@ import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine } from '../git-core/interfaces/IGitService';
 import { BlameOptionsSource } from './BlameOptionsSource';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { computeHeatColor } from './heatColor';
 import * as path from 'path';
 
 /**
  * Gutter Blame Provider implementation.
  * Displays blame annotations in the editor gutter for all visible lines,
- * with age-based color gradients and click actions.
+ * with an IntelliJ-style interpolated background gradient and click actions.
  *
  * - Display blame information in the editor gutter for all visible lines
  * - Click actions to view commit or copy hash
- * - Use distinct colors to differentiate commits by age
+ * - Background heat gradient: newest commits → warm/amber, oldest → cool/gray,
+ *   interpolated linearly across the file's full age range (matches IntelliJ's
+ *   ORDER color mode from AnnotateToggleAction / AnnotationsSettings).
  */
 export class GutterBlameProvider implements IGutterBlameProvider {
   private _enabled: boolean = false;
   private _blameService: IBlameService;
   private _gitService: IGitService;
   private _disposables: vscode.Disposable[] = [];
-  private _decorationTypes: Map<string, vscode.TextEditorDecorationType> = new Map();
+  /**
+   * Single shared decoration type for the gutter `before` pseudo-element.
+   * Per-line background colors are injected via `DecorationOptions.renderOptions`
+   * (instance-level `before.backgroundColor`), so we only need one type.
+   */
+  private _sharedDecorationType: vscode.TextEditorDecorationType | undefined;
   private _onDidChangeEnabled: vscode.EventEmitter<boolean>;
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
   private _updateDebounceTimer: NodeJS.Timeout | undefined;
-
-  /**
-   * Age brackets for color gradients (in days)
-   */
-  private static readonly AGE_BRACKETS = [
-    { maxDays: 1, color: 'rgba(100, 200, 100, 0.9)', label: 'today' },
-    { maxDays: 7, color: 'rgba(120, 180, 120, 0.8)', label: 'this week' },
-    { maxDays: 30, color: 'rgba(140, 160, 140, 0.7)', label: 'this month' },
-    { maxDays: 90, color: 'rgba(150, 150, 150, 0.6)', label: 'recent' },
-    { maxDays: 180, color: 'rgba(140, 140, 140, 0.5)', label: 'older' },
-    { maxDays: 365, color: 'rgba(130, 130, 130, 0.4)', label: 'last year' },
-    { maxDays: Infinity, color: 'rgba(120, 120, 120, 0.35)', label: 'ancient' },
-  ];
 
   /**
    * Event fired when the enabled state changes.
@@ -56,6 +51,17 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     this._optionsSource = optionsSource;
     this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
+
+    // Shared decoration type — text style is fixed; background color is
+    // supplied per-instance via DecorationOptions.renderOptions.before.
+    this._sharedDecorationType = vscode.window.createTextEditorDecorationType({
+      before: {
+        contentText: '',
+        width: '200px',
+        textDecoration: 'none; font-size: 11px; font-family: monospace;',
+      },
+      isWholeLine: false,
+    });
 
     // Set up event listeners
     this.setupEventListeners();
@@ -77,34 +83,6 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         })
       );
     }
-  }
-
-  /**
-   * Create a decoration type for a specific age bracket.
-   * Each age bracket gets its own decoration type with appropriate color.
-   *
-   * @param ageKey - The age bracket key
-   * @param color - The color for this age bracket
-   * @returns The decoration type
-   */
-  private getOrCreateDecorationType(
-    ageKey: string,
-    color: string
-  ): vscode.TextEditorDecorationType {
-    if (!this._decorationTypes.has(ageKey)) {
-      const decorationType = vscode.window.createTextEditorDecorationType({
-        gutterIconSize: 'contain',
-        before: {
-          contentText: '',
-          width: '200px',
-          color: color,
-          textDecoration: 'none; font-size: 11px; font-family: monospace;',
-        },
-        isWholeLine: false,
-      });
-      this._decorationTypes.set(ageKey, decorationType);
-    }
-    return this._decorationTypes.get(ageKey)!;
   }
 
   /**
@@ -272,13 +250,42 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
+   * Check whether the active `intellig.blameAnnotationStyle` permits
+   * gutter annotations. Returns `false` when the style is `'off'` or
+   * `'inline'` (gutter-relevant styles are `'gutter'` and `'both'`).
+   *
+   * Exposed for unit testing via the `as unknown as { isAnnotationStyleEnabled(): boolean }`
+   * test-seam pattern used elsewhere in this codebase.
+   */
+  isAnnotationStyleEnabled(): boolean {
+    const style = vscode.workspace
+      .getConfiguration('intellig')
+      .get<string>('blameAnnotationStyle', 'inline');
+    return style === 'gutter' || style === 'both';
+  }
+
+  /**
    * Update gutter blame decorations for all visible lines.
+   *
+   * Computes the file's full oldest↔newest commit timestamp range from all
+   * blamed lines, then interpolates a background heat color per line using
+   * `computeHeatColor`. Matches IntelliJ's ORDER color mode (AnnotateToggleAction
+   * `computeBgColors`) where newer commits get a warmer background.
    *
    * @param editor - The text editor
    */
   private async updateDecorations(editor: vscode.TextEditor): Promise<void> {
+    if (!this._sharedDecorationType) {
+      return;
+    }
+
     // Clear existing decorations first
-    this.clearDecorationsForEditor(editor);
+    editor.setDecorations(this._sharedDecorationType, []);
+
+    // Respect the master annotation style kill-switch.
+    if (!this.isAnnotationStyleEnabled()) {
+      return;
+    }
 
     // Skip if not a file scheme (e.g., output, debug console)
     if (editor.document.uri.scheme !== 'file') {
@@ -291,21 +298,41 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         return;
       }
 
+      // Compute the timestamp range across ALL blame lines in the file so
+      // the gradient is stable while the user scrolls (not relative to the
+      // visible viewport). Matches IntelliJ's per-file color scheme.
+      let oldestMs = Infinity;
+      let newestMs = -Infinity;
+      for (const bl of blameInfo.lines) {
+        if (!bl.commit.startsWith('0000000')) {
+          const t = bl.date.getTime();
+          if (t < oldestMs) {
+            oldestMs = t;
+          }
+          if (t > newestMs) {
+            newestMs = t;
+          }
+        }
+      }
+      // Guard against a file with only uncommitted lines.
+      if (!isFinite(oldestMs)) {
+        return;
+      }
+
       // Get visible ranges
       const visibleRanges = editor.visibleRanges;
       if (visibleRanges.length === 0) {
         return;
       }
 
-      // Group decorations by age bracket for efficient rendering
-      const decorationsByAge: Map<string, vscode.DecorationOptions[]> = new Map();
+      const decorations: vscode.DecorationOptions[] = [];
 
       for (const visibleRange of visibleRanges) {
         const startLine = visibleRange.start.line;
         const endLine = visibleRange.end.line;
 
         for (let line = startLine; line <= endLine; line++) {
-          // Find blame for this line (blame lines are 1-indexed)
+          // Blame lines are 1-indexed
           const blameLine = blameInfo.lines.find((bl) => bl.line === line + 1);
           if (!blameLine || blameLine.commit.startsWith('0000000')) {
             continue;
@@ -317,23 +344,16 @@ export class GutterBlameProvider implements IGutterBlameProvider {
             continue;
           }
 
-          const decoration = this.createDecoration(editor, line, blameLine);
+          // Per-line background color interpolated across the file's age range.
+          const bgColor = computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
+          const decoration = this.createDecoration(line, blameLine, bgColor);
           if (decoration) {
-            const ageKey = this.getAgeBracketKey(blameLine.date);
-            if (!decorationsByAge.has(ageKey)) {
-              decorationsByAge.set(ageKey, []);
-            }
-            decorationsByAge.get(ageKey)!.push(decoration);
+            decorations.push(decoration);
           }
         }
       }
 
-      // Apply decorations by age bracket
-      for (const [ageKey, decorations] of decorationsByAge) {
-        const bracket = this.getAgeBracket(ageKey);
-        const decorationType = this.getOrCreateDecorationType(ageKey, bracket.color);
-        editor.setDecorations(decorationType, decorations);
-      }
+      editor.setDecorations(this._sharedDecorationType, decorations);
     } catch {
       // Silently fail - blame may not be available for this file
     }
@@ -380,15 +400,18 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   /**
    * Create a decoration for a blame annotation in the gutter.
    *
-   * @param _editor - The text editor (unused, kept for API consistency)
+   * The background color is pre-computed by the caller from the file-wide
+   * timestamp range so it reflects IntelliJ's ORDER gradient semantics.
+   *
    * @param line - The line number (0-indexed)
    * @param blameLine - The blame information for the line
+   * @param bgColor - The CSS `rgba()` background color for this line
    * @returns The decoration options, or undefined if not applicable
    */
   private createDecoration(
-    _editor: vscode.TextEditor,
     line: number,
-    blameLine: IBlameLine
+    blameLine: IBlameLine,
+    bgColor: string
   ): vscode.DecorationOptions | undefined {
     // Format the gutter text
     const gutterText = this.formatGutterText(blameLine);
@@ -399,17 +422,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // Get the line range (start of line)
     const range = new vscode.Range(line, 0, line, 0);
 
-    // Get age-based color
-    const ageKey = this.getAgeBracketKey(blameLine.date);
-    const bracket = this.getAgeBracket(ageKey);
-
     return {
       range,
       hoverMessage,
       renderOptions: {
         before: {
           contentText: gutterText,
-          color: bracket.color,
+          // Foreground text color inherits from the theme; background carries
+          // the IntelliJ-style heat gradient interpolated across the file.
+          backgroundColor: bgColor,
         },
       },
     };
@@ -513,38 +534,6 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Get the age bracket key for a date.
-   *
-   * @param date - The commit date
-   * @returns The age bracket key
-   */
-  private getAgeBracketKey(date: Date): string {
-    const now = new Date();
-    const ageInDays = (now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
-
-    for (let i = 0; i < GutterBlameProvider.AGE_BRACKETS.length; i++) {
-      if (ageInDays <= GutterBlameProvider.AGE_BRACKETS[i].maxDays) {
-        return `age_${i}`;
-      }
-    }
-    return `age_${GutterBlameProvider.AGE_BRACKETS.length - 1}`;
-  }
-
-  /**
-   * Get the age bracket configuration for a key.
-   *
-   * @param ageKey - The age bracket key
-   * @returns The age bracket configuration
-   */
-  private getAgeBracket(ageKey: string): (typeof GutterBlameProvider.AGE_BRACKETS)[0] {
-    const index = parseInt(ageKey.replace('age_', ''), 10);
-    return (
-      GutterBlameProvider.AGE_BRACKETS[index] ||
-      GutterBlameProvider.AGE_BRACKETS[GutterBlameProvider.AGE_BRACKETS.length - 1]
-    );
-  }
-
-  /**
    * Format a date as a relative time string.
    *
    * @param date - The date to format
@@ -579,23 +568,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Clear decorations for a specific editor.
-   *
-   * @param editor - The text editor
-   */
-  private clearDecorationsForEditor(editor: vscode.TextEditor): void {
-    for (const decorationType of this._decorationTypes.values()) {
-      editor.setDecorations(decorationType, []);
-    }
-  }
-
-  /**
    * Clear all decorations from all editors.
    */
   private clearDecorations(): void {
+    if (!this._sharedDecorationType) {
+      return;
+    }
     // Clear decorations from all visible editors
     for (const editor of vscode.window.visibleTextEditors) {
-      this.clearDecorationsForEditor(editor);
+      editor.setDecorations(this._sharedDecorationType, []);
     }
 
     this._currentEditor = undefined;
@@ -614,11 +595,10 @@ export class GutterBlameProvider implements IGutterBlameProvider {
 
     this._onDidChangeEnabled.dispose();
 
-    // Dispose all decoration types
-    for (const decorationType of this._decorationTypes.values()) {
-      decorationType.dispose();
+    if (this._sharedDecorationType) {
+      this._sharedDecorationType.dispose();
+      this._sharedDecorationType = undefined;
     }
-    this._decorationTypes.clear();
 
     for (const disposable of this._disposables) {
       disposable.dispose();

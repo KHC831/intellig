@@ -119,7 +119,7 @@ describe('ConfigurationService', () => {
 
       const blameAnnotationStyle = service.get('blameAnnotationStyle');
       assert.ok(
-        ['inline', 'gutter', 'both'].includes(blameAnnotationStyle),
+        ['inline', 'gutter', 'both', 'off'].includes(blameAnnotationStyle),
         `Invalid blameAnnotationStyle: ${blameAnnotationStyle}`
       );
     });

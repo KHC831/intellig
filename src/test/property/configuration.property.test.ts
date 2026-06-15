@@ -30,7 +30,8 @@ describe('Configuration Persistence Property Tests', () => {
   const blameAnnotationStyleArb: fc.Arbitrary<BlameAnnotationStyle> = fc.constantFrom(
     'inline',
     'gutter',
-    'both'
+    'both',
+    'off'
   );
 
   /**

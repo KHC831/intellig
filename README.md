@@ -299,7 +299,7 @@ Enable the IntelliJ preset in settings:
 
 | Setting                                     | Default    | Description                         |
 | ------------------------------------------- | ---------- | ----------------------------------- |
-| `intellig.blameAnnotationStyle`             | `"inline"` | `"inline"`, `"gutter"`, or `"both"` |
+| `intellig.blameAnnotationStyle`             | `"inline"` | `"inline"`, `"gutter"`, `"both"`, or `"off"` |
 | `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`            |
 | `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`            |
 | `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`         |
