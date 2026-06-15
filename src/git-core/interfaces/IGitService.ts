@@ -942,7 +942,13 @@ export interface IGitService {
 
   // Tag operations
   getTags(repo: IRepository): Promise<ITag[]>;
-  createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void>;
+  createTag(
+    repo: IRepository,
+    name: string,
+    message?: string,
+    ref?: string,
+    force?: boolean
+  ): Promise<void>;
   deleteTag(repo: IRepository, name: string): Promise<void>;
   pushTag(repo: IRepository, name: string, remote?: string): Promise<void>;
 

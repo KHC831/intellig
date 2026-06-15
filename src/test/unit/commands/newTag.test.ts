@@ -29,6 +29,7 @@ interface CreateTagCall {
   name: string;
   message: string | undefined;
   ref: string | undefined;
+  force: boolean | undefined;
 }
 
 interface MockHarness {
@@ -36,6 +37,7 @@ interface MockHarness {
   createTagCalls: CreateTagCall[];
   infoMessages: string[];
   errorMessages: string[];
+  warnMessages: string[];
   tagCreatedCalled: number;
   inputResponses: Array<string | undefined>;
   inputIndex: number;
@@ -53,21 +55,33 @@ function createRepo(): IRepository {
 
 function createHarness(
   inputResponses: Array<string | undefined>,
-  options?: { createTagError?: Error }
+  options?: {
+    createTagError?: Error;
+    /** When set, only the NON-forced createTag call throws — a forced retry
+     *  succeeds. Models git rejecting an existing tag until `-f`. */
+    failUntilForced?: boolean;
+    /** Response returned by showWarningMessage (the overwrite prompt). */
+    warnResponse?: string;
+  }
 ): MockHarness {
   const repo = createRepo();
   const createTagCalls: CreateTagCall[] = [];
   const infoMessages: string[] = [];
   const errorMessages: string[] = [];
+  const warnMessages: string[] = [];
 
   const gitService = {
     createTag: async (
       r: IRepository,
       name: string,
       message?: string,
-      ref?: string
+      ref?: string,
+      force?: boolean
     ): Promise<void> => {
-      createTagCalls.push({ repo: r, name, message, ref });
+      createTagCalls.push({ repo: r, name, message, ref, force });
+      if (options?.failUntilForced && !force) {
+        throw new Error("fatal: tag 'v1.0.0' already exists");
+      }
       if (options?.createTagError) {
         throw options.createTagError;
       }
@@ -78,6 +92,7 @@ function createHarness(
     createTagCalls,
     infoMessages,
     errorMessages,
+    warnMessages,
     tagCreatedCalled: 0,
     inputResponses,
     inputIndex: 0,
@@ -96,6 +111,10 @@ function createHarness(
       showErrorMessage: async (msg: string) => {
         errorMessages.push(msg);
         return undefined;
+      },
+      showWarningMessage: async (msg: string) => {
+        warnMessages.push(msg);
+        return options?.warnResponse;
       },
       onTagCreated: () => {
         harness.tagCreatedCalled += 1;
@@ -255,9 +274,9 @@ describe('runNewTagFlow', () => {
     assert.strictEqual(h.tagCreatedCalled, 0);
   });
 
-  it('surfaces errors from createTag via showErrorMessage', async () => {
+  it('surfaces a non-"already exists" error from createTag via showErrorMessage', async () => {
     const h = createHarness(['v1.0.0', ''], {
-      createTagError: new Error('tag already exists'),
+      createTagError: new Error('fatal: not a valid object name'),
     });
     await runNewTagFlow(h.deps, undefined);
 
@@ -265,9 +284,41 @@ describe('runNewTagFlow', () => {
     assert.deepStrictEqual(h.infoMessages, []);
     assert.strictEqual(h.errorMessages.length, 1);
     assert.ok(
-      h.errorMessages[0].includes('tag already exists'),
+      h.errorMessages[0].includes('not a valid object name'),
       `Expected error toast to include stderr; got: ${h.errorMessages[0]}`
     );
     assert.strictEqual(h.tagCreatedCalled, 0, 'onTagCreated should not fire when createTag throws');
+  });
+
+  // #P2 — IntelliJ GitTagDialog Force checkbox, surfaced as an
+  // overwrite-on-conflict prompt (we don't show the checkbox up front;
+  // instead we offer Force only when the tag already exists).
+  describe('force-overwrite on "already exists" (#P2)', () => {
+    it('prompts to overwrite, then retries createTag with force=true on confirm', async () => {
+      const h = createHarness(['v1.0.0', ''], {
+        failUntilForced: true,
+        warnResponse: 'Overwrite',
+      });
+      await runNewTagFlow(h.deps, undefined);
+
+      assert.strictEqual(h.warnMessages.length, 1, 'overwrite prompt shown once');
+      assert.strictEqual(h.createTagCalls.length, 2, 'first attempt + forced retry');
+      assert.strictEqual(h.createTagCalls[0].force ?? false, false, 'first attempt is not forced');
+      assert.strictEqual(h.createTagCalls[1].force, true, 'retry passes force');
+      assert.strictEqual(h.tagCreatedCalled, 1, 'success fires onTagCreated');
+      assert.deepStrictEqual(h.errorMessages, [], 'no error toast on a successful overwrite');
+    });
+
+    it('does NOT force when the user dismisses the overwrite prompt', async () => {
+      const h = createHarness(['v1.0.0', ''], {
+        failUntilForced: true,
+        warnResponse: undefined,
+      });
+      await runNewTagFlow(h.deps, undefined);
+
+      assert.strictEqual(h.warnMessages.length, 1, 'overwrite prompt shown');
+      assert.strictEqual(h.createTagCalls.length, 1, 'no forced retry when declined');
+      assert.strictEqual(h.tagCreatedCalled, 0);
+    });
   });
 });

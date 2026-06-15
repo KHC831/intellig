@@ -138,6 +138,16 @@ export interface INewTagFlowDeps {
   showInformationMessage: (message: string) => Thenable<string | undefined>;
   /** Error-toast helper (`vscode.window.showErrorMessage` shape). */
   showErrorMessage: (message: string) => Thenable<string | undefined>;
+  /**
+   * Modal warning helper (`vscode.window.showWarningMessage` shape) used for
+   * the overwrite-existing-tag prompt. Optional for back-compat; when absent,
+   * the flow surfaces the "already exists" error instead of offering force.
+   */
+  showWarningMessage?: (
+    message: string,
+    options: { modal: boolean },
+    ...items: string[]
+  ) => Thenable<string | undefined>;
   /** Optional refresh hook invoked on success. */
   onTagCreated?: () => void;
 }
@@ -174,8 +184,8 @@ export async function runNewTagFlow(
     return;
   }
 
+  const normalizedMessage = message.trim().length > 0 ? message : undefined;
   try {
-    const normalizedMessage = message.trim().length > 0 ? message : undefined;
     await deps.gitService.createTag(deps.repo, name, normalizedMessage, targetRef);
     void deps.showInformationMessage(`Created tag: ${name}`);
     if (deps.onTagCreated) {
@@ -183,6 +193,29 @@ export async function runNewTagFlow(
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
+    // When the tag already exists, offer to overwrite it (IntelliJ
+    // GitTagDialog's Force checkbox). Re-run createTag with force on confirm.
+    if (/already exists/i.test(msg) && deps.showWarningMessage) {
+      const choice = await deps.showWarningMessage(
+        `Tag '${name}' already exists. Overwrite it?`,
+        { modal: true },
+        'Overwrite'
+      );
+      if (choice !== 'Overwrite') {
+        return;
+      }
+      try {
+        await deps.gitService.createTag(deps.repo, name, normalizedMessage, targetRef, true);
+        void deps.showInformationMessage(`Created tag: ${name}`);
+        if (deps.onTagCreated) {
+          deps.onTagCreated();
+        }
+      } catch (retryError) {
+        const rmsg = retryError instanceof Error ? retryError.message : 'Unknown error';
+        void deps.showErrorMessage(`Failed to create tag: ${sanitizeGitError(rmsg)}`);
+      }
+      return;
+    }
     void deps.showErrorMessage(`Failed to create tag: ${sanitizeGitError(msg)}`);
   }
 }
@@ -207,6 +240,8 @@ export async function runNewTagFlowFromContext(
       showInputBox: (options) => vscode.window.showInputBox(options),
       showInformationMessage: (msg) => vscode.window.showInformationMessage(msg),
       showErrorMessage: (msg) => vscode.window.showErrorMessage(msg),
+      showWarningMessage: (msg, options, ...items) =>
+        vscode.window.showWarningMessage(msg, options, ...items),
       onTagCreated: () => {
         // createTag added a ref that drives the
         // tag tree + log-graph tag chip; reload before refresh so the

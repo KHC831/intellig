@@ -4083,6 +4083,37 @@ describe('GitService - Tag Operations', () => {
       });
     });
 
+    describe('Force overwrite (#P2 — IntelliJ GitTagDialog -f)', () => {
+      it('adds -f for a lightweight tag, before the ref guard', async () => {
+        await gitService.createTag(mockRepo, 'v1.0.0', undefined, undefined, true);
+        assert.deepStrictEqual(mockGitCli.getLastCommand()!.args, [
+          'tag',
+          '-f',
+          '--end-of-options',
+          'v1.0.0',
+        ]);
+      });
+
+      it('adds -f alongside -a/-m for an annotated tag', async () => {
+        await gitService.createTag(mockRepo, 'v2.0.0', 'msg', 'abc123', true);
+        assert.deepStrictEqual(mockGitCli.getLastCommand()!.args, [
+          'tag',
+          '-f',
+          '-a',
+          '-m',
+          'msg',
+          '--end-of-options',
+          'v2.0.0',
+          'abc123',
+        ]);
+      });
+
+      it('omits -f when force is falsy (legacy behavior unchanged)', async () => {
+        await gitService.createTag(mockRepo, 'v1.0.0', undefined, undefined, false);
+        assert.ok(!mockGitCli.getLastCommand()!.args.includes('-f'));
+      });
+    });
+
     describe('Error handling', () => {
       it('should throw error when tag already exists', async () => {
         // Argv shape now `tag --end-of-options v1.0.0`.

@@ -1393,8 +1393,14 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._stashTagHistory.getTags(repo);
   }
 
-  createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void> {
-    return this._stashTagHistory.createTag(repo, name, message, ref);
+  createTag(
+    repo: IRepository,
+    name: string,
+    message?: string,
+    ref?: string,
+    force?: boolean
+  ): Promise<void> {
+    return this._stashTagHistory.createTag(repo, name, message, ref, force);
   }
 
   deleteTag(repo: IRepository, name: string): Promise<void> {

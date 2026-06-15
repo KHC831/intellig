@@ -212,7 +212,13 @@ export class StashTagHistoryOps {
     return parseTags(result.stdout);
   }
 
-  async createTag(repo: IRepository, name: string, message?: string, ref?: string): Promise<void> {
+  async createTag(
+    repo: IRepository,
+    name: string,
+    message?: string,
+    ref?: string,
+    force?: boolean
+  ): Promise<void> {
     // service-boundary reject tag names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per
     // git-check-ref-format). Mirrors the `createBranch` guard.
@@ -221,12 +227,16 @@ export class StashTagHistoryOps {
     }
     // Splice `--end-of-options` between flags and the
     // user-controlled `name` (and optional `ref`). Layouts:
-    //   lightweight: `tag --end-of-options <name> [<ref>]`
-    //   annotated  : `tag -a -m <msg> --end-of-options <name> [<ref>]`
+    //   lightweight: `tag [-f] --end-of-options <name> [<ref>]`
+    //   annotated  : `tag [-f] -a -m <msg> --end-of-options <name> [<ref>]`
     // Verified: `tag -a --end-of-options <name> -m <msg>` FAILS because
     // `-m` becomes a non-option arg after `--end-of-options`. We therefore
-    // place `-m <msg>` BEFORE the separator.
+    // place `-m <msg>` BEFORE the separator. `-f` (force overwrite an
+    // existing tag — IntelliJ GitTagDialog's Force checkbox) leads the flags.
     const flags: string[] = [];
+    if (force) {
+      flags.push('-f');
+    }
     if (message) {
       flags.push('-a', '-m', message);
     }
