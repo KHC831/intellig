@@ -23,6 +23,7 @@ import {
   type UpdateMethod,
 } from '../../sync/updateProject';
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
+import { buildUpdateNotification } from '../../ui-shell/NotificationService';
 
 /**
  * Handle the outcome of the generic `intellig.pull` PullDialog.
@@ -371,20 +372,19 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       ctx.gitToolWindowProvider.refresh();
     }
 
-    // Surface the structured outcome. The full Update Info tab rendering is
-    // wired by the Log/Graph workstream (see UpdateInfoTab.setSummary); this
-    // command emits the headline + a deep-link to open the tool window.
-    const headline = updateInfoHeadline(summary);
-    if (!summary.allClean) {
-      const choice = await vscode.window.showWarningMessage(
-        sanitizeGitError(headline),
-        'Show Update Info'
-      );
-      if (choice === 'Show Update Info') {
-        await vscode.commands.executeCommand('intellig.toolWindow.focusTab', 'updateInfo');
-      }
-    } else {
-      void vscode.window.showInformationMessage(headline);
+    // Surface the structured outcome with a deep-link to the Update Info tab.
+    // The full Update Info tab rendering is wired by the Log/Graph workstream
+    // (see UpdateInfoTab.setSummary); the notification's deep-link focuses that
+    // tab via intellig.toolWindow.focusTab.
+    const notification = buildUpdateNotification(summary.allClean, sanitizeGitError(updateInfoHeadline(summary)));
+    const labels = (notification.deepLinks ?? []).map((l) => l.label);
+    const choice =
+      notification.severity === 'warning'
+        ? await vscode.window.showWarningMessage(notification.message, ...labels)
+        : await vscode.window.showInformationMessage(notification.message, ...labels);
+    const link = (notification.deepLinks ?? []).find((l) => l.label === choice);
+    if (link) {
+      await vscode.commands.executeCommand(link.commandId, ...(link.commandArgs ?? []));
     }
   });
 
