@@ -23,7 +23,11 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { RebaseDialog, IRebaseDialogOptions } from '../../../rebase/RebaseDialog';
+import {
+  RebaseDialog,
+  IRebaseDialogOptions,
+  rebaseInProgressMessage,
+} from '../../../rebase/RebaseDialog';
 import {
   IGitService,
   IRepository,
@@ -367,6 +371,23 @@ describe('RebaseDialog — body structure (#25)', () => {
     assert.ok(body.includes('id="flag-autosquash"'), 'autosquash checkbox');
     // Options start unchecked (off by default — legacy behavior).
     assert.ok(!/id="flag-rebaseMerges"[^>]*checked/.test(body), 'options default to off');
+  });
+});
+
+describe('rebaseInProgressMessage — in-progress guard (#P2)', () => {
+  it('returns a message when the repo is mid-rebase (git4idea blocks here)', () => {
+    const repo = { inProgress: { kind: 'rebasing' } } as unknown as IRepository;
+    const msg = rebaseInProgressMessage(repo);
+    assert.ok(msg && /rebase/i.test(msg), 'a rebasing repo yields a guard message');
+  });
+
+  it('returns undefined for an idle repo', () => {
+    assert.strictEqual(rebaseInProgressMessage({} as IRepository), undefined);
+    assert.strictEqual(
+      rebaseInProgressMessage({ inProgress: { kind: 'merging' } } as unknown as IRepository),
+      undefined,
+      'a non-rebase in-progress op does not block the rebase dialog'
+    );
   });
 });
 

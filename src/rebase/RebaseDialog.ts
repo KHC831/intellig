@@ -510,12 +510,32 @@ ${body}
 }
 
 /**
- * Convenience factory.
+ * git4idea blocks opening the rebase dialog while a rebase is already live
+ * (`GitRebaseDialog` shows a "Rebase already in progress" validation error).
+ * Returns the message to surface when `repo` is mid-rebase, or `undefined`
+ * when it is safe to open. A non-rebase in-progress op (merge, cherry-pick)
+ * does NOT block — only an existing rebase would collide.
+ */
+export function rebaseInProgressMessage(repo: IRepository): string | undefined {
+  return repo.inProgress?.kind === 'rebasing'
+    ? 'A rebase is already in progress. Continue, skip, or abort it before starting a new one.'
+    : undefined;
+}
+
+/**
+ * Convenience factory. Returns `undefined` (after surfacing an error) when a
+ * rebase is already in progress, so the caller never opens a second rebase on
+ * top of a live one.
  */
 export function showRebaseDialog(
   context: vscode.ExtensionContext,
   options: IRebaseDialogOptions
-): RebaseDialog {
+): RebaseDialog | undefined {
+  const blocked = rebaseInProgressMessage(options.repo);
+  if (blocked) {
+    void vscode.window.showErrorMessage(blocked);
+    return undefined;
+  }
   return new RebaseDialog(context, options);
 }
 
