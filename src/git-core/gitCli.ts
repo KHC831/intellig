@@ -2,6 +2,32 @@ import * as vscode from 'vscode';
 import { spawn, SpawnOptions, execFileSync } from 'child_process';
 
 /**
+ * Upper bound (in chars) on each captured stream — stdout, stderr, and the
+ * combined buffer. V8 caps a single string at ~2^29-ish chars; concatenating
+ * git's output past that throws `RangeError: Invalid string length` INSIDE the
+ * socket `data` handler, which is an uncaught async throw that crashes the
+ * extension host (observed on a 2.1 GB checkout). 64 MiB is far below the V8
+ * limit yet larger than any output we meaningfully parse, so capping here is
+ * safe: a runaway command yields a truncated-but-usable result instead of a
+ * crash.
+ */
+export const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Append `chunk` to `existing` without letting the result exceed `cap` chars.
+ * Once the accumulator reaches the cap, further appends are dropped (the head
+ * is the part we care about — error reasons and the start of a log). Pure and
+ * allocation-bounded, so it can never throw RangeError.
+ */
+export function appendCapped(existing: string, chunk: string, cap: number): string {
+  if (existing.length >= cap) {
+    return existing;
+  }
+  const room = cap - existing.length;
+  return chunk.length <= room ? existing + chunk : existing + chunk.slice(0, room);
+}
+
+/**
  * Result of a Git command execution
  */
 export interface IGitCommandResult {
@@ -229,18 +255,30 @@ export class GitCli {
         }, timeout);
       }
 
-      // Capture stdout
+      // Capture stdout / stderr with a hard size cap. Accumulating with a bare
+      // `+=` let a huge stream (e.g. a log/diff on a multi-GB repo) overflow
+      // V8's max string length and throw RangeError inside this handler —
+      // uncaught, it crashed the extension host. appendCapped bounds growth;
+      // the try/catch is belt-and-braces so nothing thrown here ever escapes
+      // as an uncaught async exception.
       process.stdout?.on('data', (data: Buffer) => {
-        const str = data.toString();
-        stdout += str;
-        combined += str;
+        try {
+          const str = data.toString();
+          stdout = appendCapped(stdout, str, MAX_GIT_OUTPUT_BYTES);
+          combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
+        } catch {
+          // Defensive: never let a capture error crash the host.
+        }
       });
 
-      // Capture stderr
       process.stderr?.on('data', (data: Buffer) => {
-        const str = data.toString();
-        stderr += str;
-        combined += str;
+        try {
+          const str = data.toString();
+          stderr = appendCapped(stderr, str, MAX_GIT_OUTPUT_BYTES);
+          combined = appendCapped(combined, str, MAX_GIT_OUTPUT_BYTES);
+        } catch {
+          // Defensive: never let a capture error crash the host.
+        }
       });
 
       // Handle process completion
