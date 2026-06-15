@@ -44,11 +44,25 @@ import { Uri } from '../../mocks/vscode';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/** In-memory Memento so RebaseDialog's option persistence works in tests. */
+function makeMemento(): vscode.Memento {
+  const data = new Map<string, unknown>();
+  return {
+    keys: () => Array.from(data.keys()),
+    get: <T>(key: string, fallback?: T): T =>
+      data.has(key) ? (data.get(key) as T) : (fallback as T),
+    update: (key: string, value: unknown): Thenable<void> => {
+      data.set(key, value);
+      return Promise.resolve();
+    },
+  } as unknown as vscode.Memento;
+}
+
 function makeContext(): vscode.ExtensionContext {
   return {
     subscriptions: [],
-    workspaceState: {} as vscode.Memento,
-    globalState: {} as vscode.Memento,
+    workspaceState: makeMemento(),
+    globalState: makeMemento(),
     extensionPath: '/tmp/ext',
     extensionUri: vscode.Uri.file('/tmp/ext'),
     globalStorageUri: vscode.Uri.file('/tmp/global'),

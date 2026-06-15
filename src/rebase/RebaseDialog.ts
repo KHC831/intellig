@@ -120,6 +120,57 @@ const REBASE_OPTION_CHECKBOXES: ReadonlyArray<{
 const VIEW_TYPE = 'intellig.rebaseDialog';
 const TITLE = 'Rebase';
 
+/** globalState key under which the last-used rebase options are persisted. */
+export const REBASE_OPTIONS_STATE_KEY = 'intellig.rebase.lastOptions';
+
+/** The four persisted rebase-option flags (the dialog checkboxes; no `root`). */
+export interface IPersistedRebaseOptions {
+  rebaseMerges: boolean;
+  keepEmpty: boolean;
+  updateRefs: boolean;
+  autosquash: boolean;
+}
+
+/** Memento subset (ExtensionContext.globalState shape) for option persistence. */
+export interface IRebaseOptionsStore {
+  get<T>(key: string, defaultValue: T): T;
+  update(key: string, value: unknown): Thenable<void>;
+}
+
+const REBASE_OPTIONS_DEFAULT: IPersistedRebaseOptions = {
+  rebaseMerges: false,
+  keepEmpty: false,
+  updateRefs: false,
+  autosquash: false,
+};
+
+/**
+ * Load the user's last-used rebase options (IntelliJ GitRebaseSettings
+ * parity). Coerces each field to a boolean and defaults any missing/invalid
+ * key to false; returns all-false when nothing valid is stored.
+ */
+export function loadRebaseOptions(store: IRebaseOptionsStore): IPersistedRebaseOptions {
+  const raw = store.get<unknown>(REBASE_OPTIONS_STATE_KEY, undefined);
+  if (!raw || typeof raw !== 'object') {
+    return { ...REBASE_OPTIONS_DEFAULT };
+  }
+  const obj = raw as Record<string, unknown>;
+  return {
+    rebaseMerges: Boolean(obj.rebaseMerges),
+    keepEmpty: Boolean(obj.keepEmpty),
+    updateRefs: Boolean(obj.updateRefs),
+    autosquash: Boolean(obj.autosquash),
+  };
+}
+
+/** Persist the chosen rebase options so the next dialog pre-checks them. */
+export function saveRebaseOptions(
+  store: IRebaseOptionsStore,
+  options: IPersistedRebaseOptions
+): Thenable<void> {
+  return store.update(REBASE_OPTIONS_STATE_KEY, options);
+}
+
 export class RebaseDialog extends BaseWebviewPanel {
   private readonly _repo: IRepository;
   private readonly _onto: string;
@@ -232,6 +283,9 @@ export class RebaseDialog extends BaseWebviewPanel {
    * break that). Mirrors {@link MergeDialog}.
    */
   private _getBodyParts(): { body: string; script: string } {
+    // Pre-check the option boxes from the user's last-used rebase options
+    // (IntelliJ GitRebaseSettings persists these per project).
+    const persistedOptions = loadRebaseOptions(this._context.globalState);
     const options = this._branchChoices
       .map((name) => {
         const selected = name === this._onto ? ' selected' : '';
@@ -262,7 +316,7 @@ export class RebaseDialog extends BaseWebviewPanel {
         ${REBASE_OPTION_CHECKBOXES.map(
           (o) => `
         <label class="flag" data-flag="${o.id}">
-          <input type="checkbox" id="flag-${o.id}" />
+          <input type="checkbox" id="flag-${o.id}"${persistedOptions[o.id] ? ' checked' : ''} />
           <span class="label-text">
             <span class="title-line">${escapeHtml(o.title)} <code>${escapeHtml(o.flag)}</code></span>
             <span class="desc">${escapeHtml(o.desc)}</span>
@@ -387,13 +441,15 @@ ${body}
         if (msg.interactive === true) {
           await this._executeInteractive(onto);
         } else {
-          const options: IRebaseOptions = {
+          const persisted: IPersistedRebaseOptions = {
             rebaseMerges: msg.rebaseMerges === true,
             keepEmpty: msg.keepEmpty === true,
             updateRefs: msg.updateRefs === true,
             autosquash: msg.autosquash === true,
           };
-          await this._executeNonInteractive(onto, options);
+          // Remember the chosen options so the next dialog pre-checks them.
+          void saveRebaseOptions(this._context.globalState, persisted);
+          await this._executeNonInteractive(onto, persisted);
         }
         return;
       }
