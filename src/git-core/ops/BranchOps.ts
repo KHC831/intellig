@@ -325,6 +325,12 @@ export class BranchOps {
     if (options?.noCommit) {
       flags.push('--no-commit');
     }
+    if (options?.noVerify) {
+      flags.push('--no-verify');
+    }
+    if (options?.allowUnrelatedHistories) {
+      flags.push('--allow-unrelated-histories');
+    }
     if (options?.message && options.message.length > 0) {
       flags.push('-m', options.message);
     }

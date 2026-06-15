@@ -102,6 +102,13 @@ export function resolveMergeMutex(
 interface IMergeDialogMessage {
   type: 'merge' | 'cancel';
   flags?: Partial<IMergeFlagState>;
+  /**
+   * Independent (non-strategy, non-mutex) flags carried alongside
+   * {@link IMergeFlagState}. Kept off `IMergeFlagState` so the pure mutex
+   * resolver and its tests stay scoped to the strategy flags.
+   */
+  noVerify?: boolean;
+  allowUnrelatedHistories?: boolean;
   message?: string;
 }
 
@@ -237,6 +244,20 @@ export class MergeDialog extends BaseWebviewPanel {
             <span class="desc">Stop before committing so the merge can be reviewed.</span>
           </span>
         </label>
+        <label class="flag" data-flag="noVerify">
+          <input type="checkbox" id="flag-noVerify" />
+          <span class="label-text">
+            <span class="title-line">--no-verify</span>
+            <span class="desc">Bypass the pre-merge and commit-message hooks.</span>
+          </span>
+        </label>
+        <label class="flag" data-flag="allowUnrelatedHistories">
+          <input type="checkbox" id="flag-allowUnrelatedHistories" />
+          <span class="label-text">
+            <span class="title-line">--allow-unrelated-histories</span>
+            <span class="desc">Merge two branches that share no common history.</span>
+          </span>
+        </label>
       </div>
 
       <div class="message-area">
@@ -279,6 +300,8 @@ export class MergeDialog extends BaseWebviewPanel {
           vscode.postMessage({
             type: 'merge',
             flags: readFlags(),
+            noVerify: document.getElementById('flag-noVerify').checked,
+            allowUnrelatedHistories: document.getElementById('flag-allowUnrelatedHistories').checked,
             message: document.getElementById('merge-message').value,
           });
         };
@@ -371,6 +394,8 @@ ${body}
           noFf: flags.noFf || undefined,
           squash: flags.squash || undefined,
           noCommit: flags.noCommit || undefined,
+          noVerify: msg.noVerify === true || undefined,
+          allowUnrelatedHistories: msg.allowUnrelatedHistories === true || undefined,
           message: msg.message && msg.message.trim().length > 0 ? msg.message : undefined,
         };
         await this._executeMerge(options);

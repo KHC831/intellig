@@ -471,6 +471,10 @@ export interface IMergeOptions {
   squash?: boolean;
   /** `--no-commit`. Stage the merge but don't commit. */
   noCommit?: boolean;
+  /** `--no-verify`. Bypass the pre-merge / commit-msg hooks. */
+  noVerify?: boolean;
+  /** `--allow-unrelated-histories`. Merge histories with no common ancestor. */
+  allowUnrelatedHistories?: boolean;
   /** `-m <message>`. Optional merge commit message. */
   message?: string;
 }

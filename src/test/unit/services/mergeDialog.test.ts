@@ -384,6 +384,29 @@ describe('MergeDialog — lifecycle', () => {
     assert.strictEqual(opts?.message, 'Release merge');
   });
 
+  it('threads --no-verify / --allow-unrelated-histories through to options (#P2)', async () => {
+    installMessageTrackers();
+    const h = makeDialog();
+    await h.dialog.simulateMessage({
+      type: 'merge',
+      flags: {},
+      noVerify: true,
+      allowUnrelatedHistories: true,
+    });
+    const opts = h.gitService._mergeCalls[0].options;
+    assert.strictEqual(opts?.noVerify, true);
+    assert.strictEqual(opts?.allowUnrelatedHistories, true);
+  });
+
+  it('omits the independent flags when not set', async () => {
+    installMessageTrackers();
+    const h = makeDialog();
+    await h.dialog.simulateMessage({ type: 'merge', flags: {} });
+    const opts = h.gitService._mergeCalls[0].options;
+    assert.strictEqual(opts?.noVerify, undefined);
+    assert.strictEqual(opts?.allowUnrelatedHistories, undefined);
+  });
+
   it('merge success: info toast fires, dialog disposes, onMergeComplete called', async () => {
     const log = installMessageTrackers();
     const h = makeDialog();

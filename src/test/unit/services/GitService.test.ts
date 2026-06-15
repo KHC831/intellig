@@ -1636,6 +1636,48 @@ describe('GitService - Merge and Rebase Operations', () => {
         assert.strictEqual(result.success, true);
       });
     });
+
+    describe('options: --no-verify / --allow-unrelated-histories (#P2)', () => {
+      function mergeArgs(): string[] {
+        return mockGitCli.executedCommands.find((c) => c.args[0] === 'merge')!.args;
+      }
+
+      it('adds --no-verify before the ref guard', async () => {
+        await gitService.mergeBranch(mockRepo, 'feature', { noVerify: true });
+        assert.deepStrictEqual(mergeArgs(), [
+          'merge',
+          '--no-verify',
+          '--end-of-options',
+          'feature',
+        ]);
+      });
+
+      it('adds --allow-unrelated-histories', async () => {
+        await gitService.mergeBranch(mockRepo, 'feature', { allowUnrelatedHistories: true });
+        assert.deepStrictEqual(mergeArgs(), [
+          'merge',
+          '--allow-unrelated-histories',
+          '--end-of-options',
+          'feature',
+        ]);
+      });
+
+      it('combines them after the strategy flag, in declaration order', async () => {
+        await gitService.mergeBranch(mockRepo, 'feature', {
+          noFf: true,
+          noVerify: true,
+          allowUnrelatedHistories: true,
+        });
+        assert.deepStrictEqual(mergeArgs(), [
+          'merge',
+          '--no-ff',
+          '--no-verify',
+          '--allow-unrelated-histories',
+          '--end-of-options',
+          'feature',
+        ]);
+      });
+    });
   });
 
   describe('rebaseBranch()', () => {
