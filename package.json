@@ -574,6 +574,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "intellig.explorer.addToGitignore",
+        "title": "Add to .gitignore",
+        "category": "IntelliG",
+        "icon": "$(eye-closed)"
+      },
+      {
         "command": "intellig.explorer.compareWithRepoVersion",
         "title": "Compare with the Same Repository Version",
         "category": "IntelliG",
@@ -957,6 +963,10 @@
         {
           "command": "intellig.explorer.unstage",
           "group": "2_add@3"
+        },
+        {
+          "command": "intellig.explorer.addToGitignore",
+          "group": "2_add@4"
         },
         {
           "command": "intellig.explorer.revert",

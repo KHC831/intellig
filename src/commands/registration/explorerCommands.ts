@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
@@ -53,6 +55,49 @@ export function buildCompareWithRepoVersionLeftUri(
 export function buildCompareWithRepoVersionTitle(filePath: string, ref: string = 'HEAD'): string {
   const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
   return `${basename} (${ref} ↔ Working Tree)`;
+}
+
+/**
+ * Compute the `.gitignore` pattern for a file — its repo-root-relative,
+ * POSIX-separated path with a leading `/` so it anchors to that exact file
+ * (matching IntelliJ's GitIgnoreFileActionGroup, which writes the
+ * root-relative path). Returns `undefined` when `fileFsPath` is not inside
+ * `repoRoot`, so the caller never writes a bogus `../` pattern.
+ *
+ * Pure (no fs); both args are absolute filesystem paths. Accepts Windows
+ * back-slash separators and normalizes them to `/`.
+ */
+export function gitignorePatternFor(repoRoot: string, fileFsPath: string): string | undefined {
+  const root = repoRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+  const file = fileFsPath.replace(/\\/g, '/');
+  const prefix = `${root}/`;
+  if (!file.startsWith(prefix)) {
+    return undefined;
+  }
+  const rel = file.slice(prefix.length);
+  return `/${rel}`;
+}
+
+/**
+ * Build the new `.gitignore` contents after appending `pattern`.
+ *
+ * Idempotent: if `pattern` already appears as a non-comment line (ignoring
+ * surrounding whitespace), the existing content is returned unchanged so
+ * repeated "Add to .gitignore" never duplicates a rule. Otherwise the pattern
+ * is appended on its own line, with a separating newline inserted when the
+ * file didn't already end in one. The result is always newline-terminated.
+ *
+ * Pure (no fs).
+ */
+export function buildGitignoreAppendContent(existing: string, pattern: string): string {
+  const alreadyPresent = existing
+    .split('\n')
+    .some((line) => line.trim() === pattern && !line.trim().startsWith('#'));
+  if (alreadyPresent) {
+    return existing;
+  }
+  const needsSeparator = existing.length > 0 && !existing.endsWith('\n');
+  return `${existing}${needsSeparator ? '\n' : ''}${pattern}\n`;
 }
 
 /**
@@ -452,6 +497,61 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
     }
   );
 
+  // Add to .gitignore (IntelliJ GitIgnoreFileActionGroup). Appends the
+  // repo-root-relative path to `<root>/.gitignore`, idempotently.
+  const explorerAddToGitignoreCommand = registerLoggedCommand(
+    'intellig.explorer.addToGitignore',
+    async (fileUri?: vscode.Uri) => {
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const resolvedUri = _resolveExplorerFileUri(fileUri);
+      if (!resolvedUri) {
+        void vscode.window.showErrorMessage('No file selected to add to .gitignore');
+        return;
+      }
+
+      const gitService = ctx.services.gitService;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: resolvedUri.fsPath,
+        pickerTitle: 'Add to .gitignore — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+
+      const pattern = gitignorePatternFor(repo.rootUri.fsPath, resolvedUri.fsPath);
+      if (!pattern) {
+        void vscode.window.showErrorMessage(
+          'Cannot add to .gitignore: the file is outside the repository.'
+        );
+        return;
+      }
+
+      const gitignorePath = path.join(repo.rootUri.fsPath, '.gitignore');
+      try {
+        const existing = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+        const updated = buildGitignoreAppendContent(existing, pattern);
+        if (updated === existing) {
+          void vscode.window.showInformationMessage(`Already in .gitignore: ${pattern}`);
+          return;
+        }
+        fs.writeFileSync(gitignorePath, updated, 'utf8');
+        void vscode.window.showInformationMessage(`Added to .gitignore: ${pattern}`);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.refresh();
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(
+          `Failed to add to .gitignore: ${sanitizeGitError(msg)}`
+        );
+      }
+    }
+  );
+
   // Compare with the Same Repository Version.
   // Opens a diff tab between the working-tree file and its HEAD revision.
   // Reuses the `intellig-git:` URI scheme registered elsewhere in this file,
@@ -585,6 +685,7 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
     explorerUnstageCommand,
     explorerShowDiffCommand,
     explorerAddToVcsCommand,
+    explorerAddToGitignoreCommand,
     explorerCompareWithRepoVersionCommand,
     explorerCreatePatchFromFileCommand,
   ];
