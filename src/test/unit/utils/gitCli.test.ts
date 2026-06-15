@@ -1,5 +1,47 @@
 import * as assert from 'assert';
-import { GitCli, GitCommandError, createGitCli } from '../../../git-core/gitCli';
+import {
+  GitCli,
+  GitCommandError,
+  createGitCli,
+  appendCapped,
+  MAX_GIT_OUTPUT_BYTES,
+} from '../../../git-core/gitCli';
+
+describe('appendCapped — runaway-output guard (crash regression)', () => {
+  // Regression: on a huge repo, `stdout += chunk` grew past V8's max string
+  // length and threw `RangeError: Invalid string length` inside the socket
+  // data handler, crashing the extension host. appendCapped bounds growth so
+  // a chunk can never push the accumulator past the cap.
+  it('appends normally below the cap', () => {
+    assert.strictEqual(appendCapped('foo', 'bar', 100), 'foobar');
+  });
+
+  it('never returns a string longer than the cap', () => {
+    const out = appendCapped('a'.repeat(90), 'b'.repeat(50), 100);
+    assert.ok(out.length <= 100, `expected <= 100, got ${out.length}`);
+  });
+
+  it('keeps the existing head and truncates the incoming overflow', () => {
+    const out = appendCapped('a'.repeat(98), 'bbbb', 100);
+    // Existing 98 a's preserved, only room for 2 more chars.
+    assert.strictEqual(out, 'a'.repeat(98) + 'bb');
+  });
+
+  it('returns the accumulator unchanged once it is already at the cap', () => {
+    const full = 'x'.repeat(100);
+    assert.strictEqual(appendCapped(full, 'more', 100), full);
+  });
+
+  it('handles an oversized single chunk without throwing', () => {
+    // Simulates one giant git data event.
+    const out = appendCapped('', 'z'.repeat(1000), 100);
+    assert.strictEqual(out.length, 100);
+  });
+
+  it('exposes a sane default cap (well under V8 max string length)', () => {
+    assert.ok(MAX_GIT_OUTPUT_BYTES > 0 && MAX_GIT_OUTPUT_BYTES <= 256 * 1024 * 1024);
+  });
+});
 
 describe('Git CLI Utilities', () => {
   let gitCli: GitCli;
