@@ -854,6 +854,61 @@ describe('CommitToolWindow — host behavior', () => {
     tw.dispose();
   });
 
+  // ─── A3: Add-to-VCS wiring fix ──────────────────────────────────────────────
+
+  it('addToVcs dispatches intellig.explorer.addToVcs with an absolute file Uri', async () => {
+    const memento = createMockMemento();
+    const repo = createMockRepo();
+    const changelists: IChangelist[] = [
+      {
+        id: 'def',
+        name: 'Default',
+        isDefault: true,
+        files: [{ path: 'src/new.ts', status: 'untracked', staged: false }],
+      },
+    ];
+    const services = createMockServices(repo, changelists);
+    const tw = new CommitToolWindow(
+      Uri.file('/ext'),
+      services.gitService,
+      services.changelistService,
+      services.shelfService,
+      memento
+    );
+    asTestSurface(tw)._changelists = changelists;
+
+    const executed: Array<{ command: string; args: unknown[] }> = [];
+    writableCommands().executeCommand = (command: string, ...args: unknown[]): Promise<unknown> => {
+      executed.push({ command, args });
+      return Promise.resolve(undefined);
+    };
+
+    await asTestSurface(tw)._handleWebviewMessage({
+      type: 'changelistContextAction',
+      action: 'addToVcs',
+      changelistId: 'def',
+      path: 'src/new.ts',
+    });
+
+    // Pre-fix bug: posted the non-existent `intellig.addToVcs` (no-op).
+    const call = executed.find((e) => e.command === 'intellig.explorer.addToVcs');
+    assert.ok(
+      call,
+      `expected intellig.explorer.addToVcs to fire; got: ${executed.map((e) => e.command).join(', ')}`
+    );
+    assert.ok(!executed.some((e) => e.command === 'intellig.addToVcs'), 'must NOT post the old id');
+    // The argument must be a Uri resolved against the repo root, not the
+    // bare relative string (the command's resolveExplorerFileUri expects a Uri).
+    const arg = call?.args[0] as { fsPath?: string } | undefined;
+    assert.ok(arg && typeof arg.fsPath === 'string', 'expected a Uri argument');
+    assert.ok(
+      arg.fsPath.endsWith('src/new.ts') && arg.fsPath.includes('test-repo'),
+      `expected an absolute repo path, got: ${arg.fsPath}`
+    );
+
+    tw.dispose();
+  });
+
   // ─── SR-8: multi-root resolveRepo ──────────────────────────────────────────
 
   it("commit in a multi-root workspace uses the active editor's repo, not repositories[0]", async () => {

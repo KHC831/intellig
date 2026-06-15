@@ -391,13 +391,19 @@ describe('CommitDialog — recent messages + author + gear', () => {
   });
 
   describe('CommitDialog gear menu', () => {
-    it('renders two items: the disabled stub and the --no-verify toggle', () => {
+    it('renders two items: the before-commit-checks entry and the --no-verify toggle', () => {
       const items = buildGearMenuItems(false);
       assert.strictEqual(items.length, 2);
       assert.strictEqual(items[0].id, 'beforeCommit');
+      // The entry is now functional (no longer a "coming soon" stub) — its
+      // description advertises the cheap checks it previews.
       assert.ok(
-        items[0].description && items[0].description.toLowerCase().includes('coming soon'),
-        `beforeCommit stub should be marked "Coming soon", got: "${items[0].description}"`
+        items[0].description && !items[0].description.toLowerCase().includes('coming soon'),
+        `beforeCommit entry should no longer be a "Coming soon" stub, got: "${items[0].description}"`
+      );
+      assert.ok(
+        items[0].label.toLowerCase().includes('before-commit'),
+        `beforeCommit label should mention before-commit checks, got: "${items[0].label}"`
       );
       assert.strictEqual(items[1].id, 'noVerify');
       assert.ok(items[1].label.includes('--no-verify'));
@@ -445,12 +451,21 @@ describe('CommitDialog — recent messages + author + gear', () => {
       }
     });
 
-    it('selecting "Run before-commit checks" shows the "coming soon" info toast and does not change state', async () => {
+    it('selecting "Run before-commit checks" runs the preview and does not change the --no-verify state', async () => {
       const mem = new InMemoryMemento();
       await mem.update(LAST_NO_VERIFY_STATE_KEY, false);
       const gitService = makeGitService();
       const dialog = createCommitDialog(Uri.file('/tmp/ext'), gitService, mem);
       try {
+        // Prime a repo + a clean (no-conflict) selected file so the preview
+        // can gather context. The gitService stub exposes no `gitCli`, so
+        // the identity check is treated as unresolved (not a false positive)
+        // and the preview reports "checks passed".
+        (dialog as unknown as { _repository: IRepository })._repository = makeRepo();
+        (dialog as unknown as { _stagedFiles: unknown })._stagedFiles = [
+          { path: 'a.ts', status: 'M', staged: true, selected: true },
+        ];
+
         const infoMessages: string[] = [];
         const originalInfo = vscode.window.showInformationMessage;
         (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
@@ -473,9 +488,8 @@ describe('CommitDialog — recent messages + author + gear', () => {
           assert.strictEqual(mem.get(LAST_NO_VERIFY_STATE_KEY), false, 'noVerify unchanged');
           assert.strictEqual(infoMessages.length, 1);
           assert.ok(
-            infoMessages[0].toLowerCase().includes('coming') ||
-              infoMessages[0].toLowerCase().includes('later'),
-            `info toast should signal the stub, got: "${infoMessages[0]}"`
+            infoMessages[0].toLowerCase().includes('passed'),
+            `preview should report checks passed for a clean selection, got: "${infoMessages[0]}"`
           );
         } finally {
           (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =

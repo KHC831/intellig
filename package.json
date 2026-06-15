@@ -1219,8 +1219,8 @@
         },
         "intellig.useCommitToolWindow": {
           "type": "boolean",
-          "default": false,
-          "description": "Experimental — show the IntelliJ-style Commit tool window (Local Changes + Shelf tabs) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog (unchanged from earlier releases)."
+          "default": true,
+          "description": "Show the IntelliJ-style Commit tool window (Local Changes + Shelf tabs, directory grouping, Unversioned Files node, diff preview, before-commit checks) in the IntelliG panel. When disabled, the Ctrl+K / Cmd+K shortcut opens the classic modal Commit dialog instead."
         },
         "intellig.defaultRepo": {
           "type": "string",

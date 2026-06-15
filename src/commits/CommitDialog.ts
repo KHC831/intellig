@@ -16,6 +16,12 @@ import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitTool
 import { generateNonce } from '../utils/webviewNonce';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import {
+  gatherCheckinContext,
+  formatCheckinProblems,
+  runBeforeCommitChecks,
+} from './CheckinChecks';
+import { runCheckinHandlers } from './CheckinHandlers';
 
 /**
  * workspaceState key persisting the gear-menu `--no-verify` toggle so it
@@ -94,6 +100,15 @@ export interface IPerformCommitOptions {
    * in the Commit dialog.
    */
   noVerify?: boolean;
+  /**
+   * Optional changelist id this commit is scoped to. Purely informational
+   * for callers/telemetry — {@link performCommit} maps the *files* to the
+   * index, so the id rides along so callers (and {@link commitChangelist})
+   * can thread the changelist membership without re-deriving it. The actual
+   * index mapping is driven by {@link selectedFiles} vs {@link allFiles},
+   * matching git4idea's `GitCheckinEnvironment` changelist→index mapping.
+   */
+  changelistId?: string;
 }
 
 /**
@@ -202,6 +217,137 @@ export function isValidAuthorFormat(value: string | undefined): boolean {
     return true;
   }
   return AUTHOR_FORMAT_REGEX.test(trimmed);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Changelist → index mapping (git4idea GitCheckinEnvironment parity)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Minimal structural view of a changelist needed to compute a commit plan.
+ *
+ * Declared locally (rather than importing {@link IChangelist}) so this
+ * module stays free of a changelists ↔ commits import cycle. Any object
+ * exposing `id` + a `files` array of `{ path, staged }` satisfies it,
+ * which the real {@link IChangelist} does.
+ */
+export interface IChangelistCommitView {
+  id: string;
+  files: ReadonlyArray<{ path: string; staged?: boolean }>;
+}
+
+/**
+ * The file-level inputs {@link performCommit} needs to commit exactly one
+ * changelist's contents. Pure data — separated from the git execution so the
+ * mapping is unit/property testable without a live {@link IGitService}.
+ */
+export interface IChangelistCommitPlan {
+  /** Paths that belong to the target changelist (the commit's contents). */
+  selectedFiles: string[];
+  /**
+   * Every path known across ALL changelists, with its current staged flag.
+   * Drives {@link performCommit}'s delta stage/unstage so files in OTHER
+   * changelists that happen to be staged get unstaged before the commit.
+   */
+  allFiles: Array<{ path: string; staged: boolean }>;
+}
+
+/**
+ * Compute the {@link IChangelistCommitPlan} for committing only the
+ * changelist identified by {@link targetChangelistId}.
+ *
+ * Mirrors git4idea's `GitCheckinEnvironment.commit` changelist→index
+ * mapping (`GitCheckinEnvironment.kt:339-352,446-498`): the selected
+ * changelist's changes are staged to the index and everything else is left
+ * out. We realise "left out" via {@link performCommit}'s unstage delta — a
+ * file in another changelist that is currently staged is unstaged so the
+ * commit captures the target changelist only.
+ *
+ * The target's files become {@link IChangelistCommitPlan.selectedFiles};
+ * the union of all changelists' files becomes
+ * {@link IChangelistCommitPlan.allFiles}. Paths are de-duplicated, keeping
+ * the first-seen `staged` flag (a path should live in exactly one
+ * changelist post-reconcile, so duplicates are defensive only).
+ *
+ * @param changelists - All changelists for the repo.
+ * @param targetChangelistId - Id of the changelist to commit.
+ * @returns The plan, or `undefined` if the target id is unknown.
+ */
+export function computeChangelistCommitPlan(
+  changelists: ReadonlyArray<IChangelistCommitView>,
+  targetChangelistId: string
+): IChangelistCommitPlan | undefined {
+  const target = changelists.find((cl) => cl.id === targetChangelistId);
+  if (!target) {
+    return undefined;
+  }
+
+  const allFiles: Array<{ path: string; staged: boolean }> = [];
+  const seen = new Set<string>();
+  for (const cl of changelists) {
+    for (const f of cl.files) {
+      if (seen.has(f.path)) {
+        continue;
+      }
+      seen.add(f.path);
+      allFiles.push({ path: f.path, staged: f.staged ?? false });
+    }
+  }
+
+  const selectedFiles = target.files.map((f) => f.path);
+
+  return { selectedFiles, allFiles };
+}
+
+/**
+ * Options for {@link commitChangelist}. Mirrors the optional knobs on
+ * {@link IPerformCommitOptions} (amend/signOff/author/noVerify) so a
+ * changelist-scoped commit has the same expressivity as a free-form one.
+ */
+export interface ICommitChangelistOptions {
+  amend?: boolean;
+  signOff?: boolean;
+  author?: string;
+  noVerify?: boolean;
+}
+
+/**
+ * Commit ONLY the files belonging to a single changelist.
+ *
+ * Computes the changelist→index plan via {@link computeChangelistCommitPlan}
+ * and delegates to {@link performCommit}, which stages the target's files,
+ * unstages anything staged that the target doesn't own, then commits. This
+ * is the executable counterpart to git4idea's per-changelist commit.
+ *
+ * Returns `{ success: false }` (without touching git) when the changelist is
+ * unknown or has no files — there is nothing to commit.
+ */
+export async function commitChangelist(
+  gitService: IGitService,
+  repository: IRepository,
+  changelists: ReadonlyArray<IChangelistCommitView>,
+  targetChangelistId: string,
+  message: string,
+  options: ICommitChangelistOptions = {}
+): Promise<IPerformCommitResult> {
+  const plan = computeChangelistCommitPlan(changelists, targetChangelistId);
+  if (!plan) {
+    return { success: false, error: `Changelist not found: ${targetChangelistId}` };
+  }
+  if (plan.selectedFiles.length === 0) {
+    return { success: false, error: 'Changelist has no files to commit' };
+  }
+
+  return performCommit(gitService, repository, {
+    message,
+    selectedFiles: plan.selectedFiles,
+    allFiles: plan.allFiles,
+    amend: options.amend,
+    signOff: options.signOff,
+    author: options.author,
+    noVerify: options.noVerify,
+    changelistId: targetChangelistId,
+  });
 }
 
 /**
@@ -620,8 +766,33 @@ export class CommitDialog {
       await this._handleToggleNoVerify(!this._noVerify);
       this._updateWebview();
     } else if (picked.id === 'beforeCommit') {
-      void vscode.window.showInformationMessage('Before-commit checks are coming in a later step.');
+      await this._previewBeforeCommitChecks();
     }
+  }
+
+  /**
+   * Run the before-commit checks against the currently-selected files and
+   * report the result without committing. Lets the user preview the checks
+   * from the gear menu (the same checks run automatically at commit time
+   * unless `--no-verify` is on).
+   */
+  private async _previewBeforeCommitChecks(): Promise<void> {
+    if (!this._repository) {
+      return;
+    }
+    const selectedPaths = this._stagedFiles.filter((f) => f.selected).map((f) => f.path);
+    const context = await gatherCheckinContext(this._gitService, this._repository, selectedPaths);
+    const result = runCheckinHandlers(context);
+    if (result.problems.length === 0) {
+      void vscode.window.showInformationMessage('Before-commit checks passed.');
+      return;
+    }
+    void vscode.window.showWarningMessage(
+      result.hasBlockingProblem
+        ? 'Before-commit checks found problems'
+        : 'Before-commit checks found warnings',
+      { modal: true, detail: formatCheckinProblems(result.problems) }
+    );
   }
 
   /**
@@ -668,6 +839,21 @@ export class CommitDialog {
         'Commit failed: invalid author format. Expected "Name <email@example.com>".'
       );
       return;
+    }
+
+    // Run the before-commit checks (user.name / unresolved-merge /
+    // detached-HEAD) unless `--no-verify` is on — `--no-verify` skips both
+    // git's own hooks and these IDE-side checks. A blocking problem the user
+    // declines to override aborts the commit.
+    if (!this._noVerify) {
+      const proceed = await runBeforeCommitChecks(
+        this._gitService,
+        this._repository,
+        selectedFiles
+      );
+      if (!proceed) {
+        return;
+      }
     }
 
     // Delegate to the shared helper so CommitDialog and CommitToolWindow go
@@ -2201,11 +2387,11 @@ export interface IGearMenuItem extends vscode.QuickPickItem {
 /**
  * Build the two gear-menu entries.
  *
- * Entry 1: disabled stub `Run before-commit checks` (marked via
- *   `description: 'Coming soon'` — VS Code has no real "disabled" flag
- *   on QuickPick items, so we signal it in the description and the
- *   handler falls through to an informational toast). Follow-ups will
- *   wire Reformat / Optimize Imports / TODO / inspections.
+ * Entry 1: functional `Run before-commit checks` — previews the cheap
+ *   before-commit checks (user.name / unresolved-merge / detached-HEAD)
+ *   against the selected files without committing. The same checks run
+ *   automatically at commit time unless `--no-verify` is on. Reformat /
+ *   Optimize Imports / TODO / inspection checks remain follow-ups.
  *
  * Entry 2: functional `--no-verify` toggle. The `$(check)` glyph shows
  *   the current state so the user can see whether hooks will be skipped.
@@ -2215,9 +2401,9 @@ export function buildGearMenuItems(noVerify: boolean): IGearMenuItem[] {
     {
       id: 'beforeCommit',
       label: 'Run before-commit checks',
-      description: 'Coming soon',
+      description: 'user.name · unresolved merge · detached HEAD',
       detail:
-        'Reformat / Optimize Imports / TODO / inspections are coming soon. Click for details.',
+        'Preview the cheap before-commit checks against the selected files. These run automatically at commit time unless --no-verify is on.',
     },
     {
       id: 'noVerify',

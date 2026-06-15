@@ -31,7 +31,8 @@ import {
 } from '../changelists/interfaces/IChangelistService';
 import { IShelfItem, IShelfService } from '../shelf/interfaces/IShelfService';
 import { IGitService, IRepository, IStash } from '../git-core/interfaces/IGitService';
-import { performCommit } from './CommitDialog';
+import { performCommit, LAST_NO_VERIFY_STATE_KEY } from './CommitDialog';
+import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
@@ -350,6 +351,8 @@ export interface ICommitToolWebviewMessage {
   targetFiles?: string[];
   /** Newly-selected Shelf-tab filter from the segmented control. */
   filter?: ShelfTabFilter;
+  /** Newly-selected Local Changes grouping mode from the segmented control. */
+  grouping?: ChangesGroupingMode;
   /** Row kind being operated on when `action` targets a Shelf-tab row. */
   rowKind?: 'shelf' | 'stash';
   /** Shelf entry id (when rowKind === 'shelf'). */
@@ -446,6 +449,8 @@ export class CommitToolWindow extends BaseWebviewView {
   private _stashEntries: IStash[] = [];
   /** Active Shelf-tab filter, persisted to workspaceState. */
   private _shelfTabFilter: ShelfTabFilter = 'both';
+  /** Local Changes file-grouping mode, persisted to workspaceState. */
+  private _changesGrouping: ChangesGroupingMode = 'directory';
   private _selectedFiles: Set<string> = new Set();
 
   private readonly _onDidCommit = new vscode.EventEmitter<{
@@ -484,6 +489,16 @@ export class CommitToolWindow extends BaseWebviewView {
     const persistedFilter = this._workspaceState.get<unknown>(SHELF_TAB_FILTER_STATE_KEY, 'both');
     if (isShelfTabFilter(persistedFilter)) {
       this._shelfTabFilter = persistedFilter;
+    }
+
+    // Restore persisted Local Changes grouping mode (defaults to 'directory',
+    // matching IntelliJ's default ChangesGroupingPolicy).
+    const persistedGrouping = this._workspaceState.get<unknown>(
+      CHANGES_GROUPING_STATE_KEY,
+      'directory'
+    );
+    if (isChangesGroupingMode(persistedGrouping)) {
+      this._changesGrouping = persistedGrouping;
     }
 
     // Watch the underlying services so the view updates incrementally.
@@ -586,6 +601,24 @@ export class CommitToolWindow extends BaseWebviewView {
     this._render();
   }
 
+  /** Current Local Changes grouping mode (persisted across sessions). */
+  public getChangesGrouping(): ChangesGroupingMode {
+    return this._changesGrouping;
+  }
+
+  /**
+   * Change the Local Changes grouping mode (Flat / Directory). Persists to
+   * workspaceState + re-renders. `public` so a palette command can toggle it.
+   */
+  public async setChangesGrouping(grouping: ChangesGroupingMode): Promise<void> {
+    if (this._changesGrouping === grouping) {
+      return;
+    }
+    this._changesGrouping = grouping;
+    await this._workspaceState.update(CHANGES_GROUPING_STATE_KEY, grouping);
+    this._render();
+  }
+
   /**
    * Read-only accessor for the recent-messages LRU. Exposed so the legacy
    * {@link CommitDialog} (or future callers) can reuse the same history.
@@ -664,6 +697,11 @@ export class CommitToolWindow extends BaseWebviewView {
           await this.setShelfTabFilter(message.filter);
         }
         break;
+      case 'changesGroupingChange':
+        if (isChangesGroupingMode(message.grouping)) {
+          await this.setChangesGrouping(message.grouping);
+        }
+        break;
       case 'shelfTabContextAction':
         await this._handleShelfTabAction(message);
         break;
@@ -731,12 +769,25 @@ export class CommitToolWindow extends BaseWebviewView {
     // pseudo-unversioned bucket on the host side is considered staged-or-dirty).
     const allFiles = this._flattenFiles();
 
+    // Run the before-commit checks unless `--no-verify` is persisted on
+    // (shared workspaceState key with CommitDialog). `--no-verify` skips
+    // both git's hooks and these IDE-side checks.
+    const noVerify = this._workspaceState.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
+    if (!noVerify) {
+      const proceed = await runBeforeCommitChecks(this._gitService, repo, selected);
+      if (!proceed) {
+        this._postMessage({ type: 'commitDone', success: false });
+        return;
+      }
+    }
+
     const result = await performCommit(this._gitService, repo, {
       message: commitMessage,
       selectedFiles: selected,
       allFiles,
       amend: message.amend ?? this._amend,
       signOff: message.signOff ?? this._signOff,
+      noVerify,
     });
 
     if (!result.success) {
@@ -937,7 +988,18 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'addToVcs':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.addToVcs', message.path);
+          // The registered command is `intellig.explorer.addToVcs`
+          // (explorerCommands.ts). The pre-fix code posted the non-existent
+          // `intellig.addToVcs`, making Add-to-VCS a silent no-op. Fix the
+          // id AND pass a proper file Uri — the command's
+          // `resolveExplorerFileUri` expects a `vscode.Uri`, not the
+          // repo-relative string the webview carries, so we resolve the
+          // changelist path against the repo root first.
+          const repo = await this._resolveRepo();
+          if (repo) {
+            const fileUri = vscode.Uri.joinPath(repo.rootUri, message.path);
+            await vscode.commands.executeCommand('intellig.explorer.addToVcs', fileUri);
+          }
         }
         return;
       case 'showHistory':
@@ -1064,6 +1126,7 @@ export class CommitToolWindow extends BaseWebviewView {
         signOff: this._signOff,
       },
       activeChangelistId: findActiveChangelistId(this._changelists),
+      grouping: this._changesGrouping,
     });
   }
 
@@ -1241,6 +1304,8 @@ export interface IRenderInput {
   shelfTabFilter?: ShelfTabFilter;
   composer: { message: string; amend: boolean; signOff: boolean };
   activeChangelistId?: string;
+  /** Local Changes file-grouping mode. Defaults to `flat` when omitted. */
+  grouping?: ChangesGroupingMode;
 }
 
 /**
@@ -1257,6 +1322,7 @@ export function buildCommitToolWindowBodyParts(input: Omit<IRenderInput, 'cspSou
   script: string;
 } {
   const { activeTab, changelists, shelfItems, composer, activeChangelistId } = input;
+  const grouping: ChangesGroupingMode = input.grouping ?? 'flat';
   // Derive combined entries when not already computed. Callers that skip
   // the field get a shelf-only view (legacy behavior).
   const shelfTabFilter: ShelfTabFilter = input.shelfTabFilter ?? 'shelves';
@@ -1282,7 +1348,7 @@ export function buildCommitToolWindowBodyParts(input: Omit<IRenderInput, 'cspSou
     </div>
   `;
 
-  const localChangesPanel = renderLocalChangesPanel(changelists, activeChangelistId);
+  const localChangesPanel = renderLocalChangesPanel(changelists, activeChangelistId, grouping);
   const shelfPanel = renderShelfTabPanel(shelfTabEntries, shelfTabFilter);
   const composerPanel = renderComposerPanel(composer);
 
@@ -1333,14 +1399,148 @@ ${body}
 </html>`;
 }
 
+/**
+ * How the Local Changes file list is grouped within each changelist.
+ *
+ * IntelliJ's `ChangesGroupingPolicy` supports directory / module / repository
+ * grouping. IntelliG implements:
+ *   - `flat`      — every file as a row showing its full repo-relative path
+ *     (the pre-A4 behaviour).
+ *   - `directory` — files nested under collapsible directory nodes, the
+ *     IntelliJ default. Directory nodes show the directory path; file rows
+ *     show just the basename.
+ *
+ * Module grouping has no VS Code analogue (no module model) and repository
+ * grouping is the multi-root tool-window's job — both are out of scope here.
+ */
+export type ChangesGroupingMode = 'flat' | 'directory';
+
+/** workspaceState key persisting the Local Changes grouping mode. */
+export const CHANGES_GROUPING_STATE_KEY = 'intellig.commitToolWindow.changesGrouping';
+
+/** Type-guard for a persisted grouping value. */
+export function isChangesGroupingMode(value: unknown): value is ChangesGroupingMode {
+  return value === 'flat' || value === 'directory';
+}
+
+/** A node in the directory-grouped file tree. Pure data — unit-tested. */
+export interface IChangesTreeDirNode {
+  /** Directory path relative to the repo root (`''` for repo root). */
+  dir: string;
+  /** Files that live directly in this directory. */
+  files: IFileChange[];
+}
+
+/**
+ * Group a changelist's files into directory buckets, sorted by directory then
+ * filename. Each bucket holds the files that live directly in that directory
+ * (no nested recursion — IntelliJ collapses single-child chains, but a flat
+ * per-directory bucket is the simplest faithful grouping and keeps the render
+ * + tests tractable).
+ *
+ * Pure — exported for unit + snapshot tests.
+ */
+export function groupFilesByDirectory(files: readonly IFileChange[]): IChangesTreeDirNode[] {
+  const byDir = new Map<string, IFileChange[]>();
+  for (const f of files) {
+    const slash = f.path.lastIndexOf('/');
+    const dir = slash === -1 ? '' : f.path.slice(0, slash);
+    const bucket = byDir.get(dir);
+    if (bucket) {
+      bucket.push(f);
+    } else {
+      byDir.set(dir, [f]);
+    }
+  }
+  return Array.from(byDir.entries())
+    .map(([dir, dirFiles]) => ({
+      dir,
+      files: [...dirFiles].sort((a, b) => basename(a.path).localeCompare(basename(b.path))),
+    }))
+    .sort((a, b) => a.dir.localeCompare(b.dir));
+}
+
+/** Last path segment (basename) of a repo-relative path. */
+function basename(p: string): string {
+  const slash = p.lastIndexOf('/');
+  return slash === -1 ? p : p.slice(slash + 1);
+}
+
+/**
+ * Render a single file row. `displayName` controls what the path span shows
+ * (full path in flat mode, basename in directory mode); the `data-path`
+ * attribute always carries the full repo-relative path so host dispatch is
+ * unaffected by the grouping mode.
+ */
+function renderFileRow(f: IFileChange, changelistId: string, displayName: string): string {
+  const statusChar = shortStatusChar(f.status);
+  return `
+            <div class="ctw-file-row" data-path="${escapeHtml(f.path)}" data-changelist="${escapeHtml(changelistId)}">
+              <input type="checkbox" class="ctw-file-check" data-path="${escapeHtml(f.path)}" />
+              <span class="ctw-file-status">${statusChar}</span>
+              <span class="ctw-file-path">${escapeHtml(displayName)}</span>
+            </div>
+          `;
+}
+
+/**
+ * Render the files of one changelist, honoring the grouping mode.
+ */
+function renderChangelistFiles(cl: IChangelist, grouping: ChangesGroupingMode): string {
+  if (grouping === 'directory') {
+    return groupFilesByDirectory(cl.files)
+      .map((node) => {
+        const dirHeader =
+          node.dir.length > 0
+            ? `<div class="ctw-dir-row" data-dir="${escapeHtml(node.dir)}"><span class="ctw-dir-chevron">▾</span><span class="ctw-dir-path">${escapeHtml(node.dir)}</span></div>`
+            : '';
+        const fileRows = node.files.map((f) => renderFileRow(f, cl.id, basename(f.path))).join('');
+        return `<div class="ctw-dir-group">${dirHeader}${fileRows}</div>`;
+      })
+      .join('');
+  }
+  return cl.files.map((f) => renderFileRow(f, cl.id, f.path)).join('');
+}
+
+/**
+ * Split untracked (`untracked`) files out of the changelists into a separate
+ * "Unversioned Files" bucket — IntelliJ renders these under a dedicated
+ * top-level node rather than inside a changelist. Pure; the changelists are
+ * returned with their untracked files removed so a file never renders twice.
+ *
+ * Exported for unit/snapshot tests.
+ */
+export function partitionUnversionedFiles(changelists: readonly IChangelist[]): {
+  changelists: IChangelist[];
+  unversioned: IFileChange[];
+} {
+  const unversioned: IFileChange[] = [];
+  const filtered = changelists.map((cl) => {
+    const tracked: IFileChange[] = [];
+    for (const f of cl.files) {
+      if (f.status === 'untracked') {
+        unversioned.push(f);
+      } else {
+        tracked.push(f);
+      }
+    }
+    return { ...cl, files: tracked };
+  });
+  unversioned.sort((a, b) => a.path.localeCompare(b.path));
+  return { changelists: filtered, unversioned };
+}
+
 function renderLocalChangesPanel(
   changelists: readonly IChangelist[],
-  activeId: string | undefined
+  activeId: string | undefined,
+  grouping: ChangesGroupingMode = 'flat'
 ): string {
+  const groupingToggle = renderGroupingToggle(grouping);
+  const { changelists: tracked, unversioned } = partitionUnversionedFiles(changelists);
   if (changelists.length === 0) {
-    return `<div class="ctw-empty">No uncommitted changes.</div>`;
+    return `${groupingToggle}<div class="ctw-empty">No uncommitted changes.</div>`;
   }
-  const rows = changelists
+  const rows = tracked
     .map((cl) => {
       const isActive = cl.id === activeId;
       const activeSuffix = isActive ? ' <span class="ctw-active-tag">(Active)</span>' : '';
@@ -1352,22 +1552,73 @@ function renderLocalChangesPanel(
           <span class="ctw-count">${fileCount} file${fileCount === 1 ? '' : 's'}</span>
         </div>
       `;
-      const files = cl.files
-        .map((f) => {
-          const statusChar = shortStatusChar(f.status);
-          return `
-            <div class="ctw-file-row" data-path="${escapeHtml(f.path)}" data-changelist="${escapeHtml(cl.id)}">
-              <input type="checkbox" class="ctw-file-check" data-path="${escapeHtml(f.path)}" />
-              <span class="ctw-file-status">${statusChar}</span>
-              <span class="ctw-file-path">${escapeHtml(f.path)}</span>
-            </div>
-          `;
-        })
-        .join('');
+      const files = renderChangelistFiles(cl, grouping);
       return `<div class="ctw-changelist-block">${header}${files}</div>`;
     })
     .join('');
-  return `<div class="ctw-changelist-tree" role="tree">${rows}</div>`;
+  const unversionedBlock = renderUnversionedNode(unversioned, grouping);
+  return `${groupingToggle}<div class="ctw-changelist-tree" role="tree">${rows}${unversionedBlock}</div>${renderDiffPreviewPane()}`;
+}
+
+/**
+ * Render the "Unversioned Files" node (IntelliJ parity). Empty when there are
+ * no untracked files. File rows carry the pseudo-changelist id so the host's
+ * right-click handler offers the Add-to-VCS entry.
+ */
+function renderUnversionedNode(
+  unversioned: readonly IFileChange[],
+  grouping: ChangesGroupingMode
+): string {
+  if (unversioned.length === 0) {
+    return '';
+  }
+  const header = `
+    <div class="ctw-changelist-row ctw-unversioned-row" data-changelist="${escapeHtml(UNVERSIONED_PSEUDO_CHANGELIST_ID)}">
+      <span class="ctw-chevron">▾</span>
+      <span class="ctw-changelist-name">Unversioned Files</span>
+      <span class="ctw-count">${unversioned.length} file${unversioned.length === 1 ? '' : 's'}</span>
+    </div>
+  `;
+  const pseudoCl: IChangelist = {
+    id: UNVERSIONED_PSEUDO_CHANGELIST_ID,
+    name: 'Unversioned Files',
+    isDefault: false,
+    files: [...unversioned],
+  };
+  const files = renderChangelistFiles(pseudoCl, grouping);
+  return `<div class="ctw-changelist-block ctw-unversioned-block">${header}${files}</div>`;
+}
+
+/**
+ * Render the grouping segmented control (Flat / Directory) in the Local
+ * Changes header. Mirrors the Shelf-tab filter control's shape.
+ */
+function renderGroupingToggle(grouping: ChangesGroupingMode): string {
+  const btn = (value: ChangesGroupingMode, label: string): string =>
+    `<button class="ctw-grouping-btn${
+      grouping === value ? ' ctw-grouping-active' : ''
+    }" data-grouping="${value}" aria-pressed="${grouping === value}">${label}</button>`;
+  return `
+    <div class="ctw-grouping" role="radiogroup" aria-label="Group by">
+      <span class="ctw-grouping-label">Group by:</span>
+      ${btn('directory', 'Directory')}
+      ${btn('flat', 'Flat')}
+    </div>
+  `;
+}
+
+/**
+ * Render the (initially empty) diff-preview pane surface. The host posts
+ * `updateDiffPreview` on file selection; the webview script fills this in.
+ * Without this surface the long-posted `updateDiffPreview` message had
+ * nowhere to land (audit gap).
+ */
+function renderDiffPreviewPane(): string {
+  return `
+    <div class="ctw-diff-preview" data-diff-preview>
+      <div class="ctw-diff-preview-empty">Select a file to preview changes</div>
+    </div>
+  `;
 }
 
 /**
@@ -1525,6 +1776,23 @@ function commitToolWindowStyles(): string {
     .ctw-file-row { display: flex; align-items: center; padding: 1px 8px 1px 28px; cursor: pointer; }
     .ctw-file-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
     .ctw-file-status { width: 18px; color: var(--vscode-gitDecoration-modifiedResourceForeground); font-family: var(--vscode-editor-font-family, monospace); }
+    .ctw-grouping { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
+    .ctw-grouping-label { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin-right: 4px; }
+    .ctw-grouping-btn { background: transparent; border: 1px solid transparent; color: inherit; padding: 2px 10px; cursor: pointer; font: inherit; border-radius: 3px; }
+    .ctw-grouping-btn:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.15)); }
+    .ctw-grouping-active { background: var(--vscode-inputOption-activeBackground, rgba(100,150,220,0.25)); border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder, #0078d4)); }
+    .ctw-dir-row { display: flex; align-items: center; padding: 1px 8px 1px 20px; color: var(--vscode-descriptionForeground); font-size: 0.9em; user-select: none; }
+    .ctw-dir-chevron { margin-right: 4px; }
+    .ctw-dir-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ctw-dir-group .ctw-file-row { padding-left: 40px; }
+    .ctw-diff-preview { border-top: 1px solid var(--vscode-panel-border, #3c3c3c); max-height: 40%; overflow: auto; font-family: var(--vscode-editor-font-family, monospace); font-size: 0.92em; }
+    .ctw-diff-preview-empty { padding: 12px; color: var(--vscode-descriptionForeground); text-align: center; }
+    .ctw-diff-preview-head { padding: 4px 8px; font-weight: 600; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
+    .ctw-diff-preview-body { margin: 0; padding: 4px 8px; white-space: pre; }
+    .ctw-diff-hunk-header { color: var(--vscode-descriptionForeground); }
+    .ctw-diff-line { white-space: pre; }
+    .ctw-diff-add { background: var(--vscode-diffEditor-insertedLineBackground, rgba(155,185,85,0.2)); }
+    .ctw-diff-del { background: var(--vscode-diffEditor-removedLineBackground, rgba(255,0,0,0.2)); }
     .ctw-shelf-list { padding: 4px 0; }
     .ctw-shelf-row { display: flex; align-items: center; padding: 4px 8px; cursor: pointer; gap: 6px; }
     .ctw-shelf-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
@@ -1631,6 +1899,16 @@ function commitToolWindowBehaviorScript(): string {
         });
       });
 
+      // Local Changes grouping segmented control (Directory / Flat).
+      document.querySelectorAll('.ctw-grouping-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          const g = btn.getAttribute('data-grouping');
+          if (g === 'flat' || g === 'directory') {
+            vscode.postMessage({ type: 'changesGroupingChange', grouping: g });
+          }
+        });
+      });
+
       // Plain click on a shelf-tab row → selection / preview. For
       // MVP this is a no-op; kept in the dispatcher so it's easy to hook
       // a diff preview when the UX spec grows.
@@ -1704,12 +1982,57 @@ function commitToolWindowBehaviorScript(): string {
         });
       }
 
+      // Render a diff into the preview pane. Builds DOM nodes (no innerHTML
+      // with interpolated content) so a hostile path/line can't inject markup.
+      function renderDiffPreview(pane, path, diff, error) {
+        while (pane.firstChild) pane.removeChild(pane.firstChild);
+        const head = document.createElement('div');
+        head.className = 'ctw-diff-preview-head';
+        head.textContent = path || '';
+        pane.appendChild(head);
+        if (error) {
+          const err = document.createElement('div');
+          err.className = 'ctw-diff-preview-empty';
+          err.textContent = 'Failed to load diff: ' + error;
+          pane.appendChild(err);
+          return;
+        }
+        if (!diff || diff.binary || !diff.hunks || diff.hunks.length === 0) {
+          const note = document.createElement('div');
+          note.className = 'ctw-diff-preview-empty';
+          note.textContent = diff && diff.binary ? 'Binary file' : 'No changes';
+          pane.appendChild(note);
+          return;
+        }
+        const body = document.createElement('pre');
+        body.className = 'ctw-diff-preview-body';
+        (diff.hunks || []).forEach(function (hunk) {
+          const h = document.createElement('div');
+          h.className = 'ctw-diff-hunk-header';
+          h.textContent = hunk.header || '';
+          body.appendChild(h);
+          (hunk.lines || []).forEach(function (line) {
+            const row = document.createElement('div');
+            const t = line.type === 'add' ? 'add' : line.type === 'delete' ? 'del' : 'ctx';
+            row.className = 'ctw-diff-line ctw-diff-' + t;
+            const prefix = t === 'add' ? '+' : t === 'del' ? '-' : ' ';
+            row.textContent = prefix + (line.content != null ? line.content : '');
+            body.appendChild(row);
+          });
+        });
+        pane.appendChild(body);
+      }
+
       window.addEventListener('message', function (ev) {
         const m = ev.data;
         if (!m || typeof m.type !== 'string') return;
         if (m.type === 'updateFileCheckbox' && typeof m.path === 'string') {
           const box = document.querySelector('.ctw-file-check[data-path="' + m.path.replace(/"/g, '\\\\"') + '"]');
           if (box) box.checked = !!m.checked;
+        }
+        if (m.type === 'updateDiffPreview') {
+          const pane = document.querySelector('[data-diff-preview]');
+          if (pane) renderDiffPreview(pane, m.path, m.diff, m.error);
         }
         if (m.type === 'commitDone' && m.success && msgField) {
           msgField.value = '';

@@ -3,6 +3,8 @@ import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { sanitizeGitError } from '../../git-core/gitError';
 import { ChangelistService } from '../../services';
+import { commitChangelist, LAST_NO_VERIFY_STATE_KEY } from '../../commits/CommitDialog';
+import { runBeforeCommitChecks } from '../../commits/CheckinChecks';
 import type { ICommandContext } from './CommandContext';
 
 /**
@@ -197,21 +199,88 @@ export function registerChangelistCommands(ctx: ICommandContext): vscode.Disposa
     }
   );
 
-  // "Commit Only This Changelist" and "Shelve Changelist" are MVP stubs that
-  // surface a friendly message — the full wiring lands in follow-up work
-  // alongside the actual commit/shelve flows consuming the changelist filter.
+  // "Commit Only This Changelist" stages exactly the target changelist's
+  // files (unstaging anything staged that the changelist doesn't own) and
+  // commits them — git4idea's per-changelist commit
+  // (GitCheckinEnvironment changelist→index mapping). The message is
+  // gathered via an input box; before-commit checks run first so the same
+  // safety net as the dialog applies. `--no-verify` is honored from the
+  // persisted commit toggle so hook-bypass behaviour matches the dialog.
   const changelistCommitOnlyCommand = registerLoggedCommand(
     'intellig.changelist.commitOnly',
     async (changelistId?: string) => {
-      if (!changelistId) {
+      if (!ctx.services || !changelistId) {
         return;
       }
-      void vscode.window.showInformationMessage(
-        'Commit Only This Changelist — focuses the Commit tool window with the changelist pre-selected. Full filter arrives with the gear options.'
-      );
-      if (ctx.commitToolWindow) {
-        await ctx.commitToolWindow.show();
+      const repo = await resolveRepo(ctx.services.gitService, {
+        preferActive: true,
+        silent: true,
+      });
+      if (!repo) {
+        void vscode.window.showErrorMessage('No Git repository found');
+        return;
       }
+
+      const service = ctx.services.changelistService;
+      const changelists = service.getChangelists(repo);
+      const target = changelists.find((cl) => cl.id === changelistId);
+      if (!target) {
+        return;
+      }
+      if (target.files.length === 0) {
+        void vscode.window.showInformationMessage(
+          `Changelist '${target.name}' has no changes to commit.`
+        );
+        return;
+      }
+
+      const message = await vscode.window.showInputBox({
+        prompt: `Commit message for '${target.name}' (${target.files.length} file${
+          target.files.length === 1 ? '' : 's'
+        })`,
+        placeHolder: 'Enter commit message…',
+        validateInput: (v) => (v && v.trim() ? undefined : 'Commit message cannot be empty'),
+      });
+      if (!message || !message.trim()) {
+        return;
+      }
+
+      // Run the cheap before-commit checks (user.name, unresolved merge…)
+      // unless the persisted --no-verify toggle bypasses them, mirroring
+      // the dialog's gear-menu behaviour. `--no-verify` skips both git's
+      // own hooks AND these IDE-side checks (same semantics).
+      const noVerify =
+        ctx.context.workspaceState.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
+      if (!noVerify) {
+        const proceed = await runBeforeCommitChecks(
+          ctx.services.gitService,
+          repo,
+          target.files.map((f) => f.path)
+        );
+        if (!proceed) {
+          return;
+        }
+      }
+
+      const result = await commitChangelist(
+        ctx.services.gitService,
+        repo,
+        changelists,
+        changelistId,
+        message.trim(),
+        { noVerify }
+      );
+
+      if (!result.success) {
+        void vscode.window.showErrorMessage(
+          result.error ? `Commit failed: ${sanitizeGitError(result.error)}` : 'Commit failed'
+        );
+        return;
+      }
+
+      void vscode.window.showInformationMessage(
+        `Committed ${(result.files ?? []).length} file(s) from '${target.name}'`
+      );
     }
   );
 
