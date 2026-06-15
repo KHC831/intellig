@@ -736,6 +736,53 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     }
   );
 
+  // Commit and Push — IntelliJ's "Commit and Push…" (Ctrl+Alt+K). IntelliJ
+  // shows a single dialog with a Push checkbox; VS Code's commit surface is a
+  // separate modal, so we chain the two: run the existing commit flow, then
+  // hand off to the Push dialog. We deliberately reuse `intellig.commit` and
+  // `intellig.push` rather than re-implementing either, so this stays a thin
+  // orchestrator over the canonical entry points (no behaviour fork).
+  const commitAndPushCommand = registerLoggedCommand('intellig.commitAndPush', async () => {
+    await vscode.commands.executeCommand('intellig.commit');
+    // The commit dialog resolves whether the user committed or cancelled; we
+    // open Push unconditionally (matching IntelliJ, where dismissing the
+    // commit dialog cancels the whole flow — here the Push dialog is itself
+    // dismissible, so an accidental chain is one Esc away).
+    await vscode.commands.executeCommand('intellig.push');
+  });
+
+  // VCS Operations Popup — IntelliJ's Alt+` quick-list of common VCS actions.
+  // Distinct from the branch popup (Ctrl+Shift+`): this is a flat menu of the
+  // most-used Git operations, each dispatching to its existing command. New
+  // entries are additive; the popup is intentionally a thin command router.
+  const vcsOperationsPopupCommand = registerLoggedCommand(
+    'intellig.vcsOperationsPopup',
+    async () => {
+      interface IVcsOpItem extends vscode.QuickPickItem {
+        commandId: string;
+      }
+      const items: IVcsOpItem[] = [
+        { label: '$(git-commit) Commit…', commandId: 'intellig.commit' },
+        { label: '$(git-commit) Commit and Push…', commandId: 'intellig.commitAndPush' },
+        { label: '$(arrow-up) Push…', commandId: 'intellig.push' },
+        { label: '$(arrow-down) Pull…', commandId: 'intellig.pull' },
+        { label: '$(sync) Fetch', commandId: 'intellig.fetch' },
+        { label: '$(sync) Update Project', commandId: 'intellig.updateProject' },
+        { label: '$(git-branch) Branches…', commandId: 'intellig.showBranchPopup' },
+        { label: '$(history) Show History', commandId: 'intellig.showHistory' },
+        { label: '$(list-unordered) Shelf…', commandId: 'intellig.showShelfList' },
+      ];
+      const picked = await vscode.window.showQuickPick(items, {
+        title: 'VCS Operations',
+        placeHolder: 'Select a Git operation',
+        matchOnDescription: true,
+      });
+      if (picked) {
+        await vscode.commands.executeCommand(picked.commandId);
+      }
+    }
+  );
+
   return [
     openGitToolWindowCommand,
     commitCommand,
@@ -756,5 +803,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     revertFileCommand,
     newTagCommand,
     commitNewTagCommand,
+    commitAndPushCommand,
+    vcsOperationsPopupCommand,
   ];
 }
