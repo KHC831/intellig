@@ -800,6 +800,11 @@ export interface IGitService {
   ): Promise<void>;
   checkout(repo: IRepository, ref: string, options?: ICheckoutOptions): Promise<void>;
   deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void>;
+  /**
+   * List local branches fully merged into `into` (default HEAD), excluding the
+   * current branch — the primitive behind "Clean up merged branches".
+   */
+  getMergedBranches(repo: IRepository, into?: string): Promise<string[]>;
   renameBranch(repo: IRepository, oldName: string, newName: string): Promise<void>;
   /**
    * Set the upstream tracking ref of an existing
