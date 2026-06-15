@@ -3294,6 +3294,49 @@ describe('GitService - Remote Management Operations', () => {
       );
     });
   });
+
+  describe('setRemoteUrl() (#P2 Configure Remotes)', () => {
+    it('executes git remote set-url with the new URL', async () => {
+      await gitService.setRemoteUrl(mockRepo, 'origin', 'https://github.com/user/moved.git');
+      const cmd = mockGitCli.getLastCommand();
+      assert.deepStrictEqual(cmd!.args, [
+        'remote',
+        'set-url',
+        'origin',
+        'https://github.com/user/moved.git',
+      ]);
+      assert.strictEqual((cmd!.options as { cwd: string }).cwd, '/test/repo');
+    });
+
+    it('rejects a remote name that looks like a flag (argv-injection guard)', async () => {
+      await assert.rejects(
+        async () => gitService.setRemoteUrl(mockRepo, '--upload-pack=evil', 'https://x/y.git'),
+        /invalid remote name/i
+      );
+    });
+
+    it('rejects a URL that looks like a flag', async () => {
+      await assert.rejects(
+        async () => gitService.setRemoteUrl(mockRepo, 'origin', '--foo'),
+        /invalid remote url/i
+      );
+    });
+  });
+
+  describe('renameRemote() (#P2 Configure Remotes)', () => {
+    it('executes git remote rename old new', async () => {
+      await gitService.renameRemote(mockRepo, 'origin', 'upstream');
+      const cmd = mockGitCli.getLastCommand();
+      assert.deepStrictEqual(cmd!.args, ['remote', 'rename', 'origin', 'upstream']);
+    });
+
+    it('rejects a flag-like new name', async () => {
+      await assert.rejects(
+        async () => gitService.renameRemote(mockRepo, 'origin', '-x'),
+        /invalid remote name/i
+      );
+    });
+  });
 });
 
 /**

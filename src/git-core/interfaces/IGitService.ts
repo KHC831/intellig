@@ -892,6 +892,10 @@ export interface IGitService {
   getRemotes(repo: IRepository): Promise<IRemote[]>;
   addRemote(repo: IRepository, name: string, url: string): Promise<void>;
   removeRemote(repo: IRepository, name: string): Promise<void>;
+  /** Change a remote's URL (`git remote set-url`). */
+  setRemoteUrl(repo: IRepository, name: string, url: string): Promise<void>;
+  /** Rename a remote (`git remote rename`). */
+  renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void>;
 
   // Stash operations
   stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void>;

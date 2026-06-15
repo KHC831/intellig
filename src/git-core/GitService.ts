@@ -1314,6 +1314,14 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._remoteOps.removeRemote(repo, name);
   }
 
+  setRemoteUrl(repo: IRepository, name: string, url: string): Promise<void> {
+    return this._remoteOps.setRemoteUrl(repo, name, url);
+  }
+
+  renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void> {
+    return this._remoteOps.renameRemote(repo, oldName, newName);
+  }
+
   // ============================================
   // Stash Operations
   // ============================================

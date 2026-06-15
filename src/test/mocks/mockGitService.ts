@@ -87,6 +87,8 @@ export function createMockGitService(
     getRemotes: async () => [],
     addRemote: async () => {},
     removeRemote: async () => {},
+    setRemoteUrl: async () => {},
+    renameRemote: async () => {},
     stash: async () => {},
     stashList: async () => [],
     stashApply: async () => {},

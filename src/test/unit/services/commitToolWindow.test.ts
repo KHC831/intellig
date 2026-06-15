@@ -392,6 +392,8 @@ describe('CommitToolWindow — host behavior', () => {
       getRemotes: notImplemented('getRemotes'),
       addRemote: notImplemented('addRemote'),
       removeRemote: notImplemented('removeRemote'),
+      setRemoteUrl: notImplemented('setRemoteUrl'),
+      renameRemote: notImplemented('renameRemote'),
       stash: notImplemented('stash'),
       stashApply: notImplemented('stashApply'),
       stashPop: notImplemented('stashPop'),

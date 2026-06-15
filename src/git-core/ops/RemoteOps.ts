@@ -281,4 +281,41 @@ export class RemoteOps {
     });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
+
+  /**
+   * Change a remote's fetch URL (`git remote set-url <name> <url>`).
+   * `git remote` has no `--end-of-options`, so a leading-dash guard on both
+   * args is the argv-injection defense (mirrors the branch/stash name guards).
+   */
+  async setRemoteUrl(repo: IRepository, name: string, url: string): Promise<void> {
+    if (!name || name.startsWith('-')) {
+      throw new Error(`Invalid remote name: ${name}`);
+    }
+    if (!url || url.startsWith('-')) {
+      throw new Error(`Invalid remote URL: ${url}`);
+    }
+    await this.ctx.gitCli.exec(['remote', 'set-url', name, url], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  /**
+   * Rename a remote (`git remote rename <old> <new>`). Both names are
+   * leading-dash-guarded against argv injection.
+   */
+  async renameRemote(repo: IRepository, oldName: string, newName: string): Promise<void> {
+    if (!oldName || oldName.startsWith('-')) {
+      throw new Error(`Invalid remote name: ${oldName}`);
+    }
+    if (!newName || newName.startsWith('-')) {
+      throw new Error(`Invalid remote name: ${newName}`);
+    }
+    await this.ctx.gitCli.exec(['remote', 'rename', oldName, newName], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: true,
+    });
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
 }
