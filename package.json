@@ -952,7 +952,38 @@
           "group": "10_external@1"
         }
       ],
-      "view/title": [],
+      "view/title": [
+        {
+          "command": "intellig.updateProject",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@1"
+        },
+        {
+          "command": "intellig.fetch",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@2"
+        },
+        {
+          "command": "intellig.pull",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@3"
+        },
+        {
+          "command": "intellig.push",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@4"
+        },
+        {
+          "command": "intellig.showBranchPopup",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@5"
+        },
+        {
+          "command": "intellig.refresh",
+          "when": "view == intellig.toolWindow",
+          "group": "navigation@6"
+        }
+      ],
       "explorer/context": [
         {
           "submenu": "intellig.explorerSubmenu",
