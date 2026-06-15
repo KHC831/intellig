@@ -1583,6 +1583,7 @@ function renderUnversionedNode(
     id: UNVERSIONED_PSEUDO_CHANGELIST_ID,
     name: 'Unversioned Files',
     isDefault: false,
+    isActive: false,
     files: [...unversioned],
   };
   const files = renderChangelistFiles(pseudoCl, grouping);

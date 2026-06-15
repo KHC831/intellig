@@ -54,6 +54,7 @@ describe('partitionUnversionedFiles', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [file('src/a.ts', 'modified'), file('new.ts', 'untracked')],
       },
     ];
@@ -70,7 +71,7 @@ describe('partitionUnversionedFiles', () => {
 
   it('returns an empty unversioned bucket when nothing is untracked', () => {
     const { unversioned } = partitionUnversionedFiles([
-      { id: 'def', name: 'Default', isDefault: true, files: [file('a.ts')] },
+      { id: 'def', name: 'Default', isDefault: true, isActive: true, files: [file('a.ts')] },
     ]);
     assert.deepStrictEqual(unversioned, []);
   });
@@ -91,6 +92,7 @@ describe('renderCommitToolWindowHtml — grouping + unversioned + diff pane', ()
       id: 'def',
       name: 'Default',
       isDefault: true,
+      isActive: true,
       files: [
         file('src/a.ts', 'modified'),
         file('src/sub/b.ts', 'modified'),

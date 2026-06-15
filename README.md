@@ -5,12 +5,14 @@ IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git 
 ## Features
 
 ### Commits & Changelists
+
 - **Commit Dialog** — structured commit workflow with sign-off, custom author, recent-message history, and issue-link shortcuts
-- **Commit Tool Window** *(opt-in)* — dedicated SCM view with Local Changes + combined Shelf/Stash tab
+- **Commit Tool Window** _(opt-in)_ — dedicated SCM view with Local Changes + combined Shelf/Stash tab
 - **Changelists** — organize pending changes into named lists with descriptions and an active-list indicator
 - **Revert & Drop Selected Changes** — deselect individual files before reverting or dropping
 
 ### Branches, Tags & Log
+
 - **Branch Popup** — sectioned, searchable popup with Recent, Favorites, and contextual action menus
 - **Branch Tree Provider** — local, remote, and tag groups with right-click context menus
 - **Favorites** — star branches for quick access
@@ -20,28 +22,33 @@ IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git 
 - **Branch Comparison** — compare any branch with the current branch or the working tree
 
 ### Push, Pull & Fetch
+
 - **Push Dialog** — force-with-lease as the default safe force, protected-branch guard, multi-repo
 - **Pull Dialog** — `--rebase` / `--ff-only` / `--autostash` flags with automatic conflict handoff
 - **Push All Tags**
 - **Auto Fetch** — configurable scheduler with `fetch.tags` auto-sync and an incoming-commits status-bar badge
 
 ### Merge, Rebase & Cherry-pick
+
 - **Interactive Rebase** — reorder, squash, fixup, edit, reword, and skip commits visually
 - **Merge Dialog** — strategy flags (`--ff-only`, `--no-ff`, `--squash`) with conflict handoff
 - **Three-way Merge View** — accept current / incoming / both, plus apply-all-non-conflicting left/right
 - **Cherry-pick Variants** — standard, without-commit, apply-selected-changes, and apply-files-to-branch
 
 ### Shelf, Stash & Patches
+
 - **Shelf** — shelve and unshelve changes, with silent variants, rename, and import-patches
 - **Stash Context Menu** — branch-from-stash, rename, drop
 - **Apply Patch** — create a patch from local changes or apply any `.patch` / `.diff`
 
 ### Blame & Annotations
+
 - **Inline + Gutter Blame** — configurable annotation style (inline / gutter / both / off)
 - **Blame Options** — Ignore Whitespace, Detect Movements Within File / Across Files, Annotate Previous Revision
 
 ### Integrations
-- **Git Tool Window (tabbed)** *(opt-in)* — Log, History, Update Info, Incoming, Console tabs
+
+- **Git Tool Window (tabbed)** _(opt-in)_ — Log, History, Update Info, Incoming, Console tabs
 - **Explorer & Editor Context Menus** — stage, unstage, revert, diff, show history, open on remote
 - **External Hosting Links** — open commit / compare / branch pages on GitHub, GitLab, or Bitbucket
 - **Status Bar** — current branch + incoming/outgoing commit badge
@@ -51,7 +58,7 @@ IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git 
 
 IntelliG discovers Git repositories in three layered ways and surfaces
 them all together — single-repo workspaces, multi-root workspaces, and
-folders that *contain* nested repos all "just work."
+folders that _contain_ nested repos all "just work."
 
 - **One workspace folder, one repo.** The most common case. The folder
   itself is treated as a repository if it contains a `.git` directory.
@@ -188,27 +195,27 @@ through VS Code's git extension API. The practical implications:
 
 ## Keyboard Shortcuts
 
-| Action                | Default            | IntelliJ Preset       |
-|-----------------------|--------------------|-----------------------|
-| Commit                | Ctrl/Cmd+K         | Ctrl/Cmd+K            |
-| Push                  | Ctrl+Shift+K       | Ctrl+Shift+K          |
-| Pull                  | Ctrl/Cmd+T         | Ctrl/Cmd+T            |
-| Branch Popup          | Ctrl+Shift+`       | Alt+`                 |
-| Git Tool Window       | Alt+9 / Cmd+9      | Alt+9 / Cmd+9         |
-| Commit Tool Window    | Alt+0              | Alt+0                 |
-| Refresh Status        | Ctrl+Shift+R       | Ctrl+Shift+R          |
-| Stage Selected        | Ctrl/Cmd+Alt+A     | Ctrl/Cmd+Alt+A        |
-| Unstage Selected      | Ctrl/Cmd+Alt+Z     | — (chord taken by Revert File; see note below) |
-| Revert File           | —                  | Ctrl/Cmd+Alt+Z        |
-| Shelve Silently       | Ctrl+Shift+H / Cmd+Shift+H | Ctrl+Shift+H / Cmd+Shift+H |
-| Unshelve Silently     | Ctrl/Cmd+Alt+U     | Ctrl/Cmd+Alt+U        |
-| Jump to Commit (Log)  | Ctrl/Cmd+F         | Ctrl/Cmd+F            |
-| Show Blame            | —                  | Ctrl/Cmd+Alt+Shift+A  |
-| Show File History     | —                  | Ctrl/Cmd+H            |
-| Show Shelf List       | —                  | Ctrl/Cmd+Shift+U      |
-| Compare with Current  | —                  | Ctrl/Cmd+D            |
-| Move Files To Changelist | —               | F6                    |
-| Open File from Local Changes | —            | F4                    |
+| Action                       | Default                    | IntelliJ Preset                                |
+| ---------------------------- | -------------------------- | ---------------------------------------------- |
+| Commit                       | Ctrl/Cmd+K                 | Ctrl/Cmd+K                                     |
+| Push                         | Ctrl+Shift+K               | Ctrl+Shift+K                                   |
+| Pull                         | Ctrl/Cmd+T                 | Ctrl/Cmd+T                                     |
+| Branch Popup                 | Ctrl+Shift+`               | Alt+`                                          |
+| Git Tool Window              | Alt+9 / Cmd+9              | Alt+9 / Cmd+9                                  |
+| Commit Tool Window           | Alt+0                      | Alt+0                                          |
+| Refresh Status               | Ctrl+Shift+R               | Ctrl+Shift+R                                   |
+| Stage Selected               | Ctrl/Cmd+Alt+A             | Ctrl/Cmd+Alt+A                                 |
+| Unstage Selected             | Ctrl/Cmd+Alt+Z             | — (chord taken by Revert File; see note below) |
+| Revert File                  | —                          | Ctrl/Cmd+Alt+Z                                 |
+| Shelve Silently              | Ctrl+Shift+H / Cmd+Shift+H | Ctrl+Shift+H / Cmd+Shift+H                     |
+| Unshelve Silently            | Ctrl/Cmd+Alt+U             | Ctrl/Cmd+Alt+U                                 |
+| Jump to Commit (Log)         | Ctrl/Cmd+F                 | Ctrl/Cmd+F                                     |
+| Show Blame                   | —                          | Ctrl/Cmd+Alt+Shift+A                           |
+| Show File History            | —                          | Ctrl/Cmd+H                                     |
+| Show Shelf List              | —                          | Ctrl/Cmd+Shift+U                               |
+| Compare with Current         | —                          | Ctrl/Cmd+D                                     |
+| Move Files To Changelist     | —                          | F6                                             |
+| Open File from Local Changes | —                          | F4                                             |
 
 > **Heads up — `Ctrl/Cmd+Alt+Z` collision under IntelliJ preset.**
 > Both `intellig.unstageSelected` (default keymap) and
@@ -225,13 +232,13 @@ through VS Code's git extension API. The practical implications:
 These bindings are scoped to `activeWebviewPanelId == 'intellig.mergeView'`,
 so they don't collide with anything outside the merge view.
 
-| Action                | Binding |
-|-----------------------|---------|
-| Next Conflict         | Alt+Down |
-| Previous Conflict     | Alt+Up |
-| Accept Current        | Alt+1 |
-| Accept Both           | Alt+2 |
-| Accept Incoming       | Alt+3 |
+| Action            | Binding  |
+| ----------------- | -------- |
+| Next Conflict     | Alt+Down |
+| Previous Conflict | Alt+Up   |
+| Accept Current    | Alt+1    |
+| Accept Both       | Alt+2    |
+| Accept Incoming   | Alt+3    |
 
 ### How to read this table
 
@@ -252,69 +259,69 @@ Enable the IntelliJ preset in settings:
 
 ### Opt-in feature flags
 
-| Setting                            | Default     | Description                                                |
-|------------------------------------|-------------|------------------------------------------------------------|
-| `intellig.useCommitToolWindow`     | `false`     | Show the dedicated Commit tool window in the SCM container |
-| `intellig.useTabbedGitToolWindow`  | `false`     | Use the tabbed Git tool window (Log/History/Incoming/…)    |
-| `intellig.keymapPreset`            | `"default"` | `"default"` or `"intellij"`                                |
-| `intellig.useIntelliJKeymap`       | `false`     | **Deprecated** — superseded by `intellig.keymapPreset`. No longer read by any keybinding's `when` clause; will be removed in a future minor release. |
+| Setting                           | Default     | Description                                                                                                                                          |
+| --------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `intellig.useCommitToolWindow`    | `true`      | Show the IntelliJ-style Commit tool window in the IntelliG panel; disable to use the classic modal Commit dialog                                     |
+| `intellig.useTabbedGitToolWindow` | `false`     | Use the tabbed Git tool window (Log/History/Incoming/…)                                                                                              |
+| `intellig.keymapPreset`           | `"default"` | `"default"` or `"intellij"`                                                                                                                          |
+| `intellig.useIntelliJKeymap`      | `false`     | **Deprecated** — superseded by `intellig.keymapPreset`. No longer read by any keybinding's `when` clause; will be removed in a future minor release. |
 
 ### Multi-repo discovery
 
-| Setting                                 | Default | Description |
-|-----------------------------------------|---------|-------------|
-| `intellig.repositoryScanMaxDepth`       | `1`     | Max depth for nested-repo discovery; `-1` for unlimited |
-| `intellig.repositoryScanIgnoredFolders` | `[]`    | Extra folder basenames to skip during the scan          |
+| Setting                                 | Default | Description                                                     |
+| --------------------------------------- | ------- | --------------------------------------------------------------- |
+| `intellig.repositoryScanMaxDepth`       | `1`     | Max depth for nested-repo discovery; `-1` for unlimited         |
+| `intellig.repositoryScanIgnoredFolders` | `[]`    | Extra folder basenames to skip during the scan                  |
 | `intellig.defaultRepo`                  | `""`    | Preferred repo basename or absolute path when multiple are open |
 
 ### Commit & Push behavior
 
-| Setting                                   | Default                         | Description |
-|-------------------------------------------|---------------------------------|-------------|
-| `intellig.defaultCommitSignOff`           | `false`                         | Add `Signed-off-by` line to commit messages |
-| `intellig.commitAuthor`                   | `""`                            | Optional commit-author override in `Name <email>` format |
-| `intellig.commitMessageTemplate`          | `""`                            | Default commit message template |
-| `intellig.commitMessageIssueLinks`        | `true`                          | Detect issue/PR references and render as clickable links |
-| `intellig.protectedBranches`              | `["main", "master"]`            | Branches that require a confirm before destructive ops |
-| `intellig.pullRebase`                     | `false`                         | Use `--rebase` by default in the Pull dialog |
-| `intellig.autoOpenResolveConflictsDialog` | `true`                          | Open the Resolve Conflicts dialog automatically on conflicts |
+| Setting                                   | Default              | Description                                                  |
+| ----------------------------------------- | -------------------- | ------------------------------------------------------------ |
+| `intellig.defaultCommitSignOff`           | `false`              | Add `Signed-off-by` line to commit messages                  |
+| `intellig.commitAuthor`                   | `""`                 | Optional commit-author override in `Name <email>` format     |
+| `intellig.commitMessageTemplate`          | `""`                 | Default commit message template                              |
+| `intellig.commitMessageIssueLinks`        | `true`               | Detect issue/PR references and render as clickable links     |
+| `intellig.protectedBranches`              | `["main", "master"]` | Branches that require a confirm before destructive ops       |
+| `intellig.pullRebase`                     | `false`              | Use `--rebase` by default in the Pull dialog                 |
+| `intellig.autoOpenResolveConflictsDialog` | `true`               | Open the Resolve Conflicts dialog automatically on conflicts |
 
 ### Fetch & shelf
 
-| Setting                                | Default  | Description                                              |
-|----------------------------------------|----------|----------------------------------------------------------|
-| `intellig.autoFetchEnabled`            | `true`   | Enable periodic background fetch                         |
-| `intellig.autoFetchInterval`           | `180`    | Auto-fetch interval in seconds                           |
-| `intellig.fetchTags`                   | `"auto"` | Tag-fetch policy: `"auto"`, `"all"`, or `"never"`        |
-| `intellig.shelve.removeAppliedFiles`   | `false`  | Remove successfully-applied files from a shelf entry     |
+| Setting                              | Default  | Description                                          |
+| ------------------------------------ | -------- | ---------------------------------------------------- |
+| `intellig.autoFetchEnabled`          | `true`   | Enable periodic background fetch                     |
+| `intellig.autoFetchInterval`         | `180`    | Auto-fetch interval in seconds                       |
+| `intellig.fetchTags`                 | `"auto"` | Tag-fetch policy: `"auto"`, `"all"`, or `"never"`    |
+| `intellig.shelve.removeAppliedFiles` | `false`  | Remove successfully-applied files from a shelf entry |
 
 ### Blame annotations
 
-| Setting                                      | Default    | Description                                  |
-|----------------------------------------------|------------|----------------------------------------------|
-| `intellig.blameAnnotationStyle`              | `"inline"` | `"inline"`, `"gutter"`, or `"both"`          |
-| `intellig.blame.ignoreWhitespace`            | `false`    | Pass `-w` to `git blame`                     |
-| `intellig.blame.detectMovementsWithinFile`   | `false`    | Pass `-M` to `git blame`                     |
-| `intellig.blame.detectMovementsAcrossFiles`  | `false`    | Pass `-C -C` to `git blame`                  |
+| Setting                                     | Default    | Description                         |
+| ------------------------------------------- | ---------- | ----------------------------------- |
+| `intellig.blameAnnotationStyle`             | `"inline"` | `"inline"`, `"gutter"`, or `"both"` |
+| `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`            |
+| `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`            |
+| `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`         |
 
 ### UI polish
 
-| Setting                              | Default    | Description                                              |
-|--------------------------------------|------------|----------------------------------------------------------|
-| `intellig.showStatusBarBranch`       | `true`     | Show current branch + incoming/outgoing badge in the status bar |
-| `intellig.log.highlightCherryPicked` | `true`     | Dim commits already cherry-picked into the current branch |
-| `intellig.modifiedFileColor`         | `"#6897BB"`| Color for modified files (IntelliJ blue)                 |
-| `intellig.addedFileColor`            | `"#629755"`| Color for added files (IntelliJ green)                   |
-| `intellig.deletedFileColor`          | `"#6C6C6C"`| Color for deleted files (IntelliJ gray)                  |
-| `intellig.ignoredFileColor`          | `"#848504"`| Color for ignored files                                  |
-| `intellig.conflictFileColor`         | `"#FF0000"`| Color for conflicted files (red)                         |
+| Setting                              | Default     | Description                                                     |
+| ------------------------------------ | ----------- | --------------------------------------------------------------- |
+| `intellig.showStatusBarBranch`       | `true`      | Show current branch + incoming/outgoing badge in the status bar |
+| `intellig.log.highlightCherryPicked` | `true`      | Dim commits already cherry-picked into the current branch       |
+| `intellig.modifiedFileColor`         | `"#6897BB"` | Color for modified files (IntelliJ blue)                        |
+| `intellig.addedFileColor`            | `"#629755"` | Color for added files (IntelliJ green)                          |
+| `intellig.deletedFileColor`          | `"#6C6C6C"` | Color for deleted files (IntelliJ gray)                         |
+| `intellig.ignoredFileColor`          | `"#848504"` | Color for ignored files                                         |
+| `intellig.conflictFileColor`         | `"#FF0000"` | Color for conflicted files (red)                                |
 
 ### Logging
 
-| Setting                  | Default  | Description                                              |
-|--------------------------|----------|----------------------------------------------------------|
-| `intellig.log.level`     | `"info"` | Minimum severity admitted to the logger (`trace`, `debug`, `info`, `warn`, `error`, `off`). Records below the threshold are dropped; `off` silences the logger entirely. |
-| `intellig.log.console`   | `false`  | Mirror log records to the developer console (visible only in the Extension Development Host) |
+| Setting                | Default  | Description                                                                                                                                                              |
+| ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `intellig.log.level`   | `"info"` | Minimum severity admitted to the logger (`trace`, `debug`, `info`, `warn`, `error`, `off`). Records below the threshold are dropped; `off` silences the logger entirely. |
+| `intellig.log.console` | `false`  | Mirror log records to the developer console (visible only in the Extension Development Host)                                                                             |
 
 ## Feedback & Issues
 
