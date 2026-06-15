@@ -1,0 +1,126 @@
+/**
+ * Unit tests for the before-commit check I/O shell (CheckinChecks.ts):
+ *  - gatherCheckinContext reads user.name/user.email via the gitCli hatch,
+ *    maps committed paths onto working-tree statuses, and detects detached
+ *    HEAD.
+ *  - The unresolved flag fires (no false positive) when the hatch is absent.
+ *  - formatCheckinProblems orders errors before warnings.
+ */
+
+import '../../setup';
+import * as assert from 'assert';
+import { gatherCheckinContext, formatCheckinProblems } from '../../../commits/CheckinChecks';
+import type {
+  IGitService,
+  IRepository,
+  IFileStatus,
+} from '../../../git-core/interfaces/IGitService';
+import { Uri } from '../../mocks/vscode';
+
+function makeRepo(): IRepository {
+  return {
+    rootUri: Uri.file('/test-repo'),
+    state: 'idle',
+    head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+    remotes: [],
+    submodules: [],
+  } as unknown as IRepository;
+}
+
+interface FakeCliConfig {
+  userName?: string;
+  userEmail?: string;
+  detached?: boolean;
+}
+
+/**
+ * Build a gitService stub that exposes a `gitCli` whose `exec` answers the
+ * three queries gatherCheckinContext issues:
+ *   - config --get user.name / user.email
+ *   - symbolic-ref -q HEAD (exit !=0 ⇒ detached)
+ */
+function makeGitServiceWithCli(statuses: IFileStatus[], cfg: FakeCliConfig): IGitService {
+  const exec = async (
+    args: string[]
+  ): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> => {
+    if (args[0] === 'config' && args[2] === 'user.name') {
+      return ok(cfg.userName ?? '');
+    }
+    if (args[0] === 'config' && args[2] === 'user.email') {
+      return ok(cfg.userEmail ?? '');
+    }
+    if (args[0] === 'symbolic-ref') {
+      return cfg.detached
+        ? { exitCode: 1, stdout: '', stderr: 'detached', combined: 'detached' }
+        : ok('refs/heads/main');
+    }
+    return ok('');
+  };
+  const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', combined: stdout });
+  return {
+    getStatus: async () => statuses,
+    gitCli: { exec },
+  } as unknown as IGitService;
+}
+
+describe('gatherCheckinContext', () => {
+  it('reads user.name/user.email and maps committed-path statuses', async () => {
+    const statuses: IFileStatus[] = [
+      { path: 'a.ts', indexStatus: 'M', workTreeStatus: ' ' },
+      { path: 'c.ts', indexStatus: 'U', workTreeStatus: 'U' },
+      { path: 'untouched.ts', indexStatus: 'M', workTreeStatus: ' ' },
+    ];
+    const git = makeGitServiceWithCli(statuses, {
+      userName: 'Kit',
+      userEmail: 'k@e.com',
+    });
+    const ctx = await gatherCheckinContext(git, makeRepo(), ['a.ts', 'c.ts']);
+    assert.strictEqual(ctx.userName, 'Kit');
+    assert.strictEqual(ctx.userEmail, 'k@e.com');
+    assert.strictEqual(ctx.userIdentityResolved, true);
+    assert.strictEqual(ctx.detachedHead, false);
+    // Only committed paths are present; c.ts maps to conflicted.
+    assert.deepStrictEqual(ctx.files.map((f) => `${f.path}:${f.status}`).sort(), [
+      'a.ts:modified',
+      'c.ts:conflicted',
+    ]);
+  });
+
+  it('treats empty user.name as unset', async () => {
+    const git = makeGitServiceWithCli([], { userName: '', userEmail: 'k@e.com' });
+    const ctx = await gatherCheckinContext(git, makeRepo(), []);
+    assert.strictEqual(ctx.userName, undefined);
+    assert.strictEqual(ctx.userIdentityResolved, true);
+  });
+
+  it('detects detached HEAD via symbolic-ref exit code', async () => {
+    const git = makeGitServiceWithCli([], {
+      userName: 'Kit',
+      userEmail: 'k@e.com',
+      detached: true,
+    });
+    const ctx = await gatherCheckinContext(git, makeRepo(), []);
+    assert.strictEqual(ctx.detachedHead, true);
+  });
+
+  it('flags identity unresolved when the gitCli hatch is absent (no false positive)', async () => {
+    const git = {
+      getStatus: async () => [],
+    } as unknown as IGitService;
+    const ctx = await gatherCheckinContext(git, makeRepo(), []);
+    assert.strictEqual(ctx.userIdentityResolved, false);
+  });
+});
+
+describe('formatCheckinProblems', () => {
+  it('orders errors before warnings', () => {
+    const out = formatCheckinProblems([
+      { handlerId: 'w', text: 'a warning', severity: 'warning' },
+      { handlerId: 'e', text: 'an error', severity: 'error' },
+    ]);
+    const errIdx = out.indexOf('an error');
+    const warnIdx = out.indexOf('a warning');
+    assert.ok(errIdx >= 0 && warnIdx >= 0);
+    assert.ok(errIdx < warnIdx, 'errors should be listed before warnings');
+  });
+});

@@ -31,7 +31,8 @@ import {
 } from '../changelists/interfaces/IChangelistService';
 import { IShelfItem, IShelfService } from '../shelf/interfaces/IShelfService';
 import { IGitService, IRepository, IStash } from '../git-core/interfaces/IGitService';
-import { performCommit } from './CommitDialog';
+import { performCommit, LAST_NO_VERIFY_STATE_KEY } from './CommitDialog';
+import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
 import { generateNonce } from '../utils/webviewNonce';
 import { BaseWebviewView } from '../utils/BaseWebviewView';
@@ -731,12 +732,25 @@ export class CommitToolWindow extends BaseWebviewView {
     // pseudo-unversioned bucket on the host side is considered staged-or-dirty).
     const allFiles = this._flattenFiles();
 
+    // Run the before-commit checks unless `--no-verify` is persisted on
+    // (shared workspaceState key with CommitDialog). `--no-verify` skips
+    // both git's hooks and these IDE-side checks.
+    const noVerify = this._workspaceState.get<boolean>(LAST_NO_VERIFY_STATE_KEY, false) ?? false;
+    if (!noVerify) {
+      const proceed = await runBeforeCommitChecks(this._gitService, repo, selected);
+      if (!proceed) {
+        this._postMessage({ type: 'commitDone', success: false });
+        return;
+      }
+    }
+
     const result = await performCommit(this._gitService, repo, {
       message: commitMessage,
       selectedFiles: selected,
       allFiles,
       amend: message.amend ?? this._amend,
       signOff: message.signOff ?? this._signOff,
+      noVerify,
     });
 
     if (!result.success) {
@@ -937,7 +951,18 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'addToVcs':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.addToVcs', message.path);
+          // The registered command is `intellig.explorer.addToVcs`
+          // (explorerCommands.ts). The pre-fix code posted the non-existent
+          // `intellig.addToVcs`, making Add-to-VCS a silent no-op. Fix the
+          // id AND pass a proper file Uri — the command's
+          // `resolveExplorerFileUri` expects a `vscode.Uri`, not the
+          // repo-relative string the webview carries, so we resolve the
+          // changelist path against the repo root first.
+          const repo = await this._resolveRepo();
+          if (repo) {
+            const fileUri = vscode.Uri.joinPath(repo.rootUri, message.path);
+            await vscode.commands.executeCommand('intellig.explorer.addToVcs', fileUri);
+          }
         }
         return;
       case 'showHistory':
