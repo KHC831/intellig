@@ -152,6 +152,8 @@ export interface ICommit {
   commitDate: Date;
   /** GPG/SSH signature status from git log %G? — 'G'|'B'|'U'|'X'|'Y'|'R'|'E'|'N' or undefined */
   gpgStatus?: string;
+  /** Absolute path of the repository root. Set when merging logs from multiple repos (G8). */
+  repoRoot?: string;
 }
 
 /**

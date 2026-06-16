@@ -1263,6 +1263,11 @@
           "default": false,
           "description": "Show a GPG/SSH signature status column in the commit log (G5). Displays a glyph per commit: ✓ valid, ✗ bad/revoked, ⚠ expired/unknown, — missing key, empty for unsigned commits."
         },
+        "intellig.log.showAllRoots": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show commits from all workspace repositories merged into one log. When enabled, a Root column shows the repo basename for each commit (G8)."
+        },
         "intellig.blameAnnotationStyle": {
           "type": "string",
           "enum": [

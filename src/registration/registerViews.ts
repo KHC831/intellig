@@ -469,6 +469,135 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       await loadLogCommitsForRepo(repo, filter);
     };
 
+    // Define the filter shape shared across log-loading helpers (G8).
+    type LogFilter = {
+      branch?: string;
+      author?: string;
+      since?: Date;
+      until?: Date;
+      path?: string;
+      searchText?: string;
+      noMerges?: boolean;
+      firstParent?: boolean;
+      simplifyMerges?: boolean;
+      minParents?: number;
+      maxParents?: number;
+      logRange?: string;
+      searchRegex?: boolean;
+      searchCaseSensitive?: boolean;
+    };
+
+    // Multi-root log loader (G8). When intellig.log.showAllRoots is true AND
+    // more than one repository exists, loads commits from ALL workspace repos
+    // in parallel, tags each with its repoRoot, and merges them sorted newest-first.
+    // Falls back to the single-repo path when only one repo is present.
+    const loadAllRootsLog = async (filter?: LogFilter): Promise<void> => {
+      const showAllRoots = ctx.gitToolWindowProvider?._isShowAllRootsEnabled() ?? false;
+      if (!showAllRoots) {
+        await loadLogCommits(filter);
+        return;
+      }
+
+      const repos = await discoverAllRepositories();
+      if (repos.length <= 1) {
+        await loadLogCommits(filter);
+        return;
+      }
+
+      try {
+        const branchRef = filter?.branch;
+        const logRange = filter?.logRange;
+        // Load up to 200 commits per repo — lower per-repo cap keeps the
+        // merged view snappy while still giving meaningful cross-repo history.
+        const allCommitsArrays = await Promise.all(
+          repos.map(async (repo) => {
+            const commits = await gitService.getLog(repo, {
+              maxCount: 200,
+              all: !branchRef && !logRange,
+              ref: branchRef,
+              logRange,
+              topoOrder: true,
+              author: filter?.author,
+              since: filter?.since,
+              until: filter?.until,
+              path: filter?.path,
+              grep: filter?.searchText,
+              noMerges: filter?.noMerges,
+              firstParent: filter?.firstParent,
+              simplifyMerges: filter?.simplifyMerges,
+              minParents: filter?.minParents,
+              maxParents: filter?.maxParents,
+              regex: filter?.searchRegex,
+              caseSensitive: filter?.searchCaseSensitive,
+            });
+            // Tag each commit with the source repo root path.
+            return commits.map((c) => ({ ...c, repoRoot: repo.rootUri.fsPath }));
+          })
+        );
+
+        // Merge and sort newest-first; cap at 500 for performance.
+        const merged = allCommitsArrays
+          .flat()
+          .sort((a, b) => b.commitDate.getTime() - a.commitDate.getTime())
+          .slice(0, 500);
+
+        // Build combined branch and tag maps from all repos.
+        const combinedBranchMap = new Map<
+          string,
+          Array<{ name: string; type: 'local' | 'remote' }>
+        >();
+        const combinedTagMap = new Map<string, string[]>();
+
+        await Promise.all(
+          repos.map(async (repo) => {
+            try {
+              const branches = await gitService.getBranches(repo);
+              for (const branch of branches) {
+                if (branch.commit && branch.type !== 'tag') {
+                  const existing = combinedBranchMap.get(branch.commit) || [];
+                  existing.push({ name: branch.name, type: branch.type });
+                  combinedBranchMap.set(branch.commit, existing);
+                }
+              }
+            } catch {
+              // Branches are optional for graph rendering
+            }
+            try {
+              const tags = await gitService.getTags(repo);
+              for (const tag of tags) {
+                if (tag.commit) {
+                  const existing = combinedTagMap.get(tag.commit) || [];
+                  existing.push(tag.name);
+                  combinedTagMap.set(tag.commit, existing);
+                }
+              }
+            } catch {
+              // Tags are optional
+            }
+          })
+        );
+
+        // Use the selected repo's HEAD for graph-spine anchoring.
+        const headRepo = ctx.gitToolWindowProvider?.getSelectedRepository() ?? repos[0];
+        const combinedHeadHash = headRepo.head?.commit;
+        const combinedHeadBranchName = headRepo.head?.name?.replace(/^refs\/heads\//, '');
+
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.updateLogState(
+            merged,
+            combinedBranchMap,
+            combinedTagMap,
+            combinedHeadHash,
+            combinedHeadBranchName
+          );
+        }
+      } catch (error) {
+        getLogger()
+          .child({ component: 'extension' })
+          .error('failed to load multi-root git log', error instanceof Error ? error : undefined);
+      }
+    };
+
     // Helper to load all panel data (commits) and update repository list
     const loadAllPanelData = async (): Promise<void> => {
       // Delegate to the exported core so the no-repository wiring (Requirement
@@ -477,10 +606,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       // `setHasRepository(repositories.length > 0)`, which always resolves the
       // transient Loading_State: repo present → leaves Loading, then the graph
       // fills via `loadLogCommits`; no repo → lands in No_Repository_State.
+      // Route through loadAllRootsLog so multi-root mode is respected on the
+      // initial load and every refresh, not just on explicit filter changes.
       await loadAllPanelDataCore({
         discoverAllRepositories,
         provider: ctx.gitToolWindowProvider,
-        loadLogCommits,
+        loadLogCommits: () => loadAllRootsLog(),
       });
     };
 
@@ -502,9 +633,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     });
     ctx.context.subscriptions.push(repoChangeListener);
 
-    // Load commits when log filter changes
+    // Load commits when log filter changes. Routes through loadAllRootsLog so
+    // that when intellig.log.showAllRoots is on, all workspace repos are merged;
+    // when off, loadAllRootsLog delegates back to loadLogCommits (single-repo).
     const filterChangeListener = ctx.gitToolWindowProvider.onDidRequestLogFilter((filter) => {
-      void loadLogCommits(
+      void loadAllRootsLog(
         filter
           ? {
               branch: filter.branch,

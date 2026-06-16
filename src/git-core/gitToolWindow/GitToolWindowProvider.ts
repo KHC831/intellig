@@ -2922,6 +2922,7 @@ ${bodyMarkup}
       hasFocusedBranch,
       branchLabelsFor: (node) => this._getBranchLabelsHtml(node),
       showGpgColumn: this._isShowGpgColumnEnabled(),
+      showRootColumn: this._isShowAllRootsEnabled(),
     });
 
     // Determine if more commits are available for incremental loading
@@ -3555,6 +3556,20 @@ ${bodyMarkup}
     try {
       const config = vscode.workspace.getConfiguration('intellig');
       return config.get<boolean>('log.showGpgColumn', false);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check whether the `intellig.log.showAllRoots` feature flag is enabled.
+   * Default is `false`. When `true` and multiple repositories exist, the log
+   * merges commits from all workspace repos and shows a Root column (G8).
+   */
+  public _isShowAllRootsEnabled(): boolean {
+    try {
+      const config = vscode.workspace.getConfiguration('intellig');
+      return config.get<boolean>('log.showAllRoots', false);
     } catch {
       return false;
     }

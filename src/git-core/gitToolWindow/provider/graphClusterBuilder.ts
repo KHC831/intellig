@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { ICommitNode, isBranchSplit } from '../../commitGraph';
 import { ActiveLaneMap, DEFAULT_GRAPH_CONFIG, renderGraphSvg } from '../../../utils/graphRenderer';
 import { formatCommitDate } from '../../../utils/dateFormat';
@@ -36,6 +37,12 @@ export interface ICommitRowData {
    * Driven by the `intellig.log.showGpgColumn` setting (default false).
    */
   showGpgColumn?: boolean;
+  /**
+   * When true, render the repository "Root" column showing the basename of
+   * each commit's repo root directory (G8 multi-root log parity).
+   * Driven by the `intellig.log.showAllRoots` setting (default false).
+   */
+  showRootColumn?: boolean;
 }
 
 /**
@@ -93,6 +100,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     hasFocusedBranch,
     branchLabelsFor,
     showGpgColumn,
+    showRootColumn,
   } = rowData;
 
   return commitNodes
@@ -184,6 +192,19 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
           : `<span class="log-gpg-status"></span>`;
       }
 
+      // Root column cell — shown when showAllRoots is enabled (G8).
+      // Displays the basename of the repo root so users can identify
+      // which repository each commit belongs to in the merged view.
+      let rootCellHtml = '';
+      if (showRootColumn) {
+        const repoRootPath = (commit as { repoRoot?: string }).repoRoot;
+        if (repoRootPath) {
+          const basename = escapeHtml(path.basename(repoRootPath));
+          const fullPath = escapeHtml(repoRootPath);
+          rootCellHtml = `<span class="log-root-label" title="${fullPath}">${basename}</span>`;
+        }
+      }
+
       const rowClasses = [
         'commit-row',
         isSelected ? 'selected' : '',
@@ -202,6 +223,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
             ${graphSvg}${cherryBadgeHtml}
           </div>
           <div class="commit-info">
+            ${rootCellHtml}
             <div class="commit-title" title="${fullMessage}">${messageSummary}</div>
             <div class="commit-branches">${branchLabelsHtml}</div>
             <span class="commit-author" title="${authorEmail}">${authorName}</span>

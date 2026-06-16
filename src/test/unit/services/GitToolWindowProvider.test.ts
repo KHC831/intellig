@@ -2730,3 +2730,42 @@ describe('pushUpToCommit — commit context menu wiring (Gap B)', () => {
     });
   });
 });
+
+describe('_isShowAllRootsEnabled (G8)', () => {
+  let p: GitToolWindowProvider;
+
+  beforeEach(() => {
+    p = new GitToolWindowProvider(Uri.file('/test/extension'));
+    // Reset the config value between tests so settings don't bleed.
+    setMockConfigValue('intellig', 'log.showAllRoots', undefined);
+  });
+
+  afterEach(() => {
+    p.dispose();
+    setMockConfigValue('intellig', 'log.showAllRoots', undefined);
+  });
+
+  it('returns true when intellig.log.showAllRoots is true', () => {
+    setMockConfigValue('intellig', 'log.showAllRoots', true);
+    const enabled = (
+      p as unknown as { _isShowAllRootsEnabled(): boolean }
+    )._isShowAllRootsEnabled();
+    assert.strictEqual(
+      enabled,
+      true,
+      '_isShowAllRootsEnabled must return true when setting is true'
+    );
+  });
+
+  it('returns false when intellig.log.showAllRoots is false (the default)', () => {
+    setMockConfigValue('intellig', 'log.showAllRoots', false);
+    const enabled = (
+      p as unknown as { _isShowAllRootsEnabled(): boolean }
+    )._isShowAllRootsEnabled();
+    assert.strictEqual(
+      enabled,
+      false,
+      '_isShowAllRootsEnabled must return false when setting is false'
+    );
+  });
+});

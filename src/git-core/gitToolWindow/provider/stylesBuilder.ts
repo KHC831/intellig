@@ -1295,6 +1295,17 @@ export function buildInlineStyles(): string {
         padding: 8px;
       }
 
+      /* Root column (G8) — repo basename shown when intellig.log.showAllRoots is true */
+      .log-root-label {
+        font-size: 10px;
+        opacity: 0.7;
+        max-width: 80px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
       /* GPG/SSH signature column (G5) — shown when intellig.log.showGpgColumn is true */
       .log-gpg-status {
         width: 20px;
