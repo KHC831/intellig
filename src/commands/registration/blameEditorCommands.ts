@@ -212,12 +212,24 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     }
   );
 
-  // Copy Commit Hash command for editor context menu
+  // Copy Commit Hash command for editor context menu.
+  //
+  // `commitHashArg` is supplied when invoked from a blame gutter/inline hover
+  // link; otherwise the commit is resolved from the cursor line's blame.
   const editorCopyCommitHashCommand = registerLoggedCommand(
     'intellig.editor.copyCommitHash',
-    async () => {
+    async (commitHashArg?: unknown) => {
       if (!ctx.services) {
         void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+
+      // Click-through from the blame annotation — the commit is supplied directly.
+      if (typeof commitHashArg === 'string' && commitHashArg.length > 0) {
+        await vscode.env.clipboard.writeText(commitHashArg);
+        void vscode.window.showInformationMessage(
+          `Copied commit hash: ${commitHashArg.substring(0, 7)}`
+        );
         return;
       }
 
@@ -262,111 +274,126 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     }
   );
 
-  // Show Commit command for editor context menu
-  const editorShowCommitCommand = registerLoggedCommand('intellig.editor.showCommit', async () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
-
-    const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor) {
-      void vscode.window.showErrorMessage('No active editor');
-      return;
-    }
-
-    const gitService = ctx.services.gitService;
-    const blameService = ctx.services.blameService;
-    // honor the active-editor file's repo in multi-root workspaces.
-    const repo = await resolveRepo(gitService, {
-      hintRepoPath: activeEditor.document.uri.fsPath,
-      preferActive: true,
-    });
-    if (!repo) {
-      return;
-    }
-    const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-    const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
-
-    try {
-      // Get blame info for the current line
-      const blameLine = await blameService.getBlameForLine(repo, filePath, line);
-
-      if (blameLine.commit.startsWith('0000000')) {
-        void vscode.window.showInformationMessage('This line has not been committed yet');
+  // Show Commit command for editor context menu.
+  //
+  // `commitHashArg` is supplied when the command is invoked from a blame
+  // gutter/inline hover link (the commit travels with the click). When
+  // omitted (context-menu / keybinding invocation), the commit is resolved
+  // from the blame of the line under the cursor.
+  const editorShowCommitCommand = registerLoggedCommand(
+    'intellig.editor.showCommit',
+    async (commitHashArg?: unknown) => {
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
         return;
       }
 
-      // Get full commit details
-      const commit = await gitService.getCommit(repo, blameLine.commit);
-
-      // Get the diff for this commit
-      const diffs = await gitService.getCommitDiff(repo, commit.hash);
-
-      // Show commit details in a quick pick with options
-      const items = [
-        {
-          label: '$(git-commit) View Commit Details',
-          description: `${commit.shortHash} - ${commit.message.substring(0, 40)}`,
-          action: 'details',
-        },
-        {
-          label: '$(files) View Changed Files',
-          description: `${diffs.length} file(s) changed`,
-          action: 'files',
-        },
-        {
-          label: '$(clippy) Copy Commit Hash',
-          description: commit.hash,
-          action: 'copy',
-        },
-      ];
-
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Commit ${commit.shortHash}: ${commit.message.substring(0, 50)}`,
-        title: 'Show Commit',
-      });
-
-      if (selected) {
-        switch (selected.action) {
-          case 'details': {
-            // Show full commit details in an information message
-            const dateStr = commit.authorDate.toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
-            // sanitize-exempt: non-error-data: commit.message + commit.author.name come from `git log`/`git show` output, not git stderr; user-authored content
-            void vscode.window.showInformationMessage(
-              `Commit: ${commit.shortHash}\nAuthor: ${commit.author.name}\nDate: ${dateStr}\n\n${commit.message}`,
-              { modal: true }
-            );
-            break;
-          }
-          case 'files': {
-            // Show changed files in a quick pick
-            const fileItems = diffs.map((d) => ({
-              label: d.path,
-              description: d.status,
-            }));
-            await vscode.window.showQuickPick(fileItems, {
-              placeHolder: `Files changed in ${commit.shortHash}`,
-              title: 'Changed Files',
-            });
-            break;
-          }
-          case 'copy':
-            await vscode.env.clipboard.writeText(commit.hash);
-            void vscode.window.showInformationMessage(`Copied commit hash: ${commit.shortHash}`);
-            break;
-        }
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!activeEditor) {
+        void vscode.window.showErrorMessage('No active editor');
+        return;
       }
-    } catch (error) {
-      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to show commit', error));
+
+      const gitService = ctx.services.gitService;
+      const blameService = ctx.services.blameService;
+      // honor the active-editor file's repo in multi-root workspaces.
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: activeEditor.document.uri.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
+        return;
+      }
+
+      try {
+        let targetHash: string;
+        if (typeof commitHashArg === 'string' && commitHashArg.length > 0) {
+          // Click-through from the blame annotation — use the supplied commit.
+          targetHash = commitHashArg;
+        } else {
+          const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+          const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
+          const blameLine = await blameService.getBlameForLine(repo, filePath, line);
+          if (blameLine.commit.startsWith('0000000')) {
+            void vscode.window.showInformationMessage('This line has not been committed yet');
+            return;
+          }
+          targetHash = blameLine.commit;
+        }
+
+        // Get full commit details
+        const commit = await gitService.getCommit(repo, targetHash);
+
+        // Get the diff for this commit
+        const diffs = await gitService.getCommitDiff(repo, commit.hash);
+
+        // Show commit details in a quick pick with options
+        const items = [
+          {
+            label: '$(git-commit) View Commit Details',
+            description: `${commit.shortHash} - ${commit.message.substring(0, 40)}`,
+            action: 'details',
+          },
+          {
+            label: '$(files) View Changed Files',
+            description: `${diffs.length} file(s) changed`,
+            action: 'files',
+          },
+          {
+            label: '$(clippy) Copy Commit Hash',
+            description: commit.hash,
+            action: 'copy',
+          },
+        ];
+
+        const selected = await vscode.window.showQuickPick(items, {
+          placeHolder: `Commit ${commit.shortHash}: ${commit.message.substring(0, 50)}`,
+          title: 'Show Commit',
+        });
+
+        if (selected) {
+          switch (selected.action) {
+            case 'details': {
+              // Show full commit details in an information message
+              const dateStr = commit.authorDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              // sanitize-exempt: non-error-data: commit.message + commit.author.name come from `git log`/`git show` output, not git stderr; user-authored content
+              void vscode.window.showInformationMessage(
+                `Commit: ${commit.shortHash}\nAuthor: ${commit.author.name}\nDate: ${dateStr}\n\n${commit.message}`,
+                { modal: true }
+              );
+              break;
+            }
+            case 'files': {
+              // Show changed files in a quick pick
+              const fileItems = diffs.map((d) => ({
+                label: d.path,
+                description: d.status,
+              }));
+              await vscode.window.showQuickPick(fileItems, {
+                placeHolder: `Files changed in ${commit.shortHash}`,
+                title: 'Changed Files',
+              });
+              break;
+            }
+            case 'copy':
+              await vscode.env.clipboard.writeText(commit.hash);
+              void vscode.window.showInformationMessage(`Copied commit hash: ${commit.shortHash}`);
+              break;
+          }
+        }
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          formatActionFailureToast('Failed to show commit', error)
+        );
+      }
     }
-  });
+  );
 
   // =========================================================================
   // Blame gutter menu commands.

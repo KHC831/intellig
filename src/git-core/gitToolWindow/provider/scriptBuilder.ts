@@ -537,13 +537,15 @@ export function buildInlineScript(): string {
           const pathInput = document.getElementById('filter-path');
           const sinceInput = document.getElementById('filter-since');
           const untilInput = document.getElementById('filter-until');
+          const noMergesInput = document.getElementById('filter-no-merges');
 
           const filter = {
             searchText: searchInput ? searchInput.value.trim() : '',
             author: authorInput ? authorInput.value.trim() : '',
             path: pathInput ? pathInput.value.trim() : '',
             since: sinceInput && sinceInput.value ? sinceInput.value : null,
-            until: untilInput && untilInput.value ? untilInput.value : null
+            until: untilInput && untilInput.value ? untilInput.value : null,
+            noMerges: noMergesInput ? noMergesInput.checked : false
           };
 
           vscode.postMessage({ 
@@ -558,12 +560,14 @@ export function buildInlineScript(): string {
           const pathInput = document.getElementById('filter-path');
           const sinceInput = document.getElementById('filter-since');
           const untilInput = document.getElementById('filter-until');
+          const noMergesInput = document.getElementById('filter-no-merges');
 
           if (searchInput) searchInput.value = '';
           if (authorInput) authorInput.value = '';
           if (pathInput) pathInput.value = '';
           if (sinceInput) sinceInput.value = '';
           if (untilInput) untilInput.value = '';
+          if (noMergesInput) noMergesInput.checked = false;
 
           vscode.postMessage({
             type: 'applyLogFilter',

@@ -519,14 +519,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // Add action links (click actions)
     md.appendMarkdown(`---\n\n`);
     md.appendMarkdown(
-      `[View Commit](command:intellig.viewCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
+      `[View Commit](command:intellig.editor.showCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
     );
     md.appendMarkdown(
-      `[Copy Hash](command:intellig.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
+      `[Copy Hash](command:intellig.editor.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
     );
     if (blameLine.previousCommit) {
+      // Open the parent commit directly — reuses the same show-commit command.
       md.appendMarkdown(
-        `[Previous Revision](command:intellig.showPreviousRevision?${encodeURIComponent(JSON.stringify({ commit: blameLine.commit, path: '' }))})`
+        `[Previous Revision](command:intellig.editor.showCommit?${encodeURIComponent(JSON.stringify(blameLine.previousCommit))})`
       );
     }
 

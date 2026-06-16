@@ -595,5 +595,25 @@ describe('InlineBlameProvider', () => {
       assert.ok(!md.value.includes('/commit/'), 'no provider URL when repo missing');
       assert.ok(md.value.includes('`abc123d`'), 'plain short hash rendered');
     });
+
+    it('wires View Commit / Copy Hash to registered commands (click-through)', () => {
+      const md = (
+        inlineBlameProvider as unknown as {
+          createHoverMessage: (bl: IBlameLine, repo?: IRepository) => { value: string };
+        }
+      ).createHoverMessage(sampleBlame, undefined);
+      assert.ok(
+        md.value.includes('command:intellig.editor.showCommit?'),
+        `View Commit must invoke the registered show-commit command; got: ${md.value}`
+      );
+      assert.ok(
+        md.value.includes('command:intellig.editor.copyCommitHash?'),
+        `Copy Hash must invoke the registered copy-hash command; got: ${md.value}`
+      );
+      assert.ok(
+        !md.value.includes('command:intellig.viewCommit'),
+        'must not reference the unregistered intellig.viewCommit command'
+      );
+    });
   });
 });

@@ -1519,9 +1519,19 @@ export class GitToolWindowProvider
       if (webviewFilter.until) {
         filter.until = new Date(webviewFilter.until);
       }
+      if (webviewFilter.noMerges) {
+        filter.noMerges = true;
+      }
 
       // Check if filter is empty
-      if (!filter.searchText && !filter.author && !filter.path && !filter.since && !filter.until) {
+      if (
+        !filter.searchText &&
+        !filter.author &&
+        !filter.path &&
+        !filter.since &&
+        !filter.until &&
+        !filter.noMerges
+      ) {
         filter = undefined;
       }
     }
@@ -2906,6 +2916,7 @@ ${bodyMarkup}
     const path = this._escapeHtml(filter?.path ?? '');
     const since = this._toDateInputValue(filter?.since);
     const until = this._toDateInputValue(filter?.until);
+    const noMerges = filter?.noMerges === true;
     const active = filter !== undefined;
 
     return `
@@ -2935,6 +2946,11 @@ ${bodyMarkup}
             <div class="log-filter-group log-filter-group-date">
               <label class="log-filter-label" for="filter-until">Until</label>
               <input type="date" id="filter-until" class="log-filter-input log-filter-date" data-action="filterKeydown" value="${until}" />
+            </div>
+            <div class="log-filter-group log-filter-group-check">
+              <label class="log-filter-check-label" for="filter-no-merges">
+                <input type="checkbox" id="filter-no-merges" class="log-filter-check"${noMerges ? ' checked' : ''} /> No Merges
+              </label>
             </div>
           </div>
           <div class="log-filter-actions">
@@ -3381,6 +3397,7 @@ interface IWebviewLogFilter {
   path?: string;
   since?: string | null;
   until?: string | null;
+  noMerges?: boolean;
 }
 
 /**

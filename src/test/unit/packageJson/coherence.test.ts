@@ -316,4 +316,38 @@ describe('package.json coherence', () => {
       '\n' + describeViolations('ascii-ellipsis', violations)
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Invariant 8: dialog/input-opening commands end with a Unicode ellipsis.
+  //
+  // VS Code + IntelliJ (git4idea action.Git.CreateNewBranch.text = "New
+  // Branch…") suffix "…" on commands that open a dialog/picker before acting.
+  // The "New Branch" family all opens the New Branch dialog, so every entry
+  // must carry the ellipsis — one of them shipped without it.
+  // -------------------------------------------------------------------------
+  it('every New Branch dialog-opener title ends with "…"', () => {
+    const newBranchOpeners = [
+      'intellig.branch.newBranchFrom',
+      'intellig.tag.newBranchFrom',
+      'intellig.commit.newBranch',
+    ];
+    const cmds = pkg.contributes?.commands ?? [];
+    const violations: string[] = [];
+
+    for (const id of newBranchOpeners) {
+      const cmd = cmds.find((c) => c.command === id);
+      assert.ok(cmd, `expected command '${id}' to be declared`);
+      if (cmd && typeof cmd.title === 'string' && !cmd.title.endsWith('…')) {
+        violations.push(
+          `command '${id}' title "${cmd.title}" opens the New Branch dialog but lacks "…"`
+        );
+      }
+    }
+
+    assert.strictEqual(
+      violations.length,
+      0,
+      '\n' + describeViolations('missing-ellipsis', violations)
+    );
+  });
 });

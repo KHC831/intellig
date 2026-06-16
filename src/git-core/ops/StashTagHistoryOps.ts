@@ -309,6 +309,10 @@ export class StashTagHistoryOps {
     if (options?.grep) {
       args.push(`--grep=${options.grep}`);
     }
+    if (options?.noMerges) {
+      // Exclude merge commits — IntelliJ's VCS-log "No Merges" filter.
+      args.push('--no-merges');
+    }
     if (options?.all) {
       args.push('--exclude=refs/stash', '--all');
     }

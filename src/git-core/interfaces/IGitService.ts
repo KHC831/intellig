@@ -413,6 +413,12 @@ export interface ILogOptions {
    */
   ref?: string;
   /**
+   * Exclude merge commits (`git log --no-merges`). Mirrors IntelliJ's
+   * VCS-log "No Merges" filter. A static flag with no user input, so it is
+   * spliced as a plain argument.
+   */
+  noMerges?: boolean;
+  /**
    * Force `git log --topo-order`. Default (false) leaves git's default
    * date-driven ordering, which is wrong for graph rendering after
    * history-rewrites (rebase, squash, cherry-pick) — committer dates

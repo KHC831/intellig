@@ -3,7 +3,28 @@ import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { BranchPopup, createBranchComparisonView } from '../../services';
 import { getIncomingOutgoingFetcher } from '../../branches/BranchPopup';
+import type { IBranch } from '../../git-core/interfaces/IGitService';
 import type { ICommandContext } from './CommandContext';
+
+/** A merge-source quick-pick row carrying the branch to merge from. */
+export interface IMergeBranchPickItem extends vscode.QuickPickItem {
+  branchName: string;
+}
+
+/**
+ * Build the quick-pick rows for the top-level "Merge…" command (IntelliJ
+ * `Git.Merge`). Offers local and remote branches as merge sources and drops
+ * the current (HEAD) branch — a branch cannot be merged into itself — and
+ * tags, which are not merge sources in git4idea's Merge dialog.
+ */
+export function buildMergeBranchPickItems(branches: readonly IBranch[]): IMergeBranchPickItem[] {
+  return branches
+    .filter((b) => b.type !== 'tag' && !b.isHead)
+    .map((b) => ({
+      label: `${b.type === 'remote' ? '$(cloud)' : '$(git-branch)'} ${b.name}`,
+      branchName: b.name,
+    }));
+}
 
 /**
  * Branch-popup + branch-comparison command handlers extracted verbatim from
@@ -101,5 +122,39 @@ export function registerBranchCommands(ctx: ICommandContext): vscode.Disposable[
     await ctx.branchComparisonView.compareWithRemote(repo);
   });
 
-  return [branchPopupCommand, compareWithBranchCommand, compareWithRemoteCommand];
+  // Top-level "Merge…" command (IntelliJ Git.Merge): pick a branch and merge
+  // it into the current one via the shared Merge Dialog, which owns option
+  // selection (ff-only / no-ff / squash / -m) and conflict handoff. The branch
+  // name reaches git through GitService.mergeBranch's `buildGitArgs` splice.
+  const mergeFromCommand = registerLoggedCommand('intellig.mergeFrom', async () => {
+    if (!ctx.services) {
+      void vscode.window.showErrorMessage('Extension services not initialized');
+      return;
+    }
+
+    const gitService = ctx.services.gitService;
+    const repo = await resolveRepo(gitService, { preferActive: true });
+    if (!repo) {
+      return;
+    }
+
+    const branches = await gitService.getBranches(repo);
+    const items = buildMergeBranchPickItems(branches);
+    if (items.length === 0) {
+      void vscode.window.showInformationMessage('No other branches to merge from.');
+      return;
+    }
+
+    const selected = await vscode.window.showQuickPick(items, {
+      title: 'Merge',
+      placeHolder: 'Select a branch to merge into the current branch',
+    });
+    if (!selected) {
+      return;
+    }
+
+    ctx.openMergeDialog({ repo, sourceBranch: selected.branchName });
+  });
+
+  return [branchPopupCommand, compareWithBranchCommand, compareWithRemoteCommand, mergeFromCommand];
 }

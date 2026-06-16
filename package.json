@@ -198,6 +198,12 @@
         "icon": "$(git-branch)"
       },
       {
+        "command": "intellig.mergeFrom",
+        "title": "Merge…",
+        "category": "IntelliG",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "intellig.refresh",
         "title": "Refresh",
         "category": "IntelliG",
@@ -233,7 +239,7 @@
       },
       {
         "command": "intellig.branch.newBranchFrom",
-        "title": "New Branch from Here",
+        "title": "New Branch from Here…",
         "category": "IntelliG"
       },
       {
@@ -992,6 +998,11 @@
           "command": "intellig.refresh",
           "when": "view == intellig.toolWindow",
           "group": "navigation@6"
+        },
+        {
+          "command": "intellig.mergeFrom",
+          "when": "view == intellig.toolWindow",
+          "group": "1_modify@1"
         }
       ],
       "explorer/context": [

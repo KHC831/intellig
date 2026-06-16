@@ -474,10 +474,10 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     // Add action links
     md.appendMarkdown(`---\n\n`);
     md.appendMarkdown(
-      `[View Commit](command:intellig.viewCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
+      `[View Commit](command:intellig.editor.showCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
     );
     md.appendMarkdown(
-      `[Copy Hash](command:intellig.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
+      `[Copy Hash](command:intellig.editor.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
     );
     if (providerLink) {
       md.appendMarkdown(` | [Open on Host](${providerLink})`);

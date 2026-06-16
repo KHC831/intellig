@@ -250,7 +250,14 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // `wireRepositorySelection(...)`.
     const loadLogCommitsForRepo = async (
       repo: IRepository,
-      filter?: { author?: string; since?: Date; until?: Date; path?: string; searchText?: string }
+      filter?: {
+        author?: string;
+        since?: Date;
+        until?: Date;
+        path?: string;
+        searchText?: string;
+        noMerges?: boolean;
+      }
     ): Promise<void> => {
       try {
         const commits = await gitService.getLog(repo, {
@@ -269,6 +276,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           until: filter?.until,
           path: filter?.path,
           grep: filter?.searchText,
+          noMerges: filter?.noMerges,
         });
 
         // Build branch map: commit hash -> branch refs (name + type).
@@ -386,6 +394,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       until?: Date;
       path?: string;
       searchText?: string;
+      noMerges?: boolean;
     }): Promise<void> => {
       // Use the provider's selected repository if available
       if (ctx.gitToolWindowProvider) {
@@ -463,6 +472,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               until: filter.until,
               path: filter.path,
               searchText: filter.searchText,
+              noMerges: filter.noMerges,
             }
           : undefined
       );

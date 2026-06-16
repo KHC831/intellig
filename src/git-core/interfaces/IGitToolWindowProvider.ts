@@ -57,6 +57,8 @@ export interface ILogFilter {
   until?: Date;
   path?: string;
   searchText?: string;
+  /** Exclude merge commits — IntelliJ's VCS-log "No Merges" filter. */
+  noMerges?: boolean;
 }
 
 /**

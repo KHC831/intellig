@@ -769,6 +769,53 @@ describe('Log View', () => {
       const html = provider._getLogFilterBarHtml();
       assert.ok(html.includes('data-action="toggleLogFilters"'), 'toggle button present');
     });
+
+    it('emits a No Merges toggle (IntelliJ vcs.log.filter.no.merges)', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-no-merges"'), 'has no-merges checkbox');
+      assert.ok(html.includes('No Merges'), 'has No Merges label');
+    });
+
+    it('rehydrates the No Merges toggle from an active filter', () => {
+      provider.setLogFilter({ noMerges: true });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(/id="filter-no-merges"[^>]*\schecked/.test(html), 'no-merges box checked');
+    });
+  });
+
+  describe('_handleApplyLogFilter — No Merges mapping', () => {
+    function applyFilter(p: GitToolWindowProvider, filter: unknown): void {
+      (p as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+        type: 'applyLogFilter',
+        filter,
+      });
+    }
+
+    it('maps noMerges:true through to the requested ILogFilter', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.ok(filter, 'a filter is requested');
+        assert.strictEqual(filter?.noMerges, true);
+        done();
+      });
+      applyFilter(provider, { noMerges: true });
+    });
+
+    it('treats noMerges:true alone as a non-empty filter', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.notStrictEqual(filter, undefined, 'noMerges-only must not collapse to undefined');
+        done();
+      });
+      applyFilter(provider, {
+        searchText: '',
+        author: '',
+        path: '',
+        since: null,
+        until: null,
+        noMerges: true,
+      });
+    });
   });
 });
 
