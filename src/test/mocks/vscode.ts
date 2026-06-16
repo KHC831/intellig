@@ -568,8 +568,8 @@ export const window = {
   showQuickPick: async (_items: unknown[], _options?: unknown): Promise<unknown> => {
     return undefined;
   },
-  showInputBox: async (_options?: unknown): Promise<string | undefined> => {
-    return undefined;
+  showInputBox: async (options?: { value?: string }): Promise<string | undefined> => {
+    return options?.value;
   },
   showSaveDialog: async (_options?: unknown): Promise<Uri | undefined> => {
     return undefined;

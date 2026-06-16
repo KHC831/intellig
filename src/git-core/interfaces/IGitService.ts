@@ -687,6 +687,31 @@ export interface ICherryPickOptions {
    * commit message to annotate.
    */
   addCherryPickedFrom?: boolean;
+  /**
+   * `-m <mainline>`. Required when cherry-picking a merge commit; specifies
+   * which parent (1-based) to treat as the mainline. Conventional default is
+   * `1` (the first parent, typically the branch the merge landed on).
+   */
+  mainline?: number;
+}
+
+/**
+ * Options for {@link IGitService.revert}.
+ */
+export interface IRevertOptions {
+  /**
+   * `-m <mainline>`. Required when reverting a merge commit; specifies which
+   * parent (1-based) to treat as the mainline. Conventional default is `1`.
+   */
+  mainline?: number;
+  /**
+   * Custom commit message for the revert commit. When provided the
+   * implementation uses `--no-commit` then `git commit -m <message>` so the
+   * message is set without needing `$GIT_EDITOR`.
+   * When absent the existing `--no-edit` path is used (git generates
+   * "Revert \"<subject>\"" automatically).
+   */
+  message?: string;
 }
 
 /**
@@ -1160,7 +1185,7 @@ export interface IGitService {
    * @param commits - Array of commit hashes to revert
    * @returns Revert result with success status and any conflicts
    */
-  revert(repo: IRepository, commits: string[]): Promise<IRevertResult>;
+  revert(repo: IRepository, commits: string[], options?: IRevertOptions): Promise<IRevertResult>;
 
   /**
    * Abort an in-progress revert operation.

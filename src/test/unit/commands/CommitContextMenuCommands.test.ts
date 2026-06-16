@@ -267,7 +267,6 @@ function createMessageTrackers(): {
     warning.push({ message, items: stringItems });
     return Promise.resolve(undefined);
   };
-
   return { info, error, warning };
 }
 
@@ -277,7 +276,9 @@ function restoreMocks(): void {
   w.showErrorMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
   w.showWarningMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
   w.showQuickPick = (): Promise<unknown> => Promise.resolve(undefined);
-  w.showInputBox = (): Promise<string | undefined> => Promise.resolve(undefined);
+  // Default: accept whatever pre-filled value is offered (simulates pressing Enter).
+  w.showInputBox = (opts?: import('vscode').InputBoxOptions): Promise<string | undefined> =>
+    Promise.resolve(opts?.value);
   w.showSaveDialog = (): Promise<import('vscode').Uri | undefined> => Promise.resolve(undefined);
 }
 

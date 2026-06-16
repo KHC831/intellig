@@ -619,7 +619,14 @@ export class CommitContextMenuCommands {
     const replayOrder = [...commitHashes].reverse();
 
     try {
-      const result = await this._gitService.cherryPick(repo, replayOrder);
+      // Detect merge commits: if any selected commit has >1 parents, pass -m 1
+      // so git knows which parent is the mainline (parent 1 = conventional default).
+      // If the probe fails (e.g. network/bad hash), fall back to no mainline — git
+      // will surface its own "is a merge" error in that edge case.
+      const hasMerge = await this._anyIsMergeCommit(repo, replayOrder).catch(() => false);
+      const cherryOptions = hasMerge ? { mainline: 1 } : undefined;
+
+      const result = await this._gitService.cherryPick(repo, replayOrder, cherryOptions);
 
       if (result.success) {
         void vscode.window.showInformationMessage(
@@ -973,48 +980,54 @@ export class CommitContextMenuCommands {
     }
 
     try {
+      // Detect merge commits to decide whether -m 1 is needed. Fall back to
+      // false if the probe fails — git will surface "is a merge" error if needed.
+      const hasMerge = await this._anyIsMergeCommit(repo, commitHashes).catch(() => false);
+
+      // For single non-merge commits, offer an InputBox so the user can
+      // customise the revert message (default: "Revert \"<subject>\"").
+      // Merge commits use -m 1 + auto-generated message; multi-commit
+      // reverts are too complex to prompt per-commit.
+      if (commitHashes.length === 1 && !hasMerge) {
+        const commit = await this._gitService.getCommit(repo, commitHashes[0]);
+        const subject = commit.message.split('\n')[0];
+        const defaultMsg = `Revert "${subject}"`;
+        const message = await vscode.window.showInputBox({
+          prompt: 'Revert commit message',
+          value: defaultMsg,
+        });
+        if (message === undefined) {
+          return;
+        }
+        const singleResult = await this._gitService.revert(repo, commitHashes, { message });
+        if (singleResult.success) {
+          void vscode.window.showInformationMessage('Reverted 1 commit(s) successfully');
+        } else if (singleResult.conflicts && singleResult.conflicts.length > 0) {
+          await this._handleRevertConflicts(repo, singleResult.conflicts, commitHashes);
+        } else {
+          const reason = singleResult.failureReason ?? 'unknown error';
+          void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(reason)}`);
+        }
+        await this._gitService.reloadRepository(repo);
+        this._gitToolWindowProvider.refresh();
+        return;
+      }
+
+      const revertOptions = hasMerge ? { mainline: 1 } : undefined;
+
       // `commitHashes` arrives newest-first (DOM order). For
       // revert, that IS the right direction: undoing the most recent
       // change first means each subsequent revert applies to a tree the
       // user can mentally check against the displayed log. Cherry-pick
       // reverses; revert does not. ADR follows the contract.
-      const result = await this._gitService.revert(repo, commitHashes);
+      const result = await this._gitService.revert(repo, commitHashes, revertOptions);
 
       if (result.success) {
         void vscode.window.showInformationMessage(
           `Reverted ${commitHashes.length} commit(s) successfully`
         );
       } else if (result.conflicts && result.conflicts.length > 0) {
-        // Auto-open the Resolve Conflicts dialog. Falls back to the legacy
-        // toast if conflictResolutionService isn't wired yet.
-        if (this._conflictResolutionService) {
-          await this._openResolveConflictsDialog(repo, result.conflicts, {
-            operation: 'revert',
-            target: commitHashes[0].substring(0, 8),
-          });
-        } else {
-          const choice = await vscode.window.showWarningMessage(
-            `Revert conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`,
-            'Open Conflicts',
-            'Abort Revert'
-          );
-          if (choice === 'Open Conflicts') {
-            for (const filePath of result.conflicts) {
-              const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
-              await vscode.commands.executeCommand('vscode.open', fileUri);
-            }
-          } else if (choice === 'Abort Revert') {
-            try {
-              await this._gitService.revertAbort(repo);
-              void vscode.window.showInformationMessage('Revert aborted.');
-            } catch (abortError) {
-              const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
-              void vscode.window.showErrorMessage(
-                `Failed to abort revert: ${sanitizeGitError(abortMsg)}`
-              );
-            }
-          }
-        }
+        await this._handleRevertConflicts(repo, result.conflicts, commitHashes);
       } else {
         // Non-conflict failure: surface the underlying git error.
         const reason = result.failureReason ?? 'unknown error (no output from git)';
@@ -1027,6 +1040,48 @@ export class CommitContextMenuCommands {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to revert: ${sanitizeGitError(errorMessage)}`);
+    }
+  }
+
+  /** Returns true if any of `hashes` refers to a merge commit (>1 parents). */
+  private async _anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean> {
+    const details = await Promise.all(hashes.map((h) => this._gitService.getCommit(repo, h)));
+    return details.some((c) => c.parents.length > 1);
+  }
+
+  /** Shared conflict-resolution UX for both revert paths. */
+  private async _handleRevertConflicts(
+    repo: IRepository,
+    conflicts: string[],
+    commitHashes: string[]
+  ): Promise<void> {
+    if (this._conflictResolutionService) {
+      await this._openResolveConflictsDialog(repo, conflicts, {
+        operation: 'revert',
+        target: commitHashes[0].substring(0, 8),
+      });
+    } else {
+      const choice = await vscode.window.showWarningMessage(
+        `Revert conflicts in ${conflicts.length} file(s). Please resolve conflicts.`,
+        'Open Conflicts',
+        'Abort Revert'
+      );
+      if (choice === 'Open Conflicts') {
+        for (const filePath of conflicts) {
+          const fileUri = vscode.Uri.joinPath(repo.rootUri, filePath);
+          await vscode.commands.executeCommand('vscode.open', fileUri);
+        }
+      } else if (choice === 'Abort Revert') {
+        try {
+          await this._gitService.revertAbort(repo);
+          void vscode.window.showInformationMessage('Revert aborted.');
+        } catch (abortError) {
+          const abortMsg = abortError instanceof Error ? abortError.message : 'Unknown error';
+          void vscode.window.showErrorMessage(
+            `Failed to abort revert: ${sanitizeGitError(abortMsg)}`
+          );
+        }
+      }
     }
   }
 

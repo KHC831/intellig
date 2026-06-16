@@ -29,6 +29,7 @@ import {
   IBasicRebaseResult,
   ICherryPickOptions,
   ICherryPickResult,
+  IRevertOptions,
   IRevertResult,
   IBranchComparison,
   IRefDiffFile,
@@ -1625,8 +1626,8 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._cherryRevert.cherryPickContinue(repo);
   }
 
-  revert(repo: IRepository, commits: string[]): Promise<IRevertResult> {
-    return this._cherryRevert.revert(repo, commits);
+  revert(repo: IRepository, commits: string[], options?: IRevertOptions): Promise<IRevertResult> {
+    return this._cherryRevert.revert(repo, commits, options);
   }
 
   /**

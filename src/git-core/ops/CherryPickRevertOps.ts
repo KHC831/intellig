@@ -2,6 +2,7 @@ import {
   IRepository,
   ICherryPickOptions,
   ICherryPickResult,
+  IRevertOptions,
   IRevertResult,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
@@ -57,6 +58,11 @@ export class CherryPickRevertOps {
     // forces --no-commit) there is no message to annotate, so suppress it.
     if (options?.addCherryPickedFrom && !noCommit) {
       cherryFlags.push('-x');
+    }
+    // `-m <mainline>` is required when any picked commit is a merge commit;
+    // parent 1 is the conventional mainline (the branch the merge landed on).
+    if (options?.mainline !== undefined) {
+      cherryFlags.push('-m', String(options.mainline));
     }
     const args = buildGitArgs('cherry-pick', cherryFlags, commits);
 
@@ -215,13 +221,60 @@ export class CherryPickRevertOps {
       .map((f) => f.path);
   }
 
-  async revert(repo: IRepository, commits: string[]): Promise<IRevertResult> {
+  async revert(
+    repo: IRepository,
+    commits: string[],
+    options?: IRevertOptions
+  ): Promise<IRevertResult> {
     if (commits.length === 0) {
       return { success: true };
     }
 
-    // `commits` are user-controlled; splice via buildGitArgs.
-    const result = await this.ctx.gitCli.exec(buildGitArgs('revert', ['--no-edit'], commits), {
+    const revertFlags: string[] = [];
+
+    // `-m <mainline>` is required when any reverted commit is a merge commit.
+    if (options?.mainline !== undefined) {
+      revertFlags.push('-m', String(options.mainline));
+    }
+
+    if (options?.message !== undefined) {
+      // Custom message path: stage without committing, then commit with the
+      // provided message so $GIT_EDITOR is never invoked.
+      revertFlags.push('--no-commit');
+      const stageResult = await this.ctx.gitCli.exec(buildGitArgs('revert', revertFlags, commits), {
+        cwd: repo.rootUri.fsPath,
+      });
+      if (stageResult.exitCode !== 0) {
+        this.ctx.invalidateCache(repo.rootUri.fsPath);
+        const conflicts = await this.getConflictedFiles(repo);
+        if (conflicts.length > 0) {
+          return { success: false, conflicts };
+        }
+        return {
+          success: false,
+          conflicts: [],
+          failureReason:
+            sanitizeGitError(stageResult.stderr.trim() || stageResult.stdout.trim()) || undefined,
+        };
+      }
+      const commitResult = await this.ctx.gitCli.exec(['commit', '-m', options.message], {
+        cwd: repo.rootUri.fsPath,
+      });
+      this.ctx.invalidateCache(repo.rootUri.fsPath);
+      if (commitResult.exitCode === 0) {
+        return { success: true };
+      }
+      return {
+        success: false,
+        conflicts: [],
+        failureReason:
+          sanitizeGitError(commitResult.stderr.trim() || commitResult.stdout.trim()) || undefined,
+      };
+    }
+
+    // Default path: let git generate the "Revert \"<subject>\"" message.
+    revertFlags.push('--no-edit');
+    const result = await this.ctx.gitCli.exec(buildGitArgs('revert', revertFlags, commits), {
       cwd: repo.rootUri.fsPath,
     });
 

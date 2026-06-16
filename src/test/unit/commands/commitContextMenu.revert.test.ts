@@ -245,13 +245,16 @@ interface Trackers {
 
 function installWindowStubs(
   quickPickResponder: (items: readonly { path: string }[], title?: string) => unknown,
-  warnResponder: () => string | undefined = () => undefined
+  warnResponder: () => string | undefined = () => undefined,
+  // Default: accept whatever pre-filled value is offered (return it unchanged).
+  inputBoxResponder: (value?: string) => string | undefined = (v) => v
 ): { trackers: Trackers; restore: () => void } {
   const trackers: Trackers = { info: [], error: [], warn: [] };
   const oInfo = vscode.window.showInformationMessage;
   const oErr = vscode.window.showErrorMessage;
   const oWarn = vscode.window.showWarningMessage;
   const oQP = vscode.window.showQuickPick;
+  const oIB = vscode.window.showInputBox;
 
   const w = writableWindow();
   w.showInformationMessage = (m: string): Promise<string | undefined> => {
@@ -287,6 +290,8 @@ function installWindowStubs(
     const options = (opts as { title?: string } | undefined) ?? {};
     return quickPickResponder(arr, options.title);
   };
+  w.showInputBox = async (opts?: vscode.InputBoxOptions): Promise<string | undefined> =>
+    inputBoxResponder(opts?.value);
 
   return {
     trackers,
@@ -296,6 +301,7 @@ function installWindowStubs(
       r.showErrorMessage = oErr as unknown as typeof r.showErrorMessage;
       r.showWarningMessage = oWarn as unknown as typeof r.showWarningMessage;
       r.showQuickPick = oQP as unknown as typeof r.showQuickPick;
+      r.showInputBox = oIB as unknown as typeof r.showInputBox;
     },
   };
 }

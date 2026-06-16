@@ -5,12 +5,16 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
 
 ## Current state
 
-- `main` carries the R1 correctness pass + Phase-0 foundations + workstreams **A** and **C**.
-- Three tracks merged via PR on 2026-06-15 in the recommended conflict-minimizing order:
-  **#42** (crash fix) → **#43** (workstream C) → **#44** (workstream A).
-- **Next up:** the unwired front-doors batch (command+menu over tested backends), then
-  workstream B (native merge editor) — see `NORTHSTAR.md` section 7. The 🔴 fetch
-  argv-injection and the UX label cleanup landed on `dev/fetch-argv-fix` (pending merge).
+- `main` carries the R1 correctness pass + Phase-0 foundations + workstreams **A**, **C**, **B**,
+  **D**, **F**, plus the fetch argv-injection fix + UX label cleanup.
+- Merged via PR on 2026-06-15: **#42** (crash fix) → **#43** (workstream C) → **#44** (workstream A)
+  → **#45** (fetch argv fix + UX label cleanup + build fix) → **#46** (workstream B, native merge
+  editor) → **#47** (workstream D, branches/tags) → **#48** (workstream F, blame heatmap).
+- **Correctness/security cluster cleared** (staging quoting + revert-hunk guard 5e6855a, any-scheme
+  credential scrub bafee52). **Next:** daily-feature workstreams **G/E/H** + **C residuals** —
+  see `NORTHSTAR.md` section 6.
+- **Residual follow-ups** carved out this round: B's resolved-row index watcher (auto-flip
+  `ResolveConflictsDialog` after the native editor); F's per-author blame color mode.
 
 ## Landing log
 
@@ -18,9 +22,15 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
-| 2026-06-15 | UX label cleanup — drop redundant `Git:` prefix from 9 explorer/editor command titles | da9eec9 | on `dev/fetch-argv-fix`, pending merge |
-| 2026-06-15 | 🔴 fetch argv-injection — route `fetch` through `buildGitArgs` (`--end-of-options` ahead of the remote name) + `check:remote-ops-eoo` CI guard | 316b640 | on `dev/fetch-argv-fix`, pending merge |
-| 2026-06-15 | Build fix — `IChangelist.isActive` on the unversioned pseudo-node + 5 fixtures, README/schema config drift (left broken by #44) | bb43ac0 | on `dev/fetch-argv-fix`, pending merge |
+| 2026-06-16 | Security — `sanitizeGitError` now scrubs the `user:password@` authority of ANY URL scheme (`CREDENTIAL_URL_REGEX` generalized from `https?` to the RFC-3986 scheme grammar `[A-Za-z][A-Za-z0-9+.-]*`), closing a credential leak through every toast/log for `ssh://`/`git://`/`ftp://`/compound-scheme URLs; SCP-form `user@host:path` (no URL password) left untouched | bafee52 | local fast-forward of dev/sanitize-credential-scheme (1 commit) |
+| 2026-06-16 | Staging/patch correctness — `generateHunkPatch`/`generateLinesPatch` now C-style quote the `diff --git`/`---`/`+++` header paths (`escapePatchPath`, byte-wise port of git's `quote_c_style`) with a tab-delimiter fallback for unquoted names containing a space, so `git apply` stages the correct bytes on tab/newline/space filenames (real `git apply` round-trip test); `revertHunk` now refuses when the file has staged changes (working-tree-only `-R` would leave the discarded hunk in the index) | 5e6855a | local squash-merge of dev/staging-patch-correctness (2 commits) |
+| 2026-06-16 | Front-doors batch — wire tested backends: top-level `intellig.mergeFrom` "Merge…" command (shared Merge Dialog); blame hover click-through rewired to registered `intellig.editor.showCommit`/`copyCommitHash` (dead-link fix); log "No Merges" filter (`--no-merges` + filter-bar checkbox); `…` on "New Branch from Here". Annotate Previous Revision was already wired. | d8ac1da | local squash-merge of dev/front-doors (4 commits) |
+| 2026-06-15 | Workstream D — Branches & Tags: incoming/outgoing ↑N/↓N arrows (popup + tree, via `IncomingOutgoingOps`); New Tag dialog editable commit/ref (full `GitTagDialog` parity); `deleteRemoteTag` context-menu front-door | #47 | merged |
+| 2026-06-15 | Workstream F — Blame heatmap: interpolated background recency gradient (ORDER mode) replacing fake foreground-alpha fade; `blameAnnotationStyle` wired incl. new `off` value | #48 | merged |
+| 2026-06-15 | Workstream B — 3-way merge → VS Code native editor (`git.openMergeEditor`); custom webview removed; `MergeView` now a thin adapter, keeps `markResolved`→`git add` | #46 | merged |
+| 2026-06-15 | UX label cleanup — drop redundant `Git:` prefix from 9 explorer/editor command titles | #45 | merged |
+| 2026-06-15 | 🔴 fetch argv-injection — route `fetch` through `buildGitArgs` (`--end-of-options` ahead of the remote name) + `check:remote-ops-eoo` CI guard | #45 | merged |
+| 2026-06-15 | Build fix — `IChangelist.isActive` on the unversioned pseudo-node + 5 fixtures, README/schema config drift (left broken by #44) | #45 | merged |
 | 2026-06-15 | Workstream A — commit/changelists (changelist-driven commit, before-commit checks, Add-to-VCS fix, Local Changes grouping + Unversioned node, diff-preview, tool-window default-on, AA/DD detection) | #44 | merged |
 | 2026-06-15 | Workstream C — shell/menus/sync (keymap fixes, status-bar branch popup, view/title toolbar, Incoming tab, Update Project dialog, structured notifications) | #43 | merged |
 | 2026-06-15 | Crash fix — cap git output capture at 64 MiB (stops extension-host RangeError on multi-GB repos) | #42 | merged |

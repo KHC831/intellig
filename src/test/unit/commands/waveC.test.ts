@@ -247,7 +247,7 @@ function restoreMocks(): void {
   w.showInformationMessage = () => Promise.resolve(undefined);
   w.showErrorMessage = () => Promise.resolve(undefined);
   w.showWarningMessage = () => Promise.resolve(undefined);
-  w.showInputBox = () => Promise.resolve(undefined);
+  w.showInputBox = (opts?: import('vscode').InputBoxOptions) => Promise.resolve(opts?.value);
   w.showSaveDialog = () => Promise.resolve(undefined);
   w.showOpenDialog = () => Promise.resolve(undefined);
 }
