@@ -1169,6 +1169,32 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._branches.getBranches(repo);
   }
 
+  /**
+   * Distinct commit authors across all refs, in descending commit-count
+   * order, formatted as `"Name <email>"`. Powers the ref-aware author
+   * datalist in the log filter bar. Capped at 500 entries.
+   */
+  async getLogContributors(repo: IRepository): Promise<string[]> {
+    const options: IGitCommandOptions = { cwd: repo.rootUri.fsPath };
+    const result = await this._gitCli.exec(['shortlog', '-sne', '--all', 'HEAD'], options);
+    const seen = new Set<string>();
+    for (const line of result.stdout.split('\n')) {
+      // shortlog -sne lines: `<count>\t<Name> <email>`.
+      const tab = line.indexOf('\t');
+      if (tab === -1) {
+        continue;
+      }
+      const contributor = line.slice(tab + 1).trim();
+      if (contributor) {
+        seen.add(contributor);
+      }
+      if (seen.size >= 500) {
+        break;
+      }
+    }
+    return [...seen];
+  }
+
   createBranch(
     repo: IRepository,
     name: string,

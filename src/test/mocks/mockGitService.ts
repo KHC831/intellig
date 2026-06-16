@@ -54,6 +54,7 @@ export function createMockGitService(
     getRepository: async () => mockRepo,
     reloadRepository: async () => mockRepo,
     getBranches: async () => [],
+    getLogContributors: async () => [],
     getTags: async () => [],
     commit: async () => {},
     amend: async () => {},

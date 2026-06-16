@@ -37,6 +37,7 @@ function createMockGitService(): IGitService {
     getRepository: async () => undefined,
     reloadRepository: async () => undefined,
     getBranches: async () => [],
+    getLogContributors: async () => [],
     getTags: async () => [],
     commit: async () => {},
     amend: async () => {},

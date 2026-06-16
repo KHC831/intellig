@@ -1389,6 +1389,9 @@ export class GitToolWindowProvider
       case 'applyLogFilter':
         this._handleApplyLogFilter(message.filter as IWebviewLogFilter | null);
         break;
+      case 'requestLogFilterOptions':
+        void this._handleRequestLogFilterOptions();
+        break;
       case 'clearLogFilter':
         // Fired by the "Clear filter" button on the filtered-empty
         // graph state. Clearing is just applying a null filter, which
@@ -1504,6 +1507,9 @@ export class GitToolWindowProvider
     if (webviewFilter) {
       filter = {};
 
+      if (webviewFilter.branch) {
+        filter.branch = webviewFilter.branch;
+      }
       if (webviewFilter.searchText) {
         filter.searchText = webviewFilter.searchText;
       }
@@ -1525,6 +1531,7 @@ export class GitToolWindowProvider
 
       // Check if filter is empty
       if (
+        !filter.branch &&
         !filter.searchText &&
         !filter.author &&
         !filter.path &&
@@ -1538,6 +1545,32 @@ export class GitToolWindowProvider
 
     this.setLogFilter(filter);
     this._onDidRequestLogFilter.fire(filter);
+  }
+
+  /**
+   * Fetch ref-aware filter options (branch names + distinct authors) for
+   * the active repo and post them back so the webview can populate the
+   * branch/author datalists. Silent no-op when no repo or service is
+   * attached — the datalists simply stay empty.
+   */
+  private async _handleRequestLogFilterOptions(): Promise<void> {
+    const repo = this.getSelectedRepository();
+    const gitService = this._attachedGitService;
+    if (!repo || !gitService) {
+      return;
+    }
+    const [branches, contributors] = await Promise.all([
+      gitService.getBranches(repo),
+      gitService.getLogContributors(repo),
+    ]);
+    if (!this._view) {
+      return;
+    }
+    void this._view.webview.postMessage({
+      type: 'logFilterOptionsReady',
+      branches: branches.map((b) => b.name),
+      contributors,
+    });
   }
 
   /**
@@ -2911,6 +2944,7 @@ ${bodyMarkup}
    */
   public _getLogFilterBarHtml(): string {
     const filter = this._extendedLogState.filter;
+    const branch = this._escapeHtml(filter?.branch ?? '');
     const search = this._escapeHtml(filter?.searchText ?? '');
     const author = this._escapeHtml(filter?.author ?? '');
     const path = this._escapeHtml(filter?.path ?? '');
@@ -2926,12 +2960,18 @@ ${bodyMarkup}
         <div id="log-filter-bar" class="log-filter-bar"${active ? '' : ' hidden'} role="group" aria-label="Log filters">
           <div class="log-filter-row">
             <div class="log-filter-group">
+              <label class="log-filter-label" for="filter-branch">Branch</label>
+              <input type="text" id="filter-branch" class="log-filter-input" list="filter-branch-options" data-action="filterKeydown" placeholder="Branch or tag" value="${branch}" autocomplete="off" />
+              <datalist id="filter-branch-options"></datalist>
+            </div>
+            <div class="log-filter-group">
               <label class="log-filter-label" for="filter-search">Message / Hash</label>
               <input type="text" id="filter-search" class="log-filter-input" data-action="filterKeydown" placeholder="Subject or commit hash" value="${search}" />
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-author">Author</label>
-              <input type="text" id="filter-author" class="log-filter-input" data-action="filterKeydown" placeholder="Author name or email" value="${author}" />
+              <input type="text" id="filter-author" class="log-filter-input" list="filter-author-options" data-action="filterKeydown" placeholder="Author name or email" value="${author}" autocomplete="off" />
+              <datalist id="filter-author-options"></datalist>
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-path">Path</label>
@@ -3392,6 +3432,7 @@ ${bodyMarkup}
  * Log filter from webview (with string dates)
  */
 interface IWebviewLogFilter {
+  branch?: string;
   searchText?: string;
   author?: string;
   path?: string;

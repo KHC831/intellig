@@ -197,6 +197,23 @@ export function buildInlineScript(): string {
             });
             refreshSelectedCount();
           }
+          // Ref-aware filter options: populate the branch + author
+          // datalists from the live repo so the filter inputs autocomplete.
+          if (message.type === 'logFilterOptionsReady') {
+            const escapeAttr = function(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+            const branchDatalist = document.getElementById('filter-branch-options');
+            if (branchDatalist && Array.isArray(message.branches)) {
+              branchDatalist.innerHTML = message.branches
+                .map(function(b) { return '<option value="' + escapeAttr(b) + '"></option>'; })
+                .join('');
+            }
+            const authorDatalist = document.getElementById('filter-author-options');
+            if (authorDatalist && Array.isArray(message.contributors)) {
+              authorDatalist.innerHTML = message.contributors
+                .map(function(c) { return '<option value="' + escapeAttr(c) + '"></option>'; })
+                .join('');
+            }
+          }
           // Partial-update path for branch focus. The
           // render-time \`_getBranchLabelsHtml\` is the source of truth;
           // this handler exists so the chip outline lands without a full
@@ -528,10 +545,16 @@ export function buildInlineScript(): string {
           const filterBar = document.getElementById('log-filter-bar');
           if (filterBar) {
             filterBar.hidden = !filterBar.hidden;
+            // When opening the bar, ask the host for ref-aware branch +
+            // author options to populate the datalists.
+            if (!filterBar.hidden) {
+              vscode.postMessage({ type: 'requestLogFilterOptions' });
+            }
           }
         };
 
         window.applyLogFilters = function() {
+          const branchInput = document.getElementById('filter-branch');
           const searchInput = document.getElementById('filter-search');
           const authorInput = document.getElementById('filter-author');
           const pathInput = document.getElementById('filter-path');
@@ -540,6 +563,7 @@ export function buildInlineScript(): string {
           const noMergesInput = document.getElementById('filter-no-merges');
 
           const filter = {
+            branch: branchInput ? branchInput.value.trim() : '',
             searchText: searchInput ? searchInput.value.trim() : '',
             author: authorInput ? authorInput.value.trim() : '',
             path: pathInput ? pathInput.value.trim() : '',
@@ -548,13 +572,14 @@ export function buildInlineScript(): string {
             noMerges: noMergesInput ? noMergesInput.checked : false
           };
 
-          vscode.postMessage({ 
-            type: 'applyLogFilter', 
-            filter: filter 
+          vscode.postMessage({
+            type: 'applyLogFilter',
+            filter: filter
           });
         };
 
         window.clearLogFilters = function() {
+          const branchInput = document.getElementById('filter-branch');
           const searchInput = document.getElementById('filter-search');
           const authorInput = document.getElementById('filter-author');
           const pathInput = document.getElementById('filter-path');
@@ -562,6 +587,7 @@ export function buildInlineScript(): string {
           const untilInput = document.getElementById('filter-until');
           const noMergesInput = document.getElementById('filter-no-merges');
 
+          if (branchInput) branchInput.value = '';
           if (searchInput) searchInput.value = '';
           if (authorInput) authorInput.value = '';
           if (pathInput) pathInput.value = '';

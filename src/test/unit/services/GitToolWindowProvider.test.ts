@@ -770,6 +770,30 @@ describe('Log View', () => {
       assert.ok(html.includes('data-action="toggleLogFilters"'), 'toggle button present');
     });
 
+    it('emits a datalist-backed branch input first (IntelliJ branch-primary order)', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-branch"'), 'has branch input');
+      assert.ok(html.includes('list="filter-branch-options"'), 'branch input wired to datalist');
+      assert.ok(html.includes('id="filter-branch-options"'), 'branch datalist present');
+      // Branch comes before Author in the filter row.
+      assert.ok(
+        html.indexOf('id="filter-branch"') < html.indexOf('id="filter-author"'),
+        'branch field precedes author field'
+      );
+    });
+
+    it('backs the author input with a datalist for ref-aware autocomplete', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('list="filter-author-options"'), 'author input wired to datalist');
+      assert.ok(html.includes('id="filter-author-options"'), 'author datalist present');
+    });
+
+    it('rehydrates the branch input from an active filter', () => {
+      provider.setLogFilter({ branch: 'feature/x' });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('value="feature/x"'), 'branch value rehydrated');
+    });
+
     it('emits a No Merges toggle (IntelliJ vcs.log.filter.no.merges)', () => {
       const html = provider._getLogFilterBarHtml();
       assert.ok(html.includes('id="filter-no-merges"'), 'has no-merges checkbox');
@@ -814,6 +838,33 @@ describe('Log View', () => {
         since: null,
         until: null,
         noMerges: true,
+      });
+    });
+
+    it('maps a branch value through to the requested ILogFilter', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.ok(filter, 'a filter is requested');
+        assert.strictEqual(filter?.branch, 'main');
+        done();
+      });
+      applyFilter(provider, { branch: 'main' });
+    });
+
+    it('treats an empty branch string as absent', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter, undefined, 'empty branch alone collapses to no filter');
+        done();
+      });
+      applyFilter(provider, {
+        searchText: '',
+        author: '',
+        path: '',
+        branch: '',
+        since: null,
+        until: null,
+        noMerges: false,
       });
     });
   });

@@ -376,6 +376,7 @@ describe('CommitToolWindow — host behavior', () => {
       // invokes one fails loudly rather than returning undefined.
       amend: notImplemented('amend'),
       getBranches: notImplemented('getBranches'),
+      getLogContributors: notImplemented('getLogContributors'),
       createBranch: notImplemented('createBranch'),
       checkout: notImplemented('checkout'),
       deleteBranch: notImplemented('deleteBranch'),

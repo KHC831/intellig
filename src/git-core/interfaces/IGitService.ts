@@ -806,6 +806,12 @@ export interface IGitService {
   // Branch operations
   getBranches(repo: IRepository): Promise<IBranch[]>;
   /**
+   * Distinct commit authors across all refs, formatted `"Name <email>"`,
+   * in descending commit-count order, capped at 500. Source for the
+   * ref-aware author datalist in the log filter bar.
+   */
+  getLogContributors(repo: IRepository): Promise<string[]>;
+  /**
    * Create a branch. Legacy callers pass `startPoint` as the third
    * positional argument (string); new callers can pass an options object
    * with `force`, `track`, `checkout` — see {@link ICreateBranchOptions}.
