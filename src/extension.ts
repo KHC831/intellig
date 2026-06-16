@@ -84,6 +84,7 @@ export { resolveLocalChangesOpenFileTarget } from './commands/registration/blame
 export {
   runNewTagFlow,
   validateTagName,
+  validateCommitRef,
   type INewTagFlowDeps,
 } from './commands/registration/commitHelpers';
 

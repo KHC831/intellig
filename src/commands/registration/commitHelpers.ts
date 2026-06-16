@@ -121,6 +121,28 @@ export function validateTagName(name: string): string | undefined {
 }
 
 /**
+ * Validate the commit/ref typed into the New Tag flow's commit field
+ * (GitTagDialog's commit text field). An empty value tags HEAD, so it is
+ * accepted. A ref carrying whitespace, or one starting with `-` (which git
+ * would parse as a CLI flag), is rejected at the UI boundary as defense in
+ * depth — the op layer also splices `--end-of-options` before the ref.
+ * Returns an error message when invalid, `undefined` when valid.
+ */
+export function validateCommitRef(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  if (/\s/.test(trimmed)) {
+    return 'Commit or ref cannot contain whitespace';
+  }
+  if (trimmed.startsWith('-')) {
+    return 'Commit or ref cannot start with -';
+  }
+  return undefined;
+}
+
+/**
  * Dependencies for the New Tag flow. Kept as a discrete object so tests can
  * exercise the flow without needing full extension activation.
  */
@@ -174,6 +196,27 @@ export async function runNewTagFlow(
     return;
   }
 
+  // Mirror GitTagDialog's commit field: when the caller did not pin a target
+  // (palette flow), let the user choose the commit/ref to tag. A blank value
+  // tags HEAD, exactly like leaving GitTagDialog's commit field empty. When a
+  // ref was supplied (log commit context menu), skip the prompt — the commit
+  // is already chosen.
+  let ref = targetRef;
+  if (ref === undefined) {
+    const commit = await deps.showInputBox({
+      title: 'Create Tag',
+      prompt: 'Commit to tag (leave empty for HEAD)',
+      placeHolder: 'e.g., HEAD, a branch name, or a commit hash',
+      validateInput: (value: string) => validateCommitRef(value),
+    });
+    if (commit === undefined) {
+      // User pressed Escape on the commit prompt.
+      return;
+    }
+    const trimmedCommit = commit.trim();
+    ref = trimmedCommit.length > 0 ? trimmedCommit : undefined;
+  }
+
   const message = await deps.showInputBox({
     title: 'Create Tag',
     prompt: 'Optional annotation message (leave empty for a lightweight tag)',
@@ -186,7 +229,7 @@ export async function runNewTagFlow(
 
   const normalizedMessage = message.trim().length > 0 ? message : undefined;
   try {
-    await deps.gitService.createTag(deps.repo, name, normalizedMessage, targetRef);
+    await deps.gitService.createTag(deps.repo, name, normalizedMessage, ref);
     void deps.showInformationMessage(`Created tag: ${name}`);
     if (deps.onTagCreated) {
       deps.onTagCreated();
@@ -205,7 +248,7 @@ export async function runNewTagFlow(
         return;
       }
       try {
-        await deps.gitService.createTag(deps.repo, name, normalizedMessage, targetRef, true);
+        await deps.gitService.createTag(deps.repo, name, normalizedMessage, ref, true);
         void deps.showInformationMessage(`Created tag: ${name}`);
         if (deps.onTagCreated) {
           deps.onTagCreated();
