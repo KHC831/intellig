@@ -76,17 +76,19 @@ interface IRebaseDialogMessage {
   keepEmpty?: boolean;
   updateRefs?: boolean;
   autosquash?: boolean;
+  root?: boolean;
 }
 
 /**
  * The non-interactive rebase options surfaced as checkboxes, in git4idea's
- * `GitRebaseOption` declaration order. `--root` is intentionally omitted from
- * the dialog: it discards the chosen onto target (rebase-from-root), which the
- * "Rebase onto X" framing here would make confusing — it stays reachable
- * through the {@link IRebaseOptions} API for callers that need it.
+ * `GitRebaseOption` declaration order (rebase-merges, keep-empty, root,
+ * update-refs, autosquash).
  */
 const REBASE_OPTION_CHECKBOXES: ReadonlyArray<{
-  id: keyof Pick<IRebaseOptions, 'rebaseMerges' | 'keepEmpty' | 'updateRefs' | 'autosquash'>;
+  id: keyof Pick<
+    IRebaseOptions,
+    'rebaseMerges' | 'keepEmpty' | 'updateRefs' | 'autosquash' | 'root'
+  >;
   flag: string;
   title: string;
   desc: string;
@@ -115,6 +117,12 @@ const REBASE_OPTION_CHECKBOXES: ReadonlyArray<{
     title: 'Auto-squash',
     desc: 'Reorder fixup!/squash! commits under the commits they target.',
   },
+  {
+    id: 'root',
+    flag: '--root',
+    title: 'Rebase from root',
+    desc: 'Rebase all commits back to the initial commit (ignores "Rebase onto").',
+  },
 ];
 
 const VIEW_TYPE = 'intellig.rebaseDialog';
@@ -123,12 +131,13 @@ const TITLE = 'Rebase';
 /** globalState key under which the last-used rebase options are persisted. */
 export const REBASE_OPTIONS_STATE_KEY = 'intellig.rebase.lastOptions';
 
-/** The four persisted rebase-option flags (the dialog checkboxes; no `root`). */
+/** The persisted rebase-option flags (the dialog checkboxes). */
 export interface IPersistedRebaseOptions {
   rebaseMerges: boolean;
   keepEmpty: boolean;
   updateRefs: boolean;
   autosquash: boolean;
+  root: boolean;
 }
 
 /** Memento subset (ExtensionContext.globalState shape) for option persistence. */
@@ -142,6 +151,7 @@ const REBASE_OPTIONS_DEFAULT: IPersistedRebaseOptions = {
   keepEmpty: false,
   updateRefs: false,
   autosquash: false,
+  root: false,
 };
 
 /**
@@ -160,6 +170,7 @@ export function loadRebaseOptions(store: IRebaseOptionsStore): IPersistedRebaseO
     keepEmpty: Boolean(obj.keepEmpty),
     updateRefs: Boolean(obj.updateRefs),
     autosquash: Boolean(obj.autosquash),
+    root: Boolean(obj.root),
   };
 }
 
@@ -300,7 +311,7 @@ export class RebaseDialog extends BaseWebviewPanel {
 
       <div class="field">
         <label class="field-label" for="onto-select">Rebase onto:</label>
-        <select id="onto-select">${options}</select>
+        <select id="onto-select"${persistedOptions.root ? ' disabled' : ''}>${options}</select>
       </div>
 
       <label class="flag" data-flag="interactive">
@@ -337,6 +348,8 @@ export class RebaseDialog extends BaseWebviewPanel {
         const optionIds = ${JSON.stringify(REBASE_OPTION_CHECKBOXES.map((o) => o.id))};
         const interactiveBox = document.getElementById('flag-interactive');
         const optionsFieldset = document.getElementById('rebase-options');
+        const ontoSelect = document.getElementById('onto-select');
+        const rootBox = document.getElementById('flag-root');
         // The flag options apply to the non-interactive rebase only; the
         // interactive path hands off to the todo editor. Disable them while
         // Interactive is checked so the UI never implies they'd take effect.
@@ -346,7 +359,16 @@ export class RebaseDialog extends BaseWebviewPanel {
           for (const id of optionIds) {
             document.getElementById('flag-' + id).disabled = disabled;
           }
+          // root disables the onto select independently; re-sync after
+          // interactive toggle changes the root checkbox's disabled state.
+          syncOntoEnabled();
         };
+        // When --root is checked the onto target is irrelevant; disable the
+        // selector to match IntelliJ's behavior (git4idea disables that field).
+        const syncOntoEnabled = () => {
+          ontoSelect.disabled = rootBox.checked && !interactiveBox.checked;
+        };
+        rootBox.addEventListener('change', syncOntoEnabled);
         interactiveBox.addEventListener('change', syncOptionsEnabled);
         syncOptionsEnabled();
         const submit = () => {
@@ -446,6 +468,7 @@ ${body}
             keepEmpty: msg.keepEmpty === true,
             updateRefs: msg.updateRefs === true,
             autosquash: msg.autosquash === true,
+            root: msg.root === true,
           };
           // Remember the chosen options so the next dialog pre-checks them.
           void saveRebaseOptions(this._context.globalState, persisted);

@@ -376,13 +376,14 @@ describe('RebaseDialog — body structure (#25)', () => {
     assert.ok(!/id="flag-interactive"[^>]*checked/.test(unchecked.dialog.bodyHtml()));
   });
 
-  it('emits the four git4idea rebase-option checkboxes (#P2)', () => {
+  it('emits the five git4idea rebase-option checkboxes (#P2 + H2)', () => {
     installMessageTrackers();
     const body = makeDialog({}).dialog.bodyHtml();
     assert.ok(body.includes('id="flag-rebaseMerges"'), 'rebase-merges checkbox');
     assert.ok(body.includes('id="flag-updateRefs"'), 'update-refs checkbox');
     assert.ok(body.includes('id="flag-keepEmpty"'), 'keep-empty checkbox');
     assert.ok(body.includes('id="flag-autosquash"'), 'autosquash checkbox');
+    assert.ok(body.includes('id="flag-root"'), 'root checkbox');
     // Options start unchecked (off by default — legacy behavior).
     assert.ok(!/id="flag-rebaseMerges"[^>]*checked/.test(body), 'options default to off');
   });
@@ -428,6 +429,7 @@ describe('RebaseDialog — rebase options threading (#P2)', () => {
       keepEmpty: false,
       updateRefs: true,
       autosquash: false,
+      root: false,
     });
   });
 
@@ -439,6 +441,7 @@ describe('RebaseDialog — rebase options threading (#P2)', () => {
       keepEmpty: false,
       updateRefs: false,
       autosquash: false,
+      root: false,
     });
   });
 });

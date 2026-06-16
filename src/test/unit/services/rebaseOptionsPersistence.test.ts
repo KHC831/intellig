@@ -2,8 +2,8 @@
  * P3 — rebase options persistence (IntelliJ GitRebaseSettings parity).
  *
  * IntelliJ saves the last-used rebase options per project and reloads them on
- * next open. We persist the four boolean flags (rebaseMerges/keepEmpty/
- * updateRefs/autosquash) through a globalState-shaped Memento. The pure
+ * next open. We persist the five boolean flags (rebaseMerges/keepEmpty/
+ * updateRefs/autosquash/root) through a globalState-shaped Memento. The pure
  * load/save helpers are validated here against an in-memory store.
  */
 
@@ -40,6 +40,7 @@ describe('rebase options persistence (#P3)', () => {
       keepEmpty: false,
       updateRefs: false,
       autosquash: false,
+      root: false,
     });
   });
 
@@ -50,12 +51,14 @@ describe('rebase options persistence (#P3)', () => {
       keepEmpty: false,
       updateRefs: true,
       autosquash: false,
+      root: false,
     });
     assert.deepStrictEqual(loadRebaseOptions(store), {
       rebaseMerges: true,
       keepEmpty: false,
       updateRefs: true,
       autosquash: false,
+      root: false,
     });
   });
 
@@ -68,6 +71,7 @@ describe('rebase options persistence (#P3)', () => {
     assert.strictEqual(loaded.updateRefs, true, 'truthy non-boolean coerces to true');
     assert.strictEqual(loaded.keepEmpty, false, 'missing key defaults false');
     assert.strictEqual(loaded.autosquash, false);
+    assert.strictEqual(loaded.root, false, 'missing root defaults false');
   });
 
   it('falls back to all-false when the stored value is not an object', () => {
@@ -76,6 +80,7 @@ describe('rebase options persistence (#P3)', () => {
       keepEmpty: false,
       updateRefs: false,
       autosquash: false,
+      root: false,
     });
   });
 });
