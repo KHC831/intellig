@@ -297,12 +297,12 @@ Enable the IntelliJ preset in settings:
 
 ### Blame annotations
 
-| Setting                                     | Default    | Description                         |
-| ------------------------------------------- | ---------- | ----------------------------------- |
+| Setting                                     | Default    | Description                                  |
+| ------------------------------------------- | ---------- | -------------------------------------------- |
 | `intellig.blameAnnotationStyle`             | `"inline"` | `"inline"`, `"gutter"`, `"both"`, or `"off"` |
-| `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`            |
-| `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`            |
-| `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`         |
+| `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`                     |
+| `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`                     |
+| `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`                  |
 
 ### UI polish
 
@@ -310,6 +310,7 @@ Enable the IntelliJ preset in settings:
 | ------------------------------------ | ----------- | --------------------------------------------------------------- |
 | `intellig.showStatusBarBranch`       | `true`      | Show current branch + incoming/outgoing badge in the status bar |
 | `intellig.log.highlightCherryPicked` | `true`      | Dim commits already cherry-picked into the current branch       |
+| `intellig.log.showGpgColumn`         | `false`     | Show a GPG/SSH signature status column in the commit log        |
 | `intellig.modifiedFileColor`         | `"#6897BB"` | Color for modified files (IntelliJ blue)                        |
 | `intellig.addedFileColor`            | `"#629755"` | Color for added files (IntelliJ green)                          |
 | `intellig.deletedFileColor`          | `"#6C6C6C"` | Color for deleted files (IntelliJ gray)                         |

@@ -5,7 +5,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
-import { EventEmitter, Uri, Webview } from '../../mocks/vscode';
+import { EventEmitter, Uri, Webview, setMockConfigValue } from '../../mocks/vscode';
 import type { IGitService, IRepository } from '../../../git-core/interfaces/IGitService';
 import type { ICommitNode, IBranchRef } from '../../../git-core/commitGraph';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
@@ -2623,5 +2623,66 @@ describe('GitToolWindow state machine (Requirement 3)', () => {
       !html.includes(NO_REPO_MARKER),
       'Should not render the no-repository message once a repository is present'
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GPG signature column (G5) — _getGraphPanelHtml integration via provider
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal ICommit-shaped object with an optional gpgStatus field.
+ * Used in the GPG column tests to call provider.updateLogState + _getGraphPanelHtml.
+ */
+function makeGpgCommit(
+  gpgStatus?: string
+): Parameters<typeof GitToolWindowProvider.prototype.updateLogState>[0][0] {
+  return {
+    hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    shortHash: 'aaaaaaa',
+    message: 'test commit',
+    author: { name: 'Alice', email: 'alice@example.com' },
+    committer: { name: 'Alice', email: 'alice@example.com' },
+    parents: [],
+    authorDate: new Date('2024-01-01T12:00:00Z'),
+    commitDate: new Date('2024-01-01T12:00:00Z'),
+    gpgStatus,
+  } as Parameters<typeof GitToolWindowProvider.prototype.updateLogState>[0][0];
+}
+
+describe('GPG signature column (G5) — _getGraphPanelHtml', () => {
+  let gpgProvider: GitToolWindowProvider;
+
+  beforeEach(() => {
+    gpgProvider = new GitToolWindowProvider(Uri.file('/test/extension'));
+    gpgProvider.setHasRepository(true);
+  });
+
+  afterEach(() => {
+    gpgProvider.dispose();
+    // Reset the intellig.log.showGpgColumn mock value so tests don't bleed.
+    setMockConfigValue('intellig', 'log.showGpgColumn', undefined);
+  });
+
+  it('does NOT render a GPG cell when showGpgColumn setting is false (the default)', () => {
+    setMockConfigValue('intellig', 'log.showGpgColumn', false);
+    gpgProvider.updateLogState([makeGpgCommit('G')]);
+    const html = gpgProvider._getGraphPanelHtml(gpgProvider.getExtendedLogState().commitNodes);
+    assert.ok(
+      !html.includes('log-gpg-status'),
+      'GPG cell must be absent when intellig.log.showGpgColumn is false'
+    );
+  });
+
+  it('renders a GPG cell with "✓" when showGpgColumn is true and gpgStatus is "G"', () => {
+    setMockConfigValue('intellig', 'log.showGpgColumn', true);
+    gpgProvider.updateLogState([makeGpgCommit('G')]);
+    const html = gpgProvider._getGraphPanelHtml(gpgProvider.getExtendedLogState().commitNodes);
+    assert.ok(
+      html.includes('log-gpg-status'),
+      'GPG cell must be present when intellig.log.showGpgColumn is true'
+    );
+    assert.ok(html.includes('log-gpg-valid'), 'GPG valid CSS class must be present for status "G"');
+    assert.ok(html.includes('✓'), 'GPG cell must render "✓" for a valid signature');
   });
 });

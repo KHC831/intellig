@@ -2860,6 +2860,7 @@ ${bodyMarkup}
       incomingBendsMap,
       hasFocusedBranch,
       branchLabelsFor: (node) => this._getBranchLabelsHtml(node),
+      showGpgColumn: this._isShowGpgColumnEnabled(),
     });
 
     // Determine if more commits are available for incremental loading
@@ -2974,6 +2975,9 @@ ${bodyMarkup}
    * @returns HTML string for the column-header row.
    */
   private _getLogColumnHeaderHtml(): string {
+    const gpgHeaderCell = this._isShowGpgColumnEnabled()
+      ? `<div class="log-gpg-status" aria-label="GPG signature status" title="GPG/SSH signature status">GPG</div>`
+      : '';
     return `
         <div class="log-column-header" role="row" aria-hidden="true">
           <div class="log-column-header-graph"></div>
@@ -2983,6 +2987,7 @@ ${bodyMarkup}
             <div class="log-column-header-author">Author</div>
             <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="Resize date column" tabindex="0"></div>
             <div class="log-column-header-date">Date</div>
+            ${gpgHeaderCell}
           </div>
         </div>`;
   }
@@ -3476,6 +3481,21 @@ ${bodyMarkup}
       // Getting configuration shouldn't throw in practice, but if it does
       // we prefer to keep the flag on so the feature stays visible.
       return true;
+    }
+  }
+
+  /**
+   * Check whether the `intellig.log.showGpgColumn` feature flag is enabled.
+   * Default is `false` — the column is opt-in because most repos aren't
+   * GPG-signed and the column would always be empty. When enabled, each
+   * commit row shows the %G? status glyph (G5 parity).
+   */
+  private _isShowGpgColumnEnabled(): boolean {
+    try {
+      const config = vscode.workspace.getConfiguration('intellig');
+      return config.get<boolean>('log.showGpgColumn', false);
+    } catch {
+      return false;
     }
   }
 

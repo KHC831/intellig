@@ -1253,6 +1253,11 @@
           "default": true,
           "description": "Dim commits that are already cherry-picked to the current branch's upstream and show a ✓ badge (T3-07). Uses `git log --cherry-mark`. Turn off if you find the visual cue too busy."
         },
+        "intellig.log.showGpgColumn": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a GPG/SSH signature status column in the commit log (G5). Displays a glyph per commit: ✓ valid, ✗ bad/revoked, ⚠ expired/unknown, — missing key, empty for unsigned commits."
+        },
         "intellig.blameAnnotationStyle": {
           "type": "string",
           "enum": [

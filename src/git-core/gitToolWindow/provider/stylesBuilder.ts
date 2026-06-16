@@ -1295,6 +1295,18 @@ export function buildInlineStyles(): string {
         padding: 8px;
       }
 
+      /* GPG/SSH signature column (G5) — shown when intellig.log.showGpgColumn is true */
+      .log-gpg-status {
+        width: 20px;
+        text-align: center;
+        font-size: 11px;
+        flex-shrink: 0;
+      }
+      .log-gpg-valid { color: var(--vscode-testing-iconPassed); }
+      .log-gpg-bad { color: var(--vscode-testing-iconFailed); }
+      .log-gpg-warn { color: var(--vscode-charts-orange); }
+      .log-gpg-muted { opacity: 0.4; }
+
       /* Graph Panel Loading Indicator*/
       .graph-loading-indicator {
         display: flex;

@@ -179,10 +179,18 @@ export function parseLog(output: string, separator: string = '\x1f'): ICommit[] 
       commitDateStr,
       parentsStr,
       subject,
+      // Field 10: %G? — GPG/SSH signature status character. Present only when
+      // the format string includes it (getLogFormat() now does). Absent in
+      // old cached output; guard with `?? undefined` so old callers that pass
+      // a 10-field format string still parse cleanly.
+      gpgStatusRaw,
     ] = parts;
 
     const body = lines.slice(1).join('\n').trim() || undefined;
     const parents = parentsStr ? parentsStr.split(' ').filter((p) => p.length > 0) : [];
+    // %G? emits exactly one ASCII character (G/B/U/X/Y/R/E/N). Trim whitespace
+    // defensively; treat empty or missing as undefined rather than a spurious 'N'.
+    const gpgStatus = gpgStatusRaw?.trim() || undefined;
 
     commits.push({
       hash,
@@ -200,6 +208,7 @@ export function parseLog(output: string, separator: string = '\x1f'): ICommit[] 
       parents,
       authorDate: new Date(authorDateStr),
       commitDate: new Date(commitDateStr),
+      gpgStatus,
     });
   }
 
@@ -824,11 +833,25 @@ export function parseBlame(output: string): IBlameLine[] {
  * default of `|` is retained as a legal value for explicit overrides
  * (the parser still accepts it).
  *
+ * Field order (0-indexed):
+ *   0  %H   full hash
+ *   1  %h   short hash
+ *   2  %an  author name
+ *   3  %ae  author email
+ *   4  %aI  author date (ISO-8601)
+ *   5  %cn  committer name
+ *   6  %ce  committer email
+ *   7  %cI  commit date (ISO-8601)
+ *   8  %P   parent hashes (space-separated)
+ *   9  %s   subject (first commit-message line)
+ *   10 %G?  GPG/SSH signature status character (G5)
+ * Body lines follow the first \n after field 10 (via `%n%b`).
+ *
  * @param separator - The field separator (default: `\x1f`)
  * @returns The format string
  */
 export function getLogFormat(separator: string = '\x1f'): string {
-  return `%H${separator}%h${separator}%an${separator}%ae${separator}%aI${separator}%cn${separator}%ce${separator}%cI${separator}%P${separator}%s%n%b`;
+  return `%H${separator}%h${separator}%an${separator}%ae${separator}%aI${separator}%cn${separator}%ce${separator}%cI${separator}%P${separator}%s${separator}%G?%n%b`;
 }
 
 /**

@@ -30,6 +30,11 @@ export interface ICommitRowData {
   hasFocusedBranch: boolean;
   /** Renders the branch-labels HTML for a node (provider-bound callback). */
   branchLabelsFor: (node: ICommitNode) => string;
+  /**
+   * When true, render the GPG/SSH signature status column (G5 parity).
+   * Driven by the `intellig.log.showGpgColumn` setting (default false).
+   */
+  showGpgColumn?: boolean;
 }
 
 /**
@@ -42,6 +47,38 @@ export interface ICommitRowData {
  * badge, and assembles the `.commit-row` markup. The rendered output is
  * byte-identical to the inline implementation it replaced.
  */
+/**
+ * Map a `%G?` character to the visual glyph, CSS modifier class, and tooltip
+ * shown in the GPG signature column.
+ *
+ * Returns `undefined` for 'N' (no signature) and for absent/unknown values so
+ * the cell is left empty for unsigned commits — matching IntelliJ's GPG column
+ * behaviour (no badge for unsigned commits).
+ */
+function gpgStatusCell(
+  status: string | undefined
+): { glyph: string; cssClass: string; title: string } | undefined {
+  switch (status) {
+    case 'G':
+      return { glyph: '✓', cssClass: 'log-gpg-valid', title: 'Valid signature' };
+    case 'B':
+      return { glyph: '✗', cssClass: 'log-gpg-bad', title: 'Bad signature' };
+    case 'U':
+      return { glyph: '?', cssClass: 'log-gpg-warn', title: 'Unknown validity' };
+    case 'X':
+      return { glyph: '⚠', cssClass: 'log-gpg-warn', title: 'Expired key' };
+    case 'Y':
+      return { glyph: '⚠', cssClass: 'log-gpg-warn', title: 'Expired key at signing time' };
+    case 'R':
+      return { glyph: '✗', cssClass: 'log-gpg-bad', title: 'Revoked key' };
+    case 'E':
+      return { glyph: '—', cssClass: 'log-gpg-muted', title: 'Cannot check (missing key)' };
+    default:
+      // 'N' (no signature) and undefined → empty cell
+      return undefined;
+  }
+}
+
 export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowData): string {
   const {
     selected,
@@ -54,6 +91,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     incomingBendsMap,
     hasFocusedBranch,
     branchLabelsFor,
+    showGpgColumn,
   } = rowData;
 
   return commitNodes
@@ -130,6 +168,15 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
           }" aria-label="already cherry-picked">✓</span>`
         : '';
 
+      // GPG signature cell — only rendered when the column is enabled.
+      let gpgCellHtml = '';
+      if (showGpgColumn) {
+        const cell = gpgStatusCell((commit as { gpgStatus?: string }).gpgStatus);
+        gpgCellHtml = cell
+          ? `<span class="log-gpg-status ${cell.cssClass}" title="${escapeHtml(cell.title)}" aria-label="${escapeHtml(cell.title)}">${cell.glyph}</span>`
+          : `<span class="log-gpg-status"></span>`;
+      }
+
       const rowClasses = [
         'commit-row',
         isSelected ? 'selected' : '',
@@ -152,6 +199,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
             <div class="commit-branches">${branchLabelsHtml}</div>
             <span class="commit-author" title="${authorEmail}">${authorName}</span>
             <span class="commit-date" title="${fullDate}">${commitDate}</span>
+            ${gpgCellHtml}
           </div>
         </div>`;
     })

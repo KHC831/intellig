@@ -150,6 +150,8 @@ export interface ICommit {
   parents: string[];
   authorDate: Date;
   commitDate: Date;
+  /** GPG/SSH signature status from git log %G? — 'G'|'B'|'U'|'X'|'Y'|'R'|'E'|'N' or undefined */
+  gpgStatus?: string;
 }
 
 /**
