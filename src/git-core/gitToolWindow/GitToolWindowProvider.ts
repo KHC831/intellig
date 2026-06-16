@@ -207,7 +207,11 @@ export type LogContextAction =
   | 'compareWithBranch'
   // IntelliJ Git.PushUpToHere: push all local commits up to and including
   // the selected commit to the current branch's remote. Single-only.
-  | 'pushUpToCommit';
+  | 'pushUpToCommit'
+  // G9: go-to-parent/child navigation — handled entirely in the webview JS;
+  // listed here so the cast in _handleCommitContextMenu remains type-safe.
+  | 'goToParent'
+  | 'goToChild';
 
 /**
  * Extended Log state with commit nodes for graph visualization

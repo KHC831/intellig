@@ -267,6 +267,72 @@ export function buildInlineScript(): string {
           setTimeout(function () { commitRow.classList.remove('highlight-scroll'); }, 2000);
         }
 
+        // Navigate to a commit hash in the log by selecting and scrolling to its row.
+        // Used by goToParent and goToChild to jump without a host round-trip.
+        function jumpToCommitHash(hash) {
+          const targetRow = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+          if (!targetRow) return; // not in visible list — do nothing
+          document.querySelectorAll('.commit-row.selected').forEach(function(r) {
+            r.classList.remove('selected');
+            r.setAttribute('aria-selected', 'false');
+          });
+          targetRow.classList.add('selected');
+          targetRow.setAttribute('aria-selected', 'true');
+          targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          refreshSelectedCount();
+          vscode.postMessage({ type: 'selectCommit', commitHash: hash });
+        }
+
+        // Show a lightweight pick popup listing short hashes. Used when a commit
+        // has multiple parents or children so the user can choose which to jump to.
+        // onSelect(hash) is called with the chosen hash.
+        function openNavigationPopup(hashes, clientX, clientY, onSelect) {
+          const popup = document.getElementById('ref-popup');
+          if (!popup) return;
+
+          popup.innerHTML = '';
+          hashes.forEach(function(h) {
+            const row = document.createElement('div');
+            row.className = 'context-menu-item';
+            row.setAttribute('role', 'menuitem');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-nav-hash', h);
+            row.textContent = h.substring(0, 8);
+            popup.appendChild(row);
+          });
+
+          const menuWidth = 220;
+          const menuHeight = 200;
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          const left = clientX + menuWidth > vw ? vw - menuWidth - 10 : clientX;
+          const top = clientY + menuHeight > vh ? vh - menuHeight - 10 : clientY;
+          popup.style.left = left + 'px';
+          popup.style.top = top + 'px';
+          popup.hidden = false;
+
+          // Single-use click handler: select a hash row then clean up.
+          function pickHandler(e) {
+            const row = e.target && e.target.closest
+              ? e.target.closest('#ref-popup [data-nav-hash]')
+              : null;
+            if (!row) {
+              // Click outside — dismiss without navigating.
+              if (!popup.contains(e.target)) {
+                popup.hidden = true;
+                document.removeEventListener('click', pickHandler, true);
+              }
+              return;
+            }
+            e.stopPropagation();
+            const h = row.getAttribute('data-nav-hash');
+            popup.hidden = true;
+            document.removeEventListener('click', pickHandler, true);
+            if (h) onSelect(h);
+          }
+          document.addEventListener('click', pickHandler, true);
+        }
+
         // Auto-scroll to commit on page load when data-scroll-to-commit is set.
         // This handles the case where _updateWebview() fully replaces the DOM
         // (e.g., after a branch click), so a postMessage would arrive too late.
@@ -806,6 +872,44 @@ export function buildInlineScript(): string {
               event.preventDefault();
               showLogContextMenu(event, hash);
               break;
+            // G9: ArrowRight → go to parent; ArrowLeft → go to child.
+            // Only fires when exactly one commit row is selected.
+            case 'ArrowRight': {
+              event.preventDefault();
+              const selectedRows = document.querySelectorAll('.graph-panel .commit-row.selected');
+              if (selectedRows.length !== 1) break;
+              const currentRow = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+              if (!currentRow) break;
+              const parentsRaw = currentRow.getAttribute('data-parents') || '';
+              const parents = parentsRaw.split(',').filter(function(h) { return h.length > 0; });
+              if (parents.length === 0) break; // root commit
+              if (parents.length === 1) {
+                jumpToCommitHash(parents[0]);
+              } else {
+                const rect = currentRow.getBoundingClientRect();
+                openNavigationPopup(parents, rect.right, rect.top, jumpToCommitHash);
+              }
+              break;
+            }
+            case 'ArrowLeft': {
+              event.preventDefault();
+              const selectedRowsL = document.querySelectorAll('.graph-panel .commit-row.selected');
+              if (selectedRowsL.length !== 1) break;
+              const allRowsL = Array.from(document.querySelectorAll('.commit-row[data-hash]'));
+              const childrenL = allRowsL.filter(function(r) {
+                const p = r.getAttribute('data-parents') || '';
+                return p.split(',').indexOf(hash) !== -1;
+              }).map(function(r) { return r.getAttribute('data-hash'); });
+              if (childrenL.length === 0) break;
+              if (childrenL.length === 1) {
+                jumpToCommitHash(childrenL[0]);
+              } else {
+                const currentRowL = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+                const rect = currentRowL ? currentRowL.getBoundingClientRect() : { right: 0, top: 0 };
+                openNavigationPopup(childrenL, rect.right, rect.top, jumpToCommitHash);
+              }
+              break;
+            }
             case 'c':
               if (event.ctrlKey || event.metaKey) {
                 event.preventDefault();
@@ -941,6 +1045,39 @@ export function buildInlineScript(): string {
             if (menuItem.classList.contains('disabled')) return;
             const action = menuItem.dataset.action;
             if (action) {
+              // G9: goToParent / goToChild are handled purely in the webview.
+              // No host round-trip — navigate directly within the rendered rows.
+              if (action === 'goToParent' || action === 'goToChild') {
+                document.getElementById('commit-context-menu').hidden = true;
+                const hash = commitContextMenuHashes[0];
+                if (!hash) return;
+                if (action === 'goToParent') {
+                  const row = document.querySelector('.commit-row[data-hash="' + hash + '"]');
+                  if (!row) return;
+                  const parentsRaw = row.getAttribute('data-parents') || '';
+                  const parents = parentsRaw.split(',').filter(function(h) { return h.length > 0; });
+                  if (parents.length === 0) return; // root commit
+                  if (parents.length === 1) {
+                    jumpToCommitHash(parents[0]);
+                  } else {
+                    openNavigationPopup(parents, e.clientX, e.clientY, jumpToCommitHash);
+                  }
+                } else {
+                  // goToChild: scan all visible rows for those whose data-parents contains hash.
+                  const allRows = Array.from(document.querySelectorAll('.commit-row[data-hash]'));
+                  const children = allRows.filter(function(r) {
+                    const p = r.getAttribute('data-parents') || '';
+                    return p.split(',').indexOf(hash) !== -1;
+                  }).map(function(r) { return r.getAttribute('data-hash'); });
+                  if (children.length === 0) return;
+                  if (children.length === 1) {
+                    jumpToCommitHash(children[0]);
+                  } else {
+                    openNavigationPopup(children, e.clientX, e.clientY, jumpToCommitHash);
+                  }
+                }
+                return;
+              }
               vscode.postMessage({
                 type: 'commitContextMenu',
                 action: action,
@@ -1148,6 +1285,7 @@ export function buildInlineScript(): string {
           const handled = (
             e.key === 'Enter' || e.key === ' ' ||
             e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+            e.key === 'ArrowRight' || e.key === 'ArrowLeft' ||
             e.key === 'ContextMenu' ||
             (e.key === 'c' && (e.ctrlKey || e.metaKey))
           );

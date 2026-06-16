@@ -353,6 +353,14 @@ export class CommitContextMenuCommands {
       case 'pushUpToCommit':
         await this._handlePushUpToCommit(commitHashes);
         break;
+      // G9: goToParent / goToChild are handled entirely in the webview JS
+      // (jumpToCommitHash). The host never receives these actions — the webview
+      // intercepts them before calling postMessage. These stubs prevent the
+      // structural guard in multiSelectR1.test.ts from failing should the
+      // message arrive in a code path we don't control.
+      case 'goToParent':
+      case 'goToChild':
+        break;
       default:
         // Unknown action — no-op
         break;

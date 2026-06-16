@@ -747,7 +747,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // fixupWithPrevious and compareWithBranch. 15 + 3 = 18.
       // Plus Copy Commit Message (#P3 Vcs.Log.CopySubjectText) = 19.
       // Plus pushUpToCommit (Gap B IntelliJ Git.PushUpToHere parity) = 20.
-      assert.strictEqual(menuItemCount, 20, 'Should have 20 menu items with role="menuitem"');
+      // G9: goToParent + goToChild = 22.
+      assert.strictEqual(menuItemCount, 22, 'Should have 22 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -811,7 +812,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       //     "Compare with Branch" near the rebase/merge actions.
       // Net: 3 separators → 4, 4 sections → 5.
       // Gap B: pushUpToCommit added in its own section 6. 4 → 5 separators.
-      assert.strictEqual(separatorCount, 5, 'Should have 5 separators between 6 sections');
+      // G9: goToParent + goToChild added in section 7. 5 → 6 separators.
+      assert.strictEqual(separatorCount, 6, 'Should have 6 separators between 7 sections');
     });
   });
 

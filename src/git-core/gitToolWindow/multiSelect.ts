@@ -63,7 +63,10 @@ export type MultiSelectMenuAction =
   | 'fixupWithPrevious'
   | 'compareWithBranch'
   // IntelliJ Git.PushUpToHere: single-only (push up to selected commit).
-  | 'pushUpToCommit';
+  | 'pushUpToCommit'
+  // G9: go-to-parent/child navigation — single-only (disabled in multi-select).
+  | 'goToParent'
+  | 'goToChild';
 
 /**
  * Inputs for {@link computeMenuEnableState}. Centralised here so the
@@ -205,6 +208,9 @@ export function computeMenuVisibility(
     compareWithBranch: !isMulti,
     // IntelliJ Git.PushUpToHere — single-only.
     pushUpToCommit: !isMulti,
+    // G9: go-to-parent/child navigation — single-only.
+    goToParent: !isMulti,
+    goToChild: !isMulti,
   };
 }
 
@@ -273,6 +279,9 @@ export function computeMenuEnableState(
     compareWithBranch: isSingle,
     // IntelliJ Git.PushUpToHere — single-only.
     pushUpToCommit: isSingle,
+    // G9: go-to-parent/child navigation — single-only.
+    goToParent: isSingle,
+    goToChild: isSingle,
   };
 }
 

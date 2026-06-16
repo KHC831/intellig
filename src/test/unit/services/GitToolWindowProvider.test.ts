@@ -2731,6 +2731,54 @@ describe('pushUpToCommit — commit context menu wiring (Gap B)', () => {
   });
 });
 
+describe('goToParent/goToChild — commit context menu wiring (G9)', () => {
+  let p: GitToolWindowProvider;
+  beforeEach(() => {
+    p = new GitToolWindowProvider(Uri.file('/test/extension'));
+  });
+  afterEach(() => {
+    p.dispose();
+  });
+
+  it('commit-context-menu HTML includes a "Go to Parent" item with data-action="goToParent"', () => {
+    const html = p._getCommitContextMenuHtml();
+    assert.ok(
+      /data-action="goToParent"/.test(html),
+      'Commit context menu must include a goToParent action item'
+    );
+    assert.ok(/[Gg]o to [Pp]arent/.test(html), 'Item label must say "Go to Parent"');
+  });
+
+  it('commit-context-menu HTML includes a "Go to Child" item with data-action="goToChild"', () => {
+    const html = p._getCommitContextMenuHtml();
+    assert.ok(
+      /data-action="goToChild"/.test(html),
+      'Commit context menu must include a goToChild action item'
+    );
+    assert.ok(/[Gg]o to [Cc]hild/.test(html), 'Item label must say "Go to Child"');
+  });
+
+  it('goToParent and goToChild items carry data-multi-action="single-only"', () => {
+    const html = p._getCommitContextMenuHtml();
+    // Extract the goToParent item block to check it carries single-only.
+    const parentIdx = html.indexOf('data-action="goToParent"');
+    assert.ok(parentIdx !== -1, 'goToParent item must be present');
+    const parentBlock = html.substring(Math.max(0, parentIdx - 200), parentIdx + 100);
+    assert.ok(
+      parentBlock.includes('data-multi-action="single-only"'),
+      'goToParent must carry data-multi-action="single-only"'
+    );
+
+    const childIdx = html.indexOf('data-action="goToChild"');
+    assert.ok(childIdx !== -1, 'goToChild item must be present');
+    const childBlock = html.substring(Math.max(0, childIdx - 200), childIdx + 100);
+    assert.ok(
+      childBlock.includes('data-multi-action="single-only"'),
+      'goToChild must carry data-multi-action="single-only"'
+    );
+  });
+});
+
 describe('_isShowAllRootsEnabled (G8)', () => {
   let p: GitToolWindowProvider;
 

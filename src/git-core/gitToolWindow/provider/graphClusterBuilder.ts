@@ -216,6 +216,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       return `
         <div class="${rowClasses}"
              data-hash="${escapeHtml(commit.hash)}"
+             data-parents="${escapeHtml(commit.parents.join(','))}"
              role="option"
              tabindex="0"
              aria-selected="${isSelected}">
