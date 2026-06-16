@@ -1508,7 +1508,13 @@ export class GitToolWindowProvider
       filter = {};
 
       if (webviewFilter.branch) {
-        filter.branch = webviewFilter.branch;
+        // IntelliJ BranchFilterModel: a value containing `..`/`...` is a range
+        // (VcsLogRangeFilter), not a single branch ref — route it accordingly.
+        if (webviewFilter.branch.includes('..')) {
+          filter.logRange = webviewFilter.branch;
+        } else {
+          filter.branch = webviewFilter.branch;
+        }
       }
       if (webviewFilter.searchText) {
         filter.searchText = webviewFilter.searchText;
@@ -1536,16 +1542,34 @@ export class GitToolWindowProvider
       if (webviewFilter.noMerges) {
         filter.noMerges = true;
       }
+      if (webviewFilter.firstParent) {
+        filter.firstParent = true;
+      }
+      if (webviewFilter.simplifyMerges) {
+        filter.simplifyMerges = true;
+      }
+      // Treat 0 as "not set" (0 min-parents is git's default anyway).
+      if (webviewFilter.minParents) {
+        filter.minParents = webviewFilter.minParents;
+      }
+      if (webviewFilter.maxParents) {
+        filter.maxParents = webviewFilter.maxParents;
+      }
 
       // Check if filter is empty
       if (
         !filter.branch &&
+        !filter.logRange &&
         !filter.searchText &&
         !filter.author &&
         !filter.path &&
         !filter.since &&
         !filter.until &&
-        !filter.noMerges
+        !filter.noMerges &&
+        !filter.firstParent &&
+        !filter.simplifyMerges &&
+        !filter.minParents &&
+        !filter.maxParents
       ) {
         filter = undefined;
       }
@@ -2952,13 +2976,19 @@ ${bodyMarkup}
    */
   public _getLogFilterBarHtml(): string {
     const filter = this._extendedLogState.filter;
-    const branch = this._escapeHtml(filter?.branch ?? '');
     const search = this._escapeHtml(filter?.searchText ?? '');
     const author = this._escapeHtml(filter?.author ?? '');
     const path = this._escapeHtml(filter?.path ?? '');
     const since = this._toDateInputValue(filter?.since);
     const until = this._toDateInputValue(filter?.until);
     const noMerges = filter?.noMerges === true;
+    const firstParent = filter?.firstParent === true;
+    const simplifyMerges = filter?.simplifyMerges === true;
+    // A range filter ("A..B") lives in logRange; rehydrate it into the branch
+    // input since that's the field the user typed it into.
+    const branchOrRange = this._escapeHtml(filter?.logRange ?? filter?.branch ?? '');
+    const minParents = filter?.minParents ?? '';
+    const maxParents = filter?.maxParents ?? '';
     const searchRegex = filter?.searchRegex ?? false;
     const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
     const active = filter !== undefined;
@@ -2971,7 +3001,7 @@ ${bodyMarkup}
           <div class="log-filter-row">
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-branch">Branch</label>
-              <input type="text" id="filter-branch" class="log-filter-input" list="filter-branch-options" data-action="filterKeydown" placeholder="Branch or tag" value="${branch}" autocomplete="off" />
+              <input type="text" id="filter-branch" class="log-filter-input" list="filter-branch-options" data-action="filterKeydown" placeholder="Branch, tag, or range (A..B)" value="${branchOrRange}" autocomplete="off" />
               <datalist id="filter-branch-options"></datalist>
             </div>
             <div class="log-filter-group">
@@ -3005,6 +3035,22 @@ ${bodyMarkup}
               <label class="log-filter-check-label" for="filter-no-merges">
                 <input type="checkbox" id="filter-no-merges" class="log-filter-check"${noMerges ? ' checked' : ''} /> No Merges
               </label>
+            </div>
+            <div class="log-filter-group log-filter-group-check">
+              <label class="log-filter-check-label" for="filter-first-parent">
+                <input type="checkbox" id="filter-first-parent" class="log-filter-check"${firstParent ? ' checked' : ''} /> First Parent
+              </label>
+            </div>
+            <div class="log-filter-group log-filter-group-check">
+              <label class="log-filter-check-label" for="filter-simplify-merges">
+                <input type="checkbox" id="filter-simplify-merges" class="log-filter-check"${simplifyMerges ? ' checked' : ''} /> Simplify Merges
+              </label>
+            </div>
+            <div class="log-filter-group log-filter-group-parents">
+              <label class="log-filter-label">Parents</label>
+              <input type="number" id="filter-min-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Min" min="0" value="${minParents}" />
+              <span class="log-filter-parents-sep">–</span>
+              <input type="number" id="filter-max-parents" class="log-filter-input log-filter-parents-input" data-action="filterKeydown" placeholder="Max" min="0" value="${maxParents}" />
             </div>
           </div>
           <div class="log-filter-actions">
@@ -3453,6 +3499,10 @@ interface IWebviewLogFilter {
   since?: string | null;
   until?: string | null;
   noMerges?: boolean;
+  firstParent?: boolean;
+  simplifyMerges?: boolean;
+  minParents?: number;
+  maxParents?: number;
   searchRegex?: boolean;
   searchCaseSensitive?: boolean;
 }

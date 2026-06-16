@@ -59,6 +59,27 @@ export interface ILogFilter {
   searchText?: string;
   /** Exclude merge commits — IntelliJ's VCS-log "No Merges" filter. */
   noMerges?: boolean;
+  /**
+   * Follow only the first parent of each merge (`--first-parent`). Mirrors
+   * IntelliJ PermanentGraph.Options.FirstParent ("Follow only the first parent
+   * commit upon seeing a merge commit").
+   */
+  firstParent?: boolean;
+  /**
+   * Prune merges made redundant by history simplification (`--simplify-merges`).
+   * Part of IntelliJ's VCS-log graph options chooser.
+   */
+  simplifyMerges?: boolean;
+  /** Only commits with at least this many parents (`--min-parents=N`). */
+  minParents?: number;
+  /** Only commits with at most this many parents (`--max-parents=N`). */
+  maxParents?: number;
+  /**
+   * Revision range like "main..feature" or "main...feature". Passed directly to
+   * git log as a positional ref. Mirrors IntelliJ BranchFilterModel range
+   * notation, which produces a VcsLogRangeFilter rather than a branch filter.
+   */
+  logRange?: string;
   /** True = use Perl-extended regex (-E); false = plain text. */
   searchRegex?: boolean;
   /** True = case-sensitive; false = case-insensitive (--regexp-ignore-case). */

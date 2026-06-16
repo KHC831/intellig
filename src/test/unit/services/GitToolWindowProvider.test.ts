@@ -848,6 +848,32 @@ describe('Log View', () => {
       const html = provider._getLogFilterBarHtml();
       assert.ok(/id="filter-no-merges"[^>]*\schecked/.test(html), 'no-merges box checked');
     });
+
+    it('emits a First Parent toggle (IntelliJ graph.options.first.parent)', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-first-parent"'), 'has first-parent checkbox');
+      assert.ok(html.includes('First Parent'), 'has First Parent label');
+    });
+
+    it('emits a Simplify Merges toggle (IntelliJ graph options chooser)', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-simplify-merges"'), 'has simplify-merges checkbox');
+      assert.ok(html.includes('Simplify Merges'), 'has Simplify Merges label');
+    });
+
+    it('emits min/max parent-count inputs (IntelliJ ParentFilterModel)', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-min-parents"'), 'has min-parents input');
+      assert.ok(html.includes('id="filter-max-parents"'), 'has max-parents input');
+    });
+
+    it('hints range notation (A..B) in the branch input placeholder', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        /id="filter-branch"[^>]*placeholder="[^"]*A\.\.B/.test(html),
+        'branch placeholder hints A..B range'
+      );
+    });
   });
 
   describe('_handleApplyLogFilter — No Merges mapping', () => {
@@ -909,6 +935,36 @@ describe('Log View', () => {
         until: null,
         noMerges: false,
       });
+    });
+
+    it('maps a "A..B" branch value to logRange instead of branch', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter?.logRange, 'main..feature', 'range routed to logRange');
+        assert.strictEqual(filter?.branch, undefined, 'range must not set branch');
+        done();
+      });
+      applyFilter(provider, { branch: 'main..feature' });
+    });
+
+    it('maps firstParent/simplifyMerges flags through to the requested ILogFilter', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter?.firstParent, true);
+        assert.strictEqual(filter?.simplifyMerges, true);
+        done();
+      });
+      applyFilter(provider, { firstParent: true, simplifyMerges: true });
+    });
+
+    it('maps min/max parent counts through to the requested ILogFilter', (done) => {
+      const disposable = provider.onDidRequestLogFilter((filter) => {
+        disposable.dispose();
+        assert.strictEqual(filter?.minParents, 1);
+        assert.strictEqual(filter?.maxParents, 2);
+        done();
+      });
+      applyFilter(provider, { minParents: 1, maxParents: 2 });
     });
   });
 });

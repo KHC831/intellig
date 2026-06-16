@@ -258,19 +258,26 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         path?: string;
         searchText?: string;
         noMerges?: boolean;
+        firstParent?: boolean;
+        simplifyMerges?: boolean;
+        minParents?: number;
+        maxParents?: number;
+        logRange?: string;
         searchRegex?: boolean;
         searchCaseSensitive?: boolean;
       }
     ): Promise<void> => {
       try {
-        // A branch filter scopes the log to that ref; suppress `--all` so we
-        // don't union every branch back in. Without a branch we walk all refs
+        // A branch or range filter scopes the log to that ref; suppress `--all`
+        // so we don't union every branch back in. Without one we walk all refs
         // (minus refs/stash) for the full graph.
         const branchRef = filter?.branch;
+        const logRange = filter?.logRange;
         const commits = await gitService.getLog(repo, {
           maxCount: 500,
-          all: !branchRef,
+          all: !branchRef && !logRange,
           ref: branchRef,
+          logRange,
           // The graph algorithm needs topological order: a commit's
           // parent MUST appear later in the list (or off-window).
           // Without --topo-order, git falls back to date order; after
@@ -285,6 +292,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           path: filter?.path,
           grep: filter?.searchText,
           noMerges: filter?.noMerges,
+          firstParent: filter?.firstParent,
+          simplifyMerges: filter?.simplifyMerges,
+          minParents: filter?.minParents,
+          maxParents: filter?.maxParents,
           regex: filter?.searchRegex,
           caseSensitive: filter?.searchCaseSensitive,
         });
@@ -406,6 +417,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       path?: string;
       searchText?: string;
       noMerges?: boolean;
+      firstParent?: boolean;
+      simplifyMerges?: boolean;
+      minParents?: number;
+      maxParents?: number;
+      logRange?: string;
       searchRegex?: boolean;
       searchCaseSensitive?: boolean;
     }): Promise<void> => {
@@ -487,6 +503,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
               path: filter.path,
               searchText: filter.searchText,
               noMerges: filter.noMerges,
+              firstParent: filter.firstParent,
+              simplifyMerges: filter.simplifyMerges,
+              minParents: filter.minParents,
+              maxParents: filter.maxParents,
+              logRange: filter.logRange,
               searchRegex: filter.searchRegex,
               searchCaseSensitive: filter.searchCaseSensitive,
             }

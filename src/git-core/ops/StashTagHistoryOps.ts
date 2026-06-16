@@ -324,6 +324,25 @@ export class StashTagHistoryOps {
       // Exclude merge commits — IntelliJ's VCS-log "No Merges" filter.
       args.push('--no-merges');
     }
+    if (options?.firstParent) {
+      // Follow only the first parent of each merge — IntelliJ
+      // PermanentGraph.Options.FirstParent.
+      args.push('--first-parent');
+    }
+    if (options?.simplifyMerges) {
+      // Prune merges made redundant by history simplification — part of
+      // IntelliJ's VCS-log graph options chooser.
+      args.push('--simplify-merges');
+    }
+    if (options?.minParents !== undefined) {
+      // Parent-count lower bound — IntelliJ ParentFilterModel min. A number, so
+      // it is safe to splice verbatim.
+      args.push(`--min-parents=${options.minParents}`);
+    }
+    if (options?.maxParents !== undefined) {
+      // Parent-count upper bound — IntelliJ ParentFilterModel max.
+      args.push(`--max-parents=${options.maxParents}`);
+    }
     if (options?.all) {
       args.push('--exclude=refs/stash', '--all');
     }
@@ -350,6 +369,19 @@ export class StashTagHistoryOps {
         throw new Error(`Invalid ref: ${options.ref}`);
       }
       args.push(options.ref);
+    }
+    if (options?.logRange) {
+      // User-typed range like "main..feature" (IntelliJ BranchFilterModel range
+      // notation → VcsLogRangeFilter). The `..`/`...` separator is expected; a
+      // leading `-` would smuggle a CLI flag and a leading `.` is invalid per
+      // git-check-ref-format, so reject both. exec passes argv (no shell), so a
+      // well-formed range is injection-safe. Callers suppress `--all` (ranges
+      // are self-scoping), so this is the only positional revision.
+      const range = options.logRange;
+      if (range.startsWith('-') || range.startsWith('.')) {
+        throw new Error(`Invalid log range: ${range}`);
+      }
+      args.push(range);
     }
     if (options?.path) {
       // Path-filtered history: --full-history keeps commits that touched the

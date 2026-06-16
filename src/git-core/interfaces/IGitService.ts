@@ -419,6 +419,34 @@ export interface ILogOptions {
    */
   noMerges?: boolean;
   /**
+   * Follow only the first parent of each merge (`git log --first-parent`).
+   * Mirrors IntelliJ PermanentGraph.Options.FirstParent. A static flag.
+   */
+  firstParent?: boolean;
+  /**
+   * Prune merges made redundant by history simplification
+   * (`git log --simplify-merges`). Part of IntelliJ's graph options chooser.
+   * A static flag.
+   */
+  simplifyMerges?: boolean;
+  /**
+   * Only commits with at least this many parents (`git log --min-parents=N`).
+   * Mirrors IntelliJ ParentFilterModel min bound. A number, spliced verbatim.
+   */
+  minParents?: number;
+  /**
+   * Only commits with at most this many parents (`git log --max-parents=N`).
+   * Mirrors IntelliJ ParentFilterModel max bound. A number, spliced verbatim.
+   */
+  maxParents?: number;
+  /**
+   * Revision range like "main..feature" or "main...feature", passed as a
+   * positional ref. Mirrors IntelliJ BranchFilterModel range notation
+   * (VcsLogRangeFilter). User-typed, so it is validated (reject a leading
+   * `-`/`.`) before use; ranges are self-scoping, so callers suppress `--all`.
+   */
+  logRange?: string;
+  /**
    * Force `git log --topo-order`. Default (false) leaves git's default
    * date-driven ordering, which is wrong for graph rendering after
    * history-rewrites (rebase, squash, cherry-pick) — committer dates

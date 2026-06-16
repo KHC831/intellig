@@ -489,6 +489,21 @@ export function buildInlineStyles(): string {
         min-width: 130px;
       }
 
+      .log-filter-group-parents {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .log-filter-parents-input {
+        width: 48px;
+      }
+
+      .log-filter-parents-sep {
+        font-size: 11px;
+        opacity: 0.6;
+      }
+
       .log-filter-toggle-group {
         display: flex;
         gap: 2px;

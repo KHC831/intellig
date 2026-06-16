@@ -577,6 +577,13 @@ export function buildInlineScript(): string {
           const sinceInput = document.getElementById('filter-since');
           const untilInput = document.getElementById('filter-until');
           const noMergesInput = document.getElementById('filter-no-merges');
+          const firstParentInput = document.getElementById('filter-first-parent');
+          const simplifyMergesInput = document.getElementById('filter-simplify-merges');
+          const minParentsInput = document.getElementById('filter-min-parents');
+          const maxParentsInput = document.getElementById('filter-max-parents');
+
+          const minParents = minParentsInput ? parseInt(minParentsInput.value, 10) : NaN;
+          const maxParents = maxParentsInput ? parseInt(maxParentsInput.value, 10) : NaN;
 
           const filter = {
             branch: branchInput ? branchInput.value.trim() : '',
@@ -586,6 +593,10 @@ export function buildInlineScript(): string {
             since: sinceInput && sinceInput.value ? sinceInput.value : null,
             until: untilInput && untilInput.value ? untilInput.value : null,
             noMerges: noMergesInput ? noMergesInput.checked : false,
+            firstParent: firstParentInput ? firstParentInput.checked : false,
+            simplifyMerges: simplifyMergesInput ? simplifyMergesInput.checked : false,
+            minParents: Number.isNaN(minParents) ? undefined : minParents,
+            maxParents: Number.isNaN(maxParents) ? undefined : maxParents,
             searchRegex: document.getElementById('filter-search-regex')?.classList.contains('active') ?? false,
             searchCaseSensitive: document.getElementById('filter-search-case')?.classList.contains('active') ?? false
           };
@@ -604,6 +615,10 @@ export function buildInlineScript(): string {
           const sinceInput = document.getElementById('filter-since');
           const untilInput = document.getElementById('filter-until');
           const noMergesInput = document.getElementById('filter-no-merges');
+          const firstParentInput = document.getElementById('filter-first-parent');
+          const simplifyMergesInput = document.getElementById('filter-simplify-merges');
+          const minParentsInput = document.getElementById('filter-min-parents');
+          const maxParentsInput = document.getElementById('filter-max-parents');
 
           if (branchInput) branchInput.value = '';
           if (searchInput) searchInput.value = '';
@@ -612,6 +627,10 @@ export function buildInlineScript(): string {
           if (sinceInput) sinceInput.value = '';
           if (untilInput) untilInput.value = '';
           if (noMergesInput) noMergesInput.checked = false;
+          if (firstParentInput) firstParentInput.checked = false;
+          if (simplifyMergesInput) simplifyMergesInput.checked = false;
+          if (minParentsInput) minParentsInput.value = '';
+          if (maxParentsInput) maxParentsInput.value = '';
 
           const regexBtn = document.getElementById('filter-search-regex');
           const caseBtn = document.getElementById('filter-search-case');
