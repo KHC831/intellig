@@ -411,6 +411,11 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.tag.deleteRemote",
+        "title": "Delete from Remote…",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.tag.new",
         "title": "New Tag…",
         "category": "IntelliG"
@@ -855,6 +860,11 @@
           "command": "intellig.tag.push",
           "when": "viewItem == intellig.tag",
           "group": "1_tag@5"
+        },
+        {
+          "command": "intellig.tag.deleteRemote",
+          "when": "viewItem == intellig.tag",
+          "group": "2_tagRemote@1"
         },
         {
           "command": "intellig.commit.copyHash",

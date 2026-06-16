@@ -8,6 +8,11 @@ import { IGitService, IRepository, IBranch, ITag } from '../git-core/interfaces/
 import { resolveRepo } from '../utils/resolveRepo';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
+import {
+  enrichBranchesWithIncomingOutgoing,
+  getIncomingOutgoingFetcher,
+  type IncomingOutgoingFetcher,
+} from './BranchPopup';
 
 /**
  * Tree item types for the branch tree
@@ -309,8 +314,17 @@ export class BranchTreeProvider
    */
   private readonly _logger: Logger;
 
-  constructor(gitService: IGitService) {
+  /**
+   * Optional incoming/outgoing fetcher. When present, tracked local branches
+   * are enriched with ahead/behind counts so the tree renders ↑N/↓N badges —
+   * matching the branch popup. Lives off the frozen IGitService interface
+   * (ADR-001), so the factory duck-types it from the concrete service.
+   */
+  private readonly _incomingOutgoingFetcher: IncomingOutgoingFetcher | undefined;
+
+  constructor(gitService: IGitService, incomingOutgoingFetcher?: IncomingOutgoingFetcher) {
     this._gitService = gitService;
+    this._incomingOutgoingFetcher = incomingOutgoingFetcher;
     this._onDidChangeTreeData = new vscode.EventEmitter<BranchTreeItem | undefined | null | void>();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this._logger = getLogger().child({ component: 'BranchTreeProvider' });
@@ -507,7 +521,17 @@ export class BranchTreeProvider
     }
 
     const branches = await this._gitService.getBranches(this._currentRepository);
-    const localBranches = branches.filter((b) => b.type === 'local');
+    let localBranches = branches.filter((b) => b.type === 'local');
+    // Enrich tracked branches with ahead/behind counts so the tree renders
+    // ↑N/↓N — matching the branch popup. No fetcher → branches pass through
+    // untouched (no badges).
+    if (this._incomingOutgoingFetcher) {
+      localBranches = await enrichBranchesWithIncomingOutgoing(
+        this._currentRepository,
+        localBranches,
+        this._incomingOutgoingFetcher
+      );
+    }
     const currentBranchName = head?.name?.replace('refs/heads/', '');
 
     // IntelliJ-parity nesting: branches with `/` in their names group
@@ -770,5 +794,8 @@ export class BranchTreeProvider
  * @returns A new BranchTreeProvider instance
  */
 export function createBranchTreeProvider(gitService: IGitService): BranchTreeProvider {
-  return new BranchTreeProvider(gitService);
+  // Wire the incoming/outgoing fetcher when the concrete GitService exposes
+  // it so tracked branches in the tree show ↑N/↓N badges (ADR-001: the method
+  // is off the frozen IGitService interface, detected via duck-typing).
+  return new BranchTreeProvider(gitService, getIncomingOutgoingFetcher(gitService));
 }

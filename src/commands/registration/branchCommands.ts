@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { BranchPopup, createBranchComparisonView } from '../../services';
+import { getIncomingOutgoingFetcher } from '../../branches/BranchPopup';
 import type { ICommandContext } from './CommandContext';
 
 /**
@@ -30,9 +31,16 @@ export function registerBranchCommands(ctx: ICommandContext): vscode.Disposable[
 
     const gitService = ctx.services.gitService;
 
-    // Create branch popup if not exists
+    // Create branch popup if not exists. Wire the incoming/outgoing fetcher
+    // when the concrete GitService exposes it so the popup shows ↓N/↑N
+    // badges next to each tracked branch (ADR-001: the method is not on the
+    // frozen IGitService interface, so we detect it via duck-typing).
     if (!ctx.branchPopup) {
-      ctx.branchPopup = new BranchPopup(gitService);
+      ctx.branchPopup = new BranchPopup(
+        gitService,
+        ctx.context.workspaceState,
+        getIncomingOutgoingFetcher(gitService)
+      );
     }
 
     // Seed the popup with the repo the user is most likely targeting.

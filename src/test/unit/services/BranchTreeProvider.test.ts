@@ -39,7 +39,9 @@ import {
   rebasingRepo,
   corruptRepo,
 } from '../../mocks/mockGitService';
-import type { IBranch } from '../../../git-core/interfaces/IGitService';
+import type { IBranch, IRepository } from '../../../git-core/interfaces/IGitService';
+import type { IncomingOutgoingFetcher } from '../../../branches/BranchPopup';
+import type { IIncomingOutgoing } from '../../../git-core/ops/IncomingOutgoingOps';
 
 const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
 const SHORT_SHA = 'abc1234';
@@ -163,6 +165,98 @@ describe('Wave H — BranchTreeProvider detached HEAD row', () => {
       items.filter((i) => i.itemType === 'detached-head').length,
       0,
       'empty-commit corrupt state must NOT render the detached row'
+    );
+  });
+});
+
+/**
+ * Tree-provider incoming/outgoing enrichment. The branch popup already shows
+ * ↑N/↓N for tracked branches via an injected IncomingOutgoingFetcher; the tree
+ * sidebar was the matching gap. When a fetcher is injected, tracked local
+ * branches (those with an `upstream`) are enriched with ahead/behind counts so
+ * the tree rows render the same badges. The fetcher maps incoming→behind (↓)
+ * and outgoing→ahead (↑).
+ */
+describe('Wave D — BranchTreeProvider incoming/outgoing enrichment', () => {
+  it('renders ↑outgoing/↓incoming on a tracked local branch when a fetcher is injected', async () => {
+    const repo = attachedRepo('main', 'b'.repeat(40));
+    const branches: IBranch[] = [
+      {
+        name: 'main',
+        type: 'local',
+        commit: 'b'.repeat(40),
+        isHead: true,
+        upstream: { remote: 'origin', name: 'main' },
+      },
+    ];
+    const gitService = createMockGitService(repo, { getBranches: async () => branches });
+    const fetcher: IncomingOutgoingFetcher = async (
+      _repo: IRepository,
+      branch: string
+    ): Promise<IIncomingOutgoing> => ({ branch, incoming: 3, outgoing: 2, noUpstream: false });
+
+    const provider = new BranchTreeProvider(gitService, fetcher);
+    provider.setRepository(repo);
+
+    const items = await localBranchesFromTree(provider);
+    assert.strictEqual(items.length, 1);
+    const desc = items[0].description;
+    assert.strictEqual(typeof desc, 'string');
+    assert.ok(
+      (desc as string).includes('↑2'),
+      `expected ↑2 (outgoing) in description; got: ${String(desc)}`
+    );
+    assert.ok(
+      (desc as string).includes('↓3'),
+      `expected ↓3 (incoming) in description; got: ${String(desc)}`
+    );
+  });
+
+  it('leaves an untracked local branch (no upstream) un-enriched', async () => {
+    const repo = attachedRepo('main', 'b'.repeat(40));
+    const branches: IBranch[] = [
+      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+    ];
+    const gitService = createMockGitService(repo, { getBranches: async () => branches });
+    let fetcherCalls = 0;
+    const fetcher: IncomingOutgoingFetcher = async (
+      _repo: IRepository,
+      branch: string
+    ): Promise<IIncomingOutgoing> => {
+      fetcherCalls += 1;
+      return { branch, incoming: 3, outgoing: 2, noUpstream: false };
+    };
+
+    const provider = new BranchTreeProvider(gitService, fetcher);
+    provider.setRepository(repo);
+
+    const items = await localBranchesFromTree(provider);
+    assert.strictEqual(items.length, 1);
+    assert.strictEqual(fetcherCalls, 0, 'no fetch for a branch without an upstream');
+    assert.ok(!(items[0].description as string).includes('↑'), 'no ↑ badge on an untracked branch');
+  });
+
+  it('renders no ↑/↓ badges when no fetcher is injected (back-compat)', async () => {
+    const repo = attachedRepo('main', 'b'.repeat(40));
+    const branches: IBranch[] = [
+      {
+        name: 'main',
+        type: 'local',
+        commit: 'b'.repeat(40),
+        isHead: true,
+        upstream: { remote: 'origin', name: 'main' },
+      },
+    ];
+    const gitService = createMockGitService(repo, { getBranches: async () => branches });
+
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(repo);
+
+    const items = await localBranchesFromTree(provider);
+    assert.strictEqual(items.length, 1);
+    assert.ok(
+      !(items[0].description as string).includes('↑'),
+      'no fetcher → no ahead/behind badges'
     );
   });
 });
