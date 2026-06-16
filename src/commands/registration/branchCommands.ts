@@ -2,31 +2,8 @@ import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
 import { BranchPopup, createBranchComparisonView } from '../../services';
-import type { IncomingOutgoingFetcher } from '../../branches/BranchPopup';
+import { getIncomingOutgoingFetcher } from '../../branches/BranchPopup';
 import type { ICommandContext } from './CommandContext';
-import type { IRepository } from '../../git-core/interfaces/IGitService';
-import type { IIncomingOutgoing } from '../../git-core/ops/IncomingOutgoingOps';
-
-/**
- * Duck-type guard: check whether the gitService has `getIncomingOutgoingForBranch`
- * (it lives on the concrete GitService class, not the frozen IGitService interface
- * per ADR-001). Returns the method as an {@link IncomingOutgoingFetcher} when
- * present, undefined when not (e.g. in unit-test stubs).
- */
-function getIncomingOutgoingFetcher(gitService: unknown): IncomingOutgoingFetcher | undefined {
-  if (
-    typeof gitService === 'object' &&
-    gitService !== null &&
-    'getIncomingOutgoingForBranch' in gitService &&
-    typeof (gitService as Record<string, unknown>).getIncomingOutgoingForBranch === 'function'
-  ) {
-    const svc = gitService as {
-      getIncomingOutgoingForBranch(repo: IRepository, branch: string): Promise<IIncomingOutgoing>;
-    };
-    return (repo: IRepository, branch: string) => svc.getIncomingOutgoingForBranch(repo, branch);
-  }
-  return undefined;
-}
 
 /**
  * Branch-popup + branch-comparison command handlers extracted verbatim from

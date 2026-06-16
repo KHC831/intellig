@@ -38,6 +38,30 @@ export type IncomingOutgoingFetcher = (
 ) => Promise<IIncomingOutgoing>;
 
 /**
+ * Duck-type guard: returns the gitService's `getIncomingOutgoingForBranch`
+ * method as an {@link IncomingOutgoingFetcher} when present, `undefined`
+ * otherwise. The method lives on the concrete GitService class, not the frozen
+ * IGitService interface (ADR-001), so consumers detect it structurally rather
+ * than widening the interface. Shared by the branch popup and the branch tree.
+ */
+export function getIncomingOutgoingFetcher(
+  gitService: unknown
+): IncomingOutgoingFetcher | undefined {
+  if (
+    typeof gitService === 'object' &&
+    gitService !== null &&
+    'getIncomingOutgoingForBranch' in gitService &&
+    typeof (gitService as Record<string, unknown>).getIncomingOutgoingForBranch === 'function'
+  ) {
+    const svc = gitService as {
+      getIncomingOutgoingForBranch(repo: IRepository, branch: string): Promise<IIncomingOutgoing>;
+    };
+    return (repo: IRepository, branch: string) => svc.getIncomingOutgoingForBranch(repo, branch);
+  }
+  return undefined;
+}
+
+/**
  * Workspace-state key under which the recent-branches LRU map is persisted.
  * Shape: `{ [repoRootFsPath: string]: string[] }` where the string[] is the
  * list of branch names (most-recent first, ≤5 entries, deduped).
