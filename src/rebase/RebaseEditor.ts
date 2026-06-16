@@ -45,6 +45,7 @@ interface IWebviewMessage {
   commits?: IRebaseCommit[];
   hash?: string;
   action?: RebaseAction;
+  message?: string;
   fromIndex?: number;
   toIndex?: number;
 }
@@ -195,6 +196,11 @@ export class RebaseEditor {
           this._handleUpdatePlan(message.commits);
         }
         break;
+      case 'updateMessage':
+        if (message.hash !== undefined && message.message !== undefined) {
+          this._handleUpdateMessage(message.hash, message.message);
+        }
+        break;
     }
   }
 
@@ -216,6 +222,7 @@ export class RebaseEditor {
       const plan: IRebaseAction[] = this._session.commits.map((commit) => ({
         hash: commit.hash,
         action: commit.action,
+        newMessage: commit.newMessage,
       }));
 
       this._rebaseService.updateRebasePlan(this._repository, plan);
@@ -302,7 +309,22 @@ export class RebaseEditor {
     const commit = this._session.commits.find((c) => c.hash === hash);
     if (commit) {
       commit.action = action;
+      // Clear the pre-set message when switching away from reword so stale
+      // overrides don't accidentally carry through on a later re-selection.
+      if (action !== 'reword') {
+        commit.newMessage = undefined;
+      }
       this._updateWebview();
+    }
+  }
+
+  private _handleUpdateMessage(hash: string, newMessage: string): void {
+    if (!this._session) {
+      return;
+    }
+    const commit = this._session.commits.find((c) => c.hash === hash);
+    if (commit) {
+      commit.newMessage = newMessage;
     }
   }
 
@@ -435,24 +457,39 @@ export class RebaseEditor {
   private _getCommitItemHtml(commit: IRebaseCommit, index: number): string {
     const shortHash = commit.hash.substring(0, 7);
     const actionClass = this._getActionClass(commit.action);
+    const isReword = commit.action === 'reword';
+    const rewordValue = this._escapeHtml(commit.newMessage ?? commit.message);
 
     return `
-      <div class="commit-item ${actionClass}" 
-           data-hash="${commit.hash}" 
+      <div class="commit-item ${actionClass}"
+           data-hash="${commit.hash}"
            data-index="${index}"
            draggable="true">
         <div class="drag-handle" title="Drag to reorder">⋮⋮</div>
         <div class="action-selector">
-          <select class="action-dropdown" 
+          <select class="action-dropdown"
                   data-hash="${commit.hash}"
-                  onchange="updateAction('${commit.hash}', this.value)">
+                  onchange="updateAction('${this._escapeHtml(commit.hash)}', this.value)">
             ${this._getActionOptions(commit.action)}
           </select>
         </div>
-        <div class="commit-hash" title="${commit.hash}">${shortHash}</div>
+        <div class="commit-hash" title="${this._escapeHtml(commit.hash)}">${shortHash}</div>
         <div class="commit-message" title="${this._escapeHtml(commit.message)}">
           ${this._escapeHtml(commit.message)}
         </div>
+        ${
+          isReword
+            ? `<div class="reword-message-editor">
+          <textarea
+            class="reword-message-input"
+            data-hash="${this._escapeHtml(commit.hash)}"
+            rows="3"
+            placeholder="New commit message (leave blank to edit interactively)"
+            oninput="updateMessage('${this._escapeHtml(commit.hash)}', this.value)"
+          >${rewordValue}</textarea>
+        </div>`
+            : ''
+        }
       </div>
     `;
   }
@@ -647,6 +684,7 @@ export class RebaseEditor {
 
       .commit-item.action-reword {
         border-left: 3px solid #ffb74d;
+        flex-wrap: wrap;
       }
 
       .commit-item.action-edit {
@@ -714,6 +752,30 @@ export class RebaseEditor {
         text-overflow: ellipsis;
         white-space: nowrap;
         font-size: 13px;
+      }
+
+      .reword-message-editor {
+        width: 100%;
+        padding: 4px 0 4px 8px;
+        box-sizing: border-box;
+      }
+
+      .reword-message-input {
+        width: 100%;
+        box-sizing: border-box;
+        font-family: var(--vscode-editor-font-family);
+        font-size: 12px;
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border, var(--vscode-focusBorder));
+        border-radius: 3px;
+        padding: 4px 6px;
+        resize: vertical;
+        outline: none;
+      }
+
+      .reword-message-input:focus {
+        border-color: var(--vscode-focusBorder);
       }
 
       /* Footer styles */
@@ -902,6 +964,10 @@ export class RebaseEditor {
           hash: hash,
           action: action
         });
+      }
+
+      function updateMessage(hash, newMessage) {
+        vscode.postMessage({ type: 'updateMessage', hash: hash, message: newMessage });
       }
 
       function execute() {

@@ -15,6 +15,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import { transformRebaseTodo } from './rebaseTodo';
 import type { IRebaseAction } from './interfaces/IRebaseService';
 
@@ -28,6 +29,16 @@ export const REBASE_PLAN_ENV = 'INTELLIG_REBASE_PLAN';
  * @param plan - The ordered actions to apply.
  */
 export function applyPlanToTodoFile(todoPath: string, plan: IRebaseAction[]): void {
+  // Write pre-set message files for reword entries before transforming the
+  // todo. The exec lines reference these files by path relative to the repo
+  // root, so they must exist when git runs the exec commands.
+  const gitDir = path.resolve(path.dirname(todoPath), '..');
+  for (const entry of plan) {
+    if (entry.action === 'reword' && entry.newMessage !== undefined) {
+      const msgFile = path.join(gitDir, `.intellig-reword-${entry.hash.substring(0, 8)}.txt`);
+      fs.writeFileSync(msgFile, entry.newMessage, 'utf8');
+    }
+  }
   const original = fs.readFileSync(todoPath, 'utf8');
   const transformed = transformRebaseTodo(original, plan);
   fs.writeFileSync(todoPath, transformed, 'utf8');

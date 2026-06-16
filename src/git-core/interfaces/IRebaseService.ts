@@ -29,6 +29,8 @@ export interface IRebaseCommit {
   hash: string;
   message: string;
   action: RebaseAction;
+  /** User-edited message override for 'reword' action (H1 inline editing). */
+  newMessage?: string;
 }
 
 /**

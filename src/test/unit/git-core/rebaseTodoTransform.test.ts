@@ -38,7 +38,11 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
     const out = transformRebaseTodo(original, plan);
     assert.strictEqual(
       out,
-      ['pick aaaaaaa first commit', 'reword bbbbbbb second commit'].join('\n') + '\n'
+      [
+        'pick aaaaaaa first commit',
+        'pick bbbbbbb second commit',
+        'exec git commit --amend -F .git/.intellig-reword-bbbbbbb.txt --no-edit',
+      ].join('\n') + '\n'
     );
   });
 
@@ -160,7 +164,13 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
     // Plan carries the short hash git showed our UI.
     const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: 'x' }];
 
-    assert.strictEqual(transformRebaseTodo(original, plan), 'reword aaaaaaa1234 first commit\n');
+    assert.strictEqual(
+      transformRebaseTodo(original, plan),
+      [
+        'pick aaaaaaa1234 first commit',
+        'exec git commit --amend -F .git/.intellig-reword-aaaaaaa.txt --no-edit',
+      ].join('\n') + '\n'
+    );
   });
 
   it('throws if the plan references a hash absent from git’s todo', () => {
@@ -222,8 +232,9 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
         // update-ref stayed anchored to its commit (the dropped "second").
         'update-ref refs/heads/feature-a',
         'pick 3638bc5 # third',
-        // reword keeps the ORIGINAL subject; git opens a message editor later.
-        'reword ef6f5f3 # fourth',
+        // newMessage provided: emit pick then exec amend (no git pause).
+        'pick ef6f5f3 # fourth',
+        'exec git commit --amend -F .git/.intellig-reword-ef6f5f3.txt --no-edit',
       ].join('\n') + '\n'
     );
   });

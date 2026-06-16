@@ -133,13 +133,20 @@ export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[])
         `Rebase plan references commit ${entry.hash}, which is not in git's rebase todo`
       );
     }
-    // Re-emit the commit line with the planned action. The subject and the
-    // original hash token are preserved exactly; reword carries the OLD
-    // subject here — git opens a separate message editor for the new text, so
-    // the todo must keep the original (matching git4idea, which never writes
-    // the new message into the todo line).
     const subjectSuffix = group.subject ? ` ${group.subject}` : '';
-    out.push(`${entry.action} ${group.hash}${subjectSuffix}`);
+    if (entry.action === 'reword' && entry.newMessage !== undefined) {
+      // User pre-typed a message in the planning UI (H1 parity). Emit 'pick'
+      // so git never pauses, then amend the message via exec. The message file
+      // is written by applyPlanToTodoFile before git runs.
+      out.push(`pick ${group.hash}${subjectSuffix}`);
+      out.push(
+        `exec git commit --amend -F .git/.intellig-reword-${entry.hash.substring(0, 8)}.txt --no-edit`
+      );
+    } else {
+      // Classic path: emit the planned action verbatim. reword causes git to
+      // pause for user input via $GIT_EDITOR; other actions run without stopping.
+      out.push(`${entry.action} ${group.hash}${subjectSuffix}`);
+    }
     out.push(...group.trailing);
   }
 

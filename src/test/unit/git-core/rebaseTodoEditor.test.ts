@@ -19,16 +19,23 @@ import {
 import type { IRebaseAction } from '../../../git-core/interfaces/IRebaseService';
 
 describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
-  let dir: string;
+  // Use .git/rebase-merge/ structure so applyPlanToTodoFile can derive the
+  // git dir (for writing reword message files) via path.dirname(todoPath)/..
+  let repoDir: string;
+  let gitDir: string;
+  let rebaseMergeDir: string;
   let todoPath: string;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-rebase-editor-'));
-    todoPath = path.join(dir, 'git-rebase-todo');
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-rebase-editor-'));
+    gitDir = path.join(repoDir, '.git');
+    rebaseMergeDir = path.join(gitDir, 'rebase-merge');
+    fs.mkdirSync(rebaseMergeDir, { recursive: true });
+    todoPath = path.join(rebaseMergeDir, 'git-rebase-todo');
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
   });
 
   it('applyPlanToTodoFile rewrites the todo in place, preserving update-ref', () => {
@@ -49,9 +56,30 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
     );
   });
 
-  it('runEditorMain reads the plan from the env var and the path from argv', () => {
+  it('runEditorMain with newMessage writes message file and emits exec amend', () => {
     fs.writeFileSync(todoPath, 'pick aaaaaaa only commit\n');
-    const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: 'x' }];
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'reword', newMessage: 'My new message' },
+    ];
+
+    runEditorMain(['node', 'editor.js', todoPath], { [REBASE_PLAN_ENV]: JSON.stringify(plan) });
+
+    const todoContent = fs.readFileSync(todoPath, 'utf8');
+    assert.match(todoContent, /^pick aaaaaaa only commit\n/);
+    assert.match(
+      todoContent,
+      /exec git commit --amend -F .git\/.intellig-reword-aaaaaaa\.txt --no-edit\n$/
+    );
+
+    // Message file must exist with the new message content.
+    const msgFile = path.join(gitDir, '.intellig-reword-aaaaaaa.txt');
+    assert.ok(fs.existsSync(msgFile), 'message file should have been written');
+    assert.strictEqual(fs.readFileSync(msgFile, 'utf8'), 'My new message');
+  });
+
+  it('runEditorMain without newMessage emits classic reword (no exec)', () => {
+    fs.writeFileSync(todoPath, 'pick aaaaaaa only commit\n');
+    const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword' }];
 
     runEditorMain(['node', 'editor.js', todoPath], { [REBASE_PLAN_ENV]: JSON.stringify(plan) });
 
