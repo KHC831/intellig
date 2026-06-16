@@ -1247,10 +1247,11 @@
           "enum": [
             "inline",
             "gutter",
-            "both"
+            "both",
+            "off"
           ],
           "default": "inline",
-          "description": "Style for blame annotations"
+          "description": "Style for blame annotations. 'inline' shows blame at end of the current line; 'gutter' shows blame in the gutter with background heat gradient; 'both' enables both; 'off' disables all blame annotations."
         },
         "intellig.blame.ignoreWhitespace": {
           "type": "boolean",

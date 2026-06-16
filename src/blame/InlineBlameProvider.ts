@@ -252,6 +252,21 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   }
 
   /**
+   * Check whether the active `intellig.blameAnnotationStyle` permits
+   * inline annotations. Returns `false` when the style is `'off'` or
+   * `'gutter'` (inline-only-relevant styles are `'inline'` and `'both'`).
+   *
+   * Exposed for unit testing via the `as unknown as { isAnnotationStyleEnabled(): boolean }`
+   * test-seam pattern used elsewhere in this codebase.
+   */
+  isAnnotationStyleEnabled(): boolean {
+    const style = vscode.workspace
+      .getConfiguration('intellig')
+      .get<string>('blameAnnotationStyle', 'inline');
+    return style === 'inline' || style === 'both';
+  }
+
+  /**
    * Update the inline blame decoration for the specified line.
    *
    * @param editor - The text editor
@@ -264,6 +279,11 @@ export class InlineBlameProvider implements IInlineBlameProvider {
 
     // Clear existing decorations first
     editor.setDecorations(this._decorationType, []);
+
+    // Respect the master annotation style kill-switch.
+    if (!this.isAnnotationStyleEnabled()) {
+      return;
+    }
 
     // Skip if not a file scheme (e.g., output, debug console)
     if (editor.document.uri.scheme !== 'file') {

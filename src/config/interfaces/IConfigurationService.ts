@@ -8,9 +8,10 @@ import type { LogThreshold } from '../../utils/logger';
 export type GitToolWindowTab = 'local-changes' | 'log' | 'console';
 
 /**
- * Blame annotation style options
+ * Blame annotation style options.
+ * `off` disables all blame annotations without removing the toggle state.
  */
-export type BlameAnnotationStyle = 'inline' | 'gutter' | 'both';
+export type BlameAnnotationStyle = 'inline' | 'gutter' | 'both' | 'off';
 
 /**
  * Keymap preset name. `default` = VS Code-style; `intellij` =
