@@ -116,6 +116,19 @@ export class StagingOps {
    * @param hunk - The hunk to discard
    */
   async revertHunk(repo: IRepository, path: string, hunk: IHunk): Promise<void> {
+    // Reverting touches the working tree only (no `--cached`). If the file also
+    // has staged changes the index keeps its pre-revert content, so the
+    // "discarded" hunk silently reappears on the next commit. Refuse rather
+    // than leave a stale index behind.
+    const staged = await this.ctx.gitCli.exec(['diff', '--cached', '--name-only', '--', path], {
+      cwd: repo.rootUri.fsPath,
+    });
+    if (staged.exitCode === 0 && staged.stdout.trim().length > 0) {
+      throw new Error(
+        'Stage or unstage this file first — it has staged changes that would otherwise keep the reverted hunk in the next commit.'
+      );
+    }
+
     const patch = this.generateHunkPatch(path, hunk);
 
     await this.ctx.gitCli.exec(['apply', '-R', '-'], {
@@ -163,6 +176,90 @@ export class StagingOps {
   }
 
   /**
+   * Build the `diff --git` / `---` / `+++` header lines for a hunk patch,
+   * quoting the path exactly as git would (see {@link escapePatchPath}).
+   *
+   * `git apply` parses the path off the `---`/`+++` lines treating a TAB as a
+   * field delimiter and a NEWLINE as a line delimiter, so a raw `a/<path>` on a
+   * name carrying a tab/newline (or other special byte) makes git stage the
+   * WRONG file or reject the patch. When the path is unquoted but contains a
+   * space, git tab-delimits the `---`/`+++` name so its parser still finds the
+   * end of the filename — mirror that too.
+   *
+   * @param path - The file path
+   * @returns The three header lines, in order.
+   */
+  private patchHeader(path: string): string[] {
+    const a = this.escapePatchPath(`a/${path}`);
+    const b = this.escapePatchPath(`b/${path}`);
+    const quoted = a.startsWith('"');
+    const tail = !quoted && path.includes(' ') ? '\t' : '';
+    return [`diff --git ${a} ${b}`, `--- ${a}${tail}`, `+++ ${b}${tail}`];
+  }
+
+  /**
+   * Quote a prefixed patch path the way git's own diff writer does.
+   *
+   * git C-style double-quotes the name (wrapping the `a/`|`b/` prefix INSIDE the
+   * quotes, with `\t \n \" \\ \NNN` escapes) when it contains a double quote,
+   * backslash, control byte, DEL, or non-ASCII byte; otherwise it emits the name
+   * bare. The escapes are byte-wise over the UTF-8 encoding, matching git's
+   * `quote_c_style` (e.g. `é` → `\303\251`).
+   *
+   * @param name - The prefixed name token, e.g. `a/<path>` or `b/<path>`.
+   * @returns The bare name, or its C-style quoted form when quoting is required.
+   */
+  private escapePatchPath(name: string): string {
+    const bytes = Buffer.from(name, 'utf8');
+    const needsQuoting = bytes.some(
+      (byte) => byte < 0x20 || byte === 0x22 || byte === 0x5c || byte >= 0x7f
+    );
+    if (!needsQuoting) {
+      return name;
+    }
+
+    let out = '"';
+    for (const byte of bytes) {
+      switch (byte) {
+        case 0x07:
+          out += '\\a';
+          break;
+        case 0x08:
+          out += '\\b';
+          break;
+        case 0x09:
+          out += '\\t';
+          break;
+        case 0x0a:
+          out += '\\n';
+          break;
+        case 0x0b:
+          out += '\\v';
+          break;
+        case 0x0c:
+          out += '\\f';
+          break;
+        case 0x0d:
+          out += '\\r';
+          break;
+        case 0x22:
+          out += '\\"';
+          break;
+        case 0x5c:
+          out += '\\\\';
+          break;
+        default:
+          if (byte < 0x20 || byte >= 0x7f) {
+            out += '\\' + byte.toString(8).padStart(3, '0');
+          } else {
+            out += String.fromCharCode(byte);
+          }
+      }
+    }
+    return out + '"';
+  }
+
+  /**
    * Generate a patch string for a single hunk.
    *
    * @param path - The file path
@@ -170,12 +267,7 @@ export class StagingOps {
    * @returns The patch string
    */
   private generateHunkPatch(path: string, hunk: IHunk): string {
-    const lines: string[] = [
-      `diff --git a/${path} b/${path}`,
-      `--- a/${path}`,
-      `+++ b/${path}`,
-      hunk.header,
-    ];
+    const lines: string[] = [...this.patchHeader(path), hunk.header];
 
     for (const line of hunk.lines) {
       switch (line.type) {
@@ -263,12 +355,7 @@ export class StagingOps {
     // Generate the new hunk header
     const newHeader = `@@ -${hunk.oldStart},${oldLines} +${hunk.newStart},${newLinesCount} @@`;
 
-    const patchLines: string[] = [
-      `diff --git a/${path} b/${path}`,
-      `--- a/${path}`,
-      `+++ b/${path}`,
-      newHeader,
-    ];
+    const patchLines: string[] = [...this.patchHeader(path), newHeader];
 
     for (const line of newLines) {
       switch (line.type) {
