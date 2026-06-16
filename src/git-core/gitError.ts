@@ -24,16 +24,27 @@
  */
 
 /**
- * Match the `<user>:<password>@` infix inside http/https URLs. The password
- * portion can contain almost anything except `@` (git percent-encodes the
- * rest). We do NOT require a following path segment so query-string-only
- * URLs (`https://u:p@host?query`) match too.
+ * Match the `<user>:<password>@` infix inside a URL of ANY scheme — git
+ * embeds credentials in `ssh://`, `git://`, `ftp://`, and compound schemes
+ * (`https+git://`) too, not just `http(s)`. The password portion can contain
+ * almost anything except `@` (git percent-encodes the rest). We do NOT
+ * require a following path segment so query-string-only URLs
+ * (`https://u:p@host?query`) match too.
+ *
+ * Scheme grammar follows RFC 3986: `ALPHA *( ALPHA / DIGIT / "+" / "-" /
+ * "." )`. The leading `\b` word boundary forces the scheme capture to start
+ * at a token boundary, so a longer prefix like `xssh://` is captured whole
+ * (`xssh`) rather than being mis-read as scheme `ssh` with a dangling `xs`.
+ *
+ * SCP-form remotes (`git@github.com:org/repo.git`) carry no `://` and no
+ * `:password@`, so they never match and pass through unchanged.
  *
  * Groups:
- *   [1] scheme (`http` | `https`)
+ *   [1] scheme (RFC 3986 scheme, e.g. `http`, `https`, `ssh`, `git`,
+ *       `ftp`, `https+git`)
  *   [2] user portion (any chars except `:` and `@`)
  */
-const CREDENTIAL_URL_REGEX = /\b(https?):\/\/([^\s:/@]+):[^@\s]*@/gi;
+const CREDENTIAL_URL_REGEX = /\b([A-Za-z][A-Za-z0-9+.-]*):\/\/([^\s:/@]+):[^@\s]*@/gi;
 
 /**
  * Match absolute home-dir prefixes on macOS (`/Users/<name>/`) and on
@@ -117,7 +128,8 @@ const WINDOWS_FORWARDSLASH_HOME_PATH_REGEX = /(^|[\s'"([])([A-Za-z]):\/Users\/([
  * Scrub credentials and home-dir paths from a git stderr/error string.
  *
  * Replacements (applied in order — ordering matters; see per-regex JSDoc):
- *   1. `https://user:password@host…` → `https://<redacted>@host…`
+ *   1. `<scheme>://user:password@host…` → `<scheme>://<redacted>@host…`
+ *      for any URL scheme (`http`, `https`, `ssh`, `git`, `ftp`, …)
  *   2. `C:\Users\<name>\` → `~\` (Windows backslash form)
  *   3. `C:/Users/<name>/` → `~/` (Windows forward-slash form — runs
  *      before the POSIX pass so the drive letter is consumed with the

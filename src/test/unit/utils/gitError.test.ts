@@ -84,6 +84,59 @@ describe('sanitizeGitError', () => {
     assert.strictEqual(sanitizeGitError(raw), raw);
   });
 
+  // Credential scrubbing must cover ANY URL scheme, not just http/https.
+  // git embeds `user:password@` in ssh/git/ftp/custom-scheme remotes too,
+  // and all of those route through sanitizeGitError before hitting a toast.
+  describe('non-http(s) scheme credential scrubbing', () => {
+    it('redacts credentials in an ssh:// URL', () => {
+      const raw = 'fatal: unable to access ssh://alice:secret@host/repo';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('secret'), 'password must be redacted');
+      assert.ok(!scrubbed.includes('alice'), 'user must be redacted');
+      assert.ok(scrubbed.includes('ssh://<redacted>@host/repo'), 'scheme + host preserved');
+    });
+
+    it('redacts credentials in a git:// URL', () => {
+      const raw = 'fatal: access git://bob:pw@h/r failed';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('pw'), 'password must be redacted');
+      assert.ok(!scrubbed.includes('bob'), 'user must be redacted');
+      assert.ok(scrubbed.includes('git://<redacted>@h/r'), 'scheme + host preserved');
+    });
+
+    it('redacts credentials in an ftp:// URL', () => {
+      const raw = 'ftp://u:p@host';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes(':p@'), 'password must be redacted');
+      assert.strictEqual(scrubbed, 'ftp://<redacted>@host');
+    });
+
+    it('redacts credentials in a compound (`+`-bearing) scheme like https+git://', () => {
+      const raw = 'https+git://carol:tok@host/repo';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('tok'), 'password must be redacted');
+      assert.ok(!scrubbed.includes('carol'), 'user must be redacted');
+      assert.ok(scrubbed.includes('https+git://<redacted>@host/repo'), 'compound scheme preserved');
+    });
+
+    it('captures the FULL scheme (no partial-scheme corruption) for `xssh://`', () => {
+      // Guard against the regex treating `xssh` as scheme `ssh` and leaving a
+      // dangling `xs` — the word-boundary anchor must consume the whole token.
+      const raw = 'xssh://u:p@host';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes(':p@'), 'password must be redacted');
+      assert.strictEqual(scrubbed, 'xssh://<redacted>@host');
+    });
+  });
+
+  it('leaves SCP-form `git@github.com:org/repo.git` UNCHANGED (no password in URL)', () => {
+    // SCP-style remotes carry no `://` and no `:password@`, so there is
+    // nothing to redact — the colon separates host from path, not user
+    // from password. Over-redacting would corrupt the remote name.
+    const raw = "fatal: could not read from remote 'git@github.com:org/repo.git'";
+    assert.strictEqual(sanitizeGitError(raw), raw);
+  });
+
   // Senior-wave4 LOW #4 — home-dir path stripping. fs errnos leak
   // `/Users/<name>/…` and `/home/<name>/…` into toasts, structured
   // errors, logs, and screen recordings.
