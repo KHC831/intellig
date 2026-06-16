@@ -352,7 +352,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // are a visual nicety, and the call is throttled by git spawn
           // overhead (typically <100ms). Gated by the
           // `intellig.log.highlightCherryPicked` flag.
-          void loadCherryMarksForRepo(repo);
+          void loadCherryMarksForRepo(repo, ctx.gitToolWindowProvider?.getManualCherryCompareRef());
         }
       } catch (error) {
         getLogger()
@@ -366,7 +366,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
      * upstream and push the `=`-marked hashes into the Log tab's state.
      * Runs in the background; errors are swallowed so the UI stays calm.
      */
-    const loadCherryMarksForRepo = async (repo: IRepository): Promise<void> => {
+    const loadCherryMarksForRepo = async (
+      repo: IRepository,
+      overrideRef?: string
+    ): Promise<void> => {
       if (!ctx.gitToolWindowProvider) {
         return;
       }
@@ -378,15 +381,23 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
         return;
       }
-      // Resolve the upstream ref for the current branch. If the branch has
-      // no upstream configured, skip silently — there's nothing meaningful
-      // to diff against.
-      const headUpstream = repo.head?.upstream;
-      if (!headUpstream) {
-        ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
-        return;
+      let baseRef: string;
+      if (overrideRef) {
+        // User manually set a cherry-compare ref — validate and use it.
+        if (overrideRef.startsWith('-') || overrideRef.startsWith('.')) {
+          ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
+          return;
+        }
+        baseRef = overrideRef;
+      } else {
+        // Auto-upstream: resolve the upstream ref for the current branch.
+        const headUpstream = repo.head?.upstream;
+        if (!headUpstream) {
+          ctx.gitToolWindowProvider.setCherryPickedHashes(undefined);
+          return;
+        }
+        baseRef = `${headUpstream.remote}/${headUpstream.name}`;
       }
-      const baseRef = `${headUpstream.remote}/${headUpstream.name}`;
       try {
         const gitServiceAny = gitService as IGitService & {
           getCherryMarks?: (r: IRepository, b: string) => Promise<Map<string, string>>;
@@ -515,6 +526,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       );
     });
     ctx.context.subscriptions.push(filterChangeListener);
+
+    // Re-run cherry-mark computation when the user sets a manual compare ref.
+    const cherryCompareRefListener = ctx.gitToolWindowProvider.onDidRequestCherryCompareRef(
+      async (ref) => {
+        const repo =
+          ctx.gitToolWindowProvider?.getSelectedRepository() ??
+          (await resolveRepo(gitService, { preferActive: true, silent: true }));
+        if (!repo) {
+          return;
+        }
+        await loadCherryMarksForRepo(repo, ref);
+      }
+    );
+    ctx.context.subscriptions.push(cherryCompareRefListener);
 
     // The repository-selector wiring (onDidSelectRepository → graph reload +
     // branch tree refresh) is registered in the second `if (ctx.services)`

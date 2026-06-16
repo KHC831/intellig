@@ -226,6 +226,8 @@ export interface IExtendedLogState extends ILogState {
    * *which* branch the commit has already been cherry-picked to.
    */
   cherryPickBaseRef?: string;
+  /** User-set cherry-compare base ref; overrides the auto-upstream when present. */
+  manualCherryCompareRef?: string;
   /**
    * IntelliJ-parity multi-select anchor.
    *
@@ -424,6 +426,13 @@ export class GitToolWindowProvider
   private readonly _onDidRequestLogFilter = new vscode.EventEmitter<ILogFilter | undefined>();
 
   /**
+   * Event emitter that fires when the user sets (or clears) the manual
+   * cherry-compare base ref. A ref string overrides the auto-upstream used
+   * for `git log --cherry-mark`; `undefined` reverts to auto-upstream.
+   */
+  private readonly _onDidRequestCherryCompareRef = new vscode.EventEmitter<string | undefined>();
+
+  /**
    * Event emitter for requesting more commits to be loaded incrementally.
    */
   private readonly _onDidRequestLoadMoreCommits = new vscode.EventEmitter<void>();
@@ -453,6 +462,7 @@ export class GitToolWindowProvider
   public readonly onDidRequestLogContextAction = this._onDidRequestLogContextAction.event;
   public readonly onDidSelectCommit = this._onDidSelectCommit.event;
   public readonly onDidRequestLogFilter = this._onDidRequestLogFilter.event;
+  public readonly onDidRequestCherryCompareRef = this._onDidRequestCherryCompareRef.event;
 
   /**
    * Event fired when the webview requests more commits to be loaded.
@@ -504,6 +514,7 @@ export class GitToolWindowProvider
       this._onDidSelectCommit,
       this._onDidRequestCommitDiff,
       this._onDidRequestLogFilter,
+      this._onDidRequestCherryCompareRef,
       this._onDidRequestLoadMoreCommits,
       this._onDidRequestInitialData,
       this._onDidRequestRefresh,
@@ -887,6 +898,26 @@ export class GitToolWindowProvider
     this._extendedLogState.cherryPickBaseRef = baseRef;
     this._updateWebview();
     this._onDidChangeState.fire();
+  }
+
+  /**
+   * Store the manual cherry-compare base ref and notify the extension host so
+   * it can re-run the cherry-mark computation against that ref. An empty ref
+   * clears the override (fires `undefined`) so cherry marks revert to the
+   * auto-upstream.
+   */
+  private _handleSetCherryCompareRef(ref: string): void {
+    this._extendedLogState.manualCherryCompareRef = ref || undefined;
+    this._onDidRequestCherryCompareRef.fire(ref || undefined);
+  }
+
+  /**
+   * The user-set cherry-compare base ref, if any. The extension host passes
+   * this back into the cherry-mark computation on repo-change refreshes so the
+   * manual choice survives reloads. `undefined` means auto-upstream.
+   */
+  public getManualCherryCompareRef(): string | undefined {
+    return this._extendedLogState.manualCherryCompareRef;
   }
 
   /**
@@ -1577,6 +1608,11 @@ export class GitToolWindowProvider
 
     this.setLogFilter(filter);
     this._onDidRequestLogFilter.fire(filter);
+
+    // Cherry-compare ref: separate from filter criteria — does not affect which
+    // commits are shown, only which are highlighted as cherry-picked equivalents.
+    const cherryCompareRef = webviewFilter?.cherryCompareRef?.trim() ?? '';
+    this._handleSetCherryCompareRef(cherryCompareRef);
   }
 
   /**
@@ -2991,6 +3027,7 @@ ${bodyMarkup}
     const maxParents = filter?.maxParents ?? '';
     const searchRegex = filter?.searchRegex ?? false;
     const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
+    const cherryCompare = this._escapeHtml(this._extendedLogState.manualCherryCompareRef ?? '');
     const active = filter !== undefined;
 
     return `
@@ -3020,6 +3057,10 @@ ${bodyMarkup}
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-path">Path</label>
               <input type="text" id="filter-path" class="log-filter-input" data-action="filterKeydown" placeholder="File or directory path" value="${path}" />
+            </div>
+            <div class="log-filter-group">
+              <label class="log-filter-label" for="filter-cherry-compare">Cherry-compare with</label>
+              <input type="text" id="filter-cherry-compare" class="log-filter-input" list="filter-branch-options" data-action="filterKeydown" placeholder="Branch or ref (highlights cherry-picked)" value="${cherryCompare}" autocomplete="off" />
             </div>
           </div>
           <div class="log-filter-row">
@@ -3505,6 +3546,7 @@ interface IWebviewLogFilter {
   maxParents?: number;
   searchRegex?: boolean;
   searchCaseSensitive?: boolean;
+  cherryCompareRef?: string;
 }
 
 /**

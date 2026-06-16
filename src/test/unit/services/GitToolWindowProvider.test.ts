@@ -967,6 +967,57 @@ describe('Log View', () => {
       applyFilter(provider, { minParents: 1, maxParents: 2 });
     });
   });
+
+  describe('Cherry-compare with (G4 manual cherry-compare base ref)', () => {
+    function applyFilter(p: GitToolWindowProvider, filter: unknown): void {
+      (p as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+        type: 'applyLogFilter',
+        filter,
+      });
+    }
+
+    it('renders a "filter-cherry-compare" input in the filter bar', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-cherry-compare"'), 'has cherry-compare input');
+    });
+
+    it('backs the cherry-compare input with the shared branch datalist', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        /id="filter-cherry-compare"[^>]*list="filter-branch-options"/.test(html),
+        'cherry-compare input reuses filter-branch-options datalist'
+      );
+    });
+
+    it('rehydrates the cherry-compare input value from manualCherryCompareRef state', () => {
+      (
+        provider as unknown as { _extendedLogState: { manualCherryCompareRef?: string } }
+      )._extendedLogState.manualCherryCompareRef = 'feature/x';
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        /id="filter-cherry-compare"[^>]*value="feature\/x"/.test(html),
+        'cherry-compare value rehydrated'
+      );
+    });
+
+    it('fires onDidRequestCherryCompareRef with the ref when applyLogFilter carries cherryCompareRef', (done) => {
+      const disposable = provider.onDidRequestCherryCompareRef((ref) => {
+        disposable.dispose();
+        assert.strictEqual(ref, 'main', 'override ref forwarded');
+        done();
+      });
+      applyFilter(provider, { cherryCompareRef: 'main' });
+    });
+
+    it('fires onDidRequestCherryCompareRef with undefined when cherryCompareRef is empty', (done) => {
+      const disposable = provider.onDidRequestCherryCompareRef((ref) => {
+        disposable.dispose();
+        assert.strictEqual(ref, undefined, 'empty ref reverts to auto-upstream');
+        done();
+      });
+      applyFilter(provider, { cherryCompareRef: '' });
+    });
+  });
 });
 
 describe('Initial Data Request and No-Repository State', () => {

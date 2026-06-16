@@ -581,6 +581,7 @@ export function buildInlineScript(): string {
           const simplifyMergesInput = document.getElementById('filter-simplify-merges');
           const minParentsInput = document.getElementById('filter-min-parents');
           const maxParentsInput = document.getElementById('filter-max-parents');
+          const cherryCompareInput = document.getElementById('filter-cherry-compare');
 
           const minParents = minParentsInput ? parseInt(minParentsInput.value, 10) : NaN;
           const maxParents = maxParentsInput ? parseInt(maxParentsInput.value, 10) : NaN;
@@ -598,7 +599,8 @@ export function buildInlineScript(): string {
             minParents: Number.isNaN(minParents) ? undefined : minParents,
             maxParents: Number.isNaN(maxParents) ? undefined : maxParents,
             searchRegex: document.getElementById('filter-search-regex')?.classList.contains('active') ?? false,
-            searchCaseSensitive: document.getElementById('filter-search-case')?.classList.contains('active') ?? false
+            searchCaseSensitive: document.getElementById('filter-search-case')?.classList.contains('active') ?? false,
+            cherryCompareRef: cherryCompareInput ? cherryCompareInput.value.trim() : ''
           };
 
           vscode.postMessage({
@@ -631,6 +633,8 @@ export function buildInlineScript(): string {
           if (simplifyMergesInput) simplifyMergesInput.checked = false;
           if (minParentsInput) minParentsInput.value = '';
           if (maxParentsInput) maxParentsInput.value = '';
+          const cherryCompareInput = document.getElementById('filter-cherry-compare');
+          if (cherryCompareInput) cherryCompareInput.value = '';
 
           const regexBtn = document.getElementById('filter-search-regex');
           const caseBtn = document.getElementById('filter-search-case');
