@@ -746,7 +746,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // Added three single-only items: squashWithPrevious
       // fixupWithPrevious and compareWithBranch. 15 + 3 = 18.
       // Plus Copy Commit Message (#P3 Vcs.Log.CopySubjectText) = 19.
-      assert.strictEqual(menuItemCount, 19, 'Should have 19 menu items with role="menuitem"');
+      // Plus pushUpToCommit (Gap B IntelliJ Git.PushUpToHere parity) = 20.
+      assert.strictEqual(menuItemCount, 20, 'Should have 20 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {
@@ -798,7 +799,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('should have four context-menu-separator dividers between five sections', () => {
+    it('should have five context-menu-separator dividers between six sections', () => {
       const html = provider._getCommitContextMenuHtml();
       const separatorCount = (html.match(/context-menu-separator/g) || []).length;
       // Added two new sections.
@@ -809,7 +810,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       //     compareWithBranch as the first entry — IntelliJ groups
       //     "Compare with Branch" near the rebase/merge actions.
       // Net: 3 separators → 4, 4 sections → 5.
-      assert.strictEqual(separatorCount, 4, 'Should have 4 separators between 5 sections');
+      // Gap B: pushUpToCommit added in its own section 6. 4 → 5 separators.
+      assert.strictEqual(separatorCount, 5, 'Should have 5 separators between 6 sections');
     });
   });
 

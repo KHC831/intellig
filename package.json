@@ -162,6 +162,11 @@
         "icon": "$(tag)"
       },
       {
+        "command": "intellig.pushUpToCommit",
+        "title": "Push up to here…",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.pull",
         "title": "Pull",
         "category": "IntelliG",

@@ -2686,3 +2686,47 @@ describe('GPG signature column (G5) — _getGraphPanelHtml', () => {
     assert.ok(html.includes('✓'), 'GPG cell must render "✓" for a valid signature');
   });
 });
+
+describe('pushUpToCommit — commit context menu wiring (Gap B)', () => {
+  let p: GitToolWindowProvider;
+  beforeEach(() => {
+    p = new GitToolWindowProvider(Uri.file('/test/extension'));
+  });
+  afterEach(() => {
+    p.dispose();
+  });
+
+  it('commit-context-menu HTML includes a "Push up to here" item with data-action="pushUpToCommit"', () => {
+    const html = p._getCommitContextMenuHtml();
+    assert.ok(
+      /data-action="pushUpToCommit"/.test(html),
+      'Commit context menu must include a pushUpToCommit action item'
+    );
+    assert.ok(/[Pp]ush up to here/i.test(html), 'Item label must say "Push up to here"');
+  });
+
+  it('commitContextMenu webview message with action pushUpToCommit fires onDidRequestLogContextAction', (done) => {
+    // Seed a commit node so the staleness check in _handleCommitContextMenu passes.
+    const hash = 'aabbccddeeff1122aabbccddeeff1122aabbccdd';
+    (
+      p as unknown as {
+        _extendedLogState: {
+          commitNodes: Array<{ commit: { hash: string; message: string; parents: string[] } }>;
+        };
+      }
+    )._extendedLogState.commitNodes = [{ commit: { hash, message: 'test commit', parents: [] } }];
+
+    const disposable = p.onDidRequestLogContextAction((event) => {
+      disposable.dispose();
+      assert.strictEqual(event.action, 'pushUpToCommit', 'action must be pushUpToCommit');
+      assert.deepStrictEqual(event.commitHashes, [hash]);
+      done();
+    });
+
+    (p as unknown as { _handleWebviewMessage: (msg: unknown) => void })._handleWebviewMessage({
+      type: 'commitContextMenu',
+      action: 'pushUpToCommit',
+      commitHashes: [hash],
+    });
+  });
+});

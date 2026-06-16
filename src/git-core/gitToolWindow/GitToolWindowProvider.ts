@@ -48,7 +48,7 @@ import {
 } from './html/historyHtml';
 import { createLogTabHandler } from './tabs/LogTab';
 import { createConsoleTabHandler } from './tabs/ConsoleTab';
-import { createIncomingTabHandler } from './tabs/IncomingTab';
+import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs/IncomingTab';
 import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
@@ -204,7 +204,10 @@ export type LogContextAction =
   // remote branches + tags and routes through BranchComparisonView.
   | 'squashWithPrevious'
   | 'fixupWithPrevious'
-  | 'compareWithBranch';
+  | 'compareWithBranch'
+  // IntelliJ Git.PushUpToHere: push all local commits up to and including
+  // the selected commit to the current branch's remote. Single-only.
+  | 'pushUpToCommit';
 
 /**
  * Extended Log state with commit nodes for graph visualization
@@ -354,6 +357,12 @@ export class GitToolWindowProvider
    * `attachGitService()` because the provider predates the service registry.
    */
   private _historyTab: HistoryTab | undefined;
+
+  /**
+   * Stateful handler for the Incoming tab. Constructed lazily via
+   * `attachGitService()` once the data source is available.
+   */
+  private _incomingTab: IncomingTab | undefined;
 
   /**
    * Reference to the GitService set by
@@ -567,6 +576,25 @@ export class GitToolWindowProvider
       },
     });
     this._tabRouter.register('history', this._historyTab.asTabHandler());
+
+    // Wire the Incoming tab now that the data source is available.
+    // `getIncomingOutgoing` lives on the concrete GitService (ADR-001 — not
+    // the frozen IGitService composite). Cast to the narrow role interface
+    // the IncomingTab depends on, mirroring the IUpdateGitService pattern.
+    this._incomingTab = createIncomingTab(
+      gitService as unknown as import('./tabs/IncomingTab').IIncomingDataSource,
+      {
+        onStateChange: (): void => {
+          if (this._tabRouter.getActiveTab() === 'incoming') {
+            this._updateWebview();
+          }
+        },
+        getRepo: (): import('../interfaces/IGitService').IRepository | undefined => {
+          return this.getSelectedRepository();
+        },
+      }
+    );
+    this._tabRouter.register('incoming', this._incomingTab.asTabHandler());
 
     // Parsed-remote cache must be invalidated whenever a repository
     // mutates (e.g. the user runs `git remote set-url`), otherwise
@@ -2444,13 +2472,14 @@ export class GitToolWindowProvider
     // the pre-refactor HTML so users see zero UI change.
     const flagOn = isTabbedGitToolWindowEnabled();
     const historyState = this._historyTab?.getState();
+    const incomingState = this._incomingTab?.getState();
     const historyActive = flagOn && this._tabRouter.getActiveTab() === 'history';
     const bodyMarkup = flagOn
       ? wrapTabbedBody({
           activeTab: this._tabRouter.getActiveTab(),
           logBodyHtml: logBody,
           consoleBodyHtml: renderConsoleTabBody(),
-          incomingBodyHtml: renderIncomingTabBody(),
+          incomingBodyHtml: renderIncomingTabBody(incomingState),
           updateInfoBodyHtml: renderUpdateInfoTabBody(),
           historyBodyHtml:
             renderHistoryTabBody(historyState) +

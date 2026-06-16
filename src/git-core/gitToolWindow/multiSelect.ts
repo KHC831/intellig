@@ -61,7 +61,9 @@ export type MultiSelectMenuAction =
   // BranchComparisonView.
   | 'squashWithPrevious'
   | 'fixupWithPrevious'
-  | 'compareWithBranch';
+  | 'compareWithBranch'
+  // IntelliJ Git.PushUpToHere: single-only (push up to selected commit).
+  | 'pushUpToCommit';
 
 /**
  * Inputs for {@link computeMenuEnableState}. Centralised here so the
@@ -201,6 +203,8 @@ export function computeMenuVisibility(
     squashWithPrevious: !isMulti,
     fixupWithPrevious: !isMulti,
     compareWithBranch: !isMulti,
+    // IntelliJ Git.PushUpToHere — single-only.
+    pushUpToCommit: !isMulti,
   };
 }
 
@@ -267,6 +271,8 @@ export function computeMenuEnableState(
     squashWithPrevious: isSingle,
     fixupWithPrevious: isSingle,
     compareWithBranch: isSingle,
+    // IntelliJ Git.PushUpToHere — single-only.
+    pushUpToCommit: isSingle,
   };
 }
 

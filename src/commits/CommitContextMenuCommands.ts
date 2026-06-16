@@ -346,6 +346,13 @@ export class CommitContextMenuCommands {
       case 'compareWithBranch':
         await this._handleCompareWithBranch(commitHashes);
         break;
+      // IntelliJ Git.PushUpToHere: delegate to the registered command with
+      // the single selected commit hash. The command owns repo resolution +
+      // refspec construction so that the same logic is exercised whether the
+      // user reaches it from the context menu or the palette.
+      case 'pushUpToCommit':
+        await this._handlePushUpToCommit(commitHashes);
+        break;
       default:
         // Unknown action — no-op
         break;
@@ -2976,6 +2983,26 @@ export class CommitContextMenuCommands {
       disposable.dispose();
     }
     this._disposables = [];
+  }
+
+  /**
+   * Handle "Push up to here" — IntelliJ's Git.PushUpToHere (parity).
+   *
+   * Delegates to `intellig.pushUpToCommit` which owns repo resolution +
+   * refspec construction so the same logic is exercised from the context
+   * menu and the palette. The handler is a thin bridge; the command is the
+   * authoritative entry point.
+   */
+  private async _handlePushUpToCommit(commitHashes: string[]): Promise<void> {
+    if (commitHashes.length === 0) {
+      return;
+    }
+    const hash = commitHashes[0];
+    if (!allHashesValid([hash])) {
+      void vscode.window.showErrorMessage('Cannot push: invalid commit hash.');
+      return;
+    }
+    await vscode.commands.executeCommand('intellig.pushUpToCommit', hash);
   }
 }
 

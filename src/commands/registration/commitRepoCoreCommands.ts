@@ -808,6 +808,62 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     await vscode.commands.executeCommand('intellig.push');
   });
 
+  // Push up to here — IntelliJ's Git.PushUpToHere. Accepts a commit hash,
+  // resolves the current branch + remote, and pushes `<hash>:refs/heads/<branch>`
+  // so the remote moves to that exact commit. Single-only; invoked
+  // programmatically from the log commit context menu (not shown in menus).
+  const PUSH_HASH_RE = /^[0-9a-f]{4,64}$/i;
+  const pushUpToCommitCommand = registerLoggedCommand(
+    'intellig.pushUpToCommit',
+    async (hash: string) => {
+      if (!hash || !PUSH_HASH_RE.test(hash)) {
+        void vscode.window.showErrorMessage('Cannot push: invalid commit hash.');
+        return;
+      }
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = ctx.services.gitService;
+      const repo = await resolveRepo(gitService, {
+        preferActive: true,
+        pickerTitle: 'Push up to here — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      const branch = repo.head?.name;
+      const remote = repo.head?.upstream?.remote ?? 'origin';
+      if (!branch) {
+        void vscode.window.showErrorMessage('Cannot push: HEAD is detached (no current branch).');
+        return;
+      }
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Pushing up to ${hash.slice(0, 7)} on ${remote}/${branch}…`,
+            cancellable: false,
+          },
+          () =>
+            gitService.push(repo, {
+              remote,
+              refspec: `${hash}:refs/heads/${branch}`,
+            })
+        );
+        void vscode.window.showInformationMessage(`Pushed up to ${hash.slice(0, 7)}.`);
+        await gitService.reloadRepository(repo);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.refresh();
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Push failed.';
+        void vscode.window.showErrorMessage(sanitizeGitError(msg));
+      }
+    }
+  );
+
   // VCS Operations Popup — IntelliJ's Alt+` quick-list of common VCS actions.
   // Distinct from the branch popup (Ctrl+Shift+`): this is a flat menu of the
   // most-used Git operations, each dispatching to its existing command. New
@@ -862,5 +918,6 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     commitNewTagCommand,
     commitAndPushCommand,
     vcsOperationsPopupCommand,
+    pushUpToCommitCommand,
   ];
 }
