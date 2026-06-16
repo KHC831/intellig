@@ -308,6 +308,17 @@ export class StashTagHistoryOps {
     }
     if (options?.grep) {
       args.push(`--grep=${options.grep}`);
+      // Case-insensitive is git's non-default; the UI's "Match case" toggle is
+      // OFF by default, so opt into --regexp-ignore-case unless explicitly
+      // case-sensitive. Mirrors IntelliJ TextFilterModel.matchesCase().
+      if (!options.caseSensitive) {
+        args.push('--regexp-ignore-case');
+      }
+      // Perl-extended regex enables full regex syntax in --grep (the "Use
+      // regex" toggle). Without it git treats --grep as a basic regex.
+      if (options.regex) {
+        args.push('-E');
+      }
     }
     if (options?.noMerges) {
       // Exclude merge commits — IntelliJ's VCS-log "No Merges" filter.
@@ -330,9 +341,14 @@ export class StashTagHistoryOps {
     }
     if (options?.ref) {
       // A single revision/ref (e.g. `origin/feature`) scopes the log to that
-      // branch instead of HEAD. Refnames can't start with `-`, and exec passes
-      // argv (no shell), so a positional push is injection-safe. Must precede
-      // any `--`/pathspec below.
+      // branch instead of HEAD. `ref` is user-selected, so reject a leading
+      // `-` (would smuggle a CLI flag) or `.` (invalid per git-check-ref-format)
+      // before the positional push. Mirrors the createBranch/deleteTag guard.
+      // exec passes argv (no shell), so once guarded the push is injection-safe.
+      // Must precede any `--`/pathspec below.
+      if (options.ref.startsWith('-') || options.ref.startsWith('.')) {
+        throw new Error(`Invalid ref: ${options.ref}`);
+      }
       args.push(options.ref);
     }
     if (options?.path) {

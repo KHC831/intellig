@@ -59,6 +59,10 @@ export interface ILogFilter {
   searchText?: string;
   /** Exclude merge commits — IntelliJ's VCS-log "No Merges" filter. */
   noMerges?: boolean;
+  /** True = use Perl-extended regex (-E); false = plain text. */
+  searchRegex?: boolean;
+  /** True = case-sensitive; false = case-insensitive (--regexp-ignore-case). */
+  searchCaseSensitive?: boolean;
 }
 
 /**

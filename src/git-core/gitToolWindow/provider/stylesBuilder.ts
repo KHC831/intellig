@@ -489,6 +489,34 @@ export function buildInlineStyles(): string {
         min-width: 130px;
       }
 
+      .log-filter-toggle-group {
+        display: flex;
+        gap: 2px;
+        align-items: center;
+      }
+
+      .log-filter-toggle-btn {
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        color: var(--vscode-foreground);
+        cursor: pointer;
+        font-size: 11px;
+        font-family: monospace;
+        padding: 1px 4px;
+        opacity: 0.6;
+      }
+
+      .log-filter-toggle-btn.active {
+        border-color: var(--vscode-focusBorder);
+        opacity: 1;
+      }
+
+      .log-filter-toggle-btn:hover {
+        opacity: 0.9;
+        background: var(--vscode-toolbar-hoverBackground);
+      }
+
       .log-filter-label {
         font-size: 11px;
         color: var(--vscode-descriptionForeground);

@@ -251,18 +251,26 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: {
+        branch?: string;
         author?: string;
         since?: Date;
         until?: Date;
         path?: string;
         searchText?: string;
         noMerges?: boolean;
+        searchRegex?: boolean;
+        searchCaseSensitive?: boolean;
       }
     ): Promise<void> => {
       try {
+        // A branch filter scopes the log to that ref; suppress `--all` so we
+        // don't union every branch back in. Without a branch we walk all refs
+        // (minus refs/stash) for the full graph.
+        const branchRef = filter?.branch;
         const commits = await gitService.getLog(repo, {
           maxCount: 500,
-          all: true,
+          all: !branchRef,
+          ref: branchRef,
           // The graph algorithm needs topological order: a commit's
           // parent MUST appear later in the list (or off-window).
           // Without --topo-order, git falls back to date order; after
@@ -277,6 +285,8 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           path: filter?.path,
           grep: filter?.searchText,
           noMerges: filter?.noMerges,
+          regex: filter?.searchRegex,
+          caseSensitive: filter?.searchCaseSensitive,
         });
 
         // Build branch map: commit hash -> branch refs (name + type).
@@ -389,12 +399,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
 
     // Helper to load commits into the log view (uses selected or active-editor repository)
     const loadLogCommits = async (filter?: {
+      branch?: string;
       author?: string;
       since?: Date;
       until?: Date;
       path?: string;
       searchText?: string;
       noMerges?: boolean;
+      searchRegex?: boolean;
+      searchCaseSensitive?: boolean;
     }): Promise<void> => {
       // Use the provider's selected repository if available
       if (ctx.gitToolWindowProvider) {
@@ -467,12 +480,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       void loadLogCommits(
         filter
           ? {
+              branch: filter.branch,
               author: filter.author,
               since: filter.since,
               until: filter.until,
               path: filter.path,
               searchText: filter.searchText,
               noMerges: filter.noMerges,
+              searchRegex: filter.searchRegex,
+              searchCaseSensitive: filter.searchCaseSensitive,
             }
           : undefined
       );

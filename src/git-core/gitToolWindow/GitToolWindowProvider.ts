@@ -1512,6 +1512,14 @@ export class GitToolWindowProvider
       }
       if (webviewFilter.searchText) {
         filter.searchText = webviewFilter.searchText;
+        // Mode flags only matter alongside search text; a toggle with no text
+        // is not a filter criterion, so it must not keep the filter "active".
+        if (webviewFilter.searchRegex) {
+          filter.searchRegex = true;
+        }
+        if (webviewFilter.searchCaseSensitive) {
+          filter.searchCaseSensitive = true;
+        }
       }
       if (webviewFilter.author) {
         filter.author = webviewFilter.author;
@@ -2951,6 +2959,8 @@ ${bodyMarkup}
     const since = this._toDateInputValue(filter?.since);
     const until = this._toDateInputValue(filter?.until);
     const noMerges = filter?.noMerges === true;
+    const searchRegex = filter?.searchRegex ?? false;
+    const searchCaseSensitive = filter?.searchCaseSensitive ?? false;
     const active = filter !== undefined;
 
     return `
@@ -2967,6 +2977,10 @@ ${bodyMarkup}
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-search">Message / Hash</label>
               <input type="text" id="filter-search" class="log-filter-input" data-action="filterKeydown" placeholder="Subject or commit hash" value="${search}" />
+              <div class="log-filter-toggle-group">
+                <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Use regular expression" aria-pressed="${searchRegex}">.*</button>
+                <button type="button" id="filter-search-case" class="log-filter-toggle-btn${searchCaseSensitive ? ' active' : ''}" data-action="toggleSearchCase" title="Match case" aria-pressed="${searchCaseSensitive}">Aa</button>
+              </div>
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-author">Author</label>
@@ -3439,6 +3453,8 @@ interface IWebviewLogFilter {
   since?: string | null;
   until?: string | null;
   noMerges?: boolean;
+  searchRegex?: boolean;
+  searchCaseSensitive?: boolean;
 }
 
 /**

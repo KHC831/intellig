@@ -428,6 +428,19 @@ export interface ILogOptions {
    * leave it off.
    */
   topoOrder?: boolean;
+  /**
+   * Interpret `grep` as a Perl-extended regex (`git log -E`). Default (false)
+   * treats `grep` as plain/basic-regex text. Mirrors IntelliJ's VCS-log text
+   * filter "Use regex" toggle. Only meaningful alongside `grep`.
+   */
+  regex?: boolean;
+  /**
+   * Match `grep` case-sensitively. Default (false/undefined) adds
+   * `--regexp-ignore-case` so the search is case-insensitive — matching
+   * IntelliJ's "Match case" toggle, which is OFF by default. Only meaningful
+   * alongside `grep`.
+   */
+  caseSensitive?: boolean;
 }
 
 /**

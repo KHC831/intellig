@@ -309,6 +309,22 @@ export function buildInlineScript(): string {
           const filterAction = e.target.closest('[data-action]');
           if (!filterAction) return;
           const action = filterAction.getAttribute('data-action');
+          if (action === 'toggleSearchRegex') {
+            const btn = e.target.closest('[data-action="toggleSearchRegex"]');
+            if (btn) {
+              btn.classList.toggle('active');
+              btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
+            }
+            return;
+          }
+          if (action === 'toggleSearchCase') {
+            const btn = e.target.closest('[data-action="toggleSearchCase"]');
+            if (btn) {
+              btn.classList.toggle('active');
+              btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
+            }
+            return;
+          }
           if (action === 'toggleLogFilters') {
             window.toggleLogFilters();
           } else if (action === 'applyLogFilter') {
@@ -569,7 +585,9 @@ export function buildInlineScript(): string {
             path: pathInput ? pathInput.value.trim() : '',
             since: sinceInput && sinceInput.value ? sinceInput.value : null,
             until: untilInput && untilInput.value ? untilInput.value : null,
-            noMerges: noMergesInput ? noMergesInput.checked : false
+            noMerges: noMergesInput ? noMergesInput.checked : false,
+            searchRegex: document.getElementById('filter-search-regex')?.classList.contains('active') ?? false,
+            searchCaseSensitive: document.getElementById('filter-search-case')?.classList.contains('active') ?? false
           };
 
           vscode.postMessage({
@@ -594,6 +612,11 @@ export function buildInlineScript(): string {
           if (sinceInput) sinceInput.value = '';
           if (untilInput) untilInput.value = '';
           if (noMergesInput) noMergesInput.checked = false;
+
+          const regexBtn = document.getElementById('filter-search-regex');
+          const caseBtn = document.getElementById('filter-search-case');
+          if (regexBtn) { regexBtn.classList.remove('active'); regexBtn.setAttribute('aria-pressed', 'false'); }
+          if (caseBtn) { caseBtn.classList.remove('active'); caseBtn.setAttribute('aria-pressed', 'false'); }
 
           vscode.postMessage({
             type: 'applyLogFilter',

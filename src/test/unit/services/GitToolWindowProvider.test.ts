@@ -737,6 +737,49 @@ describe('Log View', () => {
       assert.ok(html.includes('id="filter-until"'), 'has until input');
     });
 
+    it('emits regex (.*) and match-case (Aa) toggle buttons next to the search input', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(html.includes('id="filter-search-regex"'), 'has regex toggle');
+      assert.ok(html.includes('id="filter-search-case"'), 'has match-case toggle');
+      assert.ok(html.includes('data-action="toggleSearchRegex"'), 'regex toggle wired');
+      assert.ok(html.includes('data-action="toggleSearchCase"'), 'match-case toggle wired');
+      // The toggles sit after the search input (same group).
+      assert.ok(
+        html.indexOf('id="filter-search"') < html.indexOf('id="filter-search-regex"'),
+        'search input precedes the regex toggle'
+      );
+    });
+
+    it('marks the toggles inactive (aria-pressed=false) when no filter is set', () => {
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        /id="filter-search-regex"[^>]*aria-pressed="false"/.test(html),
+        'regex toggle starts unpressed'
+      );
+      assert.ok(
+        /id="filter-search-case"[^>]*aria-pressed="false"/.test(html),
+        'match-case toggle starts unpressed'
+      );
+    });
+
+    it('reflects searchRegex/searchCaseSensitive filter state in aria-pressed + active class', () => {
+      provider.setLogFilter({
+        searchText: 'token',
+        searchRegex: true,
+        searchCaseSensitive: true,
+      });
+      const html = provider._getLogFilterBarHtml();
+      assert.ok(
+        /id="filter-search-regex"[^>]*aria-pressed="true"/.test(html),
+        'regex toggle pressed when searchRegex is set'
+      );
+      assert.ok(
+        /id="filter-search-case"[^>]*aria-pressed="true"/.test(html),
+        'match-case toggle pressed when searchCaseSensitive is set'
+      );
+      assert.ok(html.includes('class="log-filter-toggle-btn active"'), 'active class applied');
+    });
+
     it('wires Apply/Clear via data-action (CSP blocks inline onclick)', () => {
       const html = provider._getLogFilterBarHtml();
       assert.ok(html.includes('data-action="applyLogFilter"'), 'apply uses data-action');
