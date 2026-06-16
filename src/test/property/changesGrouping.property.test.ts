@@ -80,7 +80,9 @@ describe('partitionUnversionedFiles — property', () => {
   it('preserves all files (tracked ∪ unversioned == original)', () => {
     fc.assert(
       fc.property(uniqueFilesArb, (files) => {
-        const changelists: IChangelist[] = [{ id: 'def', name: 'Default', isDefault: true, files }];
+        const changelists: IChangelist[] = [
+          { id: 'def', name: 'Default', isDefault: true, isActive: true, files },
+        ];
         const { changelists: tracked, unversioned } = partitionUnversionedFiles(changelists);
         const out = [
           ...tracked.flatMap((c) => c.files.map((f) => f.path)),
@@ -94,7 +96,9 @@ describe('partitionUnversionedFiles — property', () => {
   it('the unversioned bucket holds exactly the untracked files', () => {
     fc.assert(
       fc.property(uniqueFilesArb, (files) => {
-        const changelists: IChangelist[] = [{ id: 'def', name: 'Default', isDefault: true, files }];
+        const changelists: IChangelist[] = [
+          { id: 'def', name: 'Default', isDefault: true, isActive: true, files },
+        ];
         const { unversioned } = partitionUnversionedFiles(changelists);
         assert.deepStrictEqual(
           unversioned.map((f) => f.path).sort(),
@@ -110,7 +114,9 @@ describe('partitionUnversionedFiles — property', () => {
   it('no tracked changelist still contains an untracked file', () => {
     fc.assert(
       fc.property(uniqueFilesArb, (files) => {
-        const changelists: IChangelist[] = [{ id: 'def', name: 'Default', isDefault: true, files }];
+        const changelists: IChangelist[] = [
+          { id: 'def', name: 'Default', isDefault: true, isActive: true, files },
+        ];
         const { changelists: tracked } = partitionUnversionedFiles(changelists);
         for (const cl of tracked) {
           assert.ok(!cl.files.some((f) => f.status === 'untracked'));

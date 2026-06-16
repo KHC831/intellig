@@ -864,6 +864,7 @@ describe('CommitToolWindow — host behavior', () => {
         id: 'def',
         name: 'Default',
         isDefault: true,
+        isActive: true,
         files: [{ path: 'src/new.ts', status: 'untracked', staged: false }],
       },
     ];
