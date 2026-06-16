@@ -2,6 +2,7 @@ import { ICommitNode, isBranchSplit } from '../../commitGraph';
 import { ActiveLaneMap, DEFAULT_GRAPH_CONFIG, renderGraphSvg } from '../../../utils/graphRenderer';
 import { formatCommitDate } from '../../../utils/dateFormat';
 import { escapeHtml } from './htmlBuilders';
+import { parseFixupSquashSubject } from './fixupSquashSubject';
 
 /**
  * Per-render lane/graph inputs for {@link buildCommitRows}, pre-computed once
@@ -143,7 +144,13 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       // details-panel preview, where a hard char cap IS desired
       // (no flex container, no responsive ellipsis behind it).
       const messageFirstLine = commit.message.split('\n')[0];
-      const messageSummary = escapeHtml(messageFirstLine);
+      // G6 parity: fixup!/squash! subjects render a clickable link on the
+      // target text so the user can jump to the target commit in the log.
+      // IntelliJ reference: GitLinkToCommitResolver.kt (git4idea).
+      const fixupParsed = parseFixupSquashSubject(messageFirstLine);
+      const messageSummary = fixupParsed
+        ? `${escapeHtml(fixupParsed.prefix)} <a class="log-fixup-link" data-action="jumpToFixupTarget" data-target="${escapeHtml(fixupParsed.target)}">${escapeHtml(fixupParsed.target)}</a>`
+        : escapeHtml(messageFirstLine);
       const fullMessage = escapeHtml(commit.message);
       const authorName = escapeHtml(commit.author.name);
       const authorEmail = escapeHtml(commit.author.email);

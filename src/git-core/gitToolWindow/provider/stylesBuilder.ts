@@ -1307,6 +1307,17 @@ export function buildInlineStyles(): string {
       .log-gpg-warn { color: var(--vscode-charts-orange); }
       .log-gpg-muted { opacity: 0.4; }
 
+      /* G6 parity: fixup!/squash! target link in the log subject cell.
+         Matches IntelliJ's clickable link on the target commit subject. */
+      .log-fixup-link {
+        color: var(--vscode-textLink-foreground);
+        cursor: pointer;
+        text-decoration: underline;
+      }
+      .log-fixup-link:hover {
+        color: var(--vscode-textLink-activeForeground);
+      }
+
       /* Graph Panel Loading Indicator*/
       .graph-loading-indicator {
         display: flex;

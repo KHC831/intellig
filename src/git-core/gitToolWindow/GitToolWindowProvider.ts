@@ -975,6 +975,26 @@ export class GitToolWindowProvider
   }
 
   /**
+   * G6 parity: jump to the fixup/squash target commit in the log.
+   *
+   * Finds the first commit in the loaded set whose subject (`.message`)
+   * exactly matches `targetSubject`, then scrolls to and selects it.
+   * Uses {@link scrollToCommit} so the webview gets both a selection
+   * update and a smooth scroll — the same path as jump-to-hash.
+   *
+   * When no matching commit is in the loaded window the call is a no-op;
+   * the user can load more commits and click the link again.
+   */
+  private _handleJumpToFixupTarget(targetSubject: string): void {
+    const nodes = this._extendedLogState.commitNodes;
+    const target = nodes.find((n) => n.commit.message === targetSubject);
+    if (!target) {
+      return;
+    }
+    this.scrollToCommit(target.commit.hash);
+  }
+
+  /**
    * Update the commit details with fetched changed files.
    * Called by the extension host after fetching diff data for a selected commit.
    *
@@ -1475,6 +1495,18 @@ export class GitToolWindowProvider
           // else: silently drop — webview is desync'd or compromised.
         }
         break;
+      case 'jumpToFixupTarget': {
+        // G6 parity: user clicked a fixup!/squash! link — scroll to the
+        // target commit (the one whose subject matches the text after the
+        // prefix).  Uses the same scrollToCommit path as jump-to-hash so
+        // the webview selection + scroll behaviour is identical.
+        const targetSubject =
+          typeof message.targetSubject === 'string' ? message.targetSubject : undefined;
+        if (targetSubject) {
+          this._handleJumpToFixupTarget(targetSubject);
+        }
+        break;
+      }
       default:
         getLogger()
           .child({ component: 'GitToolWindowProvider' })
@@ -3644,6 +3676,11 @@ interface IWebviewMessage {
   anchorHash?: string | null;
   /** Optional tab discriminator for tab routing. */
   tab?: TabId;
+  /**
+   * Carried by `jumpToFixupTarget` (G6): the commit subject text that the
+   * fixup!/squash! link's target commit must match.
+   */
+  targetSubject?: string;
 }
 
 // Nonce generation is owned by `BaseWebviewView._getNonce()`, which

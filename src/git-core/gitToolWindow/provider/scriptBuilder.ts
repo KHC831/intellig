@@ -416,6 +416,21 @@ export function buildInlineScript(): string {
           }
         });
 
+        // ─── fixup!/squash! link click → jumpToFixupTarget ───────────────
+        // Intercept clicks on .log-fixup-link before the commit-row handler
+        // fires so only the jump is posted (the row is NOT selected).
+        document.addEventListener('click', function(e) {
+          if (!(e.target instanceof Element)) return;
+          const link = e.target.closest('[data-action="jumpToFixupTarget"]');
+          if (link) {
+            e.stopPropagation();
+            const targetSubject = link.getAttribute('data-target');
+            if (targetSubject) {
+              vscode.postMessage({ type: 'jumpToFixupTarget', targetSubject: targetSubject });
+            }
+          }
+        });
+
         // ─── Event delegation for details panel ──────────────────────────
 
         // Parent hash click → selectCommit
