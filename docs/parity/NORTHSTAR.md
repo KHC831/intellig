@@ -97,10 +97,18 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 `~/Documents/workspace/intellij-community/plugins/git4idea/backend/resources/intellij.vcs.git.backend.xml`
 (+ `GitBranchPopupActions.java`). Detailed findings + reorder recipes: `R2-UX-03-menus.md`._
 
-// TODO: Update heatmap to use the same formatting as "Maturity heatmap (remaining gap)"
-**Surface heatmap:** log/commit menu 🟡 ~70% · branch popup (QuickPick) 🟡 ~65% · branch tree menu
-🟢 ~90% · tool-window tabs 🟢 ~85% · explorer/editor submenu 🟢 ~80% · command-palette titles
-🟢 ~90% · toolbar/view-title 🟢 ~85% · major dialogs 🟢 ~85%.
+**Surface heatmap:**
+
+| Surface | Parity | Biggest remaining gap |
+|---|---|---|
+| Log / commit menu | 🟡 ~80% | by-subject Fixup/Squash-into-commit (#10 remainder) |
+| Branch popup (QuickPick) | 🟡 ~65% | action set + Rename/Delete-last reorder (#4); tracked-branch submenu (#5) |
+| Branch tree menu | 🟢 ~90% | — (near-complete) |
+| Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs (deferred) |
+| Explorer / editor submenu | 🟢 ~80% | "Commit File" handler (#6) |
+| Command-palette titles | 🟢 ~90% | — (de-prefix + ellipsis landed) |
+| Toolbar / view-title | 🟢 ~85% | — (fetch icon + branch widget landed) |
+| Major dialogs | 🟢 ~85% | per-dialog field-level audit (deferred) |
 
 **Open gaps** (ref = git4idea XML group / Java class):
 
