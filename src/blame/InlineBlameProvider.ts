@@ -3,6 +3,7 @@ import { IInlineBlameProvider } from './interfaces/IInlineBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine, IRepository } from '../git-core/interfaces/IGitService';
 import { BlameOptionsSource } from './BlameOptionsSource';
+import { computeAuthorColor } from './authorColor';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { parseRemoteUrl, type IRemoteUrl } from '../utils/remoteUrl';
 import { commitUrl } from '../utils/hostingLinks';
@@ -301,8 +302,14 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       // still renders, just without the external commit link.
       const repo = await this._gitService.getRepository(editor.document.uri);
 
+      // In AUTHOR color mode, tint the inline text by the stable per-author
+      // color computed over the file's full author set (matches IntelliJ's
+      // AnnotateToggleAction AUTHOR branch). ORDER mode leaves it undefined
+      // and falls back to the age-based fade in createDecoration.
+      const textColor = this.resolveAuthorColor(editor, blameLine);
+
       // Create the decoration
-      const decoration = this.createDecoration(editor, line, blameLine, repo);
+      const decoration = this.createDecoration(editor, line, blameLine, repo, textColor);
       if (decoration) {
         editor.setDecorations(this._decorationType, [decoration]);
       }
@@ -371,7 +378,8 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     editor: vscode.TextEditor,
     line: number,
     blameLine: IBlameLine,
-    repo?: IRepository | undefined
+    repo?: IRepository | undefined,
+    textColor?: string
   ): vscode.DecorationOptions | undefined {
     // Skip uncommitted changes
     if (blameLine.commit.startsWith('0000000')) {
@@ -388,8 +396,9 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     const lineText = editor.document.lineAt(line);
     const range = new vscode.Range(line, lineText.text.length, line, lineText.text.length);
 
-    // Calculate age-based color
-    const color = this.getAgeBasedColor(blameLine.date);
+    // AUTHOR mode supplies a per-author color; ORDER mode falls back to the
+    // age-based fade.
+    const color = textColor ?? this.getAgeBasedColor(blameLine.date);
 
     return {
       range,
@@ -519,6 +528,31 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       return undefined;
     }
     return commitUrl(parsed, hash);
+  }
+
+  /**
+   * Resolve the AUTHOR-mode text color for a line, or `undefined` when the
+   * active color mode is ORDER. The per-author color is computed over the
+   * file's full author set (read from the blame cache populated by
+   * {@link getBlameForLine}), so the same author is tinted consistently.
+   *
+   * @param editor - The text editor
+   * @param blameLine - The blame line being decorated
+   * @returns The CSS color string, or `undefined` to use the age-based fade
+   */
+  private resolveAuthorColor(editor: vscode.TextEditor, blameLine: IBlameLine): string | undefined {
+    const colorMode = this._optionsSource?.snapshot().colorMode ?? 'order';
+    if (colorMode !== 'author') {
+      return undefined;
+    }
+    const cached = this._blameCache.get(editor.document.uri.toString());
+    if (!cached) {
+      return undefined;
+    }
+    const authors = cached.lines
+      .filter((bl) => !bl.commit.startsWith('0000000'))
+      .map((bl) => bl.author);
+    return computeAuthorColor(blameLine.author, authors);
   }
 
   /**

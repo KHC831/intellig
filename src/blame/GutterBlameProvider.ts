@@ -5,6 +5,7 @@ import { IGitService, IBlameLine } from '../git-core/interfaces/IGitService';
 import { BlameOptionsSource } from './BlameOptionsSource';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { computeHeatColor } from './heatColor';
+import { buildAuthorColorMap } from './authorColor';
 import * as path from 'path';
 
 /**
@@ -319,6 +320,20 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         return;
       }
 
+      // In AUTHOR color mode, pre-compute the stable per-author palette over
+      // the file's full author set so every line of the same author shares a
+      // color (matches IntelliJ's AnnotateToggleAction AUTHOR branch). ORDER
+      // mode leaves this undefined and falls back to the age heat gradient.
+      const colorMode = this._optionsSource?.snapshot().colorMode ?? 'order';
+      const authorColors =
+        colorMode === 'author'
+          ? buildAuthorColorMap(
+              blameInfo.lines
+                .filter((bl) => !bl.commit.startsWith('0000000'))
+                .map((bl) => bl.author)
+            )
+          : undefined;
+
       // Get visible ranges
       const visibleRanges = editor.visibleRanges;
       if (visibleRanges.length === 0) {
@@ -344,8 +359,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
             continue;
           }
 
-          // Per-line background color interpolated across the file's age range.
-          const bgColor = computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
+          // AUTHOR mode tints by the line's author; ORDER mode interpolates a
+          // heat color across the file's age range.
+          const bgColor =
+            authorColors?.get(blameLine.author) ??
+            computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
           const decoration = this.createDecoration(line, blameLine, bgColor);
           if (decoration) {
             decorations.push(decoration);

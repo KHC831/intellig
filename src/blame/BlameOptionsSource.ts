@@ -23,9 +23,25 @@ const CONFIG_SECTION = 'intellig.blame';
 const CONFIG_IGNORE_WS = 'ignoreWhitespace';
 const CONFIG_DETECT_WITHIN = 'detectMovementsWithinFile';
 const CONFIG_DETECT_ACROSS = 'detectMovementsAcrossFiles';
+const CONFIG_COLOR_MODE = 'colorMode';
 
 /** Workspace-state key for the hidden-revision set. */
 const WS_STATE_HIDDEN = 'intellig.blame.hiddenRevisions';
+
+/**
+ * Blame annotation background color mode. Mirrors IntelliJ's
+ * `com.intellij.openapi.vcs.actions.ColorMode`: ORDER tints lines by commit
+ * age (heat gradient), AUTHOR tints them by a stable per-author color.
+ */
+export type BlameColorMode = 'order' | 'author';
+
+/** Default color mode when the setting is unset or invalid. */
+const DEFAULT_COLOR_MODE: BlameColorMode = 'order';
+
+/** Coerce an arbitrary config string to a valid {@link BlameColorMode}. */
+function normalizeColorMode(value: string | undefined): BlameColorMode {
+  return value === 'author' ? 'author' : DEFAULT_COLOR_MODE;
+}
 
 /**
  * Snapshot of all persistent blame state.
@@ -33,6 +49,8 @@ const WS_STATE_HIDDEN = 'intellig.blame.hiddenRevisions';
 export interface IBlameOptionsSnapshot extends Required<IBlameOptions> {
   /** Full SHAs the user has hidden via "Hide Revision". */
   hiddenRevisions: ReadonlySet<string>;
+  /** Active background color mode for blame annotations. */
+  colorMode: BlameColorMode;
 }
 
 /**
@@ -59,7 +77,8 @@ export class BlameOptionsSource {
         if (
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_IGNORE_WS}`) ||
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_WITHIN}`) ||
-          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_ACROSS}`)
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_ACROSS}`) ||
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_COLOR_MODE}`)
         ) {
           this._onDidChange.fire(this.snapshot());
         }
@@ -78,6 +97,7 @@ export class BlameOptionsSource {
       detectMovementsWithinFile: cfg.get<boolean>(CONFIG_DETECT_WITHIN, false),
       detectMovementsAcrossFiles: cfg.get<boolean>(CONFIG_DETECT_ACROSS, false),
       hiddenRevisions: new Set(this._hidden),
+      colorMode: normalizeColorMode(cfg.get<string>(CONFIG_COLOR_MODE, DEFAULT_COLOR_MODE)),
     };
   }
 

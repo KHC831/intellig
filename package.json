@@ -1294,6 +1294,19 @@
           "default": false,
           "description": "Detect lines moved or copied across files when computing Git blame (git blame -C -C). Matches IntelliJ's blame gutter Options menu."
         },
+        "intellig.blame.colorMode": {
+          "type": "string",
+          "enum": [
+            "order",
+            "author"
+          ],
+          "enumDescriptions": [
+            "Tint blame lines by commit age — a heat gradient from oldest to newest.",
+            "Tint blame lines by a stable per-author color."
+          ],
+          "default": "order",
+          "description": "Background color mode for blame annotations. 'order' shades lines by commit age (heat gradient); 'author' assigns each author a stable color. Matches IntelliJ's annotation color mode (Annotations Color menu)."
+        },
         "intellig.showStatusBarBranch": {
           "type": "boolean",
           "default": true,
