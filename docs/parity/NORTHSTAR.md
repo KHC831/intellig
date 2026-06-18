@@ -66,12 +66,17 @@ tabs, dialogs) — tracked as its own goal in **section 4b** (detail in `R2-UX-0
 **Process:** F5 dogfood sweep for unit-locked-but-unconfirmed UI; re-run the R2 review against the
 merged tree (it predates the A/C/phase-0 merges). Evidence: `R2-0N-*.md`, `R2-UX-0N-*.md`.
 
-**Code-health cleanup (Batch C — from the 2026-06-18 dead-code sweep):** delete the dead
-`intellig.commit.*` command layer left behind by the TreeView→webview log migration (~350 lines, the
-live menu uses the `_onDidRequestLogContextAction`→`_handleAction` event path), dead barrels/duplicate
-interfaces/orphaned commands, + generalize the #28 manifest-coherence guard to command-reachability and
-add a `knip` lint lane. Validated detail + slice list: `workspace-notes/batch2-plan.md` (Batch C). A few
-flagged items are parity fixes not deletions (e.g. `blame.clearHiddenRevisions` needs a submenu entry).
+**Code-health (Batch C — from the 2026-06-18 dead-code sweep, REFRAMED):** the sweep's "dead command"
+premise was largely false — it grepped production-only and missed the e2e suite, so the ~19
+`intellig.commit.*` commands (+ `branches.refresh`) it flagged are actually e2e-tested and mostly sole
+implementations. No deletions made. The real output flips to a **parity gap**: ~9 implemented + e2e-tested
+commit ops (new branch/tag from commit, show diff, compare with revision, show file in revision, open on
+host, apply selected/files, cherry-pick-without-commit, …) exist as commands but have NO live UI entry —
+their only menu was the never-rendering logCommit menu. Audit git4idea `Git.Log.ContextMenu` and surface
+the appropriate ones in the webview overlay (`htmlBuilders.ts` + `_handleAction`); this subsumes/expands
+gap #10. Genuinely-dead-only TS cleanup (e.g. the `utils/index.ts` barrel) is a separate low-priority,
+item-by-item-proven pass. Detail: `workspace-notes/batch2-plan.md` (Batch C). Also: `blame.clearHiddenRevisions`
+needs a submenu entry (parity fix, not deletion).
 
 **Deferred backlog (non-blocking):**
 - _a11y (cross-cutting):_ chip `aria-haspopup="menu"` when chip-as-button interactivity lands (NOT
