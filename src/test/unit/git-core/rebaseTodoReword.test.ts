@@ -74,4 +74,25 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
     assert.match(result, /intellig-reword-aaaaaaa/);
     assert.match(result, /intellig-reword-bbbbbbb/);
   });
+
+  // An empty (or whitespace-only) newMessage must NOT take the exec path:
+  // `git commit --amend -F <empty-file>` aborts ("empty commit message"),
+  // which would break the rebase mid-flight. Treat it like an absent override
+  // and fall back to the classic interactive reword — matching the textarea's
+  // own "leave blank to edit interactively" placeholder.
+  it('emits classic reword when newMessage is an empty string', () => {
+    const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: '' }];
+    const result = transformRebaseTodo('pick aaaaaaa first commit\n', plan);
+    assert.match(result, /^reword aaaaaaa first commit\n/);
+    assert.doesNotMatch(result, /exec git commit --amend/);
+    assert.doesNotMatch(result, /intellig-reword/);
+  });
+
+  it('emits classic reword when newMessage is whitespace only', () => {
+    const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: '   \n\t ' }];
+    const result = transformRebaseTodo('pick aaaaaaa first commit\n', plan);
+    assert.match(result, /^reword aaaaaaa first commit\n/);
+    assert.doesNotMatch(result, /exec git commit --amend/);
+    assert.doesNotMatch(result, /intellig-reword/);
+  });
 });

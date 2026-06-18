@@ -21,6 +21,22 @@
 import type { IRebaseAction, RebaseAction } from './interfaces/IRebaseService';
 
 /**
+ * Whether a plan entry carries a usable pre-typed reword message — i.e. a
+ * 'reword' action whose `newMessage` is present and not blank. A blank
+ * override is treated as absent: writing an empty `-F` file would make
+ * `git commit --amend` abort ("empty commit message") and break the rebase,
+ * so we fall back to the classic interactive reword instead (matching the
+ * editor textarea's "leave blank to edit interactively" affordance).
+ */
+export function hasRewordOverride(entry: IRebaseAction): boolean {
+  return (
+    entry.action === 'reword' &&
+    entry.newMessage !== undefined &&
+    entry.newMessage.trim().length > 0
+  );
+}
+
+/**
  * Map a todo command token (full name or git's single-letter abbreviation) to
  * a {@link RebaseAction}, or `undefined` if it is not a commit command (so the
  * line is structural and preserved verbatim).
@@ -134,7 +150,7 @@ export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[])
       );
     }
     const subjectSuffix = group.subject ? ` ${group.subject}` : '';
-    if (entry.action === 'reword' && entry.newMessage !== undefined) {
+    if (hasRewordOverride(entry)) {
       // User pre-typed a message in the planning UI (H1 parity). Emit 'pick'
       // so git never pauses, then amend the message via exec. The message file
       // is written by applyPlanToTodoFile before git runs.

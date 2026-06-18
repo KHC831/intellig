@@ -86,6 +86,20 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
     assert.strictEqual(fs.readFileSync(todoPath, 'utf8'), 'reword aaaaaaa only commit\n');
   });
 
+  it('runEditorMain with an empty newMessage writes no file and emits classic reword', () => {
+    fs.writeFileSync(todoPath, 'pick aaaaaaa only commit\n');
+    const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'reword', newMessage: '   ' }];
+
+    runEditorMain(['node', 'editor.js', todoPath], { [REBASE_PLAN_ENV]: JSON.stringify(plan) });
+
+    // No exec amend, no message file — an empty -F file would abort the rebase.
+    assert.strictEqual(fs.readFileSync(todoPath, 'utf8'), 'reword aaaaaaa only commit\n');
+    assert.ok(
+      !fs.existsSync(path.join(gitDir, '.intellig-reword-aaaaaaa.txt')),
+      'no message file should be written for an empty override'
+    );
+  });
+
   it('runEditorMain throws when the plan env var is missing (git then aborts)', () => {
     fs.writeFileSync(todoPath, 'pick aaaaaaa only\n');
     assert.throws(() => runEditorMain(['node', 'editor.js', todoPath], {}), /not set/);
