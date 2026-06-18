@@ -24,10 +24,10 @@ The hard architecture exists — changelists, shelf-as-patch-store, interactive-
 commit-graph log, 3-way merge all built. **Remaining work is fidelity, not invention.** Reset and
 interactive-rebase plumbing already *exceed* git4idea.
 
-Remaining backlog is now thin: **G** complete; **B / C / D / E / H** effectively complete (~92-97%);
-**A** (~86%) and **F** (~92%) carry the last daily-feature gaps — A's rollback dialog + the line-status
-hover popup (F-8b) on the just-landed gutter tracker — plus the medium/polish menu-order + R2-re-audit
-items in section 4.
+Remaining backlog is now thin: **G** complete; **A / B / C / D / E / F / H** all effectively complete
+(~90-97%) — the last daily-feature gaps (A's rollback dialog, F-8b line-status hover popup) have landed.
+The remaining parity work is **UI/UX layout** fidelity (section 4b — menu order/grouping, labels, icons,
+dialogs) plus the R2 re-audit pass against the merged tree.
 
 ## 2. Standing constraints
 
@@ -86,8 +86,8 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 (+ `GitBranchPopupActions.java`). Detailed findings + reorder recipes: `R2-UX-03-menus.md`._
 
 **Surface heatmap:** log/commit menu 🟡 ~70% · branch popup (QuickPick) 🟡 ~65% · branch tree menu
-🟢 ~90% · tool-window tabs 🟢 ~85% · explorer/editor submenu 🟡 ~70% · command-palette titles
-🟢 ~85% · toolbar/view-title 🟡 ~75% · major dialogs 🟢 ~85%.
+🟢 ~90% · tool-window tabs 🟢 ~85% · explorer/editor submenu 🟢 ~80% · command-palette titles
+🟢 ~90% · toolbar/view-title 🟢 ~85% · major dialogs 🟢 ~85%.
 
 **Open gaps** (ref = git4idea XML group / Java class):
 
@@ -97,21 +97,22 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 | 3 | Log menu | "Edit Commit Message" → "Reword…" + add to tree | `Git.Reword.Commit` (`GitRewordAction`) | `htmlBuilders.ts:227` | S |
 | 4 | Branch popup | QuickPick: Rename/Delete should be LAST; missing Diff-with-Local, Update-Selected, Pull-into-current, New-Worktree, Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` | M |
 | 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
-| 6 | Explorer submenu | No "Commit File"; History should trail; Annotate grouped w/ diff; "Compare with Revision…" → "Compare with Branch" | `Git.FileActions` | pkg.json `explorerSubmenu` | S/M |
-| 8 | Palette | Drop redundant inner `Rebase:`/`Blame:` prefixes (render as "IntelliG: Rebase: …") | plain action text | pkg.json commands | S |
-| 9 | Toolbar | Fetch & Update both `$(sync)` → give Fetch a distinct icon; move branch widget to navigation@1 | `AllIcons.Vcs.Fetch`; `Git.ShowBranches` first | pkg.json `view/title` | S |
+| 6 | Explorer submenu | Add "Commit File" (CheckinFiles) at the head of the submenu — needs a single-file commit handler (the History-trails / Annotate-with-diff reorder + "Compare with Branch…" rename landed) | `Git.FileActions` (`CheckinFiles`) | pkg.json `explorerSubmenu` | S/M |
 | 10 | Log menu | Add by-subject Fixup/Squash + surface New-Branch/New-Tag-from-commit in webview graph menu | `Git.Log.ContextMenu` | `htmlBuilders.ts:234` | M |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
 | — | Dialogs | Field-level checkbox/label/order audit per dialog (rebase/merge/push/pull/reset/new-branch/rollback) | per-dialog git4idea classes | `src/rebase`,`src/sync`,… | M |
 
-**Order:** quick wins first (#8, #9, #6-partial — pkg.json-mostly, no behavior change; these don't
-parallelize — single shared `contributes` block), then the structural wave (#2 unify the two log menus,
-#3, #4, #5, #10). Stash/Working-Trees tabs + per-dialog field audit are deferred.
+**Order:** the pkg.json-only quick wins (#8, #9, #6-partial) have landed. Next is the structural wave
+(#2 unify the two log menus, #3, #4, #5, #10) + the #6 "Commit File" handler. Stash/Working-Trees tabs +
+per-dialog field audit are deferred.
 
 **Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
 dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
-(`ResetDialog._confirmDestructive`).
+(`ResetDialog._confirmDestructive`). **Batch 1 (`39113f5`):** palette de-prefix (#8 — rebase/blame titles
+to git4idea self-describing text), Fetch distinct icon + branch widget to navigation@1 (#9), explorer
+submenu reordered to `Git.FileActions` (Annotate→compare cluster→History trails) + "Compare with Branch…"
+rename (#6-partial).
 
 ---
 
