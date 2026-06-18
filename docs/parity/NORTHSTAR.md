@@ -37,10 +37,10 @@ Remaining backlog: residuals under **C** (shell/sync) and the open workstreams *
 | Commit & Changelists (A) | 🟢 ~80% | live line-status tracker, commit-and-push dialog, rollback dialog |
 | Rebase / Cherry-pick / Revert (H) | 🟢 ~80% | inline reword/squash, `--onto`/`--root`, `-m` revert/cherry-pick |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
-| Branches & Tags (D) | 🟢 ~90% | per-remote push, tag submenu (HEAD/favorites/validation/multi-repo/worktree create+open landed) |
-| Shell / Menus / Sync (C) | 🟢 ~88% | tabbed default-on (`--autostash` + console + scm provider + log-menu reword/push-up-to-here history-rewrite guard landed) |
-| Shelf / Stash / Patches (E) | 🟡 ~82% | recycle bin, target-changelist, Apply-Patch tree (unshelve + patch split + diff-against-local + binary support landed) |
-| Blame / History / Diff (F) | 🟢 ~88% | diff options, inline-diff-hover, get-version (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph landed) |
+| Branches & Tags (D) | 🟢 ~93% | tag submenu Merge-into-Current (HEAD/favorites/validation/multi-repo/worktree/per-remote-push landed) |
+| Shell / Menus / Sync (C) | 🟢 ~95% | near-complete (`--autostash` + console + scm provider + log-menu history-rewrite guard + tabbed default-on landed) |
+| Shelf / Stash / Patches (E) | 🟢 ~86% | target-changelist, Apply-Patch tree, stash apply-index toggle (unshelve + patch split + diff-against-local + binary + recycle bin landed) |
+| Blame / History / Diff (F) | 🟢 ~90% | inline-diff-hover, get-version (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy landed) |
 
 ---
 
@@ -82,7 +82,9 @@ click-to-diff).
 `CommitContextMenuCommands`; added the missing safety: a modal fail-closed warning before rewording an
 already-pushed commit, covering both the HEAD-amend and non-HEAD-rebase paths (mirrors
 `GitCommitEditingActionBase.checkCommitsCanBeEdited`).
-**Remaining:** enable tabbed layout default-on.
+**Landed 2026-06-18:** tabbed Git tool-window layout default-on (`intellig.useTabbedGitToolWindow`
+false→true; provider already honored the flag per render).
+**Remaining:** none tracked — workstream C is effectively complete.
 **Files:** `package.json`, `src/ui-shell/{KeymapService,ConsoleService}.ts`, `src/sync/PullDialog.ts`,
 `src/git-core/gitToolWindow/tabs/*`.
 
@@ -95,7 +97,9 @@ Merge-into-Current.
 (2) ~~tree HEAD+favorites~~ **DONE 2026-06-17** (HEAD root node + Memento-persisted favorites + star
 icon) + ~~multi-repo grouping~~ **DONE 2026-06-17** (per-repository root nodes when >1 repo). (3)
 ~~conflict-aware validation~~ **DONE 2026-06-17** (`check-ref-format` validator + local/current/remote/
-directory conflict detection + overwrite bypass). (4) per-remote push. (5) ~~worktrees~~
+directory conflict detection + overwrite bypass). (4) ~~per-remote push~~ **DONE 2026-06-18**
+(`_chooseTargetRemote` QuickPick when >1 remote, default = tracked/origin/first, sets upstream on
+remote change; mirrors `GitPushTarget.getRemoteToPush`). (5) ~~worktrees~~
 **DONE 2026-06-18** (`WorktreeOps` create via `git worktree add [-b] -- <path> <ref>` + open via
 `--porcelain` parse → `vscode.openFolder`; injection-safe argv with a real-git round-trip test). (6)
 tag submenu Merge-into-Current.
@@ -112,8 +116,10 @@ shelved; "Unshelve Files…" picker). (2) ~~parse imported patches per-file~~ **
 (`splitPatchByFile` on `diff --git` boundaries → one shelf file per change). (3) ~~diff-against-local~~
 **DONE 2026-06-17** (reconstruct shelved version + real `vscode.diff` vs working tree). (4) ~~binary~~
 **DONE 2026-06-18** (`git diff --numstat` detect → capture raw bytes base64, byte-for-byte round-trip,
-add/modified/deleted, restore via `fs`; mirrors `ShelvedBinaryFile`). (5) recycle bin. (6)
-target-changelist routing. (7) per-file Apply Patch tree. (8) stash apply-index toggle.
+add/modified/deleted, restore via `fs`; mirrors `ShelvedBinaryFile`). (5) ~~recycle bin~~
+**DONE 2026-06-18** (`deletedAt` marker → Recently-Deleted; restore / delete-permanently;
+unshelve-cleanup still purges; mirrors `ShelveChangesManager.markChangeListAsDeleted`/`restoreList`).
+(6) target-changelist routing. (7) per-file Apply Patch tree. (8) stash apply-index toggle.
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
@@ -130,7 +136,9 @@ full/firstname/lastname/initials/email; `LineAnnotationAspect`/`ShortNameType` p
 graph (reuse `commitGraph.ts`)~~ **DONE 2026-06-18** (details pane: message/author+email/dates/full hash
 + copy/parents, committer line only when ≠ author; mini commit-graph column reusing `commitGraph.ts`;
 single HTML-escape boundary). (5) ~~line-scoped history~~ **DONE 2026-06-17** (`git
-log -L` op + HistoryTab wiring; get-version still pending). (6) diff options. (7) inline-diff-on-hover.
+log -L` op + HistoryTab wiring; get-version still pending). (6) ~~diff options~~ **DONE 2026-06-18**
+(`intellig.diff.ignorePolicy` → git whitespace flags at all diff sites; mirrors `IgnorePolicy`).
+(7) inline-diff-on-hover.
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
 `src/commands/registration/blameEditorCommands.ts`, `package.json`.
 

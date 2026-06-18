@@ -20,6 +20,10 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
   commit-graph column, **C-4** reword-pushed-commit history-rewrite guard, **D-5** worktree
   create/open. D-5's worktree-add argv was caught and fixed in review (a usage-rejected form the
   array-only test had missed) before landing.
+- **Batch 6 landed 2026-06-18** (4 slices, combined gate green — 4469 unit + 746 property,
+  config-coherence + `check:vsix-clean` OK): **E-5** shelf recycle bin, **C-5** tabbed tool-window
+  layout default-on, **D-6** per-remote push (choose target remote), **F-6** diff whitespace
+  ignore-policy.
 
 ## Landing log
 
@@ -27,6 +31,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-18 | Workstream F (slice 6) — diff whitespace ignore-policy (`intellig.diff.ignorePolicy`): pure `diffIgnorePolicyFlags` maps the 4 IntelliJ `IgnorePolicy` levels onto git flags (trim→`--ignore-space-at-eol`, ignore→`--ignore-all-space`, +empty-lines→`+--ignore-blank-lines`, default→none), `DiffOps.whitespaceFlags()` applies it at all 3 diff sites; default preserves behavior, fixed-literal flags (injection-safe); mirrors `platform/diff-impl/.../IgnorePolicy.java` | 6aaed4a | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream C (slice 5) — tabbed Git tool-window layout default-on (`intellig.useTabbedGitToolWindow` false→true; provider already honored the flag every render, so a pure default flip + config.ts fallbacks + README/mock); matches IntelliJ's tabbed Git tool window (`ChangesViewContentManager`) | fe897e8 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream D (slice 6) — per-remote push: `_chooseTargetRemote` QuickPick when >1 remote (default = tracked remote / origin / first, preselected; ≤1 remote no-prompt fast path), sets upstream when redirected to a non-tracked remote, routes the chosen remote into push/pushTag (already eoo-safe via `buildGitArgs`); mirrors `GitPushTarget.getRemoteToPush` / `GitUtil.getDefaultOrFirstRemote` | f95b3f7 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream E (slice 5) — shelf recycle bin: `deleteShelfItem` stamps a `deletedAt` marker (Recently-Deleted) instead of splicing; `getRecycledShelfItems` + `restoreFromRecycleBin` + `deleteShelfItemPermanently`; the fully-applied-unshelve cleanup still PURGES (not recycles) via `purgeShelfItem`; additive store field, no version bump; mirrors `ShelveChangesManager.markChangeListAsDeleted`/`restoreList` | 16940e2 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream D (slice 5) — git worktree create/open: `WorktreeOps.addWorktree` (`git worktree add [-b <newBranch>] -- <path> <ref>`, single `--` guarding both positionals so a hostile path/ref cannot become a flag) + `parseWorktreeList` (`--porcelain` records: main/linked/detached/bare/locked, trailing-record flush) + "New Worktree…"/"Open Worktree…" branch context-menu commands (QuickPick → `vscode.openFolder`); mirrors git4idea `GitWorktreeListParser`. Includes a real-git round-trip test (caught a usage-rejected argv the array-only test had missed) | 6e0ffb9 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream C (slice 4) — history-rewrite safety on the log/commit menu: warn (modal, fail-closed) before rewording an already-pushed commit, hoisted to cover BOTH the HEAD-amend and non-HEAD-rebase reword paths (reword + push-up-to-here + squash/fixup/drop already existed on main); mirrors git4idea `GitCommitEditingActionBase.checkCommitsCanBeEdited` | cbc55c9 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream F (slice 4) — file-history details pane (full message/author+email/authored+committed dates/full hash with copy/parents; committer line only when committer ≠ author) + mini commit-graph column reusing `commitGraph.ts` lane/edge layout; read-only, single HTML-escape boundary, stale-fetch-unaffected; mirrors `CommitPresentationUtil` + `FileHistoryPanel` | fb3b635 | local cherry-pick (1 commit) |
