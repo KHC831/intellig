@@ -128,6 +128,7 @@ function initializeDefaultConfig(): void {
   schemaDefaults.set('autoFetchEnabled', true);
   schemaDefaults.set('autoFetchInterval', 180);
   schemaDefaults.set('defaultToolWindowTab', 'local-changes');
+  schemaDefaults.set('useTabbedGitToolWindow', true);
   schemaDefaults.set('blameAnnotationStyle', 'inline');
   schemaDefaults.set('showStatusBarBranch', true);
   schemaDefaults.set('useIntelliJKeymap', false);

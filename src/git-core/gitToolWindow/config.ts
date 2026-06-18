@@ -1,9 +1,9 @@
 /**
  * Configuration helpers for the Git Tool Window.
  *
- * The tabbed layout ships behind a feature flag so the refactor
- * can land without regressing the Log-only UI most users see today. The flag
- * defaults to `false`.
+ * The tabbed layout is the default Git tool-window presentation, matching
+ * IntelliJ's git4idea tool window (registered as tabbed content). The flag
+ * defaults to `true`; users can opt out to restore the single Log panel.
  */
 
 import * as vscode from 'vscode';
@@ -21,8 +21,8 @@ export const TABBED_CONFIG_FULL_KEY = `intellig.${TABBED_CONFIG_KEY}`;
 export function isTabbedGitToolWindowEnabled(): boolean {
   try {
     const config = vscode.workspace.getConfiguration('intellig');
-    return Boolean(config.get<boolean>(TABBED_CONFIG_KEY, false));
+    return Boolean(config.get<boolean>(TABBED_CONFIG_KEY, true));
   } catch {
-    return false;
+    return true;
   }
 }

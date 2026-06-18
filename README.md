@@ -262,7 +262,7 @@ Enable the IntelliJ preset in settings:
 | Setting                           | Default     | Description                                                                                                                                          |
 | --------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `intellig.useCommitToolWindow`    | `true`      | Show the IntelliJ-style Commit tool window in the IntelliG panel; disable to use the classic modal Commit dialog                                     |
-| `intellig.useTabbedGitToolWindow` | `false`     | Use the tabbed Git tool window (Log/History/Incoming/…)                                                                                              |
+| `intellig.useTabbedGitToolWindow` | `true`      | Use the tabbed Git tool window (Log/History/Incoming/…)                                                                                              |
 | `intellig.keymapPreset`           | `"default"` | `"default"` or `"intellij"`                                                                                                                          |
 | `intellig.useIntelliJKeymap`      | `false`     | **Deprecated** — superseded by `intellig.keymapPreset`. No longer read by any keybinding's `when` clause; will be removed in a future minor release. |
 

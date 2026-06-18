@@ -1303,8 +1303,8 @@
         },
         "intellig.useTabbedGitToolWindow": {
           "type": "boolean",
-          "default": false,
-          "description": "Experimental — show a tabbed Git tool window (Log / Console / Incoming / Update Info / History) instead of the single Log panel. When disabled, the UI is unchanged from earlier releases."
+          "default": true,
+          "description": "Show a tabbed Git tool window (Log / Console / Incoming / Update Info / History), matching IntelliJ's Git tool window. Enabled by default; disable to restore the single Log panel."
         },
         "intellig.useCommitToolWindow": {
           "type": "boolean",
