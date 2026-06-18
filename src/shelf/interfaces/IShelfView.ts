@@ -11,6 +11,8 @@ import { IShelfItem, IShelveSelection, IUnshelveOptions } from './IShelfService'
  * Shelf context menu action types
  *
  *  - `unshelveSilent`: Ctrl+Alt+U path, applies with default removeFromShelf.
+ *  - `unshelveFiles`: per-file / partial unshelve — pick a subset of the
+ *    entry's files to apply, leaving the rest shelved.
  *  - `rename`: Rename… → prompts for new name.
  *  - `restore`: available only when the entry is Already-Unshelved.
  *  - `createPatch`: export the entry via PatchService.
@@ -18,6 +20,7 @@ import { IShelfItem, IShelveSelection, IUnshelveOptions } from './IShelfService'
 export type ShelfContextAction =
   | 'unshelve'
   | 'unshelveSilent'
+  | 'unshelveFiles'
   | 'view'
   | 'delete'
   | 'rename'
@@ -163,6 +166,15 @@ export interface IShelfView {
    * @returns Promise resolving to the action result
    */
   unshelve(id: string, options?: IUnshelveOptions): Promise<IShelfActionResult>;
+
+  /**
+   * Per-file (partial) unshelve. Prompts the user to pick a subset of the
+   * entry's files and applies only those, leaving the rest shelved.
+   *
+   * @param id - The shelf item ID to partially unshelve
+   * @returns Promise resolving to the action result
+   */
+  unshelveFiles(id: string): Promise<IShelfActionResult>;
 
   /**
    * View a shelf item's contents as diff.

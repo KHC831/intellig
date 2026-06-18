@@ -254,6 +254,81 @@ describe('ShelfService', () => {
     });
   });
 
+  describe('unshelve() per-file (partial)', () => {
+    /**
+     * Commit two extra tracked files, modify both, and shelve them as a
+     * single entry. Returns the shelf id plus the two file paths.
+     */
+    async function shelveTwoFiles(): Promise<{ id: string; aPath: string; bPath: string }> {
+      const aPath = path.join(testRepoPath, 'a.txt');
+      const bPath = path.join(testRepoPath, 'b.txt');
+      fs.writeFileSync(aPath, 'a base\n');
+      fs.writeFileSync(bPath, 'b base\n');
+      await gitCli.exec(['add', '.'], { cwd: testRepoPath });
+      await gitCli.exec(['commit', '-m', 'add a and b'], { cwd: testRepoPath });
+
+      fs.writeFileSync(aPath, 'a modified\n');
+      fs.writeFileSync(bPath, 'b modified\n');
+      const item = await shelfService.shelve(mockRepo, 'two files', {
+        files: ['a.txt', 'b.txt'],
+      });
+      return { id: item.id, aPath, bPath };
+    }
+
+    it('applies only the selected file and leaves the unselected file in the working tree untouched', async () => {
+      const { id, aPath, bPath } = await shelveTwoFiles();
+
+      await shelfService.unshelve(mockRepo, id, { files: ['a.txt'] });
+
+      assert.strictEqual(fs.readFileSync(aPath, 'utf8'), 'a modified\n', 'selected file restored');
+      assert.strictEqual(
+        fs.readFileSync(bPath, 'utf8'),
+        'b base\n',
+        'unselected file stays reverted (still shelved)'
+      );
+    });
+
+    it('keeps the unselected file shelved and drops the applied file from the entry by default', async () => {
+      const { id } = await shelveTwoFiles();
+
+      await shelfService.unshelve(mockRepo, id, { files: ['a.txt'] });
+
+      const items = shelfService.getShelfItems(mockRepo);
+      assert.strictEqual(items.length, 1, 'entry survives because a file remains shelved');
+      const remaining = items[0].files.map((f) => f.path);
+      assert.deepStrictEqual(remaining, ['b.txt'], 'only the unselected file remains shelved');
+    });
+
+    it('keeps every file shelved when removeFromShelf is false', async () => {
+      const { id } = await shelveTwoFiles();
+
+      await shelfService.unshelve(mockRepo, id, { files: ['a.txt'], removeFromShelf: false });
+
+      const items = shelfService.getShelfItems(mockRepo);
+      assert.strictEqual(items.length, 1);
+      const remaining = items[0].files.map((f) => f.path).sort();
+      assert.deepStrictEqual(remaining, ['a.txt', 'b.txt'], 'entry intact when keeping a copy');
+    });
+
+    it('deletes the entry when the selected files are every file in the entry', async () => {
+      const { id } = await shelveTwoFiles();
+
+      await shelfService.unshelve(mockRepo, id, { files: ['a.txt', 'b.txt'] });
+
+      const items = shelfService.getShelfItems(mockRepo);
+      assert.strictEqual(items.length, 0, 'entry removed once nothing is left shelved');
+    });
+
+    it('throws when the file selection matches no file in the entry', async () => {
+      const { id } = await shelveTwoFiles();
+
+      await assert.rejects(
+        async () => shelfService.unshelve(mockRepo, id, { files: ['nope.txt'] }),
+        /No matching files/
+      );
+    });
+  });
+
   describe('deleteShelfItem()', () => {
     it('should delete a shelf item', async () => {
       const testFile = path.join(testRepoPath, 'test.txt');

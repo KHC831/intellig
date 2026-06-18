@@ -46,6 +46,18 @@ export interface IUnshelveOptions {
    * users incrementally unshelve and retain only conflict/uncovered files.
    */
   removeAppliedFiles?: boolean;
+  /**
+   * Repo-relative paths of the subset of files to unshelve (partial /
+   * per-file unshelve). When provided, only these files are applied to the
+   * working tree; every other file in the entry is never touched and stays
+   * shelved. When omitted the whole entry is unshelved (existing behavior).
+   *
+   * Mirrors IntelliJ's
+   * `ShelveChangesManager.unshelveChangeList(changeList, changes subset, …)`
+   * where unselected patches are collected into `remainingPatches` and
+   * written back to the shelf after applying the selection.
+   */
+  files?: string[];
 }
 
 /**

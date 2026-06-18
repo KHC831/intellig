@@ -341,6 +341,70 @@ describe('ShelfView', () => {
     });
   });
 
+  describe('unshelveFiles (per-file)', () => {
+    it('passes the picked file subset + removeFromShelf:true to unshelve', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [
+          { path: 'x.ts', diff: 'diff' },
+          { path: 'y.ts', diff: 'diff' },
+        ],
+      });
+      await view.refresh();
+
+      // Multi-select picker: simulate the user choosing only x.ts.
+      const originalPick = vscode.window.showQuickPick;
+      (
+        vscode.window as unknown as {
+          showQuickPick: (items: unknown[]) => Promise<unknown>;
+        }
+      ).showQuickPick = async (items: unknown[]) =>
+        (items as Array<{ label: string }>).filter((i) => i.label.includes('x.ts'));
+
+      try {
+        const result = await view.unshelveFiles('a');
+        assert.strictEqual(result.success, true);
+        assert.strictEqual(svc._unshelved.length, 1);
+        assert.deepStrictEqual(svc._unshelved[0].options?.files, ['x.ts']);
+        assert.strictEqual(svc._unshelved[0].options?.removeFromShelf, true);
+      } finally {
+        (vscode.window as unknown as { showQuickPick: typeof originalPick }).showQuickPick =
+          originalPick;
+      }
+    });
+
+    it('does not call unshelve when the file pick is cancelled', async () => {
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [
+          { path: 'x.ts', diff: 'diff' },
+          { path: 'y.ts', diff: 'diff' },
+        ],
+      });
+      await view.refresh();
+
+      const originalPick = vscode.window.showQuickPick;
+      (
+        vscode.window as unknown as {
+          showQuickPick: (items: unknown[]) => Promise<unknown>;
+        }
+      ).showQuickPick = async () => undefined;
+
+      try {
+        const result = await view.unshelveFiles('a');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(svc._unshelved.length, 0, 'unshelve must not run on cancel');
+      } finally {
+        (vscode.window as unknown as { showQuickPick: typeof originalPick }).showQuickPick =
+          originalPick;
+      }
+    });
+  });
+
   describe('createPatchFromShelf — TL-38 atomic write', () => {
     it('writes the combined patch atomically to the user-picked path', async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-shelfpatch-ok-'));

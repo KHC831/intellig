@@ -663,6 +663,13 @@ export class ShelfView implements IShelfView {
         isAction: true,
       },
       {
+        label: '$(list-selection) Unshelve Files…',
+        description: 'Apply only a selected subset of files, keeping the rest shelved',
+        action: 'unshelveFiles',
+        shelfItem,
+        isAction: true,
+      },
+      {
         label: '$(eye) Show Diff',
         description: 'View shelved changes as diff',
         action: 'view',
@@ -713,6 +720,8 @@ export class ShelfView implements IShelfView {
         return this.unshelve(id);
       case 'unshelveSilent':
         return this.unshelveSilent(id);
+      case 'unshelveFiles':
+        return this.unshelveFiles(id);
       case 'delete':
         return this.deleteShelfItem(id);
       case 'view':
@@ -745,6 +754,39 @@ export class ShelfView implements IShelfView {
     return this.unshelve(id, {
       removeFromShelf: true,
       removeAppliedFiles,
+    });
+  }
+
+  /**
+   * Per-file (partial) unshelve. Prompts a multi-select of the entry's files
+   * and applies only the chosen subset, leaving the rest shelved. Mirrors
+   * IntelliJ's per-`ShelvedChange` unshelve (UnshelveSilentlyAction acting on
+   * a subset of the entry's changes).
+   */
+  async unshelveFiles(id: string): Promise<IShelfActionResult> {
+    const shelfItem = this._findShelfItemById(id);
+    if (!shelfItem) {
+      return { success: false, error: `Shelf item not found: ${id}` };
+    }
+
+    const fileItems: vscode.QuickPickItem[] = shelfItem.files.map((file) => ({
+      label: file.path,
+      picked: true,
+    }));
+
+    const picked = await vscode.window.showQuickPick(fileItems, {
+      title: `Unshelve files from: ${shelfItem.name}`,
+      placeHolder: 'Select the files to unshelve (unselected files stay shelved)',
+      canPickMany: true,
+    });
+
+    if (!picked || picked.length === 0) {
+      return { success: false };
+    }
+
+    return this.unshelve(id, {
+      files: picked.map((item) => item.label),
+      removeFromShelf: true,
     });
   }
 

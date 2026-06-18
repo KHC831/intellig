@@ -421,13 +421,26 @@ export class ShelfService implements IShelfService {
       throw new Error(`Shelf item not found: ${shelfId}`);
     }
 
+    // Per-file (partial) unshelve: when `files` is given, narrow the entry to
+    // just that subset. The remaining files are never applied and stay
+    // shelved, mirroring IntelliJ's `remainingPatches` collection.
+    const requestedFiles = options?.files;
+    const selectedPaths = requestedFiles ? new Set(requestedFiles) : undefined;
+    const filesToApply = selectedPaths
+      ? shelfItem.files.filter((file) => selectedPaths.has(file.path))
+      : shelfItem.files;
+
+    if (selectedPaths && filesToApply.length === 0) {
+      throw new Error(`No matching files to unshelve in shelf item: ${shelfId}`);
+    }
+
     const conflicts: string[] = [];
     // Track files that applied cleanly so removeAppliedFiles can prune
     // just those paths.
     const appliedCleanly: string[] = [];
 
     // Apply each file's diff
-    for (const file of shelfItem.files) {
+    for (const file of filesToApply) {
       try {
         // Apply the patch to the working directory
         const result = await this._gitCli.exec(['apply', '--3way', '-'], {
@@ -458,6 +471,30 @@ export class ShelfService implements IShelfService {
       } catch {
         conflicts.push(file.path);
       }
+    }
+
+    // Per-file unshelve owns its own bookkeeping: unselected files always
+    // stay shelved, and selected files that applied cleanly are dropped only
+    // when removeFromShelf (default) is on. Selected files that conflicted are
+    // retained so the user can retry — matching IntelliJ's remainingPatches =
+    // unselected + failed.
+    if (selectedPaths) {
+      const removeFromShelf = options?.removeFromShelf !== false;
+      if (removeFromShelf) {
+        const unselectedPaths = shelfItem.files
+          .map((f) => f.path)
+          .filter((p) => !selectedPaths.has(p));
+        const remaining = [...unselectedPaths, ...conflicts];
+        this.filterShelfFiles(repo, shelfId, remaining);
+      }
+
+      const updatedItems = this.getShelfItems(repo);
+      this._onDidChangeShelf.fire(updatedItems);
+
+      return {
+        success: conflicts.length === 0,
+        conflicts: conflicts.length > 0 ? conflicts : undefined,
+      };
     }
 
     // Honor removeAppliedFiles — prune cleanly-applied files from the entry
