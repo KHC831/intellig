@@ -148,11 +148,12 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranch');
     });
 
-    it('should have exactly 15 menu items', () => {
+    it('should have exactly 16 menu items', () => {
       // intellig.branch.focusOnGraph (inline) + intellig.branch.toggleFavorite
       // (6_favorite) on top of the branch-op entries, including the two
-      // worktree commands (New Worktree… / Open Worktree…).
-      assert.strictEqual(entries.length, 15, `Expected 15 items, got ${entries.length}`);
+      // worktree commands (New Worktree… / Open Worktree…) and the align-local
+      // Update Selected entry (4_sync).
+      assert.strictEqual(entries.length, 16, `Expected 16 items, got ${entries.length}`);
     });
 
     it('should include New Worktree in section 1_branchOps@4', () => {
@@ -243,6 +244,13 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         (e) => e.command === 'intellig.branch.push' && e.group === '4_sync@2'
       );
       assert.ok(entry, 'intellig.branch.push should be at 4_sync@2');
+    });
+
+    it('should include Update Selected (align-local FF) in section 4_sync@3', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.updateSelected' && e.group === '4_sync@3'
+      );
+      assert.ok(entry, 'intellig.branch.updateSelected should be at 4_sync@3');
     });
 
     it('should include Rename in section 5_manage@1', () => {

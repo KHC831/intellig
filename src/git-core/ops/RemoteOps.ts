@@ -104,6 +104,13 @@ export class RemoteOps {
       flags.push('--all');
     } else if (options.remote) {
       refs.push(options.remote);
+      // A `<remoteRef>:<localRef>` refspec fast-forwards the local ref (or
+      // refuses a non-FF) without checkout — align-local "Update Selected".
+      // It carries user-controlled branch names, so it rides in `refs`
+      // behind `--end-of-options` like the remote name.
+      if (options.refspec) {
+        refs.push(options.refspec);
+      }
     } else {
       flags.push('--all');
     }

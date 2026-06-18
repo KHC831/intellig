@@ -10,8 +10,10 @@ import {
   IRefDiffFile,
   IRemote,
   IRepository,
+  IUpstream,
 } from '../git-core/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
+import { getIncomingOutgoingFetcher } from './BranchPopup';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import type { PullDialog } from '../sync/PullDialog';
 import type { PushDialog, IPushPreselect } from '../sync/PushDialog';
@@ -60,6 +62,102 @@ export type NewBranchDialogOpener = (preselect: {
   startPoint?: string;
   defaultName?: string;
 }) => NewBranchDialog | undefined;
+
+/**
+ * One selected local branch fed to {@link planAlignLocal}, carrying just the
+ * facts the FF-vs-skip decision needs: whether it is checked out, its tracking
+ * upstream, and its incoming/outgoing counts relative to that upstream.
+ */
+export interface IAlignLocalBranchInput {
+  /** Local branch short name (e.g. `main`, `feature/x`). */
+  name: string;
+  /** True when this is the repository's checked-out branch. */
+  isCurrent: boolean;
+  /** Tracking upstream, or undefined when the branch tracks nothing. */
+  upstream?: IUpstream;
+  /** Commits the upstream has that the local branch lacks (git "behind"). */
+  incoming: number;
+  /** Local commits the upstream lacks (git "ahead"). */
+  outgoing: number;
+}
+
+/** A fast-forward fetch the align-local action will run for one branch. */
+export interface IAlignLocalFetch {
+  /** Local branch being advanced. */
+  branch: string;
+  /** Remote to fetch from (the upstream's remote). */
+  remote: string;
+  /** `<remoteRef>:<localRef>` refspec — fetch FFs the local ref or refuses. */
+  refspec: string;
+}
+
+/** Outcome of classifying a selection of local branches for align-local. */
+export interface IAlignLocalPlan {
+  /** Branches that are behind-only and will be fast-forwarded. */
+  fetches: IAlignLocalFetch[];
+  /** Branches we won't touch, with a user-facing reason. */
+  skipped: { branch: string; reason: string }[];
+  /** Branches already in sync with their upstream — nothing to do. */
+  upToDate: string[];
+}
+
+/**
+ * Classify selected local branches into fast-forward / skip / up-to-date
+ * buckets for the align-local "Update Selected" action.
+ *
+ * Mirrors git4idea's GitBranchActionsUtil.updateBranches: every NON-current
+ * tracking branch is fast-forwarded via a `<remoteRef>:<localRef>` fetch
+ * refspec (`GitFetchSpec(repo, remote, "$remoteBranch:$localBranch")`), and
+ * the action only ever fast-forwards — a diverged branch is left alone. We
+ * decide FF-ability from the incoming/outgoing counts (behind-only ⇒ FF-able;
+ * any outgoing ⇒ diverged) so we never even attempt a non-FF fetch, rather
+ * than relying on git to refuse it.
+ *
+ * Skip reasons:
+ * - checked-out current branch — FF into a checked-out ref is refused; the
+ *   branch must be advanced via Update/Pull instead (git4idea routes this to
+ *   GitUpdateExecutionProcess, which is out of scope for align-local).
+ * - no upstream configured.
+ * - diverged (has outgoing commits) — not a fast-forward.
+ *
+ * The refspec joins user-controlled ref names; callers MUST splice it through
+ * `buildGitArgs` (the fetch op does) so it can never be parsed as a git flag.
+ */
+export function planAlignLocal(inputs: IAlignLocalBranchInput[]): IAlignLocalPlan {
+  const plan: IAlignLocalPlan = { fetches: [], skipped: [], upToDate: [] };
+
+  for (const input of inputs) {
+    if (input.isCurrent) {
+      plan.skipped.push({
+        branch: input.name,
+        reason: 'checked out — use Update/Pull to advance the current branch',
+      });
+      continue;
+    }
+    if (!input.upstream) {
+      plan.skipped.push({ branch: input.name, reason: 'no upstream configured' });
+      continue;
+    }
+    if (input.outgoing > 0) {
+      plan.skipped.push({
+        branch: input.name,
+        reason: 'diverged from upstream — not fast-forwardable',
+      });
+      continue;
+    }
+    if (input.incoming === 0) {
+      plan.upToDate.push(input.name);
+      continue;
+    }
+    plan.fetches.push({
+      branch: input.name,
+      remote: input.upstream.remote,
+      refspec: `${input.upstream.name}:${input.name}`,
+    });
+  }
+
+  return plan;
+}
 
 /**
  * Branch Context Menu Commands class.
@@ -469,6 +567,12 @@ export class BranchContextMenuCommands {
     this._disposables.push(
       registerLoggedCommand('intellig.branch.update', (item: BranchTreeItem) =>
         this._handleUpdate(item)
+      )
+    );
+
+    this._disposables.push(
+      registerLoggedCommand('intellig.branch.updateSelected', (item: BranchTreeItem) =>
+        this._handleUpdateSelected(item)
       )
     );
 
@@ -1151,6 +1255,104 @@ export class BranchContextMenuCommands {
       void vscode.window.showErrorMessage(
         `Failed to update branch: ${sanitizeGitError(errorMessage)}`
       );
+    }
+  }
+
+  /**
+   * Align-local "Update Selected": fast-forward the clicked local branch to its
+   * tracked remote WITHOUT checking it out, skipping it when it has diverged.
+   *
+   * git4idea parity: GitBranchActionsUtil.updateBranches advances every
+   * non-current tracking branch via a `<remoteRef>:<localRef>` fetch refspec
+   * (`GitFetchSpec(repo, remote, "$remoteBranch:$localBranch")`) and only ever
+   * fast-forwards — diverged branches are left untouched. The current branch is
+   * routed to a full update (GitUpdateExecutionProcess) instead; here we skip it
+   * and tell the user to use Update/Pull, since fetching into a checked-out ref
+   * is refused. Surfaced from BranchesDashboardActions.UpdateSelectedBranchAction.
+   */
+  private async _handleUpdateSelected(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.branch) {
+      return;
+    }
+
+    const branch = item.branch;
+    // Incoming/outgoing lives on the concrete GitService, not the frozen
+    // IGitService (ADR-001), so reach it through the same duck-typed fetcher
+    // the branch popup/tree use rather than widening the interface.
+    const fetcher = getIncomingOutgoingFetcher(this._gitService);
+    let counts: { incoming: number; outgoing: number };
+    try {
+      const io = fetcher ? await fetcher(repo, branch.name) : { incoming: 0, outgoing: 0 };
+      counts = { incoming: io.incoming, outgoing: io.outgoing };
+    } catch {
+      // Counts unavailable (rare) — treat as in-sync so we never attempt a
+      // blind fetch that could be a non-FF; the user can fall back to Update.
+      counts = { incoming: 0, outgoing: 0 };
+    }
+
+    const plan = planAlignLocal([
+      {
+        name: branch.name,
+        isCurrent: branch.isHead,
+        upstream: branch.upstream,
+        incoming: counts.incoming,
+        outgoing: counts.outgoing,
+      },
+    ]);
+
+    const advanced: string[] = [];
+    const skipped = [...plan.skipped];
+    for (const fetch of plan.fetches) {
+      try {
+        await this._gitService.fetch(repo, { remote: fetch.remote, refspec: fetch.refspec });
+        advanced.push(fetch.branch);
+      } catch (error) {
+        // git refuses a non-FF update into a non-checked-out ref; treat a late
+        // divergence (the tracking ref moved since we read the counts) as a
+        // skip rather than a hard error, mirroring git4idea's FF-only semantics.
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        skipped.push({
+          branch: fetch.branch,
+          reason: `fast-forward failed — ${sanitizeGitError(message)}`,
+        });
+      }
+    }
+
+    if (advanced.length > 0) {
+      await this._gitService.reloadRepository(repo);
+      this._branchTreeProvider.refresh();
+    }
+
+    this._reportAlignLocalResult(advanced, skipped, plan.upToDate);
+  }
+
+  /**
+   * Surface the align-local outcome as a single info/warning toast. A clean
+   * fast-forward is an info; any skip (diverged, no upstream, checked out)
+   * downgrades to a warning so the user notices the branch was left behind.
+   */
+  private _reportAlignLocalResult(
+    advanced: string[],
+    skipped: { branch: string; reason: string }[],
+    upToDate: string[]
+  ): void {
+    const parts: string[] = [];
+    if (advanced.length > 0) {
+      parts.push(`Fast-forwarded ${advanced.join(', ')}`);
+    }
+    if (upToDate.length > 0) {
+      parts.push(`${upToDate.join(', ')} already up to date`);
+    }
+    for (const s of skipped) {
+      parts.push(`Skipped ${s.branch}: ${s.reason}`);
+    }
+
+    const summary = parts.join('. ') + '.';
+    if (skipped.length > 0) {
+      void vscode.window.showWarningMessage(summary);
+    } else {
+      void vscode.window.showInformationMessage(summary);
     }
   }
 

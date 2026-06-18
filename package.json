@@ -300,6 +300,11 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.branch.updateSelected",
+        "title": "Update Selected",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.branch.push",
         "title": "Push…",
         "category": "IntelliG"
@@ -834,6 +839,11 @@
           "command": "intellig.branch.push",
           "when": "viewItem == intellig.localBranch",
           "group": "4_sync@2"
+        },
+        {
+          "command": "intellig.branch.updateSelected",
+          "when": "viewItem == intellig.localBranch",
+          "group": "4_sync@3"
         },
         {
           "command": "intellig.branch.rename",

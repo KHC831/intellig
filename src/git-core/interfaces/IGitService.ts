@@ -366,6 +366,15 @@ export interface IFetchOptions {
   tags?: boolean;
   /** Skip fetching tags. */
   noTags?: boolean;
+  /**
+   * Explicit `<remoteRef>:<localRef>` refspec, fetched against `remote`.
+   * Used by align-local "Update Selected" to fast-forward a non-checked-out
+   * local branch to its tracked remote: git only advances the local ref when
+   * the update is a fast-forward and refuses a non-FF, so this is the safe
+   * FF-without-checkout primitive (git4idea
+   * GitBranchActionsUtil.updateBranches). Requires `remote`; ignored otherwise.
+   */
+  refspec?: string;
 }
 
 /**
