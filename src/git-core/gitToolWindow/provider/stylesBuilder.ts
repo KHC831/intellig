@@ -120,6 +120,33 @@ export function buildInlineStyles(): string {
         background-color: var(--vscode-toolbar-hoverBackground);
       }
 
+      /* Multi-repo selector — the toolbar <select> for switching repositories
+         in a multi-root workspace. Themed through the VS Code dropdown tokens
+         so it adopts the editor theme instead of the browser's native white
+         control; sizing/padding/font mirror the sibling toolbar controls
+         (.log-filter-input) so it sits consistently in the toolbar. */
+      .repository-selector {
+        padding: 4px 8px;
+        border: 1px solid var(--vscode-dropdown-border);
+        border-radius: 3px;
+        background-color: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        font-size: 12px;
+        font-family: var(--vscode-font-family);
+        cursor: pointer;
+      }
+
+      .repository-selector option {
+        background-color: var(--vscode-dropdown-listBackground);
+        color: var(--vscode-dropdown-foreground);
+      }
+
+      .repository-selector:focus {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+        border-color: var(--vscode-focusBorder);
+      }
+
       /* Local Changes Content */
       .local-changes-content {
         flex: 1;
