@@ -188,15 +188,15 @@ describe('package.json menu contract', () => {
 
   it('places explorer submenu entries in the expected IntelliJ-parity groups', () => {
     const cases: Array<{ command: string; group: string }> = [
-      { command: 'intellig.explorer.showHistory', group: '1_navigate@1' },
       { command: 'intellig.explorer.addToVcs', group: '2_add@1' },
       { command: 'intellig.explorer.stage', group: '2_add@2' },
       { command: 'intellig.explorer.unstage', group: '2_add@3' },
       { command: 'intellig.explorer.revert', group: '3_modify@1' },
-      { command: 'intellig.explorer.showDiff', group: '4_compare@1' },
-      { command: 'intellig.explorer.compareWithBranch', group: '4_compare@2' },
-      { command: 'intellig.explorer.compareWithRepoVersion', group: '4_compare@3' },
-      { command: 'intellig.toggleBlame', group: '5_blame@1' },
+      { command: 'intellig.toggleBlame', group: '4_compare@1' },
+      { command: 'intellig.explorer.compareWithRepoVersion', group: '4_compare@2' },
+      { command: 'intellig.explorer.showDiff', group: '4_compare@3' },
+      { command: 'intellig.explorer.compareWithBranch', group: '4_compare@4' },
+      { command: 'intellig.explorer.showHistory', group: '5_navigate@1' },
       { command: 'intellig.explorer.createPatchFromFile', group: '6_patch@1' },
       { command: 'intellig.patch.apply', group: '6_patch@2' },
     ];
@@ -246,5 +246,125 @@ describe('package.json menu contract', () => {
         }
       }
     }
+  });
+
+  // ── IntelliJ Git.FileActions order: Annotate → Compare.SameVersion (=
+  //    compareWithRepoVersion) → showDiff → CompareWithBranch → History
+  //    (trails) ──────────────────────────────────────────────────────────────
+
+  it('compareWithRepoVersion (Compare.SameVersion) appears before showDiff in the explorer submenu', () => {
+    const entries = pkg.contributes.menus['intellig.explorerSubmenu'] ?? [];
+
+    function groupOrder(group: string | undefined): [number, number] {
+      if (!group) {
+        return [Infinity, Infinity];
+      }
+      const m = /^(\d+)_[^@]+@(\d+)$/.exec(group);
+      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [Infinity, Infinity];
+    }
+
+    const sorted = [...entries].sort((a, b) => {
+      const [ag, ao] = groupOrder(a.group);
+      const [bg, bo] = groupOrder(b.group);
+      return ag !== bg ? ag - bg : ao - bo;
+    });
+
+    const commands = sorted.map((e) => e.command).filter(Boolean) as string[];
+    const repoVersionIdx = commands.indexOf('intellig.explorer.compareWithRepoVersion');
+    const showDiffIdx = commands.indexOf('intellig.explorer.showDiff');
+
+    assert.ok(
+      repoVersionIdx !== -1,
+      'intellig.explorer.compareWithRepoVersion must be present in the explorer submenu'
+    );
+    assert.ok(
+      showDiffIdx !== -1,
+      'intellig.explorer.showDiff must be present in the explorer submenu'
+    );
+    assert.ok(
+      repoVersionIdx < showDiffIdx,
+      `intellig.explorer.compareWithRepoVersion (pos ${repoVersionIdx}) must appear before intellig.explorer.showDiff (pos ${showDiffIdx}) — ` +
+        `actual order: ${commands.join(' → ')}`
+    );
+  });
+
+  it('toggleBlame (Annotate) appears before showDiff in the explorer submenu', () => {
+    const entries = pkg.contributes.menus['intellig.explorerSubmenu'] ?? [];
+
+    /** Parse group string "3_compare@2" → [3, 2] for stable sort. */
+    function groupOrder(group: string | undefined): [number, number] {
+      if (!group) {
+        return [Infinity, Infinity];
+      }
+      const m = /^(\d+)_[^@]+@(\d+)$/.exec(group);
+      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [Infinity, Infinity];
+    }
+
+    const sorted = [...entries].sort((a, b) => {
+      const [ag, ao] = groupOrder(a.group);
+      const [bg, bo] = groupOrder(b.group);
+      return ag !== bg ? ag - bg : ao - bo;
+    });
+
+    const commands = sorted.map((e) => e.command).filter(Boolean) as string[];
+    const blameIdx = commands.indexOf('intellig.toggleBlame');
+    const showDiffIdx = commands.indexOf('intellig.explorer.showDiff');
+
+    assert.ok(blameIdx !== -1, 'intellig.toggleBlame must be present in the explorer submenu');
+    assert.ok(
+      showDiffIdx !== -1,
+      'intellig.explorer.showDiff must be present in the explorer submenu'
+    );
+    assert.ok(
+      blameIdx < showDiffIdx,
+      `intellig.toggleBlame (pos ${blameIdx}) must appear before intellig.explorer.showDiff (pos ${showDiffIdx}) — ` +
+        `actual order: ${commands.join(' → ')}`
+    );
+  });
+
+  it('showHistory (History) trails compareWithBranch in the explorer submenu', () => {
+    const entries = pkg.contributes.menus['intellig.explorerSubmenu'] ?? [];
+
+    function groupOrder(group: string | undefined): [number, number] {
+      if (!group) {
+        return [Infinity, Infinity];
+      }
+      const m = /^(\d+)_[^@]+@(\d+)$/.exec(group);
+      return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [Infinity, Infinity];
+    }
+
+    const sorted = [...entries].sort((a, b) => {
+      const [ag, ao] = groupOrder(a.group);
+      const [bg, bo] = groupOrder(b.group);
+      return ag !== bg ? ag - bg : ao - bo;
+    });
+
+    const commands = sorted.map((e) => e.command).filter(Boolean) as string[];
+    const historyIdx = commands.indexOf('intellig.explorer.showHistory');
+    const compareWithBranchIdx = commands.indexOf('intellig.explorer.compareWithBranch');
+
+    assert.ok(
+      historyIdx !== -1,
+      'intellig.explorer.showHistory must be present in the explorer submenu'
+    );
+    assert.ok(
+      compareWithBranchIdx !== -1,
+      'intellig.explorer.compareWithBranch must be present in the explorer submenu'
+    );
+    assert.ok(
+      historyIdx > compareWithBranchIdx,
+      `intellig.explorer.showHistory (pos ${historyIdx}) must trail intellig.explorer.compareWithBranch (pos ${compareWithBranchIdx}) — ` +
+        `actual order: ${commands.join(' → ')}`
+    );
+  });
+
+  it('compareWithBranch title is "Compare with Branch…" (IntelliJ Git.CompareWithBranch)', () => {
+    const cmd = hasCommand('intellig.explorer.compareWithBranch');
+    assert.ok(cmd, 'intellig.explorer.compareWithBranch must be declared');
+    assert.strictEqual(
+      cmd?.title,
+      'Compare with Branch…',
+      `expected title "Compare with Branch…", got "${cmd?.title ?? '<missing>'}"`
+    );
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Workstream C, Item 3 — Git tool-window header toolbar (`view/title`).
  *
- * The audit (§C "Gaps") flagged `view/title` as an empty `[]` — no
+ * The audit flagged `view/title` as an empty `[]` — no
  * Fetch/Pull/Push/Update/Refresh/branch buttons on the tool-window header.
  * This guard pins the populated toolbar against the shipped `package.json`:
  *
@@ -11,7 +11,9 @@
  *     an icon (a `view/title` navigation button with no icon renders as an
  *     invisible click target),
  *   - the IntelliJ-parity action set (Fetch / Pull / Push / Update / Refresh /
- *     Branches) is present.
+ *     Branches) is present,
+ *   - branch widget (showBranchPopup) is the first navigation entry,
+ *   - intellig.fetch uses a distinct icon from intellig.updateProject.
  */
 
 import '../../setup';
@@ -33,6 +35,15 @@ interface PackageJson {
 
 function readPackageJson(): PackageJson {
   return JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf-8')) as PackageJson;
+}
+
+/** Extract the numeric order suffix from a group string like "navigation@3". */
+function navOrder(group: string | undefined): number {
+  if (!group) {
+    return Infinity;
+  }
+  const m = /navigation@(\d+)$/.exec(group);
+  return m ? parseInt(m[1], 10) : Infinity;
 }
 
 describe('Workstream C Item 3 — Git tool-window header toolbar (view/title)', () => {
@@ -80,5 +91,33 @@ describe('Workstream C Item 3 — Git tool-window header toolbar (view/title)', 
     ]) {
       assert.ok(ids.has(expected), `expected ${expected} on the tool-window header`);
     }
+  });
+
+  it('showBranchPopup is the first navigation entry (branch widget leads the toolbar)', () => {
+    const toolbar = readPackageJson().contributes.menus['view/title'] ?? [];
+    const navEntries = toolbar
+      .filter((e) => (e.group ?? '').startsWith('navigation@'))
+      .sort((a, b) => navOrder(a.group) - navOrder(b.group));
+    assert.ok(navEntries.length > 0, 'no navigation entries found in view/title');
+    assert.strictEqual(
+      navEntries[0].command,
+      'intellig.showBranchPopup',
+      `expected intellig.showBranchPopup to be navigation@1 (first), ` +
+        `but first entry is ${navEntries[0].command} in group ${navEntries[0].group ?? '<none>'}`
+    );
+  });
+
+  it('intellig.fetch uses a distinct icon from intellig.updateProject', () => {
+    const pj = readPackageJson();
+    const byId = new Map(pj.contributes.commands.map((c) => [c.command, c]));
+    const fetchIcon = byId.get('intellig.fetch')?.icon;
+    const updateIcon = byId.get('intellig.updateProject')?.icon;
+    assert.ok(fetchIcon, 'intellig.fetch must have an icon');
+    assert.ok(updateIcon, 'intellig.updateProject must have an icon');
+    assert.notStrictEqual(
+      fetchIcon,
+      updateIcon,
+      `intellig.fetch and intellig.updateProject must use distinct icons (both are "${String(fetchIcon)}")`
+    );
   });
 });

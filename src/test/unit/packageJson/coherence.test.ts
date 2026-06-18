@@ -351,4 +351,36 @@ describe('package.json coherence', () => {
       '\n' + describeViolations('missing-ellipsis', violations)
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Invariant 9: no command title starts with "Rebase: " or "Blame: ".
+  //
+  // With `"category": "IntelliG"` the command palette already namespaces
+  // commands as "IntelliG: <title>". Inner prefixes like "Rebase: " and
+  // "Blame: " are redundant and differ from IntelliJ's self-describing
+  // action text.
+  // -------------------------------------------------------------------------
+  it('no command title starts with "Rebase: " or "Blame: " (redundant palette prefix)', () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    const violations: string[] = [];
+    const redundantPrefixes = ['Rebase: ', 'Blame: '];
+
+    for (const c of cmds) {
+      if (typeof c.title === 'string') {
+        for (const prefix of redundantPrefixes) {
+          if (c.title.startsWith(prefix)) {
+            violations.push(
+              `command '${c.command}' title "${c.title}" starts with redundant prefix "${prefix}"`
+            );
+          }
+        }
+      }
+    }
+
+    assert.strictEqual(
+      violations.length,
+      0,
+      '\n' + describeViolations('redundant-palette-prefix', violations)
+    );
+  });
 });

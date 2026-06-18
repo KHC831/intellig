@@ -122,19 +122,19 @@
       },
       {
         "command": "intellig.rebase.skip",
-        "title": "Rebase: Skip This Commit",
+        "title": "Skip Commit",
         "category": "IntelliG",
         "icon": "$(debug-step-over)"
       },
       {
         "command": "intellig.rebase.continue",
-        "title": "Rebase: Continue",
+        "title": "Continue Rebase",
         "category": "IntelliG",
         "icon": "$(debug-continue)"
       },
       {
         "command": "intellig.rebase.abort",
-        "title": "Rebase: Abort",
+        "title": "Abort Rebase",
         "category": "IntelliG",
         "icon": "$(debug-stop)"
       },
@@ -182,7 +182,7 @@
         "command": "intellig.fetch",
         "title": "Fetch",
         "category": "IntelliG",
-        "icon": "$(sync)"
+        "icon": "$(cloud-download)"
       },
       {
         "command": "intellig.updateProject",
@@ -611,7 +611,7 @@
       },
       {
         "command": "intellig.explorer.compareWithBranch",
-        "title": "Compare with Revision…",
+        "title": "Compare with Branch…",
         "category": "IntelliG",
         "icon": "$(git-compare)"
       },
@@ -715,22 +715,22 @@
       },
       {
         "command": "intellig.blame.toggleIgnoreWhitespace",
-        "title": "Blame: Ignore Whitespaces",
+        "title": "Ignore Whitespaces",
         "category": "IntelliG"
       },
       {
         "command": "intellig.blame.toggleDetectMovementsWithinFile",
-        "title": "Blame: Detect Movements Within File",
+        "title": "Detect Movements Within File",
         "category": "IntelliG"
       },
       {
         "command": "intellig.blame.toggleDetectMovementsAcrossFiles",
-        "title": "Blame: Detect Movements Across Files",
+        "title": "Detect Movements Across Files",
         "category": "IntelliG"
       },
       {
         "command": "intellig.blame.clearHiddenRevisions",
-        "title": "Blame: Clear Hidden Revisions",
+        "title": "Clear Hidden Revisions",
         "category": "IntelliG"
       }
     ],
@@ -1039,27 +1039,27 @@
       ],
       "view/title": [
         {
-          "command": "intellig.updateProject",
+          "command": "intellig.showBranchPopup",
           "when": "view == intellig.toolWindow",
           "group": "navigation@1"
         },
         {
-          "command": "intellig.fetch",
+          "command": "intellig.updateProject",
           "when": "view == intellig.toolWindow",
           "group": "navigation@2"
         },
         {
-          "command": "intellig.pull",
+          "command": "intellig.fetch",
           "when": "view == intellig.toolWindow",
           "group": "navigation@3"
         },
         {
-          "command": "intellig.push",
+          "command": "intellig.pull",
           "when": "view == intellig.toolWindow",
           "group": "navigation@4"
         },
         {
-          "command": "intellig.showBranchPopup",
+          "command": "intellig.push",
           "when": "view == intellig.toolWindow",
           "group": "navigation@5"
         },
@@ -1088,10 +1088,6 @@
       ],
       "intellig.explorerSubmenu": [
         {
-          "command": "intellig.explorer.showHistory",
-          "group": "1_navigate@1"
-        },
-        {
           "command": "intellig.explorer.addToVcs",
           "group": "2_add@1"
         },
@@ -1112,20 +1108,24 @@
           "group": "3_modify@1"
         },
         {
-          "command": "intellig.explorer.showDiff",
+          "command": "intellig.toggleBlame",
           "group": "4_compare@1"
         },
         {
-          "command": "intellig.explorer.compareWithBranch",
+          "command": "intellig.explorer.compareWithRepoVersion",
           "group": "4_compare@2"
         },
         {
-          "command": "intellig.explorer.compareWithRepoVersion",
+          "command": "intellig.explorer.showDiff",
           "group": "4_compare@3"
         },
         {
-          "command": "intellig.toggleBlame",
-          "group": "5_blame@1"
+          "command": "intellig.explorer.compareWithBranch",
+          "group": "4_compare@4"
+        },
+        {
+          "command": "intellig.explorer.showHistory",
+          "group": "5_navigate@1"
         },
         {
           "command": "intellig.explorer.createPatchFromFile",
