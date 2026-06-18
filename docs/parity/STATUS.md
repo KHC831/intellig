@@ -27,6 +27,10 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
 - **Batch 7 landed 2026-06-18** (4 slices, combined gate green — 4489 unit + 746 property,
   config-coherence + `check:vsix-clean` OK): **E-6** stash reinstate-index toggle, **D-7** tag
   Merge-into-Current, **F-7** get-version at revision, **H-1** inline reword/squash message editing.
+- **Batch 8 landed 2026-06-18** (4 slices, combined gate green — 4518 unit + 746 property,
+  config-coherence + remote-ops-eoo + `check:vsix-clean` OK): **E-7** per-file apply-patch tree,
+  **E-8** unshelve target-changelist, **D-8** align-local update-selected (FF without checkout),
+  **H-2** rebase `--onto`/`--root`.
 
 ## Landing log
 
@@ -34,6 +38,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-18 | Workstream D (slice 8) — align-local "Update Selected": fast-forwards a local branch to its tracked remote WITHOUT checkout via a `<remoteRef>:<localRef>` fetch refspec (no leading `+` ⇒ FF-only, git refuses non-FF), skipping checked-out/diverged(outgoing>0)/up-to-date branches with a report; refspec rides behind `--end-of-options`; mirrors `GitBranchPopupActions` update-selected | 27e8e91 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream H (slice 2) — surface rebase `--onto <newbase>` / `--root`: `BranchOps` builds `rebase --autostash [--root] [--onto <newbase>] --end-of-options [<upstream>]` (newbase rejects `-`/`.`-leading, root↔upstream mutually exclusive via `refs = root ? [] : [onto]`); mirrors git4idea `GitRebaseDialog` Onto field / `GitRebaseProcess` | aa2baa0 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream E (slice 8) — unshelve into a target changelist: optional `targetChangelist` routes cleanly-applied files via `IChangelistService.moveToChangelist` after the apply loop (conflicted files never reassigned, no target = active changelist unchanged); ShelfView changelist picker; mirrors `ShelveChangesManager.unshelveChangeList` | cd7c429 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream E (slice 7) — per-file Apply-Patch selection: `filterPatchByFiles` reuses `splitPatchByFile` to keep only the selected files' verbatim blocks (round-trips through `git apply`), multi-select pre-checked picker when >1 file; select-all = unchanged behavior; mirrors `ApplyPatchDifferentiatedDialog.getIncludedChanges` | 8d25435 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream F (slice 7) — "get version" at a selected file-history revision: `DiffOps.getFileAtRevision` fetches `git show <rev>:<path>` as one positional token behind `--end-of-options` (a hostile rev can't become a flag) and opens it read-only via `openTextDocument`; optional façade method guarded in HistoryTab; mirrors git4idea file-history Get/Show-revision | b8bc3b7 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream D (slice 7) — tag "Merge into Current": routes the selected tag through the existing merge surface (MergeDialog when wired with `sourceBranch: tag`, else direct `mergeBranch` with the same conflict→Resolve-Conflicts routing as branch merge); context-menu + popup; mirrors `GitBranchPopupActions.TagActions`. Align-local submenu deferred | 68c1bab | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream H (slice 1) — inline reword/squash message editing in the rebase planner: extends `hasRewordOverride` with `hasSquashOverride` (both require a non-blank message, so a blank inline message never writes an empty `-F` file that aborts the amend); squash applies via `fixup` + `exec git commit --amend -F <msgfile>` (no interactive pause), mirroring git4idea's converter | 4c4fa95 | local cherry-pick (1 commit) |
