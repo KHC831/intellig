@@ -440,6 +440,11 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.tag.mergeIntoCurrent",
+        "title": "Merge into Current",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.tag.delete",
         "title": "Delete",
         "category": "IntelliG"
@@ -909,6 +914,11 @@
           "command": "intellig.tag.cherryPick",
           "when": "viewItem == intellig.tag",
           "group": "1_tag@3"
+        },
+        {
+          "command": "intellig.tag.mergeIntoCurrent",
+          "when": "viewItem == intellig.tag",
+          "group": "1_tag@6"
         },
         {
           "command": "intellig.tag.delete",

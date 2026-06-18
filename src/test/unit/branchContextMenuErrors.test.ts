@@ -196,6 +196,18 @@ function createRemoteBranchTreeItem(fullRef: string): BranchTreeItem {
 }
 
 /**
+ * Create a BranchTreeItem for a tag.
+ */
+function createTagTreeItem(tagName: string): BranchTreeItem {
+  const tag = {
+    name: tagName,
+    commit: 'abc1234',
+    isAnnotated: false,
+  };
+  return new BranchTreeItem(tagName, 0, 'tag', undefined, tag, false);
+}
+
+/**
  * Install a tracking stub on vscode.window.showErrorMessage.
  */
 function installErrorMessageTracker(): MessageTracker {
@@ -734,6 +746,54 @@ describe('Branch Context Menu - Command Handler Error Flows', () => {
       );
       const msg = warningTracker.calls[0].message;
       assert.ok(msg.includes('2'), `Warning should contain conflict count 2, got: "${msg}"`);
+    });
+
+    it('_handleTagMergeIntoCurrent should merge using the tag ref as the source', async () => {
+      const infoTracker = installInfoMessageTracker();
+      let mergedRef: string | undefined;
+
+      const gitService = createMockGitService({
+        mergeBranch: async (_repo, ref) => {
+          mergedRef = ref;
+          return { success: true };
+        },
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      // No merge-dialog opener wired → exercises the direct-merge fallback,
+      // which is where the tag ref reaches `mergeBranch`.
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createTagTreeItem('v1.2.0');
+      await invokePrivateHandler(commands, '_handleTagMergeIntoCurrent', item);
+
+      assert.strictEqual(mergedRef, 'v1.2.0', 'merge source should be the tag ref');
+      assert.ok(
+        infoTracker.calls.some((c) => c.message.includes('v1.2.0')),
+        'success toast should mention the tag'
+      );
+    });
+
+    it('_handleTagMergeIntoCurrent should show warning with conflict count', async () => {
+      const warningTracker = installWarningMessageTracker();
+
+      const gitService = createMockGitService({
+        mergeBranch: async () => ({
+          success: false,
+          conflicts: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+        }),
+      });
+      const branchTreeProvider = createMockBranchTreeProvider(gitService);
+      const commands = new BranchContextMenuCommands(gitService, branchTreeProvider);
+
+      const item = createTagTreeItem('v2.0.0');
+      await invokePrivateHandler(commands, '_handleTagMergeIntoCurrent', item);
+
+      assert.ok(
+        warningTracker.calls.length > 0,
+        'showWarningMessage should have been called for tag merge conflicts'
+      );
+      const msg = warningTracker.calls[0].message;
+      assert.ok(msg.includes('3'), `Warning should contain conflict count 3, got: "${msg}"`);
     });
 
     it('_handleRebaseCurrentOnto should show warning with conflict count', async () => {

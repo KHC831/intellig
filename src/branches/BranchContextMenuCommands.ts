@@ -522,6 +522,12 @@ export class BranchContextMenuCommands {
     );
 
     this._disposables.push(
+      registerLoggedCommand('intellig.tag.mergeIntoCurrent', (item: BranchTreeItem) =>
+        this._handleTagMergeIntoCurrent(item)
+      )
+    );
+
+    this._disposables.push(
       registerLoggedCommand('intellig.tag.delete', (item: BranchTreeItem) =>
         this._handleTagDelete(item)
       )
@@ -2116,6 +2122,62 @@ export class BranchContextMenuCommands {
       void vscode.window.showErrorMessage(
         `Failed to cherry-pick: ${sanitizeGitError(errorMessage)}`
       );
+    }
+  }
+
+  /**
+   * Handle tag "Merge into Current" command — merge the selected tag into the
+   * current branch. IntelliJ git4idea parity: GitBranchPopupActions.TagActions
+   * offers a MergeAction built from `new GitTag(tagName)`, so the same
+   * `Merge <ref> into Current` flow that branches use applies to a tag ref.
+   *
+   * Reuses the existing merge surface: routes through the Merge Dialog when
+   * wired (the dialog feeds the tag name straight into `mergeBranch` as a
+   * generic source ref and owns the ff-only/no-ff/squash options plus conflict
+   * handoff), falling back to a direct `mergeBranch` with the same conflict /
+   * non-conflict-failure routing as `_handleMergeIntoCurrent`.
+   */
+  private async _handleTagMergeIntoCurrent(item: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo || !item.tag) {
+      return;
+    }
+
+    const tagRef = item.tag.name;
+
+    if (this._mergeDialogOpener) {
+      this._mergeDialogOpener({ repo, sourceBranch: tagRef });
+      return;
+    }
+
+    try {
+      const result = await this._gitService.mergeBranch(repo, tagRef);
+
+      if (result.success) {
+        void vscode.window.showInformationMessage(`Merged '${tagRef}' successfully`);
+      } else if (result.conflicts && result.conflicts.length > 0) {
+        if (this._conflictResolutionService) {
+          await this._openResolveConflictsDialog(repo, result.conflicts, {
+            operation: 'merge',
+            target: tagRef,
+          });
+        } else {
+          void vscode.window.showWarningMessage(
+            `Merge conflicts in ${result.conflicts.length} file(s). Please resolve conflicts.`
+          );
+        }
+      } else {
+        const reason = result.failureReason ?? 'unknown error (no output from git)';
+        void vscode.window.showErrorMessage(
+          `Failed to merge '${tagRef}': ${sanitizeGitError(reason)}`
+        );
+      }
+      // Merge moved HEAD; reload before refresh.
+      await this._gitService.reloadRepository(repo);
+      this._branchTreeProvider.refresh();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to merge tag: ${sanitizeGitError(errorMessage)}`);
     }
   }
 

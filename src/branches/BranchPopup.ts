@@ -119,6 +119,7 @@ export type BranchAction =
   | 'tag.checkoutDetached'
   | 'tag.newBranchFrom'
   | 'tag.cherryPick'
+  | 'tag.mergeIntoCurrent'
   | 'tag.delete'
   | 'tag.push';
 
@@ -817,6 +818,14 @@ export function buildTagActionMenu(tag: ITag): IBranchQuickPickItem[] {
       description: `Cherry-pick tag ${tag.name} onto the current branch`,
       action: 'tag.cherryPick',
       commandId: 'intellig.tag.cherryPick',
+      tag,
+      isAction: true,
+    },
+    {
+      label: '$(git-merge) Merge into Current',
+      description: `Merge tag ${tag.name} into the current branch`,
+      action: 'tag.mergeIntoCurrent',
+      commandId: 'intellig.tag.mergeIntoCurrent',
       tag,
       isAction: true,
     },

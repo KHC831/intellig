@@ -522,6 +522,10 @@ describe('BranchPopup — buildTagActionMenu', () => {
       'Cherry-Pick'
     );
     assert.ok(
+      labels.some((l) => l.includes('Merge into Current')),
+      'Merge into Current'
+    );
+    assert.ok(
       labels.some((l) => l === '$(trash) Delete'),
       'Delete'
     );
@@ -536,6 +540,7 @@ describe('BranchPopup — buildTagActionMenu', () => {
       'intellig.tag.checkoutDetached',
       'intellig.tag.newBranchFrom',
       'intellig.tag.cherryPick',
+      'intellig.tag.mergeIntoCurrent',
       'intellig.tag.delete',
       'intellig.tag.push',
     ]);
