@@ -11,7 +11,8 @@
  */
 
 import type { FileStatus, IBranch, ICommit } from '../../interfaces/IGitService';
-import type { IHistoryTabState } from '../tabs/HistoryTab';
+import { buildHistoryDetails, type IHistoryTabState } from '../tabs/HistoryTab';
+import { generateCommitGraph, getColumnColor, type ICommitNode } from '../../commitGraph';
 
 /**
  * Render the History tab body.
@@ -48,14 +49,20 @@ function renderLoadedState(state: IHistoryTabState): string {
   // `IHistoryTabState.error` for the full reasoning.
   const error = state.error ? renderError(state.error) : '';
   const list = renderCommitList(state);
+  const details = renderHistoryDetails(state);
   const affected = renderAffectedPaths(state);
+  // Layout mirrors IntelliJ's file-history panel: the revision list sits on
+  // top, the commit-details pane and the affected-paths pane below it.
   return `
     <div class="history-tab">
       ${header}
       ${toolbar}
       ${error}
       ${list}
-      ${affected}
+      <div class="history-bottom">
+        ${details}
+        ${affected}
+      </div>
     </div>
   `;
 }
@@ -122,11 +129,38 @@ function renderCommitList(state: IHistoryTabState): string {
       </div>
     `;
   }
-  const rows = state.commits.map((commit) => renderCommitRow(commit, state)).join('');
+  // Build the lane/line model once for the whole window via the shared
+  // `commitGraph.ts` engine (reused, not reinvented), then look each row's node
+  // up by hash so the per-row mini-graph cell can draw its lane + edges.
+  const nodesByHash = buildGraphNodeMap(state.commits);
+  const rows = state.commits
+    .map((commit) => renderCommitRow(commit, state, nodesByHash.get(commit.hash)))
+    .join('');
   return `<div class="history-commit-list" role="list">${rows}</div>`;
 }
 
-export function renderCommitRow(commit: ICommit, state: IHistoryTabState): string {
+/**
+ * Compute the commit-graph nodes for the revision window and index them by
+ * hash. Returns an empty map when there are no commits so callers can render a
+ * placeholder cell without a guard. The history list is linear in the common
+ * case; the engine still draws merge/fork lanes correctly when present.
+ */
+function buildGraphNodeMap(commits: readonly ICommit[]): Map<string, ICommitNode> {
+  const map = new Map<string, ICommitNode>();
+  if (commits.length === 0) {
+    return map;
+  }
+  for (const node of generateCommitGraph([...commits])) {
+    map.set(node.commit.hash, node);
+  }
+  return map;
+}
+
+export function renderCommitRow(
+  commit: ICommit,
+  state: IHistoryTabState,
+  node?: ICommitNode
+): string {
   const classes = ['history-commit-row'];
   if (commit.hash === state.selectedCommit) {
     classes.push('history-selected');
@@ -139,12 +173,143 @@ export function renderCommitRow(commit: ICommit, state: IHistoryTabState): strin
   const date = commit.authorDate ? new Date(commit.authorDate).toLocaleDateString() : '';
   return `
     <div class="${classes.join(' ')}" data-rev="${escapeHtml(commit.hash)}" role="listitem" title="${escapeHtml(commit.message ?? '')}">
+      ${renderGraphCell(node)}
       <span class="history-commit-hash">${escapeHtml(commit.shortHash ?? commit.hash.substring(0, 7))}</span>
       <span class="history-commit-subject">${subject}</span>
       <span class="history-commit-author">${author}</span>
       <span class="history-commit-date">${escapeHtml(date)}</span>
     </div>
   `;
+}
+
+/** Fixed geometry for the mini-graph gutter (one row tall). */
+const GRAPH_LANE_WIDTH = 12;
+const GRAPH_ROW_HEIGHT = 20;
+const GRAPH_DOT_RADIUS = 3.5;
+
+/**
+ * Render the per-row mini commit-graph cell: the commit's dot plus its outgoing
+ * lane lines, using the lane assignment from `generateCommitGraph`. Kept
+ * deliberately compact (a one-row SVG) — it's a gutter affordance signalling the
+ * commit's lane and merge/fork edges, not the full scrollable graph of the Log
+ * tab. Off-window (`dashed`) parent stubs are drawn dashed, matching the engine
+ * invariant and IntelliJ's "history continues below" affordance.
+ */
+function renderGraphCell(node: ICommitNode | undefined): string {
+  if (!node) {
+    return `<span class="history-commit-graph" aria-hidden="true"></span>`;
+  }
+  const lanes = new Set<number>([node.graphColumn]);
+  for (const line of node.graphLines) {
+    lanes.add(line.fromColumn);
+    lanes.add(line.toColumn);
+  }
+  const maxLane = Math.max(0, ...lanes);
+  const width = (maxLane + 1) * GRAPH_LANE_WIDTH;
+  const laneX = (lane: number): number => lane * GRAPH_LANE_WIDTH + GRAPH_LANE_WIDTH / 2;
+  const centerY = GRAPH_ROW_HEIGHT / 2;
+
+  const segments = node.graphLines
+    .map((line) => {
+      const dash = line.style === 'dashed' ? ' stroke-dasharray="2 2"' : '';
+      return `<line x1="${laneX(line.fromColumn)}" y1="${centerY}" x2="${laneX(
+        line.toColumn
+      )}" y2="${GRAPH_ROW_HEIGHT}" stroke="${getColumnColor(line.fromColumn)}" stroke-width="1.5"${dash} />`;
+    })
+    .join('');
+  const dot = `<circle cx="${laneX(node.graphColumn)}" cy="${centerY}" r="${GRAPH_DOT_RADIUS}" fill="${getColumnColor(
+    node.graphColumn
+  )}" />`;
+
+  return `<span class="history-commit-graph" aria-hidden="true"><svg width="${width}" height="${GRAPH_ROW_HEIGHT}" viewBox="0 0 ${width} ${GRAPH_ROW_HEIGHT}">${segments}${dot}</svg></span>`;
+}
+
+/**
+ * Render the commit-details pane for the selected revision: full message,
+ * author (name + email), authored/committed dates, full hash with a copy
+ * affordance, and parent hashes.
+ *
+ * Mirrors IntelliJ's file-history details pane
+ * (`CommitPresentationUtil.formatCommitHashAndAuthor` /
+ * `getAuthorAndCommitterText`): the committer line appears only when the
+ * committer is a different person from the author. Read-only and fully
+ * HTML-escaped — this renderer is the single escaping boundary over the raw
+ * model produced by {@link buildHistoryDetails}.
+ */
+export function renderHistoryDetails(state: IHistoryTabState): string {
+  const selected = state.selectedCommit
+    ? state.commits.find((c) => c.hash === state.selectedCommit)
+    : undefined;
+  const details = buildHistoryDetails(selected);
+  const body = details ? renderHistoryDetailsBody(details) : renderHistoryDetailsEmpty();
+  return `
+    <div class="history-details" role="group" aria-label="Commit details">
+      <div class="history-details-header">Commit Details</div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderHistoryDetailsEmpty(): string {
+  return `<div class="history-details-empty" role="status">Select a revision to view its details.</div>`;
+}
+
+function renderHistoryDetailsBody(d: import('../tabs/HistoryTab').IHistoryCommitDetails): string {
+  const message = escapeHtml(d.message).replace(/\n/g, '<br>');
+  const authored = formatHistoryDate(d.authorDate);
+  const committerRow = d.committer
+    ? `<div class="history-details-row"><span class="history-details-label">Committer</span><span class="history-details-value">${escapeHtml(
+        d.committer.name
+      )} &lt;${escapeHtml(d.committer.email)}&gt; on ${escapeHtml(
+        formatHistoryDate(d.commitDate)
+      )}</span></div>`
+    : '';
+  const parentsRow =
+    d.parents.length > 0
+      ? `<div class="history-details-row"><span class="history-details-label">Parent${
+          d.parents.length > 1 ? 's' : ''
+        }</span><span class="history-details-value history-details-hashes">${d.parents
+          .map((p) => `<code>${escapeHtml(p)}</code>`)
+          .join(' ')}</span></div>`
+      : '';
+  return `
+    <div class="history-details-body">
+      <div class="history-details-message">${message}</div>
+      <div class="history-details-row">
+        <span class="history-details-label">Author</span>
+        <span class="history-details-value">${escapeHtml(d.authorName)} &lt;${escapeHtml(
+          d.authorEmail
+        )}&gt; on ${escapeHtml(authored)}</span>
+      </div>
+      ${committerRow}
+      <div class="history-details-row">
+        <span class="history-details-label">Hash</span>
+        <span class="history-details-value history-details-hashes">
+          <code>${escapeHtml(d.fullHash)}</code>
+          <button type="button" class="history-details-copy" data-copy-hash="${escapeHtml(
+            d.fullHash
+          )}" title="Copy commit hash">Copy</button>
+        </span>
+      </div>
+      ${parentsRow}
+    </div>
+  `;
+}
+
+/**
+ * Format a commit timestamp for the details pane. Locale string keeps parity
+ * with the date column in the revision list; falls back to an empty string for
+ * a missing/invalid date rather than rendering `Invalid Date`.
+ */
+function formatHistoryDate(date: Date | undefined): string {
+  if (!date) {
+    return '';
+  }
+  const ms = date.getTime();
+  if (Number.isNaN(ms)) {
+    return '';
+  }
+  return date.toLocaleString();
 }
 
 /**
@@ -242,13 +407,26 @@ export function historyTabStyles(): string {
     .history-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
     .history-empty, .history-empty-commits { padding: 16px; color: var(--vscode-descriptionForeground); }
     .history-commit-list { flex: 1 1 auto; overflow: auto; }
-    .history-commit-row { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; }
+    .history-commit-row { display: grid; grid-template-columns: auto 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }
+    .history-commit-graph { display: inline-flex; align-items: center; min-width: 12px; }
+    .history-commit-graph svg { display: block; }
     .history-commit-row:hover { background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.15)); }
     .history-commit-row.history-selected { background: var(--vscode-list-activeSelectionBackground, rgba(14,99,156,0.5)); color: var(--vscode-list-activeSelectionForeground); }
     .history-commit-row.history-compare { outline: 1px dashed var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
     .history-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
     .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .history-affected { display: flex; flex-direction: column; min-height: 0; max-height: 40%; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); }
+    .history-bottom { display: flex; flex-direction: column; min-height: 0; max-height: 50%; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); overflow: auto; }
+    .history-details { display: flex; flex-direction: column; border-bottom: 1px solid var(--vscode-panel-border, #3c3c3c); }
+    .history-details-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
+    .history-details-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+    .history-details-body { padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
+    .history-details-message { white-space: pre-wrap; word-break: break-word; }
+    .history-details-row { display: flex; gap: 8px; align-items: baseline; font-size: 0.9em; }
+    .history-details-label { color: var(--vscode-descriptionForeground); min-width: 8ch; flex: 0 0 auto; }
+    .history-details-value { color: var(--vscode-foreground); overflow-wrap: anywhere; }
+    .history-details-hashes code { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
+    .history-details-copy { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; padding: 0 6px; margin-left: 6px; cursor: pointer; font-size: 0.85em; }
+    .history-affected { display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); }
     .history-affected-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
     .history-affected-list { flex: 1 1 auto; overflow: auto; }
     .history-affected-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
@@ -319,6 +497,16 @@ export function historyTabBehaviorScript(): string {
           const rev = selected ? selected.getAttribute('data-rev') : null;
           if (rev) {
             vscode.postMessage({ type: 'history.compareWithLocal', rev: rev });
+          }
+        });
+      }
+
+      const copyBtn = document.querySelector('.history-details-copy');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function () {
+          const hash = copyBtn.getAttribute('data-copy-hash');
+          if (hash && navigator.clipboard) {
+            navigator.clipboard.writeText(hash);
           }
         });
       }

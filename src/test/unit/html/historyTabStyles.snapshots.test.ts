@@ -48,12 +48,13 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
   it('snap-history-css: .history-commit-row grid pins the fixed/max column widths with no slack track', () => {
     const css = historyTabStyles();
 
-    // Frozen literal — the subject is the ONLY slack track (`minmax(0, 1fr)`)
-    // and author/date are capped (`minmax(0, 14ch)` / `minmax(0, 10ch)`) so no
-    // flexible track sits between them. `gap: 8px`
+    // Frozen literal — a leading `auto` track holds the mini commit-graph
+    // gutter (sized to its SVG), the subject is the ONLY slack track
+    // (`minmax(0, 1fr)`), and author/date are capped (`minmax(0, 14ch)` /
+    // `minmax(0, 10ch)`) so no flexible track sits between them. `gap: 8px`
     // is the single uniform inter-column gap.
     const EXPECTED_ROW_RULE =
-      '.history-commit-row { display: grid; grid-template-columns: 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; }';
+      '.history-commit-row { display: grid; grid-template-columns: auto 7ch minmax(0, 1fr) minmax(0, 14ch) minmax(0, 10ch); gap: 8px; padding: 2px 8px; cursor: pointer; align-items: center; }';
     assert.ok(
       css.includes(EXPECTED_ROW_RULE),
       `historyTabStyles() must emit the exact .history-commit-row grid rule.\nExpected to contain:\n${EXPECTED_ROW_RULE}\nGot:\n${css}`
@@ -97,8 +98,13 @@ describe('git-view-layout-parity / Req 1 — History row layout Visual_Parity_Sn
     // still freezing the structure, classes, and left-to-right cell order.
     const date = new Date(commit.authorDate).toLocaleDateString();
 
+    // The graph cell is the empty placeholder span here: `renderCommitRow` is
+    // called without a graph node (the node is supplied by `renderCommitList`,
+    // which runs `generateCommitGraph` over the whole window). The placeholder
+    // keeps the row's column count stable when no node is available.
     const expected = `
     <div class="history-commit-row" data-rev="abcdef1234567890abcdef1234567890abcdef12" role="listitem" title="Fix the thing">
+      <span class="history-commit-graph" aria-hidden="true"></span>
       <span class="history-commit-hash">abcdef1</span>
       <span class="history-commit-subject">Fix the thing</span>
       <span class="history-commit-author">Ada Lovelace</span>
