@@ -2,11 +2,11 @@
 #
 # Structural CI guard — task 15.2 (logging-and-src-restructure).
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    Bare `console.<method>` calls in production code. Requirement 6.7
-#    (and the §6 service sweep, §9 `console.*` sweep) replaced every
+#    (and the section 6 service sweep, section 9 `console.*` sweep) replaced every
 #    scattered `console.log` / `console.error` / `console.warn` call
 #    site with the structured Logger (`getLogger().{trace,debug,info,
 #    warn,error}`), whose `OutputChannelSink` writes to the
@@ -27,7 +27,7 @@
 #    `src/` tree (matching the project convention established by
 #    check-test-only-surface.sh). The method alternation is pinned to
 #    the Logger's level set (trace|debug|info|warn|error) plus the
-#    legacy `log` alias — the exact verbs the §9 sweep migrated. For
+#    legacy `log` alias — the exact verbs the section 9 sweep migrated. For
 #    each hit, three classes of reference are NOT violations and are
 #    filtered out:
 #
@@ -75,7 +75,7 @@
 #      `globalThis.console`) would evade the literal pattern. Rare and
 #      itself a code smell; out of scope for this structural guard.
 #    - A verb outside the pinned alternation (e.g. `console.table`,
-#      `console.dir`) would not match. The §9 sweep only encountered
+#      `console.dir`) would not match. The section 9 sweep only encountered
 #      log/error/warn/info/debug; extend CONSOLE_METHODS if a new verb
 #      enters the codebase.
 #
@@ -88,7 +88,7 @@
 #    Logger's ConsoleSink is removed and the developer-mirror need is
 #    served another way.
 #
-# Companion specs (per ADR-007 §"Per-FILE representative spec floor"):
+# Companion specs (per ADR-007 section "Per-FILE representative spec floor"):
 #    src/test/property/loggerConsoleMirror.property.test.ts and
 #    src/test/property/loggerSinkMulticast.property.test.ts pin the one
 #    sanctioned console.* site's behaviour (level→method mapping,
@@ -106,7 +106,7 @@ ALLOWLISTED_FILE='src/utils/logger/sinks/ConsoleSink.ts'
 
 # console methods the structured Logger replaced. Pinned to the
 # Logger's level set (trace|debug|info|warn|error) plus the legacy
-# `log` alias — the verbs the §9 `console.*` sweep migrated. Pinning
+# `log` alias — the verbs the section 9 `console.*` sweep migrated. Pinning
 # the alternation excludes the webview `console.clear` / `console.filter`
 # message-type routing strings.
 CONSOLE_METHODS='log|error|warn|info|debug|trace'

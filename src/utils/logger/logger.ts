@@ -557,7 +557,7 @@ export function initLogger(context: vscode.ExtensionContext): void {
 
   _initialized = true;
 
-  // Surface the §2.5 fallback warn AFTER the sinks are registered so
+  // Surface the section 2.5 fallback warn AFTER the sinks are registered so
   // the warn actually lands somewhere visible.
   if (initialInvalid !== undefined) {
     getLogger().warn('invalid intellig.log.level value; falling back to info', {

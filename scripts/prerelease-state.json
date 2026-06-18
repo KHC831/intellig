@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "_comment": "Placeholder fingerprints for scripts/prepublish-guard.mjs. The guard reads this file and dispatches one check per entry by `rule`. Adding a 5th placeholder = adding a JSON entry, not editing the guard script. Replacing the icon = updating `placeholderHash` here, not the script. See ADR-007 §'Guard maintenance contract' and the header of prepublish-guard.mjs for the bug class, false-pos/neg, and retirement criteria.",
+  "_comment": "Placeholder fingerprints for scripts/prepublish-guard.mjs. The guard reads this file and dispatches one check per entry by `rule`. Adding a 5th placeholder = adding a JSON entry, not editing the guard script. Replacing the icon = updating `placeholderHash` here, not the script. See ADR-007 section 'Guard maintenance contract' and the header of prepublish-guard.mjs for the bug class, false-pos/neg, and retirement criteria.",
   "license": {
     "path": "LICENSE",
     "rule": "minMarkers",

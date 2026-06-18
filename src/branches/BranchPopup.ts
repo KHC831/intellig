@@ -643,7 +643,7 @@ function formatBranchDescription(branch: IBranch, isCurrent: boolean): string {
 
 /**
  * Build the secondary action-menu items for a REMOTE branch selection.
- * Labels mirror INTELLIJ_REFERENCE.md §"Branches popup — remote branch context menu".
+ * Labels mirror INTELLIJ_REFERENCE.md section "Branches popup — remote branch context menu".
  *
  * Routes to command IDs declared in package.json:
  *   - intellig.remoteBranch.checkoutAsLocal
@@ -717,7 +717,7 @@ export function buildRemoteBranchActionMenu(branch: IBranch): IBranchQuickPickIt
 
 /**
  * Build the secondary action-menu items for a LOCAL non-current branch.
- * Labels mirror INTELLIJ_REFERENCE.md §"Branches popup — local branch context menu".
+ * Labels mirror INTELLIJ_REFERENCE.md section "Branches popup — local branch context menu".
  */
 export function buildLocalBranchActionMenu(
   branch: IBranch,
@@ -807,7 +807,7 @@ export function buildLocalBranchActionMenu(
 
 /**
  * Build the secondary action-menu items for a TAG.
- * Labels mirror INTELLIJ_REFERENCE.md §"Branches popup — tag context menu".
+ * Labels mirror INTELLIJ_REFERENCE.md section "Branches popup — tag context menu".
  */
 export function buildTagActionMenu(tag: ITag): IBranchQuickPickItem[] {
   return [

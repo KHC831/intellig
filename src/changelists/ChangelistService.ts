@@ -868,7 +868,7 @@ export class ChangelistService implements IChangelistService {
    *  - v1 files are parsed as-is; records get `description: ''`
    *    filled in and the top-level `activeChangelistId` defaults to
    *    the default changelist id. The file stays on-disk as v1 until
-   *    the next save (lazy migration per cluster-C-tool-windows.md §4.5).
+   *    the next save (lazy migration per cluster-C-tool-windows.md section 4.5).
    *  - v2 files are returned unchanged.
    *  - Unknown / corrupt / mismatched files are logged and treated as
    *    an empty store so the user is never blocked by a bad file.

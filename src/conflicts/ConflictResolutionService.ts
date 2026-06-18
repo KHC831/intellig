@@ -32,7 +32,7 @@ const STATE_FILE_DEBOUNCE_MS = 300;
 
 /**
  * Config key gating the auto-open behavior. Defaults to `true` (locked per
- * REVIEW.md §7).
+ * REVIEW.md section 7).
  */
 const CONFIG_AUTO_OPEN_KEY = 'autoOpenResolveConflictsDialog';
 

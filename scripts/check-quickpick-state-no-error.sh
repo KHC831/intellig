@@ -2,7 +2,7 @@
 #
 # Structural CI guard — TL-74 (Wave 8 R2).
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    Per ADR-006, the three QuickPick / dialog / non-rendering

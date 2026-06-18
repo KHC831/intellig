@@ -2,7 +2,7 @@
 /*
  * check-watcher-families-registered.mjs — TL-91 / R1 M2 structural guard.
  *
- * ADR-007 § "Guard maintenance contract" five-section header:
+ * ADR-007 section "Guard maintenance contract" five-section header:
  *
  * 1. Bug class caught: a contributor adds a new watcher-family field to
  *    `GitService` (e.g. `private _myNewWatchers: Map<string,
@@ -98,7 +98,7 @@ if (missing.length > 0) {
     '[check:watcher-families] FAIL — the following watcher-family field(s) are declared on GitService\n' +
       'but never registered with the cleanup registry via `this._watcherMaps.push(this.<field>)`:\n' +
       missing.map((f) => `  - ${f}`).join('\n') +
-      '\n\nADR-008 § "Register every watcher family in `_watcherMaps` at construction" requires every\n' +
+      '\n\nADR-008 section "Register every watcher family in `_watcherMaps` at construction" requires every\n' +
       'watcher-family field to push its map onto `_watcherMaps` so the shared cleanup walker\n' +
       'disposes its handles on workspace-folder removal AND on `dispose()`. Without registration,\n' +
       'watchers leak silently across window reloads.\n\n' +

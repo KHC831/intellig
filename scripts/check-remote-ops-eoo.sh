@@ -2,7 +2,7 @@
 #
 # Structural CI guard — argv-injection on remote-network git ops.
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    Argv injection through a user-controlled remote / branch / refspec

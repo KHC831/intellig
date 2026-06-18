@@ -432,8 +432,8 @@ describe('Wave B R2 — final review fixes', () => {
   });
 
   // ─── JSDoc cross-reference ────────────────────────────────────────────────
-  describe('_handleCreatePatchMulti JSDoc cross-references ADR-009 §6', () => {
-    it('JSDoc near the multi handler mentions ADR-009 §6 and getSelectedCommitsOldestFirst', async () => {
+  describe('_handleCreatePatchMulti JSDoc cross-references ADR-009 section 6', () => {
+    it('JSDoc near the multi handler mentions ADR-009 section 6 and getSelectedCommitsOldestFirst', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const src = fs.readFileSync(
@@ -444,7 +444,7 @@ describe('Wave B R2 — final review fixes', () => {
       assert.ok(idx > 0, 'expected _handleCreatePatchMulti declaration');
       // Look 1500 chars before declaration for the JSDoc.
       const window = src.substring(Math.max(0, idx - 1500), idx);
-      assert.ok(/ADR-009.*?§\s*6|ADR-009 §6/.test(window), 'JSDoc must reference ADR-009 §6');
+      assert.ok(/ADR-009.*?section\s*6/.test(window), 'JSDoc must reference ADR-009 section 6');
       assert.ok(
         /getSelectedCommitsOldestFirst/.test(window),
         'JSDoc must mention the programmatic-caller equivalent'

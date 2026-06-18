@@ -143,7 +143,7 @@ export function classifyPushError(stderr: string): PushErrorKind {
 
 /**
  * Pick the default primary action based on divergence state. Per design
- * spec §4, when the selected branch has local divergence from its upstream
+ * spec section 4, when the selected branch has local divergence from its upstream
  * (ahead > 0 AND behind > 0), flip the default from `push` to
  * `forceWithLease` so the user's muscle-memory "Enter" stays safe.
  */

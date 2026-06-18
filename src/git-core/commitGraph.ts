@@ -21,7 +21,7 @@ import { ICommit } from './interfaces/IGitService';
  *
  * @invariant L9 — off-window parent edges MUST carry `style: 'dashed'`
  * and travel in the same lane as the source (`fromColumn === toColumn`).
- * See `docs/design/git-tool-window-spec.md` §8.L9.
+ * See `docs/design/git-tool-window-spec.md` section 8.L9.
  */
 export type GraphLineStyle = 'solid' | 'dashed';
 
@@ -31,12 +31,12 @@ export type GraphLineStyle = 'solid' | 'dashed';
  * @invariant L4 — when `fromColumn === toColumn` (a same-lane edge), the
  * renderer MUST stroke the segment using `getColumnColor(fromColumn)` —
  * i.e. the *source* commit's lane color, never a destination color.
- * See `docs/design/git-tool-window-spec.md` §8.L4.
+ * See `docs/design/git-tool-window-spec.md` section 8.L4.
  *
  * @invariant L9 — when the parent commit is off-window, this line is
  * emitted with `fromColumn === toColumn` and `style: 'dashed'`; the
  * algorithm MUST NOT call `allocateLane()` for an off-window parent.
- * See `docs/design/git-tool-window-spec.md` §8.L9.
+ * See `docs/design/git-tool-window-spec.md` section 8.L9.
  */
 export interface IGraphLine {
   /** Starting column (lane) of the line */
@@ -143,7 +143,7 @@ const GRAPH_COLORS = [
  * SVG renderer MUST resolve its `stroke=` via this function, keyed by
  * the *source* commit's `graphColumn` — never by a destination lane,
  * even when a graph line bends. See
- * `docs/design/git-tool-window-spec.md` §8.L4.
+ * `docs/design/git-tool-window-spec.md` section 8.L4.
  *
  * @param column - The column index
  * @returns A color string from the palette
@@ -288,7 +288,7 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * Generate commit graph data from a list of commits.
  *
  * This function is the **algorithm boundary** for the lane / line
- * model defined in spec §1.1 (`docs/design/git-tool-window-spec.md`).
+ * model defined in spec section 1.1 (`docs/design/git-tool-window-spec.md`).
  * It processes commits in topological order (newest first), assigns
  * each commit to a lane (column), and emits the graph lines connecting
  * each commit to its parents.
@@ -317,17 +317,17 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * @invariant L1 — Lane assignment is byte-identical across no-op
  * reloads and reflects HEAD ancestry: HEAD's branch tip pre-seeds
  * lane 0 (and ONLY HEAD's tip; non-HEAD branch tips go through the
- * main pass). See `docs/design/git-tool-window-spec.md` §8.L1.
+ * main pass). See `docs/design/git-tool-window-spec.md` section 8.L1.
  *
  * @invariant L9 — A parent that is NOT in the loaded window emits a
  * single same-lane `{fromColumn === toColumn, style: 'dashed'}` line
  * and MUST NOT call `allocateLane()` for that parent. See
- * `docs/design/git-tool-window-spec.md` §8.L9.
+ * `docs/design/git-tool-window-spec.md` section 8.L9.
  *
  * @invariant L10 — Branch type (`'local'` vs `'remote'`) flows through
  * `IBranchRef.type` from `parseBranches`. The graph algorithm and
  * renderer MUST NOT infer type from the branch name shape (e.g. a
- * presence of `/`). See `docs/design/git-tool-window-spec.md` §8.L10.
+ * presence of `/`). See `docs/design/git-tool-window-spec.md` section 8.L10.
  *
  * @param commits - Array of commits in topological order (newest first)
  * @param branchMap - Optional map of commit hash to branch refs (name + type)

@@ -5,7 +5,7 @@
 # been ticked, AND substantively verifies gate condition (2)
 # (experimental flags graduated) by inspecting package.json.
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    Shipping a 1.0.0 release while one of the four 1.0.0 gate

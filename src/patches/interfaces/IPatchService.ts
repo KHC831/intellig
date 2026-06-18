@@ -63,7 +63,7 @@ export interface IApplyPatchResult {
   /**
    * Files left with conflict markers after a `--3way` apply. When non-empty,
    * callers MUST route these through
-   * `IConflictResolutionService.openResolveConflictsDialog` (REVIEW.md §B4).
+   * `IConflictResolutionService.openResolveConflictsDialog` (REVIEW.md section B4).
    */
   conflicts?: IConflictedFile[];
   /** Raw stderr from git, surfaced for toast/error display on plain failure. */

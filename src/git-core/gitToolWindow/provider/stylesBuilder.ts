@@ -15,7 +15,7 @@ import * as vscode from 'vscode';
  * `onclick=`/`onchange=` attribute that re-acquires throws a DOMException and
  * silently drops every subsequent `postMessage`. New CSS / handler wiring goes
  * through the single IIFE-scoped `vscode = acquireVsCodeApi()` call. See
- * `docs/design/git-tool-window-spec.md` §8.L8.
+ * `docs/design/git-tool-window-spec.md` section 8.L8.
  */
 export function buildInlineStyles(): string {
   return `

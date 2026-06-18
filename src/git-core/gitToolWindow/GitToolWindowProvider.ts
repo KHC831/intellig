@@ -478,7 +478,7 @@ export class GitToolWindowProvider
      * Collapsed the prior parallel records (`displayOrder: string[]`
      * and `parentCounts: Record<string, number>`) to this single
      * structurally-typed list — one source of truth, one lookup, one
-     * test fixture shape. ADR-009 §6 covers the
+     * test fixture shape. ADR-009 section 6 covers the
      * chronological-replay direction conventions.
      */
     commitNodes: readonly IMenuStateNode[];
@@ -980,7 +980,7 @@ export class GitToolWindowProvider
     this._isLoading = false;
     this._updateWebview();
     // Fire BEFORE the post sequence.
-    // Aligns with the 5 setters and ADR-009 §3 generalised rule:
+    // Aligns with the 5 setters and ADR-009 section 3 generalised rule:
     // any host method that calls `_post*` helpers fires `onDidChangeState`
     // first so subscribers see "state changed" on the same event-loop
     // tick the host knows it.
@@ -1341,7 +1341,7 @@ export class GitToolWindowProvider
    * entry points) and handlers. 's webview-driven dispatch
    * receives display-order via the event payload and
    * `.reverse()`s inline at the call site for cherry-pick — both
-   * approaches converge on the same direction. ADR-009 §6.
+   * approaches converge on the same direction. ADR-009 section 6.
    *
    * @returns Hashes in oldest-first replay order; `[]` when no selection.
    */
@@ -1501,7 +1501,7 @@ export class GitToolWindowProvider
         // The user's click anchor travels in the message and
         // wins over the host's cached anchorHash. Ensures the host honours
         // the JS view of the world for this single click instead of
-        // consulting a cache that can be one render stale (ADR-009 §3).
+        // consulting a cache that can be one render stale (ADR-009 section 3).
         // Real type narrow — accept string|null only,
         // ignore wrong-type fields (a rogue / bug-mutated webview can't
         // poison the host state).
@@ -1814,7 +1814,7 @@ export class GitToolWindowProvider
    *
    * Resolves the branch's tip commit, scrolls the graph to it, computes
    * the BFS path back to the merge-base with HEAD, updates internal
-   * state, fires `onDidChangeState` (per ADR-009 §3 fire-before-post),
+   * state, fires `onDidChangeState` (per ADR-009 section 3 fire-before-post),
    * posts a `branchFocusUpdate` partial-update message to the webview,
    * and triggers a full re-render so the focus class lands on the
    * branch chip in the next render pass.
@@ -1825,7 +1825,7 @@ export class GitToolWindowProvider
    * deliberately rather than getting it on every chip click.
    *
    * Ordering corrected to render-then-post per
-   * ADR-009 §3 (generalisation): every method that calls
+   * ADR-009 section 3 (generalisation): every method that calls
    * `_post*` helpers does `_updateWebview() → fire → _post*()` so the
    * post lands on the new document, not the doomed pre-render one.
    *
@@ -1853,7 +1853,7 @@ export class GitToolWindowProvider
       this._extendedLogState.focusedBranchName = null;
       this._focusedPathHashes = new Set();
       this._regenerateCommitNodesForFocus();
-      // ADR-009 §3 — render FIRST, fire, then post.
+      // ADR-009 section 3 — render FIRST, fire, then post.
       // Posting before render means the post lands on the doomed
       // pre-reload document.
       this._updateWebview();
@@ -1922,7 +1922,7 @@ export class GitToolWindowProvider
     // the existing nodes and patch the flag in place.
     this._regenerateCommitNodesForFocus();
 
-    // ADR-009 §3 — render-then-fire-then-post.
+    // ADR-009 section 3 — render-then-fire-then-post.
     this._updateWebview();
     this._onDidChangeState.fire();
     this._postBranchFocusUpdate(branchName, targetHash);
@@ -2259,7 +2259,7 @@ export class GitToolWindowProvider
    * by index, across rebuilds that shift the list (e.g. drop-commit
    * triggering a workspace re-scan). This method is the rebuild boundary
    * that path-based hardening routes through. See
-   * `docs/design/git-tool-window-spec.md` §8.L5 and §8.L14
+   * `docs/design/git-tool-window-spec.md` section 8.L5 and section 8.L14
    * (`normalizeRepoPath` helper).
    *
    * @param repos - Array of discovered repositories
@@ -2475,7 +2475,7 @@ export class GitToolWindowProvider
     }
     // Push the slim newest-first
     // commit-node projection forward so handlers don't call back into
-    // the provider. ADR-009 §6 covers the direction convention.
+    // the provider. ADR-009 section 6 covers the direction convention.
     // Collapsed the prior parallel records (`displayOrder` and
     // `parentCounts`) to this single typed list — same data, one
     // lookup, one test-fixture shape.
@@ -3893,7 +3893,7 @@ export type WaveAInboundMessage =
   // The click anchor travels WITH the message.
   // The host trusts the message anchor for this single operation rather
   // than consulting its own cache, which can be stale by one render.
-  // ADR-009 §3 documents the exception.
+  // ADR-009 section 3 documents the exception.
   | { type: 'rangeSelectCommit'; commitHash: string; anchorHash: string | null }
   | { type: 'addRangeSelectCommit'; commitHash: string; anchorHash: string | null }
   | { type: 'selectIfNotSelected'; commitHash: string };

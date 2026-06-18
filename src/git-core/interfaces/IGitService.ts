@@ -1375,7 +1375,7 @@ export interface IGitService {
  * `GitService` implements both {@link IGitService} and this interface.
  * Do not add new call sites without tech-lead review; each such site is a
  * candidate to become a proper role-interface method under the composite
- * decomposition effort (see backlog). See `docs/testing.md` §5 for the
+ * decomposition effort (see backlog). See `docs/testing.md` section 5 for the
  * relationship between this production escape hatch and the TestSurface
  * idiom used by tests.
  */

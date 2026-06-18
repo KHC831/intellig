@@ -94,7 +94,7 @@ export function initOutputChannel(context: vscode.ExtensionContext): vscode.Outp
  * fresh one). Production code MUST NOT call this.
  *
  * Naming follows the TestSurface function-name prefix variant for
- * module-scope test-only exports (see `docs/testing.md` §3, subsection
+ * module-scope test-only exports (see `docs/testing.md` section 3, subsection
  * "Function-name prefix variant for module-scope test-only exports").
  * The literal name is also enforced by the structural CI guard
  * `scripts/check-output-channel-test-surface.sh`, which forbids any

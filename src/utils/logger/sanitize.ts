@@ -58,7 +58,7 @@ import type { JsonValue, LogRecord } from './sinks/types';
 /**
  * Stable component name used by the sentinel record returned when the
  * top-level walk throws. The Logger inspects this constant to detect
- * a sanitization-failure result and synthesise the §4.5 fallback warn
+ * a sanitization-failure result and synthesise the section 4.5 fallback warn
  * record on its side; nothing else should treat this as a regular
  * component name.
  */
@@ -77,7 +77,7 @@ const CIRCULAR_MARKER = '[Circular]';
  * Outcome of `sanitizeRecord`. The sanitizer either produces a fully
  * sanitized clone of the input (`ok: true`) or — when the walk
  * itself throws — a sentinel result (`ok: false`) that the Logger
- * boundary turns into the §4.5 fallback warn record. Modelling the
+ * boundary turns into the section 4.5 fallback warn record. Modelling the
  * outcome as a tagged union keeps the failure path explicit at every
  * call site instead of relying on a magic-value record shape.
  */
@@ -92,7 +92,7 @@ export type SanitizeResult =
        * Sentinel record describing the failure. The Logger reads
        * `record.component` to recover the original component name
        * (which the walker preserves verbatim from the input record
-       * even when the rest of the walk failed) so the §4.5 fallback
+       * even when the rest of the walk failed) so the section 4.5 fallback
        * warn carries the right binding. The sentinel `message` is a
        * fixed, content-free string — no caller payload reaches a
        * sink via this path.
@@ -144,7 +144,7 @@ export function sanitizeRecord(record: LogRecord): SanitizeResult {
     return { ok: true, record: sanitized };
   } catch (cause) {
     // Synthesise the sentinel record at the failure site. The Logger
-    // turns this into the §4.5 fallback warn at the emit boundary —
+    // turns this into the section 4.5 fallback warn at the emit boundary —
     // we only need to surface enough of the original record's
     // identity (component, level, timestamp) for that warn to carry
     // the right binding. We deliberately re-use the input

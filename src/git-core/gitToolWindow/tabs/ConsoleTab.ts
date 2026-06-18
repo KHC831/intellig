@@ -3,7 +3,7 @@
  *
  * The HTML body is rendered by `html/consoleHtml.ts`. A future change will wire
  * this handler to `ConsoleService.stream` and implement `console.clear` /
- * `console.filter` (design §3.4).
+ * `console.filter` (design section 3.4).
  */
 
 import type { IWebviewTabMessage, TabMessageHandler } from '../tabRouter';

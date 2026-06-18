@@ -2,7 +2,7 @@
 #
 # Structural CI guard — TL-72 (Wave 9) + TL-78/TL-79 (Wave 9 R3).
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    Credential / home-path leak via toast. Error messages from

@@ -3,7 +3,7 @@
  *
  * For the Log tab, all business logic continues to live inside the monolithic
  * `GitToolWindowProvider.onDidReceiveMessage` switch, which is left intact (see
- * design §3.6: extract log HTML intact first, layer tab strip later). This
+ * design section 3.6: extract log HTML intact first, layer tab strip later). This
  * module is therefore a thin identity handler — the TabRouter returns early for
  * `log` messages and the provider handles them as before.
  *

@@ -54,12 +54,11 @@ function allHashesValid(hashes: readonly string[]): boolean {
  * TODO(post-locale): when locale work begins, replace this with a
  * message-id and ship the localised string from a resource bundle.
  *
- * TODO(Wave D / TLC-L-2): the single-commit handlers (cherry-pick,
+ * TODO(security follow-up): the single-commit handlers (cherry-pick,
  * revert, etc.) still don't run `allHashesValid` on entry — only the
  * multi-commit ones do. Adopt the regex check at the top of every
- * single-commit handler in a follow-up; the dispatch path
- * catches webview-driven calls,
- * but a palette / scripted entry could feed unvalidated hex.
+ * single-commit handler; the dispatch path catches webview-driven
+ * calls, but a palette / scripted entry could feed unvalidated hex.
  */
 const STALE_SELECTION_TOAST = 'Commit selection changed since the menu opened — please retry.';
 
@@ -376,7 +375,7 @@ export class CommitContextMenuCommands {
    * having to fabricate the list; those callers shouldn't exercise the
    * multi-commit branches anyway. The multi-commit handlers' in-order
    * checks then reject every hash for an empty `commitNodes`, surfacing
-   * the stale-selection toast — see ADR-009 §6.
+   * the stale-selection toast — see ADR-009 section 6.
    */
   async _handleAction(
     action: LogContextAction,
@@ -1677,7 +1676,7 @@ export class CommitContextMenuCommands {
    * first `IMenuStateNode[]`) and derives `displayOrder` + parent
    * lookups from it, replacing the prior parallel records.
    *
-   * See ADR-009 §6 for the display-order vs replay-
+   * See ADR-009 section 6 for the display-order vs replay-
    * order contract; `getSelectedCommitsOldestFirst()` is the
    * programmatic-caller equivalent of the dispatch payload.
    *
@@ -1917,7 +1916,7 @@ export class CommitContextMenuCommands {
     }
 
     // The webview hands hashes in newest-first display order. See
-    // ADR-009 §5 (selection mutations come in two flavours) and the
+    // ADR-009 section 5 (selection mutations come in two flavours) and the
     // WARNING on `getSelectedCommits()` for the contract:
     // newest-first is the canonical projection from the rendered log.
     // Project against the dispatched

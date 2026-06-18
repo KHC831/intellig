@@ -12,7 +12,7 @@
  * Why a separate module (ADR-009 host-owns-logic): the actual geometry
  * measurement (`getBoundingClientRect`, `scrollTop`, `clientHeight`) happens in
  * the webview because the scroll position is webview-owned ephemeral UI state
- * (ADR-009 §2). Inline-script template literals are hard to unit test, so the
+ * (ADR-009 section 2). Inline-script template literals are hard to unit test, so the
  * decision is extracted here as a pure predicate that is property-testable, and
  * the inline script mirrors the identical `>=` / `<=` comparison.
  *

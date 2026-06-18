@@ -3,7 +3,7 @@
 # check-publish-vsix.sh — refuses to upload a `*-dogfood.vsix`
 # file. Filename-based safety net (TL-95).
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    A maintainer accidentally uploads a dogfood-built .vsix
@@ -94,7 +94,7 @@ if [ "${#violations[@]}" -gt 0 ]; then
   echo "  \`npm run package:dogfood\`, which engages the placeholder bypass"
   echo "  and is for LOCAL DOGFOOD ONLY. Build a real .vsix via"
   echo "  \`npx --yes @vscode/vsce@2.24.0 package\` (no env vars set)"
-  echo "  before publishing. See CONTRIBUTING.md §'Publishing to the"
+  echo "  before publishing. See CONTRIBUTING.md section 'Publishing to the"
   echo "  Marketplace' for the full flow."
   exit 1
 fi

@@ -95,7 +95,7 @@ export interface IChangelistService {
    * working-tree status. Git status is the source of truth for which
    * files are dirty; storage only holds path → changelistId overlays.
    *
-   * Steps (see cluster-C-tool-windows.md §4.4):
+   * Steps (see cluster-C-tool-windows.md section 4.4):
    *  a. fetch current git status
    *  b. prune storage entries whose path is no longer dirty
    *  c. add any missing dirty-file entries to the default changelist

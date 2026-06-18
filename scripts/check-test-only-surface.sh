@@ -2,11 +2,11 @@
 #
 # Structural CI guard — TL-58 (Cluster C), generalized in task 15.1.
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    This guard pins the TestSurface idiom (`__*ForTest` prefix; see
-#    docs/testing.md §3) for the two module-level test-only reset
+#    docs/testing.md section 3) for the two module-level test-only reset
 #    seams the logging stack exposes:
 #
 #      a. `__resetOutputChannelForTest()` (defined in
@@ -74,7 +74,7 @@
 #    (no module-level state to reset for tests), OR when ESLint grows
 #    a TestSurface-aware rule that fails the same invariant.
 #
-# Companion specs (per ADR-007 §"Per-FILE representative spec floor"):
+# Companion specs (per ADR-007 section "Per-FILE representative spec floor"):
 #    src/test/unit/utils/outputChannelTestSurface.test.ts
 #      (the "outputChannel — TestSurface rename (TL-58)" block; pins
 #      the OutputChannel reset export shape + legacy-name regression).

@@ -265,7 +265,7 @@ export function toggleCommitSelection(ctx: IGtwControllerContext, hash: string):
 
   // (HIGH) — order: render FIRST so the new document exists,
   // THEN post so postMessage lands on the live page rather than the
-  // pre-reload one (ADR-009 §3 sub-rule). _postSyncSelection mirrors
+  // pre-reload one (ADR-009 section 3 sub-rule). _postSyncSelection mirrors
   // the host's anchor + selection onto the JS-side mirror so the
   // freshly-rendered document agrees with state on first paint.
   ctx.updateWebview();

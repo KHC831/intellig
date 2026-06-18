@@ -17,7 +17,7 @@
  * reference and no sinks). Instead, when an invalid `intellig.log.level`
  * string is observed, `refresh()` returns the offending value the
  * *first* time it's seen so the caller (the Logger lifecycle) can
- * emit the §2.5 fallback warn record exactly once per Logger
+ * emit the section 2.5 fallback warn record exactly once per Logger
  * instance lifetime. The internal `invalidLevelWarned` set provides
  * the de-duplication, so a user repeatedly saving a typo'd setting
  * does not flood the channel.
@@ -113,7 +113,7 @@ const DEFAULT_THRESHOLD: LogThreshold = 'info';
  * |---|---|---|
  * | `threshold` | `LogThreshold` | Cached effective threshold; updated on `refresh()`. |
  * | `consoleEnabled` | `boolean` | Cached `intellig.log.console`; updated on `refresh()`. |
- * | `invalidLevelWarned` | `Set<string>` | De-dup the §2.5 fallback warning per invalid value. |
+ * | `invalidLevelWarned` | `Set<string>` | De-dup the section 2.5 fallback warning per invalid value. |
  *
  * #### Validation
  *
@@ -160,7 +160,7 @@ export class LogLevelResolver {
    *
    * Returns the offending invalid level string the **first** time it
    * is observed (per Logger instance lifetime), so the caller can
-   * emit the §2.5 fallback warn record exactly once for that value.
+   * emit the section 2.5 fallback warn record exactly once for that value.
    * Returns `undefined` when:
    *
    * - the configured value is one of the six valid enum strings, or

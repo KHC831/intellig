@@ -4,7 +4,7 @@
  * in a conflicted state.
  *
  * Layout (matches IntelliJ "Resolve Conflicts" dialog, see
- * INTELLIJ_REFERENCE.md §"Resolve Conflicts dialog"):
+ * INTELLIJ_REFERENCE.md section "Resolve Conflicts dialog"):
  *
  * ```
  * ┌ Resolve Conflicts — merge from 'feature/x' ──────────────────────────┐

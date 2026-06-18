@@ -4,7 +4,7 @@
  * Only the tab strip + wrapper ship here. The repository selector and gear
  * menu continue to be rendered by the monolithic Log-tab HTML (extracting them
  * would risk breaking the embedded `acquireVsCodeApi` script handling called
- * out as a hotspot in REVIEW §7 / design §3.6 line 1571).
+ * out as a hotspot in REVIEW section 7 / design section 3.6 line 1571).
  *
  * All exports are pure string builders — no side effects, no DOM/Webview APIs
  * touched. Safe for unit tests.

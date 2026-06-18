@@ -261,7 +261,7 @@ export function buildInlineScript(): string {
             const rowBottom = rowTop + commitRow.offsetHeight;
             const viewportTop = panel.scrollTop;
             const viewportBottom = viewportTop + panel.clientHeight;
-            // Mirror of shouldScrollToRow (scrollVisibility.ts) — ephemeral UI affordance (ADR-009 §2).
+            // Mirror of shouldScrollToRow (scrollVisibility.ts) — ephemeral UI affordance (ADR-009 section 2).
             const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
             if (!fullyVisible) {
               // Off-screen: smooth-glide from the CURRENT scroll position to the target.

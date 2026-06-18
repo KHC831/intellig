@@ -4,7 +4,7 @@
 // prepublish-guard.mjs — refuses to package a .vsix while any
 // release-blocking placeholder is still in place.
 //
-// Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+// Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 //
 // 1. Bug class
 //    Pre-1.0 placeholders (fake LICENSE, placeholder icon,
@@ -113,7 +113,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 //       3. INTELLIG_DOGFOOD_INVOCATION=1 (set ONLY by
 //          `npm run package:dogfood`; npm doesn't overwrite this
 //          custom env name across nested script invocations).
-//     Missing any → fails closed. See header §4 for rationale.
+//     Missing any → fails closed. See header section 4 for rationale.
 const internalDryrun = process.env.INTELLIG_INTERNAL_PREPUBLISH_DRYRUN === '1';
 if (internalDryrun) {
   console.warn(

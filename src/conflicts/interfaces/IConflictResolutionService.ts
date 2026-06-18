@@ -197,7 +197,7 @@ export interface IConflictResolutionService {
    * Open (or reveal + update) the Resolve Conflicts dialog for a repository.
    * Invoked by callers that just completed a conflict-producing git op
    * (merge / rebase / cherry-pick / revert / unshelve / unstash) — see
-   * caller-invoked pattern in design REVIEW.md §1.5.
+   * caller-invoked pattern in design REVIEW.md section 1.5.
    *
    * When the `intellig.autoOpenResolveConflictsDialog` config is `false`,
    * this method only publishes the `intellig.conflicts.active` context key

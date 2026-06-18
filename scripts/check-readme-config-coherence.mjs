@@ -4,7 +4,7 @@
 // check-readme-config-coherence.mjs — README ↔ package.json
 // schema drift guard.
 //
-// Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+// Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 //
 // 1. Bug class
 //    A README config table claims a default that does not match
