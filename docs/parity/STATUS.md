@@ -24,6 +24,9 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
   config-coherence + `check:vsix-clean` OK): **E-5** shelf recycle bin, **C-5** tabbed tool-window
   layout default-on, **D-6** per-remote push (choose target remote), **F-6** diff whitespace
   ignore-policy.
+- **Batch 7 landed 2026-06-18** (4 slices, combined gate green — 4489 unit + 746 property,
+  config-coherence + `check:vsix-clean` OK): **E-6** stash reinstate-index toggle, **D-7** tag
+  Merge-into-Current, **F-7** get-version at revision, **H-1** inline reword/squash message editing.
 
 ## Landing log
 
@@ -31,6 +34,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-18 | Workstream F (slice 7) — "get version" at a selected file-history revision: `DiffOps.getFileAtRevision` fetches `git show <rev>:<path>` as one positional token behind `--end-of-options` (a hostile rev can't become a flag) and opens it read-only via `openTextDocument`; optional façade method guarded in HistoryTab; mirrors git4idea file-history Get/Show-revision | b8bc3b7 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream D (slice 7) — tag "Merge into Current": routes the selected tag through the existing merge surface (MergeDialog when wired with `sourceBranch: tag`, else direct `mergeBranch` with the same conflict→Resolve-Conflicts routing as branch merge); context-menu + popup; mirrors `GitBranchPopupActions.TagActions`. Align-local submenu deferred | 68c1bab | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream H (slice 1) — inline reword/squash message editing in the rebase planner: extends `hasRewordOverride` with `hasSquashOverride` (both require a non-blank message, so a blank inline message never writes an empty `-F` file that aborts the amend); squash applies via `fixup` + `exec git commit --amend -F <msgfile>` (no interactive pause), mirroring git4idea's converter | 4c4fa95 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream E (slice 6) — stash apply/pop "reinstate index" toggle: `--index` is added only when reinstateIndex is chosen (default true preserves the staged split; false = working-tree-only apply), QuickPick on the apply/pop actions; mirrors git4idea `GitUnstashDialog` reinstate-index checkbox / `GitStashUtils.createUnstashHandler` | b72f21f | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream F (slice 6) — diff whitespace ignore-policy (`intellig.diff.ignorePolicy`): pure `diffIgnorePolicyFlags` maps the 4 IntelliJ `IgnorePolicy` levels onto git flags (trim→`--ignore-space-at-eol`, ignore→`--ignore-all-space`, +empty-lines→`+--ignore-blank-lines`, default→none), `DiffOps.whitespaceFlags()` applies it at all 3 diff sites; default preserves behavior, fixed-literal flags (injection-safe); mirrors `platform/diff-impl/.../IgnorePolicy.java` | 6aaed4a | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream C (slice 5) — tabbed Git tool-window layout default-on (`intellig.useTabbedGitToolWindow` false→true; provider already honored the flag every render, so a pure default flip + config.ts fallbacks + README/mock); matches IntelliJ's tabbed Git tool window (`ChangesViewContentManager`) | fe897e8 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream D (slice 6) — per-remote push: `_chooseTargetRemote` QuickPick when >1 remote (default = tracked remote / origin / first, preselected; ≤1 remote no-prompt fast path), sets upstream when redirected to a non-tracked remote, routes the chosen remote into push/pushTag (already eoo-safe via `buildGitArgs`); mirrors `GitPushTarget.getRemoteToPush` / `GitUtil.getDefaultOrFirstRemote` | f95b3f7 | local cherry-pick (1 commit) |

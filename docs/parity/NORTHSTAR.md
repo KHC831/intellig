@@ -35,12 +35,12 @@ Remaining backlog: residuals under **C** (shell/sync) and the open workstreams *
 | Reset | 🟢 ~95% | — (exceeds ref) |
 | 3-way Merge view (B) | 🟢 ~85% | only "accept non-conflicting from both sides" (shared w/ H) left — auto-flip landed |
 | Commit & Changelists (A) | 🟢 ~80% | live line-status tracker, commit-and-push dialog, rollback dialog |
-| Rebase / Cherry-pick / Revert (H) | 🟢 ~80% | inline reword/squash, `--onto`/`--root`, `-m` revert/cherry-pick |
+| Rebase / Cherry-pick / Revert (H) | 🟢 ~84% | `--onto`/`--root`, `-m` revert/cherry-pick (inline reword/squash landed) |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
-| Branches & Tags (D) | 🟢 ~93% | tag submenu Merge-into-Current (HEAD/favorites/validation/multi-repo/worktree/per-remote-push landed) |
+| Branches & Tags (D) | 🟢 ~95% | align-local submenu (HEAD/favorites/validation/multi-repo/worktree/per-remote-push/tag-merge landed) |
 | Shell / Menus / Sync (C) | 🟢 ~95% | near-complete (`--autostash` + console + scm provider + log-menu history-rewrite guard + tabbed default-on landed) |
-| Shelf / Stash / Patches (E) | 🟢 ~86% | target-changelist, Apply-Patch tree, stash apply-index toggle (unshelve + patch split + diff-against-local + binary + recycle bin landed) |
-| Blame / History / Diff (F) | 🟢 ~90% | inline-diff-hover, get-version (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy landed) |
+| Shelf / Stash / Patches (E) | 🟢 ~89% | target-changelist, Apply-Patch tree (unshelve + patch split + diff-against-local + binary + recycle bin + apply-index toggle landed) |
+| Blame / History / Diff (F) | 🟢 ~92% | inline-diff-hover (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy + get-version landed) |
 
 ---
 
@@ -102,7 +102,8 @@ directory conflict detection + overwrite bypass). (4) ~~per-remote push~~ **DONE
 remote change; mirrors `GitPushTarget.getRemoteToPush`). (5) ~~worktrees~~
 **DONE 2026-06-18** (`WorktreeOps` create via `git worktree add [-b] -- <path> <ref>` + open via
 `--porcelain` parse → `vscode.openFolder`; injection-safe argv with a real-git round-trip test). (6)
-tag submenu Merge-into-Current.
+~~tag submenu Merge-into-Current~~ **DONE 2026-06-18** (routes the tag through the existing merge
+surface; mirrors `GitBranchPopupActions.TagActions`). (7) align-local "Update Selected" submenu (deferred).
 **Files:** `src/branches/*`, `src/git-core/ops/{BranchOps,StashTagHistoryOps}.ts`,
 `src/commands/registration/commitHelpers.ts`, `package.json`.
 
@@ -119,7 +120,8 @@ shelved; "Unshelve Files…" picker). (2) ~~parse imported patches per-file~~ **
 add/modified/deleted, restore via `fs`; mirrors `ShelvedBinaryFile`). (5) ~~recycle bin~~
 **DONE 2026-06-18** (`deletedAt` marker → Recently-Deleted; restore / delete-permanently;
 unshelve-cleanup still purges; mirrors `ShelveChangesManager.markChangeListAsDeleted`/`restoreList`).
-(6) target-changelist routing. (7) per-file Apply Patch tree. (8) stash apply-index toggle.
+(6) target-changelist routing. (7) per-file Apply Patch tree. (8) ~~stash apply-index toggle~~
+**DONE 2026-06-18** (`reinstateIndex` gates `--index` on apply/pop; mirrors `GitUnstashDialog`).
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
@@ -136,7 +138,8 @@ full/firstname/lastname/initials/email; `LineAnnotationAspect`/`ShortNameType` p
 graph (reuse `commitGraph.ts`)~~ **DONE 2026-06-18** (details pane: message/author+email/dates/full hash
 + copy/parents, committer line only when ≠ author; mini commit-graph column reusing `commitGraph.ts`;
 single HTML-escape boundary). (5) ~~line-scoped history~~ **DONE 2026-06-17** (`git
-log -L` op + HistoryTab wiring; get-version still pending). (6) ~~diff options~~ **DONE 2026-06-18**
+log -L` op + HistoryTab wiring). ~~get-version~~ **DONE 2026-06-18** (`DiffOps.getFileAtRevision` →
+`git show <rev>:<path>` behind `--end-of-options`, opens read-only). (6) ~~diff options~~ **DONE 2026-06-18**
 (`intellig.diff.ignorePolicy` → git whitespace flags at all diff sites; mirrors `IgnorePolicy`).
 (7) inline-diff-on-hover.
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
@@ -152,7 +155,9 @@ log -L` op + HistoryTab wiring; get-version still pending). (6) ~~diff options~~
 **Remaining:** no inline reword/squash message editing; `--onto <newbase>`/`--root` not surfaced;
 revert `--no-edit` only (no `-m` mainline, no multi-commit); cherry-pick no `-m`/`--edit` for merge
 commits.
-**Work (ordered):** (1) inline reword/squash box. (2) surface `--onto`/`--root`. (3) revert/cherry-pick
+**Work (ordered):** (1) ~~inline reword/squash box~~ **DONE 2026-06-18** (`hasSquashOverride` mirrors the
+reword guard — blank message never writes an empty `-F`; squash applies via `fixup` + `exec git commit
+--amend -F`). (2) surface `--onto`/`--root`. (3) revert/cherry-pick
 `-m` + edit-message. (4) "accept non-conflicting from both sides" (shared with B).
 **Files:** `src/rebase/{RebaseEditor,RebaseDialog}.ts`, `src/git-core/{rebaseTodo,RebaseService}.ts`,
 `src/git-core/ops/CherryPickRevertOps.ts`, `package.json`.
