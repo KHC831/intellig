@@ -323,6 +323,35 @@ export class DiffOps {
     }
   }
 
+  /**
+   * Load a file's content as of a specific revision — the "Get version" /
+   * open-revision path in file history.
+   *
+   * Wraps `git show <rev>:<path>`. The `<rev>:<path>` spec is a single
+   * positional object argument; `buildGitArgs` inserts `--end-of-options`
+   * before it so a hostile ref like `--upload-pack=evil` can never be parsed
+   * as a flag (`rev` + `path` are validated structurally, never shell-spliced).
+   *
+   * Mirrors IntelliJ's `GitFileRevision.loadContent` →
+   * `GitFileUtils.getFileContent`
+   * (git4idea/backend/src/util/GitFileUtils.kt), which materialises the blob
+   * via `git cat-file -p <rev>:<path>`; `git show <rev>:<path>` is the
+   * equivalent already used by the `intellig-git:` content provider.
+   *
+   * Returns the file content on success, or an empty string when the file does
+   * not exist at that revision (git exits non-zero) — the caller surfaces an
+   * empty document rather than an error for the common "added later" case.
+   */
+  async getFileAtRevision(repo: IRepository, path: string, rev: string): Promise<string> {
+    const result = await this.ctx.gitCli.exec(buildGitArgs('show', [], [`${rev}:${path}`]), {
+      cwd: repo.rootUri.fsPath,
+    });
+    if (result.exitCode !== 0) {
+      return '';
+    }
+    return result.stdout;
+  }
+
   async getBlame(repo: IRepository, path: string): Promise<IBlameLine[]> {
     // `path` is user-controlled; splice with `--` separator
     // via buildGitArgs so a path that starts with `-` cannot collapse

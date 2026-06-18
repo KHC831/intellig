@@ -94,6 +94,9 @@ function renderToolbar(state: IHistoryTabState): string {
         Branch:
         <select class="history-branch-select">${branchDropdown}</select>
       </label>
+      <button type="button" class="history-btn-get-version" ${compareEnabled ? '' : 'disabled'} title="Open the file's content as of the selected revision">
+        Get Version
+      </button>
       <button type="button" class="history-btn-compare-local" ${compareEnabled ? '' : 'disabled'} title="Compare the selected revision with the working-copy file">
         Compare with Local
       </button>
@@ -487,6 +490,17 @@ export function historyTabBehaviorScript(): string {
             type: 'history.setBranchFilter',
             branch: value || undefined,
           });
+        });
+      }
+
+      const getVersionBtn = document.querySelector('.history-btn-get-version');
+      if (getVersionBtn) {
+        getVersionBtn.addEventListener('click', function () {
+          const selected = document.querySelector('.history-commit-row.history-selected');
+          const rev = selected ? selected.getAttribute('data-rev') : null;
+          if (rev) {
+            vscode.postMessage({ type: 'history.getVersion', rev: rev });
+          }
         });
       }
 

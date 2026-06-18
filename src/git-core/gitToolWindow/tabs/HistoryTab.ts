@@ -25,6 +25,8 @@
  *                                    Selection"; omit for whole-file history)
  *   - `history.selectRevision`      { rev: string, additive?: boolean }
  *   - `history.openAtRevision`      { rev: string }
+ *   - `history.getVersion`          { rev: string }  ("Get version" — open the
+ *                                                     file's content at `rev`)
  *   - `history.compareWith`         { from: string, to: string }
  *   - `history.compareWithLocal`    { rev: string }
  *   - `history.toggleFollowRenames` { value: boolean }
@@ -459,6 +461,13 @@ export class HistoryTab {
         }
         return;
       }
+      case 'history.getVersion': {
+        const rev = typeof message.rev === 'string' ? message.rev : undefined;
+        if (rev) {
+          await this.getVersion(rev);
+        }
+        return;
+      }
       case 'history.compareWith': {
         const from = typeof message.from === 'string' ? message.from : undefined;
         const to = typeof message.to === 'string' ? message.to : undefined;
@@ -646,6 +655,43 @@ export class HistoryTab {
       await vscode.commands.executeCommand('vscode.open', uri);
     } catch (err) {
       this._surfaceError(err, `Failed to open ${this._state.filePath} at ${rev}`);
+    }
+  }
+
+  /**
+   * "Get version": load the file's content as of `rev` and open it read-only
+   * in an editor. Mirrors IntelliJ's file-history "Get"/open-revision path
+   * (`GitFileRevision.loadContent` → `GitFileUtils.getFileContent`), but takes
+   * the non-destructive route the slice allows — opening the historical content
+   * for inspection / save-as rather than overwriting the working-tree file.
+   *
+   * The content is fetched through the injection-safe `getFileAtRevision` op
+   * (`git show <rev>:<path>`). The fetch is async, so the loaded `filePath` is
+   * captured up front and re-checked before opening: if the user loaded a
+   * different file mid-flight, the stale result is discarded.
+   */
+  public async getVersion(rev: string): Promise<void> {
+    const filePath = this._state.filePath;
+    if (!filePath) {
+      void vscode.window.showInformationMessage(NO_FILE_LOADED_MESSAGE);
+      return;
+    }
+    const repo = this._getRepo();
+    const getFileAtRevision = this._gitService.getFileAtRevision?.bind(this._gitService);
+    if (!repo || !getFileAtRevision) {
+      return;
+    }
+    try {
+      const content = await getFileAtRevision(repo, filePath, rev);
+      // A newer load may have superseded this fetch — only open if the file
+      // we fetched is still the one the tab is showing.
+      if (this._state.filePath !== filePath) {
+        return;
+      }
+      const doc = await vscode.workspace.openTextDocument({ content });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch (err) {
+      this._surfaceError(err, `Failed to get ${filePath} at ${rev}`);
     }
   }
 

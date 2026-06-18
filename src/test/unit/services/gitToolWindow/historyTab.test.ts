@@ -17,7 +17,7 @@ import '../../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { EventEmitter, Uri } from '../../../mocks/vscode';
-import { writableCommands, writableWindow } from '../../../typed/windowStub';
+import { writableCommands, writableWindow, writableWorkspace } from '../../../typed/windowStub';
 import type {
   IBranch,
   ICommit,
@@ -193,12 +193,18 @@ describe('HistoryTab — class behaviour', () => {
   let origExecuteCommand: typeof vscode.commands.executeCommand;
   let origShowError: typeof vscode.window.showErrorMessage;
   let origShowInfo: typeof vscode.window.showInformationMessage;
+  let origOpenDoc: ReturnType<typeof writableWorkspace>['openTextDocument'];
+  let origShowDoc: ReturnType<typeof writableWindow>['showTextDocument'];
   beforeEach(() => {
     origExecuteCommand = vscode.commands.executeCommand;
     origShowError = vscode.window.showErrorMessage;
     origShowInfo = vscode.window.showInformationMessage;
+    origOpenDoc = writableWorkspace().openTextDocument;
+    origShowDoc = writableWindow().showTextDocument;
   });
   afterEach(() => {
+    writableWorkspace().openTextDocument = origOpenDoc;
+    writableWindow().showTextDocument = origShowDoc;
     writableCommands().executeCommand = origExecuteCommand as unknown as (
       command: string,
       ...rest: unknown[]
@@ -432,6 +438,142 @@ describe('HistoryTab — class behaviour', () => {
     assert.strictEqual(openCalls.length, 1);
     assert.ok(openCalls[0].toString().includes('intellig-git:'));
     assert.ok(openCalls[0].toString().includes('src/a.ts'));
+  });
+
+  // ── getVersion (open the file content at a revision) ────────────────────
+
+  it('getVersion fetches content via getFileAtRevision and opens it read-only', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({ repo, commits: [mkCommit('abc1234')] });
+    const fileCalls: Array<{ path: string; rev: string }> = [];
+    (service as unknown as { getFileAtRevision: unknown }).getFileAtRevision = async (
+      _repo: IRepository,
+      path: string,
+      rev: string
+    ): Promise<string> => {
+      fileCalls.push({ path, rev });
+      return 'OLD CONTENT';
+    };
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+
+    const opened: Array<{ content?: string }> = [];
+    const shown: unknown[] = [];
+    writableWorkspace().openTextDocument = async (
+      options: string | vscode.Uri | { content?: string; language?: string }
+    ): Promise<{
+      uri: vscode.Uri;
+      getText: () => string;
+      languageId: string;
+      isUntitled: boolean;
+    }> => {
+      const opts = options as { content?: string };
+      opened.push(opts);
+      return {
+        uri: Uri.parse('untitled:Untitled-1'),
+        getText: () => opts.content ?? '',
+        languageId: 'plaintext',
+        isUntitled: true,
+      };
+    };
+    writableWindow().showTextDocument = async (doc: unknown): Promise<{ document: unknown }> => {
+      shown.push(doc);
+      return { document: doc };
+    };
+
+    await tab.getVersion('abc1234');
+    assert.deepStrictEqual(fileCalls, [{ path: 'src/a.ts', rev: 'abc1234' }]);
+    assert.strictEqual(opened.length, 1);
+    assert.strictEqual(opened[0].content, 'OLD CONTENT');
+    assert.strictEqual(shown.length, 1);
+  });
+
+  it('getVersion routes through handleMessage(history.getVersion)', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({ repo, commits: [mkCommit('abc1234')] });
+    const fileCalls: string[] = [];
+    (service as unknown as { getFileAtRevision: unknown }).getFileAtRevision = async (
+      _repo: IRepository,
+      _path: string,
+      rev: string
+    ): Promise<string> => {
+      fileCalls.push(rev);
+      return 'x';
+    };
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+    writableWorkspace().openTextDocument = async (): Promise<{
+      uri: vscode.Uri;
+      getText: () => string;
+      languageId: string;
+      isUntitled: boolean;
+    }> => ({
+      uri: Uri.parse('untitled:Untitled-1'),
+      getText: () => 'x',
+      languageId: 'plaintext',
+      isUntitled: true,
+    });
+    writableWindow().showTextDocument = async (doc: unknown): Promise<{ document: unknown }> => ({
+      document: doc,
+    });
+
+    await tab.handleMessage({ type: 'history.getVersion', rev: 'abc1234' });
+    assert.deepStrictEqual(fileCalls, ['abc1234']);
+  });
+
+  it('getVersion shows the no-file info toast when filePath is unset', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({ repo, commits: [] });
+    const tab = new HistoryTab(service);
+    const infoMessages: string[] = [];
+    writableWindow().showInformationMessage = (message: string): Promise<string | undefined> => {
+      infoMessages.push(message);
+      return Promise.resolve(undefined);
+    };
+    await tab.getVersion('abc1234');
+    assert.deepStrictEqual(infoMessages, [NO_FILE_LOADED_MESSAGE]);
+  });
+
+  it('getVersion drops a stale fetch when the loaded file changed mid-flight', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({
+      repo,
+      commits: [mkCommit('abc1234'), mkCommit('def5678')],
+    });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+
+    let resolveFetch: (value: string) => void = () => {};
+    (service as unknown as { getFileAtRevision: unknown }).getFileAtRevision =
+      (): Promise<string> =>
+        new Promise<string>((resolve) => {
+          resolveFetch = resolve;
+        });
+
+    const opened: unknown[] = [];
+    writableWorkspace().openTextDocument = async (
+      options: string | vscode.Uri | { content?: string; language?: string }
+    ): Promise<{
+      uri: vscode.Uri;
+      getText: () => string;
+      languageId: string;
+      isUntitled: boolean;
+    }> => {
+      opened.push(options);
+      return {
+        uri: Uri.parse('untitled:Untitled-1'),
+        getText: () => '',
+        languageId: 'plaintext',
+        isUntitled: true,
+      };
+    };
+
+    const inFlight = tab.getVersion('abc1234');
+    // The user loads a different file before the fetch resolves.
+    await tab.loadFile('src/other.ts');
+    resolveFetch('STALE CONTENT');
+    await inFlight;
+    assert.strictEqual(opened.length, 0, 'a stale revision fetch must not open an editor');
   });
 
   // ── Malformed messages ─────────────────────────────────────────────────

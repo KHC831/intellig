@@ -1558,6 +1558,10 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._diff.getCommitDiff(repo, hash);
   }
 
+  getFileAtRevision(repo: IRepository, path: string, rev: string): Promise<string> {
+    return this._diff.getFileAtRevision(repo, path, rev);
+  }
+
   /**
    * Get the combined diff for multiple commits.
    * This calculates the cumulative changes across all selected commits,

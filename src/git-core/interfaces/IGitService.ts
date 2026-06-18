@@ -1113,6 +1113,20 @@ export interface IGitService {
   getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]>;
 
   /**
+   * Load a file's content as of a specific revision — the file-history "Get
+   * version" / open-revision path. Backed by `git show <rev>:<path>`.
+   *
+   * Returns the file content, or an empty string when the file does not exist
+   * at that revision. Optional so narrow test mocks of `IGitService` need not
+   * stub it; callers must guard with a nullish check.
+   *
+   * @param repo - The repository
+   * @param path - Repo-relative path of the file
+   * @param rev - Revision (commit hash, branch, tag) to read the file at
+   */
+  getFileAtRevision?(repo: IRepository, path: string, rev: string): Promise<string>;
+
+  /**
    * List files that differ between the given ref (commit, branch, tag) and the
    * current working tree. Backed by `git diff --name-status <ref>`.
    *
