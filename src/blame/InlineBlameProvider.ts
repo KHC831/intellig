@@ -170,6 +170,23 @@ export class InlineBlameProvider implements IInlineBlameProvider {
       })
     );
 
+    // Blame is HEAD-derived: drop the cache whenever the repo's HEAD moves
+    // (commit / checkout / pull / reset) so the inline annotation stops
+    // showing the pre-move blame, then re-blame the current editor.
+    this._disposables.push(
+      this._gitService.onDidChangeRepository(() => {
+        this._blameCache.clear();
+        if (this._enabled && this._currentEditor) {
+          // Bucket B: blame fetches can fail (async gitCli);
+          // surface to console without blocking the repo-state sync.
+          safeFireAndForget(
+            this.updateDecoration(this._currentEditor, this._currentLine),
+            'InlineBlameProvider.onDidChangeRepository: re-blame after HEAD move'
+          );
+        }
+      })
+    );
+
     // Listen for document saves to refresh blame
     this._disposables.push(
       vscode.workspace.onDidSaveTextDocument((document) => {

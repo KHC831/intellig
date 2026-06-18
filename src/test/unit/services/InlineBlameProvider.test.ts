@@ -13,7 +13,7 @@ import * as assert from 'assert';
 import { InlineBlameProvider } from '../../../blame/InlineBlameProvider';
 import { IBlameService, IBlameInfo } from '../../../blame/interfaces/IBlameService';
 import { IGitService, IRepository, IBlameLine } from '../../../git-core/interfaces/IGitService';
-import { Uri, EventEmitter } from '../../mocks/vscode';
+import { Uri, EventEmitter, window } from '../../mocks/vscode';
 
 // Mock BlameService for testing
 class MockBlameService implements IBlameService {
@@ -69,6 +69,16 @@ class MockGitService {
 
   getRepositories(): IRepository[] {
     return this.mockRepository ? [this.mockRepository] : [];
+  }
+
+  /** TestSurface: drive a repo-state change (commit / checkout / pull / reset). */
+  fireRepositoryChange(repo: IRepository): void {
+    this._onDidChangeRepository.fire(repo);
+  }
+
+  /** TestSurface: number of currently-active onDidChangeRepository subscribers. */
+  repoSubscriberCount(): number {
+    return (this._onDidChangeRepository as unknown as { listeners: unknown[] }).listeners.length;
   }
 
   dispose(): void {
@@ -613,6 +623,77 @@ describe('InlineBlameProvider', () => {
       assert.ok(
         !md.value.includes('command:intellig.viewCommit'),
         'must not reference the unregistered intellig.viewCommit command'
+      );
+    });
+  });
+
+  describe('repo-state cache invalidation', () => {
+    const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+    /** Reach into the private blame cache without reflection hacks. */
+    function blameCache(provider: InlineBlameProvider): Map<string, IBlameInfo> {
+      return (provider as unknown as { _blameCache: Map<string, IBlameInfo> })._blameCache;
+    }
+
+    /** Minimal fake editor that records every setDecorations call. */
+    function fakeFileEditor(): { editor: unknown; calls: () => number } {
+      let decoCalls = 0;
+      const uri = Uri.file('/test/repo/file.ts');
+      const editor = {
+        document: {
+          uri,
+          lineAt: (line: number) => ({ text: '', lineNumber: line }),
+        },
+        selection: { active: { line: 0 } },
+        setDecorations: (): void => {
+          decoCalls++;
+        },
+      };
+      return { editor, calls: () => decoCalls };
+    }
+
+    it('clears the blame cache when the repository changes', () => {
+      blameCache(inlineBlameProvider).set('file:///test/repo/a.ts', { path: 'a.ts', lines: [] });
+
+      mockGitService.fireRepositoryChange(mockRepo);
+
+      assert.strictEqual(
+        blameCache(inlineBlameProvider).size,
+        0,
+        'blame cache must be dropped after a repo-state change'
+      );
+    });
+
+    it('refreshes the current editor blame after the repository changes', async () => {
+      const fake = fakeFileEditor();
+      window.activeTextEditor = fake.editor;
+      inlineBlameProvider.enable();
+      await flush();
+      const before = fake.calls();
+
+      mockGitService.fireRepositoryChange(mockRepo);
+      await flush();
+
+      assert.ok(
+        fake.calls() > before,
+        'current editor blame must be recomputed after a repo-state change'
+      );
+      window.activeTextEditor = undefined;
+    });
+
+    it('disposes the repo-state subscription with the provider', () => {
+      assert.strictEqual(
+        mockGitService.repoSubscriberCount(),
+        1,
+        'provider must subscribe to onDidChangeRepository'
+      );
+
+      inlineBlameProvider.dispose();
+
+      assert.strictEqual(
+        mockGitService.repoSubscriberCount(),
+        0,
+        'repo-state subscription must be disposed with the provider'
       );
     });
   });

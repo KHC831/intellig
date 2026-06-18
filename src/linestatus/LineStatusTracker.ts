@@ -75,6 +75,17 @@ export class LineStatusTracker implements vscode.Disposable {
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
         this._headCache.delete(document.uri.toString());
+      }),
+      // HEAD-derived cache: drop it whenever the repo's HEAD moves
+      // (commit / checkout / pull / reset) so the gutter stops diffing
+      // against the old HEAD, then repaint the active editor against fresh
+      // HEAD. Without this the markers stay stale until the file is reopened.
+      this._gitService.onDidChangeRepository(() => {
+        this._headCache.clear();
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+          this.scheduleUpdate(editor);
+        }
       })
     );
 

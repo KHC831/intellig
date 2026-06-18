@@ -14,9 +14,10 @@ import { GutterBlameProvider } from '../../../blame/GutterBlameProvider';
 import { InlineBlameProvider } from '../../../blame/InlineBlameProvider';
 import { BlameOptionsSource } from '../../../blame/BlameOptionsSource';
 import { IBlameService } from '../../../blame/interfaces/IBlameService';
-import { IGitService, IBlameLine } from '../../../git-core/interfaces/IGitService';
+import { IGitService, IBlameLine, IRepository } from '../../../git-core/interfaces/IGitService';
 import * as vscode from '../../mocks/vscode';
 import { resetMockConfiguration, setMockConfigValue } from '../../mocks/vscode';
+import { noopEvent } from '../../mocks/noopEvent';
 
 function makeMemento(): vscode.Memento {
   const store = new Map<string, unknown>();
@@ -43,7 +44,9 @@ const SAMPLE: IBlameLine = {
 };
 
 const stubBlame = {} as unknown as IBlameService;
-const stubGit = {} as unknown as IGitService;
+const stubGit = {
+  onDidChangeRepository: noopEvent<IRepository>(),
+} as unknown as IGitService;
 
 type GutterSeam = { formatGutterText(bl: IBlameLine): string };
 type InlineSeam = { formatInlineText(bl: IBlameLine): string };

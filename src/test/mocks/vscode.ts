@@ -50,6 +50,16 @@ export enum DecorationRangeBehavior {
   ClosedOpen = 3,
 }
 
+// Mock OverviewRulerLane enum — matches the real vscode API values so
+// decoration types that paint into the overview ruler (LineStatusTracker)
+// can be constructed under unit tests.
+export enum OverviewRulerLane {
+  Left = 1,
+  Center = 2,
+  Right = 4,
+  Full = 7,
+}
+
 // Mock QuickPickItemKind enum — matches the values from the real vscode API
 // so code that uses it (QuickPick separators, etc.) works under unit tests.
 export enum QuickPickItemKind {
