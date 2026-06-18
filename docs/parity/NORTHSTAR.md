@@ -102,7 +102,7 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 | Surface | Parity | Biggest remaining gap |
 |---|---|---|
 | Log / commit menu | 🟢 ~90% | — (#10 done: reword ellipsis + New-Branch/Tag + Fixup/Squash-into all landed; mirrors `Git.Log.ContextMenu`) |
-| Branch popup (QuickPick) | 🟡 ~65% | action set + Rename/Delete-last reorder (#4); tracked-branch submenu (#5) |
+| Branch popup (QuickPick) | 🟡 ~75% | tracked-branch submenu (#5); New-Worktree/Push-Tags-in-popup (deferred). #4 Rename/Delete-last reorder landed |
 | Branch tree menu | 🟢 ~90% | — (near-complete) |
 | Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs (deferred) |
 | Explorer / editor submenu | 🟢 ~90% | — (#6 done: "Commit File…" via the SCM API per ADR-014) |
@@ -114,7 +114,6 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 
 | # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
 |---|---|---|---|---|---|
-| 4 | Branch popup | QuickPick local-branch menu: move **Rename/Delete to LAST** (currently positions 3-4, git4idea puts them at the end). NOTE (verified): Diff-with-Local = "Compare with Current" (present); Update-Selected + Pull-into-current already exist on remote branches (D8 + "Pull into Current Using Merge/Rebase"). Possibly add New-Worktree-from-branch + Push-Tags to the popup (both reachable elsewhere — assess vs defer) | `GitBranchPopupActions` | `BranchPopup.ts:724-792` | S |
 | 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
@@ -124,9 +123,10 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 menu" never existed — its 19 orphaned `view/item/context` entries were deleted, webview overlay is the one
 true commit menu); #3 landed (reword-item ellipsis); **#10 complete** (New-Branch/New-Tag-from-commit +
 Fixup…/Squash Into… in the webview menu — the log/commit menu now mirrors `Git.Log.ContextMenu`; also
-resolved the orphaned-command parity gap); **#6 complete** ("Commit File…" via the SCM API per ADR-014).
-Next: branch popup (#4 action set + Rename/Delete-last reorder, #5 tracked-branch submenu). Stash/Working-
-Trees tabs + per-dialog field audit are deferred.
+resolved the orphaned-command parity gap); **#6 complete** ("Commit File…" via the SCM API per ADR-014);
+**#4 reorder landed** (Rename/Delete last in the branch popup). Next: **#5** (tracked-branch submenu) —
+the last open section-4b item. Branch-popup New-Worktree/Push-Tags additions + Stash/Working-Trees tabs +
+per-dialog field audit are deferred.
 
 **Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
 dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
@@ -138,7 +138,8 @@ rename (#6-partial). **#2 (`ea292f8`):** removed 19 dead `intellig.logCommit` `v
 reword-item ellipsis. **#10 (`3853540`, `47b363b`):** New Branch / New Tag from commit + Fixup… / Squash
 Into… in the webview log menu — the log/commit menu now mirrors `Git.Log.ContextMenu`. **#6 (`8cad885`):**
 "Commit File…" at the head of the explorer submenu via the SCM API (ADR-014) — stages the file + reveals
-the SCM commit input; wired `acceptInputCommand` (commit-on-accept).
+the SCM commit input; wired `acceptInputCommand` (commit-on-accept). **#4 (`4729103`):** branch-popup
+Rename/Delete moved last (git4idea `Git.Branch.Backend` order).
 
 ---
 
