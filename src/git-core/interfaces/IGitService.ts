@@ -1004,8 +1004,13 @@ export interface IGitService {
   // Stash operations
   stash(repo: IRepository, message?: string, options?: IStashOptions): Promise<void>;
   stashList(repo: IRepository): Promise<IStash[]>;
-  stashApply(repo: IRepository, index: number): Promise<void>;
-  stashPop(repo: IRepository, index: number): Promise<void>;
+  /**
+   * Apply a stash. `reinstateIndex` (default true) controls whether `--index`
+   * reinstates the staged/unstaged split — IntelliJ unstash "Reinstate index".
+   */
+  stashApply(repo: IRepository, index: number, reinstateIndex?: boolean): Promise<void>;
+  /** Apply + drop a stash. `reinstateIndex` as in {@link stashApply}. */
+  stashPop(repo: IRepository, index: number, reinstateIndex?: boolean): Promise<void>;
   stashDrop(repo: IRepository, index: number): Promise<void>;
   stashShow(repo: IRepository, index: number): Promise<IDiff[]>;
   /**

@@ -277,9 +277,12 @@ export class StashView implements IStashView {
    * Apply a stash to the working directory.
    *
    * @param index - The stash index to apply
+   * @param reinstateIndex - When true (default), pass `--index` to restore the
+   *   staged/unstaged split; when false, apply working-tree changes only.
+   *   Mirrors IntelliJ unstash "Reinstate index".
    * @returns Promise resolving to the action result
    */
-  async applyStash(index: number): Promise<IStashActionResult> {
+  async applyStash(index: number, reinstateIndex = true): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -290,7 +293,7 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashApply(this._repository, index);
+      await this._gitService.stashApply(this._repository, index, reinstateIndex);
       void vscode.window.showInformationMessage(`Applied stash@{${index}}`);
 
       this._onDidRequestAction.fire({ action: 'apply', stash });
@@ -346,9 +349,12 @@ export class StashView implements IStashView {
    * Pop a stash (apply and remove).
    *
    * @param index - The stash index to pop
+   * @param reinstateIndex - When true (default), pass `--index` to restore the
+   *   staged/unstaged split; when false, apply working-tree changes only.
+   *   Mirrors IntelliJ unstash "Reinstate index".
    * @returns Promise resolving to the action result
    */
-  async popStash(index: number): Promise<IStashActionResult> {
+  async popStash(index: number, reinstateIndex = true): Promise<IStashActionResult> {
     if (!this._repository) {
       return { success: false, error: 'No repository available' };
     }
@@ -359,7 +365,7 @@ export class StashView implements IStashView {
     }
 
     try {
-      await this._gitService.stashPop(this._repository, index);
+      await this._gitService.stashPop(this._repository, index, reinstateIndex);
       void vscode.window.showInformationMessage(`Popped stash@{${index}}`);
 
       // refresh() never rejects — surface refresh failure as a warning
@@ -760,6 +766,37 @@ export class StashView implements IStashView {
   }
 
   /**
+   * Ask whether to reinstate the index when applying/popping a stash —
+   * IntelliJ's unstash "Reinstate index" checkbox. The default option restores
+   * the staged/unstaged split (`--index`); the alternative applies working-tree
+   * changes only. Returns `undefined` when the user cancels.
+   */
+  private async _promptReinstateIndex(action: 'apply' | 'pop'): Promise<boolean | undefined> {
+    interface IReinstateItem extends vscode.QuickPickItem {
+      reinstate: boolean;
+    }
+    const items: IReinstateItem[] = [
+      {
+        label: '$(check) Reinstate index',
+        description: 'Restore the staged/unstaged split (git stash --index)',
+        reinstate: true,
+      },
+      {
+        label: '$(circle-slash) Working tree only',
+        description: 'Apply changes as unstaged (omit --index)',
+        reinstate: false,
+      },
+    ];
+
+    const selected = await vscode.window.showQuickPick(items, {
+      title: action === 'pop' ? 'Pop Stash' : 'Apply Stash',
+      placeHolder: 'Reinstate the staged index?',
+    });
+
+    return selected?.reinstate;
+  }
+
+  /**
    * Handle a stash action.
    */
   private async _handleAction(
@@ -767,10 +804,20 @@ export class StashView implements IStashView {
     index: number
   ): Promise<IStashActionResult> {
     switch (action) {
-      case 'apply':
-        return this.applyStash(index);
-      case 'pop':
-        return this.popStash(index);
+      case 'apply': {
+        const reinstateIndex = await this._promptReinstateIndex('apply');
+        if (reinstateIndex === undefined) {
+          return { success: false };
+        }
+        return this.applyStash(index, reinstateIndex);
+      }
+      case 'pop': {
+        const reinstateIndex = await this._promptReinstateIndex('pop');
+        if (reinstateIndex === undefined) {
+          return { success: false };
+        }
+        return this.popStash(index, reinstateIndex);
+      }
       case 'drop':
         return this.dropStash(index);
       case 'view':

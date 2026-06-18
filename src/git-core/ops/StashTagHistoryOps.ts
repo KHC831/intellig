@@ -77,20 +77,35 @@ export class StashTagHistoryOps {
     }
   }
 
-  async stashApply(repo: IRepository, index: number): Promise<void> {
+  async stashApply(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
     this._validateStashIndex(index);
     // `--index` reinstates the staged/unstaged split; without it git returns
-    // previously-staged changes as unstaged (IntelliJ parity: GitStashUtils).
-    await this.ctx.gitCli.exec(['stash', 'apply', '--index', `stash@{${index}}`], {
+    // previously-staged changes as unstaged. Mirrors IntelliJ's unstash
+    // "Reinstate index" checkbox (GitStashUtils.createUnstashHandler), which
+    // adds `--index` only when selected. Default true preserves the staged
+    // split; false is a working-tree-only apply.
+    const args = ['stash', 'apply'];
+    if (reinstateIndex) {
+      args.push('--index');
+    }
+    args.push(`stash@{${index}}`);
+    await this.ctx.gitCli.exec(args, {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  async stashPop(repo: IRepository, index: number): Promise<void> {
+  async stashPop(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
     this._validateStashIndex(index);
-    await this.ctx.gitCli.exec(['stash', 'pop', '--index', `stash@{${index}}`], {
+    // See stashApply: `--index` reinstates the staged/unstaged split and is
+    // gated on the "Reinstate index" choice (IntelliJ GitStashUtils).
+    const args = ['stash', 'pop'];
+    if (reinstateIndex) {
+      args.push('--index');
+    }
+    args.push(`stash@{${index}}`);
+    await this.ctx.gitCli.exec(args, {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });

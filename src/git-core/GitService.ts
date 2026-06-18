@@ -1420,12 +1420,12 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._stashTagHistory.stashList(repo);
   }
 
-  stashApply(repo: IRepository, index: number): Promise<void> {
-    return this._stashTagHistory.stashApply(repo, index);
+  stashApply(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
+    return this._stashTagHistory.stashApply(repo, index, reinstateIndex);
   }
 
-  stashPop(repo: IRepository, index: number): Promise<void> {
-    return this._stashTagHistory.stashPop(repo, index);
+  stashPop(repo: IRepository, index: number, reinstateIndex = true): Promise<void> {
+    return this._stashTagHistory.stashPop(repo, index, reinstateIndex);
   }
 
   stashDrop(repo: IRepository, index: number): Promise<void> {
