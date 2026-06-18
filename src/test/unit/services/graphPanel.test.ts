@@ -694,7 +694,7 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
-    it('should contain all 13 required context menu options', () => {
+    it('should contain all 15 required context menu options', () => {
       const html = provider._getCommitContextMenuHtml();
       const requiredOptions = [
         'Copy Revision Number',
@@ -710,6 +710,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         'Edit Commit Message',
         'Merge into Current Branch',
         'Interactively Rebase from Here',
+        'New Branch',
+        'New Tag',
       ];
       for (const option of requiredOptions) {
         assert.ok(html.includes(option), `Should contain "${option}" option`);
@@ -732,10 +734,40 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
         'editCommitMessage',
         'mergeIntoCurrent',
         'interactiveRebase',
+        'newBranch',
+        'newTag',
       ];
       for (const action of requiredActions) {
         assert.ok(html.includes(`data-action="${action}"`), `Should have data-action="${action}"`);
       }
+    });
+
+    it('exposes New Branch… (Git.CreateNewBranch.FromCommit) as a single-only item', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = html.indexOf('data-action="newBranch"');
+      assert.ok(idx !== -1, 'Should expose the newBranch action');
+      const item = html.substring(idx, idx + 140);
+      assert.ok(item.includes('data-multi-action="single-only"'), 'newBranch is single-only');
+      assert.ok(item.includes('New Branch…'), 'New Branch label uses the unicode ellipsis');
+    });
+
+    it('exposes New Tag… (Git.CreateNewTag) as a single-only item', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = html.indexOf('data-action="newTag"');
+      assert.ok(idx !== -1, 'Should expose the newTag action');
+      const item = html.substring(idx, idx + 140);
+      assert.ok(item.includes('data-multi-action="single-only"'), 'newTag is single-only');
+      assert.ok(item.includes('New Tag…'), 'New Tag label uses the unicode ellipsis');
+    });
+
+    it('groups New Branch… / New Tag… with the branch-operations cluster', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
+      // git4idea Git.Log.ContextMenu places CreateNewBranch.FromCommit +
+      // CreateNewTag immediately after the BranchOperationGroup (Compare with
+      // Branch / Merge into Current).
+      assert.ok(idx('mergeIntoCurrent') < idx('newBranch'), 'Merge before New Branch');
+      assert.ok(idx('newBranch') < idx('newTag'), 'New Branch before New Tag');
     });
 
     it('should render the commit context menu as hidden by default', () => {
@@ -760,7 +792,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // Plus Copy Commit Message (#P3 Vcs.Log.CopySubjectText) = 19.
       // Plus pushUpToCommit (Gap B IntelliJ Git.PushUpToHere parity) = 20.
       // G9: goToParent + goToChild = 22.
-      assert.strictEqual(menuItemCount, 22, 'Should have 22 menu items with role="menuitem"');
+      // Git.CreateNewBranch.FromCommit + Git.CreateNewTag = 24.
+      assert.strictEqual(menuItemCount, 24, 'Should have 24 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {

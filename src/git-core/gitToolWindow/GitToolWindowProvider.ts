@@ -208,6 +208,11 @@ export type LogContextAction =
   // IntelliJ Git.PushUpToHere: push all local commits up to and including
   // the selected commit to the current branch's remote. Single-only.
   | 'pushUpToCommit'
+  // IntelliJ Git.CreateNewBranch.FromCommit / Git.CreateNewTag: create a
+  // branch or tag starting from the selected commit. Single-only; each
+  // delegates to the registered intellig.commit.newBranch / newTag command.
+  | 'newBranch'
+  | 'newTag'
   // G9: go-to-parent/child navigation — handled entirely in the webview JS;
   // listed here so the cast in _handleCommitContextMenu remains type-safe.
   | 'goToParent'

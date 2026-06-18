@@ -1837,6 +1837,91 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
   });
 
+  // ─── newBranch / newTag (IntelliJ Git.CreateNewBranch.FromCommit /
+  //     Git.CreateNewTag, surfaced in the webview commit context menu) ─────────
+
+  describe('_handleAction newBranch', () => {
+    it('delegates to intellig.commit.newBranch with the first selected hash', async () => {
+      let executedCommand = '';
+      let executedArgs: unknown[] = [];
+      writableCommands().executeCommand = (cmd: string, ...args: unknown[]): Promise<unknown> => {
+        executedCommand = cmd;
+        executedArgs = args;
+        return Promise.resolve(undefined);
+      };
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('newBranch', [testHash, 'deadbeef']);
+
+      assert.strictEqual(executedCommand, 'intellig.commit.newBranch');
+      assert.deepStrictEqual(executedArgs, [testHash]);
+    });
+
+    it('does nothing when no commit is selected', async () => {
+      let executedCommand = '';
+      writableCommands().executeCommand = (cmd: string): Promise<unknown> => {
+        executedCommand = cmd;
+        return Promise.resolve(undefined);
+      };
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('newBranch', []);
+
+      assert.strictEqual(executedCommand, '');
+    });
+  });
+
+  describe('_handleAction newTag', () => {
+    it('delegates to intellig.commit.newTag with the first selected hash', async () => {
+      let executedCommand = '';
+      let executedArgs: unknown[] = [];
+      writableCommands().executeCommand = (cmd: string, ...args: unknown[]): Promise<unknown> => {
+        executedCommand = cmd;
+        executedArgs = args;
+        return Promise.resolve(undefined);
+      };
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('newTag', [testHash, 'deadbeef']);
+
+      assert.strictEqual(executedCommand, 'intellig.commit.newTag');
+      assert.deepStrictEqual(executedArgs, [testHash]);
+    });
+
+    it('does nothing when no commit is selected', async () => {
+      let executedCommand = '';
+      writableCommands().executeCommand = (cmd: string): Promise<unknown> => {
+        executedCommand = cmd;
+        return Promise.resolve(undefined);
+      };
+      createMessageTrackers();
+      const repo = createMockRepo();
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider);
+
+      await commands._handleAction('newTag', []);
+
+      assert.strictEqual(executedCommand, '');
+    });
+  });
+
   // ─── Unknown action ───────────────────────────────────────────────────────
 
   describe('unknown action', () => {

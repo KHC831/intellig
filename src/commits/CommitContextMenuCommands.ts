@@ -353,6 +353,15 @@ export class CommitContextMenuCommands {
       case 'pushUpToCommit':
         await this._handlePushUpToCommit(commitHashes);
         break;
+      // IntelliJ Git.CreateNewBranch.FromCommit / Git.CreateNewTag: delegate
+      // to the registered commands so the New Branch dialog / New Tag flow is
+      // the single source of truth whether reached from the menu or palette.
+      case 'newBranch':
+        await this._handleNewBranch(commitHashes);
+        break;
+      case 'newTag':
+        await this._handleNewTag(commitHashes);
+        break;
       // G9: goToParent / goToChild are handled entirely in the webview JS
       // (jumpToCommitHash). The host never receives these actions — the webview
       // intercepts them before calling postMessage. These stubs prevent the
@@ -3161,6 +3170,20 @@ export class CommitContextMenuCommands {
       return;
     }
     await vscode.commands.executeCommand('intellig.pushUpToCommit', hash);
+  }
+
+  private async _handleNewBranch(commitHashes: string[]): Promise<void> {
+    if (commitHashes.length === 0) {
+      return;
+    }
+    await vscode.commands.executeCommand('intellig.commit.newBranch', commitHashes[0]);
+  }
+
+  private async _handleNewTag(commitHashes: string[]): Promise<void> {
+    if (commitHashes.length === 0) {
+      return;
+    }
+    await vscode.commands.executeCommand('intellig.commit.newTag', commitHashes[0]);
   }
 }
 
