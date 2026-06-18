@@ -13,6 +13,7 @@ import {
   PatchWriteFailed,
   type IBranch,
   type ITag,
+  type ICommitDialogResult,
   type PullDialogOutcome,
 } from '../../services';
 import type { ICommandContext } from './CommandContext';
@@ -52,6 +53,38 @@ export function handlePullDialogOutcome(outcome: PullDialogOutcome): void {
   }
   // pulled / conflict / error: the dialog already surfaced the appropriate
   // toast internally (see `runPullDialog`). Nothing more to do here.
+}
+
+/**
+ * Orchestrate "Commit and Push" by chaining the canonical commit and push
+ * entry points. Push runs ONLY when the commit reported success — mirroring
+ * git4idea's `GitCommitAndPushExecutor` (plugins/git4idea/backend/src/checkin/
+ * GitCommitAndPushExecutor.kt), which pushes as a post-commit step gated on the
+ * commit (and its sync before-commit checks) succeeding. A cancelled commit
+ * (`committed: false`), a no-result path (e.g. the Commit tool window reveal,
+ * which returns `undefined`), or a thrown/blocked commit must NOT push.
+ *
+ * Extracted as a pure, vscode-free function so the failure-guard is unit
+ * testable without driving the registered command through the extension host.
+ * The caller injects `commit`/`push` as thin `executeCommand` wrappers so this
+ * stays a thin orchestrator over the existing `intellig.commit` /
+ * `intellig.push` handlers — no commit or push logic is re-implemented here.
+ *
+ * @param commit invokes the existing commit flow; resolves to the dialog
+ *   result, or `undefined` when no synchronous commit occurred.
+ * @param push invokes the existing push flow.
+ * @returns whether the push was run.
+ */
+export async function commitThenPush(
+  commit: () => Promise<ICommitDialogResult | undefined>,
+  push: () => Promise<void>
+): Promise<{ pushed: boolean }> {
+  const result = await commit();
+  if (result?.committed) {
+    await push();
+    return { pushed: true };
+  }
+  return { pushed: false };
 }
 
 /**
@@ -115,7 +148,9 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       }
     }
 
-    // Show commit dialog
+    // Show commit dialog. Return its result so callers chaining off the
+    // commit (e.g. intellig.commitAndPush) can gate on whether the user
+    // actually committed.
     if (!ctx.commitDialog) {
       ctx.commitDialog = new CommitDialog(
         ctx.context.extensionUri,
@@ -123,7 +158,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         ctx.context.workspaceState
       );
     }
-    await ctx.commitDialog.show(repo);
+    return ctx.commitDialog.show(repo);
   });
 
   // Focus the Commit tool window (Alt+0).
@@ -793,19 +828,21 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     }
   );
 
-  // Commit and Push — IntelliJ's "Commit and Push…" (Ctrl+Alt+K). IntelliJ
-  // shows a single dialog with a Push checkbox; VS Code's commit surface is a
-  // separate modal, so we chain the two: run the existing commit flow, then
-  // hand off to the Push dialog. We deliberately reuse `intellig.commit` and
-  // `intellig.push` rather than re-implementing either, so this stays a thin
-  // orchestrator over the canonical entry points (no behaviour fork).
+  // Commit and Push — IntelliJ's "Commit and Push…" (Ctrl+Alt+K). IntelliJ's
+  // GitCommitAndPushExecutor pushes as a post-commit step gated on the commit
+  // (and its before-commit checks) succeeding; a cancelled/failed commit does
+  // NOT push. VS Code's commit surface is a separate modal, so we chain the
+  // two via the canonical `intellig.commit` / `intellig.push` entry points —
+  // reusing both rather than re-implementing either — and only push when the
+  // commit reported `committed: true`.
   const commitAndPushCommand = registerLoggedCommand('intellig.commitAndPush', async () => {
-    await vscode.commands.executeCommand('intellig.commit');
-    // The commit dialog resolves whether the user committed or cancelled; we
-    // open Push unconditionally (matching IntelliJ, where dismissing the
-    // commit dialog cancels the whole flow — here the Push dialog is itself
-    // dismissible, so an accidental chain is one Esc away).
-    await vscode.commands.executeCommand('intellig.push');
+    await commitThenPush(
+      async () =>
+        vscode.commands.executeCommand<ICommitDialogResult | undefined>('intellig.commit'),
+      async () => {
+        await vscode.commands.executeCommand('intellig.push');
+      }
+    );
   });
 
   // Push up to here — IntelliJ's Git.PushUpToHere. Accepts a commit hash,
