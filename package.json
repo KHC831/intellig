@@ -1269,6 +1269,11 @@
           "default": false,
           "description": "Add Signed-off-by line to commit messages by default"
         },
+        "intellig.lineStatus.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show live changed-line markers (added/modified/deleted vs HEAD) in the editor gutter, updated as you type. Mirrors IntelliJ's change markers."
+        },
         "intellig.branches.showTags": {
           "type": "boolean",
           "default": true,

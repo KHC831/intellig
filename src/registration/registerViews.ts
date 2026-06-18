@@ -12,6 +12,7 @@ import {
   createShelfView,
   createBranchComparisonView,
   createGutterBlameProvider,
+  createLineStatusTracker,
   createRebaseProgressView,
   createBranchTreeProvider,
   createCommitToolWindow,
@@ -991,6 +992,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       ctx.services.blameOptionsSource
     );
     ctx.context.subscriptions.push(ctx.gutterBlameProvider);
+
+    // Initialize the live changed-line gutter tracker (LineStatusTracker
+    // parity). Self-contained and config-driven, so it isn't stored on the
+    // context — just registered for disposal.
+    ctx.context.subscriptions.push(createLineStatusTracker(gitService));
 
     // Initialize Rebase Progress View
     ctx.rebaseProgressView = createRebaseProgressView(

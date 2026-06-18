@@ -111,6 +111,7 @@ export { GitService, createGitService } from '../git-core/GitService';
 export { GitToolWindowProvider, GIT_TOOL_WINDOW_VIEW_ID } from '../ui-shell/GitToolWindowProvider';
 export { GutterBlameProvider, createGutterBlameProvider } from '../blame/GutterBlameProvider';
 export { InlineBlameProvider, createInlineBlameProvider } from '../blame/InlineBlameProvider';
+export { LineStatusTracker, createLineStatusTracker } from '../linestatus/LineStatusTracker';
 export {
   KeymapService,
   getDefaultKeymap,
