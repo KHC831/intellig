@@ -619,12 +619,19 @@ export class CommitContextMenuCommands {
     const replayOrder = [...commitHashes].reverse();
 
     try {
-      // Detect merge commits: if any selected commit has >1 parents, pass -m 1
-      // so git knows which parent is the mainline (parent 1 = conventional default).
-      // If the probe fails (e.g. network/bad hash), fall back to no mainline — git
-      // will surface its own "is a merge" error in that edge case.
+      // Detect merge commits: a merge needs `-m <parent>` so git knows which
+      // parent line is the mainline. Prompt for the parent (parent 1 = default
+      // mainline). If the probe fails (e.g. network/bad hash), fall back to no
+      // mainline — git will surface its own "is a merge" error in that edge case.
       const hasMerge = await this._anyIsMergeCommit(repo, replayOrder).catch(() => false);
-      const cherryOptions = hasMerge ? { mainline: 1 } : undefined;
+      let cherryOptions: { mainline: number } | undefined;
+      if (hasMerge) {
+        const picked = await this._pickMainlineParent(repo, replayOrder);
+        if (picked.cancelled) {
+          return;
+        }
+        cherryOptions = { mainline: picked.mainline };
+      }
 
       const result = await this._gitService.cherryPick(repo, replayOrder, cherryOptions);
 
@@ -962,8 +969,13 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    // Selective-file revert is only offered on single-commit reverts.
-    if (commitHashes.length === 1) {
+    // Detect merge commits up front. A merge revert needs `-m <parent>`; the
+    // selective (per-file) revert path runs `git revert -n` with no `-m` and
+    // would fail, so merges skip it and go straight to the mainline-aware path.
+    const hasMerge = await this._anyIsMergeCommit(repo, commitHashes).catch(() => false);
+
+    // Selective-file revert is only offered on single, non-merge reverts.
+    if (commitHashes.length === 1 && !hasMerge) {
       const outcome = await this._runSelectiveRevertIfApplicable(repo, commitHashes[0]);
       if (outcome === 'handled') {
         // selective-revert runs `git commit` internally (mutates
@@ -980,10 +992,6 @@ export class CommitContextMenuCommands {
     }
 
     try {
-      // Detect merge commits to decide whether -m 1 is needed. Fall back to
-      // false if the probe fails — git will surface "is a merge" error if needed.
-      const hasMerge = await this._anyIsMergeCommit(repo, commitHashes).catch(() => false);
-
       // For single non-merge commits, offer an InputBox so the user can
       // customise the revert message (default: "Revert \"<subject>\"").
       // Merge commits use -m 1 + auto-generated message; multi-commit
@@ -1013,7 +1021,15 @@ export class CommitContextMenuCommands {
         return;
       }
 
-      const revertOptions = hasMerge ? { mainline: 1 } : undefined;
+      // Merge commit: ask which parent is the mainline (`-m <n>`).
+      let revertOptions: { mainline: number } | undefined;
+      if (hasMerge) {
+        const picked = await this._pickMainlineParent(repo, commitHashes);
+        if (picked.cancelled) {
+          return;
+        }
+        revertOptions = { mainline: picked.mainline };
+      }
 
       // `commitHashes` arrives newest-first (DOM order). For
       // revert, that IS the right direction: undoing the most recent
@@ -1047,6 +1063,59 @@ export class CommitContextMenuCommands {
   private async _anyIsMergeCommit(repo: IRepository, hashes: string[]): Promise<boolean> {
     const details = await Promise.all(hashes.map((h) => this._gitService.getCommit(repo, h)));
     return details.some((c) => c.parents.length > 1);
+  }
+
+  /**
+   * Ask which parent line is the mainline for a merge commit's `-m <n>`
+   * (1-based, the way `git revert`/`git cherry-pick` expect it). Parent 1 is
+   * pre-selected — the conventional mainline, i.e. the branch the merge landed
+   * on. git4idea (`GitRevertAction`) disables merge-revert outright; we go one
+   * better and let the user pick the parent.
+   *
+   * Only a single-commit selection prompts; a multi-commit batch reuses parent
+   * 1 for every commit because `-m` is a single number shared by the whole
+   * invocation and per-commit prompting would be ambiguous.
+   *
+   * Returns `{ cancelled: true }` when the user dismisses the picker so the
+   * caller aborts instead of guessing.
+   */
+  private async _pickMainlineParent(
+    repo: IRepository,
+    hashes: string[]
+  ): Promise<{ cancelled: false; mainline: number } | { cancelled: true }> {
+    if (hashes.length !== 1) {
+      return { cancelled: false, mainline: 1 };
+    }
+    const commit = await this._gitService.getCommit(repo, hashes[0]);
+    const parents = commit.parents;
+    if (parents.length <= 1) {
+      // Defensive: caller only invokes this for a detected merge.
+      return { cancelled: false, mainline: 1 };
+    }
+    const items = await Promise.all(
+      parents.map(async (parent, i) => {
+        let subject = '';
+        try {
+          subject = (await this._gitService.getCommit(repo, parent)).message.split('\n')[0];
+        } catch {
+          subject = '';
+        }
+        return {
+          label: `Parent ${i + 1}: ${parent.slice(0, 8)}`,
+          description: subject,
+          mainline: i + 1,
+          picked: i === 0,
+        };
+      })
+    );
+    const choice = await vscode.window.showQuickPick(items, {
+      title: 'Merge commit — choose the mainline parent',
+      placeHolder: 'Parent 1 is the usual mainline (the branch the merge landed on)',
+    });
+    if (!choice) {
+      return { cancelled: true };
+    }
+    return { cancelled: false, mainline: choice.mainline };
   }
 
   /** Shared conflict-resolution UX for both revert paths. */

@@ -19,6 +19,21 @@ export class CherryPickRevertOps {
   constructor(private readonly ctx: IGitOpsContext) {}
 
   /**
+   * Validate a `-m <mainline>` parent number before it is spliced into argv.
+   * git expects a positive integer (1-based parent index); a fractional,
+   * zero, negative, or non-finite value would otherwise be stringified and
+   * passed straight to git. Throwing here keeps a malformed caller value from
+   * ever reaching the command line.
+   */
+  private static assertValidMainline(mainline: number): void {
+    if (!Number.isInteger(mainline) || mainline < 1) {
+      throw new Error(
+        `Invalid mainline parent number: ${mainline}. Expected a positive integer (1-based).`
+      );
+    }
+  }
+
+  /**
    * Cherry-pick one or more commits onto the current branch.
    * Commits are applied in the order provided.
    *
@@ -62,6 +77,7 @@ export class CherryPickRevertOps {
     // `-m <mainline>` is required when any picked commit is a merge commit;
     // parent 1 is the conventional mainline (the branch the merge landed on).
     if (options?.mainline !== undefined) {
+      CherryPickRevertOps.assertValidMainline(options.mainline);
       cherryFlags.push('-m', String(options.mainline));
     }
     const args = buildGitArgs('cherry-pick', cherryFlags, commits);
@@ -234,6 +250,7 @@ export class CherryPickRevertOps {
 
     // `-m <mainline>` is required when any reverted commit is a merge commit.
     if (options?.mainline !== undefined) {
+      CherryPickRevertOps.assertValidMainline(options.mainline);
       revertFlags.push('-m', String(options.mainline));
     }
 

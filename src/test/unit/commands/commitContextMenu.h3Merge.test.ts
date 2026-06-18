@@ -4,7 +4,9 @@
  *
  * When the user selects a merge commit (parents.length > 1) for cherry-pick or
  * revert, CommitContextMenuCommands detects the merge via gitService.getCommit
- * and passes mainline: 1 to the operation so git does not error out.
+ * and prompts for which parent line is the mainline, passing the chosen
+ * `mainline: <n>` to the operation so git does not error out. Parent 1 is the
+ * pre-selected default.
  *
  * For single non-merge reverts, an InputBox pre-filled with the default
  * "Revert \"<subject>\"" message lets the user customise the revert commit
@@ -190,16 +192,26 @@ describe('CommitContextMenuCommands — merge commit detection (H3)', () => {
       Promise.resolve(opts?.value);
     writableWindow().showInformationMessage = async () => undefined;
     writableWindow().showErrorMessage = async () => undefined;
+    writableWindow().showQuickPick = async () => undefined;
   });
 
+  // Stub the mainline-parent QuickPick to choose Parent 1 (the default).
+  function pickMainlineParent1(): void {
+    writableWindow().showQuickPick = async (items: unknown[]) => {
+      const arr = (await Promise.resolve(items)) as { mainline: number }[];
+      return arr.find((i) => i.mainline === 1);
+    };
+  }
+
   describe('cherry-pick', () => {
-    it('passes mainline: 1 when the selected commit is a merge commit', async () => {
+    it('prompts and passes the chosen mainline parent for a merge commit', async () => {
       const repo = makeRepo();
       const gitService = makeGitService(repo, {
         parentsByHash: { [MERGE_HASH]: ['p1', 'p2'] },
       });
       const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
       writableWindow().showInformationMessage = async () => undefined;
+      pickMainlineParent1();
 
       await commands._handleAction('cherryPick', [MERGE_HASH]);
 
@@ -243,13 +255,14 @@ describe('CommitContextMenuCommands — merge commit detection (H3)', () => {
   });
 
   describe('revert', () => {
-    it('passes mainline: 1 when the selected commit is a merge commit', async () => {
+    it('prompts and passes the chosen mainline parent for a merge commit', async () => {
       const repo = makeRepo();
       const gitService = makeGitService(repo, {
         parentsByHash: { [MERGE_HASH]: ['p1', 'p2'] },
       });
       const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
       writableWindow().showInformationMessage = async () => undefined;
+      pickMainlineParent1();
 
       await commands._handleAction('revert', [MERGE_HASH]);
 

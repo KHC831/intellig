@@ -683,6 +683,110 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
   });
 });
 
+// ─── merge-commit mainline (-m <parent>) prompt ──────────────────────────────
+
+describe('CommitContextMenuCommands — merge-commit mainline prompt (H-3)', () => {
+  const mergeHash = 'abcdef01abcdef01abcdef01abcdef01abcdef01';
+
+  // Build a service whose `getCommit` reports `mergeHash` as a merge (2
+  // parents) and captures the options passed to revert / cherryPick.
+  function makeMergeHarness(): {
+    commands: CommitContextMenuCommands;
+    captured: { cherry: unknown[]; revert: unknown[] };
+  } {
+    const repo = makeRepo();
+    const captured: { cherry: unknown[]; revert: unknown[] } = { cherry: [], revert: [] };
+    const gitService = makeGitService(repo, {
+      getCommit: async (_r: IRepository, h: string) =>
+        ({
+          hash: h,
+          shortHash: h.substring(0, 8),
+          message: 'Merge branch feature',
+          parents: h === mergeHash ? ['parent1aa', 'parent2bb'] : [],
+        }) as unknown as ReturnType<IGitService['getCommit']>,
+    });
+    (gitService as unknown as { cherryPick: unknown }).cherryPick = async (
+      _r: IRepository,
+      _h: string[],
+      opts: unknown
+    ) => {
+      captured.cherry.push(opts);
+      return { success: true };
+    };
+    (gitService as unknown as { revert: unknown }).revert = async (
+      _r: IRepository,
+      _h: string[],
+      opts: unknown
+    ) => {
+      captured.revert.push(opts);
+      return { success: true };
+    };
+    const commands = new CommitContextMenuCommands(gitService, makeRebase(), makeProvider());
+    return { commands, captured };
+  }
+
+  it('revert of a merge commit prompts and passes the chosen mainline parent', async () => {
+    const { commands, captured } = makeMergeHarness();
+    // QuickPick: pick "Parent 2".
+    const { restore } = installWindowStubs((items) => {
+      const arr = items as unknown as { mainline: number }[];
+      return arr.find((i) => i.mainline === 2);
+    });
+    try {
+      await commands._handleAction('revert', [mergeHash]);
+      assert.strictEqual(captured.revert.length, 1);
+      assert.deepStrictEqual(captured.revert[0], { mainline: 2 });
+    } finally {
+      restore();
+    }
+  });
+
+  it('cherry-pick of a merge commit prompts and defaults to parent 1', async () => {
+    const { commands, captured } = makeMergeHarness();
+    const { restore } = installWindowStubs((items) => {
+      const arr = items as unknown as { mainline: number }[];
+      return arr.find((i) => i.mainline === 1);
+    });
+    try {
+      await commands._handleAction('cherryPick', [mergeHash]);
+      assert.strictEqual(captured.cherry.length, 1);
+      assert.deepStrictEqual(captured.cherry[0], { mainline: 1 });
+    } finally {
+      restore();
+    }
+  });
+
+  it('cancelling the mainline prompt aborts the revert (no git call)', async () => {
+    const { commands, captured } = makeMergeHarness();
+    const { restore } = installWindowStubs(() => undefined);
+    try {
+      await commands._handleAction('revert', [mergeHash]);
+      assert.strictEqual(captured.revert.length, 0, 'revert must not run when prompt cancelled');
+    } finally {
+      restore();
+    }
+  });
+
+  it('non-merge revert never prompts for a mainline and omits the option', async () => {
+    const { commands, captured } = makeMergeHarness();
+    const nonMerge = '1111111111111111111111111111111111111111';
+    // Responder also handles the single-file selective-revert picker (returns
+    // all items) — but a single-file commit skips it anyway.
+    const { restore } = installWindowStubs((items) => [...(items as unknown[])]);
+    try {
+      await commands._handleAction('revert', [nonMerge]);
+      assert.strictEqual(captured.revert.length, 1);
+      assert.strictEqual(
+        (captured.revert[0] as { mainline?: number } | undefined)?.mainline,
+        undefined,
+        'no mainline option for a non-merge commit'
+      );
+    } finally {
+      restore();
+    }
+  });
+});
+
 // ─── — multi-root repo resolution ────────────────────────────────────
 
 describe('CommitContextMenuCommands — R5 H-3 multi-root repo resolution', () => {

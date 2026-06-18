@@ -140,4 +140,51 @@ describe('CherryPickRevertOps — -m mainline for merge commits (H3)', () => {
       assert.ok(revert.args.includes('--no-edit'));
     });
   });
+
+  // The mainline parent number is spliced directly into argv. A non-integer
+  // or non-positive value must be rejected before it reaches git, so a
+  // malformed caller value can never land as a stray token in the command.
+  describe('mainline validation (argv injection-safe)', () => {
+    const bad: { label: string; value: number }[] = [
+      { label: 'zero', value: 0 },
+      { label: 'negative', value: -1 },
+      { label: 'fractional', value: 2.5 },
+      { label: 'NaN', value: Number.NaN },
+      { label: 'Infinity', value: Number.POSITIVE_INFINITY },
+    ];
+    for (const { label, value } of bad) {
+      it(`cherry-pick rejects ${label} mainline and never spawns git`, async () => {
+        const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
+        await assert.rejects(() => ops.cherryPick(repo(), ['abc1234'], { mainline: value }));
+        assert.strictEqual(calls.length, 0, 'no git command should run for invalid mainline');
+      });
+      it(`revert rejects ${label} mainline and never spawns git`, async () => {
+        const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
+        await assert.rejects(() => ops.revert(repo(), ['abc1234'], { mainline: value }));
+        assert.strictEqual(calls.length, 0, 'no git command should run for invalid mainline');
+      });
+    }
+
+    it('cherry-pick accepts mainline 2 and places hash behind --end-of-options', async () => {
+      const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
+      await ops.cherryPick(repo(), ['deadbeef'], { mainline: 2 });
+      const cherry = calls.find((c) => c.args[0] === 'cherry-pick');
+      assert.ok(cherry);
+      assert.strictEqual(cherry.args[cherry.args.indexOf('-m') + 1], '2');
+      const eooIdx = cherry.args.indexOf('--end-of-options');
+      const hashIdx = cherry.args.indexOf('deadbeef');
+      assert.ok(eooIdx >= 0 && eooIdx < hashIdx, 'hash must sit behind --end-of-options');
+    });
+
+    it('revert accepts mainline 2 and places hash behind --end-of-options', async () => {
+      const { ops, calls } = makeMockOps([{ exitCode: 0, stdout: '', stderr: '' }]);
+      await ops.revert(repo(), ['deadbeef'], { mainline: 2 });
+      const revert = calls.find((c) => c.args[0] === 'revert');
+      assert.ok(revert);
+      assert.strictEqual(revert.args[revert.args.indexOf('-m') + 1], '2');
+      const eooIdx = revert.args.indexOf('--end-of-options');
+      const hashIdx = revert.args.indexOf('deadbeef');
+      assert.ok(eooIdx >= 0 && eooIdx < hashIdx, 'hash must sit behind --end-of-options');
+    });
+  });
 });
