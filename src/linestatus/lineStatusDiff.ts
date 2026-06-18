@@ -59,17 +59,31 @@ export interface ILineStatusRange {
 export const MAX_TRACKED_LINES = 10000;
 
 /**
+ * Cap on the LCS table size (`oldLines.length * newLines.length`). The diff
+ * allocates an m×n dp table, so the per-side {@link MAX_TRACKED_LINES} cap is
+ * not enough — two ~10k-line sides would still allocate ~10^8 cells (hundreds
+ * of MB) synchronously on the extension host. Past this product cap we skip the
+ * diff too. ~16M cells keeps the table to a few hundred MB worst case while
+ * still covering files up to a few thousand lines on each side.
+ */
+export const MAX_DIFF_CELLS = 16_000_000;
+
+/**
  * Compute the changed-line ranges of `buffer` relative to its committed
  * `head` content. Returns ranges in ascending buffer-line order.
  *
- * Files larger than {@link MAX_TRACKED_LINES} on either side are not diffed —
- * an empty result is returned so the tracker shows no markers rather than
- * blocking the extension host on a quadratic LCS.
+ * Files larger than {@link MAX_TRACKED_LINES} on either side, or whose LCS
+ * table would exceed {@link MAX_DIFF_CELLS} cells, are not diffed — an empty
+ * result is returned so the tracker shows no markers rather than blocking the
+ * extension host on a quadratic LCS.
  */
 export function computeLineStatusRanges(head: string, buffer: string): ILineStatusRange[] {
   const oldLines = splitLines(head);
   const newLines = splitLines(buffer);
   if (oldLines.length > MAX_TRACKED_LINES || newLines.length > MAX_TRACKED_LINES) {
+    return [];
+  }
+  if (oldLines.length * newLines.length > MAX_DIFF_CELLS) {
     return [];
   }
   const ops = diffLines(oldLines, newLines);

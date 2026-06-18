@@ -18,6 +18,7 @@ import {
   computeLineStatusRanges,
   ILineStatusRange,
   MAX_TRACKED_LINES,
+  MAX_DIFF_CELLS,
 } from '../../../linestatus/lineStatusDiff';
 
 describe('computeLineStatusRanges', () => {
@@ -103,6 +104,18 @@ describe('computeLineStatusRanges', () => {
     assert.deepStrictEqual(computeLineStatusRanges('', buffer), []);
     // Also when HEAD is the oversized side.
     assert.deepStrictEqual(computeLineStatusRanges(buffer, 'x\n'), []);
+  });
+
+  it('skips the diff when the LCS table would exceed the cell cap, even with both sides under the line cap', () => {
+    // 5000 x 5000 = 25M cells > MAX_DIFF_CELLS, yet each side is under
+    // MAX_TRACKED_LINES — so only the product cap catches it. Without that cap
+    // the dp table would allocate ~25M cells synchronously on the ext host.
+    const n = 5000;
+    assert.ok(n < MAX_TRACKED_LINES, 'sides must be under the per-side cap for this test');
+    assert.ok(n * n > MAX_DIFF_CELLS, 'product must exceed the cell cap for this test');
+    const head = `${Array.from({ length: n }, (_, i) => `a${i}`).join('\n')}\n`;
+    const buffer = `${Array.from({ length: n }, (_, i) => `b${i}`).join('\n')}\n`;
+    assert.deepStrictEqual(computeLineStatusRanges(head, buffer), []);
   });
 
   it('still diffs a file right at the line cap', () => {
