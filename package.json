@@ -1123,6 +1123,10 @@
         {
           "command": "intellig.blame.toggleDetectMovementsAcrossFiles",
           "group": "2_movement@2"
+        },
+        {
+          "command": "intellig.blame.clearHiddenRevisions",
+          "group": "3_revisions@1"
         }
       ],
       "intellig.trackedBranchSubmenu": [

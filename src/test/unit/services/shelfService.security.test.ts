@@ -149,6 +149,60 @@ describe('ShelfService — binary restore/revert path containment', () => {
     });
   });
 
+  describe('symlink escape (in-repo symlink whose target leaves the repo)', () => {
+    // The lexical guard confines `..` and absolute paths but a contained path
+    // can route through an in-repo symlink that points OUTSIDE the repo. The
+    // raw-fs write/delete would then follow the link and touch an out-of-repo
+    // target. realpath hardening must reject these.
+    let outside: string;
+
+    beforeEach(() => {
+      outside = path.join(sandbox, 'outside');
+      fs.mkdirSync(outside, { recursive: true });
+      // `<repo>/link` → `<sandbox>/outside`. A shelf entry naming `link/<x>`
+      // is lexically inside the repo but physically escapes it.
+      fs.symlinkSync(outside, path.join(repoRoot, 'link'), 'dir');
+    });
+
+    it('restore refuses to write through an in-repo symlink that escapes the repo', () => {
+      const escaped = path.join(outside, 'evil.txt');
+      const result = restore({
+        path: 'link/evil.txt',
+        diff: '',
+        isBinary: true,
+        binaryStatus: 'added',
+        binaryContent: Buffer.from('pwned').toString('base64'),
+      });
+      assert.strictEqual(result, false);
+      assert.ok(!fs.existsSync(escaped), 'must not write through the escaping symlink');
+    });
+
+    it('restore refuses to delete an out-of-repo file reached via an in-repo symlink', () => {
+      const escaped = path.join(outside, 'keep.txt');
+      fs.writeFileSync(escaped, 'precious');
+      const result = restore({
+        path: 'link/keep.txt',
+        diff: '',
+        isBinary: true,
+        binaryStatus: 'deleted',
+      });
+      assert.strictEqual(result, false);
+      assert.ok(fs.existsSync(escaped), 'must not delete through the escaping symlink');
+    });
+
+    it('revert refuses to delete an out-of-repo file reached via an in-repo symlink', async () => {
+      const escaped = path.join(outside, 'keep2.txt');
+      fs.writeFileSync(escaped, 'precious');
+      await revert({
+        path: 'link/keep2.txt',
+        diff: '',
+        isBinary: true,
+        binaryStatus: 'added',
+      });
+      assert.ok(fs.existsSync(escaped), 'must not delete through the escaping symlink');
+    });
+  });
+
   describe('revertBinaryShelfFile (added branch raw-fs delete)', () => {
     it('refuses a traversal path and deletes nothing outside the repo', async () => {
       const escaped = path.join(sandbox, 'keepme2.txt');

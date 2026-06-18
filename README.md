@@ -297,23 +297,24 @@ Enable the IntelliJ preset in settings:
 
 ### Blame annotations
 
-| Setting                                     | Default    | Description                                  |
-| ------------------------------------------- | ---------- | -------------------------------------------- |
-| `intellig.blameAnnotationStyle`             | `"inline"` | `"inline"`, `"gutter"`, `"both"`, or `"off"` |
-| `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`                     |
-| `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`                     |
-| `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`                  |
-| `intellig.blame.colorMode`                  | `"order"`  | Background tint: `"order"` (age heat) or `"author"` |
-| `intellig.blame.showAuthor`                 | `true`     | Show the author column (Author aspect)       |
-| `intellig.blame.showDate`                   | `true`     | Show the date column (Date aspect)           |
-| `intellig.blame.showRevision`               | `true`     | Show the revision/hash column (Revision aspect) |
+| Setting                                     | Default    | Description                                                                         |
+| ------------------------------------------- | ---------- | ----------------------------------------------------------------------------------- |
+| `intellig.blameAnnotationStyle`             | `"inline"` | `"inline"`, `"gutter"`, `"both"`, or `"off"`                                        |
+| `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`                                                            |
+| `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`                                                            |
+| `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`                                                         |
+| `intellig.blame.colorMode`                  | `"order"`  | Background tint: `"order"` (age heat) or `"author"`                                 |
+| `intellig.blame.showAuthor`                 | `true`     | Show the author column (Author aspect)                                              |
+| `intellig.blame.showDate`                   | `true`     | Show the date column (Date aspect)                                                  |
+| `intellig.blame.showRevision`               | `true`     | Show the revision/hash column (Revision aspect)                                     |
 | `intellig.blame.authorNameFormat`           | `"full"`   | Author rendering: `"full"`, `"firstname"`, `"lastname"`, `"initials"`, or `"email"` |
 
 ### Diff
 
-| Setting                       | Default     | Description                                                                                                                              |
-| ----------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Setting                       | Default     | Description                                                                                                                                                         |
+| ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `intellig.diff.ignorePolicy`  | `"default"` | Whitespace ignore policy for diffs (IntelliJ "Ignore whitespace"): `"default"`, `"trim-whitespaces"`, `"ignore-whitespaces"`, or `"ignore-whitespaces-empty-lines"` |
+| `intellig.lineStatus.enabled` | `true`      | Show live changed-line markers (added/modified/deleted vs `HEAD`) in the editor gutter, mirroring IntelliJ's change markers                                         |
 
 ### Branches popup
 

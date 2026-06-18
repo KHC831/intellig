@@ -37,7 +37,7 @@ This review covers:
 |---|---|---|---|---|
 | P1 #7: Branch cherry-pick pulls from global log, not clicked branch | ❌ missing | ✅ parity | cf88c99 (2026-06-14) | `ILogOptions.ref` scopes cherry-pick dialog to selected branch |
 | P2: Compare with Current → split log view | 🟡 partial (toast only) | 🟡 partial | — | BranchComparisonView exists but renders as flat QuickPick, not IntelliJ's split-log panel (P4 platform-rebuild) |
-| P2: Find merged branches / bulk cleanup | ❌ missing | 🟡 partial | 9640615 (2026-06-14) | `getMergedBranches` op landed; UI dialog deferred |
+| P2: Find merged branches / bulk cleanup | ❌ missing | ❌ not implemented | — | Intentionally not implemented — git4idea `Git.Cleanup.Branches` is `internal="true"` (not user-facing parity); the orphaned backend was removed |
 | P3: Branch context menu ordering | 🟡 partial | 🟡 partial | — | Most actions registered but order doesn't match IntelliJ's grouping (Checkout/New Branch/Merge/Rebase/Compare → Delete/Rename) |
 
 ## Gap table (Round 2 — fresh)
@@ -109,7 +109,6 @@ IntelliJ reference: `GitNewBranchNameValidator.java` → `check-ref-format --bra
   - `renameBranch:295-299` — guards on both old and new, buildGitArgs(:301)
   - `mergeBranch:338` — buildGitArgs for branch ref
   - `rebaseBranch:405` — buildGitArgs for onto ref (with `--root` special-case empty-refs)
-  - `getMergedBranches:227-228` — leading guard on `into` target, buildGitArgs(:230)
   - `compareBranches:587, :608, :621, :634` — buildGitArgs for all 4 ref combinations (count, ahead log, behind log, diff)
 
 **Pattern is strong and consistent.** Only residual risk = the `-b`/`-B` positional-adjacency special-case (checkout:114, :176) where `--end-of-options` can't separate the flag from the name without breaking git's parser → mitigated by upstream `validateBranchName` (but see Finding #3 above re: incomplete regex).
@@ -158,7 +157,8 @@ IntelliJ reference: `GitNewBranchNameValidator.java` → `check-ref-format --bra
 3. 🟡 **Validation: regex-only, never calls `git check-ref-format`** (Finding #3) — drift risk, opaque errors on bypass. **S effort,** improves error UX.
 
 **R1 closed vs. open:**
-- **CLOSED:** P1 #7 cherry-pick scoped to branch (cf88c99), P2 getMergedBranches op (9640615)
+- **CLOSED:** P1 #7 cherry-pick scoped to branch (cf88c99)
+- **NOT IMPLEMENTED (intentional):** merged-branch cleanup — git4idea `Git.Cleanup.Branches` is `internal="true"`, so it is not a user-facing parity requirement; the orphaned `getMergedBranches` backend was removed
 - **OPEN/PARTIAL:** Compare-with-current split UI (P4), bulk ops (P4), in-popup fetch (P4), menu ordering (P3)
 
 **🔴 Blockers:** 1 (delete remote branch dead handler)

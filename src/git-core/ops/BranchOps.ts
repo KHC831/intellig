@@ -214,36 +214,6 @@ export class BranchOps {
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
-  /**
-   * List local branches fully merged into `into` (default HEAD) — the
-   * primitive behind IntelliJ's "Find Merged Local Branches" /
-   * CleanupBranchesDialog. Runs `git branch --merged <into>` and returns plain
-   * names, excluding the current (`*`) branch and any detached-HEAD line (you
-   * cannot delete the branch you're on, so it never belongs in a cleanup
-   * candidate list). Returns `[]` on git failure (e.g. a bad target ref)
-   * rather than throwing, so a cleanup UI degrades to "nothing to clean".
-   */
-  async getMergedBranches(repo: IRepository, into: string = 'HEAD'): Promise<string[]> {
-    if (!into || into.startsWith('-') || into.startsWith('.')) {
-      throw new Error(`Invalid merge target: ${into}`);
-    }
-    const args = buildGitArgs('branch', ['--merged'], [into]);
-    const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
-    if (result.exitCode !== 0) {
-      return [];
-    }
-    return (
-      result.stdout
-        .split('\n')
-        .filter((line) => line.length > 0)
-        // The current branch is prefixed with `* ` and a detached HEAD renders
-        // as `* (HEAD detached …)`; drop both — neither is a deletable branch.
-        .filter((line) => !line.startsWith('*'))
-        .map((line) => line.trim())
-        .filter((name) => name.length > 0 && !name.startsWith('('))
-    );
-  }
-
   async deleteBranch(repo: IRepository, name: string, force?: boolean): Promise<void> {
     // service-boundary reject branch names starting with `-`
     // (git would parse `-foo` as a CLI flag) or `.` (invalid per

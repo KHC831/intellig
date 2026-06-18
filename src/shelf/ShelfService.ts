@@ -34,19 +34,53 @@ import { isPathInsideOrEqual } from '../git-core/repo/RepositoryDiscovery';
  * disk. Absolute paths are rejected outright (`path.join` would otherwise fold
  * them back under the root and mask the intent).
  *
- * This is a LEXICAL containment check: it confines `..` segments and absolute
- * paths, but does NOT defend against an in-repo symlink whose target points
- * outside the repository — a `writeFileSync`/`rmSync` on a contained path that
- * happens to be such a symlink would still follow it. Closing that gap needs
- * realpath / `O_NOFOLLOW` hardening, a tracked follow-up; it also requires the
- * attacker to plant a malicious symlink in the delivered tree on top of the
- * crafted shelf entry.
+ * Containment is enforced in two layers. First a LEXICAL check confines `..`
+ * segments and rejects absolute paths. Then a REALPATH check defends against an
+ * in-repo symlink whose target points outside the repository: a `writeFileSync`
+ * /`rmSync` on a lexically contained path that routes through such a symlink
+ * would otherwise follow it. The target file itself may not exist yet (a restore
+ * creates it), so we resolve the real path of its nearest EXISTING ancestor and
+ * require that to live inside the real (symlink-resolved) repository root. Both
+ * sides are resolved with `fs.realpathSync` so a symlinked repo root (e.g.
+ * `/tmp` → `/private/tmp` on macOS) compares consistently. Any resolution
+ * failure fails closed (returns `false`).
  */
 function isShelfFilePathWithinRepo(rootFsPath: string, filePath: string): boolean {
   if (path.isAbsolute(filePath)) {
     return false;
   }
-  return isPathInsideOrEqual(rootFsPath, path.join(rootFsPath, filePath));
+  const absTarget = path.join(rootFsPath, filePath);
+  if (!isPathInsideOrEqual(rootFsPath, absTarget)) {
+    return false;
+  }
+
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(rootFsPath);
+  } catch {
+    return false;
+  }
+
+  // Walk up to the nearest existing ancestor (the target may not exist yet),
+  // then realpath it. `fs.existsSync` follows symlinks, so a link that escapes
+  // the repo resolves to an out-of-repo physical path here and is rejected.
+  let ancestor = absTarget;
+  while (!fs.existsSync(ancestor)) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) {
+      break;
+    }
+    ancestor = parent;
+  }
+
+  let realAncestor: string;
+  try {
+    realAncestor = fs.realpathSync(ancestor);
+  } catch {
+    return false;
+  }
+
+  return isPathInsideOrEqual(realRoot, realAncestor);
 }
 
 /**

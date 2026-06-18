@@ -1230,10 +1230,6 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._branches.deleteBranch(repo, name, force);
   }
 
-  getMergedBranches(repo: IRepository, into?: string): Promise<string[]> {
-    return this._branches.getMergedBranches(repo, into);
-  }
-
   /**
    * `git branch --set-upstream-to=<upstreamRef>
    * <localName>`. Used by `Track Remote Branch` when an existing local

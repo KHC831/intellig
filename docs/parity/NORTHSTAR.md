@@ -180,9 +180,10 @@ false→true; provider already honored the flag per render).
 
 ### D. Branches & Tags — 🟢 ~97%
 **Remaining (verified residuals only):** tree `FilteringTree` / search-as-you-type (partly covered by VS
-Code's native TreeView filtering); branch-tree multi-select (`canSelectMany`); `getMergedBranches` has no
-production UI caller (op + service exist, only test callers — orphaned backend). Everything else below has
-landed.
+Code's native TreeView filtering); branch-tree multi-select (`canSelectMany`). Everything else below has
+landed. Branch-cleanup (merged-branch deletion) is intentionally not implemented — git4idea's
+`Git.Cleanup.Branches` action is `internal="true"`, so it is not a user-facing parity requirement; the
+orphaned backend was removed.
 **Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17**.
 (2) ~~tree HEAD+favorites~~ **DONE 2026-06-17** (HEAD root node + Memento-persisted favorites + star
 icon) + ~~multi-repo grouping~~ **DONE 2026-06-17** (per-repository root nodes when >1 repo). (3)
