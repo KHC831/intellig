@@ -33,6 +33,20 @@ export interface ILineStatusRange {
   start: number;
   /** 0-based inclusive last buffer line of the range (== start for `deleted`). */
   end: number;
+
+  // Exact diff coordinates (IntelliJ `Range` line1/line2 + vcsLine1/vcsLine2,
+  // platform/vcs-impl/.../ex/LineStatusTracker.kt). Both spans are half-open and
+  // 0-based; the hover popup + revert (slice F-8b) use these rather than the
+  // decoration anchor above, which is inclusive and clamped for drawing.
+
+  /** First buffer line of the change (== `bufEnd` for `deleted`: nothing in the buffer). */
+  bufStart: number;
+  /** End-exclusive buffer line of the change; the true (unclamped) insertion point for `deleted`. */
+  bufEnd: number;
+  /** First HEAD line of the change (== `vcsEnd` for `added`: nothing in HEAD). */
+  vcsStart: number;
+  /** End-exclusive HEAD line of the change. */
+  vcsEnd: number;
 }
 
 /**
@@ -66,8 +80,11 @@ export function computeLineStatusRanges(head: string, buffer: string): ILineStat
  * Split file content into lines, dropping the empty trailing element produced
  * by a final newline. Empty content yields zero lines (not one blank line) so
  * an empty HEAD (added file) contributes no spurious leading line.
+ *
+ * Exported so the hover popup addresses HEAD lines by the same indices these
+ * ranges carry (`vcsStart`/`vcsEnd`).
  */
-function splitLines(text: string): string[] {
+export function splitLines(text: string): string[] {
   if (text.length === 0) {
     return [];
   }
@@ -131,11 +148,13 @@ function diffLines(oldLines: string[], newLines: string[]): Op[] {
 function coalesce(ops: Op[], bufferLineCount: number): ILineStatusRange[] {
   const ranges: ILineStatusRange[] = [];
   let bufferLine = 0; // 0-based index of the next buffer line to consume
+  let headLine = 0; // 0-based index of the next HEAD line consumed
   let k = 0;
 
   while (k < ops.length) {
     if (ops[k].type === 'equal') {
       bufferLine++;
+      headLine++;
       k++;
       continue;
     }
@@ -144,28 +163,47 @@ function coalesce(ops: Op[], bufferLineCount: number): ILineStatusRange[] {
     let adds = 0;
     let dels = 0;
     const blockStart = bufferLine;
+    const headStart = headLine;
     while (k < ops.length && ops[k].type !== 'equal') {
       if (ops[k].type === 'add') {
         adds++;
         bufferLine++;
       } else {
         dels++;
+        headLine++;
       }
       k++;
     }
+
+    const bufStart = blockStart;
+    const bufEnd = blockStart + adds;
+    const vcsStart = headStart;
+    const vcsEnd = headStart + dels;
 
     if (adds > 0) {
       ranges.push({
         kind: dels > 0 ? 'modified' : 'added',
         start: blockStart,
         end: blockStart + adds - 1,
+        bufStart,
+        bufEnd,
+        vcsStart,
+        vcsEnd,
       });
     } else {
       // Pure deletion: no buffer lines were produced. Anchor to the buffer
       // line that now sits at the deletion point, clamped into the buffer.
       const lastLine = Math.max(0, bufferLineCount - 1);
       const anchor = Math.min(blockStart, lastLine);
-      ranges.push({ kind: 'deleted', start: anchor, end: anchor });
+      ranges.push({
+        kind: 'deleted',
+        start: anchor,
+        end: anchor,
+        bufStart,
+        bufEnd,
+        vcsStart,
+        vcsEnd,
+      });
     }
   }
 

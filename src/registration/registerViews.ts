@@ -13,6 +13,7 @@ import {
   createBranchComparisonView,
   createGutterBlameProvider,
   createLineStatusTracker,
+  createLineStatusHoverProvider,
   createRebaseProgressView,
   createBranchTreeProvider,
   createCommitToolWindow,
@@ -997,6 +998,10 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // parity). Self-contained and config-driven, so it isn't stored on the
     // context — just registered for disposal.
     ctx.context.subscriptions.push(createLineStatusTracker(gitService));
+
+    // Inline-diff hover popup on a change marker (LineStatusMarkerPopup parity):
+    // shows the committed content for the hovered range + revert/copy actions.
+    ctx.context.subscriptions.push(createLineStatusHoverProvider(gitService));
 
     // Initialize Rebase Progress View
     ctx.rebaseProgressView = createRebaseProgressView(

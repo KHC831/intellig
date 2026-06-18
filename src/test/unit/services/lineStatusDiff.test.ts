@@ -30,7 +30,7 @@ describe('computeLineStatusRanges', () => {
     const head = 'a\nb\nc\n';
     const buffer = 'a\nNEW\nb\nc\n';
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), [
-      { kind: 'added', start: 1, end: 1 },
+      { kind: 'added', start: 1, end: 1, bufStart: 1, bufEnd: 2, vcsStart: 1, vcsEnd: 1 },
     ]);
   });
 
@@ -38,7 +38,7 @@ describe('computeLineStatusRanges', () => {
     const head = 'a\nb\n';
     const buffer = 'a\nX\nY\nZ\nb\n';
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), [
-      { kind: 'added', start: 1, end: 3 },
+      { kind: 'added', start: 1, end: 3, bufStart: 1, bufEnd: 4, vcsStart: 1, vcsEnd: 1 },
     ]);
   });
 
@@ -46,7 +46,7 @@ describe('computeLineStatusRanges', () => {
     const head = 'a\nb\nc\n';
     const buffer = 'a\nB-CHANGED\nc\n';
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), [
-      { kind: 'modified', start: 1, end: 1 },
+      { kind: 'modified', start: 1, end: 1, bufStart: 1, bufEnd: 2, vcsStart: 1, vcsEnd: 2 },
     ]);
   });
 
@@ -54,7 +54,7 @@ describe('computeLineStatusRanges', () => {
     const head = 'a\nb\nc\n';
     const buffer = 'a\nc\n';
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), [
-      { kind: 'deleted', start: 1, end: 1 },
+      { kind: 'deleted', start: 1, end: 1, bufStart: 1, bufEnd: 1, vcsStart: 1, vcsEnd: 2 },
     ]);
   });
 
@@ -84,7 +84,7 @@ describe('computeLineStatusRanges', () => {
     const head = '';
     const buffer = 'x\ny\nz\n';
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), [
-      { kind: 'added', start: 0, end: 2 },
+      { kind: 'added', start: 0, end: 2, bufStart: 0, bufEnd: 3, vcsStart: 0, vcsEnd: 0 },
     ]);
   });
 
@@ -92,7 +92,7 @@ describe('computeLineStatusRanges', () => {
     const head = 'x\ny\nz\n';
     const buffer = '';
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), [
-      { kind: 'deleted', start: 0, end: 0 },
+      { kind: 'deleted', start: 0, end: 0, bufStart: 0, bufEnd: 0, vcsStart: 0, vcsEnd: 3 },
     ]);
   });
 
@@ -112,6 +112,8 @@ describe('computeLineStatusRanges', () => {
     const buffer = [...lines];
     buffer[0] = 'CHANGED';
     const ranges = computeLineStatusRanges(head, `${buffer.join('\n')}\n`);
-    assert.deepStrictEqual(ranges, [{ kind: 'modified', start: 0, end: 0 }]);
+    assert.deepStrictEqual(ranges, [
+      { kind: 'modified', start: 0, end: 0, bufStart: 0, bufEnd: 1, vcsStart: 0, vcsEnd: 1 },
+    ]);
   });
 });

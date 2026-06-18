@@ -113,6 +113,10 @@ export { GutterBlameProvider, createGutterBlameProvider } from '../blame/GutterB
 export { InlineBlameProvider, createInlineBlameProvider } from '../blame/InlineBlameProvider';
 export { LineStatusTracker, createLineStatusTracker } from '../linestatus/LineStatusTracker';
 export {
+  LineStatusHoverProvider,
+  createLineStatusHoverProvider,
+} from '../linestatus/LineStatusHoverProvider';
+export {
   KeymapService,
   getDefaultKeymap,
   getIntelliJKeymap,

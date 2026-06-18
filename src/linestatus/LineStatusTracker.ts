@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { IGitService } from '../git-core/interfaces/IGitService';
 import { computeLineStatusRanges, LineStatusKind, ILineStatusRange } from './lineStatusDiff';
+import { fetchHeadContent } from './lineStatusHead';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
@@ -138,14 +138,10 @@ export class LineStatusTracker implements vscode.Disposable {
       return cached;
     }
 
-    const repo = await this._gitService.getRepository(document.uri);
-    if (!repo || !this._gitService.getFileAtRevision) {
-      return undefined;
+    const head = await fetchHeadContent(this._gitService, document.uri);
+    if (head !== undefined) {
+      this._headCache.set(key, head);
     }
-
-    const relativePath = path.relative(repo.rootUri.fsPath, document.uri.fsPath);
-    const head = await this._gitService.getFileAtRevision(repo, relativePath, 'HEAD');
-    this._headCache.set(key, head);
     return head;
   }
 
