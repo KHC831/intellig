@@ -24,6 +24,30 @@ interface IGitServiceWithCli {
 import { parseDiff } from '../git-core/gitParser';
 import { splitPatchByFile } from '../patches/PatchService';
 import { applyTextPatch } from '../patches/applyTextPatch';
+import { isPathInsideOrEqual } from '../git-core/repo/RepositoryDiscovery';
+
+/**
+ * True when a shelved file path, resolved against the repository root, stays
+ * inside that root. The shelf store (`.git/intellig-shelf.json`) is
+ * attacker-deliverable — a crafted entry can name `../../foo` or an absolute
+ * path — so any raw-`fs` write/delete must confirm containment before touching
+ * disk. Absolute paths are rejected outright (`path.join` would otherwise fold
+ * them back under the root and mask the intent).
+ *
+ * This is a LEXICAL containment check: it confines `..` segments and absolute
+ * paths, but does NOT defend against an in-repo symlink whose target points
+ * outside the repository — a `writeFileSync`/`rmSync` on a contained path that
+ * happens to be such a symlink would still follow it. Closing that gap needs
+ * realpath / `O_NOFOLLOW` hardening, a tracked follow-up; it also requires the
+ * attacker to plant a malicious symlink in the delivered tree on top of the
+ * crafted shelf entry.
+ */
+function isShelfFilePathWithinRepo(rootFsPath: string, filePath: string): boolean {
+  if (path.isAbsolute(filePath)) {
+    return false;
+  }
+  return isPathInsideOrEqual(rootFsPath, path.join(rootFsPath, filePath));
+}
 
 /**
  * Shelf storage file format version.
@@ -1090,6 +1114,12 @@ export class ShelfService implements IShelfService {
    * are written via `fs` so they round-trip exactly. Returns `true` on success.
    */
   private restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): boolean {
+    if (!isShelfFilePathWithinRepo(repo.rootUri.fsPath, file.path)) {
+      this._logger.error('Refusing to restore shelved binary file outside repository root', {
+        path: file.path,
+      });
+      return false;
+    }
     const absPath = path.join(repo.rootUri.fsPath, file.path);
     try {
       if (file.binaryStatus === 'deleted') {
@@ -1124,7 +1154,15 @@ export class ShelfService implements IShelfService {
     const cwd = repo.rootUri.fsPath;
     const absPath = path.join(cwd, file.path);
     if (file.binaryStatus === 'added') {
-      // No HEAD revision — drop the working-tree copy.
+      // No HEAD revision — drop the working-tree copy. The raw-fs delete must
+      // stay inside the repo (the shelf store is attacker-deliverable); the
+      // modified/deleted branch below is git-contained and needs no guard.
+      if (!isShelfFilePathWithinRepo(cwd, file.path)) {
+        this._logger.error('Refusing to revert shelved binary file outside repository root', {
+          path: file.path,
+        });
+        return;
+      }
       if (fs.existsSync(absPath)) {
         fs.rmSync(absPath);
       }

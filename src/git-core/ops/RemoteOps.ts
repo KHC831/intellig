@@ -371,7 +371,15 @@ export class RemoteOps {
     this.ctx.invalidateCache(repo.rootUri.fsPath);
   }
 
+  /**
+   * Remove a remote (`git remote remove <name>`). `git remote` has no
+   * `--end-of-options`, so a leading-dash guard on the name is the
+   * argv-injection defense (mirrors {@link addRemote}/{@link setRemoteUrl}).
+   */
   async removeRemote(repo: IRepository, name: string): Promise<void> {
+    if (!name || name.startsWith('-')) {
+      throw new Error(`Invalid remote name: ${name}`);
+    }
     await this.ctx.gitCli.exec(['remote', 'remove', name], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,

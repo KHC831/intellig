@@ -12,7 +12,7 @@ import {
   RebaseStatus,
 } from './interfaces/IRebaseService';
 import { IRepository } from './interfaces/IGitService';
-import { GitCli, createGitCli, IGitCommandResult } from './gitCli';
+import { GitCli, createGitCli, IGitCommandResult, buildGitArgs } from './gitCli';
 import { IGitService } from './interfaces/IGitService';
 import { REBASE_PLAN_ENV } from './rebaseTodoEditor';
 
@@ -447,14 +447,17 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
       // runs and re-applies it after the rebase finishes, so it never
       // interferes with the custom sequence editor while still letting an
       // interactive rebase start from a dirty tree.
-      const result = await this._gitCli.exec(['rebase', '-i', '--autostash', session.onto], {
-        cwd,
-        env: {
-          ...process.env,
-          GIT_SEQUENCE_EDITOR: todoScriptPath,
-          [REBASE_PLAN_ENV]: JSON.stringify(plan),
-        },
-      });
+      const result = await this._gitCli.exec(
+        buildGitArgs('rebase', ['-i', '--autostash'], [session.onto]),
+        {
+          cwd,
+          env: {
+            ...process.env,
+            GIT_SEQUENCE_EDITOR: todoScriptPath,
+            [REBASE_PLAN_ENV]: JSON.stringify(plan),
+          },
+        }
+      );
 
       // Clean up the script file
       this.cleanupTempFile(todoScriptPath);
@@ -789,7 +792,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
     // Get commits between onto and HEAD
     // These are the commits that will be rebased
     const result = await this._gitCli.exec(
-      ['log', '--reverse', '--format=%H%x00%s', `${onto}..HEAD`],
+      buildGitArgs('log', ['--reverse', '--format=%H%x00%s'], [`${onto}..HEAD`]),
       { cwd }
     );
 

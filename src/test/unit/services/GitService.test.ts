@@ -3286,6 +3286,13 @@ describe('GitService - Remote Management Operations', () => {
         assert.ok(lastCommand, 'Command should have been executed');
         assert.deepStrictEqual(lastCommand.args, ['remote', 'remove', 'my_remote']);
       });
+
+      it('rejects a remote name that looks like a flag (argv-injection guard)', async () => {
+        await assert.rejects(
+          async () => gitService.removeRemote(mockRepo, '--upload-pack=evil'),
+          /invalid remote name/i
+        );
+      });
     });
   });
 

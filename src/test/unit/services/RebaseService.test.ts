@@ -344,7 +344,16 @@ describe('RebaseService', () => {
       // autostash stashes BEFORE the todo editor runs and pops AFTER the
       // rebase finishes, so it does not interfere with the custom sequence
       // editor wired below.
-      assert.deepStrictEqual(rebaseCall.args, ['rebase', '-i', '--autostash', 'main']);
+      // The `onto` ref is routed behind `--end-of-options` so a ref that looks
+      // like a flag cannot land as one (symmetry with the other ref-consuming
+      // git invocations via buildGitArgs).
+      assert.deepStrictEqual(rebaseCall.args, [
+        'rebase',
+        '-i',
+        '--autostash',
+        '--end-of-options',
+        'main',
+      ]);
     });
 
     it('still wires the custom sequence editor when autostash is enabled', async () => {
@@ -409,6 +418,65 @@ describe('RebaseService', () => {
 
       assert.strictEqual(result.success, true);
       assert.strictEqual(result.status, 'completed');
+    });
+  });
+
+  describe('onto ref argv hardening', () => {
+    let tmpRepo: string;
+    let tmpRebaseService: RebaseService;
+    let tmpRepoObj: IRepository;
+
+    beforeEach(() => {
+      tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-onto-eoo-'));
+      fs.mkdirSync(path.join(tmpRepo, '.git'));
+      tmpRepoObj = createMockRepository(tmpRepo);
+      tmpRebaseService = new RebaseService(mockGitCli);
+      mockGitCli.setExecResult('rev-parse --abbrev-ref HEAD', createMockResult(0, 'feature\n'));
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+    });
+
+    afterEach(() => {
+      tmpRebaseService.dispose();
+      fs.rmSync(tmpRepo, { recursive: true, force: true });
+    });
+
+    it('places a flag-like onto ref after --end-of-options in the rebase argv', async () => {
+      const onto = '--upload-pack=evil';
+      await tmpRebaseService.startInteractiveRebase(tmpRepoObj, onto);
+      mockGitCli.clearCalls();
+
+      await tmpRebaseService.executeRebase(tmpRepoObj);
+
+      const rebaseCall = mockGitCli
+        .getExecCalls()
+        .find((c) => c.args[0] === 'rebase' && c.args.includes('-i'));
+      assert.ok(rebaseCall, 'interactive rebase should have been spawned');
+      const eooIdx = rebaseCall.args.indexOf('--end-of-options');
+      const ontoIdx = rebaseCall.args.indexOf(onto);
+      assert.ok(eooIdx >= 0, 'rebase argv must include --end-of-options');
+      assert.ok(ontoIdx >= 0, 'rebase argv must include the onto ref');
+      assert.ok(
+        eooIdx < ontoIdx,
+        `onto ref must come after --end-of-options, got ${JSON.stringify(rebaseCall.args)}`
+      );
+    });
+
+    it('places a flag-like onto range after --end-of-options in the log argv', async () => {
+      const onto = '--output=/tmp/pwned';
+      await tmpRebaseService.startInteractiveRebase(tmpRepoObj, onto);
+
+      const logCall = mockGitCli
+        .getExecCalls()
+        .find((c) => c.args[0] === 'log' && c.args.includes('--reverse'));
+      assert.ok(logCall, 'getCommitsToRebase should have run git log');
+      const eooIdx = logCall.args.indexOf('--end-of-options');
+      const rangeIdx = logCall.args.findIndex((a) => a === `${onto}..HEAD`);
+      assert.ok(eooIdx >= 0, 'log argv must include --end-of-options');
+      assert.ok(rangeIdx >= 0, 'log argv must include the onto..HEAD range');
+      assert.ok(
+        eooIdx < rangeIdx,
+        `onto range must come after --end-of-options, got ${JSON.stringify(logCall.args)}`
+      );
     });
   });
 
