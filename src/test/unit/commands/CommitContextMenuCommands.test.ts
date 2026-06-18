@@ -1234,6 +1234,169 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.strictEqual(provider.refreshCallCount, 1);
     });
 
+    it('warns before rewording an already-pushed non-HEAD commit and aborts when the user declines', async () => {
+      // IntelliJ's GitSingleCommitEditingAction.lastCheckCommitsEditingAvailability
+      // blocks reword on a commit pushed to a protected branch. We have no
+      // protected-branch config, so the parity-flavoured guard is a
+      // confirmation: rewording a commit that already exists on a remote
+      // rewrites published history. Declining the confirm must NOT start a
+      // rebase.
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('rewritten message');
+      // createMessageTrackers installs a showWarningMessage that records the
+      // call and returns undefined — i.e. the user dismissed the modal
+      // (declined). The decline path must abort the reword.
+      const messages = createMessageTrackers();
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          // The commit IS on a remote-tracking branch — already pushed.
+          if (
+            cmdArgs[0] === 'branch' &&
+            cmdArgs.includes('--remotes') &&
+            cmdArgs.includes('--contains')
+          ) {
+            return { exitCode: 0, stdout: '  origin/main\n', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      // A history-rewrite warning was surfaced.
+      assert.strictEqual(
+        messages.warning.length,
+        1,
+        `expected exactly one warning, got ${messages.warning.length}`
+      );
+      assert.ok(
+        /push/i.test(messages.warning[0].message),
+        `warning should mention the commit was pushed, got: "${messages.warning[0].message}"`
+      );
+
+      // Declining must NOT rewrite history.
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
+      assert.ok(
+        !startCall,
+        'startInteractiveRebase must NOT run when the user declines the pushed-commit warning'
+      );
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a cancelled reword');
+    });
+
+    it('proceeds with reword of an already-pushed commit when the user confirms', async () => {
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('rewritten message');
+      createMessageTrackers();
+      // User confirms the history-rewrite warning. Record invocations so we
+      // can assert the warning was actually surfaced before proceeding.
+      let warningCount = 0;
+      writableWindow().showWarningMessage = (
+        _message: string,
+        ..._items: unknown[]
+      ): Promise<string | undefined> => {
+        warningCount++;
+        return Promise.resolve('Reword Anyway');
+      };
+      const repo = createMockRepo('different_head_hash');
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          if (
+            cmdArgs[0] === 'branch' &&
+            cmdArgs.includes('--remotes') &&
+            cmdArgs.includes('--contains')
+          ) {
+            return { exitCode: 0, stdout: '  origin/main\n', stderr: '', combined: '' };
+          }
+          if (cmdArgs[0] === 'status' && cmdArgs.includes('--porcelain')) {
+            return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      // Warning shown but confirmed → the rebase proceeds.
+      assert.strictEqual(warningCount, 1, 'the warning is still shown before confirming');
+      const startCall = rebaseService.calls.find((c) => c.method === 'startInteractiveRebase');
+      assert.ok(startCall, 'startInteractiveRebase should run after the user confirms');
+    });
+
+    it('warns before rewording an already-pushed HEAD commit and aborts the amend when declined', async () => {
+      // IntelliJ's GitCommitEditingActionBase.checkCommitsCanBeEdited gates
+      // reword on the commit's containing branches regardless of whether it is
+      // the topmost commit — amending a pushed HEAD commit also rewrites
+      // published history and needs a force-push. The parity-flavoured guard
+      // must therefore fire on the HEAD (git commit --amend) path too, not
+      // only on the non-HEAD rebase path. Declining must NOT amend.
+      writableWindow().showInputBox = (): Promise<string | undefined> =>
+        Promise.resolve('rewritten message');
+      const messages = createMessageTrackers();
+      const repo = createMockRepo(testHash); // HEAD === selected commit
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli({
+        exec: async (...args: unknown[]) => {
+          const cmdArgs = args[0] as string[];
+          gitCli.calls.push({ method: 'exec', args });
+          if (cmdArgs[0] === 'log' && cmdArgs.includes('--format=%B')) {
+            return { exitCode: 0, stdout: 'old message\n', stderr: '', combined: '' };
+          }
+          // The HEAD commit IS on a remote-tracking branch — already pushed.
+          if (
+            cmdArgs[0] === 'branch' &&
+            cmdArgs.includes('--remotes') &&
+            cmdArgs.includes('--contains')
+          ) {
+            return { exitCode: 0, stdout: '  origin/main\n', stderr: '', combined: '' };
+          }
+          return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+        },
+      });
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      await commands._handleAction('editCommitMessage', [testHash]);
+
+      assert.strictEqual(
+        messages.warning.length,
+        1,
+        `expected exactly one warning, got ${messages.warning.length}`
+      );
+      assert.ok(
+        /push/i.test(messages.warning[0].message),
+        `warning should mention the commit was pushed, got: "${messages.warning[0].message}"`
+      );
+      const amendCall = gitCli.calls.find((c: CallTracker) => {
+        const a = c.args[0] as string[];
+        return a[0] === 'commit' && a.includes('--amend');
+      });
+      assert.ok(!amendCall, 'git commit --amend must NOT run when the user declines the warning');
+      assert.strictEqual(provider.refreshCallCount, 0, 'no refresh on a cancelled reword');
+    });
+
     it('routes through provideRewordMessage when executeRebase pauses (regression: was leaving HEAD detached)', async () => {
       // Bug: editing a non-HEAD commit message dropped the local
       // branch onto a detached HEAD. Root cause: `git rebase -i` paused

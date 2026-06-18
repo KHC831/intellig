@@ -2799,6 +2799,26 @@ export class CommitContextMenuCommands {
       const isHead =
         headHash && (headHash === hash || headHash.startsWith(hash) || hash.startsWith(headHash));
 
+      // Parity with IntelliJ's GitCommitEditingActionBase.checkCommitsCanBeEdited,
+      // which gates reword on the commit's containing branches and refuses when
+      // it is published to a protected branch — regardless of whether the
+      // commit is the topmost one. We have no protected-branch config, so we
+      // confirm instead: rewording a commit that already exists on a remote
+      // rewrites published history and will require a force-push to land. This
+      // applies to both the HEAD amend and the non-HEAD rebase paths below;
+      // skip the prompt only when the commit is local-only.
+      if (await this._isCommitPushed(cwd, hash)) {
+        const shortHash = hash.substring(0, 8);
+        const choice = await vscode.window.showWarningMessage(
+          `Commit ${shortHash} has already been pushed. Rewording it rewrites published history and will need a force-push. Continue?`,
+          { modal: true },
+          'Reword Anyway'
+        );
+        if (choice !== 'Reword Anyway') {
+          return;
+        }
+      }
+
       // Tracks a no-op reword: provideRewordMessage delegates to
       // continueRebase, which can self-clear a phantom rebase session and
       // return 'cleared-stale' instead of rewriting a message. We report

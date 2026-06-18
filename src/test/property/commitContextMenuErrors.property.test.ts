@@ -303,10 +303,14 @@ describe('Feature: git-graph-context-menu - Error Handling Property Tests', () =
     // throws the property's `errorMsg`, which our catch toasts.
     writableWindow().showOpenDialog = (): Promise<import('vscode').Uri[] | undefined> =>
       Promise.resolve([Uri.file('/tmp/patches')]);
-    // _handleDropCommitMulti shows a destructive-op confirm modal on
-    // N>=2 selections. Auto-confirm so the error path runs.
-    writableWindow().showWarningMessage = ((): Promise<string | undefined> =>
-      Promise.resolve('Drop')) as unknown as (
+    // Several actions gate behind a destructive-op / history-rewrite confirm
+    // modal: _handleDropCommitMulti uses "Drop", and editCommitMessage warns
+    // "Reword Anyway" when the target commit is already pushed (and the error
+    // mocks make the pushed-check fail closed → pushed=true). Confirm the
+    // matching token per message so the underlying git op runs and throws,
+    // which is what this property asserts gets toasted.
+    writableWindow().showWarningMessage = ((message: string): Promise<string | undefined> =>
+      Promise.resolve(/reword/i.test(message) ? 'Reword Anyway' : 'Drop')) as unknown as (
       message: string,
       ...items: unknown[]
     ) => Promise<string | undefined>;
