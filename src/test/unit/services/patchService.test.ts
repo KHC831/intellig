@@ -34,6 +34,7 @@ import * as vscode from 'vscode';
 import {
   PatchService,
   PatchWriteFailed,
+  splitPatchByFile,
   validateBaseDir,
   validateStripLevel,
 } from '../../../patches/PatchService';
@@ -701,5 +702,51 @@ describe('ApplyPatchDialog', () => {
       (vscode.env.clipboard as unknown as { readText: typeof originalRead }).readText =
         originalRead;
     }
+  });
+});
+
+/**
+ * splitPatchByFile mirrors IntelliJ PatchReader.readTextPatches()
+ * (platform/vcs-impl/.../diff/impl/patch/PatchReader.java), which yields one
+ * TextFilePatch per file by splitting on the `diff --git` header line.
+ */
+describe('splitPatchByFile', () => {
+  const fileX = 'diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-old\n+new\n';
+  const fileY =
+    'diff --git a/dir/y.ts b/dir/y.ts\n--- a/dir/y.ts\n+++ b/dir/y.ts\n@@ -1 +1 @@\n-a\n+b\n';
+
+  it('splits a two-file git patch into one segment per changed file', () => {
+    const segments = splitPatchByFile(fileX + fileY);
+    assert.strictEqual(segments.length, 2);
+    assert.deepStrictEqual(
+      segments.map((s) => s.path),
+      ['x.ts', 'dir/y.ts']
+    );
+  });
+
+  it('keeps each file segment verbatim and free of sibling content', () => {
+    const segments = splitPatchByFile(fileX + fileY);
+    assert.strictEqual(segments[0].content, fileX);
+    assert.strictEqual(segments[1].content, fileY);
+    assert.ok(!segments[0].content.includes('y.ts'));
+  });
+
+  it('returns a single segment equal to the input for a one-file patch', () => {
+    const segments = splitPatchByFile(fileX);
+    assert.strictEqual(segments.length, 1);
+    assert.strictEqual(segments[0].content, fileX);
+    assert.strictEqual(segments[0].path, 'x.ts');
+  });
+
+  it('returns an empty array when no git headers are present', () => {
+    assert.deepStrictEqual(splitPatchByFile('not a patch\njust text\n'), []);
+  });
+
+  it('ignores a format-patch style preamble before the first git header', () => {
+    const preamble = 'From abc123 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] thing\n\n';
+    const segments = splitPatchByFile(preamble + fileX);
+    assert.strictEqual(segments.length, 1);
+    assert.strictEqual(segments[0].path, 'x.ts');
+    assert.strictEqual(segments[0].content, fileX);
   });
 });

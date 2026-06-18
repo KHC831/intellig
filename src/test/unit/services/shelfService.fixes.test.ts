@@ -167,6 +167,33 @@ describe('ShelfService — additions', () => {
     it('rejects empty patch content', async () => {
       await assert.rejects(() => svc.importPatch(repo, { patchContent: '   \n' }));
     });
+
+    it('splits a multi-file patch into one shelf file per changed file', async () => {
+      const fileX = 'diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-old\n+new\n';
+      const fileY =
+        'diff --git a/dir/y.ts b/dir/y.ts\n--- a/dir/y.ts\n+++ b/dir/y.ts\n@@ -1 +1 @@\n-a\n+b\n';
+      const item = await svc.importPatch(repo, { patchContent: fileX + fileY, name: 'multi' });
+
+      assert.strictEqual(item.files.length, 2);
+      assert.deepStrictEqual(
+        item.files.map((f) => f.path),
+        ['x.ts', 'dir/y.ts']
+      );
+      assert.strictEqual(item.files[0].diff, fileX);
+      assert.strictEqual(item.files[1].diff, fileY);
+
+      // Persisted split survives a reload.
+      const reloaded = svc.getShelfItems(repo).find((i) => i.id === item.id);
+      assert.strictEqual(reloaded?.files.length, 2);
+    });
+
+    it('falls back to a single synthetic entry for a patch with no git headers', async () => {
+      const plain = '--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-old\n+new\n';
+      const item = await svc.importPatch(repo, { patchContent: plain });
+      assert.strictEqual(item.files.length, 1);
+      assert.strictEqual(item.files[0].path, 'imported-patch');
+      assert.strictEqual(item.files[0].diff, plain);
+    });
   });
 
   describe('markAsUnshelved / restoreShelf', () => {

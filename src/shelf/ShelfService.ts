@@ -21,6 +21,7 @@ interface IGitServiceWithCli {
   gitCli: GitCli;
 }
 import { parseDiff } from '../git-core/gitParser';
+import { splitPatchByFile } from '../patches/PatchService';
 
 /**
  * Shelf storage file format version.
@@ -637,16 +638,24 @@ export class ShelfService implements IShelfService {
       options.name?.trim() ||
       (options.patchPath ? path.basename(options.patchPath) : 'Imported patch');
 
-    // The patch may touch multiple files, but storage currently keys each
-    // shelf file by its repo-relative path. For the MVP we store the entire
-    // patch body under a synthetic `imported-patch` path; git apply reads
-    // the file headers from the diff itself, so the synthetic path doesn't
-    // affect the apply behavior.
+    // Carve the patch into one shelf file per changed file, mirroring IntelliJ
+    // PatchReader.readTextPatches() which yields a TextFilePatch per file (see
+    // ShelveChangesManager.importPatches → loadPatches). Each file keeps its own
+    // diff block verbatim so unshelve applies it through the standard git apply
+    // path. A headerless patch (no `diff --git`) can't be split, so it falls
+    // back to a single synthetic `imported-patch` entry whose body git apply
+    // reads in full.
+    const segments = splitPatchByFile(content);
+    const files: IShelfFile[] =
+      segments.length > 0
+        ? segments.map((segment) => ({ path: segment.path, diff: segment.content }))
+        : [{ path: 'imported-patch', diff: content }];
+
     const shelfItem: IShelfItem = {
       id: this.generateShelfId(),
       name,
       timestamp: new Date(),
-      files: [{ path: 'imported-patch', diff: content }],
+      files,
     };
 
     this.saveShelfItem(repo, shelfItem);

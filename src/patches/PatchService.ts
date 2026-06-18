@@ -396,6 +396,77 @@ export function createPatchService(gitService: IGitService): PatchService {
 }
 
 /**
+ * One changed file carved out of a multi-file unified patch.
+ */
+export interface IPatchFileSegment {
+  /** Repo-relative path of the changed file (the `b/<path>` side). */
+  path: string;
+  /**
+   * Verbatim patch text for just this file, including its `diff --git`
+   * header, so it applies through the standard `git apply` path unchanged.
+   */
+  content: string;
+}
+
+/**
+ * Matches a `diff --git a/<old> b/<new>` header line. Mirrors IntelliJ
+ * PatchReader's `ourGitHeaderLinePattern`
+ * (`diff --git\s+(\S+)\s+(\S+).*`) — paths are whitespace-delimited tokens.
+ */
+const GIT_DIFF_HEADER = /^diff --git\s+(\S+)\s+(\S+).*$/;
+
+/**
+ * Split a unified patch into one segment per changed file.
+ *
+ * Mirrors IntelliJ `PatchReader.readTextPatches()`
+ * (platform/vcs-impl/src/com/intellij/openapi/diff/impl/patch/PatchReader.java),
+ * which yields a `TextFilePatch` per file by breaking the stream on each
+ * `diff --git` header line (`DIFF_GIT_HEADER_LINE`). Any `git format-patch`
+ * style preamble before the first header is dropped, just as the reader skips
+ * non-patch lines until the first recognised header.
+ *
+ * Each segment keeps the file's diff block verbatim, so a single-file patch
+ * round-trips to one segment whose `content` equals the input. Returns an
+ * empty array when no `diff --git` header is present — the caller decides how
+ * to treat a headerless patch.
+ */
+export function splitPatchByFile(content: string): IPatchFileSegment[] {
+  // Split immediately before each header line, retaining the delimiter at the
+  // start of each piece. The first piece is any preamble and is discarded by
+  // the `startsWith` filter below.
+  const blocks = content
+    .split(/(?=^diff --git )/m)
+    .filter((block) => block.startsWith('diff --git '));
+
+  const segments: IPatchFileSegment[] = [];
+  for (const block of blocks) {
+    const header = block.slice(0, block.indexOf('\n') === -1 ? undefined : block.indexOf('\n'));
+    const match = header.match(GIT_DIFF_HEADER);
+    if (!match) {
+      continue;
+    }
+    // Recover the repo-relative path from the `b/<new>` side, falling back to
+    // the `a/<old>` side for pure deletions where the new path is `/dev/null`.
+    const newPath = stripPatchPathPrefix(match[2]);
+    const oldPath = stripPatchPathPrefix(match[1]);
+    const path = newPath === '/dev/null' || newPath.length === 0 ? oldPath : newPath;
+    segments.push({ path, content: block });
+  }
+  return segments;
+}
+
+/**
+ * Strip the leading `a/` or `b/` prefix git puts on patch header paths.
+ * Leaves `/dev/null` and prefix-less paths untouched.
+ */
+function stripPatchPathPrefix(token: string): string {
+  if (token.startsWith('a/') || token.startsWith('b/')) {
+    return token.slice(2);
+  }
+  return token;
+}
+
+/**
  * Validate an `IApplyPatchOptions.baseDir` input.
  *
  * The value is passed to `git apply --directory <value>`. git itself will
