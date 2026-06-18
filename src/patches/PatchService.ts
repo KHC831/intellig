@@ -456,6 +456,30 @@ export function splitPatchByFile(content: string): IPatchFileSegment[] {
 }
 
 /**
+ * Reassemble a unified patch keeping only the blocks for `selectedPaths`.
+ *
+ * This is the engine behind per-file Apply-Patch selection. It mirrors
+ * IntelliJ `ApplyPatchDifferentiatedDialog.getIncludedChanges()`
+ * (platform/vcs-impl/src/com/intellij/openapi/vcs/changes/patch/
+ * ApplyPatchDifferentiatedDialog.java): the patch is shown per file and only
+ * the checked rows are applied.
+ *
+ * Splits via `splitPatchByFile`, keeps the segments whose `path` is in
+ * `selectedPaths`, and concatenates each kept segment's text verbatim — so the
+ * result is a valid patch that round-trips through `git apply` unchanged.
+ * Selecting every file yields the same blocks as the input (any `git
+ * format-patch` preamble aside, which `splitPatchByFile` drops). Returns an
+ * empty string when nothing matches; the caller treats that as "apply nothing".
+ */
+export function filterPatchByFiles(content: string, selectedPaths: string[]): string {
+  const wanted = new Set(selectedPaths);
+  return splitPatchByFile(content)
+    .filter((segment) => wanted.has(segment.path))
+    .map((segment) => segment.content)
+    .join('');
+}
+
+/**
  * Strip the leading `a/` or `b/` prefix git puts on patch header paths.
  * Leaves `/dev/null` and prefix-less paths untouched.
  */

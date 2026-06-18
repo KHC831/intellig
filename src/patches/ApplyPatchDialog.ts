@@ -29,7 +29,7 @@ import { IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { IPatchService, IApplyPatchOptions, IApplyPatchResult } from './interfaces/IPatchService';
-import { validateStripLevel } from './PatchService';
+import { filterPatchByFiles, splitPatchByFile, validateStripLevel } from './PatchService';
 
 /**
  * Constructor options for {@link ApplyPatchDialog}.
@@ -496,6 +496,15 @@ ${body}
       return;
     }
 
+    // Per-file selection: a multi-file patch is presented as a multi-select
+    // pick so the user can apply a subset. `'aborted'` means the user
+    // dismissed the pick (or checked nothing) — leave the dialog open.
+    const selection = await this._selectPatchSubset(applyOptions);
+    if (selection === 'aborted') {
+      return;
+    }
+    applyOptions = selection;
+
     let result: IApplyPatchResult;
     try {
       result = await this._patchService.applyPatch(this._repo, applyOptions);
@@ -545,6 +554,74 @@ ${body}
     // Hard failure: surface git stderr.
     const detail = result.stderr ? `: ${sanitizeGitError(result.stderr)}` : '';
     void vscode.window.showErrorMessage(`Apply Patch failed${detail}`);
+  }
+
+  /**
+   * Offer per-file selection for a multi-file patch.
+   *
+   * Mirrors IntelliJ `ApplyPatchDifferentiatedDialog` (platform/vcs-impl/.../
+   * patch/ApplyPatchDifferentiatedDialog.java), which lists the patch's files
+   * in a checkbox tree and applies only the checked rows
+   * (`getIncludedChanges()`). We resolve the raw patch text, split it per file,
+   * and — when more than one file is present — present a multi-select pick
+   * (all pre-checked). Only the chosen files' blocks are reassembled (via
+   * `filterPatchByFiles`) and applied inline as `patchContent`.
+   *
+   * Returns:
+   *  - the original options unchanged when the patch touches ≤ 1 file, when the
+   *    user keeps every file checked, or when the raw text can't be read
+   *    (fall through to a whole-patch apply);
+   *  - new options carrying the reassembled subset when a strict subset is
+   *    chosen;
+   *  - `'aborted'` when the user dismisses the pick or checks nothing.
+   */
+  private async _selectPatchSubset(
+    options: IApplyPatchOptions
+  ): Promise<IApplyPatchOptions | 'aborted'> {
+    // Resolve the raw patch text without disturbing the apply source. Inline
+    // content is already in hand; a file source is read best-effort.
+    let content = options.patchContent;
+    if (content === undefined && options.patchPath) {
+      try {
+        content = await fs.promises.readFile(options.patchPath, 'utf-8');
+      } catch {
+        // Can't read the patch here — let `git apply` surface the real error.
+        return options;
+      }
+    }
+    if (content === undefined) {
+      return options;
+    }
+
+    const segments = splitPatchByFile(content);
+    if (segments.length <= 1) {
+      // Headerless or single-file patch: nothing to subset.
+      return options;
+    }
+
+    const picked = await vscode.window.showQuickPick(
+      segments.map((segment) => ({ label: segment.path, picked: true })),
+      {
+        canPickMany: true,
+        title: 'Apply Patch — Select Files',
+        placeHolder: 'Choose which files to apply (all selected by default)',
+      }
+    );
+    if (picked === undefined) {
+      return 'aborted';
+    }
+    const selectedPaths = picked.map((item) => item.label);
+    if (selectedPaths.length === 0) {
+      return 'aborted';
+    }
+    if (selectedPaths.length === segments.length) {
+      // Every file checked → today's behavior; keep the original source.
+      return options;
+    }
+
+    // Strict subset: reassemble only the chosen files' blocks and apply inline.
+    const subset = filterPatchByFiles(content, selectedPaths);
+    return { ...options, patchPath: undefined, patchContent: subset };
   }
 
   /**

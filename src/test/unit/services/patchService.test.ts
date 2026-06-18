@@ -31,9 +31,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { execFileSync } from 'child_process';
 import {
   PatchService,
   PatchWriteFailed,
+  filterPatchByFiles,
   splitPatchByFile,
   validateBaseDir,
   validateStripLevel,
@@ -748,5 +750,159 @@ describe('splitPatchByFile', () => {
     assert.strictEqual(segments.length, 1);
     assert.strictEqual(segments[0].path, 'x.ts');
     assert.strictEqual(segments[0].content, fileX);
+  });
+});
+
+/**
+ * filterPatchByFiles reassembles only the user-selected files' blocks into a
+ * valid patch — the engine behind the per-file Apply-Patch selection (E-7).
+ * Mirrors IntelliJ ApplyPatchDifferentiatedDialog.getIncludedChanges()
+ * (platform/vcs-impl/.../patch/ApplyPatchDifferentiatedDialog.java): only the
+ * checked rows are applied.
+ */
+describe('filterPatchByFiles', () => {
+  const fileX = 'diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-old\n+new\n';
+  const fileY =
+    'diff --git a/dir/y.ts b/dir/y.ts\n--- a/dir/y.ts\n+++ b/dir/y.ts\n@@ -1 +1 @@\n-a\n+b\n';
+
+  it('reassembles only the selected files, verbatim and sibling-free', () => {
+    const out = filterPatchByFiles(fileX + fileY, ['dir/y.ts']);
+    assert.strictEqual(out, fileY);
+    assert.ok(!out.includes('x.ts'));
+  });
+
+  it('selecting every file reproduces the whole patch', () => {
+    assert.strictEqual(filterPatchByFiles(fileX + fileY, ['x.ts', 'dir/y.ts']), fileX + fileY);
+  });
+
+  it('returns an empty string when no file matches', () => {
+    assert.strictEqual(filterPatchByFiles(fileX + fileY, ['nope.ts']), '');
+  });
+
+  it('round-trips a subset through real `git apply`, leaving unselected files untouched', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-e7-rt-'));
+    const git = (...args: string[]): string =>
+      execFileSync('git', args, {
+        cwd: root,
+        encoding: 'utf-8',
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+      });
+    try {
+      git('init', '-q');
+      git('config', 'user.email', 'test@example.com');
+      git('config', 'user.name', 'Test');
+      fs.writeFileSync(path.join(root, 'a.txt'), 'old\n');
+      fs.writeFileSync(path.join(root, 'b.txt'), 'old\n');
+      git('add', 'a.txt', 'b.txt');
+      git('commit', '-q', '-m', 'base');
+
+      // Edit both files, capture a two-file patch, then revert the worktree.
+      fs.writeFileSync(path.join(root, 'a.txt'), 'new\n');
+      fs.writeFileSync(path.join(root, 'b.txt'), 'new\n');
+      const fullPatch = git('diff');
+      git('checkout', '--', '.');
+      assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf-8'), 'old\n');
+      assert.strictEqual(fs.readFileSync(path.join(root, 'b.txt'), 'utf-8'), 'old\n');
+
+      // Apply only a.txt's block; b.txt must stay untouched.
+      const subset = filterPatchByFiles(fullPatch, ['a.txt']);
+      const subsetFile = path.join(root, 'subset.patch');
+      fs.writeFileSync(subsetFile, subset);
+      git('apply', subsetFile);
+
+      assert.strictEqual(fs.readFileSync(path.join(root, 'a.txt'), 'utf-8'), 'new\n');
+      assert.strictEqual(fs.readFileSync(path.join(root, 'b.txt'), 'utf-8'), 'old\n');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * ApplyPatchDialog per-file selection (E-7): when the patch touches more than
+ * one file, the dialog presents a multi-select pick and applies only the
+ * chosen files' blocks.
+ */
+describe('ApplyPatchDialog per-file selection (E-7)', () => {
+  const twoFilePatch =
+    'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n' +
+    'diff --git a/b.ts b/b.ts\n--- a/b.ts\n+++ b/b.ts\n@@ -1 +1 @@\n-old\n+new\n';
+
+  let ctx: vscode.ExtensionContext;
+  let repo: IRepository;
+  let dialog: ApplyPatchDialog | undefined;
+  const originalQuickPick = vscode.window.showQuickPick;
+  const originalClipRead = vscode.env.clipboard.readText;
+
+  beforeEach(() => {
+    ctx = makeContext();
+    repo = makeRepo();
+  });
+
+  afterEach(() => {
+    (vscode.window as unknown as { showQuickPick: typeof originalQuickPick }).showQuickPick =
+      originalQuickPick;
+    (vscode.env.clipboard as unknown as { readText: typeof originalClipRead }).readText =
+      originalClipRead;
+    if (dialog) {
+      dialog.dispose();
+      dialog = undefined;
+    }
+  });
+
+  it('applies only the selected file when a subset is picked', async () => {
+    const recorded: Array<{ patchContent?: string; patchPath?: string }> = [];
+    const stubSvc = {
+      applyPatch: async (_repo: IRepository, options: { patchContent?: string }) => {
+        recorded.push(options);
+        return { success: true, appliedFiles: ['a.ts'] };
+      },
+      createPatchFromLocalChanges: async () => '',
+      dispose: (): void => {},
+    };
+    (vscode.env.clipboard as unknown as { readText: () => Promise<string> }).readText = async () =>
+      twoFilePatch;
+    // Pick only a.ts.
+    (
+      vscode.window as unknown as {
+        showQuickPick: (items: Array<{ label: string }>) => Promise<unknown>;
+      }
+    ).showQuickPick = async (items) => items.filter((i) => i.label === 'a.ts');
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubSvc });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'apply',
+      useClipboard: true,
+    });
+
+    assert.strictEqual(recorded.length, 1);
+    const applied = recorded[0].patchContent ?? '';
+    assert.ok(applied.includes('a.ts'));
+    assert.ok(!applied.includes('b.ts'));
+    assert.strictEqual(recorded[0].patchPath, undefined);
+  });
+
+  it('aborts the apply when the file pick is cancelled', async () => {
+    let applyCalled = false;
+    const stubSvc = {
+      applyPatch: async () => {
+        applyCalled = true;
+        return { success: true, appliedFiles: [] };
+      },
+      createPatchFromLocalChanges: async () => '',
+      dispose: (): void => {},
+    };
+    (vscode.env.clipboard as unknown as { readText: () => Promise<string> }).readText = async () =>
+      twoFilePatch;
+    (vscode.window as unknown as { showQuickPick: () => Promise<unknown> }).showQuickPick =
+      async () => undefined;
+
+    dialog = new ApplyPatchDialog(ctx, { repo, patchService: stubSvc });
+    await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+      type: 'apply',
+      useClipboard: true,
+    });
+
+    assert.strictEqual(applyCalled, false);
   });
 });
