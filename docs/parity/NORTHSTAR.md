@@ -100,7 +100,6 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 
 | # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
 |---|---|---|---|---|---|
-| 3 | Log menu | Add the ellipsis: "Edit Commit Message" → "Edit Commit Message…" (it opens a reword input). NOTE: git4idea `action.Git.Reword.Commit.text` is literally "Edit Commit Message…" — the label is already right, only the `…` is missing (the prior "→ Reword…" note mis-read the action id) | `Git.Reword.Commit` | `htmlBuilders.ts:234` | S |
 | 4 | Branch popup | QuickPick: Rename/Delete should be LAST; missing Diff-with-Local, Update-Selected, Pull-into-current, New-Worktree, Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` | M |
 | 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
 | 6 | Explorer submenu | Add "Commit File" (CheckinFiles) at the head of the submenu — needs a single-file commit handler (the History-trails / Annotate-with-diff reorder + "Compare with Branch…" rename landed) | `Git.FileActions` (`CheckinFiles`) | pkg.json `explorerSubmenu` | S/M |
@@ -111,8 +110,8 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 
 **Order:** the pkg.json-only quick wins (#8, #9, #6-partial) have landed; #2 resolved (the "native tree
 menu" never existed — its 19 orphaned `view/item/context` entries were deleted, webview overlay is the one
-true commit menu). Next: the structural wave (#3, #10) + the #6 "Commit File" handler + branch popup (#4,
-#5). Stash/Working-Trees tabs + per-dialog field audit are deferred.
+true commit menu); #3 landed (reword-item ellipsis). Next: #10 webview log-menu, the #6 "Commit File"
+handler, branch popup (#4, #5). Stash/Working-Trees tabs + per-dialog field audit are deferred.
 
 **Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
 dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
