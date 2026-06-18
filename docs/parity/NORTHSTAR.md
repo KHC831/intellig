@@ -3,7 +3,7 @@
 _Forward-looking parity plan: **what's left**, by component, with files + ordered work. North-star =
 IntelliJ `git4idea` + `platform/vcs-impl` (clone at `~/Documents/workspace/intellij-community`). Scope:
 **pure Git plugin parity**; GitHub/GitLab/PR integration excluded. Weight: a git op that silently does
-the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-17._
+the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-18._
 
 > What's landed (progress log, SHAs, pending-merge branches) lives in **[`STATUS.md`](./STATUS.md)**.
 > This doc lists only remaining work; done items are removed once they land in STATUS.
@@ -37,10 +37,10 @@ Remaining backlog: residuals under **C** (shell/sync) and the open workstreams *
 | Commit & Changelists (A) | 🟢 ~80% | live line-status tracker, commit-and-push dialog, rollback dialog |
 | Rebase / Cherry-pick / Revert (H) | 🟢 ~80% | inline reword/squash, `--onto`/`--root`, `-m` revert/cherry-pick |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
-| Branches & Tags (D) | 🟡 ~87% | worktrees, per-remote push, tag submenu (HEAD/favorites/validation/multi-repo landed) |
-| Shell / Menus / Sync (C) | 🟡 ~85% | log-menu history-rewrite, tabbed default-on (`--autostash` + console + scm provider landed) |
-| Shelf / Stash / Patches (E) | 🟡 ~78% | binary support, recycle bin, target-changelist (unshelve + patch split + diff-against-local landed) |
-| Blame / History / Diff (F) | 🟡 ~82% | file-history graph/details pane, diff options (AUTHOR color + aspects + affected paths + line-scoped history landed) |
+| Branches & Tags (D) | 🟢 ~90% | per-remote push, tag submenu (HEAD/favorites/validation/multi-repo/worktree create+open landed) |
+| Shell / Menus / Sync (C) | 🟢 ~88% | tabbed default-on (`--autostash` + console + scm provider + log-menu reword/push-up-to-here history-rewrite guard landed) |
+| Shelf / Stash / Patches (E) | 🟡 ~82% | recycle bin, target-changelist, Apply-Patch tree (unshelve + patch split + diff-against-local + binary support landed) |
+| Blame / History / Diff (F) | 🟢 ~88% | diff options, inline-diff-hover, get-version (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph landed) |
 
 ---
 
@@ -77,8 +77,12 @@ Console surface (lazy "IntelliG Git Console" OutputChannel fed by the GitCli com
 + `intellig.showGitConsole` reveal it).
 **Landed (cont.):** native `vscode.scm` SourceControl provider (Staged/Changes groups from git status,
 click-to-diff).
-**Remaining:** log-menu history-rewrite parity (reword/fixup/squash-into/uncommit/
-push-up-to-here, `Git.PushUpToCommit`); enable tabbed layout default-on.
+**Landed 2026-06-18:** log-menu history-rewrite parity verified complete — reword, push-up-to-here
+(`Git.PushUpToCommit`, `<sha>:refs/heads/<branch>`), squash/fixup/uncommit all wired in
+`CommitContextMenuCommands`; added the missing safety: a modal fail-closed warning before rewording an
+already-pushed commit, covering both the HEAD-amend and non-HEAD-rebase paths (mirrors
+`GitCommitEditingActionBase.checkCommitsCanBeEdited`).
+**Remaining:** enable tabbed layout default-on.
 **Files:** `package.json`, `src/ui-shell/{KeymapService,ConsoleService}.ts`, `src/sync/PullDialog.ts`,
 `src/git-core/gitToolWindow/tabs/*`.
 
@@ -91,8 +95,10 @@ Merge-into-Current.
 (2) ~~tree HEAD+favorites~~ **DONE 2026-06-17** (HEAD root node + Memento-persisted favorites + star
 icon) + ~~multi-repo grouping~~ **DONE 2026-06-17** (per-repository root nodes when >1 repo). (3)
 ~~conflict-aware validation~~ **DONE 2026-06-17** (`check-ref-format` validator + local/current/remote/
-directory conflict detection + overwrite bypass). (4) per-remote push. (5) worktrees. (6) tag submenu
-Merge-into-Current.
+directory conflict detection + overwrite bypass). (4) per-remote push. (5) ~~worktrees~~
+**DONE 2026-06-18** (`WorktreeOps` create via `git worktree add [-b] -- <path> <ref>` + open via
+`--porcelain` parse → `vscode.openFolder`; injection-safe argv with a real-git round-trip test). (6)
+tag submenu Merge-into-Current.
 **Files:** `src/branches/*`, `src/git-core/ops/{BranchOps,StashTagHistoryOps}.ts`,
 `src/commands/registration/commitHelpers.ts`, `package.json`.
 
@@ -104,8 +110,10 @@ multi-file patch collapses to one entry; Apply Patch whole-patch only; stash app
 **Work (ordered):** (1) ~~per-file unshelve~~ **DONE 2026-06-17** (files[] subset apply, remaining stay
 shelved; "Unshelve Files…" picker). (2) ~~parse imported patches per-file~~ **DONE 2026-06-17**
 (`splitPatchByFile` on `diff --git` boundaries → one shelf file per change). (3) ~~diff-against-local~~
-**DONE 2026-06-17** (reconstruct shelved version + real `vscode.diff` vs working tree). (4) binary.
-(5) recycle bin. (6) target-changelist routing. (7) per-file Apply Patch tree. (8) stash apply-index toggle.
+**DONE 2026-06-17** (reconstruct shelved version + real `vscode.diff` vs working tree). (4) ~~binary~~
+**DONE 2026-06-18** (`git diff --numstat` detect → capture raw bytes base64, byte-for-byte round-trip,
+add/modified/deleted, restore via `fs`; mirrors `ShelvedBinaryFile`). (5) recycle bin. (6)
+target-changelist routing. (7) per-file Apply Patch tree. (8) stash apply-index toggle.
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
@@ -118,8 +126,10 @@ file); diff has no whitespace/highlight-policy UI.
 faithful IntelliJ palette port; `intellig.blame.colorMode` ORDER/AUTHOR). (2) ~~aspect columns + name
 format~~ **DONE 2026-06-17** (Author/Date/Revision show-hide toggles + author-name format
 full/firstname/lastname/initials/email; `LineAnnotationAspect`/`ShortNameType` port). (3) affected-paths
-**DONE 2026-06-17** (changed-files pane per selected revision via `getCommitDiff`). (4) details pane +
-graph (reuse `commitGraph.ts`) + history panel. (5) ~~line-scoped history~~ **DONE 2026-06-17** (`git
+**DONE 2026-06-17** (changed-files pane per selected revision via `getCommitDiff`). (4) ~~details pane +
+graph (reuse `commitGraph.ts`)~~ **DONE 2026-06-18** (details pane: message/author+email/dates/full hash
++ copy/parents, committer line only when ≠ author; mini commit-graph column reusing `commitGraph.ts`;
+single HTML-escape boundary). (5) ~~line-scoped history~~ **DONE 2026-06-17** (`git
 log -L` op + HistoryTab wiring; get-version still pending). (6) diff options. (7) inline-diff-on-hover.
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
 `src/commands/registration/blameEditorCommands.ts`, `package.json`.

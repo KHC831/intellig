@@ -1,7 +1,7 @@
 # IntelliJ-parity — status & landing log
 
 _Living tracker: current state, what's landed, and the next step. The analysis/plan (gaps,
-heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated 2026-06-17._
+heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated 2026-06-18._
 
 ## Current state
 
@@ -15,6 +15,11 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
   see `NORTHSTAR.md` section 6.
 - **Both residual follow-ups landed 2026-06-17**: B's resolved-row auto-flip (index-watcher) and
   F's per-author blame color mode — plus D's branch-popup header actions + settings toggles.
+- **Batch 5 landed 2026-06-18** (4 slices, combined gate green — 4444 unit + 746 property,
+  `check:vsix-clean` OK): **E-4** binary shelve/unshelve, **F-5** file-history details pane +
+  commit-graph column, **C-4** reword-pushed-commit history-rewrite guard, **D-5** worktree
+  create/open. D-5's worktree-add argv was caught and fixed in review (a usage-rejected form the
+  array-only test had missed) before landing.
 
 ## Landing log
 
@@ -22,6 +27,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-18 | Workstream D (slice 5) — git worktree create/open: `WorktreeOps.addWorktree` (`git worktree add [-b <newBranch>] -- <path> <ref>`, single `--` guarding both positionals so a hostile path/ref cannot become a flag) + `parseWorktreeList` (`--porcelain` records: main/linked/detached/bare/locked, trailing-record flush) + "New Worktree…"/"Open Worktree…" branch context-menu commands (QuickPick → `vscode.openFolder`); mirrors git4idea `GitWorktreeListParser`. Includes a real-git round-trip test (caught a usage-rejected argv the array-only test had missed) | 6e0ffb9 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream C (slice 4) — history-rewrite safety on the log/commit menu: warn (modal, fail-closed) before rewording an already-pushed commit, hoisted to cover BOTH the HEAD-amend and non-HEAD-rebase reword paths (reword + push-up-to-here + squash/fixup/drop already existed on main); mirrors git4idea `GitCommitEditingActionBase.checkCommitsCanBeEdited` | cbc55c9 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream F (slice 4) — file-history details pane (full message/author+email/authored+committed dates/full hash with copy/parents; committer line only when committer ≠ author) + mini commit-graph column reusing `commitGraph.ts` lane/edge layout; read-only, single HTML-escape boundary, stale-fetch-unaffected; mirrors `CommitPresentationUtil` + `FileHistoryPanel` | fb3b635 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream E (slice 4) — binary-file shelve/unshelve: detect binaries via `git diff --numstat` (`-\t-`), capture raw working-tree bytes (base64) instead of a text patch so NUL/non-UTF-8 round-trips byte-for-byte, classify added/modified/deleted, restore via `fs` (write bytes or delete); diff view shows "binary file"; mirrors IntelliJ `ShelvedBinaryFile` | cc060c0 | local cherry-pick (1 commit) |
 | 2026-06-17 | Workstream E (slice 3) — shelf "diff with local changes": reconstruct the shelved file version (base `git show HEAD:<path>` + stored patch via pure `applyTextPatch`) and open a real `vscode.diff` against the live working-tree file (was static patch text); mirrors IntelliJ `DiffShelvedChangesWithLocalActionProvider` | a99cf9c | local cherry-pick (1 commit) |
 | 2026-06-17 | Workstream C (residual) — native `vscode.scm` SourceControl provider "IntelliG Git": Staged/Changes resource groups from the existing git status model, refreshed on repo-change, click-to-diff (working↔HEAD); per-repo SourceControl, programmatic (no `contributes`) | 3c04ab9 | local cherry-pick (1 commit) |
 | 2026-06-17 | Workstream F (slice) — line-scoped file history via `git log -L<start>,<end>:<file>` (additive `getLineHistory` op, injection-safe argv splicing, validated range, whole-file fallback); mirrors IntelliJ "Show History for Selection" | 71e2b69 | local cherry-pick (1 commit) |
