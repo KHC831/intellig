@@ -108,6 +108,21 @@ export interface IConflictResolutionService {
   acceptIncoming(repo: IRepository, filePath: string): Promise<IConflictResolutionResult>;
 
   /**
+   * Accept every change in a conflicted file that does not actually conflict
+   * (the regions exactly one side edited), leaving the true conflicts (regions
+   * both sides changed) for the user. Mirrors IntelliJ's
+   * "Apply Non-Conflicting Changes" (platform/diff-impl `ApplyNonConflictsAction`).
+   *
+   * @param repo - The repository
+   * @param filePath - Repo-relative path of the conflicted file
+   * @returns Resolution result
+   */
+  acceptNonConflictingChanges(
+    repo: IRepository,
+    filePath: string
+  ): Promise<IConflictResolutionResult>;
+
+  /**
    * Accept current version for all conflicted files
    *
    * @param repo - The repository

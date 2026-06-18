@@ -7,14 +7,12 @@
  * INTELLIJ_REFERENCE.md §"Resolve Conflicts dialog"):
  *
  * ```
- * ┌ Resolve Conflicts — merge from 'feature/x' ─────────────┐
- * │  ⚠  path/a.ts    [Accept Yours][Accept Theirs][Merge…]  │
- * │  ✓  path/b.ts    resolved                               │
- * │                                                         │
- * │  [ Apply Non-Conflicting Changes from Both Sides ]      │
- * │                                                         │
- * │         [ Abort {Op} ]  [ Continue ]                    │
- * └─────────────────────────────────────────────────────────┘
+ * ┌ Resolve Conflicts — merge from 'feature/x' ──────────────────────────┐
+ * │  ⚠  path/a.ts  [Accept Yours][Accept Theirs][Merge…][Apply Non-Conf.] │
+ * │  ✓  path/b.ts  resolved                                              │
+ * │                                                                      │
+ * │         [ Abort {Op} ]  [ Continue ]                                 │
+ * └──────────────────────────────────────────────────────────────────────┘
  * ```
  *
  * Caller-invoked pattern (the caller wires `openResolveConflictsDialog`),
@@ -50,6 +48,8 @@ type IncomingMessage =
   | { type: 'acceptYours'; path: string }
   | { type: 'acceptTheirs'; path: string }
   | { type: 'openMergeView'; path: string }
+  /** Apply only the non-conflicting (one-sided) changes in a file. */
+  | { type: 'applyNonConflicting'; path: string }
   | { type: 'abort' }
   | { type: 'continue' }
   /** Skip This Commit — rebase-only; drops the conflicting commit. */
@@ -383,8 +383,8 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
         ${rows || '<div class="file-row"><span class="file-path">No conflicted files.</span></div>'}
       </div>
       <div class="bulk-row">
-        Tip: use <strong>Merge…</strong> for per-file three-way review;
-        <em>Apply Non-Conflicting Changes</em> will land in T2 (tracked).
+        Tip: use <strong>Apply Non-Conflicting</strong> to take every one-sided
+        change automatically, then <strong>Merge…</strong> for the true conflicts.
       </div>
       <div class="footer">
         ${abortButton}
@@ -437,6 +437,7 @@ ${body}
       case 'acceptYours':
       case 'acceptTheirs':
       case 'openMergeView':
+      case 'applyNonConflicting':
         if (path) send({ type: action, path: path });
         break;
       case 'abort':
@@ -496,9 +497,9 @@ ${body}
             `<button class="btn secondary" data-action="acceptYours" data-path="${escapedPath}">Accept Yours</button>`,
             `<button class="btn secondary" data-action="acceptTheirs" data-path="${escapedPath}">Accept Theirs</button>`,
             `<button class="btn" data-action="openMergeView" data-path="${escapedPath}">Merge…</button>`,
-            // Visibly-disabled Apply Non-Conflicting stub. The tooltip
-            // communicates the state so users don't keep clicking.
-            `<button class="btn secondary disabled" data-action="applyAllNonConflicting" data-path="${escapedPath}" disabled aria-disabled="true" title="Landing in Tier-2 follow-up">Apply Non-Conflicting</button>`,
+            // Apply only the changes that don't actually conflict (one-sided
+            // edits), leaving the true conflicts for the user to settle.
+            `<button class="btn secondary" data-action="applyNonConflicting" data-path="${escapedPath}" title="Apply changes that don't conflict, leaving the true conflicts to resolve">Apply Non-Conflicting</button>`,
           ].join('');
 
     return `
@@ -532,6 +533,9 @@ ${body}
         break;
       case 'openMergeView':
         await this._handleOpenMergeView(msg.path);
+        break;
+      case 'applyNonConflicting':
+        await this._handleApplyNonConflicting(msg.path);
         break;
       case 'abort':
         await this._handleAbort();
@@ -583,6 +587,29 @@ ${body}
       const msg = error instanceof Error ? error.message : String(error);
       // Scrub credentials from any embedded remote URL before surfacing.
       void vscode.window.showErrorMessage(`Failed to open merge view: ${sanitizeGitError(msg)}`);
+    }
+  }
+
+  private async _handleApplyNonConflicting(path: string): Promise<void> {
+    const result = await this._conflictResolutionService.acceptNonConflictingChanges(
+      this._repo,
+      path
+    );
+    if (!result.success) {
+      // `result.error` may include git stderr which can embed credentials in
+      // remote URLs — scrub before surfacing.
+      void vscode.window.showErrorMessage(
+        sanitizeGitError(result.error || `Failed to apply non-conflicting changes for ${path}`)
+      );
+      return;
+    }
+    // When every region was non-conflicting the file is fully merged and now
+    // staged — reflect that as resolved. Otherwise true conflicts remain and
+    // the row stays unresolved; the watcher-driven reconcile will flip it to
+    // resolved once the user finishes those in the native merge editor.
+    const stillConflicted = await this._conflictResolutionService.getConflictedFiles(this._repo);
+    if (!stillConflicted.some((c) => c.path === path)) {
+      this.updateFileStatus(path, 'resolved');
     }
   }
 

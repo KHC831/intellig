@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import {
   IConflictResolutionService,
   IConflictedFile,
@@ -560,6 +561,92 @@ export class ConflictResolutionService implements IConflictResolutionService {
   }
 
   /**
+   * Accept every change in a conflicted file that does NOT actually conflict —
+   * the regions exactly one side edited — taking that side, and leave the
+   * regions both sides changed (the true conflicts) for the user.
+   *
+   * Mirrors IntelliJ's "Apply Non-Conflicting Changes"
+   * (platform/diff-impl `ApplyNonConflictsAction` →
+   * `MergeThreesideViewer.applyNonConflictedChanges`, which resolves
+   * `ContainerUtil.filter(getAllChanges(), change -> !change.isConflict())`).
+   *
+   * Rather than hand-roll a diff3 hunk engine, we delegate the three-way text
+   * merge to git's own `git merge-file`: fed the index's base/ours/theirs
+   * stages it auto-applies every one-sided hunk and re-emits conflict markers
+   * for two-sided ones. If no conflict hunks remain the file is fully merged
+   * and we stage it (resolved); otherwise it stays unstaged for the user.
+   *
+   * @param repo - The repository
+   * @param filePath - Repo-relative path of the conflicted file
+   * @returns Resolution result
+   */
+  async acceptNonConflictingChanges(
+    repo: IRepository,
+    filePath: string
+  ): Promise<IConflictResolutionResult> {
+    try {
+      const gitCli = (this._gitService as IGitServiceWithCli).gitCli;
+
+      // A modify/delete conflict (one side deleted the file) has no three-way
+      // text to merge — it is a true conflict in its entirety, so there are no
+      // non-conflicting regions to auto-apply. Leave it for the user, matching
+      // IntelliJ's filter to `!isConflict()` changes.
+      const status = await this._getUnmergedStatus(repo, filePath);
+      if (status?.index === 'D' || status?.workTree === 'D') {
+        return { success: true };
+      }
+
+      // Read the three merge stages straight from the index: stage 1 = merge
+      // base, stage 2 = ours, stage 3 = theirs. An absent stage (e.g. no common
+      // ancestor in an add/add conflict) reads as empty.
+      const base = await this._readMergeStage(gitCli, repo, 1, filePath);
+      const ours = await this._readMergeStage(gitCli, repo, 2, filePath);
+      const theirs = await this._readMergeStage(gitCli, repo, 3, filePath);
+
+      const merged = await mergeNonConflictingText(gitCli, base, ours, theirs);
+
+      const absPath = path.join(repo.rootUri.fsPath, filePath);
+      await fs.promises.writeFile(absPath, merged.content);
+
+      // No conflict hunks remain ⇒ the file is fully merged; stage it so it
+      // drops out of the unmerged set. Otherwise leave it unstaged so the user
+      // settles the remaining true conflicts.
+      if (!merged.hasConflicts) {
+        await this._gitService.stage(repo, [filePath]);
+      }
+
+      const conflicts = await this.getConflictedFiles(repo);
+      this._onDidChangeConflicts.fire({ repo, conflicts });
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        error: `Failed to accept non-conflicting changes: ${errorMessage}`,
+      };
+    }
+  }
+
+  /**
+   * Read one merge stage of a conflicted file straight from the index
+   * (`git show :<stage>:<path>`). Returns empty string when the stage is
+   * absent — e.g. an add/add conflict has no stage 1 (no common ancestor).
+   */
+  private async _readMergeStage(
+    gitCli: GitCli,
+    repo: IRepository,
+    stage: 1 | 2 | 3,
+    filePath: string
+  ): Promise<string> {
+    const result = await gitCli.exec(['show', `:${stage}:${filePath}`], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: false,
+    });
+    return result.exitCode === 0 ? result.stdout : '';
+  }
+
+  /**
    * Accept current version for all conflicted files
    *
    * @param repo - The repository
@@ -883,6 +970,77 @@ export class ConflictResolutionService implements IConflictResolutionService {
       disposable.dispose();
     }
     this._disposables = [];
+  }
+}
+
+/**
+ * Result of a three-way text merge that applies only non-conflicting changes.
+ */
+export interface IMergeNonConflictingResult {
+  /** Merged file content: one-sided hunks applied, two-sided hunks re-marked. */
+  content: string;
+  /** Whether any true-conflict hunks (with `<<<<<<<` markers) remain. */
+  hasConflicts: boolean;
+}
+
+/**
+ * Run git's own three-way text merge over the base/ours/theirs contents and
+ * return the result. `git merge-file` auto-applies every hunk only one side
+ * changed and re-emits conflict markers for hunks both sides changed — the
+ * machinery behind "accept non-conflicting changes". Its exit code is the
+ * number of conflict hunks (0 = clean), which we map to {@link
+ * IMergeNonConflictingResult.hasConflicts}.
+ *
+ * The three sides are staged into a private temp directory so the merge is
+ * independent of any working tree; the directory is always cleaned up.
+ */
+export async function mergeNonConflictingText(
+  gitCli: GitCli,
+  base: string,
+  ours: string,
+  theirs: string
+): Promise<IMergeNonConflictingResult> {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'intellig-merge-'));
+  const oursPath = path.join(tmpDir, 'ours');
+  const basePath = path.join(tmpDir, 'base');
+  const theirsPath = path.join(tmpDir, 'theirs');
+  try {
+    await Promise.all([
+      fs.promises.writeFile(oursPath, ours),
+      fs.promises.writeFile(basePath, base),
+      fs.promises.writeFile(theirsPath, theirs),
+    ]);
+
+    // `-p` prints the merged result to stdout (leaving the inputs untouched);
+    // `-L` labels the conflict markers with the side they came from. Arg order
+    // is current(ours) / base / other(theirs).
+    const result = await gitCli.exec(
+      [
+        'merge-file',
+        '-p',
+        '-L',
+        'Current (ours)',
+        '-L',
+        'Merge base',
+        '-L',
+        'Incoming (theirs)',
+        oursPath,
+        basePath,
+        theirsPath,
+      ],
+      { cwd: tmpDir, throwOnError: false }
+    );
+
+    // A clean run exits 0; conflicts exit with the (positive) hunk count. Git
+    // signals real trouble (unreadable input, binary) with 255 and no stdout —
+    // surface that rather than silently returning an empty merge.
+    if (result.exitCode === 255 && result.stdout.length === 0) {
+      throw new Error(`git merge-file failed: ${result.stderr || 'unknown error'}`);
+    }
+
+    return { content: result.stdout, hasConflicts: result.exitCode !== 0 };
+  } finally {
+    await fs.promises.rm(tmpDir, { recursive: true, force: true });
   }
 }
 
