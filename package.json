@@ -63,6 +63,12 @@
         "icon": "$(git-commit)"
       },
       {
+        "command": "intellig.showGitConsole",
+        "title": "Show Git Console",
+        "category": "IntelliG",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "intellig.changelist.new",
         "title": "New Changelist…",
         "category": "IntelliG"

@@ -4,10 +4,45 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import type * as vscode from 'vscode';
 import { ConsoleService, createConsoleService } from '../../../ui-shell/ConsoleService';
 import { GitCli, IGitCommandResult } from '../../../git-core/gitCli';
 import { IConsoleEntry, IGitToolWindowProvider } from '../../../services/interfaces';
 import { EventEmitter } from '../../mocks/vscode';
+
+// Stub OutputChannel that records written lines and reveal calls so tests
+// can assert what the Console surface emitted.
+class StubOutputChannel {
+  public name = 'IntelliG Git Console';
+  public lines: string[] = [];
+  public showCount = 0;
+  public disposed = false;
+  append(value: string): void {
+    this.lines.push(value);
+  }
+  appendLine(value: string): void {
+    this.lines.push(`${value}\n`);
+  }
+  replace(value: string): void {
+    this.lines = [value];
+  }
+  clear(): void {
+    this.lines = [];
+  }
+  show(): void {
+    this.showCount++;
+  }
+  hide(): void {
+    /* no-op */
+  }
+  dispose(): void {
+    this.disposed = true;
+  }
+  /** Convenience: full channel text joined for substring assertions. */
+  text(): string {
+    return this.lines.join('');
+  }
+}
 
 // Mock GitToolWindowProvider for testing
 class MockGitToolWindowProvider implements Partial<IGitToolWindowProvider> {
@@ -316,20 +351,95 @@ describe('ConsoleService', () => {
   });
 
   describe('showConsole', () => {
-    it('should be a no-op in 2-panel layout (console tab removed)', () => {
-      const mockProvider = new MockGitToolWindowProvider();
-      consoleService.connectToToolWindow(mockProvider as unknown as IGitToolWindowProvider);
+    it('should reveal the Git Console output channel', () => {
+      const channel = new StubOutputChannel();
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
 
-      // showConsole is now a no-op since the 2-panel layout has no console tab
-      consoleService.showConsole();
+      service.showConsole();
 
-      // No tab-related state to check; just verify no errors
-      assert.ok(true);
+      assert.strictEqual(channel.showCount, 1);
+      service.dispose();
     });
 
     it('should not throw when no provider connected', () => {
       // Should not throw
       consoleService.showConsole();
+    });
+  });
+
+  describe('OutputChannel surface', () => {
+    it('should write a timestamped command line for a logged command', () => {
+      const channel = new StubOutputChannel();
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+
+      service.logCommand('git status', 'On branch main');
+
+      // IntelliJ GitVcsConsoleWriter.showCommandLine prefixes HH:mm:ss.SSS
+      assert.match(channel.text(), /\d{2}:\d{2}:\d{2}\.\d{3}: git status/);
+      service.dispose();
+    });
+
+    it('should write command output to the channel', () => {
+      const channel = new StubOutputChannel();
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+
+      service.logCommand('git status', 'On branch main\nnothing to commit');
+
+      assert.ok(channel.text().includes('nothing to commit'));
+      service.dispose();
+    });
+
+    it('should write error output for a failed command', () => {
+      const channel = new StubOutputChannel();
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+
+      service.logError('git push', 'error: failed to push some refs');
+
+      assert.ok(channel.text().includes('git push'));
+      assert.ok(channel.text().includes('error: failed to push some refs'));
+      service.dispose();
+    });
+
+    it('should feed git commands captured from GitCli into the channel', () => {
+      const channel = new StubOutputChannel();
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+      const mockGitCli = new MockGitCli();
+      service.connectToGitCli(mockGitCli as unknown as GitCli);
+
+      mockGitCli.fireCommandExecuted('git', ['fetch', 'origin'], {
+        exitCode: 0,
+        stdout: 'From github.com/user/repo',
+        stderr: '',
+        combined: 'From github.com/user/repo',
+      });
+
+      assert.ok(channel.text().includes('git fetch origin'));
+      assert.ok(channel.text().includes('From github.com/user/repo'));
+      mockGitCli.dispose();
+      service.dispose();
+    });
+
+    it('should write the command line and streamed data for streaming output', () => {
+      const channel = new StubOutputChannel();
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+
+      const handler = service.startStreaming('git clone https://example.com/repo.git');
+      handler.onData("Cloning into 'repo'...\n");
+      handler.onComplete(0);
+
+      assert.ok(channel.text().includes('git clone https://example.com/repo.git'));
+      assert.ok(channel.text().includes("Cloning into 'repo'..."));
+      service.dispose();
+    });
+
+    it('should dispose a self-created channel on dispose', () => {
+      const channel = new StubOutputChannel();
+      // Inject so we can observe disposal; an injected channel is owned by
+      // the caller, so ConsoleService must NOT dispose it.
+      const service = new ConsoleService(undefined, channel as unknown as vscode.OutputChannel);
+      service.dispose();
+
+      assert.strictEqual(channel.disposed, false);
     });
   });
 

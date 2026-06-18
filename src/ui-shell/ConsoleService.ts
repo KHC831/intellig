@@ -1,7 +1,9 @@
 /**
  * Console Service implementation.
- * Captures and displays Git command output in the Console View.
- * Implements real-time output streaming for Git operations.
+ * Captures and displays Git command output in the Console View and mirrors it
+ * to a VS Code OutputChannel ("IntelliG Git Console"), the analog of IntelliJ's
+ * Version Control Console (git4idea `GitVcsConsoleWriter`). Implements real-time
+ * output streaming for Git operations.
  */
 
 import * as vscode from 'vscode';
@@ -20,6 +22,12 @@ import { GitCli, IGitCommandResult } from '../git-core/gitCli';
 const DEFAULT_MAX_ENTRIES = 1000;
 
 /**
+ * Name of the VS Code OutputChannel that mirrors IntelliJ's Version Control
+ * Console. Appears in the `Output` panel dropdown.
+ */
+const CONSOLE_CHANNEL_NAME = 'IntelliG Git Console';
+
+/**
  * Console Service implementation.
  * Connects GitCli command execution to the Console View for real-time output display.
  */
@@ -29,6 +37,13 @@ export class ConsoleService implements IConsoleService {
   private _disposables: vscode.Disposable[] = [];
   private _gitToolWindowProvider: IGitToolWindowProvider | undefined;
 
+  // VS Code OutputChannel surface (IntelliJ VCS Console analog). Created
+  // lazily on first write/reveal unless one is injected (for tests). A
+  // self-created channel is owned by this service and disposed with it; an
+  // injected channel is owned by the caller and left alone on dispose.
+  private _outputChannel: vscode.OutputChannel | undefined;
+  private readonly _ownsChannel: boolean;
+
   // Event emitters
   private readonly _onDidAddEntry = new vscode.EventEmitter<IConsoleEntry>();
   private readonly _onDidClear = new vscode.EventEmitter<void>();
@@ -37,11 +52,60 @@ export class ConsoleService implements IConsoleService {
   public readonly onDidAddEntry = this._onDidAddEntry.event;
   public readonly onDidClear = this._onDidClear.event;
 
-  constructor(maxEntries: number = DEFAULT_MAX_ENTRIES) {
+  constructor(maxEntries: number = DEFAULT_MAX_ENTRIES, outputChannel?: vscode.OutputChannel) {
     this._maxEntries = maxEntries;
+    this._outputChannel = outputChannel;
+    this._ownsChannel = outputChannel === undefined;
 
     // Register event emitters for disposal
     this._disposables.push(this._onDidAddEntry, this._onDidClear);
+  }
+
+  /**
+   * Lazily obtain the OutputChannel surface. A self-created channel is
+   * created on first access (creating it eagerly would add an empty entry
+   * to the `Output` dropdown even when no git command ever runs).
+   */
+  private _getOutputChannel(): vscode.OutputChannel {
+    if (!this._outputChannel) {
+      this._outputChannel = vscode.window.createOutputChannel(CONSOLE_CHANNEL_NAME);
+    }
+    return this._outputChannel;
+  }
+
+  /**
+   * Format a timestamp as `HH:mm:ss.SSS`, matching IntelliJ
+   * `GitVcsConsoleWriter.showCommandLine`.
+   */
+  private _formatTimestamp(date: Date): string {
+    const pad = (value: number, width = 2): string => String(value).padStart(width, '0');
+    return (
+      `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+      `.${pad(date.getMilliseconds(), 3)}`
+    );
+  }
+
+  /**
+   * Write the executed command line to the OutputChannel, mirroring
+   * IntelliJ's SYSTEM_OUTPUT command-line category (`timestamp: command`).
+   */
+  private _writeCommandLine(timestamp: Date, command: string): void {
+    this._getOutputChannel().appendLine(`${this._formatTimestamp(timestamp)}: ${command}`);
+  }
+
+  /**
+   * Write command output to the OutputChannel. VS Code OutputChannels are
+   * plain-text and cannot colour lines, so IntelliJ's NORMAL_OUTPUT and
+   * ERROR_OUTPUT categories both render as plain lines here; the error/normal
+   * distinction is preserved on the entry's `isError` flag (see getEntries).
+   */
+  private _writeOutput(output: string): void {
+    if (!output) {
+      return;
+    }
+    // Strip a single trailing newline so appendLine doesn't add a blank gap
+    // between entries when git output already ends in "\n".
+    this._getOutputChannel().appendLine(output.replace(/\n$/, ''));
   }
 
   /**
@@ -145,6 +209,7 @@ export class ConsoleService implements IConsoleService {
         // Update the entry with new data
         if (entryIndex < this._entries.length) {
           this._entries[entryIndex].output += data;
+          this._getOutputChannel().append(data);
           this._updateToolWindowEntry(this._entries[entryIndex]);
         }
       },
@@ -157,9 +222,11 @@ export class ConsoleService implements IConsoleService {
       },
       onError: (error: Error): void => {
         if (entryIndex < this._entries.length) {
-          this._entries[entryIndex].output += `\nError: ${error.message}`;
+          const message = `\nError: ${error.message}`;
+          this._entries[entryIndex].output += message;
           this._entries[entryIndex].isError = true;
           this._entries[entryIndex].exitCode = 1;
+          this._getOutputChannel().append(message);
           this._updateToolWindowEntry(this._entries[entryIndex]);
         }
       },
@@ -187,12 +254,12 @@ export class ConsoleService implements IConsoleService {
   }
 
   /**
-   * Show the console tab in the Git Tool Window.
-   * Note: In the 2-panel layout, the console is no longer a separate tab.
-   * This method is preserved for backward compatibility but is a no-op.
+   * Reveal the Git Console OutputChannel, mirroring IntelliJ's "open the VCS
+   * Console" action. Brings the `Output` panel forward focused on this
+   * service's channel.
    */
   public showConsole(): void {
-    // No-op: console tab removed in 2-panel layout migration
+    this._getOutputChannel().show();
   }
 
   /**
@@ -200,6 +267,12 @@ export class ConsoleService implements IConsoleService {
    */
   private _addEntry(entry: IConsoleEntry): void {
     this._entries.push(entry);
+
+    // Mirror to the OutputChannel surface: the command line, then any output
+    // already captured. Streaming entries start with empty output and append
+    // their chunks later via the streaming handler, so nothing is duplicated.
+    this._writeCommandLine(entry.timestamp, entry.command);
+    this._writeOutput(entry.output);
 
     // Trim entries if exceeding max
     while (this._entries.length > this._maxEntries) {
@@ -241,6 +314,13 @@ export class ConsoleService implements IConsoleService {
     this._disposables = [];
     this._entries = [];
     this._gitToolWindowProvider = undefined;
+
+    // Only dispose a channel we created; an injected channel is owned by the
+    // caller and may outlive this service.
+    if (this._ownsChannel) {
+      this._outputChannel?.dispose();
+    }
+    this._outputChannel = undefined;
   }
 }
 

@@ -63,6 +63,14 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       consoleService.connectToToolWindow(ctx.gitToolWindowProvider);
     }
 
+    // Command to reveal the Git Console OutputChannel, the IntelliJ "open VCS
+    // Console" analog. Captured by value so the closure doesn't depend on
+    // `ctx.services` still being live at invocation time.
+    const showGitConsoleCommand = vscode.commands.registerCommand('intellig.showGitConsole', () => {
+      consoleService.showConsole();
+    });
+    ctx.context.subscriptions.push(showGitConsoleCommand);
+
     // Wire the History tab to the GitService now that the service registry
     // is up. Safe to call multiple times (last-writer-wins).
     ctx.gitToolWindowProvider.attachGitService(ctx.services.gitService);
