@@ -23,7 +23,8 @@ export type BranchTreeItemType =
   | 'tag'
   | 'category'
   | 'detached-head' // Synthetic row for detached HEAD state
-  | 'branch-folder'; // IntelliJ-parity nesting node ("feature" container with feature/* children)
+  | 'branch-folder' // IntelliJ-parity nesting node ("feature" container with feature/* children)
+  | 'head'; // HEAD root node — current branch pinned at the very top (git4idea parity)
 
 /**
  * Branch-folder scope (the kind of branches the folder groups).
@@ -43,7 +44,58 @@ export const CONTEXT_VALUES = {
   CATEGORY: 'intellig.category',
   DETACHED_HEAD: 'intellig.detachedHead',
   BRANCH_FOLDER: 'intellig.branchFolder',
+  HEAD_NODE: 'intellig.headNode',
 } as const;
+
+/**
+ * Memento key under which the favorite-branch set is persisted.
+ * Mirrors git4idea's per-repo `GitRepositoryModel.favoriteRefs`
+ * (`GitFavoriteRefs`), reduced here to local-branch names.
+ */
+const FAVORITES_MEMENTO_KEY = 'intellig.branchTree.favorites';
+
+/**
+ * Persistence seam for the favorite-branch set (git4idea parity:
+ * `GitFavoriteRefs` / `GitRepositoryModel.favoriteRefs`). Favorites are
+ * keyed by local-branch name. Constructor-injected so favorite state
+ * survives across sessions in production (Memento-backed) while unit
+ * tests drive an in-memory double.
+ */
+export interface IFavoritesStore {
+  read(): string[];
+  write(favorites: string[]): void;
+}
+
+/**
+ * In-memory {@link IFavoritesStore} used when no persistent store is
+ * supplied (tests, and as a safe default that keeps favorites for the
+ * lifetime of the provider). Production wires {@link MementoFavoritesStore}.
+ */
+class InMemoryFavoritesStore implements IFavoritesStore {
+  private _data: string[] = [];
+  read(): string[] {
+    return this._data;
+  }
+  write(favorites: string[]): void {
+    this._data = favorites;
+  }
+}
+
+/**
+ * {@link IFavoritesStore} backed by a VS Code {@link vscode.Memento}
+ * (the extension's globalState) so favorites persist across sessions —
+ * the cross-session analogue of git4idea persisting `favoriteRefs` in
+ * the repository model.
+ */
+class MementoFavoritesStore implements IFavoritesStore {
+  constructor(private readonly _memento: vscode.Memento) {}
+  read(): string[] {
+    return this._memento.get<string[]>(FAVORITES_MEMENTO_KEY, []);
+  }
+  write(favorites: string[]): void {
+    void this._memento.update(FAVORITES_MEMENTO_KEY, favorites);
+  }
+}
 
 /**
  * Branch tree item representing a branch, tag, or category in the tree view
@@ -80,6 +132,12 @@ export class BranchTreeItem extends vscode.TreeItem {
   public readonly folderPath?: string;
   public readonly folderScope?: BranchFolderScope;
   public readonly remotePrefix?: string;
+  /**
+   * True when this row is a branch the user has starred (git4idea
+   * parity: `GitRepositoryModel.favoriteRefs`). Drives the star icon.
+   * Always false for non-branch rows.
+   */
+  public readonly isFavorite: boolean;
 
   constructor(
     label: string,
@@ -91,7 +149,8 @@ export class BranchTreeItem extends vscode.TreeItem {
     detachedHeadSha?: string, // Full 40-char SHA for detached row
     folderPath?: string,
     folderScope?: BranchFolderScope,
-    remotePrefix?: string
+    remotePrefix?: string,
+    isFavorite: boolean = false
   ) {
     super(label, collapsibleState);
 
@@ -103,6 +162,7 @@ export class BranchTreeItem extends vscode.TreeItem {
     this.folderPath = folderPath;
     this.folderScope = folderScope;
     this.remotePrefix = remotePrefix;
+    this.isFavorite = isFavorite;
 
     // Set context value for menu contributions
     this.contextValue = this._getContextValue();
@@ -152,6 +212,10 @@ export class BranchTreeItem extends vscode.TreeItem {
   private _getContextValue(): string {
     switch (this.itemType) {
       case 'local-branch':
+        // Favorite state is conveyed by the star icon, not the context
+        // value — so a starred branch keeps the full local-branch menu
+        // (checkout, compare, …). The Toggle Favorite action binds to
+        // both local-branch context values.
         return this.isCurrentBranch
           ? CONTEXT_VALUES.LOCAL_BRANCH_CURRENT
           : CONTEXT_VALUES.LOCAL_BRANCH;
@@ -165,6 +229,8 @@ export class BranchTreeItem extends vscode.TreeItem {
         return CONTEXT_VALUES.DETACHED_HEAD;
       case 'branch-folder':
         return CONTEXT_VALUES.BRANCH_FOLDER;
+      case 'head':
+        return CONTEXT_VALUES.HEAD_NODE;
       default:
         return '';
     }
@@ -172,12 +238,25 @@ export class BranchTreeItem extends vscode.TreeItem {
 
   private _getIcon(): vscode.ThemeIcon {
     switch (this.itemType) {
+      case 'head':
+        // The HEAD root node IS the current branch — reuse the green
+        // check so "you are here" reads consistently with the current
+        // row inside Local.
+        return new vscode.ThemeIcon(
+          'check',
+          new vscode.ThemeColor('gitDecoration.addedResourceForeground')
+        );
       case 'local-branch':
-        return this.isCurrentBranch
-          ? new vscode.ThemeIcon(
-              'check',
-              new vscode.ThemeColor('gitDecoration.addedResourceForeground')
-            )
+        if (this.isCurrentBranch) {
+          return new vscode.ThemeIcon(
+            'check',
+            new vscode.ThemeColor('gitDecoration.addedResourceForeground')
+          );
+        }
+        // Starred branches get a filled star (git4idea parity: favorite
+        // refs render with the favorite/star icon).
+        return this.isFavorite
+          ? new vscode.ThemeIcon('star-full')
           : new vscode.ThemeIcon('git-branch');
       case 'remote-branch':
         // Both local and remote branches use the same git-branch icon
@@ -206,6 +285,11 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getDescription(): string | undefined {
+    // HEAD root node: a short "HEAD" tag so the row reads as the
+    // current-branch pointer rather than a duplicate branch entry.
+    if (this.itemType === 'head') {
+      return 'HEAD';
+    }
     // Synthetic detached-head row description. Distinct from
     // 'current' (which implies a branch is checked out) — 'detached'
     // reads as "you are at this commit; HEAD is not bound to a branch".
@@ -242,6 +326,11 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getTooltip(): string {
+    // HEAD root node tooltip.
+    if (this.itemType === 'head') {
+      const name = typeof this.label === 'string' ? this.label : '';
+      return `HEAD → ${name}\n(Current branch)`;
+    }
     // Synthetic detached-head row tooltip.
     if (this.itemType === 'detached-head') {
       const sha = this._detachedHeadSha ?? '';
@@ -322,9 +411,29 @@ export class BranchTreeProvider
    */
   private readonly _incomingOutgoingFetcher: IncomingOutgoingFetcher | undefined;
 
-  constructor(gitService: IGitService, incomingOutgoingFetcher?: IncomingOutgoingFetcher) {
+  /**
+   * Persistent backing for {@link _favorites}. Defaults to an in-memory
+   * store; production injects a Memento-backed one so stars survive
+   * across sessions (git4idea parity: `GitRepositoryModel.favoriteRefs`).
+   */
+  private readonly _favoritesStore: IFavoritesStore;
+
+  /**
+   * In-memory mirror of the favorite local-branch names, loaded from
+   * {@link _favoritesStore} at construction and written through on every
+   * {@link toggleFavorite}.
+   */
+  private readonly _favorites: Set<string>;
+
+  constructor(
+    gitService: IGitService,
+    incomingOutgoingFetcher?: IncomingOutgoingFetcher,
+    favoritesStore?: IFavoritesStore
+  ) {
     this._gitService = gitService;
     this._incomingOutgoingFetcher = incomingOutgoingFetcher;
+    this._favoritesStore = favoritesStore ?? new InMemoryFavoritesStore();
+    this._favorites = new Set(this._favoritesStore.read());
     this._onDidChangeTreeData = new vscode.EventEmitter<BranchTreeItem | undefined | null | void>();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this._logger = getLogger().child({ component: 'BranchTreeProvider' });
@@ -427,6 +536,30 @@ export class BranchTreeProvider
     return this._currentRepository;
   }
 
+  /**
+   * Whether `branchName` (a local-branch full name) is starred.
+   * git4idea parity: `GitRepositoryModel.favoriteRefs.contains(ref)`.
+   */
+  isFavorite(branchName: string): boolean {
+    return this._favorites.has(branchName);
+  }
+
+  /**
+   * Toggle the favorite (star) state of a local branch, persist the new
+   * set through {@link _favoritesStore}, and refresh the tree so the
+   * Favorites section and star icons update. Mirrors git4idea's
+   * `toggle_favorite` action (SPACE / star click).
+   */
+  toggleFavorite(branchName: string): void {
+    if (this._favorites.has(branchName)) {
+      this._favorites.delete(branchName);
+    } else {
+      this._favorites.add(branchName);
+    }
+    this._favoritesStore.write([...this._favorites]);
+    this.refresh();
+  }
+
   getTreeItem(element: BranchTreeItem): vscode.TreeItem {
     return element;
   }
@@ -436,19 +569,17 @@ export class BranchTreeProvider
       return [];
     }
 
-    // Root level - show categories
+    // Root level - HEAD node, Favorites, then the category sections.
     if (!element) {
-      return [
-        new BranchTreeItem('Local', vscode.TreeItemCollapsibleState.Expanded, 'category'),
-        new BranchTreeItem('Remote', vscode.TreeItemCollapsibleState.Collapsed, 'category'),
-        new BranchTreeItem('Tags', vscode.TreeItemCollapsibleState.Collapsed, 'category'),
-      ];
+      return await this._getRootNodes();
     }
 
     // Category level - show items
     if (element.itemType === 'category') {
       try {
         switch (element.label) {
+          case 'Favorites':
+            return await this._getFavoriteBranches();
           case 'Local':
             return await this._getLocalBranches();
           case 'Remote':
@@ -484,6 +615,113 @@ export class BranchTreeProvider
     }
 
     return [];
+  }
+
+  /**
+   * Build the root-level rows: a HEAD node pinned at the very top (when
+   * HEAD is attached to a branch), an optional Favorites section, then
+   * the Local / Remote / Tags categories. Mirrors git4idea's
+   * `GitBranchesTreeModel`, which sorts the current ref first and
+   * favorites next; here those become explicit top rows.
+   */
+  private async _getRootNodes(): Promise<BranchTreeItem[]> {
+    const nodes: BranchTreeItem[] = [];
+
+    const head = this._currentRepository?.head;
+    const currentBranchName = head?.name?.replace('refs/heads/', '');
+
+    // HEAD root node. Only when HEAD is attached to a branch — detached
+    // and empty states are surfaced inside Local (synthetic detached row
+    // or nothing), so a top HEAD node there would be misleading.
+    if (currentBranchName) {
+      const currentBranch = await this._findCurrentBranch(currentBranchName);
+      nodes.push(
+        new BranchTreeItem(
+          currentBranchName,
+          vscode.TreeItemCollapsibleState.None,
+          'head',
+          currentBranch,
+          undefined,
+          true
+        )
+      );
+    }
+
+    // Favorites section — only when at least one branch is starred.
+    if (this._favorites.size > 0) {
+      nodes.push(
+        new BranchTreeItem('Favorites', vscode.TreeItemCollapsibleState.Expanded, 'category')
+      );
+    }
+
+    nodes.push(
+      new BranchTreeItem('Local', vscode.TreeItemCollapsibleState.Expanded, 'category'),
+      new BranchTreeItem('Remote', vscode.TreeItemCollapsibleState.Collapsed, 'category'),
+      new BranchTreeItem('Tags', vscode.TreeItemCollapsibleState.Collapsed, 'category')
+    );
+
+    return nodes;
+  }
+
+  /**
+   * Resolve the {@link IBranch} for the current branch name so the HEAD
+   * node carries a real ref (selection → graph navigation). Returns
+   * `undefined` (best-effort) if the branch list can't be loaded or the
+   * branch isn't found — the HEAD node still renders by name.
+   */
+  private async _findCurrentBranch(currentBranchName: string): Promise<IBranch | undefined> {
+    if (!this._currentRepository) {
+      return undefined;
+    }
+    try {
+      const branches = await this._gitService.getBranches(this._currentRepository);
+      return branches.find((b) => b.type === 'local' && (b.name === currentBranchName || b.isHead));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * The starred local branches, rendered as flat leaf rows for the
+   * Favorites section. Carries ahead/behind enrichment (when a fetcher
+   * is injected) and the `current` affordance, matching the Local
+   * section's leaves.
+   */
+  private async _getFavoriteBranches(): Promise<BranchTreeItem[]> {
+    if (!this._currentRepository) {
+      return [];
+    }
+
+    const branches = await this._gitService.getBranches(this._currentRepository);
+    let favorites = branches.filter((b) => b.type === 'local' && this._favorites.has(b.name));
+    if (this._incomingOutgoingFetcher) {
+      favorites = await enrichBranchesWithIncomingOutgoing(
+        this._currentRepository,
+        favorites,
+        this._incomingOutgoingFetcher
+      );
+    }
+
+    const head = this._currentRepository.head;
+    const currentBranchName = head?.name?.replace('refs/heads/', '');
+
+    favorites.sort((a, b) => a.name.localeCompare(b.name));
+    return favorites.map(
+      (branch) =>
+        new BranchTreeItem(
+          branch.name,
+          vscode.TreeItemCollapsibleState.None,
+          'local-branch',
+          branch,
+          undefined,
+          branch.name === currentBranchName || branch.isHead,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true // isFavorite
+        )
+    );
   }
 
   private async _getLocalBranches(): Promise<BranchTreeItem[]> {
@@ -750,7 +988,12 @@ export class BranchTreeProvider
             'local-branch',
             branch,
             undefined,
-            isCurrentBranch
+            isCurrentBranch,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            this._favorites.has(branch.name) // isFavorite
           )
         );
       } else {
@@ -791,11 +1034,18 @@ export class BranchTreeProvider
  * Create a new BranchTreeProvider instance.
  *
  * @param gitService - The Git service to use
+ * @param memento - Optional Memento (e.g. the extension's globalState)
+ *   used to persist favorite branches across sessions. When omitted,
+ *   favorites live only for the provider's lifetime.
  * @returns A new BranchTreeProvider instance
  */
-export function createBranchTreeProvider(gitService: IGitService): BranchTreeProvider {
+export function createBranchTreeProvider(
+  gitService: IGitService,
+  memento?: vscode.Memento
+): BranchTreeProvider {
   // Wire the incoming/outgoing fetcher when the concrete GitService exposes
   // it so tracked branches in the tree show ↑N/↓N badges (ADR-001: the method
   // is off the frozen IGitService interface, detected via duck-typing).
-  return new BranchTreeProvider(gitService, getIncomingOutgoingFetcher(gitService));
+  const favoritesStore = memento ? new MementoFavoritesStore(memento) : undefined;
+  return new BranchTreeProvider(gitService, getIncomingOutgoingFetcher(gitService), favoritesStore);
 }

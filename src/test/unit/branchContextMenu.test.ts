@@ -73,10 +73,16 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranchCurrent');
     });
 
-    it('should have exactly 5 menu items', () => {
-      // Added intellig.branch.focusOnGraph in `inline` group
-      // for current-branch tree items.
-      assert.strictEqual(entries.length, 5, `Expected 5 items, got ${entries.length}`);
+    it('should have exactly 6 menu items', () => {
+      // intellig.branch.focusOnGraph (inline) + intellig.branch.toggleFavorite
+      // (4_favorite) added on top of the four branch-op entries.
+      assert.strictEqual(entries.length, 6, `Expected 6 items, got ${entries.length}`);
+    });
+
+    it('should include Toggle Favorite in section 4_favorite@1', () => {
+      const entry = entries.find((e) => e.command === 'intellig.branch.toggleFavorite');
+      assert.ok(entry, 'intellig.branch.toggleFavorite should be present for current branch');
+      assert.strictEqual(entry.group, '4_favorite@1');
     });
 
     it('Wave D — should include Focus on Graph in section inline@1', () => {
@@ -127,6 +133,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         '1_branchOps',
         '2_sync',
         '3_manage',
+        '4_favorite',
         'inline',
       ]);
     });
@@ -141,9 +148,10 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranch');
     });
 
-    it('should have exactly 12 menu items', () => {
-      // Added intellig.branch.focusOnGraph in `inline` group.
-      assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
+    it('should have exactly 13 menu items', () => {
+      // intellig.branch.focusOnGraph (inline) + intellig.branch.toggleFavorite
+      // (6_favorite) on top of the eleven branch-op entries.
+      assert.strictEqual(entries.length, 13, `Expected 13 items, got ${entries.length}`);
     });
 
     it('Wave D — should include Focus on Graph in section inline@1', () => {
@@ -151,6 +159,12 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         (e) => e.command === 'intellig.branch.focusOnGraph' && e.group === 'inline@1'
       );
       assert.ok(entry, 'intellig.branch.focusOnGraph should be at inline@1 for local branch');
+    });
+
+    it('should include Toggle Favorite in section 6_favorite@1', () => {
+      const entry = entries.find((e) => e.command === 'intellig.branch.toggleFavorite');
+      assert.ok(entry, 'intellig.branch.toggleFavorite should be present for local branch');
+      assert.strictEqual(entry.group, '6_favorite@1');
     });
 
     it('should include Checkout in section 1_branchOps@1', () => {
@@ -230,7 +244,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.branch.delete should be at 5_manage@2');
     });
 
-    it('should have 6 distinct group sections in correct order', () => {
+    it('should have 7 distinct group sections in correct order', () => {
       const sections = [...new Set(entries.map((e) => parseGroup(e.group).section))];
       assert.deepStrictEqual(sections.sort(), [
         '1_branchOps',
@@ -238,6 +252,7 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
         '3_integrate',
         '4_sync',
         '5_manage',
+        '6_favorite',
         'inline',
       ]);
     });

@@ -305,6 +305,12 @@
         "icon": "$(eye)"
       },
       {
+        "command": "intellig.branch.toggleFavorite",
+        "title": "Toggle Favorite",
+        "category": "IntelliG",
+        "icon": "$(star-full)"
+      },
+      {
         "command": "intellig.remoteBranch.checkoutAsLocal",
         "title": "Checkout",
         "category": "IntelliG"
@@ -727,6 +733,16 @@
           "command": "intellig.branch.newBranchFrom",
           "when": "viewItem == intellig.localBranchCurrent",
           "group": "1_branchOps@1"
+        },
+        {
+          "command": "intellig.branch.toggleFavorite",
+          "when": "viewItem == intellig.localBranchCurrent",
+          "group": "4_favorite@1"
+        },
+        {
+          "command": "intellig.branch.toggleFavorite",
+          "when": "viewItem == intellig.localBranch",
+          "group": "6_favorite@1"
         },
         {
           "command": "intellig.branch.update",

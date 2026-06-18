@@ -30,6 +30,7 @@ import {
   BranchTreeProvider,
   CONTEXT_VALUES,
   type BranchTreeItem,
+  type IFavoritesStore,
 } from '../../../branches/BranchTreeProvider';
 import {
   createMockGitService,
@@ -534,5 +535,212 @@ describe('UI fix #37 — BranchTreeProvider folder grouping', () => {
     // Alpha-sorted.
     assert.strictEqual(items[0].label, 'develop');
     assert.strictEqual(items[1].label, 'main');
+  });
+});
+
+/**
+ * D slice 2 — HEAD root node + favorites (git4idea parity).
+ *
+ * North star: `GitBranchesTreeModel` pins the current ref to the very top
+ * of the tree (`getRefComparator`: `!isCurrentRefInAny` first) and starred
+ * favorites next (`!isFavoriteInAll`). Favorite state is persisted per repo
+ * in `GitRepositoryModel.favoriteRefs` (`GitFavoriteRefs`).
+ *
+ * Here we mirror that with:
+ *   - a synthetic `'head'` root node showing the current branch at the very
+ *     top (above Local/Remote/Tags), only when HEAD is attached;
+ *   - a `Favorites` category listing starred local branches, only when at
+ *     least one favorite exists;
+ *   - `toggleFavorite` / `isFavorite` backed by an injected
+ *     {@link IFavoritesStore} (Memento in production, in-memory double here)
+ *     so favorites survive across sessions.
+ */
+describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
+  class InMemoryStore implements IFavoritesStore {
+    private _data: string[];
+    public writes = 0;
+    constructor(initial: string[] = []) {
+      this._data = [...initial];
+    }
+    read(): string[] {
+      return [...this._data];
+    }
+    write(favorites: string[]): void {
+      this.writes += 1;
+      this._data = [...favorites];
+    }
+  }
+
+  function providerWith(
+    branches: IBranch[],
+    repo: IRepository = attachedRepo('main', 'b'.repeat(40)),
+    store?: IFavoritesStore
+  ): BranchTreeProvider {
+    const gitService = createMockGitService(repo, { getBranches: async () => branches });
+    const provider = new BranchTreeProvider(gitService, undefined, store);
+    provider.setRepository(repo);
+    return provider;
+  }
+
+  // --- HEAD root node ---
+
+  it('renders a HEAD root node at the very top when HEAD is attached to a branch', async () => {
+    const provider = providerWith([
+      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+    ]);
+    const root = await provider.getChildren();
+    assert.strictEqual(root[0].itemType, 'head', 'HEAD node must be the first root child');
+    assert.strictEqual(root[0].label, 'main', 'HEAD node label is the current branch name');
+    assert.strictEqual(root[0].contextValue, CONTEXT_VALUES.HEAD_NODE);
+    assert.strictEqual(root[0].isCurrentBranch, true);
+  });
+
+  it('HEAD root node carries the current branch ref so selection can navigate', async () => {
+    const provider = providerWith([
+      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+    ]);
+    const root = await provider.getChildren();
+    assert.strictEqual(root[0].branch?.name, 'main');
+  });
+
+  it('omits the HEAD root node when HEAD is detached', async () => {
+    const provider = providerWith(
+      [{ name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: false }],
+      detachedRepo('a'.repeat(40))
+    );
+    const root = await provider.getChildren();
+    assert.strictEqual(
+      root.filter((c) => c.itemType === 'head').length,
+      0,
+      'detached HEAD → no head node (the synthetic Local row covers it)'
+    );
+    assert.strictEqual(root[0].label, 'Local', 'first root child falls back to Local');
+  });
+
+  it('omits the HEAD root node for an empty repo', async () => {
+    const gitService = createMockGitService(emptyRepo());
+    const provider = new BranchTreeProvider(gitService);
+    provider.setRepository(emptyRepo());
+    const root = await provider.getChildren();
+    assert.strictEqual(root.filter((c) => c.itemType === 'head').length, 0);
+  });
+
+  // --- favorite toggle + persistence ---
+
+  it('toggleFavorite marks a branch favorite and writes through to the store', () => {
+    const store = new InMemoryStore();
+    const provider = providerWith(
+      [{ name: 'feature', type: 'local', commit: 'c'.repeat(40), isHead: false }],
+      attachedRepo('main', 'b'.repeat(40)),
+      store
+    );
+    assert.strictEqual(provider.isFavorite('feature'), false);
+    provider.toggleFavorite('feature');
+    assert.strictEqual(provider.isFavorite('feature'), true);
+    assert.deepStrictEqual(store.read(), ['feature'], 'favorite persisted to the store');
+  });
+
+  it('toggleFavorite a second time removes the favorite and persists the removal', () => {
+    const store = new InMemoryStore(['feature']);
+    const provider = providerWith(
+      [{ name: 'feature', type: 'local', commit: 'c'.repeat(40), isHead: false }],
+      attachedRepo('main', 'b'.repeat(40)),
+      store
+    );
+    assert.strictEqual(provider.isFavorite('feature'), true, 'loaded from store on construction');
+    provider.toggleFavorite('feature');
+    assert.strictEqual(provider.isFavorite('feature'), false);
+    assert.deepStrictEqual(store.read(), []);
+  });
+
+  it('loads persisted favorites from the store on construction', () => {
+    const provider = providerWith(
+      [{ name: 'release', type: 'local', commit: 'c'.repeat(40), isHead: false }],
+      attachedRepo('main', 'b'.repeat(40)),
+      new InMemoryStore(['release'])
+    );
+    assert.strictEqual(provider.isFavorite('release'), true);
+  });
+
+  // --- favorites section ---
+
+  it('renders a Favorites category (after HEAD) when at least one favorite exists', async () => {
+    const provider = providerWith(
+      [
+        { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+        { name: 'release', type: 'local', commit: 'c'.repeat(40), isHead: false },
+      ],
+      attachedRepo('main', 'b'.repeat(40)),
+      new InMemoryStore(['release'])
+    );
+    const root = await provider.getChildren();
+    assert.strictEqual(root[0].itemType, 'head');
+    assert.strictEqual(root[1].label, 'Favorites', 'Favorites category sits right below HEAD');
+    assert.strictEqual(root[1].itemType, 'category');
+    // The remaining sections are preserved in order.
+    assert.deepStrictEqual(
+      root.slice(2).map((c) => c.label),
+      ['Local', 'Remote', 'Tags']
+    );
+  });
+
+  it('omits the Favorites category when there are no favorites', async () => {
+    const provider = providerWith([
+      { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+    ]);
+    const root = await provider.getChildren();
+    assert.strictEqual(root.filter((c) => c.label === 'Favorites').length, 0);
+  });
+
+  it('Favorites category lists only the starred local branches as leaf rows', async () => {
+    const provider = providerWith(
+      [
+        { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+        { name: 'release', type: 'local', commit: 'c'.repeat(40), isHead: false },
+        { name: 'feature', type: 'local', commit: 'd'.repeat(40), isHead: false },
+      ],
+      attachedRepo('main', 'b'.repeat(40)),
+      new InMemoryStore(['release'])
+    );
+    const root = await provider.getChildren();
+    const favCategory = root.find((c) => c.label === 'Favorites')!;
+    const favs = await provider.getChildren(favCategory);
+    assert.strictEqual(favs.length, 1);
+    assert.strictEqual(favs[0].itemType, 'local-branch');
+    assert.strictEqual(favs[0].branch?.name, 'release');
+    assert.strictEqual(favs[0].isFavorite, true);
+  });
+
+  // --- favorite marking in the Local section ---
+
+  it('flags a favorite local branch row via isFavorite', async () => {
+    const provider = providerWith(
+      [
+        { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+        { name: 'release', type: 'local', commit: 'c'.repeat(40), isHead: false },
+      ],
+      attachedRepo('main', 'b'.repeat(40)),
+      new InMemoryStore(['release'])
+    );
+    const items = await localBranchesFromTree(provider);
+    const releaseRow = items.find((i) => i.label === 'release')!;
+    assert.strictEqual(releaseRow.isFavorite, true);
+  });
+
+  it('keeps the base local-branch context value on a favorite so its full menu stays', async () => {
+    // Regression guard: a starred branch must NOT get a distinct context
+    // value, or it loses the localBranch context-menu entries (checkout,
+    // compare, …). Favorite state is conveyed by the icon instead.
+    const provider = providerWith(
+      [
+        { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: true },
+        { name: 'release', type: 'local', commit: 'c'.repeat(40), isHead: false },
+      ],
+      attachedRepo('main', 'b'.repeat(40)),
+      new InMemoryStore(['release'])
+    );
+    const items = await localBranchesFromTree(provider);
+    const releaseRow = items.find((i) => i.label === 'release')!;
+    assert.strictEqual(releaseRow.contextValue, CONTEXT_VALUES.LOCAL_BRANCH);
   });
 });

@@ -151,12 +151,15 @@ describe('Feature: branch-context-menu - Excluded Commands Property Tests', () =
       // - intellig.branch.push (2_sync@2)
       // - intellig.branch.rename (3_manage@1)
       // - intellig.branch.focusOnGraph (inline@1)
+      // - intellig.branch.toggleFavorite (4_favorite@1) — the current
+      //   branch can be starred too (git4idea favorites any ref).
       const ALLOWED_CURRENT_BRANCH_COMMANDS: ReadonlyArray<string> = [
         'intellig.branch.newBranchFrom',
         'intellig.branch.update',
         'intellig.branch.push',
         'intellig.branch.rename',
         'intellig.branch.focusOnGraph',
+        'intellig.branch.toggleFavorite',
       ];
 
       fc.assert(

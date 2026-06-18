@@ -775,7 +775,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Create BranchTreeProvider and tree view for context menu support
     // The tree view is used by CommandTitleProvider to listen for selection changes
     // and dynamically update command titles with branch names.
-    const branchTreeProvider = createBranchTreeProvider(gitService);
+    // Pass globalState so favorite branches persist across sessions
+    // (git4idea parity: GitRepositoryModel.favoriteRefs).
+    const branchTreeProvider = createBranchTreeProvider(gitService, ctx.context.globalState);
     const branchTreeView = vscode.window.createTreeView('intellig.branchTree', {
       treeDataProvider: branchTreeProvider,
       showCollapseAll: true,
@@ -783,6 +785,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Register the provider too so its EventEmitter
     // onDidChangeRepository subscription are torn down on deactivation.
     ctx.context.subscriptions.push(branchTreeView, branchTreeProvider);
+
+    // `intellig.branch.toggleFavorite` — star/unstar the selected local
+    // branch. Mirrors git4idea's toggle_favorite action; the provider
+    // persists the favorite set and refreshes the tree.
+    const toggleFavoriteCommand = vscode.commands.registerCommand(
+      'intellig.branch.toggleFavorite',
+      (item?: { branch?: { name?: string } }) => {
+        const branchName = item?.branch?.name;
+        if (typeof branchName === 'string' && branchName.length > 0) {
+          branchTreeProvider.toggleFavorite(branchName);
+        }
+      }
+    );
+    ctx.context.subscriptions.push(toggleFavoriteCommand);
 
     // Wire the repository selector to BOTH downstream views: the Log/Graph
     // (Git) view AND the Branches tree view. Without the branch-tree side,
