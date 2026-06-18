@@ -47,6 +47,11 @@ status block.
   `src/test/property/headAncestryPromotion.property.test.ts`, and
   the "Phase 1a pins" suite in
   `src/test/unit/utils/commitGraph.test.ts`.
+- [ADR-014](ADR-014-ui-primitive-selection.md) — Accepted —
+  UI primitive selection: webview only for the commit graph; native
+  primitives (QuickPick, TreeView + context menus, SCM API, native
+  modals) for menus, popups, dialogs, and commit/staging. The
+  commit-row context menu is the one inherent hand-rolled exception.
 
 ## Status legend
 
