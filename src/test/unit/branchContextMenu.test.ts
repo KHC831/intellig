@@ -148,10 +148,25 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.localBranch');
     });
 
-    it('should have exactly 13 menu items', () => {
+    it('should have exactly 15 menu items', () => {
       // intellig.branch.focusOnGraph (inline) + intellig.branch.toggleFavorite
-      // (6_favorite) on top of the eleven branch-op entries.
-      assert.strictEqual(entries.length, 13, `Expected 13 items, got ${entries.length}`);
+      // (6_favorite) on top of the branch-op entries, including the two
+      // worktree commands (New Worktree… / Open Worktree…).
+      assert.strictEqual(entries.length, 15, `Expected 15 items, got ${entries.length}`);
+    });
+
+    it('should include New Worktree in section 1_branchOps@4', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.newWorktree' && e.group === '1_branchOps@4'
+      );
+      assert.ok(entry, 'intellig.branch.newWorktree should be at 1_branchOps@4');
+    });
+
+    it('should include Open Worktree in section 1_branchOps@5', () => {
+      const entry = entries.find(
+        (e) => e.command === 'intellig.branch.openWorktree' && e.group === '1_branchOps@5'
+      );
+      assert.ok(entry, 'intellig.branch.openWorktree should be at 1_branchOps@5');
     });
 
     it('Wave D — should include Focus on Graph in section inline@1', () => {

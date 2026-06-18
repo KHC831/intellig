@@ -260,6 +260,16 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.branch.newWorktree",
+        "title": "New Worktree…",
+        "category": "IntelliG"
+      },
+      {
+        "command": "intellig.branch.openWorktree",
+        "title": "Open Worktree…",
+        "category": "IntelliG"
+      },
+      {
         "command": "intellig.branch.mergeIntoCurrent",
         "title": "Merge into Current",
         "category": "IntelliG"
@@ -774,6 +784,16 @@
           "command": "intellig.branch.newBranchFrom",
           "when": "viewItem == intellig.localBranch",
           "group": "1_branchOps@2"
+        },
+        {
+          "command": "intellig.branch.newWorktree",
+          "when": "viewItem == intellig.localBranch",
+          "group": "1_branchOps@4"
+        },
+        {
+          "command": "intellig.branch.openWorktree",
+          "when": "viewItem == intellig.localBranch",
+          "group": "1_branchOps@5"
         },
         {
           "command": "intellig.branch.checkoutAndRebase",

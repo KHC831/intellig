@@ -52,6 +52,7 @@ import { BranchOps } from './ops/BranchOps';
 import { StashTagHistoryOps } from './ops/StashTagHistoryOps';
 import { RemoteOps } from './ops/RemoteOps';
 import { IncomingOutgoingOps, IIncomingOutgoing } from './ops/IncomingOutgoingOps';
+import { WorktreeOps, IWorktreeEntry, IAddWorktreeOptions } from './ops/WorktreeOps';
 import { readInProgressOperation } from './gitInProgress';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
@@ -78,6 +79,7 @@ export class GitService implements IGitService, IGitServiceCli {
   private readonly _stashTagHistory: StashTagHistoryOps;
   private readonly _remoteOps: RemoteOps;
   private readonly _incomingOutgoing: IncomingOutgoingOps;
+  private readonly _worktrees: WorktreeOps;
   private _repositories: Map<string, IRepositoryCache> = new Map();
   private _onDidChangeRepository: vscode.EventEmitter<IRepository>;
   /**
@@ -287,6 +289,7 @@ export class GitService implements IGitService, IGitServiceCli {
     this._stashTagHistory = new StashTagHistoryOps(ctx);
     this._remoteOps = new RemoteOps(ctx);
     this._incomingOutgoing = new IncomingOutgoingOps(ctx);
+    this._worktrees = new WorktreeOps(ctx);
 
     // Forward Git command events through the structured Logger. Debug
     // level so the firehose of every git invocation is filtered out by
@@ -1380,6 +1383,29 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   getIncomingOutgoing(repo: IRepository): Promise<IIncomingOutgoing> {
     return this._incomingOutgoing.getForCurrentBranch(repo);
+  }
+
+  // ============================================
+  // Worktree Operations
+  // ============================================
+  //
+  // New capability landed on the GitService class (NOT the frozen IGitService
+  // composite — ADR-001), mirroring the Incoming/Outgoing additions above.
+
+  /**
+   * List the repository's worktrees (`git worktree list --porcelain`).
+   * See {@link WorktreeOps.listWorktrees}.
+   */
+  listWorktrees(repo: IRepository): Promise<IWorktreeEntry[]> {
+    return this._worktrees.listWorktrees(repo);
+  }
+
+  /**
+   * Create a linked worktree (`git worktree add`). See
+   * {@link WorktreeOps.addWorktree}.
+   */
+  addWorktree(repo: IRepository, options: IAddWorktreeOptions): Promise<void> {
+    return this._worktrees.addWorktree(repo, options);
   }
 
   // ============================================

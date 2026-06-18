@@ -19,6 +19,7 @@ import type { RebaseDialog } from '../rebase/RebaseDialog';
 import type { NewBranchDialog } from './NewBranchDialog';
 import { sanitizeGitError, worktreeConflictMessage } from '../git-core/gitError';
 import { getLogger, registerLoggedCommand } from '../utils/logger';
+import type { IWorktreeCapableService, IWorktreeEntry } from '../git-core/ops/WorktreeOps';
 
 /** Thunk that lazily returns the shared {@link PullDialog} singleton. */
 export type PullDialogAccessor = () => PullDialog | undefined;
@@ -186,6 +187,200 @@ export class BranchContextMenuCommands {
   }
 
   /**
+   * View the GitService through its worktree capability. The frozen
+   * {@link IGitService} composite (ADR-001) does not declare the post-freeze
+   * worktree methods; the concrete `GitService` implements them, so consumers
+   * widen through the {@link IWorktreeCapableService} role interface.
+   */
+  private _worktreeService(): IWorktreeCapableService {
+    return this._gitService as unknown as IWorktreeCapableService;
+  }
+
+  /**
+   * "New Worktree…" — create a linked worktree checked out at the right-clicked
+   * branch/tag (or a prompted ref), at a user-chosen path. Mirrors IntelliJ
+   * git4idea's `git worktree add`: prompts whether to create a NEW branch in
+   * the worktree or check out the existing ref, validates the target path does
+   * not already exist, then runs the injection-safe argv builder in
+   * {@link WorktreeOps.addWorktree}. Offers to open the new worktree afterward.
+   */
+  private async _handleNewWorktree(item?: BranchTreeItem): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo) {
+      return;
+    }
+
+    const ref = item?.branch?.name ?? item?.tag?.name ?? item?.getDetachedHeadSha() ?? 'HEAD';
+
+    const targetPath = await vscode.window.showInputBox({
+      prompt: `Path for the new worktree (checked out at '${ref}')`,
+      placeHolder: '/absolute/path/to/worktree',
+      validateInput: (value) => {
+        const trimmed = value?.trim() ?? '';
+        if (trimmed.length === 0) {
+          return 'Worktree path cannot be empty';
+        }
+        if (trimmed.startsWith('-')) {
+          return 'Worktree path cannot start with "-"';
+        }
+        return undefined;
+      },
+    });
+    if (!targetPath || targetPath.trim().length === 0) {
+      return;
+    }
+    const worktreePath = targetPath.trim();
+
+    // Refuse a path that already exists — git would fail with a terse error;
+    // a clear pre-check is friendlier and matches IntelliJ's path validation.
+    let pathExists = false;
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(worktreePath));
+      pathExists = true;
+    } catch {
+      pathExists = false;
+    }
+    if (pathExists) {
+      void vscode.window.showErrorMessage(
+        `Cannot create worktree: '${worktreePath}' already exists.`
+      );
+      return;
+    }
+
+    const createBranchPick = await vscode.window.showQuickPick(
+      [
+        { label: `Check out '${ref}'`, mode: 'existing' as const },
+        { label: 'Create a new branch in the worktree…', mode: 'new' as const },
+      ],
+      { placeHolder: 'How should the worktree be checked out?' }
+    );
+    if (!createBranchPick) {
+      return;
+    }
+
+    let newBranch: string | undefined;
+    if (createBranchPick.mode === 'new') {
+      newBranch = await vscode.window.showInputBox({
+        prompt: `New branch name (created at '${ref}')`,
+        placeHolder: 'feature/my-worktree-branch',
+        validateInput: (value) => {
+          if (!value || !value.trim()) {
+            return 'Branch name cannot be empty';
+          }
+          if (!/^(?![-.])[\w\-./]+$/.test(value)) {
+            return 'Invalid branch name';
+          }
+          return undefined;
+        },
+      });
+      if (!newBranch) {
+        return;
+      }
+    }
+
+    try {
+      await this._worktreeService().addWorktree(repo, {
+        path: worktreePath,
+        ref,
+        newBranch,
+      });
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        `Failed to create worktree: ${sanitizeGitError(error instanceof Error ? error.message : String(error))}`
+      );
+      return;
+    }
+
+    this._branchTreeProvider.refresh();
+
+    const open = await vscode.window.showInformationMessage(
+      `Worktree created at '${worktreePath}'.`,
+      'Open in New Window',
+      'Open in Current Window'
+    );
+    if (open === 'Open in New Window' || open === 'Open in Current Window') {
+      await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(worktreePath), {
+        forceNewWindow: open === 'Open in New Window',
+      });
+    }
+  }
+
+  /**
+   * "Open Worktree…" — list the repo's worktrees
+   * (`git worktree list --porcelain`), let the user pick one, and open it as a
+   * VS Code folder. The current/main worktree and any path equal to the active
+   * repo root are still listed (you may want to reopen the main checkout in a
+   * fresh window).
+   */
+  private async _handleOpenWorktree(): Promise<void> {
+    const repo = this._getRepository();
+    if (!repo) {
+      return;
+    }
+
+    const worktrees = await this._worktreeService().listWorktrees(repo);
+    if (worktrees.length === 0) {
+      void vscode.window.showInformationMessage('No worktrees found for this repository.');
+      return;
+    }
+
+    const items = worktrees.map((wt) => ({
+      label: this._worktreeLabel(wt),
+      description: wt.path,
+      worktree: wt,
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a worktree to open',
+    });
+    if (!picked) {
+      return;
+    }
+
+    const newWindow = await vscode.window.showQuickPick(
+      [
+        { label: 'Open in New Window', forceNewWindow: true },
+        { label: 'Open in Current Window', forceNewWindow: false },
+      ],
+      { placeHolder: `Open '${picked.worktree.path}'` }
+    );
+    if (!newWindow) {
+      return;
+    }
+
+    await vscode.commands.executeCommand(
+      'vscode.openFolder',
+      vscode.Uri.file(picked.worktree.path),
+      { forceNewWindow: newWindow.forceNewWindow }
+    );
+  }
+
+  /**
+   * Human-readable label for a worktree pick: the short branch name (stripping
+   * the `refs/heads/` prefix git's porcelain emits), `(detached)` /
+   * `(bare)` for those states, plus a `(locked)` / `(main)` suffix.
+   */
+  private _worktreeLabel(wt: IWorktreeEntry): string {
+    let base: string;
+    if (wt.isBare) {
+      base = '(bare)';
+    } else if (wt.isDetached) {
+      base = '(detached)';
+    } else if (wt.branch) {
+      base = wt.branch.replace(/^refs\/heads\//, '');
+    } else {
+      base = '(unknown)';
+    }
+    const tags: string[] = [];
+    if (wt.isMain) {
+      tags.push('main');
+    }
+    if (wt.isLocked) {
+      tags.push('locked');
+    }
+    return tags.length > 0 ? `${base} (${tags.join(', ')})` : base;
+  }
+
+  /**
    * Register all branch context menu commands.
    *
    * @param context - The VS Code extension context
@@ -341,6 +536,16 @@ export class BranchContextMenuCommands {
       registerLoggedCommand('intellig.tag.deleteRemote', (item: BranchTreeItem) =>
         this._handleTagDeleteRemote(item)
       )
+    );
+
+    // Worktree commands
+    this._disposables.push(
+      registerLoggedCommand('intellig.branch.newWorktree', (item?: BranchTreeItem) =>
+        this._handleNewWorktree(item)
+      )
+    );
+    this._disposables.push(
+      registerLoggedCommand('intellig.branch.openWorktree', () => this._handleOpenWorktree())
     );
 
     // Refresh command
