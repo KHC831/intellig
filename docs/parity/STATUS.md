@@ -31,6 +31,11 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
   config-coherence + remote-ops-eoo + `check:vsix-clean` OK): **E-7** per-file apply-patch tree,
   **E-8** unshelve target-changelist, **D-8** align-local update-selected (FF without checkout),
   **H-2** rebase `--onto`/`--root`.
+- **Batch 9 landed 2026-06-18** (4 slices, combined gate green — 4554 unit + 746 property,
+  config-coherence + `check:vsix-clean` OK): **A-1** commit-and-push, **B-1** accept non-conflicting
+  from both sides, **H-3** revert/cherry-pick `-m` mainline, **A-2** live changed-line gutter tracker.
+  A-1 also fixed a latent unconditional-push bug; F-8 inline-diff-on-hover was investigated, found to
+  need a line-status tracker first, and rescoped → A-2 (the tracker); the hover popup (F-8b) is deferred.
 
 ## Landing log
 
@@ -38,6 +43,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-18 | Workstream A (slice 2) — live changed-line gutter tracker: pure `computeLineStatusRanges` (in-memory LCS line diff of buffer vs `git show HEAD:<path>` → added/modified/deleted ranges, capped at `MAX_TRACKED_LINES=10000` to protect the ext host) + `LineStatusTracker` gutter/overview-ruler decorations, debounced live updates; mirrors `LineStatusTracker.java`. (Hover popup F-8b deferred) | 0af6b06 | local cherry-pick (squashed) |
+| 2026-06-18 | Workstream H (slice 3) — revert/cherry-pick `-m <mainline>` for merge commits: `-m` is added only when a (validated positive-integer) mainline is supplied so non-merge commits never get the invalid flag; hashes positional behind `--end-of-options`; mirrors git4idea revert/cherry-pick merge handling | 693044f | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream B (slice 1) — "accept non-conflicting changes from both sides": reads the index merge stages (`:1:/:2:/:3:`) and delegates the 3-way merge to `git merge-file -p` (auto-applies one-sided hunks, re-emits markers for two-sided), stages only when fully merged, skips modify/delete; no diff3 reinvention; mirrors `ApplyNonConflictsAction`/`applyNonConflictedChanges` | 541eefe | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream A (slice 1) — commit-and-push in one action: pure `commitThenPush` pushes only when the commit reports `committed:true` (cancelled / no-result / thrown commit skip the push — also fixed a latent unconditional-push bug), chaining the existing `intellig.commit` + `intellig.push`; mirrors `GitCommitAndPushExecutor` | e2c135f | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream D (slice 8) — align-local "Update Selected": fast-forwards a local branch to its tracked remote WITHOUT checkout via a `<remoteRef>:<localRef>` fetch refspec (no leading `+` ⇒ FF-only, git refuses non-FF), skipping checked-out/diverged(outgoing>0)/up-to-date branches with a report; refspec rides behind `--end-of-options`; mirrors `GitBranchPopupActions` update-selected | 27e8e91 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream H (slice 2) — surface rebase `--onto <newbase>` / `--root`: `BranchOps` builds `rebase --autostash [--root] [--onto <newbase>] --end-of-options [<upstream>]` (newbase rejects `-`/`.`-leading, root↔upstream mutually exclusive via `refs = root ? [] : [onto]`); mirrors git4idea `GitRebaseDialog` Onto field / `GitRebaseProcess` | aa2baa0 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream E (slice 8) — unshelve into a target changelist: optional `targetChangelist` routes cleanly-applied files via `IChangelistService.moveToChangelist` after the apply loop (conflicted files never reassigned, no target = active changelist unchanged); ShelfView changelist picker; mirrors `ShelveChangesManager.unshelveChangeList` | cd7c429 | local cherry-pick (1 commit) |

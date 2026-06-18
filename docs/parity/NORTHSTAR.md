@@ -16,8 +16,10 @@ The hard architecture exists — changelists, shelf-as-patch-store, interactive-
 commit-graph log, 3-way merge all built. **Remaining work is fidelity, not invention.** Reset and
 interactive-rebase plumbing already *exceed* git4idea.
 
-Remaining backlog: residuals under **C** (shell/sync) and the open workstreams **E** (shelf),
-**H** (rebase), plus residual gaps under the now-mostly-done **B / D / F**. **G (log) is complete** — G1-G9 all merged.
+Remaining backlog is now thin: **G** complete; **B / C / D / E / H** effectively complete (~92-97%);
+**A** (~86%) and **F** (~92%) carry the last daily-feature gaps — A's rollback dialog + the line-status
+hover popup (F-8b) on the just-landed gutter tracker — plus the medium/polish menu-order + R2-re-audit
+items in section 4.
 
 ## 2. Standing constraints
 
@@ -33,9 +35,9 @@ Remaining backlog: residuals under **C** (shell/sync) and the open workstreams *
 | Component | Parity | Biggest remaining gap |
 |---|---|---|
 | Reset | 🟢 ~95% | — (exceeds ref) |
-| 3-way Merge view (B) | 🟢 ~85% | only "accept non-conflicting from both sides" (shared w/ H) left — auto-flip landed |
-| Commit & Changelists (A) | 🟢 ~80% | live line-status tracker, commit-and-push dialog, rollback dialog |
-| Rebase / Cherry-pick / Revert (H) | 🟢 ~88% | `-m` revert/cherry-pick, accept-non-conflicting (inline reword/squash + `--onto`/`--root` landed) |
+| 3-way Merge view (B) | 🟢 ~92% | near-complete (native editor + auto-flip + accept-non-conflicting landed) |
+| Commit & Changelists (A) | 🟢 ~86% | rollback dialog, line-status hover popup (F-8b) (commit-and-push + live line-status gutter landed) |
+| Rebase / Cherry-pick / Revert (H) | 🟢 ~93% | near-complete (inline reword/squash + `--onto`/`--root` + `-m` revert/cherry-pick + accept-non-conflicting landed) |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
 | Branches & Tags (D) | 🟢 ~97% | near-complete (HEAD/favorites/validation/multi-repo/worktree/per-remote-push/tag-merge/align-local landed) |
 | Shell / Menus / Sync (C) | 🟢 ~95% | near-complete (`--autostash` + console + scm provider + log-menu history-rewrite guard + tabbed default-on landed) |
@@ -64,12 +66,15 @@ merged tree (it predates the A/C/phase-0 merges). Evidence: `R2-0N-*.md`, `R2-UX
 Each lists remaining gaps + ordered work + files. Reference: `git4idea` (portable git logic) vs
 `platform` (UI we hand-build).
 
-### B. 3-way Merge view — 🟢 ~85%
+### B. 3-way Merge view — 🟢 ~92%
 **Landed 2026-06-17:** resolved-row auto-flip — `ConflictResolutionService` reconciles the open
 `ResolveConflictsDialog` against the unmerged set on the existing git-index watch (no new watcher),
 flipping externally-resolved rows and enabling Continue.
-**Remaining:** "Accept non-conflicting from both sides" (shared with H).
-**Files:** `src/conflicts/{MergeView,ResolveConflictsDialog}.ts`.
+**Landed 2026-06-18:** "Accept non-conflicting from both sides" — reads the index merge stages
+(`:1:/:2:/:3:`) and delegates the 3-way merge to `git merge-file -p` (auto-applies one-sided hunks,
+re-emits markers for two-sided), staging only when fully merged; mirrors `ApplyNonConflictsAction`.
+**Remaining:** none tracked — workstream B is effectively complete.
+**Files:** `src/conflicts/{MergeView,ResolveConflictsDialog,ConflictResolutionService}.ts`.
 
 ### C (residuals). Shell / Menus / Sync — 🟡 ~75%
 **Landed 2026-06-17:** Pull `--autostash` (dialog checkbox + op flag + autostash-pop conflict routing);
@@ -88,7 +93,7 @@ false→true; provider already honored the flag per render).
 **Files:** `package.json`, `src/ui-shell/{KeymapService,ConsoleService}.ts`, `src/sync/PullDialog.ts`,
 `src/git-core/gitToolWindow/tabs/*`.
 
-### D. Branches & Tags — 🟡 ~75%
+### D. Branches & Tags — 🟢 ~97%
 **Remaining:** popup header actions + settings toggles + `FilteringTree`; tree HEAD root node +
 favorites + multi-repo grouping + search/multi-select; `getMergedBranches` has no UI caller; no
 worktree create/open; conflict-aware branch-name validation; per-remote push; tag submenu
@@ -109,7 +114,7 @@ mirrors `GitBranchPopupActions` update-selected).
 **Files:** `src/branches/*`, `src/git-core/ops/{BranchOps,StashTagHistoryOps}.ts`,
 `src/commands/registration/commitHelpers.ts`, `package.json`.
 
-### E. Shelf / Stash / Patches — 🟡 ~70%
+### E. Shelf / Stash / Patches — 🟢 ~95%
 **Remaining:** no per-file/partial unshelve; no per-file shelve from changelist; no "diff with local
 changes" (static patch text only); **no binary support**; no deleted-shelf recycle bin; imported
 multi-file patch collapses to one entry; Apply Patch whole-patch only; stash apply always `--index`
@@ -130,7 +135,7 @@ verbatim blocks; mirrors `ApplyPatchDifferentiatedDialog`). (8) ~~stash apply-in
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
-### F. Blame / History / Diff — 🟡 ~65%
+### F. Blame / History / Diff — 🟢 ~92%
 **Remaining:** toggleable aspect columns / author-name-format; "show affected paths";
 inline-diff-on-hover; file
 history has no graph / details pane / get-version, and line-history isn't line-scoped (fetches whole
@@ -156,15 +161,17 @@ log -L` op + HistoryTab wiring). ~~get-version~~ **DONE 2026-06-18** (`DiffOps.g
 (6) fixup!/squash! message links. (7) Incoming tab + push-up-to-commit. (8) merged multi-root log.
 (9) go-to-parent/child nav (Right/Left keys + context menu).
 
-### H. Rebase / Cherry-pick / Revert — 🟢 ~80%
+### H. Rebase / Cherry-pick / Revert — 🟢 ~93%
 **Remaining:** no inline reword/squash message editing; `--onto <newbase>`/`--root` not surfaced;
 revert `--no-edit` only (no `-m` mainline, no multi-commit); cherry-pick no `-m`/`--edit` for merge
 commits.
 **Work (ordered):** (1) ~~inline reword/squash box~~ **DONE 2026-06-18** (`hasSquashOverride` mirrors the
 reword guard — blank message never writes an empty `-F`; squash applies via `fixup` + `exec git commit
 --amend -F`). (2) ~~surface `--onto`/`--root`~~ **DONE 2026-06-18** (`rebase [--root] [--onto <newbase>]
---end-of-options [<upstream>]`, refs validated, root↔upstream exclusive). (3) revert/cherry-pick
-`-m` + edit-message. (4) "accept non-conflicting from both sides" (shared with B).
+--end-of-options [<upstream>]`, refs validated, root↔upstream exclusive). (3) ~~revert/cherry-pick
+`-m` + edit-message~~ **DONE 2026-06-18** (`-m <mainline>` only for merge commits, validated int,
+hash behind `--end-of-options`). (4) ~~"accept non-conflicting from both sides"~~ **DONE 2026-06-18**
+(shared with B — `git merge-file -p` over the index stages).
 **Files:** `src/rebase/{RebaseEditor,RebaseDialog}.ts`, `src/git-core/{rebaseTodo,RebaseService}.ts`,
 `src/git-core/ops/CherryPickRevertOps.ts`, `package.json`.
 **Fragility:** interactive rebase spawns the Electron binary as node (`ELECTRON_RUN_AS_NODE=1`) — worth a fallback.
