@@ -187,7 +187,7 @@ export function truncateMessage(message: string, maxLength: number): string {
  * Renders a context menu with all 7 required options:
  * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,
  * Show Repository at Revision, Compare with Local, Reset Current Branch to Here,
- * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message,
+ * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message…,
  * Merge into Current Branch, Interactively Rebase from Here.
  *
  * Section ordering mirrors git4idea's `Git.Log.ContextMenu` group
@@ -231,7 +231,7 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
         <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">Revert Commit</div>
         <div class="context-menu-item" data-action="undoCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Undo Commit</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message</div>
+        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message\u2026</div>
         <div class="context-menu-item" data-action="fixupWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup with Previous</div>
         <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
         <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>

@@ -666,6 +666,18 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(html.includes('Edit Commit Message'), 'Should contain Edit Commit Message option');
     });
 
+    it('labels the Edit Commit Message item with a trailing ellipsis (it opens a reword input)', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const match = html.match(/data-action="editCommitMessage"[^>]*>([^<]*)</);
+      assert.ok(match, 'Should find the editCommitMessage menu item');
+      const label = match[1];
+      assert.ok(
+        label.endsWith('…'),
+        `Reword menu item label must end with a unicode ellipsis (got "${label}")`
+      );
+      assert.strictEqual(label, 'Edit Commit Message…');
+    });
+
     it('should contain Merge into Current Branch option', () => {
       const html = provider._getCommitContextMenuHtml();
       assert.ok(

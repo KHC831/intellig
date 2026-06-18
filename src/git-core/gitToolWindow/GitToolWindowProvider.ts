@@ -3409,7 +3409,7 @@ ${bodyMarkup}
    * Renders a context menu with all 7 required options:
    * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,
    * Show Repository at Revision, Compare with Local, Reset Current Branch to Here,
-   * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message,
+   * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message…,
    * Merge into Current Branch, Interactively Rebase from Here.
    *
    * Items are organized into four sections separated by dividers:
