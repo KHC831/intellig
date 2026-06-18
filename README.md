@@ -10,6 +10,7 @@ IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git 
 - **Commit Tool Window** _(opt-in)_ — dedicated SCM view with Local Changes + combined Shelf/Stash tab
 - **Changelists** — organize pending changes into named lists with descriptions and an active-list indicator
 - **Revert & Drop Selected Changes** — deselect individual files before reverting or dropping
+- **Commit File** — commit a single file straight from its Explorer right-click menu (top of the IntelliG submenu)
 
 ### Branches, Tags & Log
 
@@ -72,6 +73,23 @@ folders that _contain_ nested repos all "just work."
 - **Mid-session new-repo detection.** Running `git init newproject/`
   inside a workspace folder is auto-detected — the new repository is
   picked up without a reload.
+
+### Repository scope
+
+When more than one repository is open, the Git Tool Window toolbar shows
+a repository selector. It controls which repo the **Log** and the
+**Branches** view show:
+
+- **Pick a single repository** to scope both views to that repo — the
+  branch tree lists only that repo's local/remote/tag refs, and the log
+  graph shows only its commits.
+- **All Repositories** (the default) shows a merged view: the branch tree
+  groups every repo's refs, and the log interleaves commits from all
+  roots into one graph.
+
+Right-click actions resolve against the repository the clicked branch,
+tag, or commit actually belongs to — so in the merged view an action on a
+ref from one repo never operates on another.
 
 ### Scan-depth and ignore configuration
 
