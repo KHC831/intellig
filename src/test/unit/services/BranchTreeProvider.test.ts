@@ -900,6 +900,182 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.strictEqual(folderChildren[0].branch?.name, 'feature/x');
   });
 
+  // --- leaf items carry their owning repository (multi-repo data-loss guard) ---
+  //
+  // Branch names collide across repos (every repo has `main`/`master`). The
+  // context menu must target the repo the CLICKED leaf hangs under, not the
+  // tree's current repo — so every leaf row carries `repository`. Without it,
+  // deleting `main` under repo B's node would delete repo A's `main`.
+
+  it('tags a local-branch leaf with its owning repository so a colliding name targets the right repo', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [
+          repoB,
+          [
+            { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: false },
+            { name: 'dev', type: 'local', commit: 'c'.repeat(40), isHead: true },
+          ],
+        ],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB node
+    const localCategory = sections.find((s) => s.label === 'Local')!;
+    const locals = await provider.getChildren(localCategory);
+    const mainLeaf = locals.find((l) => l.label === 'main')!;
+
+    assert.strictEqual(mainLeaf.itemType, 'local-branch');
+    assert.strictEqual(
+      mainLeaf.repository,
+      repoB,
+      'the `main` leaf under repoB carries repoB, not the context repo'
+    );
+  });
+
+  it('tags a nested-folder local-branch leaf with its owning repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [
+          repoB,
+          [
+            { name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true },
+            { name: 'feature/x', type: 'local', commit: 'd'.repeat(40), isHead: false },
+          ],
+        ],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB node
+    const localCategory = sections.find((s) => s.label === 'Local')!;
+    const locals = await provider.getChildren(localCategory);
+    const folder = locals.find((l) => l.itemType === 'branch-folder' && l.label === 'feature')!;
+    const folderChildren = await provider.getChildren(folder);
+    const leaf = folderChildren.find((l) => l.label === 'x')!;
+
+    assert.strictEqual(leaf.itemType, 'local-branch');
+    assert.strictEqual(leaf.repository, repoB, 'nested leaf carries the owning repo');
+  });
+
+  it('tags a remote-branch leaf with its owning repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [
+          repoB,
+          [
+            { name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true },
+            { name: 'origin/main', type: 'remote', commit: 'c'.repeat(40), isHead: false },
+          ],
+        ],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB node
+    const remoteCategory = sections.find((s) => s.label === 'Remote')!;
+    const remoteFolders = await provider.getChildren(remoteCategory);
+    const originFolder = remoteFolders.find((f) => f.label === 'origin')!;
+    const remoteLeaves = await provider.getChildren(originFolder);
+    const leaf = remoteLeaves.find((l) => l.itemType === 'remote-branch')!;
+
+    assert.strictEqual(leaf.repository, repoB, 'remote leaf carries the owning repo');
+  });
+
+  it('tags the synthetic detached-head row with its owning repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB: IRepository = {
+      rootUri: { fsPath: '/work/beta', scheme: 'file' } as IRepository['rootUri'],
+      state: 'idle',
+      head: { name: undefined, commit: 'f'.repeat(40), ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    };
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: false }]],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB node
+    const localCategory = sections.find((s) => s.label === 'Local')!;
+    const locals = await provider.getChildren(localCategory);
+    const detached = locals.find((l) => l.itemType === 'detached-head')!;
+
+    assert.ok(detached, 'detached-head row exists for repoB');
+    assert.strictEqual(detached.repository, repoB, 'detached row carries the owning repo');
+  });
+
+  it('tags a favorite leaf with its owning repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const favStore: IFavoritesStore = { read: () => ['main'], write: () => {} };
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [
+          repoB,
+          [
+            { name: 'main', type: 'local', commit: 'b'.repeat(40), isHead: false },
+            { name: 'dev', type: 'local', commit: 'c'.repeat(40), isHead: true },
+          ],
+        ],
+      ]),
+      favStore
+    );
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB node
+    const favCategory = sections.find((s) => s.label === 'Favorites')!;
+    const favs = await provider.getChildren(favCategory);
+    const favLeaf = favs.find((l) => l.branch?.name === 'main')!;
+
+    assert.strictEqual(favLeaf.repository, repoB, 'favorite leaf carries the owning repo');
+  });
+
+  it('tags a tag leaf with its owning repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const gitService = createMockGitService(repoA, {
+      getRepositories: () => [repoA, repoB],
+      getBranches: async (repo: IRepository) =>
+        repo === repoB
+          ? [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]
+          : [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }],
+      getTags: async (repo: IRepository) =>
+        repo === repoB ? [{ name: 'v1.0', commit: 'e'.repeat(40), isAnnotated: false }] : [],
+    });
+    const provider = new BranchTreeProvider(gitService, undefined, undefined);
+    provider.setRepository(repoA);
+    provider.setRepositoryScope('all');
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB node
+    const tagsCategory = sections.find((s) => s.label === 'Tags')!;
+    const tags = await provider.getChildren(tagsCategory);
+    const tagLeaf = tags.find((t) => t.itemType === 'tag')!;
+
+    assert.strictEqual(tagLeaf.tag?.name, 'v1.0');
+    assert.strictEqual(tagLeaf.repository, repoB, 'tag leaf carries the owning repo');
+  });
+
   // --- single-repo no-regression ---
 
   it('keeps the flat layout (no repository node) when only one repository exists', async () => {

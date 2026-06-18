@@ -867,7 +867,8 @@ export class BranchTreeProvider
           undefined,
           undefined,
           undefined,
-          true // isFavorite
+          true, // isFavorite
+          repo
         )
     );
   }
@@ -897,7 +898,12 @@ export class BranchTreeProvider
           undefined,
           undefined,
           true, // isCurrentBranch — yes, the user IS here
-          head.commit // detachedHeadSha (full 40-char SHA)
+          head.commit, // detachedHeadSha (full 40-char SHA)
+          undefined,
+          undefined,
+          undefined,
+          false, // isFavorite
+          repo
         )
       );
     }
@@ -1148,7 +1154,8 @@ export class BranchTreeProvider
             undefined,
             undefined,
             undefined,
-            this._favorites.has(branch.name) // isFavorite
+            this._favorites.has(branch.name), // isFavorite
+            repo
           )
         );
       } else {
@@ -1157,7 +1164,15 @@ export class BranchTreeProvider
             displayName,
             vscode.TreeItemCollapsibleState.None,
             'remote-branch',
-            branch
+            branch,
+            undefined,
+            false,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            false,
+            repo
           )
         );
       }
@@ -1175,7 +1190,14 @@ export class BranchTreeProvider
         vscode.TreeItemCollapsibleState.None,
         'tag',
         undefined,
-        tag
+        tag,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        repo
       );
     });
   }

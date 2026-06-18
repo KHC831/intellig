@@ -304,7 +304,7 @@ export class BranchContextMenuCommands {
    * {@link WorktreeOps.addWorktree}. Offers to open the new worktree afterward.
    */
   private async _handleNewWorktree(item?: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo) {
       return;
     }
@@ -675,6 +675,18 @@ export class BranchContextMenuCommands {
     return this._branchTreeProvider.getRepository();
   }
 
+  /**
+   * Resolve the repository a context-menu action targets. The clicked tree
+   * leaf carries its owning repository — every branch/remote leaf is tagged
+   * with the repo whose node it hangs under — so a colliding name (e.g.
+   * `main`, present in every repo of a multi-root workspace) drives the git
+   * op against the RIGHT repo. Falls back to the tree's current repository
+   * for palette invocations, where no item is supplied.
+   */
+  private _resolveRepository(item?: BranchTreeItem): IRepository | undefined {
+    return item?.repository ?? this._getRepository();
+  }
+
   // ============================================
   // Local Branch Command Handlers
   // ============================================
@@ -683,7 +695,7 @@ export class BranchContextMenuCommands {
    * Handle checkout command for local branches.
    */
   private async _handleCheckout(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo) {
       return;
     }
@@ -807,7 +819,7 @@ export class BranchContextMenuCommands {
    * Handle new branch from here command.
    */
   private async _handleNewBranchFrom(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo) {
       return;
     }
@@ -877,7 +889,7 @@ export class BranchContextMenuCommands {
    * Handle merge into current command.
    */
   private async _handleMergeIntoCurrent(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -954,7 +966,7 @@ export class BranchContextMenuCommands {
    * in progress before they clicked.
    */
   private async _handleRebaseCurrentOnto(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1073,7 +1085,7 @@ export class BranchContextMenuCommands {
    * Handle compare with current command.
    */
   private async _handleCompareWithCurrent(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1105,7 +1117,7 @@ export class BranchContextMenuCommands {
    * Handle rename command.
    */
   private async _handleRename(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1163,7 +1175,7 @@ export class BranchContextMenuCommands {
    * confirm, retry with `git branch -D` (force).
    */
   private async _handleDelete(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1228,7 +1240,7 @@ export class BranchContextMenuCommands {
    * Fetches the latest changes from the upstream remote for the branch.
    */
   private async _handleUpdate(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1271,7 +1283,7 @@ export class BranchContextMenuCommands {
    * is refused. Surfaced from BranchesDashboardActions.UpdateSelectedBranchAction.
    */
   private async _handleUpdateSelected(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1414,7 +1426,7 @@ export class BranchContextMenuCommands {
    * Pushes the branch to its upstream remote, or sets upstream if none configured.
    */
   private async _handlePush(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1490,7 +1502,7 @@ export class BranchContextMenuCommands {
    *   5. User cancels the QuickPick → no-op, no toast, no error.
    */
   private async _handleShowDiffWithWorkingTree(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1576,7 +1588,7 @@ export class BranchContextMenuCommands {
    * a remote branch, mirroring `_handleCheckoutAsLocal`'s pattern.
    */
   private async _handleCheckoutAndRebase(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1764,7 +1776,7 @@ export class BranchContextMenuCommands {
     item: BranchTreeItem,
     preset: 'rebase' | 'merge'
   ): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1878,7 +1890,7 @@ export class BranchContextMenuCommands {
    * confirmation before resetting.
    */
   private async _handleCheckoutAsLocal(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -1988,7 +2000,7 @@ export class BranchContextMenuCommands {
    * Handle cherry-pick commits command.
    */
   private async _handleCherryPickCommits(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -2072,7 +2084,7 @@ export class BranchContextMenuCommands {
    * Handle delete remote branch command.
    */
   private async _handleDeleteRemote(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -2146,7 +2158,7 @@ export class BranchContextMenuCommands {
    * IntelliJ-parity gap.
    */
   private async _handleTrackRemote(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.branch) {
       return;
     }
@@ -2250,7 +2262,7 @@ export class BranchContextMenuCommands {
    * Handle tag checkout (detached) command.
    */
   private async _handleTagCheckoutDetached(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.tag) {
       return;
     }
@@ -2295,7 +2307,7 @@ export class BranchContextMenuCommands {
    * Handle tag cherry-pick command.
    */
   private async _handleTagCherryPick(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.tag) {
       return;
     }
@@ -2340,7 +2352,7 @@ export class BranchContextMenuCommands {
    * non-conflict-failure routing as `_handleMergeIntoCurrent`.
    */
   private async _handleTagMergeIntoCurrent(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.tag) {
       return;
     }
@@ -2387,7 +2399,7 @@ export class BranchContextMenuCommands {
    * Handle delete tag command.
    */
   private async _handleTagDelete(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.tag) {
       return;
     }
@@ -2421,7 +2433,7 @@ export class BranchContextMenuCommands {
    * Handle push tag command.
    */
   private async _handleTagPush(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.tag) {
       return;
     }
@@ -2459,7 +2471,7 @@ export class BranchContextMenuCommands {
    * {@link sanitizeGitError} so credentials in remote URLs are stripped.
    */
   private async _handleTagDeleteRemote(item: BranchTreeItem): Promise<void> {
-    const repo = this._getRepository();
+    const repo = this._resolveRepository(item);
     if (!repo || !item.tag) {
       return;
     }
