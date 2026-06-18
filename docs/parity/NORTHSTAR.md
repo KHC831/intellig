@@ -114,7 +114,7 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 
 | # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
 |---|---|---|---|---|---|
-| 4 | Branch popup | QuickPick: Rename/Delete should be LAST; missing Diff-with-Local, Update-Selected, Pull-into-current, New-Worktree, Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` | M |
+| 4 | Branch popup | QuickPick local-branch menu: move **Rename/Delete to LAST** (currently positions 3-4, git4idea puts them at the end). NOTE (verified): Diff-with-Local = "Compare with Current" (present); Update-Selected + Pull-into-current already exist on remote branches (D8 + "Pull into Current Using Merge/Rebase"). Possibly add New-Worktree-from-branch + Push-Tags to the popup (both reachable elsewhere — assess vs defer) | `GitBranchPopupActions` | `BranchPopup.ts:724-792` | S |
 | 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
