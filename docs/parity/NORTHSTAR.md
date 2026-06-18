@@ -101,7 +101,7 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 
 | Surface | Parity | Biggest remaining gap |
 |---|---|---|
-| Log / commit menu | 🟡 ~80% | by-subject Fixup/Squash-into-commit (#10 remainder) |
+| Log / commit menu | 🟢 ~90% | — (#10 done: reword ellipsis + New-Branch/Tag + Fixup/Squash-into all landed; mirrors `Git.Log.ContextMenu`) |
 | Branch popup (QuickPick) | 🟡 ~65% | action set + Rename/Delete-last reorder (#4); tracked-branch submenu (#5) |
 | Branch tree menu | 🟢 ~90% | — (near-complete) |
 | Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs (deferred) |
@@ -117,17 +117,16 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 | 4 | Branch popup | QuickPick: Rename/Delete should be LAST; missing Diff-with-Local, Update-Selected, Pull-into-current, New-Worktree, Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` | M |
 | 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
 | 6 | Explorer submenu | Add "Commit File" (CheckinFiles) at the head of the submenu — needs a single-file commit handler (the History-trails / Annotate-with-diff reorder + "Compare with Branch…" rename landed) | `Git.FileActions` (`CheckinFiles`) | pkg.json `explorerSubmenu` | S/M |
-| 10 | Log menu | Add by-subject Fixup-into-Commit / Squash-into-Commit (target a SELECTED commit, distinct from the existing with-previous items). NOTE: New-Branch/New-Tag-from-commit landed (3853540) | `Git.Fixup.To.Commit` / `Git.Squash.Into.Commit` | `htmlBuilders.ts` + `_handleAction` | S/M |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
 | — | Dialogs | Field-level checkbox/label/order audit per dialog (rebase/merge/push/pull/reset/new-branch/rollback) | per-dialog git4idea classes | `src/rebase`,`src/sync`,… | M |
 
 **Order:** the pkg.json-only quick wins (#8, #9, #6-partial) have landed; #2 resolved (the "native tree
 menu" never existed — its 19 orphaned `view/item/context` entries were deleted, webview overlay is the one
-true commit menu); #3 landed (reword-item ellipsis); #10 half-landed (New-Branch/New-Tag-from-commit in
-the webview menu — also resolves the orphaned-command parity gap). Next: #10 remainder (by-subject
-Fixup/Squash-into-commit), the #6 "Commit File" handler, branch popup (#4, #5). Stash/Working-Trees tabs +
-per-dialog field audit are deferred.
+true commit menu); #3 landed (reword-item ellipsis); **#10 complete** (New-Branch/New-Tag-from-commit +
+Fixup…/Squash Into… in the webview menu — the log/commit menu now mirrors `Git.Log.ContextMenu`; also
+resolved the orphaned-command parity gap). Next: the #6 "Commit File" handler, then branch popup (#4, #5).
+Stash/Working-Trees tabs + per-dialog field audit are deferred.
 
 **Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
 dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
@@ -135,7 +134,9 @@ dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified pre
 to git4idea self-describing text), Fetch distinct icon + branch widget to navigation@1 (#9), explorer
 submenu reordered to `Git.FileActions` (Annotate→compare cluster→History trails) + "Compare with Branch…"
 rename (#6-partial). **#2 (`ea292f8`):** removed 19 dead `intellig.logCommit` `view/item/context` entries
-(no provider ever emitted that contextValue) + added a manifest↔source coherence guard.
+(no provider ever emitted that contextValue) + added a manifest↔source coherence guard. **#3 (`b7a16ee`):**
+reword-item ellipsis. **#10 (`3853540`, `47b363b`):** New Branch / New Tag from commit + Fixup… / Squash
+Into… in the webview log menu — the log/commit menu now mirrors `Git.Log.ContextMenu`.
 
 ---
 
