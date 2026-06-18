@@ -118,6 +118,11 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       // bezier-target lane also continues below (a through-lane) and must
       // be drawn full-height — preventing the gap under a merge commit.
       const nextActiveLanes = activeLaneMap.get(index + 1) || new Set<number>();
+      // Previous row's active lanes, so the renderer can tell whether a lane
+      // continues from ABOVE. A lane active here but not above is born at this
+      // row (a merge's second-parent lane) and must not draw a top-half stub
+      // floating above the merge diamond.
+      const prevActiveLanes = activeLaneMap.get(index - 1) || new Set<number>();
       // Source lanes whose far-parent first-parent
       // line lands at THIS row from above. The renderer draws a top-half
       // bend per lane.
@@ -132,7 +137,8 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
         childLanes,
         hasFocusedBranch,
         nextActiveLanes,
-        incomingBendLanes
+        incomingBendLanes,
+        prevActiveLanes
       );
 
       // Format fields.

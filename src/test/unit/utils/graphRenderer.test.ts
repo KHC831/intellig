@@ -665,6 +665,140 @@ describe('Graph Renderer - Known Graph Topologies', () => {
     });
   });
 
+  describe('Merge-in lane born at a mid-graph merge row (no spurious top stub)', () => {
+    // A merge commit M sits at row 1 (NOT the topmost row, so the
+    // `rowIndex === 0` guard does not apply). Its second-parent lane (lane 1)
+    // is BORN at the merge row and runs DOWNWARD to P2; it has no history
+    // above the merge. Topology:
+    //   row 0: C  (child of M)          col 0
+    //   row 1: M  (merge of P1, P2)     col 0   lines {0->0 commit}, {0->1 merge}
+    //   row 2: P2 (second parent)       col 1
+    //   row 3: P1 (first parent)        col 0
+    // Lane 1 is active at rows 1..2 (born at the merge, runs to P2). Because
+    // it ALSO continues below (next row), the below-only logic painted it
+    // full height — including a top-half stub (y=0 -> centerY) floating above
+    // the diamond, even though nothing exists above the merge on lane 1.
+    const nodes: ICommitNode[] = [
+      makeNode('ccc', ['mmm'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]),
+      makeNode('mmm', ['p1p', 'p2p'], 0, [
+        { fromColumn: 0, toColumn: 0, type: 'commit' },
+        { fromColumn: 0, toColumn: 1, type: 'merge' },
+      ]),
+      makeNode('p2p', [], 1),
+      makeNode('p1p', [], 0),
+    ];
+    const activeLaneMap = computeActiveLanes(nodes);
+    const prevActive = activeLaneMap.get(0)!; // {0}
+    const rowActive = activeLaneMap.get(1)!; // {0, 1}
+    const nextActive = activeLaneMap.get(2)!; // {0, 1}
+    const lane1X = getColumnX(1, config).toString();
+
+    it('emits no y1="0" stub on the merged-in lane at the merge row', () => {
+      const svg = renderGraphSvg(
+        nodes[1],
+        1,
+        rowActive,
+        config,
+        false,
+        false,
+        new Set(),
+        false,
+        nextActive,
+        new Set(),
+        prevActive
+      );
+      const lines = extractLines(svg);
+      // The merged-in lane (1) is born at this row, so no vertical segment
+      // starting at the very top (y1=0) may sit on lane 1's column.
+      const topStubs = lines.filter((l) => l.y1 === '0' && l.x1 === lane1X);
+      assert.strictEqual(
+        topStubs.length,
+        0,
+        `expected no y1="0" stub on the born-here lane 1, found ${topStubs.length}`
+      );
+    });
+
+    it('still draws the merged-in lane as a bottom-half segment (runs down to P2)', () => {
+      const svg = renderGraphSvg(
+        nodes[1],
+        1,
+        rowActive,
+        config,
+        false,
+        false,
+        new Set(),
+        false,
+        nextActive,
+        new Set(),
+        prevActive
+      );
+      const lines = extractLines(svg);
+      const bottomHalf = lines.filter(
+        (l) => l.x1 === lane1X && l.y1 === centerY && l.y2 === config.rowHeight.toString()
+      );
+      assert.strictEqual(
+        bottomHalf.length,
+        1,
+        'the born-here lane must still draw its bottom half (continues to P2)'
+      );
+    });
+
+    it('still renders the merge bezier landing on lane 1', () => {
+      const svg = renderGraphSvg(
+        nodes[1],
+        1,
+        rowActive,
+        config,
+        false,
+        false,
+        new Set(),
+        false,
+        nextActive,
+        new Set(),
+        prevActive
+      );
+      const paths = extractPaths(svg);
+      assert.strictEqual(paths.length, 1, 'the merge bezier must still render');
+      assert.ok(paths[0].d.includes(lane1X), 'bezier should target lane 1');
+    });
+  });
+
+  describe('Genuine through-lane (active above AND below) stays full height', () => {
+    // A commit X on lane 1 with a mainline lane 0 transiting the row — lane 0
+    // is active above and below and is NOT a bezier target, so it must keep
+    // its FULL-height stroke (the documented no-gap / no-disconnect case).
+    const nodeX = makeNode('xxx', ['par'], 1, [{ fromColumn: 1, toColumn: 1, type: 'commit' }]);
+    const prevActive = new Set<number>([0, 1]);
+    const rowActive = new Set<number>([0, 1]);
+    const nextActive = new Set<number>([0, 1]);
+    const lane0X = getColumnX(0, config).toString();
+
+    it('draws lane 0 full height when it continues both above and below', () => {
+      const svg = renderGraphSvg(
+        nodeX,
+        1,
+        rowActive,
+        config,
+        false,
+        false,
+        new Set(),
+        false,
+        nextActive,
+        new Set(),
+        prevActive
+      );
+      const lines = extractLines(svg);
+      const fullHeight = lines.filter(
+        (l) => l.x1 === lane0X && l.y1 === '0' && l.y2 === config.rowHeight.toString()
+      );
+      assert.strictEqual(
+        fullHeight.length,
+        1,
+        'a through-lane active above and below must remain full height'
+      );
+    });
+  });
+
   describe('Diamond merge pattern - Req 1.1, 1.2, 3.1', () => {
     // M → (B, C) → A
     // M at col 0, B at col 0, C at col 1, A at col 0

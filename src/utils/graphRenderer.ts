@@ -365,7 +365,21 @@ export function renderGraphSvg(
    * `computeIncomingBendsMap`. Defaults to empty (no incoming far-
    * parent bends → no top-half bend is drawn).
    */
-  incomingBendLanes: Set<number> = new Set()
+  incomingBendLanes: Set<number> = new Set(),
+  /**
+   * Active lanes at the PREVIOUS (upper) row. Mirrors `nextActiveLanes`:
+   * lets the pass-through loop tell whether a lane continues from ABOVE.
+   * A lane that is active at this row but NOT above is BORN here — the
+   * merged-in second-parent lane of a merge commit, which runs downward
+   * only. Its top half (y=0 → centerY) is a spurious stub floating above
+   * the merge diamond. Drawing the lane full height (because it continues
+   * below) painted that stub. With this set populated the loop draws only
+   * the BOTTOM half for born-here lanes. Defaults to an empty set: with no
+   * continuation info we cannot tell a lane is born here, so the previous
+   * full/top-half behaviour is preserved (backward-compatible — the empty
+   * default is also what row 0, guarded separately, would see).
+   */
+  prevActiveLanes: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -482,11 +496,30 @@ export function renderGraphSvg(
     // case draw the FULL height: the bezier merging in overlaps the through
     // line harmlessly (same lane, same color).
     const continuesBelow = nextActiveLanes.has(lane);
+    // A lane that is active here but NOT in the row above is BORN at this row
+    // — the merged-in second-parent lane of a merge commit, which runs only
+    // downward. Its top half (y=0 → centerY) would be a detached stub
+    // floating above the merge diamond. We can only tell a lane is born-here
+    // when prevActiveLanes is populated (the production call site always
+    // passes it for rows > 0); with an empty set there is no continuation
+    // info, so the previous full/top-half behaviour is preserved.
+    const bornHere = prevActiveLanes.size > 0 && !prevActiveLanes.has(lane);
     if (bezierTargetLanes.has(lane) && !continuesBelow) {
-      // Draw only the top half of the pass-through (y=0 to y=centerY).
-      // The bezier curve provides the visual connection for the bottom half.
+      // Bezier lands here and the lane does not continue below. Draw the top
+      // half and let the bezier cover the bottom — UNLESS the lane is born
+      // here, in which case the top half is spurious (nothing above) and the
+      // bezier already provides the only real connection: draw nothing.
+      if (!bornHere) {
+        elements.push(
+          `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+        );
+      }
+    } else if (bornHere) {
+      // Full-height pass-through would draw a top-half stub above the merge
+      // diamond. A born-here lane only continues below (it runs down to its
+      // parent), so draw the BOTTOM half only.
       elements.push(
-        `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+        `<line x1="${x}" y1="${centerY}" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     } else {
       elements.push(
@@ -519,7 +552,7 @@ export function renderGraphSvg(
     // lane color (`commitColor` resolved above via
     // `getColumnColor(node.graphColumn)`), never a destination lane
     // color, even if a sibling line bends. See
-    // `docs/design/git-tool-window-spec.md` §8.L4.
+    // `docs/design/git-tool-window-spec.md` section 8.L4.
     const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );
