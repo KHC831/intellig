@@ -15,6 +15,16 @@ import {
 } from './BranchPopup';
 
 /**
+ * Last path segment of a repository root, used as the label of a
+ * `'repository'` root node in multi-repo mode. Matches the repo-name
+ * derivation used elsewhere (e.g. the update/pull/push repo pickers).
+ */
+function repositoryLabel(repo: IRepository): string {
+  const fsPath = repo.rootUri.fsPath;
+  return fsPath.split(/[\\/]/).filter(Boolean).pop() ?? fsPath;
+}
+
+/**
  * Tree item types for the branch tree
  */
 export type BranchTreeItemType =
@@ -24,7 +34,8 @@ export type BranchTreeItemType =
   | 'category'
   | 'detached-head' // Synthetic row for detached HEAD state
   | 'branch-folder' // IntelliJ-parity nesting node ("feature" container with feature/* children)
-  | 'head'; // HEAD root node — current branch pinned at the very top (git4idea parity)
+  | 'head' // HEAD root node — current branch pinned at the very top (git4idea parity)
+  | 'repository'; // Per-repository root node in a multi-repo workspace (git4idea GitBranchesTreeMultiRepoModel)
 
 /**
  * Branch-folder scope (the kind of branches the folder groups).
@@ -45,6 +56,7 @@ export const CONTEXT_VALUES = {
   DETACHED_HEAD: 'intellig.detachedHead',
   BRANCH_FOLDER: 'intellig.branchFolder',
   HEAD_NODE: 'intellig.headNode',
+  REPOSITORY: 'intellig.repository',
 } as const;
 
 /**
@@ -138,6 +150,16 @@ export class BranchTreeItem extends vscode.TreeItem {
    * Always false for non-branch rows.
    */
   public readonly isFavorite: boolean;
+  /**
+   * Repository this node belongs to in a multi-repo workspace
+   * (git4idea parity: `GitBranchesTreeMultiRepoModel` builds a
+   * `RepositoryNode` per repo). Set on the `'repository'` root node and
+   * propagated to every section/folder node beneath it so `getChildren`
+   * resolves branches against the right repo. Undefined in the
+   * single-repo flat layout, where the provider falls back to its
+   * `_currentRepository`.
+   */
+  public readonly repository?: IRepository;
 
   constructor(
     label: string,
@@ -150,7 +172,8 @@ export class BranchTreeItem extends vscode.TreeItem {
     folderPath?: string,
     folderScope?: BranchFolderScope,
     remotePrefix?: string,
-    isFavorite: boolean = false
+    isFavorite: boolean = false,
+    repository?: IRepository
   ) {
     super(label, collapsibleState);
 
@@ -163,6 +186,7 @@ export class BranchTreeItem extends vscode.TreeItem {
     this.folderScope = folderScope;
     this.remotePrefix = remotePrefix;
     this.isFavorite = isFavorite;
+    this.repository = repository;
 
     // Set context value for menu contributions
     this.contextValue = this._getContextValue();
@@ -231,6 +255,8 @@ export class BranchTreeItem extends vscode.TreeItem {
         return CONTEXT_VALUES.BRANCH_FOLDER;
       case 'head':
         return CONTEXT_VALUES.HEAD_NODE;
+      case 'repository':
+        return CONTEXT_VALUES.REPOSITORY;
       default:
         return '';
     }
@@ -238,6 +264,10 @@ export class BranchTreeItem extends vscode.TreeItem {
 
   private _getIcon(): vscode.ThemeIcon {
     switch (this.itemType) {
+      case 'repository':
+        // Per-repository root node — the VS Code repo glyph, matching
+        // git4idea's RepositoryNode (which renders the repository icon).
+        return new vscode.ThemeIcon('repo');
       case 'head':
         // The HEAD root node IS the current branch — reuse the green
         // check so "you are here" reads consistently with the current
@@ -326,6 +356,12 @@ export class BranchTreeItem extends vscode.TreeItem {
   }
 
   private _getTooltip(): string {
+    // Per-repository root node tooltip — the repository's root path.
+    if (this.itemType === 'repository') {
+      const name = typeof this.label === 'string' ? this.label : '';
+      const path = this.repository?.rootUri.fsPath;
+      return path ? `Repository: ${name}\n${path}` : `Repository: ${name}`;
+    }
     // HEAD root node tooltip.
     if (this.itemType === 'head') {
       const name = typeof this.label === 'string' ? this.label : '';
@@ -565,13 +601,49 @@ export class BranchTreeProvider
   }
 
   async getChildren(element?: BranchTreeItem): Promise<BranchTreeItem[]> {
-    if (!this._currentRepository) {
-      return [];
+    // Root level. With more than one repository in the workspace, group
+    // the tree under per-repository root nodes (git4idea
+    // `GitBranchesTreeMultiRepoModel`); with a single repo keep the flat
+    // HEAD / Favorites / Local / Remote / Tags layout unchanged.
+    if (!element) {
+      const repositories = this._gitService.getRepositories();
+      if (repositories.length > 1) {
+        return repositories.map(
+          (repo) =>
+            new BranchTreeItem(
+              repositoryLabel(repo),
+              vscode.TreeItemCollapsibleState.Expanded,
+              'repository',
+              undefined,
+              undefined,
+              false,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              false,
+              repo
+            )
+        );
+      }
+      if (!this._currentRepository) {
+        return [];
+      }
+      return await this._getCategoryNodes(this._currentRepository);
     }
 
-    // Root level - HEAD node, Favorites, then the category sections.
-    if (!element) {
-      return await this._getRootNodes();
+    // Repository node — expand into its own HEAD / Favorites / Local /
+    // Remote / Tags sections, scoped to that repo.
+    if (element.itemType === 'repository') {
+      return element.repository ? await this._getCategoryNodes(element.repository) : [];
+    }
+
+    // Every node below the root carries the repo it belongs to in
+    // multi-repo mode; the single-repo flat layout leaves it undefined
+    // and falls back to the current repository.
+    const repo = element.repository ?? this._currentRepository;
+    if (!repo) {
+      return [];
     }
 
     // Category level - show items
@@ -579,13 +651,13 @@ export class BranchTreeProvider
       try {
         switch (element.label) {
           case 'Favorites':
-            return await this._getFavoriteBranches();
+            return await this._getFavoriteBranches(repo);
           case 'Local':
-            return await this._getLocalBranches();
+            return await this._getLocalBranches(repo);
           case 'Remote':
-            return await this._getRemoteBranches();
+            return await this._getRemoteBranches(repo);
           case 'Tags':
-            return await this._getTags();
+            return await this._getTags(repo);
           default:
             return [];
         }
@@ -604,7 +676,7 @@ export class BranchTreeProvider
     // Branch-folder level — descend into nested folder children.
     if (element.itemType === 'branch-folder') {
       try {
-        return await this._getFolderChildren(element);
+        return await this._getFolderChildren(element, repo);
       } catch (err) {
         this._logger.warn('refresh failed', {
           category: 'branch-folder',
@@ -618,23 +690,28 @@ export class BranchTreeProvider
   }
 
   /**
-   * Build the root-level rows: a HEAD node pinned at the very top (when
-   * HEAD is attached to a branch), an optional Favorites section, then
-   * the Local / Remote / Tags categories. Mirrors git4idea's
-   * `GitBranchesTreeModel`, which sorts the current ref first and
-   * favorites next; here those become explicit top rows.
+   * Build the category-level rows for `repo`: a HEAD node pinned at the
+   * very top (when HEAD is attached to a branch), an optional Favorites
+   * section, then the Local / Remote / Tags categories. Mirrors
+   * git4idea's `GitBranchesTreeModel`, which sorts the current ref first
+   * and favorites next; here those become explicit top rows.
+   *
+   * In the flat single-repo layout these are the tree's root children; in
+   * the multi-repo layout they hang under a `'repository'` node. Each node
+   * is tagged with `repo` so descendants resolve branches against the
+   * right repository.
    */
-  private async _getRootNodes(): Promise<BranchTreeItem[]> {
+  private async _getCategoryNodes(repo: IRepository): Promise<BranchTreeItem[]> {
     const nodes: BranchTreeItem[] = [];
 
-    const head = this._currentRepository?.head;
+    const head = repo.head;
     const currentBranchName = head?.name?.replace('refs/heads/', '');
 
     // HEAD root node. Only when HEAD is attached to a branch — detached
     // and empty states are surfaced inside Local (synthetic detached row
     // or nothing), so a top HEAD node there would be misleading.
     if (currentBranchName) {
-      const currentBranch = await this._findCurrentBranch(currentBranchName);
+      const currentBranch = await this._findCurrentBranch(repo, currentBranchName);
       nodes.push(
         new BranchTreeItem(
           currentBranchName,
@@ -642,7 +719,13 @@ export class BranchTreeProvider
           'head',
           currentBranch,
           undefined,
-          true
+          true,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          repo
         )
       );
     }
@@ -650,17 +733,56 @@ export class BranchTreeProvider
     // Favorites section — only when at least one branch is starred.
     if (this._favorites.size > 0) {
       nodes.push(
-        new BranchTreeItem('Favorites', vscode.TreeItemCollapsibleState.Expanded, 'category')
+        new BranchTreeItem(
+          'Favorites',
+          vscode.TreeItemCollapsibleState.Expanded,
+          'category',
+          undefined,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false,
+          repo
+        )
       );
     }
 
     nodes.push(
-      new BranchTreeItem('Local', vscode.TreeItemCollapsibleState.Expanded, 'category'),
-      new BranchTreeItem('Remote', vscode.TreeItemCollapsibleState.Collapsed, 'category'),
-      new BranchTreeItem('Tags', vscode.TreeItemCollapsibleState.Collapsed, 'category')
+      this._categoryNode('Local', vscode.TreeItemCollapsibleState.Expanded, repo),
+      this._categoryNode('Remote', vscode.TreeItemCollapsibleState.Collapsed, repo),
+      this._categoryNode('Tags', vscode.TreeItemCollapsibleState.Collapsed, repo)
     );
 
     return nodes;
+  }
+
+  /**
+   * Build a Local / Remote / Tags category node tagged with its
+   * repository so `getChildren` resolves the right branch list in
+   * multi-repo mode.
+   */
+  private _categoryNode(
+    label: string,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+    repo: IRepository
+  ): BranchTreeItem {
+    return new BranchTreeItem(
+      label,
+      collapsibleState,
+      'category',
+      undefined,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      repo
+    );
   }
 
   /**
@@ -669,12 +791,12 @@ export class BranchTreeProvider
    * `undefined` (best-effort) if the branch list can't be loaded or the
    * branch isn't found — the HEAD node still renders by name.
    */
-  private async _findCurrentBranch(currentBranchName: string): Promise<IBranch | undefined> {
-    if (!this._currentRepository) {
-      return undefined;
-    }
+  private async _findCurrentBranch(
+    repo: IRepository,
+    currentBranchName: string
+  ): Promise<IBranch | undefined> {
     try {
-      const branches = await this._gitService.getBranches(this._currentRepository);
+      const branches = await this._gitService.getBranches(repo);
       return branches.find((b) => b.type === 'local' && (b.name === currentBranchName || b.isHead));
     } catch {
       return undefined;
@@ -687,22 +809,18 @@ export class BranchTreeProvider
    * is injected) and the `current` affordance, matching the Local
    * section's leaves.
    */
-  private async _getFavoriteBranches(): Promise<BranchTreeItem[]> {
-    if (!this._currentRepository) {
-      return [];
-    }
-
-    const branches = await this._gitService.getBranches(this._currentRepository);
+  private async _getFavoriteBranches(repo: IRepository): Promise<BranchTreeItem[]> {
+    const branches = await this._gitService.getBranches(repo);
     let favorites = branches.filter((b) => b.type === 'local' && this._favorites.has(b.name));
     if (this._incomingOutgoingFetcher) {
       favorites = await enrichBranchesWithIncomingOutgoing(
-        this._currentRepository,
+        repo,
         favorites,
         this._incomingOutgoingFetcher
       );
     }
 
-    const head = this._currentRepository.head;
+    const head = repo.head;
     const currentBranchName = head?.name?.replace('refs/heads/', '');
 
     favorites.sort((a, b) => a.name.localeCompare(b.name));
@@ -724,11 +842,7 @@ export class BranchTreeProvider
     );
   }
 
-  private async _getLocalBranches(): Promise<BranchTreeItem[]> {
-    if (!this._currentRepository) {
-      return [];
-    }
-
+  private async _getLocalBranches(repo: IRepository): Promise<BranchTreeItem[]> {
     const items: BranchTreeItem[] = [];
 
     // When detached, prepend a "(HEAD detached at <sha>)" row at
@@ -742,7 +856,7 @@ export class BranchTreeProvider
     // Empty repo (`head` undefined entirely) falls through — no detached
     // row. Mid-rebase keeps `head.name` set, so no detached row there
     // either. Pinned by branchTree-detached-1..6.
-    const head = this._currentRepository.head;
+    const head = repo.head;
     if (head && head.name === undefined && head.commit && head.commit.length > 0) {
       const shortSha = head.commit.substring(0, 7);
       items.push(
@@ -758,14 +872,14 @@ export class BranchTreeProvider
       );
     }
 
-    const branches = await this._gitService.getBranches(this._currentRepository);
+    const branches = await this._gitService.getBranches(repo);
     let localBranches = branches.filter((b) => b.type === 'local');
     // Enrich tracked branches with ahead/behind counts so the tree renders
     // ↑N/↓N — matching the branch popup. No fetcher → branches pass through
     // untouched (no badges).
     if (this._incomingOutgoingFetcher) {
       localBranches = await enrichBranchesWithIncomingOutgoing(
-        this._currentRepository,
+        repo,
         localBranches,
         this._incomingOutgoingFetcher
       );
@@ -782,19 +896,16 @@ export class BranchTreeProvider
       '',
       'local',
       currentBranchName,
-      undefined
+      undefined,
+      repo
     );
     items.push(...groupedItems);
 
     return items;
   }
 
-  private async _getRemoteBranches(): Promise<BranchTreeItem[]> {
-    if (!this._currentRepository) {
-      return [];
-    }
-
-    const branches = await this._gitService.getBranches(this._currentRepository);
+  private async _getRemoteBranches(repo: IRepository): Promise<BranchTreeItem[]> {
+    const branches = await this._gitService.getBranches(repo);
     const remoteBranches = branches.filter((b) => b.type === 'remote');
 
     // First level under "Remote": one folder per remote name (origin,
@@ -836,7 +947,9 @@ export class BranchTreeProvider
           undefined,
           '',
           'remote',
-          ''
+          '',
+          false,
+          repo
         );
       }
       return new BranchTreeItem(
@@ -849,7 +962,9 @@ export class BranchTreeProvider
         undefined,
         '',
         'remote',
-        remoteName
+        remoteName,
+        false,
+        repo
       );
     });
   }
@@ -861,14 +976,17 @@ export class BranchTreeProvider
    * {@link BranchTreeItem.folderPath} (and {@link BranchTreeItem.remotePrefix}
    * for remotes).
    */
-  private async _getFolderChildren(folder: BranchTreeItem): Promise<BranchTreeItem[]> {
-    if (!this._currentRepository || !folder.folderScope) {
+  private async _getFolderChildren(
+    folder: BranchTreeItem,
+    repo: IRepository
+  ): Promise<BranchTreeItem[]> {
+    if (!folder.folderScope) {
       return [];
     }
-    const branches = await this._gitService.getBranches(this._currentRepository);
+    const branches = await this._gitService.getBranches(repo);
     const filtered = branches.filter((b) => b.type === folder.folderScope);
 
-    const head = this._currentRepository.head;
+    const head = repo.head;
     const currentBranchName = head?.name?.replace('refs/heads/', '');
 
     return this._groupBranchesByPath(
@@ -876,7 +994,8 @@ export class BranchTreeProvider
       folder.folderPath ?? '',
       folder.folderScope,
       currentBranchName,
-      folder.remotePrefix
+      folder.remotePrefix,
+      repo
     );
   }
 
@@ -898,13 +1017,17 @@ export class BranchTreeProvider
    * @param remotePrefix Remote-name prefix to strip from each branch
    *                    name before partitioning (e.g. `origin`).
    *                    Undefined for local branches.
+   * @param repo        Repository this subtree belongs to, propagated to
+   *                    the folder nodes so their children resolve against
+   *                    the right repo in multi-repo mode.
    */
   private _groupBranchesByPath(
     branches: IBranch[],
     folderPath: string,
     scope: BranchFolderScope,
     currentBranchName: string | undefined,
-    remotePrefix: string | undefined
+    remotePrefix: string | undefined,
+    repo: IRepository
   ): BranchTreeItem[] {
     // Compute, for each branch, the path-stripped suffix relative to
     // the current folder. Drop branches that don't fall under the
@@ -967,7 +1090,9 @@ export class BranchTreeProvider
           undefined,
           childPath,
           scope,
-          remotePrefix
+          remotePrefix,
+          false,
+          repo
         )
       );
     }
@@ -1011,12 +1136,8 @@ export class BranchTreeProvider
     return items;
   }
 
-  private async _getTags(): Promise<BranchTreeItem[]> {
-    if (!this._currentRepository) {
-      return [];
-    }
-
-    const tags = await this._gitService.getTags(this._currentRepository);
+  private async _getTags(repo: IRepository): Promise<BranchTreeItem[]> {
+    const tags = await this._gitService.getTags(repo);
 
     return tags.map((tag) => {
       return new BranchTreeItem(

@@ -43,6 +43,7 @@ import {
 import type { IBranch, IRepository } from '../../../git-core/interfaces/IGitService';
 import type { IncomingOutgoingFetcher } from '../../../branches/BranchPopup';
 import type { IIncomingOutgoing } from '../../../git-core/ops/IncomingOutgoingOps';
+import { repoDisplayName } from '../../../sync/updateProject';
 
 const FULL_SHA = 'abc1234567890abcdef1234567890abcdef12345';
 const SHORT_SHA = 'abc1234';
@@ -742,5 +743,175 @@ describe('D slice 2 — BranchTreeProvider HEAD root node + favorites', () => {
     const items = await localBranchesFromTree(provider);
     const releaseRow = items.find((i) => i.label === 'release')!;
     assert.strictEqual(releaseRow.contextValue, CONTEXT_VALUES.LOCAL_BRANCH);
+  });
+});
+
+/**
+ * D slice 3 — multi-repo grouping (git4idea `GitBranchesTreeMultiRepoModel`).
+ *
+ * North star:
+ * `plugins/git4idea/shared/src/com/intellij/vcs/git/branch/tree/GitBranchesTreeMultiRepoModel.kt`
+ * builds top-level `RepositoryNode`s (one per `GitRepositoryModel`) when the
+ * project has more than one repository, so each repo owns its own branch
+ * subtree. Here we mirror that: when `gitService.getRepositories()` reports
+ * more than one repo, the tree root is one `'repository'` node per repo, and
+ * each repo node expands to the same HEAD / Favorites / Local / Remote / Tags
+ * sections scoped to that repository. With a single repo the flat layout is
+ * unchanged (no repository wrapper) — pinned by the no-regression cases.
+ */
+describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
+  /** Build an attached repo whose root basename is `name`. */
+  function repoAt(name: string, branchName = 'main', commit = 'a'.repeat(40)): IRepository {
+    return {
+      rootUri: { fsPath: `/work/${name}`, scheme: 'file' } as IRepository['rootUri'],
+      state: 'idle',
+      head: { name: `refs/heads/${branchName}`, commit, ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    };
+  }
+
+  /**
+   * Wire a provider over `repos` (multi- or single-repo). `branchesByRepo`
+   * maps a repo to its branch list, dispatched by reference equality so the
+   * provider's per-repo `getBranches(repo)` returns the right list.
+   */
+  function multiRepoProvider(
+    repos: IRepository[],
+    branchesByRepo: Map<IRepository, IBranch[]>,
+    store?: IFavoritesStore
+  ): BranchTreeProvider {
+    const gitService = createMockGitService(repos[0], {
+      getRepositories: () => repos,
+      getBranches: async (repo: IRepository) => branchesByRepo.get(repo) ?? [],
+    });
+    const provider = new BranchTreeProvider(gitService, undefined, store);
+    provider.setRepository(repos[0]);
+    return provider;
+  }
+
+  it('roots the tree at one repository node per repo when >1 repository exists', async () => {
+    const repoA = repoAt('alpha');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    assert.strictEqual(root.length, 2, 'two repository root nodes');
+    assert.ok(
+      root.every((n) => n.itemType === 'repository'),
+      'every root node is a repository node'
+    );
+    assert.strictEqual(root[0].label, repoDisplayName(repoA), 'label is the repo folder basename');
+    assert.strictEqual(root[1].label, repoDisplayName(repoB));
+    assert.strictEqual(root[0].contextValue, CONTEXT_VALUES.REPOSITORY);
+  });
+
+  it('expands a repository node into HEAD + Local/Remote/Tags scoped to that repo', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const repoBNode = root[1];
+    const sections = await provider.getChildren(repoBNode);
+
+    // HEAD node first (repoB's current branch is "dev"), then categories.
+    assert.strictEqual(sections[0].itemType, 'head');
+    assert.strictEqual(sections[0].label, 'dev', 'HEAD node reflects THIS repo, not repoA');
+    assert.deepStrictEqual(
+      sections.slice(1).map((s) => s.label),
+      ['Local', 'Remote', 'Tags']
+    );
+  });
+
+  it("lists a repository node's local branches from THAT repository only", async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [
+          repoA,
+          [
+            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+            { name: 'alpha-only', type: 'local', commit: 'c'.repeat(40), isHead: false },
+          ],
+        ],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const repoANode = root[0];
+    const sections = await provider.getChildren(repoANode);
+    const localCategory = sections.find((s) => s.label === 'Local')!;
+    const locals = await provider.getChildren(localCategory);
+
+    const labels = locals.map((l) => l.label).sort();
+    assert.deepStrictEqual(labels, ['alpha-only', 'main'], 'only repoA branches appear');
+  });
+
+  it('keeps per-repo folder nesting reachable under a repository node', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [
+          repoB,
+          [
+            { name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true },
+            { name: 'feature/x', type: 'local', commit: 'd'.repeat(40), isHead: false },
+          ],
+        ],
+      ])
+    );
+
+    const root = await provider.getChildren();
+    const sections = await provider.getChildren(root[1]); // repoB
+    const localCategory = sections.find((s) => s.label === 'Local')!;
+    const locals = await provider.getChildren(localCategory);
+    const folder = locals.find((l) => l.itemType === 'branch-folder' && l.label === 'feature')!;
+    assert.ok(folder, 'feature folder exists under repoB');
+
+    const folderChildren = await provider.getChildren(folder);
+    assert.strictEqual(folderChildren.length, 1);
+    assert.strictEqual(folderChildren[0].label, 'x');
+    assert.strictEqual(folderChildren[0].branch?.name, 'feature/x');
+  });
+
+  // --- single-repo no-regression ---
+
+  it('keeps the flat layout (no repository node) when only one repository exists', async () => {
+    const repoA = repoAt('solo', 'main');
+    const provider = multiRepoProvider(
+      [repoA],
+      new Map([[repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]]])
+    );
+
+    const root = await provider.getChildren();
+    assert.strictEqual(
+      root.filter((n) => n.itemType === 'repository').length,
+      0,
+      'single repo → no repository wrapper node'
+    );
+    assert.strictEqual(root[0].itemType, 'head', 'flat layout still starts with the HEAD node');
+    assert.deepStrictEqual(
+      root.filter((n) => n.itemType === 'category').map((n) => n.label),
+      ['Local', 'Remote', 'Tags']
+    );
   });
 });
