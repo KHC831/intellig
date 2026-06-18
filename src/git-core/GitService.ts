@@ -35,6 +35,8 @@ import {
   IRefDiffFile,
   ResetMode,
   RepositoryState,
+  IRollbackChange,
+  IRollbackOptions,
 } from './interfaces/IGitService';
 import { GitCli, IGitCommandOptions, createGitCli, buildGitArgs } from './gitCli';
 import { scanFolderForGitRepos, defaultRepoScanFs, IRepoScanFs } from './repoScan';
@@ -1759,6 +1761,18 @@ export class GitService implements IGitService, IGitServiceCli {
    */
   revertFile(repo: IRepository, path: string): Promise<void> {
     return this._staging.revertFile(repo, path);
+  }
+
+  /**
+   * Roll back local changes for a set of selected files (IntelliJ "Rollback").
+   * Delegates to {@link StagingOps.rollbackChanges}.
+   */
+  rollbackChanges(
+    repo: IRepository,
+    changes: IRollbackChange[],
+    options?: IRollbackOptions
+  ): Promise<void> {
+    return this._staging.rollbackChanges(repo, changes, options);
   }
 
   /**

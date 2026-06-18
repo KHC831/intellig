@@ -30,7 +30,7 @@ import {
   IChangelistService,
 } from '../changelists/interfaces/IChangelistService';
 import { IShelfItem, IShelfService } from '../shelf/interfaces/IShelfService';
-import { IGitService, IRepository, IStash } from '../git-core/interfaces/IGitService';
+import { IGitService, IRepository, IStash, FileStatus } from '../git-core/interfaces/IGitService';
 import { performCommit, LAST_NO_VERIFY_STATE_KEY } from './CommitDialog';
 import { runBeforeCommitChecks } from './CheckinChecks';
 import { resolveRepo } from '../utils/resolveRepo';
@@ -983,7 +983,20 @@ export class CommitToolWindow extends BaseWebviewView {
         return;
       case 'rollback':
         if (message.path) {
-          await vscode.commands.executeCommand('intellig.revertFile', message.path);
+          // Route through the multi-file Rollback command so the user gets the
+          // IntelliJ-style file-listing confirm and status-aware revert
+          // (added → unindex, untracked → delete). Pass the file's known
+          // status from the changelist model; fall back to a plain revert when
+          // the row's status can't be resolved.
+          const status = this._findChangeStatus(message.path);
+          if (status) {
+            await vscode.commands.executeCommand('intellig.rollbackChanges', [
+              { path: message.path, status },
+            ]);
+          } else {
+            await vscode.commands.executeCommand('intellig.revertFile', message.path);
+          }
+          await this._reloadState();
         }
         return;
       case 'addToVcs':
@@ -1016,6 +1029,22 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   // ── State helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Resolve a changed file's status from the loaded changelist model so the
+   * Rollback action can revert it the right way (modified → checkout,
+   * added → unindex, untracked → delete). Returns undefined when the path
+   * isn't in any changelist (stale row).
+   */
+  private _findChangeStatus(path: string): FileStatus | undefined {
+    for (const changelist of this._changelists) {
+      const file = changelist.files.find((f) => f.path === path);
+      if (file) {
+        return file.status;
+      }
+    }
+    return undefined;
+  }
 
   private async _reloadState(): Promise<void> {
     const repo = await this._resolveRepo();

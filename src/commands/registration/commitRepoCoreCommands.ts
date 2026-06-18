@@ -25,6 +25,75 @@ import {
 } from '../../sync/updateProject';
 import { updateInfoHeadline } from '../../git-core/gitToolWindow/tabs/UpdateInfoTab';
 import { buildUpdateNotification } from '../../ui-shell/NotificationService';
+import { statusCodeToFileStatus } from '../../git-core/gitParser';
+import type { IRollbackChange, FileStatus } from '../../git-core/interfaces/IGitService';
+
+/**
+ * Build the modal confirmation text for the Rollback / Revert Local Changes
+ * action — IntelliJ's RollbackChangesDialog lists every affected file before
+ * the (irreversible) revert. Returns the headline + a `detail` block that
+ * enumerates the files and, when untracked files are in the set, spells out
+ * that those will be deleted from disk (no recovery).
+ *
+ * Pure so the file-listing + data-loss wording can be unit-tested without the
+ * VS Code modal.
+ */
+export function buildRollbackConfirmMessage(changes: readonly IRollbackChange[]): {
+  message: string;
+  detail: string;
+} {
+  const count = changes.length;
+  const noun = count === 1 ? 'file' : 'files';
+  const untracked = changes.filter((c) => c.status === 'untracked');
+
+  const lines = changes.map((c) => `• ${c.path} (${c.status})`);
+  let detail = `The following ${count} ${noun} will be reverted to their last committed state:\n${lines.join('\n')}`;
+  if (untracked.length > 0) {
+    const un = untracked.length === 1 ? 'file is' : 'files are';
+    detail += `\n\n${untracked.length} of these ${un} untracked and will be DELETED from disk — this cannot be undone.`;
+  }
+
+  return {
+    message: `Roll back local changes to ${count} ${noun}? This reverts your changes and cannot be undone.`,
+    detail,
+  };
+}
+
+const ROLLBACK_STATUSES = new Set<FileStatus>([
+  'modified',
+  'added',
+  'deleted',
+  'renamed',
+  'copied',
+  'untracked',
+]);
+
+/**
+ * Narrow the untyped command argument into a list of {@link IRollbackChange}.
+ * Callers (webview / context menu) pass `{ path, status }[]`; anything that
+ * doesn't match — including the palette's no-arg invocation — yields
+ * `undefined`, signalling the command to gather + prompt for the file set.
+ */
+export function extractRollbackChanges(arg: unknown): IRollbackChange[] | undefined {
+  if (!Array.isArray(arg)) {
+    return undefined;
+  }
+  const out: IRollbackChange[] = [];
+  for (const item of arg) {
+    if (
+      item &&
+      typeof item === 'object' &&
+      typeof (item as { path?: unknown }).path === 'string' &&
+      ROLLBACK_STATUSES.has((item as { status?: FileStatus }).status as FileStatus)
+    ) {
+      out.push({
+        path: (item as { path: string }).path,
+        status: (item as { status: FileStatus }).status,
+      });
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 /**
  * Handle the outcome of the generic `intellig.pull` PullDialog.
@@ -814,6 +883,87 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     }
   });
 
+  // Rollback / Revert Local Changes — IntelliJ's "Rollback" (Ctrl+Alt+Z).
+  // Reverts the selected changed files back to their committed state after a
+  // confirmation that lists every affected file (data loss). When invoked
+  // without an explicit selection it reads `git status` and lets the user pick
+  // which files to roll back, mirroring RollbackChangesDialog's file list.
+  const rollbackChangesCommand = registerLoggedCommand(
+    'intellig.rollbackChanges',
+    async (arg?: unknown) => {
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const gitService = ctx.services.gitService;
+
+      const repo = await resolveRepo(gitService, {
+        pickerTitle: 'Rollback — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+
+      // The caller (webview / context menu) may hand us the exact changes to
+      // roll back. Otherwise gather the working-tree changes and let the user
+      // choose.
+      let changes = extractRollbackChanges(arg);
+      if (!changes) {
+        const statuses = await gitService.getStatus(repo);
+        const candidates: IRollbackChange[] = statuses
+          .map((s) => ({
+            path: s.path,
+            status: statusCodeToFileStatus(s.indexStatus, s.workTreeStatus),
+          }))
+          .filter((c) => c.status !== 'ignored' && c.status !== 'conflicted');
+        if (candidates.length === 0) {
+          void vscode.window.showInformationMessage('No local changes to roll back.');
+          return;
+        }
+        const picks = await vscode.window.showQuickPick(
+          candidates.map((c) => ({ label: c.path, description: c.status, change: c })),
+          {
+            title: 'Rollback — select files to revert',
+            placeHolder: 'These files will be reverted to their committed state',
+            canPickMany: true,
+            matchOnDescription: true,
+          }
+        );
+        if (!picks || picks.length === 0) {
+          return;
+        }
+        changes = picks.map((p) => p.change);
+      }
+
+      if (changes.length === 0) {
+        return;
+      }
+
+      const { message, detail } = buildRollbackConfirmMessage(changes);
+      const confirm = await vscode.window.showWarningMessage(
+        message,
+        { modal: true, detail },
+        'Rollback'
+      );
+      if (confirm !== 'Rollback') {
+        return;
+      }
+
+      try {
+        // Untracked files reach this point only because the user explicitly
+        // selected them, so honor the include-to-delete contract.
+        await gitService.rollbackChanges(repo, changes, { deleteUntracked: true });
+        void vscode.window.showInformationMessage(`Rolled back ${changes.length} file(s).`);
+        ctx.gitToolWindowProvider?.refresh();
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          formatActionFailureToast('Failed to roll back changes', error)
+        );
+      }
+    }
+  );
+
   // New Tag — command-palette entry, defaults to HEAD.
   const newTagCommand = registerLoggedCommand('intellig.tag.new', async () => {
     await runNewTagFlowFromContext(ctx, undefined);
@@ -951,6 +1101,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     createPatchFromLocalCommand,
     showHistoryCommand,
     revertFileCommand,
+    rollbackChangesCommand,
     newTagCommand,
     commitNewTagCommand,
     commitAndPushCommand,

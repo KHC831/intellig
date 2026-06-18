@@ -121,6 +121,7 @@ function createMockGitService(): IGitService {
     unstageHunk: async () => {},
     revertHunk: async () => {},
     revertFile: async () => {},
+    rollbackChanges: async () => {},
     dispose: () => {},
   } as IGitService;
 }

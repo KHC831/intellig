@@ -1,4 +1,14 @@
-import { IRepository, IFileStatus, IHunk, IDiffLine, ResetMode } from '../interfaces/IGitService';
+import { promises as fsp } from 'fs';
+import * as nodePath from 'path';
+import {
+  IRepository,
+  IFileStatus,
+  IHunk,
+  IDiffLine,
+  ResetMode,
+  IRollbackChange,
+  IRollbackOptions,
+} from '../interfaces/IGitService';
 import { parseStatus } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 
@@ -154,6 +164,84 @@ export class StagingOps {
       throwOnError: true,
     });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
+  }
+
+  /**
+   * Roll back local changes for a set of selected files — IntelliJ's
+   * "Rollback" / "Revert Local Changes".
+   *
+   * Mirrors git4idea GitRollbackEnvironment.rollbackChanges: classify each
+   * file by status, then unindex added files, delete the files the caller
+   * opted into removing, and finally revert tracked changes from HEAD. Every
+   * path is passed positionally behind `--` so a path that looks like a flag
+   * (e.g. `--force`) can never be read as one.
+   */
+  async rollbackChanges(
+    repo: IRepository,
+    changes: IRollbackChange[],
+    options: IRollbackOptions = {}
+  ): Promise<void> {
+    const toRevert: string[] = []; // modified/deleted/renamed → checkout HEAD
+    const toUnindex: string[] = []; // added (staged-new) → rm --cached
+    const toDelete: string[] = []; // working-tree files to remove from disk
+
+    for (const change of changes) {
+      switch (change.status) {
+        case 'modified':
+        case 'deleted':
+        case 'renamed':
+        case 'copied':
+          toRevert.push(change.path);
+          break;
+        case 'added':
+          // Unindex so the file reverts to untracked, matching git4idea's
+          // "unversion" step; only destroy it on disk when asked.
+          toUnindex.push(change.path);
+          if (options.deleteAddedFiles) {
+            toDelete.push(change.path);
+          }
+          break;
+        case 'untracked':
+          // No committed state to restore — only removable, and only when the
+          // caller explicitly included it.
+          if (options.deleteUntracked) {
+            toDelete.push(change.path);
+          }
+          break;
+        // ignored / conflicted: not rolled back here.
+      }
+    }
+
+    const cwd = repo.rootUri.fsPath;
+
+    if (toUnindex.length > 0) {
+      await this.ctx.gitCli.exec(['rm', '--cached', '-f', '--', ...toUnindex], {
+        cwd,
+        throwOnError: true,
+      });
+    }
+
+    for (const rel of toDelete) {
+      // This is a recursive force-delete, so never trust `rel` to stay inside
+      // the repo: an empty/"."/absolute/`..`-escaping path would otherwise
+      // resolve to the working-tree root (or outside it) and wipe it. Require
+      // the resolved target to be STRICTLY inside the repo root.
+      const abs = nodePath.resolve(cwd, rel);
+      const root = nodePath.resolve(cwd);
+      if (abs === root || !abs.startsWith(root + nodePath.sep)) {
+        throw new Error(`Refusing to delete a path outside the repository: ${rel}`);
+      }
+      await fsp.rm(abs, { force: true, recursive: true });
+    }
+
+    if (toRevert.length > 0) {
+      await this.ctx.gitCli.exec(['checkout', 'HEAD', '--', ...toRevert], {
+        cwd,
+        throwOnError: true,
+      });
+    }
+
+    this.ctx.invalidateCache(cwd);
   }
 
   /**

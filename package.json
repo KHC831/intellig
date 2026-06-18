@@ -598,6 +598,12 @@
         "icon": "$(discard)"
       },
       {
+        "command": "intellig.rollbackChanges",
+        "title": "Rollback / Revert Local Changes…",
+        "category": "IntelliG",
+        "icon": "$(discard)"
+      },
+      {
         "command": "intellig.explorer.showHistory",
         "title": "Show History",
         "category": "IntelliG",

@@ -59,6 +59,33 @@ export type FileStatus =
 export type BranchType = 'local' | 'remote' | 'tag';
 
 /**
+ * A single file selected for {@link IGitService.rollbackChanges}. Only the path
+ * and status are needed — the status decides how the file is rolled back
+ * (revert from HEAD vs. unindex vs. delete).
+ */
+export interface IRollbackChange {
+  path: string;
+  status: FileStatus;
+}
+
+/** Options gating the destructive parts of {@link IGitService.rollbackChanges}. */
+export interface IRollbackOptions {
+  /**
+   * Delete untracked files from the working tree. Untracked files have no
+   * committed state to revert to, so they are removed only when the caller
+   * explicitly opted them in (mirrors IntelliJ requiring unversioned files to
+   * be selected before they are touched). Off by default.
+   */
+  deleteUntracked?: boolean;
+  /**
+   * After unindexing an added file, also delete it from the working tree.
+   * Off by default — matching git4idea, which leaves a rolled-back added file
+   * on disk as untracked rather than destroying it.
+   */
+  deleteAddedFiles?: boolean;
+}
+
+/**
  * Diff line type
  */
 export type DiffLineType = 'context' | 'add' | 'delete';
@@ -1286,6 +1313,25 @@ export interface IGitService {
    * @param path - The file path to revert
    */
   revertFile(repo: IRepository, path: string): Promise<void>;
+
+  /**
+   * Roll back (revert local changes for) a set of selected files at once —
+   * IntelliJ's "Rollback" / "Revert Local Changes". Per git4idea's
+   * GitRollbackEnvironment.rollbackChanges:
+   *   - modified / deleted / renamed → restored from HEAD
+   *     (`git checkout HEAD -- <paths>`);
+   *   - added (staged-new) → unindexed (`git rm --cached -f -- <paths>`),
+   *     left on disk as untracked unless {@link IRollbackOptions.deleteAddedFiles};
+   *   - untracked → deleted from disk only when
+   *     {@link IRollbackOptions.deleteUntracked} (data loss with no recovery).
+   *
+   * Destructive: callers MUST confirm before invoking.
+   */
+  rollbackChanges(
+    repo: IRepository,
+    changes: IRollbackChange[],
+    options?: IRollbackOptions
+  ): Promise<void>;
 
   /**
    * Reset the current branch to point at the given commit.
