@@ -1344,6 +1344,27 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       assert.ok(startCall, 'startInteractiveRebase should run after the user confirms');
     });
 
+    it('_isCommitPushed returns false for a non-hex hash without invoking git', async () => {
+      // The hash is passed positionally to `git branch --contains <hash>`, which
+      // has no `--end-of-options`. A flag-like value must be rejected before exec.
+      const repo = createMockRepo(testHash);
+      const gitService = createMockGitService(repo);
+      const rebaseService = createMockRebaseService();
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const commands = new CommitContextMenuCommands(gitService, rebaseService, provider, gitCli);
+
+      const result = await (
+        commands as unknown as {
+          _isCommitPushed(cwd: string, hash: string): Promise<boolean>;
+        }
+      )._isCommitPushed('/test-repo', '--upload-pack=evil');
+
+      assert.strictEqual(result, false, 'a non-hex hash must be treated as not pushed');
+      const execCalls = gitCli.calls.filter((c) => c.method === 'exec');
+      assert.strictEqual(execCalls.length, 0, 'no git exec should run for a non-hex hash');
+    });
+
     it('warns before rewording an already-pushed HEAD commit and aborts the amend when declined', async () => {
       // IntelliJ's GitCommitEditingActionBase.checkCommitsCanBeEdited gates
       // reword on the commit's containing branches regardless of whether it is

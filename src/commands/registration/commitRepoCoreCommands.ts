@@ -288,9 +288,8 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         () => gitService.push(repo, { tags: true })
       );
       void vscode.window.showInformationMessage(`Pushed all tags to ${remoteName}`);
-      // Push --tags updated remote tracking refs
-      // for tags; reload + refresh so the panel reflects fresh tag-on-
-      // remote state. This site previously had neither call.
+      // Push --tags updated remote-tracking refs for tags; reload + refresh so
+      // the panel reflects fresh tag-on-remote state.
       await gitService.reloadRepository(repo);
       if (ctx.gitToolWindowProvider) {
         ctx.gitToolWindowProvider.refresh();

@@ -179,6 +179,30 @@ describe('transformRebaseTodo (#4 preserve structural todo lines)', () => {
     assert.throws(() => transformRebaseTodo(original, plan), /deadbee/);
   });
 
+  it('throws a clear error when the first plan entry is a squash', () => {
+    const original = ['pick aaaaaaa first', 'pick bbbbbbb second'].join('\n');
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'squash' },
+      { hash: 'bbbbbbb', action: 'pick' },
+    ];
+    assert.throws(
+      () => transformRebaseTodo(original, plan),
+      /Cannot squash the first commit in the plan/
+    );
+  });
+
+  it('throws a clear error when the first plan entry is a fixup', () => {
+    const original = ['pick aaaaaaa first', 'pick bbbbbbb second'].join('\n');
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'fixup' },
+      { hash: 'bbbbbbb', action: 'pick' },
+    ];
+    assert.throws(
+      () => transformRebaseTodo(original, plan),
+      /Cannot fixup the first commit in the plan/
+    );
+  });
+
   it('preserves a leading structural line before the first commit', () => {
     const original = ['label base', 'pick aaaaaaa only'].join('\n');
     const plan: IRebaseAction[] = [{ hash: 'aaaaaaa', action: 'pick' }];

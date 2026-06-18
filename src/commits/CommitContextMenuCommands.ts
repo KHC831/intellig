@@ -520,6 +520,12 @@ export class CommitContextMenuCommands {
    * no remote branch contains the commit, so it's safe to rewrite.
    */
   private async _isCommitPushed(cwd: string, hash: string): Promise<boolean> {
+    // `hash` is passed positionally to `git branch --contains <hash>`, which has
+    // no `--end-of-options`. It is always a git SHA in practice; reject anything
+    // that is not a valid hex object name before exec as a defensive guard.
+    if (!/^[0-9a-fA-F]{4,40}$/.test(hash)) {
+      return false;
+    }
     try {
       const res = await this._gitCli.exec(['branch', '--remotes', '--contains', hash], { cwd });
       if (res.exitCode !== 0) {

@@ -58,15 +58,10 @@ export class StashTagHistoryOps {
   }
 
   /**
-   * Validate a stash index before interpolating it into the
-   * `stash@{<index>}` ref., `stashApply` / `stashPop` /
-   * `stashDrop` / `stashShow` interpolated the raw `index` directly,
-   * trusting upstream callers (CommitToolWindow / palette commands) to
-   * pass a valid integer. A non-integer or negative value would
-   * silently produce a malformed git ref like `stash@{NaN}` or
-   * `stash@{undefined}`. The other stash methods (`stashBranch`,
-   * `stashRename`) already validated; this helper reuses the same
-   * predicate so the pattern is uniform across all 6 sites.
+   * Validate a stash index before interpolating it into a `stash@{<index>}`
+   * ref. A non-integer or negative value would otherwise produce a malformed
+   * ref like `stash@{NaN}` or `stash@{undefined}`, so every stash method that
+   * builds such a ref runs this guard first.
    *
    * Throws (rather than returns) so the caller can trust `index` is a
    * non-negative integer for the rest of the call.

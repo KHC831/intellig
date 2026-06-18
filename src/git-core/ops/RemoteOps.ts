@@ -307,7 +307,18 @@ export class RemoteOps {
     return parseRemotes(result.stdout);
   }
 
+  /**
+   * Add a remote (`git remote add <name> <url>`). `git remote` has no
+   * `--end-of-options`, so a leading-dash guard on both args is the
+   * argv-injection defense (mirrors {@link setRemoteUrl}/{@link renameRemote}).
+   */
   async addRemote(repo: IRepository, name: string, url: string): Promise<void> {
+    if (!name || name.startsWith('-')) {
+      throw new Error(`Invalid remote name: ${name}`);
+    }
+    if (!url || url.startsWith('-')) {
+      throw new Error(`Invalid remote URL: ${url}`);
+    }
     await this.ctx.gitCli.exec(['remote', 'add', name, url], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,

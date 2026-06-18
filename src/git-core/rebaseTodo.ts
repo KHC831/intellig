@@ -67,12 +67,13 @@ export function hasInlineMessageOverride(entry: IRebaseAction): boolean {
 
 /**
  * Basename of the temp file holding an inline message override (reword or
- * squash), keyed by the first 8 chars of the plan hash. Lives in the git dir;
- * the `exec git commit --amend -F` line references it as `.git/<name>` relative
- * to the repo root.
+ * squash), keyed by the full plan hash so two commits sharing a short prefix in
+ * one plan never collide onto the same file. Lives in the git dir; the
+ * `exec git commit --amend -F` line references it as `.git/<name>` relative to
+ * the repo root.
  */
 export function messageOverrideFileName(hash: string): string {
-  return `.intellig-reword-${hash.substring(0, 8)}.txt`;
+  return `.intellig-reword-${hash}.txt`;
 }
 
 /**
@@ -138,6 +139,15 @@ interface ICommitGroup {
  *   mismatch that would otherwise silently corrupt the rebase.
  */
 export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[]): string {
+  // A squash/fixup melds into the PRECEDING commit, so it cannot lead the plan
+  // (a squash override emits 'fixup', which has the same constraint). Catch it
+  // here with a clear message instead of letting git abort the rebase mid-run
+  // with "cannot 'fixup' without a previous commit".
+  const first = plan[0];
+  if (first && (first.action === 'squash' || first.action === 'fixup')) {
+    throw new Error(`Cannot ${first.action} the first commit in the plan`);
+  }
+
   const lines = originalTodo.split('\n');
 
   // Structural lines seen before the first commit line — git's `--rebase-merges`

@@ -40,14 +40,26 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
     assert.strictEqual(lines[2], 'pick bbbbbbb second commit');
   });
 
-  it('exec line uses first 8 chars of the plan hash in the filename', () => {
+  it('exec line keys the message file by the FULL plan hash (collision-safe)', () => {
     const todo = 'pick abc12345def first\n';
     const plan: IRebaseAction[] = [
       { hash: 'abc12345def', action: 'reword', newMessage: 'new msg' },
     ];
     const result = transformRebaseTodo(todo, plan);
-    assert.match(result, /intellig-reword-abc12345/);
-    assert.doesNotMatch(result, /intellig-reword-abc12345def/);
+    assert.match(result, /intellig-reword-abc12345def\.txt/);
+  });
+
+  it('keeps two commits with a shared short prefix on distinct message files', () => {
+    // Two hashes sharing their first 8 chars must NOT collide onto one file —
+    // a full-hash key keeps the per-commit messages independent.
+    const todo = 'pick abc12345aaa first\npick abc12345bbb second\n';
+    const plan: IRebaseAction[] = [
+      { hash: 'abc12345aaa', action: 'reword', newMessage: 'msg A' },
+      { hash: 'abc12345bbb', action: 'reword', newMessage: 'msg B' },
+    ];
+    const result = transformRebaseTodo(todo, plan);
+    assert.match(result, /intellig-reword-abc12345aaa\.txt/);
+    assert.match(result, /intellig-reword-abc12345bbb\.txt/);
   });
 
   it('preserves update-ref trailing lines after a reword+newMessage commit', () => {

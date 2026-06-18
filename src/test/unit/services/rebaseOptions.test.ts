@@ -15,7 +15,11 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { GitService } from '../../../git-core/GitService';
+import { GitCli } from '../../../git-core/gitCli';
 import { IRepository } from '../../../git-core/interfaces/IGitService';
 import { Uri } from '../../mocks/vscode';
 
@@ -134,5 +138,87 @@ describe('GitService.rebaseBranch — options (#P2 git4idea GitRebaseOption)', (
       rebaseMerges: true,
     });
     assert.strictEqual(result.success, true);
+  });
+});
+
+// The argv-shape tests above prove the flag is emitted; this round-trip proves
+// the emitted command actually squashes — `git rebase --autosquash` applies
+// `fixup!`/`squash!` commits non-interactively on modern git (no `-i` needed),
+// the verified behavior we lock against regression.
+describe('GitService.rebaseBranch — autosquash real-git round-trip', () => {
+  let repoPath: string;
+  let gitCli: GitCli;
+  let gitService: GitService;
+  let repo: IRepository;
+  let savedSeqEditor: string | undefined;
+  let savedEditor: string | undefined;
+
+  beforeEach(async () => {
+    // Belt-and-suspenders: if a host git ever wants an editor, make it a no-op
+    // so the test can never hang waiting on interactive input.
+    savedSeqEditor = process.env.GIT_SEQUENCE_EDITOR;
+    savedEditor = process.env.GIT_EDITOR;
+    process.env.GIT_SEQUENCE_EDITOR = 'true';
+    process.env.GIT_EDITOR = 'true';
+
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'rebase-autosquash-'));
+    gitCli = new GitCli();
+    await gitCli.exec(['-c', 'init.defaultBranch=main', 'init'], { cwd: repoPath });
+    await gitCli.exec(['config', 'user.email', 'test@example.com'], { cwd: repoPath });
+    await gitCli.exec(['config', 'user.name', 'Test User'], { cwd: repoPath });
+
+    fs.writeFileSync(path.join(repoPath, 'f.txt'), 'a\n');
+    await gitCli.exec(['add', '.'], { cwd: repoPath });
+    await gitCli.exec(['commit', '-m', 'base'], { cwd: repoPath });
+
+    fs.writeFileSync(path.join(repoPath, 'f.txt'), 'a\nb\n');
+    await gitCli.exec(['add', '.'], { cwd: repoPath });
+    await gitCli.exec(['commit', '-m', 'feat: thing'], { cwd: repoPath });
+
+    fs.writeFileSync(path.join(repoPath, 'f.txt'), 'a\nb\nc\n');
+    await gitCli.exec(['add', '.'], { cwd: repoPath });
+    await gitCli.exec(['commit', '-m', 'fixup! feat: thing'], { cwd: repoPath });
+
+    gitService = new GitService();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
+    (gitService as any)._gitCli = gitCli;
+    repo = { rootUri: Uri.file(repoPath) } as unknown as IRepository;
+  });
+
+  afterEach(() => {
+    process.env.GIT_SEQUENCE_EDITOR = savedSeqEditor;
+    process.env.GIT_EDITOR = savedEditor;
+    if (savedSeqEditor === undefined) {
+      delete process.env.GIT_SEQUENCE_EDITOR;
+    }
+    if (savedEditor === undefined) {
+      delete process.env.GIT_EDITOR;
+    }
+    try {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors.
+    }
+  });
+
+  it('squashes a fixup! commit into its target (count drops, fixup! gone)', async () => {
+    const base = (await gitCli.exec(['rev-parse', 'HEAD~2'], { cwd: repoPath })).stdout.trim();
+
+    const before = (
+      await gitCli.exec(['rev-list', '--count', `${base}..HEAD`], { cwd: repoPath })
+    ).stdout.trim();
+    assert.strictEqual(before, '2', 'precondition: feat + fixup commits sit above base');
+
+    const result = await gitService.rebaseBranch(repo, base, { autosquash: true });
+    assert.strictEqual(result.success, true, 'autosquash rebase should complete cleanly');
+
+    const after = (
+      await gitCli.exec(['rev-list', '--count', `${base}..HEAD`], { cwd: repoPath })
+    ).stdout.trim();
+    assert.strictEqual(after, '1', 'the fixup must be melded — one commit left above base');
+
+    const subjects = (await gitCli.exec(['log', '--format=%s', `${base}..HEAD`], { cwd: repoPath }))
+      .stdout;
+    assert.ok(!/fixup!/.test(subjects), `no fixup! subject should remain, got: ${subjects}`);
   });
 });

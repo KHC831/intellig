@@ -3222,6 +3222,20 @@ describe('GitService - Remote Management Operations', () => {
           'https://github.com/user/repo.git',
         ]);
       });
+
+      it('rejects a remote name that looks like a flag (argv-injection guard)', async () => {
+        await assert.rejects(
+          async () => gitService.addRemote(mockRepo, '--upload-pack=evil', 'https://x/y.git'),
+          /invalid remote name/i
+        );
+      });
+
+      it('rejects a URL that looks like a flag', async () => {
+        await assert.rejects(
+          async () => gitService.addRemote(mockRepo, 'origin', '--foo'),
+          /invalid remote url/i
+        );
+      });
     });
   });
 
