@@ -105,7 +105,7 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 | Branch popup (QuickPick) | 🟡 ~65% | action set + Rename/Delete-last reorder (#4); tracked-branch submenu (#5) |
 | Branch tree menu | 🟢 ~90% | — (near-complete) |
 | Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs (deferred) |
-| Explorer / editor submenu | 🟢 ~80% | "Commit File" handler (#6) |
+| Explorer / editor submenu | 🟢 ~90% | — (#6 done: "Commit File…" via the SCM API per ADR-014) |
 | Command-palette titles | 🟢 ~90% | — (de-prefix + ellipsis landed) |
 | Toolbar / view-title | 🟢 ~85% | — (fetch icon + branch widget landed) |
 | Major dialogs | 🟢 ~85% | per-dialog field-level audit (deferred) |
@@ -116,7 +116,6 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 |---|---|---|---|---|---|
 | 4 | Branch popup | QuickPick: Rename/Delete should be LAST; missing Diff-with-Local, Update-Selected, Pull-into-current, New-Worktree, Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` | M |
 | 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
-| 6 | Explorer submenu | Add "Commit File" (CheckinFiles) at the head of the submenu — needs a single-file commit handler (the History-trails / Annotate-with-diff reorder + "Compare with Branch…" rename landed) | `Git.FileActions` (`CheckinFiles`) | pkg.json `explorerSubmenu` | S/M |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
 | — | Dialogs | Field-level checkbox/label/order audit per dialog (rebase/merge/push/pull/reset/new-branch/rollback) | per-dialog git4idea classes | `src/rebase`,`src/sync`,… | M |
@@ -125,8 +124,9 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 menu" never existed — its 19 orphaned `view/item/context` entries were deleted, webview overlay is the one
 true commit menu); #3 landed (reword-item ellipsis); **#10 complete** (New-Branch/New-Tag-from-commit +
 Fixup…/Squash Into… in the webview menu — the log/commit menu now mirrors `Git.Log.ContextMenu`; also
-resolved the orphaned-command parity gap). Next: the #6 "Commit File" handler, then branch popup (#4, #5).
-Stash/Working-Trees tabs + per-dialog field audit are deferred.
+resolved the orphaned-command parity gap); **#6 complete** ("Commit File…" via the SCM API per ADR-014).
+Next: branch popup (#4 action set + Rename/Delete-last reorder, #5 tracked-branch submenu). Stash/Working-
+Trees tabs + per-dialog field audit are deferred.
 
 **Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
 dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
@@ -136,7 +136,9 @@ submenu reordered to `Git.FileActions` (Annotate→compare cluster→History tra
 rename (#6-partial). **#2 (`ea292f8`):** removed 19 dead `intellig.logCommit` `view/item/context` entries
 (no provider ever emitted that contextValue) + added a manifest↔source coherence guard. **#3 (`b7a16ee`):**
 reword-item ellipsis. **#10 (`3853540`, `47b363b`):** New Branch / New Tag from commit + Fixup… / Squash
-Into… in the webview log menu — the log/commit menu now mirrors `Git.Log.ContextMenu`.
+Into… in the webview log menu — the log/commit menu now mirrors `Git.Log.ContextMenu`. **#6 (`8cad885`):**
+"Commit File…" at the head of the explorer submenu via the SCM API (ADR-014) — stages the file + reveals
+the SCM commit input; wired `acceptInputCommand` (commit-on-accept).
 
 ---
 
