@@ -66,6 +66,13 @@ tabs, dialogs) — tracked as its own goal in **section 4b** (detail in `R2-UX-0
 **Process:** F5 dogfood sweep for unit-locked-but-unconfirmed UI; re-run the R2 review against the
 merged tree (it predates the A/C/phase-0 merges). Evidence: `R2-0N-*.md`, `R2-UX-0N-*.md`.
 
+**Code-health cleanup (Batch C — from the 2026-06-18 dead-code sweep):** delete the dead
+`intellig.commit.*` command layer left behind by the TreeView→webview log migration (~350 lines, the
+live menu uses the `_onDidRequestLogContextAction`→`_handleAction` event path), dead barrels/duplicate
+interfaces/orphaned commands, + generalize the #28 manifest-coherence guard to command-reachability and
+add a `knip` lint lane. Validated detail + slice list: `workspace-notes/batch2-plan.md` (Batch C). A few
+flagged items are parity fixes not deletions (e.g. `blame.clearHiddenRevisions` needs a submenu entry).
+
 **Deferred backlog (non-blocking):**
 - _a11y (cross-cutting):_ chip `aria-haspopup="menu"` when chip-as-button interactivity lands (NOT
   `aria-pressed` — chips open menus, they aren't toggles); left/right arrow-key navigation across chips
