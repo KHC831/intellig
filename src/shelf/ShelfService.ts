@@ -13,6 +13,7 @@ import {
   IImportPatchOptions,
 } from './interfaces/IShelfService';
 import { IRepository, IDiff, IHunk, IGitService } from '../git-core/interfaces/IGitService';
+import { IChangelistService } from '../changelists/interfaces/IChangelistService';
 import { GitCli, createGitCli } from '../git-core/gitCli';
 import { getLogger, type Logger } from '../utils/logger';
 
@@ -333,6 +334,15 @@ export class ShelfService implements IShelfService {
   private _gitCli: GitCli;
   /** See {@link RebaseService._ownsGitCli} for the rationale. */
   private _ownsGitCli: boolean;
+  /**
+   * Optional changelist mechanism used to route unshelved files into a chosen
+   * changelist. Only {@link IChangelistService.moveToChangelist} is needed, so
+   * the dependency is narrowed to that method — unshelve still works (defaulting
+   * to the active changelist) when no changelist service is wired. Mirrors the
+   * `targetChangeList` PatchApplier receives in IntelliJ's
+   * ShelveChangesManager.unshelveChangeList.
+   */
+  private _changelistService?: Pick<IChangelistService, 'moveToChangelist'>;
   private _shelfCache: Map<string, IShelfItem[]> = new Map();
   private _onDidChangeShelf: vscode.EventEmitter<IShelfItem[]>;
   private _disposables: vscode.Disposable[] = [];
@@ -347,7 +357,11 @@ export class ShelfService implements IShelfService {
    */
   readonly onDidChangeShelf: vscode.Event<IShelfItem[]>;
 
-  constructor(gitCli?: GitCli, gitService?: IGitService) {
+  constructor(
+    gitCli?: GitCli,
+    gitService?: IGitService,
+    changelistService?: Pick<IChangelistService, 'moveToChangelist'>
+  ) {
     if (gitService) {
       this._gitCli = (gitService as unknown as IGitServiceWithCli).gitCli;
       this._ownsGitCli = false;
@@ -355,6 +369,7 @@ export class ShelfService implements IShelfService {
       this._gitCli = gitCli || createGitCli();
       this._ownsGitCli = true;
     }
+    this._changelistService = changelistService;
     this._onDidChangeShelf = new vscode.EventEmitter<IShelfItem[]>();
     this.onDidChangeShelf = this._onDidChangeShelf.event;
     this._logger = getLogger().child({ component: 'ShelfService' });
@@ -537,6 +552,17 @@ export class ShelfService implements IShelfService {
       } catch {
         conflicts.push(file.path);
       }
+    }
+
+    // Route the cleanly-applied files into the chosen changelist. IntelliJ
+    // passes a `targetChangeList` to PatchApplier so unshelved files land in
+    // that list rather than the active one
+    // (ShelveChangesManager.unshelveChangeList → PatchApplier). With no target
+    // the files stay in the active changelist — today's behavior — so we only
+    // reassign when a target is given and a changelist mechanism is wired.
+    // Conflicted files are left untouched: they didn't land in the working tree.
+    if (options?.targetChangelist && this._changelistService && appliedCleanly.length > 0) {
+      this._changelistService.moveToChangelist(repo, appliedCleanly, options.targetChangelist);
     }
 
     // Per-file unshelve owns its own bookkeeping: unselected files always
@@ -1415,6 +1441,10 @@ export class ShelfService implements IShelfService {
  * @param gitService - Optional GitService whose gitCli we adopt
  * @returns A new ShelfService instance
  */
-export function createShelfService(gitCli?: GitCli, gitService?: IGitService): ShelfService {
-  return new ShelfService(gitCli, gitService);
+export function createShelfService(
+  gitCli?: GitCli,
+  gitService?: IGitService,
+  changelistService?: Pick<IChangelistService, 'moveToChangelist'>
+): ShelfService {
+  return new ShelfService(gitCli, gitService, changelistService);
 }

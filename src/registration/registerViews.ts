@@ -111,7 +111,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // lazily elsewhere in this file. Re-using them keeps the Shelf tab
     // consistent with the palette commands (same UX, same confirm flow).
     if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(shelfSvc, (r) => gs.getStatus(r), cs);
+      ctx.shelfView = createShelfView(
+        shelfSvc,
+        (r) => gs.getStatus(r),
+        cs,
+        ctx.services.changelistService
+      );
     }
     if (!ctx.stashView) {
       ctx.stashView = createStashView(gs, cs);
@@ -960,7 +965,8 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     ctx.shelfView = createShelfView(
       ctx.services.shelfService,
       (repo) => gitService.getStatus(repo),
-      ctx.services.conflictResolutionService
+      ctx.services.conflictResolutionService,
+      ctx.services.changelistService
     );
     ctx.context.subscriptions.push(ctx.shelfView);
 

@@ -75,6 +75,15 @@ export interface IShelfItem {
  */
 export interface IUnshelveOptions {
   removeFromShelf?: boolean;
+  /**
+   * Id of the changelist that the cleanly-applied files should be assigned to
+   * after unshelving. When omitted the files stay in the active changelist —
+   * the historical behavior. Mirrors the `targetChangeList` IntelliJ's
+   * `ShelveChangesManager.unshelveChangeList` hands to `PatchApplier`, which
+   * places the applied patches into that list rather than the active one.
+   * Honoured only when the service was constructed with a changelist
+   * mechanism; conflicted files are never reassigned.
+   */
   targetChangelist?: string;
   /**
    * When `true`, drop any file from the shelf entry that applied

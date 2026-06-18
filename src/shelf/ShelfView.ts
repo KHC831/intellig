@@ -22,6 +22,7 @@ import {
   ShelfContextAction,
 } from './interfaces/IShelfView';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
+import { IChangelistService } from '../changelists/interfaces/IChangelistService';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getOutputChannel } from '../utils/outputChannel';
@@ -75,6 +76,17 @@ export class ShelfView implements IShelfView {
   private _getStatus: ((repo: IRepository) => Promise<IFileStatus[]>) | undefined;
   private _conflictResolutionService: IConflictResolutionService | undefined;
   /**
+   * Optional changelist mechanism backing the unshelve target-changelist
+   * picker. Only the read (`getChangelists`) and create (`createChangelist`)
+   * methods are used, so the dependency is narrowed to that pair. When unwired
+   * the picker is skipped entirely and unshelve uses today's behavior (active
+   * changelist). Mirrors IntelliJ's unshelve dialog, which lets the user pick
+   * the target LocalChangeList.
+   */
+  private _changelistService:
+    | Pick<IChangelistService, 'getChangelists' | 'createChangelist'>
+    | undefined;
+  /**
    * Filter toggle. When `false` (default), entries with `unshelvedAt !=
    * undefined` are elided from the list. When `true`, they appear with an
    * "(already unshelved)" description and expose the Restore action.
@@ -97,11 +109,13 @@ export class ShelfView implements IShelfView {
   constructor(
     shelfService: IShelfService,
     getStatus?: (repo: IRepository) => Promise<IFileStatus[]>,
-    conflictResolutionService?: IConflictResolutionService
+    conflictResolutionService?: IConflictResolutionService,
+    changelistService?: Pick<IChangelistService, 'getChangelists' | 'createChangelist'>
   ) {
     this._shelfService = shelfService;
     this._getStatus = getStatus;
     this._conflictResolutionService = conflictResolutionService;
+    this._changelistService = changelistService;
     this._state = this._createInitialState();
 
     // Register event emitters for disposal
@@ -413,12 +427,24 @@ export class ShelfView implements IShelfView {
       return { success: false, error: `Shelf item not found: ${id}` };
     }
 
-    // If no options provided, ask user about removal preference
+    // If no options provided, ask user about removal preference and, when a
+    // changelist mechanism is wired, the target changelist for applied files.
     let unshelveOptions = options;
     if (!unshelveOptions) {
       unshelveOptions = await this._showUnshelveOptionsDialog();
       if (!unshelveOptions) {
         return { success: false };
+      }
+
+      if (this._changelistService) {
+        const target = await this._pickTargetChangelist(this._repository);
+        if (!target) {
+          // User dismissed the changelist picker — cancel the whole unshelve.
+          return { success: false };
+        }
+        if (target.targetChangelist) {
+          unshelveOptions = { ...unshelveOptions, targetChangelist: target.targetChangelist };
+        }
       }
     }
 
@@ -504,6 +530,79 @@ export class ShelfView implements IShelfView {
     return {
       removeFromShelf: selected.label.includes('Remove'),
     };
+  }
+
+  /**
+   * Prompt for the changelist the unshelved files should land in. Lists the
+   * repo's existing changelists (active one marked) plus a "New changelist…"
+   * entry. Mirrors IntelliJ's unshelve dialog target-changelist chooser.
+   *
+   * Returns:
+   *  - `{}` when the active changelist is chosen (or there is nothing to
+   *    choose) → no explicit target, files stay in the active list (default).
+   *  - `{ targetChangelist: id }` when a specific / newly-created list is
+   *    chosen.
+   *  - `undefined` when the user dismisses the picker → caller cancels.
+   */
+  private async _pickTargetChangelist(
+    repo: IRepository
+  ): Promise<{ targetChangelist?: string } | undefined> {
+    if (!this._changelistService) {
+      return {};
+    }
+
+    const changelists = this._changelistService.getChangelists(repo);
+    const active = changelists.find((cl) => cl.isActive);
+
+    const NEW_LABEL = '$(add) New changelist…';
+    interface IChangelistPick extends vscode.QuickPickItem {
+      changelistId?: string;
+      isNew?: boolean;
+    }
+
+    const picks: IChangelistPick[] = changelists.map((cl) => ({
+      label: `$(list-unordered) ${cl.name}`,
+      description: cl.isActive ? 'active' : cl.isDefault ? 'default' : undefined,
+      changelistId: cl.id,
+    }));
+    picks.push({ label: NEW_LABEL, isNew: true });
+
+    const chosen = await vscode.window.showQuickPick(picks, {
+      title: 'Unshelve Into Changelist',
+      placeHolder: 'Choose the changelist for the unshelved files',
+    });
+
+    if (!chosen) {
+      return undefined;
+    }
+
+    if (chosen.isNew) {
+      const name = await vscode.window.showInputBox({
+        title: 'New Changelist',
+        prompt: 'Name for the new changelist',
+        validateInput: (value) => (value.trim().length === 0 ? 'Name is required' : undefined),
+      });
+      if (name === undefined) {
+        return undefined;
+      }
+      try {
+        const created = this._changelistService.createChangelist(repo, name.trim());
+        return { targetChangelist: created.id };
+      } catch (error) {
+        const raw = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(
+          `Failed to create changelist: ${sanitizeGitError(raw)}`
+        );
+        return undefined;
+      }
+    }
+
+    // Choosing the active changelist means "no explicit target" so the service
+    // leaves the files where unshelve already puts them — today's behavior.
+    if (chosen.changelistId && chosen.changelistId !== active?.id) {
+      return { targetChangelist: chosen.changelistId };
+    }
+    return {};
   }
 
   /**
@@ -1482,7 +1581,8 @@ export class ShelfView implements IShelfView {
 export function createShelfView(
   shelfService: IShelfService,
   getStatus?: (repo: IRepository) => Promise<IFileStatus[]>,
-  conflictResolutionService?: IConflictResolutionService
+  conflictResolutionService?: IConflictResolutionService,
+  changelistService?: Pick<IChangelistService, 'getChangelists' | 'createChangelist'>
 ): ShelfView {
-  return new ShelfView(shelfService, getStatus, conflictResolutionService);
+  return new ShelfView(shelfService, getStatus, conflictResolutionService, changelistService);
 }

@@ -224,11 +224,6 @@ export class ExtensionServices implements IExtensionServices {
       // ConsoleService captures `git rebase` calls end-to-end).
       this._rebaseService = new RebaseService(undefined, this._gitService);
 
-      // Initialize ShelfService.
-      // Share GitCli with the GitService for back-channel
-      // diagnostics on `git stash`/`git diff` calls.
-      this._shelfService = new ShelfService(undefined, this._gitService);
-
       // Initialize ChangelistService
       //
       // Must be constructed with `this._gitService` so
@@ -237,7 +232,16 @@ export class ExtensionServices implements IExtensionServices {
       // Without the wire, every call into `reconcileWithGitStatus` is a
       // no-op — the symptom for the user is `intellig.shelve.silent`
       // reporting "No files in active changelist" against any dirty repo.
+      //
+      // Constructed before ShelfService so the shelf can route unshelved
+      // files into a chosen changelist.
       this._changelistService = new ChangelistService(this._gitService);
+
+      // Initialize ShelfService.
+      // Share GitCli with the GitService for back-channel
+      // diagnostics on `git stash`/`git diff` calls. The changelist service
+      // lets unshelve route applied files into a target changelist.
+      this._shelfService = new ShelfService(undefined, this._gitService, this._changelistService);
 
       // Initialize BlameService.
       // Pass gitService for: (a) shared GitCli so

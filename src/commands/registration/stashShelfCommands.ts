@@ -137,7 +137,12 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
 
     // Create shelf view if not exists and show shelve dialog
     if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(ctx.services.shelfService, (r) => gitService.getStatus(r));
+      ctx.shelfView = createShelfView(
+        ctx.services.shelfService,
+        (r) => gitService.getStatus(r),
+        undefined,
+        ctx.services.changelistService
+      );
     }
     await ctx.shelfView.showShelveDialog(repo);
   });
@@ -174,7 +179,8 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
       ctx.shelfView = createShelfView(
         ctx.services.shelfService,
         (r) => gitService.getStatus(r),
-        ctx.services.conflictResolutionService
+        ctx.services.conflictResolutionService,
+        ctx.services.changelistService
       );
     }
     // ShelfView depends on _repository being set for several methods; the
@@ -324,7 +330,12 @@ export function registerStashShelfCommands(ctx: ICommandContext): vscode.Disposa
 
     // Create shelf view if not exists and show it
     if (!ctx.shelfView) {
-      ctx.shelfView = createShelfView(ctx.services.shelfService, (r) => gitService.getStatus(r));
+      ctx.shelfView = createShelfView(
+        ctx.services.shelfService,
+        (r) => gitService.getStatus(r),
+        undefined,
+        ctx.services.changelistService
+      );
     }
     await ctx.shelfView.show(repo);
   });

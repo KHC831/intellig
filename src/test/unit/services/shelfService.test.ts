@@ -254,6 +254,61 @@ describe('ShelfService', () => {
     });
   });
 
+  describe('unshelve() target changelist routing', () => {
+    // Records the calls a ShelfService makes into the changelist mechanism so
+    // we can assert applied files are routed to the chosen changelist. Mirrors
+    // IntelliJ's ShelveChangesManager.unshelveChangeList passing a
+    // targetChangeList to PatchApplier (platform/vcs-impl/.../shelf).
+    interface IMoveCall {
+      files: string[];
+      changelistId: string;
+    }
+
+    function makeChangelistStub(moves: IMoveCall[]) {
+      return {
+        moveToChangelist(_repo: IRepository, files: string[], changelistId: string): void {
+          moves.push({ files: [...files], changelistId });
+        },
+      };
+    }
+
+    it('routes cleanly-applied files to the target changelist', async () => {
+      const moves: IMoveCall[] = [];
+      const svc = createShelfService(gitCli, undefined, makeChangelistStub(moves));
+
+      const testFile = path.join(testRepoPath, 'test.txt');
+      fs.writeFileSync(testFile, 'modified content\n');
+      const shelfItem = await svc.shelve(mockRepo, 'Routed', { files: ['test.txt'] });
+
+      const result = await svc.unshelve(mockRepo, shelfItem.id, {
+        targetChangelist: 'cl-feature',
+      });
+
+      assert.ok(result.success, 'Unshelve should succeed');
+      assert.strictEqual(moves.length, 1, 'Should reassign applied files once');
+      assert.deepStrictEqual(moves[0].files, ['test.txt']);
+      assert.strictEqual(moves[0].changelistId, 'cl-feature');
+
+      svc.dispose();
+    });
+
+    it('does not reassign when no target changelist is given (default active)', async () => {
+      const moves: IMoveCall[] = [];
+      const svc = createShelfService(gitCli, undefined, makeChangelistStub(moves));
+
+      const testFile = path.join(testRepoPath, 'test.txt');
+      fs.writeFileSync(testFile, 'modified content\n');
+      const shelfItem = await svc.shelve(mockRepo, 'Default', { files: ['test.txt'] });
+
+      const result = await svc.unshelve(mockRepo, shelfItem.id);
+
+      assert.ok(result.success, 'Unshelve should succeed');
+      assert.strictEqual(moves.length, 0, 'Default unshelve leaves files in the active changelist');
+
+      svc.dispose();
+    });
+  });
+
   describe('unshelve() per-file (partial)', () => {
     /**
      * Commit two extra tracked files, modify both, and shelve them as a
