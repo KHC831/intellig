@@ -604,6 +604,12 @@
         "icon": "$(discard)"
       },
       {
+        "command": "intellig.explorer.commitFile",
+        "title": "Commit File…",
+        "category": "IntelliG",
+        "icon": "$(check)"
+      },
+      {
         "command": "intellig.explorer.showHistory",
         "title": "Show History",
         "category": "IntelliG",
@@ -992,6 +998,10 @@
         }
       ],
       "intellig.explorerSubmenu": [
+        {
+          "command": "intellig.explorer.commitFile",
+          "group": "1_commit@1"
+        },
         {
           "command": "intellig.explorer.addToVcs",
           "group": "2_add@1"

@@ -444,6 +444,26 @@ export const workspace = {
 
   workspaceFolders: undefined as unknown[] | undefined,
 
+  /**
+   * Mirror `vscode.workspace.asRelativePath`: return the path relative to the
+   * owning workspace folder when one is set, otherwise the input path
+   * unchanged. Accepts a string or `Uri`.
+   */
+  asRelativePath(pathOrUri: string | Uri, _includeWorkspaceFolder?: boolean): string {
+    const p = typeof pathOrUri === 'string' ? pathOrUri : pathOrUri.fsPath;
+    const folders = (this.workspaceFolders ?? []) as Array<{ uri: Uri }>;
+    for (const folder of folders) {
+      const root = folder.uri.fsPath;
+      if (p === root) {
+        return '';
+      }
+      if (p.startsWith(root + '/')) {
+        return p.slice(root.length + 1);
+      }
+    }
+    return p;
+  },
+
   fs: {
     readFile: async (_uri: Uri): Promise<Uint8Array> => new Uint8Array(),
     writeFile: async (_uri: Uri, _content: Uint8Array): Promise<void> => {},

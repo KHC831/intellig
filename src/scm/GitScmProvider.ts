@@ -1,7 +1,15 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { formatActionFailureToast } from '../git-core/gitError';
 import type { IFileStatus, IGitService, IRepository, StatusCode } from '../services';
+
+/**
+ * Command id wired to each SourceControl's `acceptInputCommand`. Internal
+ * (not contributed to the palette or any menu): VS Code invokes it when the
+ * user accepts the commit input (Ctrl+Enter) for the IntelliG SourceControl.
+ */
+export const SCM_ACCEPT_COMMIT_COMMAND = 'intellig.scm.acceptCommit';
 
 /**
  * Minimal slice of the VS Code SCM factory the provider depends on, declared so
@@ -201,6 +209,7 @@ export function buildScmResources(
 
 /** Per-repository SCM handles tracked by the provider. */
 interface IRepoScm {
+  repo: IRepository;
   sourceControl: vscode.SourceControl;
   stagedGroup: vscode.SourceControlResourceGroup;
   changesGroup: vscode.SourceControlResourceGroup;
@@ -229,10 +238,41 @@ export class GitScmProvider implements vscode.Disposable {
    */
   async initialize(): Promise<void> {
     this.disposables.push(
+      vscode.commands.registerCommand(
+        SCM_ACCEPT_COMMIT_COMMAND,
+        (sourceControl: vscode.SourceControl) => this.commitFromInput(sourceControl)
+      ),
       this.gitService.onDidChangeRepository((repo) => void this.syncRepo(repo)),
       this.gitService.onDidRemoveRepository((repo) => this.removeRepo(repo))
     );
     await Promise.all(this.gitService.getRepositories().map((repo) => this.syncRepo(repo)));
+  }
+
+  /**
+   * Commit handler wired to each SourceControl's `acceptInputCommand`. Reads
+   * the message from the SourceControl's input box and commits the repository's
+   * staged changes, mirroring the built-in Git extension's commit-on-accept —
+   * the native home for "Commit File" (ADR-014): the explorer action stages the
+   * file, the user types a message here and accepts to commit. An empty message
+   * is a no-op so a stray Ctrl+Enter never produces an empty commit.
+   */
+  async commitFromInput(sourceControl: vscode.SourceControl): Promise<void> {
+    const entry = [...this.repos.values()].find((e) => e.sourceControl === sourceControl);
+    if (!entry) {
+      return;
+    }
+    const message = sourceControl.inputBox.value.trim();
+    if (message.length === 0) {
+      void vscode.window.showInformationMessage('Enter a commit message to commit.');
+      return;
+    }
+    try {
+      await this.gitService.commit(entry.repo, message, {});
+      sourceControl.inputBox.value = '';
+      await this.syncRepo(entry.repo);
+    } catch (error) {
+      void vscode.window.showErrorMessage(formatActionFailureToast('Failed to commit', error));
+    }
   }
 
   /** Lazily create (if needed) and refresh the SourceControl for `repo`. */
@@ -241,12 +281,21 @@ export class GitScmProvider implements vscode.Disposable {
     let entry = this.repos.get(key);
     if (!entry) {
       const sourceControl = this.scm.createSourceControl('intellig', 'IntelliG Git', repo.rootUri);
+      // Commit the staged changes when the user accepts the input (Ctrl+Enter),
+      // so the explorer "Commit File" action — which stages the file then
+      // reveals this view — can be completed without a webview (ADR-014).
+      sourceControl.acceptInputCommand = {
+        command: SCM_ACCEPT_COMMIT_COMMAND,
+        title: 'Commit',
+        arguments: [sourceControl],
+      };
+      sourceControl.inputBox.placeholder = 'Message (Ctrl+Enter to commit)';
       const stagedGroup = sourceControl.createResourceGroup(STAGED_GROUP_ID, 'Staged Changes');
       const changesGroup = sourceControl.createResourceGroup(CHANGES_GROUP_ID, 'Changes');
       // An empty group is noise (mirrors built-in git): hide until populated.
       stagedGroup.hideWhenEmpty = true;
       changesGroup.hideWhenEmpty = true;
-      entry = { sourceControl, stagedGroup, changesGroup };
+      entry = { repo, sourceControl, stagedGroup, changesGroup };
       this.repos.set(key, entry);
     }
 

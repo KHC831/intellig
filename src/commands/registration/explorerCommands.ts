@@ -459,6 +459,56 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
     return resolveExplorerFileUri(fileUri, vscode.window.activeTextEditor?.document.uri);
   }
 
+  // Commit File (git4idea Git.FileActions → CheckinFiles, the head of the
+  // submenu). Per ADR-014 commit/staging routes through the native SCM API,
+  // not a webview: stage the selected file, then reveal the SCM view so the
+  // user types a message and accepts to commit it via the IntelliG
+  // SourceControl input (mirrors VS Code's built-in Git flow).
+  const explorerCommitFileCommand = registerLoggedCommand(
+    'intellig.explorer.commitFile',
+    async (fileUri?: vscode.Uri) => {
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
+      const resolvedUri = _resolveExplorerFileUri(fileUri);
+      if (!resolvedUri) {
+        void vscode.window.showErrorMessage('No file selected to commit');
+        return;
+      }
+
+      const gitService = ctx.services.gitService;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: resolvedUri.fsPath,
+        pickerTitle: 'Commit File — Choose Repository',
+        pickerPlaceholder: 'Select a repository',
+      });
+      if (!repo) {
+        return;
+      }
+      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+      try {
+        await gitService.stage(repo, [filePath]);
+        if (ctx.gitToolWindowProvider) {
+          ctx.gitToolWindowProvider.refresh();
+        }
+        // Reveal the native SCM view so the just-staged file can be committed
+        // from the IntelliG SourceControl input (acceptInputCommand commits on
+        // accept). VS Code offers no per-SourceControl input-focus command, so
+        // this reveals the SCM viewlet where that input lives. The accept
+        // commits the whole staged index (as the built-in Git extension does),
+        // not strictly this file — but staging it first makes the common
+        // clean-index case effectively file-scoped.
+        await vscode.commands.executeCommand('workbench.view.scm');
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        void vscode.window.showErrorMessage(
+          `Failed to stage file for commit: ${sanitizeGitError(msg)}`
+        );
+      }
+    }
+  );
+
   // Add to VCS. Stages the file (equivalent to `git add <path>`), so it
   // becomes tracked. Shown in the IntelliJ-parity explorer submenu.
   const explorerAddToVcsCommand = registerLoggedCommand(
@@ -678,6 +728,7 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
   );
 
   return [
+    explorerCommitFileCommand,
     explorerShowHistoryCommand,
     explorerCompareWithBranchCommand,
     explorerRevertCommand,
