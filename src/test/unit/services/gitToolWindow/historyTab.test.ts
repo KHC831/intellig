@@ -21,6 +21,7 @@ import { writableCommands, writableWindow } from '../../../typed/windowStub';
 import type {
   IBranch,
   ICommit,
+  IDiff,
   IGitService,
   IFileHistoryOptions,
   IRepository,
@@ -468,5 +469,157 @@ describe('HistoryTab — class behaviour', () => {
     const last = snapshots[snapshots.length - 1];
     assert.strictEqual(last.loading, false);
     assert.strictEqual(last.commits.length, 1);
+  });
+});
+
+// ─── Affected paths (changed files of the selected revision) ──────────────────
+
+describe('HistoryTab — affected paths', () => {
+  function mkRepo(): IRepository {
+    return {
+      rootUri: Uri.file('/repo'),
+      state: 'idle',
+      head: { name: 'refs/heads/main', ahead: 0, behind: 0 },
+      remotes: [],
+      submodules: [],
+    };
+  }
+
+  function mkCommit(hash: string): ICommit {
+    return {
+      hash,
+      shortHash: hash.substring(0, 7),
+      message: 'msg',
+      author: { name: 'Test', email: 't@example.com' },
+      committer: { name: 'Test', email: 't@example.com' },
+      parents: [],
+      authorDate: new Date('2020-01-01'),
+      commitDate: new Date('2020-01-01'),
+    };
+  }
+
+  function mkDiff(path: string, status: IDiff['status'], oldPath?: string): IDiff {
+    return { path, oldPath, status, hunks: [], binary: false };
+  }
+
+  interface CommitDiffCalls {
+    hashes: string[];
+  }
+
+  function mkGitService(opts: {
+    repo: IRepository;
+    commits: ICommit[];
+    diffsByHash?: Record<string, IDiff[]>;
+    throwOnCommitDiff?: boolean;
+    omitCommitDiff?: boolean;
+  }): { service: IGitService; calls: CommitDiffCalls } {
+    const repoChange = new EventEmitter<IRepository>();
+    const calls: CommitDiffCalls = { hashes: [] };
+    const base = {
+      onDidChangeRepository: repoChange.event,
+      getRepositories: () => [opts.repo],
+      getRepository: async () => opts.repo,
+      getBranches: async () => [],
+      getFileHistory: async (): Promise<ICommit[]> => opts.commits,
+    } as Record<string, unknown>;
+    if (!opts.omitCommitDiff) {
+      base.getCommitDiff = async (_repo: IRepository, hash: string): Promise<IDiff[]> => {
+        calls.hashes.push(hash);
+        if (opts.throwOnCommitDiff) {
+          throw new Error('diff-boom');
+        }
+        return opts.diffsByHash?.[hash] ?? [];
+      };
+    }
+    return { service: base as unknown as IGitService, calls };
+  }
+
+  it('loadFile auto-loads the affected paths of the first (auto-selected) commit', async () => {
+    const repo = mkRepo();
+    const { service, calls } = mkGitService({
+      repo,
+      commits: [mkCommit('abc1234'), mkCommit('def5678')],
+      diffsByHash: { abc1234: [mkDiff('src/a.ts', 'modified'), mkDiff('src/b.ts', 'added')] },
+    });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+    assert.deepStrictEqual(calls.hashes, ['abc1234']);
+    const paths = tab.getState().affectedPaths.map((p) => p.path);
+    assert.deepStrictEqual(paths, ['src/a.ts', 'src/b.ts']);
+    assert.strictEqual(tab.getState().affectedPaths[0].status, 'modified');
+  });
+
+  it('selecting a revision fetches and replaces the affected paths for that commit', async () => {
+    const repo = mkRepo();
+    const { service, calls } = mkGitService({
+      repo,
+      commits: [mkCommit('abc1234'), mkCommit('def5678')],
+      diffsByHash: {
+        abc1234: [mkDiff('src/a.ts', 'modified')],
+        def5678: [mkDiff('src/old.ts', 'renamed', 'src/older.ts')],
+      },
+    });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+    calls.hashes.length = 0;
+    await tab.handleMessage({ type: 'history.selectRevision', rev: 'def5678' });
+    assert.deepStrictEqual(calls.hashes, ['def5678']);
+    const affected = tab.getState().affectedPaths;
+    assert.strictEqual(affected.length, 1);
+    assert.strictEqual(affected[0].path, 'src/old.ts');
+    assert.strictEqual(affected[0].status, 'renamed');
+    assert.strictEqual(affected[0].oldPath, 'src/older.ts');
+  });
+
+  it('does not re-fetch affected paths when the selection does not change', async () => {
+    const repo = mkRepo();
+    const { service, calls } = mkGitService({
+      repo,
+      commits: [mkCommit('abc1234')],
+      diffsByHash: { abc1234: [mkDiff('src/a.ts', 'modified')] },
+    });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+    calls.hashes.length = 0;
+    // Re-selecting the already-selected commit is a no-op for the reducer.
+    await tab.handleMessage({ type: 'history.selectRevision', rev: 'abc1234' });
+    assert.deepStrictEqual(calls.hashes, []);
+  });
+
+  it('surfaces an affected-paths error when getCommitDiff throws', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({
+      repo,
+      commits: [mkCommit('abc1234')],
+      throwOnCommitDiff: true,
+    });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+    const state = tab.getState();
+    assert.strictEqual(state.affectedPathsError, 'diff-boom');
+    assert.deepStrictEqual(state.affectedPaths, []);
+    assert.strictEqual(state.affectedPathsLoading, false);
+  });
+
+  it('clears affected paths when a load yields no commits', async () => {
+    const repo = mkRepo();
+    const { service, calls } = mkGitService({ repo, commits: [] });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/ghost.ts');
+    assert.deepStrictEqual(tab.getState().affectedPaths, []);
+    assert.deepStrictEqual(calls.hashes, []);
+  });
+
+  it('tolerates a git service without getCommitDiff (optional-method guard)', async () => {
+    const repo = mkRepo();
+    const { service } = mkGitService({
+      repo,
+      commits: [mkCommit('abc1234')],
+      omitCommitDiff: true,
+    });
+    const tab = new HistoryTab(service);
+    await tab.loadFile('src/a.ts');
+    assert.deepStrictEqual(tab.getState().affectedPaths, []);
+    assert.strictEqual(tab.getState().affectedPathsError, undefined);
   });
 });

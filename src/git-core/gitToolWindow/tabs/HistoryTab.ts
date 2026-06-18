@@ -34,12 +34,45 @@
 
 import * as vscode from 'vscode';
 import type { IWebviewTabMessage, TabMessageHandler } from '../tabRouter';
-import type { IBranch, ICommit, IGitService, IRepository } from '../../interfaces/IGitService';
+import type {
+  FileStatus,
+  IBranch,
+  ICommit,
+  IDiff,
+  IGitService,
+  IRepository,
+} from '../../interfaces/IGitService';
 import { sanitizeGitError } from '../../gitError';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A single file changed by the selected revision — the "affected paths" view.
+ *
+ * A lightweight projection of {@link IDiff} (path + status, plus the pre-rename
+ * path) without the hunk/binary payload, since the affected-paths pane only
+ * lists the changed files; it does not render their contents. Mirrors the
+ * changed-files list IntelliJ shows for a selected commit
+ * (`VcsLogChangesBrowser` / the file-history details pane).
+ */
+export interface IAffectedPath {
+  /** Path of the file at the selected revision, relative to the repo root. */
+  path: string;
+  /** Change kind for the file in this commit. */
+  status: FileStatus;
+  /** Original path when the file was renamed/copied (status renamed/copied). */
+  oldPath?: string;
+}
+
+/**
+ * Project the full {@link IDiff} list of a commit down to the affected-paths
+ * shape the pane renders.
+ */
+export function mapDiffsToAffectedPaths(diffs: readonly IDiff[]): IAffectedPath[] {
+  return diffs.map((d) => ({ path: d.path, status: d.status, oldPath: d.oldPath }));
+}
 
 /**
  * Shape of the state the tab owns, exposed so the provider / render layer
@@ -82,6 +115,12 @@ export interface IHistoryTabState {
   error: string | undefined;
   /** True while a load is in-flight (for a simple spinner / disabled UI). */
   loading: boolean;
+  /** Files changed by {@link selectedCommit} — the affected-paths pane. */
+  affectedPaths: IAffectedPath[];
+  /** True while the affected paths for the selected revision are loading. */
+  affectedPathsLoading: boolean;
+  /** Error string for a failed affected-paths fetch, surfaced in the pane. */
+  affectedPathsError: string | undefined;
 }
 
 export function createInitialHistoryTabState(): IHistoryTabState {
@@ -95,6 +134,9 @@ export function createInitialHistoryTabState(): IHistoryTabState {
     availableBranches: [],
     error: undefined,
     loading: false,
+    affectedPaths: [],
+    affectedPathsLoading: false,
+    affectedPathsError: undefined,
   };
 }
 
@@ -272,6 +314,13 @@ export class HistoryTab {
             if (this._state.filePath) {
               await this.loadFile(this._state.filePath, this._state.branchFilter);
             }
+          } else if (
+            message.type === 'history.selectRevision' &&
+            this._state.selectedCommit &&
+            this._state.selectedCommit !== before.selectedCommit
+          ) {
+            // A new revision is selected — refresh its affected paths.
+            await this._loadAffectedPaths(this._state.selectedCommit);
           }
         }
         return;
@@ -343,16 +392,25 @@ export class HistoryTab {
         this._safeGetBranches(repo),
       ]);
 
+      const selectedCommit = commits.length > 0 ? commits[0].hash : undefined;
       this._state = {
         ...this._state,
         commits,
         availableBranches: branches,
-        selectedCommit: commits.length > 0 ? commits[0].hash : undefined,
+        selectedCommit,
         compareCommit: undefined,
         loading: false,
         error: undefined,
+        // Reset the affected-paths pane; it is repopulated below for the
+        // freshly auto-selected revision (or stays empty when there are none).
+        affectedPaths: [],
+        affectedPathsLoading: false,
+        affectedPathsError: undefined,
       };
       this._emit();
+      if (selectedCommit) {
+        await this._loadAffectedPaths(selectedCommit);
+      }
     } catch (err) {
       this._state = {
         ...this._state,
@@ -361,6 +419,57 @@ export class HistoryTab {
         compareCommit: undefined,
         loading: false,
         error: err instanceof Error ? err.message : 'Unknown error',
+        affectedPaths: [],
+        affectedPathsLoading: false,
+        affectedPathsError: undefined,
+      };
+      this._emit();
+    }
+  }
+
+  /**
+   * Fetch the files changed by `rev` and store them as the affected-paths
+   * pane content. Backed by the existing `getCommitDiff` op (no new git
+   * surface). Guarded for the optional-method shape used by narrow mocks.
+   */
+  private async _loadAffectedPaths(rev: string): Promise<void> {
+    const repo = this._getRepo();
+    const getCommitDiff = this._gitService.getCommitDiff?.bind(this._gitService);
+    if (!repo || !getCommitDiff) {
+      this._state = {
+        ...this._state,
+        affectedPaths: [],
+        affectedPathsLoading: false,
+        affectedPathsError: undefined,
+      };
+      this._emit();
+      return;
+    }
+    this._state = { ...this._state, affectedPathsLoading: true, affectedPathsError: undefined };
+    this._emit();
+    try {
+      const diffs = await getCommitDiff(repo, rev);
+      // A later selection may have superseded this fetch; only apply the
+      // result if `rev` is still the selected revision.
+      if (this._state.selectedCommit !== rev) {
+        return;
+      }
+      this._state = {
+        ...this._state,
+        affectedPaths: mapDiffsToAffectedPaths(diffs),
+        affectedPathsLoading: false,
+        affectedPathsError: undefined,
+      };
+      this._emit();
+    } catch (err) {
+      if (this._state.selectedCommit !== rev) {
+        return;
+      }
+      this._state = {
+        ...this._state,
+        affectedPaths: [],
+        affectedPathsLoading: false,
+        affectedPathsError: err instanceof Error ? err.message : 'Unknown error',
       };
       this._emit();
     }

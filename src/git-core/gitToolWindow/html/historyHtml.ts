@@ -10,7 +10,7 @@
  * starts feeding real state in.
  */
 
-import type { IBranch, ICommit } from '../../interfaces/IGitService';
+import type { FileStatus, IBranch, ICommit } from '../../interfaces/IGitService';
 import type { IHistoryTabState } from '../tabs/HistoryTab';
 
 /**
@@ -48,12 +48,14 @@ function renderLoadedState(state: IHistoryTabState): string {
   // `IHistoryTabState.error` for the full reasoning.
   const error = state.error ? renderError(state.error) : '';
   const list = renderCommitList(state);
+  const affected = renderAffectedPaths(state);
   return `
     <div class="history-tab">
       ${header}
       ${toolbar}
       ${error}
       ${list}
+      ${affected}
     </div>
   `;
 }
@@ -146,6 +148,83 @@ export function renderCommitRow(commit: ICommit, state: IHistoryTabState): strin
 }
 
 /**
+ * Map a {@link FileStatus} to the single-letter git status code shown in the
+ * affected-paths badge — the same M/A/D/R/C/U vocabulary IntelliJ renders for a
+ * commit's changed files.
+ */
+export function affectedPathStatusLabel(status: FileStatus): string {
+  switch (status) {
+    case 'modified':
+      return 'M';
+    case 'added':
+      return 'A';
+    case 'deleted':
+      return 'D';
+    case 'renamed':
+      return 'R';
+    case 'copied':
+      return 'C';
+    case 'untracked':
+      return 'U';
+    case 'ignored':
+      return 'I';
+    case 'conflicted':
+      return 'U';
+    default:
+      return '?';
+  }
+}
+
+/**
+ * Render the "affected paths" pane — the list of files changed by the selected
+ * revision. Mirrors IntelliJ's commit changed-files view
+ * (`VcsLogChangesBrowser` / the file-history details pane). Read-only: scope is
+ * to *show* the affected paths, not to diff or open them.
+ */
+export function renderAffectedPaths(state: IHistoryTabState): string {
+  const body = renderAffectedPathsBody(state);
+  return `
+    <div class="history-affected" role="group" aria-label="Affected paths">
+      <div class="history-affected-header">Affected Paths</div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderAffectedPathsBody(state: IHistoryTabState): string {
+  if (state.affectedPathsError) {
+    return `<div class="history-affected-error" role="alert">${escapeHtml(
+      state.affectedPathsError
+    )}</div>`;
+  }
+  if (state.affectedPathsLoading) {
+    return `<div class="history-affected-empty">Loading changed files…</div>`;
+  }
+  if (state.affectedPaths.length === 0) {
+    return `<div class="history-affected-empty" role="status">No changed files for this revision.</div>`;
+  }
+  const rows = state.affectedPaths.map(renderAffectedPathRow).join('');
+  return `<div class="history-affected-list" role="list">${rows}</div>`;
+}
+
+function renderAffectedPathRow(file: IHistoryTabState['affectedPaths'][number]): string {
+  const label = affectedPathStatusLabel(file.status);
+  const status = escapeHtml(file.status);
+  const pathHtml =
+    file.oldPath && (file.status === 'renamed' || file.status === 'copied')
+      ? `${escapeHtml(file.oldPath)} → ${escapeHtml(file.path)}`
+      : escapeHtml(file.path);
+  return `
+    <div class="history-affected-row" role="listitem" title="${escapeHtml(file.path)}">
+      <span class="history-affected-status history-affected-status-${status}">${escapeHtml(
+        label
+      )}</span>
+      <span class="history-affected-path">${pathHtml}</span>
+    </div>
+  `;
+}
+
+/**
  * CSS for the History tab. Emitted alongside the existing provider styles
  * when the tabbed layout flag is on (see GitToolWindowProvider).
  */
@@ -169,6 +248,19 @@ export function historyTabStyles(): string {
     .history-commit-row.history-compare { outline: 1px dashed var(--vscode-focusBorder, #0078d4); outline-offset: -2px; }
     .history-commit-hash { font-family: var(--vscode-editor-font-family, monospace); color: var(--vscode-textLink-foreground, #3794ff); }
     .history-commit-author, .history-commit-date { color: var(--vscode-descriptionForeground); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-affected { display: flex; flex-direction: column; min-height: 0; max-height: 40%; border-top: 1px solid var(--vscode-panel-border, #3c3c3c); }
+    .history-affected-header { padding: 4px 8px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
+    .history-affected-list { flex: 1 1 auto; overflow: auto; }
+    .history-affected-empty { padding: 8px; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+    .history-affected-error { padding: 6px 8px; background: var(--vscode-inputValidation-errorBackground, rgba(255,0,0,0.1)); color: var(--vscode-errorForeground, #f48771); }
+    .history-affected-row { display: grid; grid-template-columns: 2ch minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 1px 8px; }
+    .history-affected-status { font-family: var(--vscode-editor-font-family, monospace); font-weight: 600; text-align: center; }
+    .history-affected-status-added { color: var(--vscode-gitDecoration-addedResourceForeground, #81b88b); }
+    .history-affected-status-modified { color: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d); }
+    .history-affected-status-deleted { color: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39); }
+    .history-affected-status-renamed, .history-affected-status-copied { color: var(--vscode-gitDecoration-renamedResourceForeground, #73c991); }
+    .history-affected-status-conflicted { color: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b); }
+    .history-affected-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `;
 }
 
