@@ -1,7 +1,7 @@
 # IntelliJ-parity — status & landing log
 
 _Living tracker: current state, what's landed, and the next step. The analysis/plan (gaps,
-heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated 2026-06-15._
+heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated 2026-06-17._
 
 ## Current state
 
@@ -13,8 +13,8 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
 - **Correctness/security cluster cleared** (staging quoting + revert-hunk guard 5e6855a, any-scheme
   credential scrub bafee52). **Next:** daily-feature workstreams **G/E/H** + **C residuals** —
   see `NORTHSTAR.md` section 6.
-- **Residual follow-ups** carved out this round: B's resolved-row index watcher (auto-flip
-  `ResolveConflictsDialog` after the native editor); F's per-author blame color mode.
+- **Both residual follow-ups landed 2026-06-17**: B's resolved-row auto-flip (index-watcher) and
+  F's per-author blame color mode — plus D's branch-popup header actions + settings toggles.
 
 ## Landing log
 
@@ -22,6 +22,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-17 | Workstream D (slice 1) — branch popup header actions (New Branch / Fetch / Settings gear) + gear toggle menu (Group by Directory / Show Recent / Show Tags), defaulting all toggles true so the existing layout is unchanged; mirrors git4idea `GitBranchesTreePopup` | db7d883 | local cherry-pick (1 commit) |
+| 2026-06-17 | Workstream F (slice 1) — AUTHOR blame color mode alongside ORDER: stable per-author tint over the file's sorted-distinct authors (`palette[i % size]`), faithful port of IntelliJ `AnnotateToggleAction.computeBgColors` + `AnnotationsSettings`; gutter + inline providers honor `intellig.blame.colorMode` | 7a57340 | local cherry-pick (1 commit) |
+| 2026-06-17 | Workstream B — post-native-editor resolved-row auto-flip: `ConflictResolutionService` reconciles the open `ResolveConflictsDialog` against the unmerged set on the existing git-index watch, flipping externally-resolved rows + enabling Continue; mirrors IntelliJ `MultipleFileMergeDialog` | fcddad4 | local cherry-pick (1 commit) |
+| 2026-06-17 | Rebase reword fix — a blank inline reword override no longer writes an empty `-F` message file (which aborts `commit --amend` mid-rebase); `hasRewordOverride` requires non-blank, else falls back to classic interactive reword | fc16950 | local fast-forward (1 commit) |
 | 2026-06-16 | Security — `sanitizeGitError` now scrubs the `user:password@` authority of ANY URL scheme (`CREDENTIAL_URL_REGEX` generalized from `https?` to the RFC-3986 scheme grammar `[A-Za-z][A-Za-z0-9+.-]*`), closing a credential leak through every toast/log for `ssh://`/`git://`/`ftp://`/compound-scheme URLs; SCP-form `user@host:path` (no URL password) left untouched | bafee52 | local fast-forward of dev/sanitize-credential-scheme (1 commit) |
 | 2026-06-16 | Staging/patch correctness — `generateHunkPatch`/`generateLinesPatch` now C-style quote the `diff --git`/`---`/`+++` header paths (`escapePatchPath`, byte-wise port of git's `quote_c_style`) with a tab-delimiter fallback for unquoted names containing a space, so `git apply` stages the correct bytes on tab/newline/space filenames (real `git apply` round-trip test); `revertHunk` now refuses when the file has staged changes (working-tree-only `-R` would leave the discarded hunk in the index) | 5e6855a | local squash-merge of dev/staging-patch-correctness (2 commits) |
 | 2026-06-16 | Front-doors batch — wire tested backends: top-level `intellig.mergeFrom` "Merge…" command (shared Merge Dialog); blame hover click-through rewired to registered `intellig.editor.showCommit`/`copyCommitHash` (dead-link fix); log "No Merges" filter (`--no-merges` + filter-bar checkbox); `…` on "New Branch from Here". Annotate Previous Revision was already wired. | d8ac1da | local squash-merge of dev/front-doors (4 commits) |

@@ -33,14 +33,14 @@ Remaining backlog: residuals under **C** (shell/sync) and the open workstreams *
 | Component | Parity | Biggest remaining gap |
 |---|---|---|
 | Reset | 🟢 ~95% | — (exceeds ref) |
-| 3-way Merge view (B) | 🟢 ~70% | resolved-row auto-flip after native editor |
+| 3-way Merge view (B) | 🟢 ~85% | only "accept non-conflicting from both sides" (shared w/ H) left — auto-flip landed |
 | Commit & Changelists (A) | 🟢 ~80% | live line-status tracker, commit-and-push dialog, rollback dialog |
 | Rebase / Cherry-pick / Revert (H) | 🟢 ~80% | inline reword/squash, `--onto`/`--root`, `-m` revert/cherry-pick |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
 | Branches & Tags (D) | 🟡 ~75% | tree HEAD/favorites/multi-repo, worktrees, conflict-aware validation |
 | Shell / Menus / Sync (C) | 🟡 ~70% | `--autostash`, log-menu history-rewrite, console surface |
 | Shelf / Stash / Patches (E) | 🟡 ~70% | per-file unshelve, binary, recycle bin |
-| Blame / History / Diff (F) | 🟡 ~65% | author color mode, file-history graph + affected paths |
+| Blame / History / Diff (F) | 🟡 ~70% | file-history graph + affected paths (AUTHOR color mode landed) |
 
 ---
 
@@ -64,10 +64,11 @@ merged tree (it predates the A/C/phase-0 merges). Evidence: `R2-0N-*.md`, `R2-UX
 Each lists remaining gaps + ordered work + files. Reference: `git4idea` (portable git logic) vs
 `platform` (UI we hand-build).
 
-### B. 3-way Merge view — 🟢 ~70%
-**Remaining:** after the user finishes in the native editor, `ResolveConflictsDialog`'s row status
-does **not** auto-flip — nothing watches the index to detect post-editor resolution. Needs an
-index/status watcher. ("Accept non-conflicting from both sides" is shared with H.)
+### B. 3-way Merge view — 🟢 ~85%
+**Landed 2026-06-17:** resolved-row auto-flip — `ConflictResolutionService` reconciles the open
+`ResolveConflictsDialog` against the unmerged set on the existing git-index watch (no new watcher),
+flipping externally-resolved rows and enabling Continue.
+**Remaining:** "Accept non-conflicting from both sides" (shared with H).
 **Files:** `src/conflicts/{MergeView,ResolveConflictsDialog}.ts`.
 
 ### C (residuals). Shell / Menus / Sync — 🟡 ~70%
@@ -82,8 +83,10 @@ no-op); enable tabbed layout default-on; no `vscode.scm` provider.
 favorites + multi-repo grouping + search/multi-select; `getMergedBranches` has no UI caller; no
 worktree create/open; conflict-aware branch-name validation; per-remote push; tag submenu
 Merge-into-Current.
-**Work (ordered):** (1) popup header+toggles+align local submenu. (2) tree HEAD+favorites+multi-repo.
-(3) conflict-aware validation. (4) per-remote push. (5) worktrees. (6) tag submenu Merge-into-Current.
+**Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17** (New Branch/Fetch/Settings-gear +
+Group-by-Directory/Show-Recent/Show-Tags toggles); align local submenu still pending. (2) tree
+HEAD+favorites+multi-repo. (3) conflict-aware validation. (4) per-remote push. (5) worktrees.
+(6) tag submenu Merge-into-Current.
 **Files:** `src/branches/*`, `src/git-core/ops/{BranchOps,StashTagHistoryOps}.ts`,
 `src/commands/registration/commitHelpers.ts`, `package.json`.
 
@@ -99,11 +102,12 @@ apply-index toggle.
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
 ### F. Blame / History / Diff — 🟡 ~65%
-**Remaining:** per-author color mode (`intellig.blame.colorMode` ORDER vs AUTHOR — only ORDER built);
-toggleable aspect columns / author-name-format; "show affected paths"; inline-diff-on-hover; file
+**Remaining:** toggleable aspect columns / author-name-format; "show affected paths";
+inline-diff-on-hover; file
 history has no graph / details pane / get-version, and line-history isn't line-scoped (fetches whole
 file); diff has no whitespace/highlight-policy UI.
-**Work (ordered):** (1) AUTHOR color mode + selector. (2) aspect columns + name format. (3) affected-paths
+**Work (ordered):** (1) ~~AUTHOR color mode + selector~~ **DONE 2026-06-17** (stable per-author tint,
+faithful IntelliJ palette port; `intellig.blame.colorMode` ORDER/AUTHOR). (2) aspect columns + name format. (3) affected-paths
 + history panel. (4) details pane + graph (reuse `commitGraph.ts`). (5) line-scoped history
 (`git log -L`) + get-version. (6) diff options. (7) inline-diff-on-hover.
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
