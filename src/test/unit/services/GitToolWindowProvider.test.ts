@@ -1792,6 +1792,227 @@ describe('Multi-Repository Selection State', () => {
       assert.ok(!html.includes('<em>'), 'Should escape HTML tags in folder names');
       assert.ok(html.includes('&lt;em&gt;'), 'Should contain escaped tag');
     });
+
+    it('renders an "All Repositories" option only when more than one repository exists', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(html.includes('value="all"'), 'multi-repo selector must offer the all option');
+      assert.ok(
+        html.includes('All Repositories'),
+        'the all option must carry a human-readable label'
+      );
+    });
+
+    it('marks the "All Repositories" option as selected when the scope is all', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      // Drive scope to all explicitly (config seeding is off in this suite).
+      (
+        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
+      )._handleRepositorySelection('all');
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(
+        html.includes('value="all" selected'),
+        'the all option must be selected when scope is all'
+      );
+      assert.ok(
+        !html.includes('value="0" selected'),
+        'no concrete repo option should be selected when scope is all'
+      );
+    });
+
+    it('does NOT mark the all option selected when a specific repo is the scope', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      (
+        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
+      )._handleRepositorySelection(1);
+
+      const html = provider._getRepositorySelectorHtml();
+      assert.ok(
+        !html.includes('value="all" selected'),
+        'the all option must not be selected when a specific repo is scoped'
+      );
+      assert.ok(html.includes('value="1" selected'), 'the chosen repo option must be selected');
+    });
+  });
+
+  describe('repository scope state', () => {
+    it('exposes isAllReposSelected() reflecting the current scope', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+      const surface = provider as unknown as {
+        _handleRepositorySelection(selection: number | 'all'): void;
+        isAllReposSelected(): boolean;
+      };
+
+      // Config-off default → specific repo scope.
+      assert.strictEqual(surface.isAllReposSelected(), false);
+
+      surface._handleRepositorySelection('all');
+      assert.strictEqual(surface.isAllReposSelected(), true);
+
+      surface._handleRepositorySelection(0);
+      assert.strictEqual(surface.isAllReposSelected(), false);
+    });
+
+    it('keeps getSelectedRepository() returning a concrete context repo even in all scope', () => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+      (
+        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
+      )._handleRepositorySelection('all');
+
+      const ctx = provider.getSelectedRepository();
+      assert.ok(ctx, 'all scope still resolves a context repo for single-repo operations');
+      assert.strictEqual(ctx.rootUri.fsPath, '/workspace/repo-a', 'context repo is the first repo');
+    });
+
+    it('fires onDidChangeRepositoryScope with kind=all when all is selected', (done) => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      const sub = (
+        provider as unknown as {
+          onDidChangeRepositoryScope: (l: (s: { kind: string }) => void) => { dispose(): void };
+        }
+      ).onDidChangeRepositoryScope((scope) => {
+        sub.dispose();
+        assert.strictEqual(scope.kind, 'all');
+        done();
+      });
+
+      (
+        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
+      )._handleRepositorySelection('all');
+    });
+
+    it('fires onDidChangeRepositoryScope with kind=repository carrying the chosen repo', (done) => {
+      const repos = [
+        createMockRepository('/workspace/repo-a'),
+        createMockRepository('/workspace/repo-b'),
+      ];
+      provider.setAvailableRepositories(
+        repos as Parameters<typeof provider.setAvailableRepositories>[0]
+      );
+
+      const sub = (
+        provider as unknown as {
+          onDidChangeRepositoryScope: (
+            l: (s: { kind: string; repository?: { rootUri: { fsPath: string } } }) => void
+          ) => { dispose(): void };
+        }
+      ).onDidChangeRepositoryScope((scope) => {
+        sub.dispose();
+        assert.strictEqual(scope.kind, 'repository');
+        assert.strictEqual(scope.repository!.rootUri.fsPath, '/workspace/repo-b');
+        done();
+      });
+
+      (
+        provider as unknown as { _handleRepositorySelection(selection: number | 'all'): void }
+      )._handleRepositorySelection(1);
+    });
+  });
+
+  describe('scriptBuilder routes the all sentinel', () => {
+    it('handles value === "all" before the numeric finite guard and posts the all sentinel', () => {
+      const inlineScript = (
+        provider as unknown as { _getInlineScript: () => string }
+      )._getInlineScript();
+
+      // Scope the ordering check to the repository-selector handler tokens so
+      // it can't be satisfied by an unrelated earlier Number() elsewhere.
+      const allBranchIdx = inlineScript.indexOf("target.value === 'all'");
+      const numberGuardIdx = inlineScript.indexOf('Number(target.value)');
+      assert.ok(allBranchIdx >= 0, 'inline script must branch on the all sentinel');
+      assert.ok(numberGuardIdx >= 0, 'inline script must still parse numeric indices');
+      assert.ok(
+        allBranchIdx < numberGuardIdx,
+        'the all branch must be handled BEFORE Number(target.value) drops it as NaN'
+      );
+      assert.ok(
+        inlineScript.includes("repositoryIndex: 'all'"),
+        'inline script must post the all sentinel as repositoryIndex'
+      );
+    });
+  });
+
+  describe('getRepoRootForCommit — per-commit source repo for the merged (all-roots) log', () => {
+    function mergedCommit(hash: string, repoRoot?: string) {
+      return {
+        hash,
+        shortHash: hash.slice(0, 7),
+        message: `commit ${hash}`,
+        author: { name: 'T', email: 't@t.com' },
+        committer: { name: 'T', email: 't@t.com' },
+        parents: [],
+        authorDate: new Date(),
+        commitDate: new Date(),
+        repoRoot,
+      };
+    }
+
+    it('returns the source repo root recorded for each merged commit', () => {
+      provider.updateLogState([
+        mergedCommit('aaaaaaa', '/work/alpha'),
+        mergedCommit('bbbbbbb', '/work/beta'),
+      ]);
+      assert.strictEqual(provider.getRepoRootForCommit('aaaaaaa'), '/work/alpha');
+      assert.strictEqual(provider.getRepoRootForCommit('bbbbbbb'), '/work/beta');
+    });
+
+    it('returns undefined for an untagged commit (single-repo / specific-scope log)', () => {
+      provider.updateLogState([mergedCommit('ccccccc')]);
+      assert.strictEqual(provider.getRepoRootForCommit('ccccccc'), undefined);
+    });
+
+    it('returns undefined for a hash not present in the rendered log', () => {
+      provider.updateLogState([mergedCommit('aaaaaaa', '/work/alpha')]);
+      assert.strictEqual(provider.getRepoRootForCommit('zzzzzzz'), undefined);
+    });
+
+    it('drops stale mappings when the log is replaced (no leak across reloads)', () => {
+      provider.updateLogState([mergedCommit('aaaaaaa', '/work/alpha')]);
+      provider.updateLogState([mergedCommit('bbbbbbb', '/work/beta')]);
+      assert.strictEqual(provider.getRepoRootForCommit('aaaaaaa'), undefined);
+      assert.strictEqual(provider.getRepoRootForCommit('bbbbbbb'), '/work/beta');
+    });
   });
 
   describe('_getGraphPanelHtml repository selector integration', () => {
@@ -2779,8 +3000,29 @@ describe('goToParent/goToChild — commit context menu wiring (G9)', () => {
   });
 });
 
-describe('_isShowAllRootsEnabled (G8)', () => {
+describe('_isShowAllRootsEnabled (G8) — now derives from the repository scope', () => {
   let p: GitToolWindowProvider;
+
+  function createMockRepository(rootPath: string): {
+    rootUri: ReturnType<typeof Uri.file>;
+    state: 'idle';
+    remotes: never[];
+    submodules: never[];
+  } {
+    return {
+      rootUri: Uri.file(rootPath),
+      state: 'idle' as const,
+      remotes: [],
+      submodules: [],
+    };
+  }
+
+  function twoRepos(): Parameters<GitToolWindowProvider['setAvailableRepositories']>[0] {
+    return [
+      createMockRepository('/workspace/a'),
+      createMockRepository('/workspace/b'),
+    ] as Parameters<GitToolWindowProvider['setAvailableRepositories']>[0];
+  }
 
   beforeEach(() => {
     p = new GitToolWindowProvider(Uri.file('/test/extension'));
@@ -2793,27 +3035,49 @@ describe('_isShowAllRootsEnabled (G8)', () => {
     setMockConfigValue('intellig', 'log.showAllRoots', undefined);
   });
 
-  it('returns true when intellig.log.showAllRoots is true', () => {
+  it('seeds the scope to all when showAllRoots config is true and >1 repo exists', () => {
     setMockConfigValue('intellig', 'log.showAllRoots', true);
+    p.setAvailableRepositories(twoRepos());
     const enabled = (
       p as unknown as { _isShowAllRootsEnabled(): boolean }
     )._isShowAllRootsEnabled();
-    assert.strictEqual(
-      enabled,
-      true,
-      '_isShowAllRootsEnabled must return true when setting is true'
-    );
+    assert.strictEqual(enabled, true, 'config-seeded all scope must report all-roots enabled');
   });
 
-  it('returns false when intellig.log.showAllRoots is false (the default)', () => {
+  it('seeds the scope to a specific repo when showAllRoots config is false (the default)', () => {
     setMockConfigValue('intellig', 'log.showAllRoots', false);
+    p.setAvailableRepositories(twoRepos());
     const enabled = (
       p as unknown as { _isShowAllRootsEnabled(): boolean }
     )._isShowAllRootsEnabled();
     assert.strictEqual(
       enabled,
       false,
-      '_isShowAllRootsEnabled must return false when setting is false'
+      'config-off default must scope to a single repo, not the merged view'
+    );
+  });
+
+  it('tracks the runtime scope: selecting "all" enables, selecting a repo disables — regardless of config', () => {
+    // Config stays false; the selector becomes the runtime source of truth.
+    setMockConfigValue('intellig', 'log.showAllRoots', false);
+    p.setAvailableRepositories(twoRepos());
+    const surface = p as unknown as {
+      _handleRepositorySelection(selection: number | 'all'): void;
+      _isShowAllRootsEnabled(): boolean;
+    };
+
+    surface._handleRepositorySelection('all');
+    assert.strictEqual(
+      surface._isShowAllRootsEnabled(),
+      true,
+      'picking All enables the merged view'
+    );
+
+    surface._handleRepositorySelection(1);
+    assert.strictEqual(
+      surface._isShowAllRootsEnabled(),
+      false,
+      'picking a specific repo disables the merged view'
     );
   });
 });

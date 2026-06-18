@@ -3,6 +3,17 @@ import type { IGitService, IGitServiceCli, IRepository } from '../services';
 import { resolveRepo } from '../utils/resolveRepo';
 
 /**
+ * The repository SCOPE the Git tool window drives both downstream views with.
+ * `'all'` shows the merged multi-root log + the grouped branch tree; a
+ * `repository` scope narrows both views to a single repo. Emitted by the
+ * provider's `onDidChangeRepositoryScope` event so the log and branches can
+ * never disagree about what's in view.
+ */
+export type RepositoryScopeSelection =
+  | { readonly kind: 'all' }
+  | { readonly kind: 'repository'; readonly repository: IRepository };
+
+/**
  * Minimal provider surface that {@link loadAllPanelDataCore} drives. Declared
  * structurally so unit tests can pass a lightweight stub that records the
  * `setHasRepository` argument without standing up a full
@@ -63,20 +74,24 @@ export async function loadAllPanelDataCore(deps: ILoadAllPanelDataDeps): Promise
  * standing up the full extension host.
  */
 export interface IRepoSelectionToolWindowProvider {
-  onDidSelectRepository: vscode.Event<IRepository>;
+  onDidChangeRepositoryScope: vscode.Event<RepositoryScopeSelection>;
 }
 export interface IRepoSelectionBranchTreeProvider {
   setRepository(repo: IRepository): void;
+  setRepositoryScope(scope: 'all'): void;
 }
 
 /**
- * Wire the Git tool window's repository selector to BOTH downstream views:
- *   - the Log/Graph (Git) view via `loadLogCommitsForRepo`
- *   - the Branches tree view via `branchTreeProvider.setRepository`
+ * Wire the Git tool window's repository scope to BOTH downstream views from a
+ * single `onDidChangeRepositoryScope` event:
+ *   - scope `'all'`        → merged multi-root log (`loadAllRootsLog`) +
+ *                            grouped branch tree (`setRepositoryScope('all')`)
+ *   - scope `repository`   → single-repo log (`loadLogCommitsForRepo`) +
+ *                            that repo's branch tree (`setRepository`)
  *
- * Extracted from the `activate`-scoped wiring so the dual-update behavior is
- * unit-testable. Without this, the dropdown could update one view while the
- * other silently desyncs — the original bug.
+ * Routing both views off one event is what keeps the log and branches from
+ * ever disagreeing about which repositories are in view — the original bug
+ * was the dropdown updating one view while the other silently desynced.
  *
  * Returns the disposables so the caller can register them with
  * `context.subscriptions.push(...)`.
@@ -87,14 +102,53 @@ export function wireRepositorySelection(deps: {
   toolWindowProvider: IRepoSelectionToolWindowProvider;
   branchTreeProvider: IRepoSelectionBranchTreeProvider;
   loadLogCommitsForRepo: (repo: IRepository) => Promise<void>;
+  loadAllRootsLog: () => Promise<void>;
 }): vscode.Disposable[] {
-  const graphListener = deps.toolWindowProvider.onDidSelectRepository(async (repo) => {
-    await deps.loadLogCommitsForRepo(repo);
+  const scopeListener = deps.toolWindowProvider.onDidChangeRepositoryScope(async (scope) => {
+    if (scope.kind === 'all') {
+      deps.branchTreeProvider.setRepositoryScope('all');
+      await deps.loadAllRootsLog();
+      return;
+    }
+    deps.branchTreeProvider.setRepository(scope.repository);
+    await deps.loadLogCommitsForRepo(scope.repository);
   });
-  const branchTreeListener = deps.toolWindowProvider.onDidSelectRepository((repo) => {
-    deps.branchTreeProvider.setRepository(repo);
-  });
-  return [graphListener, branchTreeListener];
+  return [scopeListener];
+}
+
+/**
+ * Provider surface {@link resolveCommitRepoByRoot} reads to map a commit hash
+ * to its source repository root. Declared structurally so the resolution is
+ * unit-testable without standing up a full `GitToolWindowProvider`.
+ */
+export interface ICommitRepoRootSource {
+  getRepoRootForCommit(hash: string): string | undefined;
+}
+
+/**
+ * Resolve the repository a CLICKED commit belongs to in the merged "all roots"
+ * log. Returns the repo whose root the provider recorded for `hash`, or
+ * `undefined` when no root is recorded (single-repo / specific-scope log) or
+ * the recorded root no longer resolves — in which case the caller falls back
+ * to its existing chain (`getSelectedRepository()` etc.).
+ *
+ * Without this, commit-select / commit-diff in 'all' scope ran against the
+ * single "context" repo, producing wrong/empty diffs for foreign-repo commits
+ * (often the newest commit in the interleaved merged log).
+ *
+ * @internal — exported for
+ *   `src/test/unit/extension/commitRepoResolution.test.ts`.
+ */
+export async function resolveCommitRepoByRoot(
+  provider: ICommitRepoRootSource | undefined,
+  gitService: Pick<IGitService, 'getRepository'>,
+  hash: string
+): Promise<IRepository | undefined> {
+  const repoRoot = provider?.getRepoRootForCommit(hash);
+  if (!repoRoot) {
+    return undefined;
+  }
+  return gitService.getRepository(vscode.Uri.file(repoRoot));
 }
 
 /**

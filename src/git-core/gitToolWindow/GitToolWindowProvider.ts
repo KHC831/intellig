@@ -52,6 +52,7 @@ import { createIncomingTabHandler, IncomingTab, createIncomingTab } from './tabs
 import { createUpdateInfoTabHandler } from './tabs/UpdateInfoTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { buildInlineScript } from './provider/scriptBuilder';
+import type { RepositoryScopeSelection } from '../../registration/wiring';
 import { buildCommitRows } from './provider/graphClusterBuilder';
 import {
   buildInlineStyles,
@@ -339,6 +340,35 @@ export class GitToolWindowProvider
   private _maxConsoleEntries: number = DEFAULT_MAX_CONSOLE_ENTRIES;
   private _availableRepositories: IRepository[] = [];
   private _selectedRepositoryIndex: number = 0;
+  /**
+   * Repository SCOPE driving BOTH the log and the branches view. `'all'`
+   * shows the merged multi-root log + the grouped branch tree; a number is
+   * the index of the single repository both views are scoped to.
+   *
+   * This is the single runtime source of truth: `_isShowAllRootsEnabled()`
+   * derives from it, and the `intellig.log.showAllRoots` config only seeds
+   * the initial default (see {@link setAvailableRepositories}). When the
+   * scope is `'all'`, {@link getSelectedRepository} still returns a concrete
+   * "context" repo (the most-recently-selected specific repo, or the first
+   * repo) so single-repo operations have a target.
+   */
+  private _repositoryScope: 'all' | number = 0;
+  /**
+   * Guards the one-time scope seeding from config. The default scope is only
+   * derived from `intellig.log.showAllRoots` on the FIRST repository
+   * population; later reloads preserve the user's runtime choice.
+   */
+  private _scopeSeeded: boolean = false;
+  /**
+   * Per-commit source repository root for the merged "all roots" log,
+   * keyed by commit hash. Populated from each commit's `repoRoot` tag in
+   * {@link updateLogState} and rebuilt on every log refresh so it never
+   * leaks stale mappings. Lets commit-targeted operations (diff, details)
+   * resolve the repo the CLICKED commit actually belongs to rather than the
+   * single "context" repo — see {@link getRepoRootForCommit}. Empty in the
+   * single-repo / specific-scope paths, where commits carry no `repoRoot`.
+   */
+  private _commitRepoRoots: Map<string, string> = new Map();
 
   /**
    * Parsed remote URL for the current repository, cached by repo key.
@@ -480,6 +510,14 @@ export class GitToolWindowProvider
    */
   private readonly _onDidSelectRepository = new vscode.EventEmitter<IRepository>();
 
+  /**
+   * Event emitter that fires whenever the repository SCOPE changes — either to
+   * a specific repository or to the merged "all repositories" view. Drives the
+   * dual log + branches wiring (see `wireRepositorySelection`).
+   */
+  private readonly _onDidChangeRepositoryScope =
+    new vscode.EventEmitter<RepositoryScopeSelection>();
+
   // Public events
   public readonly onDidChangeState = this._onDidChangeState.event;
   public readonly onDidRequestContextAction = this._onDidRequestContextAction.event;
@@ -512,6 +550,13 @@ export class GitToolWindowProvider
    */
   public readonly onDidSelectRepository = this._onDidSelectRepository.event;
 
+  /**
+   * Event fired when the repository scope changes (a specific repo or the
+   * merged "all repositories" view). The selector's single source of truth
+   * for keeping the log and branches in agreement.
+   */
+  public readonly onDidChangeRepositoryScope = this._onDidChangeRepositoryScope.event;
+
   constructor(extensionUri: vscode.Uri, workspaceState?: vscode.Memento) {
     super(extensionUri);
     // Initialize extended log state
@@ -543,7 +588,8 @@ export class GitToolWindowProvider
       this._onDidRequestLoadMoreCommits,
       this._onDidRequestInitialData,
       this._onDidRequestRefresh,
-      this._onDidSelectRepository
+      this._onDidSelectRepository,
+      this._onDidChangeRepositoryScope
     );
 
     // Construct the tab router and register per-tab handlers.
@@ -832,6 +878,16 @@ export class GitToolWindowProvider
     // rename, repo switch), null it out and clear the cached path-hash
     // set. The `commitNodes` we then generate get `onFocusedBranchPath:
     // false` for every node, which is the no-focus baseline.
+    // Rebuild the per-commit repo-root index from this log snapshot so
+    // commit-targeted ops resolve the right repo in the merged view. Rebuilt
+    // (not merged) so a refresh that drops commits drops their mappings too.
+    this._commitRepoRoots = new Map();
+    for (const commit of commits) {
+      if (commit.repoRoot) {
+        this._commitRepoRoots.set(commit.hash, commit.repoRoot);
+      }
+    }
+
     const branchNamesPresent = new Set<string>();
     if (branchMap) {
       for (const refs of branchMap.values()) {
@@ -2217,6 +2273,7 @@ export class GitToolWindowProvider
       ? normalizeRepoPath(previousSelected.rootUri)
       : undefined;
 
+    const hadRepositories = this._availableRepositories.length > 0;
     this._availableRepositories = repos;
 
     if (repos.length === 0) {
@@ -2230,8 +2287,47 @@ export class GitToolWindowProvider
       this._selectedRepositoryIndex = 0;
     }
 
+    this._resolveRepositoryScope(repos, hadRepositories);
+
     this._updateWebview();
     this._onDidChangeState.fire();
+  }
+
+  /**
+   * Resolve {@link _repositoryScope} after the available-repository list
+   * changes.
+   *
+   * - Cold start (first population): seed the default from
+   *   `intellig.log.showAllRoots` — `'all'` when the flag is on AND there's
+   *   more than one repo, otherwise the single (context) repo. This keeps the
+   *   prior behavior non-breaking: with the flag off (its default) a
+   *   multi-root workspace still opens scoped to one repo.
+   * - `'all'` scope is preserved across reloads while multiple repos remain,
+   *   and collapses to the single repo when the workspace drops to one.
+   * - A specific-repo scope tracks the identity-stable context index resolved
+   *   above.
+   */
+  private _resolveRepositoryScope(repos: IRepository[], hadRepositories: boolean): void {
+    if (repos.length === 0) {
+      this._repositoryScope = 0;
+      return;
+    }
+
+    if (!this._scopeSeeded && !hadRepositories) {
+      this._scopeSeeded = true;
+      this._repositoryScope =
+        repos.length > 1 && this._isShowAllRootsConfigEnabled()
+          ? 'all'
+          : this._selectedRepositoryIndex;
+      return;
+    }
+
+    if (this._repositoryScope === 'all') {
+      this._repositoryScope = repos.length > 1 ? 'all' : this._selectedRepositoryIndex;
+      return;
+    }
+
+    this._repositoryScope = this._selectedRepositoryIndex;
   }
 
   /**
@@ -2248,35 +2344,70 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Handle repository selection from the webview.
-   * Clamps the index to the valid range (0 to repos.length - 1) and logs a warning
-   * if the index is out of bounds. Updates the selected index and fires the
-   * onDidSelectRepository event so the extension host can re-fetch data.
-   *
-   * @param index - The repository index selected by the user
+   * Whether the current scope is the merged "all repositories" view (vs. a
+   * single repository). The selector's runtime source of truth — drives both
+   * the merged log and the grouped branch tree.
    */
-  private _handleRepositorySelection(index: number): void {
+  public isAllReposSelected(): boolean {
+    return this._repositoryScope === 'all';
+  }
+
+  /**
+   * Source repository root for a commit in the merged "all roots" log, or
+   * `undefined` when the commit isn't from the merged view (single-repo /
+   * specific-scope log) or isn't in the current snapshot. Commit-targeted
+   * operations use this to act on the repo the CLICKED commit belongs to
+   * rather than the single "context" repo {@link getSelectedRepository}
+   * returns.
+   */
+  public getRepoRootForCommit(hash: string): string | undefined {
+    return this._commitRepoRoots.get(hash);
+  }
+
+  /**
+   * Handle a repository scope change from the webview.
+   *
+   * Accepts either the `'all'` sentinel (merged multi-root view) or a numeric
+   * repository index. Numeric indices are clamped to the valid range with a
+   * warning. Fires {@link onDidChangeRepositoryScope} for both cases (and the
+   * legacy {@link onDidSelectRepository} for the specific-repo case) so the
+   * extension host can re-route the log and branches in lockstep.
+   *
+   * @param selection - The repository index, or `'all'`, selected by the user
+   */
+  private _handleRepositorySelection(selection: number | 'all'): void {
     if (this._availableRepositories.length === 0) {
       return;
     }
 
+    if (selection === 'all') {
+      this._repositoryScope = 'all';
+      this._scopeSeeded = true;
+      this._onDidChangeState.fire();
+      this._onDidChangeRepositoryScope.fire({ kind: 'all' });
+      return;
+    }
+
     // Clamp to valid range
-    let clampedIndex = index;
-    if (index < 0 || index >= this._availableRepositories.length) {
+    let clampedIndex = selection;
+    if (selection < 0 || selection >= this._availableRepositories.length) {
       getLogger()
         .child({ component: 'GitToolWindowProvider' })
         .warn('repository index out of bounds; clamping to valid range', {
-          index,
+          index: selection,
           maxIndex: this._availableRepositories.length - 1,
         });
-      clampedIndex = Math.max(0, Math.min(index, this._availableRepositories.length - 1));
+      clampedIndex = Math.max(0, Math.min(selection, this._availableRepositories.length - 1));
     }
 
     this._selectedRepositoryIndex = clampedIndex;
+    this._repositoryScope = clampedIndex;
+    this._scopeSeeded = true;
     this._onDidChangeState.fire();
 
     const selectedRepo = this._availableRepositories[clampedIndex];
     this._onDidSelectRepository.fire(selectedRepo);
+    this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: selectedRepo });
   }
 
   /**
@@ -3388,11 +3519,21 @@ ${bodyMarkup}
       return '';
     }
 
+    // "All Repositories" sentinel — shown only with >1 repo (the guard above),
+    // selected when the scope is the merged view. Routes the log + branches to
+    // the merged/grouped layout. The webview posts `repositoryIndex: 'all'`,
+    // which `scriptBuilder` handles before the numeric guard.
+    const allSelected = this._repositoryScope === 'all' ? ' selected' : '';
+    const allOptionHtml = `<option value="all"${allSelected}>All Repositories</option>`;
+
     const optionsHtml = this._availableRepositories
       .map((repo, index) => {
         const fsPath = repo.rootUri.fsPath;
         const folderName = this._escapeHtml(fsPath.split('/').pop() || fsPath);
-        const selected = index === this._selectedRepositoryIndex ? ' selected' : '';
+        const selected =
+          this._repositoryScope !== 'all' && index === this._selectedRepositoryIndex
+            ? ' selected'
+            : '';
         // `title` carries the full user-friendly path so two repos
         // with the same leaf folder name are distinguishable on hover
         // (spec section 4.2). Internal identity comparisons use the
@@ -3411,7 +3552,7 @@ ${bodyMarkup}
     return `
       <div class="repository-selector-container">
         <select class="repository-selector" aria-label="Select repository">
-          ${optionsHtml}
+          ${allOptionHtml}${optionsHtml}
         </select>
       </div>`;
   }
@@ -3577,11 +3718,24 @@ ${bodyMarkup}
   }
 
   /**
-   * Check whether the `intellig.log.showAllRoots` feature flag is enabled.
-   * Default is `false`. When `true` and multiple repositories exist, the log
-   * merges commits from all workspace repos and shows a Root column (G8).
+   * Whether the merged "all roots" view is active. Derives from the runtime
+   * {@link _repositoryScope} so the repository selector is the single source
+   * of truth: when scope is `'all'` (and multiple repos exist) the log merges
+   * commits from every workspace repo and shows a Root column (G8). The
+   * `intellig.log.showAllRoots` config now only seeds the initial default
+   * (see {@link _resolveRepositoryScope}); it no longer gates the view at
+   * render time.
    */
   public _isShowAllRootsEnabled(): boolean {
+    return this._repositoryScope === 'all';
+  }
+
+  /**
+   * Read the `intellig.log.showAllRoots` config flag (default `false`). Used
+   * once to seed the initial repository scope; thereafter the runtime scope
+   * (driven by the selector) is authoritative.
+   */
+  private _isShowAllRootsConfigEnabled(): boolean {
     try {
       const config = vscode.workspace.getConfiguration('intellig');
       return config.get<boolean>('log.showAllRoots', false);
@@ -3725,7 +3879,11 @@ interface IWebviewMessage {
   branchName?: string | null;
   branchType?: 'local' | 'remote';
   widths?: [number, number];
-  repositoryIndex?: number;
+  /**
+   * Carried by `selectRepository`: a numeric repository index, or the `'all'`
+   * sentinel for the merged "all repositories" scope.
+   */
+  repositoryIndex?: number | 'all';
   /**
    * Click anchor that travels with
    * `rangeSelectCommit` / `addRangeSelectCommit`. `null` means "no

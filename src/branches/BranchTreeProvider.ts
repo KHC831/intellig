@@ -421,6 +421,15 @@ export class BranchTreeProvider
 {
   private _gitService: IGitService;
   private _currentRepository: IRepository | undefined;
+  /**
+   * Whether the tree is scoped to a single repository (the
+   * SelectedRepoModel-equivalent flat layout for {@link _currentRepository})
+   * or to `'all'` (the grouped MultiRepoModel layout with one root node per
+   * repo). Driven by the Git tool window's repository selector via
+   * {@link setRepository} / {@link setRepositoryScope}. Defaults to `'all'`
+   * so a multi-root workspace opens grouped until the user narrows the scope.
+   */
+  private _repositoryScope: 'all' | 'repository' = 'all';
   private _onDidChangeTreeData: vscode.EventEmitter<BranchTreeItem | undefined | null | void>;
   readonly onDidChangeTreeData: vscode.Event<BranchTreeItem | undefined | null | void>;
   // Own the EventEmitter + every event subscription so
@@ -558,10 +567,24 @@ export class BranchTreeProvider
   }
 
   /**
-   * Set the current repository
+   * Scope the tree to a single repository. Selecting a specific repo in the
+   * Git tool window's selector narrows the branches view to that repo's flat
+   * HEAD / Favorites / Local / Remote / Tags layout (git4idea's
+   * SelectedRepoModel), even when the workspace has multiple roots.
    */
   setRepository(repo: IRepository): void {
     this._currentRepository = repo;
+    this._repositoryScope = 'repository';
+    this.refresh();
+  }
+
+  /**
+   * Scope the tree to the merged "all repositories" view — the grouped
+   * per-repo root layout (git4idea's MultiRepoModel). Invoked when the
+   * selector's "All Repositories" entry is chosen.
+   */
+  setRepositoryScope(scope: 'all'): void {
+    this._repositoryScope = scope;
     this.refresh();
   }
 
@@ -607,7 +630,14 @@ export class BranchTreeProvider
     // HEAD / Favorites / Local / Remote / Tags layout unchanged.
     if (!element) {
       const repositories = this._gitService.getRepositories();
-      if (repositories.length > 1) {
+      // Group under per-repo root nodes (git4idea MultiRepoModel) only in the
+      // merged "all" scope. A specific-repo scope falls through to that repo's
+      // flat layout below — that's how the selector narrows the branches view.
+      // A missing `_currentRepository` also falls back to grouping so we never
+      // render an empty tree in a multi-root workspace.
+      const groupByRepository =
+        repositories.length > 1 && (this._repositoryScope === 'all' || !this._currentRepository);
+      if (groupByRepository) {
         return repositories.map(
           (repo) =>
             new BranchTreeItem(

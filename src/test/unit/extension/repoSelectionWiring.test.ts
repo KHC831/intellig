@@ -1,11 +1,12 @@
 /**
- * Wiring test for `wireRepositorySelection` — pins the dual-update behavior
- * of the Git tool window's repository selector dropdown.
+ * Wiring test for `wireRepositorySelection` — pins the scope-driven update of
+ * BOTH the Git tool window's Log/Graph view AND the Branches tree view from a
+ * single repository-scope change event.
  *
- * The bug this fixes: switching repos in the dropdown updated only the Git
- * (Log/Graph) view and silently left the Branches tree view pointing at the
- * previously-selected repo. Both downstream views must react to a single
- * `onDidSelectRepository` event.
+ * The selector exposes one scope state: `'all'` (merged log + grouped branch
+ * tree) or a specific repository (single-repo log + that repo's category
+ * nodes). Both downstream views must react to the SAME
+ * `onDidChangeRepositoryScope` event so the log and branches can never disagree.
  *
  * `wireRepositorySelection` is exported from `extension.ts` for the same
  * reason `loadAllPanelDataCore` is — the production wiring lives inside an
@@ -23,6 +24,7 @@ import type {
   IRepoSelectionToolWindowProvider,
   IRepoSelectionBranchTreeProvider,
 } from '../../../extension';
+import type { RepositoryScopeSelection } from '../../../registration/wiring';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
@@ -35,18 +37,20 @@ interface IDisposableStub {
 }
 
 /**
- * Stub tool-window provider exposing only `onDidSelectRepository`. Records
+ * Stub tool-window provider exposing only `onDidChangeRepositoryScope`. Records
  * each subscription so the test can fire the event manually and verify
  * dispose() is called when the returned disposables are torn down.
  */
 class StubToolWindowProvider implements IRepoSelectionToolWindowProvider {
-  private _listeners: Array<(repo: IRepository) => void> = [];
+  private _listeners: Array<(scope: RepositoryScopeSelection) => void> = [];
   public disposeCount = 0;
 
-  // The `onDidSelectRepository` event signature mirrors `vscode.Event<T>`:
+  // The `onDidChangeRepositoryScope` event signature mirrors `vscode.Event<T>`:
   // a function that, given a listener, returns a Disposable.
-  onDidSelectRepository = (listener: (repo: IRepository) => unknown): IDisposableStub => {
-    this._listeners.push(listener as (repo: IRepository) => void);
+  onDidChangeRepositoryScope = (
+    listener: (scope: RepositoryScopeSelection) => unknown
+  ): IDisposableStub => {
+    this._listeners.push(listener as (scope: RepositoryScopeSelection) => void);
     return {
       dispose: (): void => {
         this.disposeCount++;
@@ -54,10 +58,10 @@ class StubToolWindowProvider implements IRepoSelectionToolWindowProvider {
     };
   };
 
-  /** Test-only — fire the event with the given repo to all subscribed listeners. */
-  fire(repo: IRepository): void {
+  /** Test-only — fire the event with the given scope to all subscribed listeners. */
+  fire(scope: RepositoryScopeSelection): void {
     for (const listener of this._listeners) {
-      listener(repo);
+      listener(scope);
     }
   }
 
@@ -68,14 +72,20 @@ class StubToolWindowProvider implements IRepoSelectionToolWindowProvider {
 }
 
 /**
- * Stub branch tree provider that records every `setRepository` call so the
- * test can assert the dropdown's selection reaches the branches view.
+ * Stub branch tree provider that records every `setRepository` and
+ * `setRepositoryScope` call so the test can assert the dropdown's selection
+ * reaches the branches view in the right shape.
  */
 class RecordingBranchTreeProvider implements IRepoSelectionBranchTreeProvider {
   public setRepositoryCalls: IRepository[] = [];
+  public setScopeCalls: Array<'all'> = [];
 
   setRepository(repo: IRepository): void {
     this.setRepositoryCalls.push(repo);
+  }
+
+  setRepositoryScope(scope: 'all'): void {
+    this.setScopeCalls.push(scope);
   }
 }
 
@@ -90,36 +100,31 @@ function createMockRepository(rootPath: string): IRepository {
   } as unknown as IRepository;
 }
 
-describe('wireRepositorySelection — dropdown updates BOTH the Git view AND the Branches view', () => {
-  it('subscribes exactly one graph listener AND one branch-tree listener', () => {
+describe('wireRepositorySelection — scope change updates BOTH the Git view AND the Branches view', () => {
+  it('subscribes exactly one scope listener and returns one disposable for it', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
-    const loadLogCalls: IRepository[] = [];
 
     const disposables = wireRepositorySelection({
       toolWindowProvider: toolWindow,
       branchTreeProvider: branchTree,
-      loadLogCommitsForRepo: async (repo: IRepository) => {
-        loadLogCalls.push(repo);
-      },
+      loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async () => undefined,
     });
 
-    // Two independent listeners — one drives the graph reload, one drives
-    // the branch tree refresh. They are intentionally separate so a future
-    // refactor that disposes one cannot accidentally take the other down.
     assert.strictEqual(
       toolWindow.listenerCount(),
-      2,
-      'wireRepositorySelection must register both a graph listener and a branch-tree listener'
+      1,
+      'wireRepositorySelection must register a single scope listener that drives both views'
     );
     assert.strictEqual(
       disposables.length,
-      2,
-      'wireRepositorySelection must return one disposable per listener'
+      1,
+      'wireRepositorySelection must return one disposable for the scope listener'
     );
   });
 
-  it('refreshes the branches tree view when the dropdown selects a different repo', () => {
+  it('scopes the branches tree to the selected repo when a specific repository is chosen', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
 
@@ -127,40 +132,84 @@ describe('wireRepositorySelection — dropdown updates BOTH the Git view AND the
       toolWindowProvider: toolWindow,
       branchTreeProvider: branchTree,
       loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async () => undefined,
     });
 
     const repoA = createMockRepository('/workspace/repo-a');
     const repoB = createMockRepository('/workspace/repo-b');
 
-    toolWindow.fire(repoA);
-    toolWindow.fire(repoB);
+    toolWindow.fire({ kind: 'repository', repository: repoA });
+    toolWindow.fire({ kind: 'repository', repository: repoB });
 
     assert.strictEqual(branchTree.setRepositoryCalls.length, 2);
     assert.strictEqual(branchTree.setRepositoryCalls[0].rootUri.fsPath, '/workspace/repo-a');
     assert.strictEqual(branchTree.setRepositoryCalls[1].rootUri.fsPath, '/workspace/repo-b');
+    assert.strictEqual(
+      branchTree.setScopeCalls.length,
+      0,
+      'specific selection must not flip to all'
+    );
   });
 
-  it('reloads the Log/Graph view for the selected repo via loadLogCommitsForRepo', () => {
+  it('reloads the single-repo Log/Graph view via loadLogCommitsForRepo on a specific selection', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
     const loadLogCalls: IRepository[] = [];
+    let allRootsCalls = 0;
 
     wireRepositorySelection({
       toolWindowProvider: toolWindow,
       branchTreeProvider: branchTree,
       loadLogCommitsForRepo: async (repo: IRepository) => {
         loadLogCalls.push(repo);
+      },
+      loadAllRootsLog: async () => {
+        allRootsCalls++;
       },
     });
 
     const repoA = createMockRepository('/workspace/repo-a');
-    toolWindow.fire(repoA);
+    toolWindow.fire({ kind: 'repository', repository: repoA });
 
     assert.strictEqual(loadLogCalls.length, 1);
     assert.strictEqual(loadLogCalls[0].rootUri.fsPath, '/workspace/repo-a');
+    assert.strictEqual(allRootsCalls, 0, 'specific selection must NOT call the merged loader');
   });
 
-  it('updates BOTH views from a single dropdown selection (regression: branch tree was previously left out)', () => {
+  it('routes the "All Repositories" scope to the merged log loader AND the grouped branch tree', () => {
+    const toolWindow = new StubToolWindowProvider();
+    const branchTree = new RecordingBranchTreeProvider();
+    const loadLogCalls: IRepository[] = [];
+    let allRootsCalls = 0;
+
+    wireRepositorySelection({
+      toolWindowProvider: toolWindow,
+      branchTreeProvider: branchTree,
+      loadLogCommitsForRepo: async (repo: IRepository) => {
+        loadLogCalls.push(repo);
+      },
+      loadAllRootsLog: async () => {
+        allRootsCalls++;
+      },
+    });
+
+    toolWindow.fire({ kind: 'all' });
+
+    assert.strictEqual(allRootsCalls, 1, 'all scope must call the merged log loader');
+    assert.strictEqual(loadLogCalls.length, 0, 'all scope must NOT call the single-repo loader');
+    assert.deepStrictEqual(
+      branchTree.setScopeCalls,
+      ['all'],
+      'all scope must regroup the branch tree via setRepositoryScope("all")'
+    );
+    assert.strictEqual(
+      branchTree.setRepositoryCalls.length,
+      0,
+      'all scope must NOT scope the branch tree to a single repo'
+    );
+  });
+
+  it('keeps the log and branches in agreement from one scope event (regression: views could desync)', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
     const loadLogCalls: IRepository[] = [];
@@ -171,12 +220,12 @@ describe('wireRepositorySelection — dropdown updates BOTH the Git view AND the
       loadLogCommitsForRepo: async (repo: IRepository) => {
         loadLogCalls.push(repo);
       },
+      loadAllRootsLog: async () => undefined,
     });
 
     const repo = createMockRepository('/workspace/multi-root-repo-2');
-    toolWindow.fire(repo);
+    toolWindow.fire({ kind: 'repository', repository: repo });
 
-    // The whole point of the fix: ONE dropdown change touches BOTH views.
     assert.strictEqual(loadLogCalls.length, 1, 'graph view must reload on selection change');
     assert.strictEqual(
       branchTree.setRepositoryCalls.length,
@@ -186,11 +235,11 @@ describe('wireRepositorySelection — dropdown updates BOTH the Git view AND the
     assert.strictEqual(
       loadLogCalls[0].rootUri.fsPath,
       branchTree.setRepositoryCalls[0].rootUri.fsPath,
-      'both views must observe the SAME repo from the same selection event'
+      'both views must observe the SAME repo from the same scope event'
     );
   });
 
-  it('returns disposables that tear down both subscriptions when disposed', () => {
+  it('returns disposables that tear down the scope subscription when disposed', () => {
     const toolWindow = new StubToolWindowProvider();
     const branchTree = new RecordingBranchTreeProvider();
 
@@ -198,6 +247,7 @@ describe('wireRepositorySelection — dropdown updates BOTH the Git view AND the
       toolWindowProvider: toolWindow,
       branchTreeProvider: branchTree,
       loadLogCommitsForRepo: async () => undefined,
+      loadAllRootsLog: async () => undefined,
     });
 
     for (const d of disposables) {
@@ -206,8 +256,8 @@ describe('wireRepositorySelection — dropdown updates BOTH the Git view AND the
 
     assert.strictEqual(
       toolWindow.disposeCount,
-      2,
-      'both event subscriptions must be disposed (no leak on extension deactivation)'
+      1,
+      'the scope subscription must be disposed (no leak on extension deactivation)'
     );
   });
 });

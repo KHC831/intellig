@@ -30,6 +30,7 @@ import { IViewRegistrationContext } from './ViewRegistrationContext';
 import {
   loadAllPanelDataCore,
   wireRepositorySelection,
+  resolveCommitRepoByRoot,
   wireRebasePausedWarning,
   provideGitShowContent,
 } from './wiring';
@@ -45,11 +46,15 @@ export function registerViews(ctx: IViewRegistrationContext): void {
   // Hoisted so the second `if (ctx.services)` block — which creates
   // the BranchTreeProvider — can pass this helper into
   // `wireRepositorySelection(...)` and refresh both the Log/Graph view and
-  // the Branches tree view from a single `onDidSelectRepository` event.
+  // the Branches tree view from a single `onDidChangeRepositoryScope` event.
   // Bound to the block-local `loadLogCommitsForRepo` inside the first
   // `if (ctx.services)` block where its closure dependencies
   // (gitService, gitToolWindowProvider) are in scope.
   let hoistedLoadLogCommitsForRepo: ((repo: IRepository) => Promise<void>) | undefined;
+  // Hoisted alongside the single-repo loader so the second `if (ctx.services)`
+  // block can route the selector's "All Repositories" scope to the merged
+  // multi-root log via `wireRepositorySelection(...)`.
+  let hoistedLoadAllRootsLog: (() => Promise<void>) | undefined;
 
   // Create and register the Git Tool Window Provider (single webview, 2-panel layout)
   ctx.gitToolWindowProvider = new GitToolWindowProvider(
@@ -502,10 +507,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       searchCaseSensitive?: boolean;
     };
 
-    // Multi-root log loader (G8). When intellig.log.showAllRoots is true AND
-    // more than one repository exists, loads commits from ALL workspace repos
-    // in parallel, tags each with its repoRoot, and merges them sorted newest-first.
-    // Falls back to the single-repo path when only one repo is present.
+    // Multi-root log loader (G8). When the repository scope is "all" (see
+    // `_isShowAllRootsEnabled()`, which now derives from the selector scope —
+    // the showAllRoots config only seeds the initial default) AND more than
+    // one repository exists, loads commits from ALL workspace repos in
+    // parallel, tags each with its repoRoot, and merges them sorted
+    // newest-first. Falls back to the single-repo path otherwise.
     const loadAllRootsLog = async (filter?: LogFilter): Promise<void> => {
       const showAllRoots = ctx.gitToolWindowProvider?._isShowAllRootsEnabled() ?? false;
       if (!showAllRoots) {
@@ -649,8 +656,8 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     ctx.context.subscriptions.push(repoChangeListener);
 
     // Load commits when log filter changes. Routes through loadAllRootsLog so
-    // that when intellig.log.showAllRoots is on, all workspace repos are merged;
-    // when off, loadAllRootsLog delegates back to loadLogCommits (single-repo).
+    // that in "all" scope all workspace repos are merged; in a specific-repo
+    // scope loadAllRootsLog delegates back to loadLogCommits (single-repo).
     const filterChangeListener = ctx.gitToolWindowProvider.onDidRequestLogFilter((filter) => {
       void loadAllRootsLog(
         filter
@@ -689,19 +696,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     );
     ctx.context.subscriptions.push(cherryCompareRefListener);
 
-    // The repository-selector wiring (onDidSelectRepository → graph reload +
-    // branch tree refresh) is registered in the second `if (ctx.services)`
-    // block below, where `branchTreeProvider` is in scope. Both wirings live
-    // there as a single unit so the dropdown can never update one view while
-    // silently desyncing the other.
+    // The repository-selector wiring (onDidChangeRepositoryScope → graph
+    // reload + branch tree refresh) is registered in the second
+    // `if (ctx.services)` block below, where `branchTreeProvider` is in scope.
+    // Both wirings live there as a single unit so the dropdown can never
+    // update one view while silently desyncing the other.
 
     // Wire up onDidSelectCommit to fetch changed files for the selected commit
     const commitSelectListener = ctx.gitToolWindowProvider.onDidSelectCommit(async (hash) => {
-      // prefer the tool-window's selected repo (that's where the
-      // commit was clicked), falling back to the active-editor's repo in
-      // multi-root workspaces. The cold-start discovery path stays as a
-      // last-resort fallback.
+      // In the merged "all roots" log the clicked commit may belong to a repo
+      // other than the context repo, so resolve by the commit's own recorded
+      // root first. Then fall back to the selected (context) repo, the
+      // active-editor's repo, and finally cold-start discovery.
       let repo =
+        (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, hash)) ??
         ctx.gitToolWindowProvider?.getSelectedRepository() ??
         (await resolveRepo(gitService, { preferActive: true, silent: true }));
       if (!repo) {
@@ -734,11 +742,12 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
     const commitDiffListener = ctx.gitToolWindowProvider.onDidRequestCommitDiff(
       async ({ commitHash, filePath }) => {
-        // prefer the tool-window's selected repo (that's where the
-        // diff was requested), falling back to the active-editor's repo in
-        // multi-root workspaces. The cold-start discovery path stays as a
-        // last-resort fallback.
+        // In the merged "all roots" log the file's commit may belong to a repo
+        // other than the context repo, so resolve by the commit's own recorded
+        // root first. Then fall back to the selected (context) repo, the
+        // active-editor's repo, and finally cold-start discovery.
         let repo =
+          (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, commitHash)) ??
           ctx.gitToolWindowProvider?.getSelectedRepository() ??
           (await resolveRepo(gitService, { preferActive: true, silent: true }));
         if (!repo) {
@@ -778,6 +787,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // can pass it into `wireRepositorySelection(...)`.
     hoistedLoadLogCommitsForRepo = (repo: IRepository): Promise<void> =>
       loadLogCommitsForRepo(repo);
+    hoistedLoadAllRootsLog = (): Promise<void> => loadAllRootsLog();
 
     // In the 2-panel layout, load all data immediately
     void loadAllPanelData();
@@ -829,11 +839,14 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // is ever broken by a future refactor.
     if (ctx.gitToolWindowProvider) {
       const noopLoadLog = (_repo: IRepository): Promise<void> => Promise.resolve();
+      const noopLoadAllRoots = (): Promise<void> => Promise.resolve();
       const loadLog = hoistedLoadLogCommitsForRepo ?? noopLoadLog;
+      const loadAllRoots = hoistedLoadAllRootsLog ?? noopLoadAllRoots;
       const repoSelectionDisposables = wireRepositorySelection({
         toolWindowProvider: ctx.gitToolWindowProvider,
         branchTreeProvider,
         loadLogCommitsForRepo: loadLog,
+        loadAllRootsLog: loadAllRoots,
       });
       ctx.context.subscriptions.push(...repoSelectionDisposables);
     }

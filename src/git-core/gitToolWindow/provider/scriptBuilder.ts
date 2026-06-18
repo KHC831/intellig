@@ -31,6 +31,15 @@ export function buildInlineScript(): string {
           repoSelect.addEventListener('change', function(e) {
             const target = e.target;
             if (!target) return;
+            // The "All Repositories" sentinel must be handled before the
+            // numeric guard below — Number('all') is NaN and would be dropped.
+            if (target.value === 'all') {
+              vscode.postMessage({
+                type: 'selectRepository',
+                repositoryIndex: 'all',
+              });
+              return;
+            }
             const value = Number(target.value);
             if (!Number.isFinite(value)) return;
             vscode.postMessage({

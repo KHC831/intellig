@@ -779,7 +779,8 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
   function multiRepoProvider(
     repos: IRepository[],
     branchesByRepo: Map<IRepository, IBranch[]>,
-    store?: IFavoritesStore
+    store?: IFavoritesStore,
+    scope: 'all' | 'specific' = 'all'
   ): BranchTreeProvider {
     const gitService = createMockGitService(repos[0], {
       getRepositories: () => repos,
@@ -787,6 +788,12 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     });
     const provider = new BranchTreeProvider(gitService, undefined, store);
     provider.setRepository(repos[0]);
+    // The grouped per-repo layout is the 'all' scope. `setRepository` above
+    // selects a specific scope (the SelectedRepoModel-equivalent flat view),
+    // so callers that want the grouped MultiRepoModel layout must opt back in.
+    if (scope === 'all') {
+      provider.setRepositoryScope('all');
+    }
     return provider;
   }
 
@@ -912,6 +919,103 @@ describe('D slice 3 — BranchTreeProvider multi-repo grouping', () => {
     assert.deepStrictEqual(
       root.filter((n) => n.itemType === 'category').map((n) => n.label),
       ['Local', 'Remote', 'Tags']
+    );
+  });
+
+  // --- scope-driven root layout (selector scopes the branch tree) ---
+
+  it('scopes the root to the selected repo category nodes (NOT grouped) when scope is a specific repo with >1 repository', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [
+          repoA,
+          [
+            { name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true },
+            { name: 'alpha-only', type: 'local', commit: 'c'.repeat(40), isHead: false },
+          ],
+        ],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ]),
+      undefined,
+      'specific'
+    );
+
+    // setRepository(repoA) in the helper put scope on repoA specifically.
+    const root = await provider.getChildren();
+
+    assert.strictEqual(
+      root.filter((n) => n.itemType === 'repository').length,
+      0,
+      'specific scope must NOT render per-repo wrapper nodes'
+    );
+    assert.strictEqual(root[0].itemType, 'head', 'scoped tree starts with repoA HEAD node');
+    assert.strictEqual(root[0].label, 'main', 'HEAD reflects the scoped repo (repoA)');
+    assert.deepStrictEqual(
+      root.filter((n) => n.itemType === 'category').map((n) => n.label),
+      ['Local', 'Remote', 'Tags'],
+      'scoped tree is the flat HEAD/Local/Remote/Tags layout of the selected repo'
+    );
+
+    const localCategory = root.find((n) => n.label === 'Local')!;
+    const locals = await provider.getChildren(localCategory);
+    assert.deepStrictEqual(
+      locals.map((l) => l.label).sort(),
+      ['alpha-only', 'main'],
+      'scoped Local lists only the selected repo branches'
+    );
+  });
+
+  it('switches scope to a different specific repo when setRepository is called again', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ]),
+      undefined,
+      'specific'
+    );
+
+    provider.setRepository(repoB);
+    const root = await provider.getChildren();
+
+    assert.strictEqual(
+      root.filter((n) => n.itemType === 'repository').length,
+      0,
+      'still flat after switching to another specific repo'
+    );
+    assert.strictEqual(root[0].label, 'dev', 'HEAD now reflects repoB');
+  });
+
+  it('regroups to per-repo root nodes when scope is reset to all', async () => {
+    const repoA = repoAt('alpha', 'main');
+    const repoB = repoAt('beta', 'dev');
+    const provider = multiRepoProvider(
+      [repoA, repoB],
+      new Map([
+        [repoA, [{ name: 'main', type: 'local', commit: 'a'.repeat(40), isHead: true }]],
+        [repoB, [{ name: 'dev', type: 'local', commit: 'b'.repeat(40), isHead: true }]],
+      ]),
+      undefined,
+      'specific'
+    );
+
+    // Start scoped to repoA (flat), then flip back to "All".
+    let root = await provider.getChildren();
+    assert.strictEqual(root.filter((n) => n.itemType === 'repository').length, 0);
+
+    provider.setRepositoryScope('all');
+    root = await provider.getChildren();
+
+    assert.strictEqual(root.length, 2, 'two repository root nodes after regrouping');
+    assert.ok(
+      root.every((n) => n.itemType === 'repository'),
+      'every root node is a repository node once scope is all'
     );
   });
 });
