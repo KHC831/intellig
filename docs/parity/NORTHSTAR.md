@@ -3,7 +3,7 @@
 _Forward-looking parity plan: **what's left**, by component, with files + ordered work. North-star =
 IntelliJ `git4idea` + `platform/vcs-impl` (clone at `~/Documents/workspace/intellij-community`). Scope:
 **pure Git plugin parity**; GitHub/GitLab/PR integration excluded. Weight: a git op that silently does
-the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-16._
+the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-17._
 
 > What's landed (progress log, SHAs, pending-merge branches) lives in **[`STATUS.md`](./STATUS.md)**.
 > This doc lists only remaining work; done items are removed once they land in STATUS.
@@ -37,10 +37,10 @@ Remaining backlog: residuals under **C** (shell/sync) and the open workstreams *
 | Commit & Changelists (A) | 🟢 ~80% | live line-status tracker, commit-and-push dialog, rollback dialog |
 | Rebase / Cherry-pick / Revert (H) | 🟢 ~80% | inline reword/squash, `--onto`/`--root`, `-m` revert/cherry-pick |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
-| Branches & Tags (D) | 🟡 ~75% | tree HEAD/favorites/multi-repo, worktrees, conflict-aware validation |
-| Shell / Menus / Sync (C) | 🟡 ~70% | `--autostash`, log-menu history-rewrite, console surface |
-| Shelf / Stash / Patches (E) | 🟡 ~70% | per-file unshelve, binary, recycle bin |
-| Blame / History / Diff (F) | 🟡 ~70% | file-history graph + affected paths (AUTHOR color mode landed) |
+| Branches & Tags (D) | 🟡 ~80% | multi-repo tree grouping, worktrees, conflict-aware validation (HEAD node + favorites landed) |
+| Shell / Menus / Sync (C) | 🟡 ~75% | log-menu history-rewrite, console surface (`--autostash` landed) |
+| Shelf / Stash / Patches (E) | 🟡 ~72% | binary support, recycle bin, imported-patch split (per-file unshelve landed) |
+| Blame / History / Diff (F) | 🟡 ~75% | file-history graph + affected paths (AUTHOR color + aspect columns landed) |
 
 ---
 
@@ -71,8 +71,9 @@ flipping externally-resolved rows and enabling Continue.
 **Remaining:** "Accept non-conflicting from both sides" (shared with H).
 **Files:** `src/conflicts/{MergeView,ResolveConflictsDialog}.ts`.
 
-### C (residuals). Shell / Menus / Sync — 🟡 ~70%
-**Remaining:** Pull `--autostash`; log-menu history-rewrite parity (reword/fixup/squash-into/uncommit/
+### C (residuals). Shell / Menus / Sync — 🟡 ~75%
+**Landed 2026-06-17:** Pull `--autostash` (dialog checkbox + op flag + autostash-pop conflict routing).
+**Remaining:** log-menu history-rewrite parity (reword/fixup/squash-into/uncommit/
 push-up-to-here, `Git.PushUpToCommit`); restore Console surface (`ConsoleService.showConsole` is a
 no-op); enable tabbed layout default-on; no `vscode.scm` provider.
 **Files:** `package.json`, `src/ui-shell/{KeymapService,ConsoleService}.ts`, `src/sync/PullDialog.ts`,
@@ -83,10 +84,10 @@ no-op); enable tabbed layout default-on; no `vscode.scm` provider.
 favorites + multi-repo grouping + search/multi-select; `getMergedBranches` has no UI caller; no
 worktree create/open; conflict-aware branch-name validation; per-remote push; tag submenu
 Merge-into-Current.
-**Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17** (New Branch/Fetch/Settings-gear +
-Group-by-Directory/Show-Recent/Show-Tags toggles); align local submenu still pending. (2) tree
-HEAD+favorites+multi-repo. (3) conflict-aware validation. (4) per-remote push. (5) worktrees.
-(6) tag submenu Merge-into-Current.
+**Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17**; align local submenu still pending.
+(2) ~~tree HEAD+favorites~~ **DONE 2026-06-17** (HEAD root node + Memento-persisted favorites + star
+icon); **multi-repo grouping still pending** (provider tracks a single repo). (3) conflict-aware
+validation. (4) per-remote push. (5) worktrees. (6) tag submenu Merge-into-Current.
 **Files:** `src/branches/*`, `src/git-core/ops/{BranchOps,StashTagHistoryOps}.ts`,
 `src/commands/registration/commitHelpers.ts`, `package.json`.
 
@@ -95,7 +96,8 @@ HEAD+favorites+multi-repo. (3) conflict-aware validation. (4) per-remote push. (
 changes" (static patch text only); **no binary support**; no deleted-shelf recycle bin; imported
 multi-file patch collapses to one entry; Apply Patch whole-patch only; stash apply always `--index`
 (no reinstate toggle).
-**Work (ordered):** (1) per-file unshelve. (2) parse imported patches per-file. (3) diff-against-local.
+**Work (ordered):** (1) ~~per-file unshelve~~ **DONE 2026-06-17** (files[] subset apply, remaining stay
+shelved; "Unshelve Files…" picker). (2) parse imported patches per-file. (3) diff-against-local.
 (4) binary. (5) recycle bin. (6) target-changelist routing. (7) per-file Apply Patch tree. (8) stash
 apply-index toggle.
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
@@ -107,7 +109,9 @@ inline-diff-on-hover; file
 history has no graph / details pane / get-version, and line-history isn't line-scoped (fetches whole
 file); diff has no whitespace/highlight-policy UI.
 **Work (ordered):** (1) ~~AUTHOR color mode + selector~~ **DONE 2026-06-17** (stable per-author tint,
-faithful IntelliJ palette port; `intellig.blame.colorMode` ORDER/AUTHOR). (2) aspect columns + name format. (3) affected-paths
+faithful IntelliJ palette port; `intellig.blame.colorMode` ORDER/AUTHOR). (2) ~~aspect columns + name
+format~~ **DONE 2026-06-17** (Author/Date/Revision show-hide toggles + author-name format
+full/firstname/lastname/initials/email; `LineAnnotationAspect`/`ShortNameType` port). (3) affected-paths
 + history panel. (4) details pane + graph (reuse `commitGraph.ts`). (5) line-scoped history
 (`git log -L`) + get-version. (6) diff options. (7) inline-diff-on-hover.
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
