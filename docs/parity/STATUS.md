@@ -127,6 +127,7 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
   contracts live in the property/snapshot tests + ADR-013 they pointed to. See `NORTHSTAR.md` section 7.
 
 ## Open risk carried forward
-- R2 review predates the A/C/phase-0 merges — re-verify findings against the merged tree.
+- _(closed)_ The R2 re-audit against the merged tree was completed in Batch 10 (`reviewer-r2` + fix set,
+  `836f47c` / `2b69b00`); no carried-forward R2 risk remains.
 - Two R2 UX quick wins (branch-focus highlight, log column headers) were re-checked against the
   merged tree and found **already fixed** — only the `Git:` label cleanup remained, now done.

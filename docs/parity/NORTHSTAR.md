@@ -63,20 +63,20 @@ scrub (bafee52) all landed; see STATUS. Remaining backlog is daily-feature works
 **Medium / polish:** UI/UX layout parity (menu order/grouping, labels, ellipsis, icons, tool-window
 tabs, dialogs) — tracked as its own goal in **section 4b** (detail in `R2-UX-03-menus.md`).
 
-**Process:** F5 dogfood sweep for unit-locked-but-unconfirmed UI; re-run the R2 review against the
-merged tree (it predates the A/C/phase-0 merges). Evidence: `R2-0N-*.md`, `R2-UX-0N-*.md`.
+**Process:** F5 dogfood sweep for unit-locked-but-unconfirmed UI remains. (The R2 re-audit against the
+merged tree was completed in Batch 10 — see STATUS — so it's no longer pending.)
 
-**Code-health (Batch C — from the 2026-06-18 dead-code sweep, REFRAMED):** the sweep's "dead command"
-premise was largely false — it grepped production-only and missed the e2e suite, so the ~19
-`intellig.commit.*` commands (+ `branches.refresh`) it flagged are actually e2e-tested and mostly sole
-implementations. No deletions made. The real output flips to a **parity gap**: ~9 implemented + e2e-tested
-commit ops (new branch/tag from commit, show diff, compare with revision, show file in revision, open on
-host, apply selected/files, cherry-pick-without-commit, …) exist as commands but have NO live UI entry —
-their only menu was the never-rendering logCommit menu. Audit git4idea `Git.Log.ContextMenu` and surface
-the appropriate ones in the webview overlay (`htmlBuilders.ts` + `_handleAction`); this subsumes/expands
-gap #10. Genuinely-dead-only TS cleanup (e.g. the `utils/index.ts` barrel) is a separate low-priority,
-item-by-item-proven pass. Detail: `workspace-notes/batch2-plan.md` (Batch C). Also: `blame.clearHiddenRevisions`
-needs a submenu entry (parity fix, not deletion).
+**Code-health (Batch C — from the 2026-06-18 dead-code sweep, REFRAMED + CLOSED):** the sweep's "dead
+command" premise was false (it grepped production-only, missed the e2e suite) — the `intellig.commit.*`
+commands are e2e-tested, not dead. New-Branch/New-Tag + Fixup/Squash-into were the genuine UI-orphan gaps
+and got surfaced in the webview menu (#10). The **remaining "surface ~9 orphaned ops" action is CLOSED as
+none-required**: the parity-audit verified the webview menu (`htmlBuilders.ts:220-251`) already mirrors
+git4idea `Git.Log.ContextMenu` + platform `Vcs.Log.ContextMenu` line-by-line — the other orphaned commands
+(show-diff/compare/show-file-in-revision/apply-selected/apply-files/cherry-pick-no-commit; open-on-host is
+GitHub-excluded) are NOT git4idea commit-menu items, so surfacing them would be over-parity; they stay
+palette-reachable. Still open: `blame.clearHiddenRevisions` may need a `blameOptionsSubmenu` entry (parity
+fix); a genuinely-dead-only TS cleanup (e.g. the verified-dead `utils/index.ts` barrel) is a separate
+low-priority, item-by-item-proven pass. Detail: `workspace-notes/batch2-plan.md`.
 
 **Deferred backlog (non-blocking):**
 - _a11y (cross-cutting):_ chip `aria-haspopup="menu"` when chip-as-button interactivity lands (NOT
@@ -161,7 +161,7 @@ re-emits markers for two-sided), staging only when fully merged; mirrors `ApplyN
 **Remaining:** none tracked — workstream B is effectively complete.
 **Files:** `src/conflicts/{MergeView,ResolveConflictsDialog,ConflictResolutionService}.ts`.
 
-### C (residuals). Shell / Menus / Sync — 🟡 ~75%
+### C (residuals). Shell / Menus / Sync — 🟢 ~95%
 **Landed 2026-06-17:** Pull `--autostash` (dialog checkbox + op flag + autostash-pop conflict routing);
 Console surface (lazy "IntelliG Git Console" OutputChannel fed by the GitCli command feed; `showConsole`
 + `intellig.showGitConsole` reveal it).
@@ -179,11 +179,11 @@ false→true; provider already honored the flag per render).
 `src/git-core/gitToolWindow/tabs/*`.
 
 ### D. Branches & Tags — 🟢 ~97%
-**Remaining:** popup header actions + settings toggles + `FilteringTree`; tree HEAD root node +
-favorites + multi-repo grouping + search/multi-select; `getMergedBranches` has no UI caller; no
-worktree create/open; conflict-aware branch-name validation; per-remote push; tag submenu
-Merge-into-Current.
-**Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17**; align local submenu still pending.
+**Remaining (verified residuals only):** tree `FilteringTree` / search-as-you-type (partly covered by VS
+Code's native TreeView filtering); branch-tree multi-select (`canSelectMany`); `getMergedBranches` has no
+production UI caller (op + service exist, only test callers — orphaned backend). Everything else below has
+landed.
+**Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17**.
 (2) ~~tree HEAD+favorites~~ **DONE 2026-06-17** (HEAD root node + Memento-persisted favorites + star
 icon) + ~~multi-repo grouping~~ **DONE 2026-06-17** (per-repository root nodes when >1 repo). (3)
 ~~conflict-aware validation~~ **DONE 2026-06-17** (`check-ref-format` validator + local/current/remote/
@@ -220,11 +220,9 @@ verbatim blocks; mirrors `ApplyPatchDifferentiatedDialog`). (8) ~~stash apply-in
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
-### F. Blame / History / Diff — 🟢 ~92%
-**Remaining:** toggleable aspect columns / author-name-format; "show affected paths";
-inline-diff-on-hover; file
-history has no graph / details pane / get-version, and line-history isn't line-scoped (fetches whole
-file); diff has no whitespace/highlight-policy UI.
+### F. Blame / History / Diff — 🟢 ~95%
+**Remaining:** none tracked — workstream F is effectively complete. (Item (7) inline-diff-on-hover = the
+landed F-8b line-status hover popup, `LineStatusHoverProvider`; same feature, not a distinct gap.)
 **Work (ordered):** (1) ~~AUTHOR color mode + selector~~ **DONE 2026-06-17** (stable per-author tint,
 faithful IntelliJ palette port; `intellig.blame.colorMode` ORDER/AUTHOR). (2) ~~aspect columns + name
 format~~ **DONE 2026-06-17** (Author/Date/Revision show-hide toggles + author-name format
@@ -236,7 +234,7 @@ single HTML-escape boundary). (5) ~~line-scoped history~~ **DONE 2026-06-17** (`
 log -L` op + HistoryTab wiring). ~~get-version~~ **DONE 2026-06-18** (`DiffOps.getFileAtRevision` →
 `git show <rev>:<path>` behind `--end-of-options`, opens read-only). (6) ~~diff options~~ **DONE 2026-06-18**
 (`intellig.diff.ignorePolicy` → git whitespace flags at all diff sites; mirrors `IgnorePolicy`).
-(7) inline-diff-on-hover.
+(7) ~~inline-diff-on-hover~~ **DONE** (= the F-8b line-status hover popup, `LineStatusHoverProvider`; same feature).
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
 `src/commands/registration/blameEditorCommands.ts`, `package.json`.
 
@@ -269,11 +267,14 @@ hash behind `--end-of-options`). (4) ~~"accept non-conflicting from both sides"~
 2. **Remaining workstreams**, parallelizable on disjoint dirs: **G** (ref-aware filters), **E**
    (per-file unshelve), **H** (inline reword, `--onto`), **C residuals** (`--autostash`, log-menu
    rewrite), plus the **B / D / F** residuals (section 5).
-3. **F5 dogfood sweep** for unit-locked-but-unconfirmed UI items.
-4. **Re-run the R2 review** against the merged tree.
+3. **F5 dogfood sweep** for unit-locked-but-unconfirmed UI items. (The R2 re-audit against the merged
+   tree is done — Batch 10.)
 
-**Effort remaining:** ~1.5–2.5 engineer-years to faithful pure-Git parity. Everything outside the
-(now-native) merge view is parallelizable polish on already-working surfaces.
+**Effort remaining:** weeks of polish, not engineer-years — all workstreams are ~90-97% (G complete; B/C
+effectively complete), with only a handful of low-tier residuals left (the section-5 D residuals, the
+deferred a11y + edge-state backlog, per-dialog field-level fidelity, and the F5 dogfood sweep). Nothing in
+the wrong-git-behavior or security tiers is open. The earlier "engineer-years" figure predated the
+2026-06-17/18 landings and is retired.
 
 ---
 
