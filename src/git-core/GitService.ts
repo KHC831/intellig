@@ -1491,6 +1491,16 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._stashTagHistory.getFileHistory(repo, path, options);
   }
 
+  getLineHistory(
+    repo: IRepository,
+    path: string,
+    startLine: number,
+    endLine: number,
+    options?: IFileHistoryOptions
+  ): Promise<ICommit[]> {
+    return this._stashTagHistory.getLineHistory(repo, path, startLine, endLine, options);
+  }
+
   /**
    * Compute `git log --cherry-mark --left-right` classifications
    * between `baseRef` and HEAD.

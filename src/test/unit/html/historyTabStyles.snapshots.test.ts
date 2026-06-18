@@ -33,6 +33,7 @@ const DEFAULT_STATE: IHistoryTabState = {
   selectedCommit: undefined,
   compareCommit: undefined,
   branchFilter: undefined,
+  lineRange: undefined,
   followRenames: false,
   availableBranches: [],
   error: undefined,

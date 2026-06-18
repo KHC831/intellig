@@ -1063,6 +1063,25 @@ export interface IGitService {
   ): Promise<ICommit[]>;
 
   /**
+   * Line-scoped file history via `git log -L<startLine>,<endLine>:<path>`.
+   *
+   * Restricts the commit list to revisions that touched the given inclusive
+   * line range, mirroring IntelliJ's "Show History for Selection"
+   * (`SelectedBlockHistoryAction` / `VcsSelectionHistoryDialog`). `startLine`
+   * and `endLine` are 1-based and inclusive (`startLine <= endLine`).
+   *
+   * Optional — implementations may omit it; callers must fall back to
+   * {@link getFileHistory} (whole-file history) when it is absent.
+   */
+  getLineHistory?(
+    repo: IRepository,
+    path: string,
+    startLine: number,
+    endLine: number,
+    options?: IFileHistoryOptions
+  ): Promise<ICommit[]>;
+
+  /**
    * Compute `git log --cherry-mark` classifications between `baseRef`
    * and HEAD. Returns a map keyed by commit hash.
    *

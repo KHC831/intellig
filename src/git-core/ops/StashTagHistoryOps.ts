@@ -454,4 +454,62 @@ export class StashTagHistoryOps {
     }
     return parseLog(result.stdout);
   }
+
+  /**
+   * Line-scoped file history via `git log -L<start>,<end>:<file>`.
+   *
+   * Mirrors IntelliJ's "Show History for Selection"
+   * (`SelectedBlockHistoryAction` / `VcsSelectionHistoryDialog`): the commit
+   * list is restricted to the revisions that touched the given line range,
+   * with git tracking the range across renames within that block.
+   *
+   * `-L` embeds the path in its own token, so the whole `-L<start>,<end>:<path>`
+   * is a single argv element — `exec` passes argv with no shell, so even a path
+   * that looks like a flag cannot break out. The line numbers are validated as
+   * positive integers (start ≤ end) before they are spliced, so the token is
+   * always well-formed. A separate `-- <path>` pathspec is illegal with `-L`
+   * and is intentionally omitted.
+   *
+   * `-L` implies `--patch`; we pass `--no-patch` so the output is just the
+   * custom log records {@link parseLog} understands (no hunk payload).
+   */
+  async getLineHistory(
+    repo: IRepository,
+    path: string,
+    startLine: number,
+    endLine: number,
+    options?: IFileHistoryOptions
+  ): Promise<ICommit[]> {
+    if (!Number.isInteger(startLine) || startLine < 1) {
+      throw new Error(`Invalid start line for line history: ${startLine}`);
+    }
+    if (!Number.isInteger(endLine) || endLine < startLine) {
+      throw new Error(`Invalid end line for line history: ${endLine}`);
+    }
+
+    const format = getLogFormat();
+    // The path rides inside the -L token (one argv element). buildGitArgs
+    // treats flags as trusted, which is safe here: the line numbers are
+    // validated integers and the path cannot escape the token under argv exec.
+    const lineRangeArg = `-L${startLine},${endLine}:${path}`;
+    const flags: string[] = ['--no-patch', `--format=${format}`, '-z', lineRangeArg];
+    if (options?.maxCount !== undefined && options.maxCount > 0) {
+      flags.push('-n', String(options.maxCount));
+    }
+
+    const refs: string[] = [];
+    if (options?.branch) {
+      refs.push(options.branch);
+    }
+
+    // No `paths` arg: -L already carries the path, and a `--` pathspec is
+    // illegal alongside it.
+    const args = buildGitArgs('log', flags, refs);
+
+    const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
+    if (result.exitCode !== 0) {
+      return [];
+    }
+    return parseLog(result.stdout);
+  }
 }

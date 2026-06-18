@@ -18,7 +18,11 @@
  * GitService and to the VS Code `showHistory` command.
  *
  * Inbound messages (from webview):
- *   - `history.loadFile`            { path: string, branch?: string }
+ *   - `history.loadFile`            { path: string, branch?: string,
+ *                                     startLine?: number, endLine?: number }
+ *                                    (startLine/endLine scope history to a line
+ *                                    range via `git log -L` — "Show History for
+ *                                    Selection"; omit for whole-file history)
  *   - `history.selectRevision`      { rev: string, additive?: boolean }
  *   - `history.openAtRevision`      { rev: string }
  *   - `history.compareWith`         { from: string, to: string }
@@ -89,6 +93,11 @@ export interface IHistoryTabState {
   compareCommit: string | undefined;
   /** Branch ref the history is scoped to. `undefined` = HEAD. */
   branchFilter: string | undefined;
+  /**
+   * Inclusive 1-based line range the history is scoped to (the "Show History
+   * for Selection" path, `git log -L`). `undefined` = whole-file history.
+   */
+  lineRange: { start: number; end: number } | undefined;
   /** Whether `--follow` is enabled. */
   followRenames: boolean;
   /** List of branches to render in the branch-filter dropdown. */
@@ -130,6 +139,7 @@ export function createInitialHistoryTabState(): IHistoryTabState {
     selectedCommit: undefined,
     compareCommit: undefined,
     branchFilter: undefined,
+    lineRange: undefined,
     followRenames: false,
     availableBranches: [],
     error: undefined,
@@ -180,6 +190,33 @@ export function buildCompareWithLocalTitle(filePath: string, rev: string): strin
   const basename = filePath.substring(filePath.lastIndexOf('/') + 1);
   const revShort = rev.substring(0, 7);
   return `${basename} (${revShort} ↔ Working Tree)`;
+}
+
+/**
+ * Extract an inclusive 1-based line range from a `history.loadFile` message,
+ * for the "Show History for Selection" (`git log -L`) path.
+ *
+ * Returns `undefined` unless both `startLine` and `endLine` are positive
+ * integers with `startLine <= endLine`; a malformed or partial range degrades
+ * to whole-file history rather than throwing here (the op layer is the
+ * authoritative validator).
+ */
+export function parseLineRange(
+  message: IWebviewTabMessage
+): { start: number; end: number } | undefined {
+  const start = message.startLine;
+  const end = message.endLine;
+  if (
+    typeof start !== 'number' ||
+    typeof end !== 'number' ||
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < 1 ||
+    end < start
+  ) {
+    return undefined;
+  }
+  return { start, end };
 }
 
 /**
@@ -296,7 +333,7 @@ export class HistoryTab {
           typeof message.branch === 'string' && message.branch.length > 0
             ? message.branch
             : this._state.branchFilter;
-        await this.loadFile(path, branch);
+        await this.loadFile(path, branch, parseLineRange(message));
         return;
       }
       case 'history.selectRevision':
@@ -355,8 +392,17 @@ export class HistoryTab {
   /**
    * Programmatic entry point — used by `intellig.showHistory` when the tabbed
    * Git tool window is active. Loads history for `filePath`.
+   *
+   * When `lineRange` is supplied (the "Show History for Selection" path) and
+   * the service implements `getLineHistory`, history is scoped to that inclusive
+   * 1-based line range via `git log -L`; otherwise it falls back to whole-file
+   * history.
    */
-  public async loadFile(filePath: string, branch?: string): Promise<void> {
+  public async loadFile(
+    filePath: string,
+    branch?: string,
+    lineRange?: { start: number; end: number }
+  ): Promise<void> {
     const repo = this._getRepo();
     if (!repo) {
       this._state = {
@@ -365,6 +411,7 @@ export class HistoryTab {
         commits: [],
         selectedCommit: undefined,
         compareCommit: undefined,
+        lineRange,
         error: 'No Git repository found',
         loading: false,
       };
@@ -378,6 +425,7 @@ export class HistoryTab {
       ...this._state,
       filePath,
       branchFilter: branch ?? this._state.branchFilter,
+      lineRange,
       loading: true,
       error: undefined,
     };
@@ -385,10 +433,7 @@ export class HistoryTab {
 
     try {
       const [commits, branches] = await Promise.all([
-        this._gitService.getFileHistory(repo, filePath, {
-          follow: this._state.followRenames,
-          branch: this._state.branchFilter,
-        }),
+        this._fetchHistory(repo, filePath, lineRange),
         this._safeGetBranches(repo),
       ]);
 
@@ -425,6 +470,29 @@ export class HistoryTab {
       };
       this._emit();
     }
+  }
+
+  /**
+   * Choose the history source: line-scoped (`git log -L`, "Show History for
+   * Selection") when a range is supplied and the service supports it; otherwise
+   * whole-file history. Degrading to whole-file history keeps the tab working
+   * against narrow mocks / older service builds that omit `getLineHistory`.
+   */
+  private _fetchHistory(
+    repo: IRepository,
+    filePath: string,
+    lineRange: { start: number; end: number } | undefined
+  ): Promise<ICommit[]> {
+    const getLineHistory = this._gitService.getLineHistory?.bind(this._gitService);
+    if (lineRange && getLineHistory) {
+      return getLineHistory(repo, filePath, lineRange.start, lineRange.end, {
+        branch: this._state.branchFilter,
+      });
+    }
+    return this._gitService.getFileHistory(repo, filePath, {
+      follow: this._state.followRenames,
+      branch: this._state.branchFilter,
+    });
   }
 
   /**

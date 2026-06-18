@@ -22,6 +22,7 @@ const BASE_STATE: IHistoryTabState = {
   selectedCommit: 'abc1234',
   compareCommit: undefined,
   branchFilter: undefined,
+  lineRange: undefined,
   followRenames: false,
   availableBranches: [],
   error: undefined,
