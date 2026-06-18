@@ -85,13 +85,30 @@ function makeMockShelfService(): IShelfService & {
       return unshelveReturn;
     },
     getShelfItems(): IShelfItem[] {
-      return items.slice();
+      return items.filter((i) => i.deletedAt === undefined);
     },
     deleteShelfItem(_repo: IRepository, shelfId: string): void {
+      const match = items.find((i) => i.id === shelfId);
+      if (match && match.deletedAt === undefined) {
+        match.deletedAt = new Date();
+        emitter.fire(items.filter((i) => i.deletedAt === undefined));
+      }
+    },
+    getRecycledShelfItems(): IShelfItem[] {
+      return items.filter((i) => i.deletedAt !== undefined);
+    },
+    restoreFromRecycleBin(_repo: IRepository, shelfId: string): void {
+      const match = items.find((i) => i.id === shelfId);
+      if (match) {
+        match.deletedAt = undefined;
+        emitter.fire(items.filter((i) => i.deletedAt === undefined));
+      }
+    },
+    deleteShelfItemPermanently(_repo: IRepository, shelfId: string): void {
       const index = items.findIndex((i) => i.id === shelfId);
       if (index >= 0) {
         items.splice(index, 1);
-        emitter.fire(items.slice());
+        emitter.fire(items.filter((i) => i.deletedAt === undefined));
       }
     },
     getShelfDiff(): Promise<IDiff[]> {
@@ -1118,9 +1135,9 @@ describe('ShelfView', () => {
         ..._items: unknown[]
       ): Promise<string | undefined> => {
         warnCalls.push(m);
-        // The first call is the Delete confirm modal; flip to failure
+        // The first call is the recycle confirm modal; flip to failure
         // mode so the post-delete refresh throws.
-        if (m.includes('Are you sure')) {
+        if (m.includes('Recently Deleted')) {
           fail = true;
           return 'Delete';
         }

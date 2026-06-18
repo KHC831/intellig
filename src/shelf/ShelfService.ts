@@ -29,8 +29,10 @@ import { applyTextPatch } from '../patches/applyTextPatch';
  * Increment this when making breaking changes to the storage format.
  *
  * v1: initial format (id, name, timestamp, files).
- * v2: adds optional `unshelvedAt` to mark Already-Unshelved entries.
- *   Backward-compat: v1 files load as v2 with `unshelvedAt` absent.
+ * v2: adds optional per-item lifecycle markers — `unshelvedAt`
+ *   (Already-Unshelved) and `deletedAt` (recycle bin / Recently Deleted).
+ *   Both are additive: a file written without them loads with the field
+ *   absent, and unknown fields round-trip via the `_unknown*` capture.
  */
 const SHELF_STORAGE_VERSION = 2;
 
@@ -74,6 +76,8 @@ interface IShelfStorageItem {
   files: IShelfStorageFile[];
   /** v2: epoch ms of successful unshelve, if the entry is Already-Unshelved. */
   unshelvedAt?: number;
+  /** v2: epoch ms of deletion into the recycle bin, if the entry is Recently-Deleted. */
+  deletedAt?: number;
   /**
    * Unknown per-item keys captured during load. Spread back out when
    * saving so forward-compat fields survive a round trip.
@@ -143,6 +147,7 @@ const KNOWN_SHELF_ITEM_KEYS_SPEC = {
   timestamp: true,
   files: true,
   unshelvedAt: true,
+  deletedAt: true,
 } as const satisfies Record<Exclude<keyof IShelfStorageItem, '_unknownItem'>, true>;
 
 const KNOWN_SHELF_ITEM_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_SHELF_ITEM_KEYS_SPEC));
@@ -242,6 +247,7 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
       timestamp: typeof item.timestamp === 'number' ? item.timestamp : 0,
       files,
       ...(typeof item.unshelvedAt === 'number' ? { unshelvedAt: item.unshelvedAt } : {}),
+      ...(typeof item.deletedAt === 'number' ? { deletedAt: item.deletedAt } : {}),
       ...(Object.keys(unknownItem).length > 0 ? { _unknownItem: unknownItem } : {}),
     };
   });
@@ -268,7 +274,7 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
  *
  * Known keys emit in the fixed order `{version, items, ...unknownTopLevel}`;
  * per-item keys emit in the fixed order
- * `{id, name, timestamp, files, unshelvedAt?, ...unknownItem}`; per-file
+ * `{id, name, timestamp, files, unshelvedAt?, deletedAt?, ...unknownItem}`; per-file
  * keys emit in the fixed order
  * `{path, originalContent, patchContent, ...unknownFileField}`. The internal
  * bookkeeping fields (`_unknownTopLevel`, `_unknownItem`, `_unknownFileField`)
@@ -305,6 +311,9 @@ export function serializeShelfForDisk(storage: IShelfStorage): Record<string, un
     };
     if (item.unshelvedAt !== undefined) {
       known.unshelvedAt = item.unshelvedAt;
+    }
+    if (item.deletedAt !== undefined) {
+      known.deletedAt = item.deletedAt;
     }
     return item._unknownItem ? { ...known, ...item._unknownItem } : known;
   });
@@ -567,7 +576,10 @@ export class ShelfService implements IShelfService {
       // Standard removeFromShelf semantics (default is true).
       const removeFromShelf = options?.removeFromShelf !== false;
       if (removeFromShelf && conflicts.length === 0) {
-        this.deleteShelfItem(repo, shelfId);
+        // A fully-applied unshelve drops the entry outright — it is not a
+        // user-initiated delete, so it skips the recycle bin (matches
+        // IntelliJ's removeFilesFromShelf path, which deletes the resources).
+        this.purgeShelfItem(repo, shelfId);
       } else if (conflicts.length === 0) {
         // Kept on shelf but fully applied → mark as Already-Unshelved
         // so the default filter elides it.
@@ -586,12 +598,39 @@ export class ShelfService implements IShelfService {
   }
 
   /**
-   * Get all shelf items for a repository.
+   * Get the active shelf items for a repository — everything except entries
+   * sitting in the recycle bin. Recycle-bin entries are reached through
+   * {@link getRecycledShelfItems}. Mirrors IntelliJ's main list, which
+   * excludes deleted lists (`!t.isDeleted()`).
    *
    * @param repo - The repository
-   * @returns Array of shelf items
+   * @returns Array of active shelf items
    */
   getShelfItems(repo: IRepository): IShelfItem[] {
+    return this.getAllShelfItems(repo).filter((item) => item.deletedAt === undefined);
+  }
+
+  /**
+   * Get the recycle-bin ("Recently Deleted") entries — items deleted via
+   * {@link deleteShelfItem} that are not yet purged. Mirrors IntelliJ's
+   * `ShelveChangesManager.getDeletedLists`.
+   *
+   * @param repo - The repository
+   * @returns Array of recycled shelf items
+   */
+  getRecycledShelfItems(repo: IRepository): IShelfItem[] {
+    return this.getAllShelfItems(repo).filter((item) => item.deletedAt !== undefined);
+  }
+
+  /**
+   * Load (and cache) every shelf item for a repository, active and recycled
+   * alike. The public accessors partition this list by `deletedAt`. The cache
+   * holds the full set so a recycle/restore doesn't lose entries.
+   *
+   * @param repo - The repository
+   * @returns Array of all shelf items
+   */
+  private getAllShelfItems(repo: IRepository): IShelfItem[] {
     const repoKey = this.getRepoKey(repo);
 
     // Check cache first
@@ -610,32 +649,92 @@ export class ShelfService implements IShelfService {
   }
 
   /**
-   * Delete a shelf item.
+   * Delete a shelf item by moving it to the recycle bin. The entry's files are
+   * kept and its `deletedAt` marker is stamped so it drops out of the active
+   * list ({@link getShelfItems}) and surfaces under {@link getRecycledShelfItems}.
+   * Restore with {@link restoreFromRecycleBin} or purge with
+   * {@link deleteShelfItemPermanently}. Mirrors IntelliJ's
+   * `ShelveChangesManager.markChangeListAsDeleted`.
    *
    * @param repo - The repository
-   * @param shelfId - ID of the shelf item to delete
+   * @param shelfId - ID of the shelf item to recycle
    */
   deleteShelfItem(repo: IRepository, shelfId: string): void {
     const storage = this.loadShelfStorage(repo);
 
-    // Find and remove the item
+    const item = storage.items.find((i) => i.id === shelfId);
+    if (!item) {
+      throw new Error(`Shelf item not found: ${shelfId}`);
+    }
+
+    // Idempotent: only stamp the first deletion so a re-delete doesn't reset
+    // the recycle-bin timestamp.
+    if (item.deletedAt === undefined) {
+      item.deletedAt = Date.now();
+    }
+
+    this.saveShelfStorage(repo, storage);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+  }
+
+  /**
+   * Restore a recycle-bin entry back to the active list by clearing its
+   * `deletedAt` marker. Throws when the entry can't be found. Mirrors
+   * IntelliJ's `ShelveChangesManager.restoreList`.
+   *
+   * @param repo - The repository
+   * @param shelfId - ID of the shelf item to restore
+   */
+  restoreFromRecycleBin(repo: IRepository, shelfId: string): void {
+    const storage = this.loadShelfStorage(repo);
+
+    const item = storage.items.find((i) => i.id === shelfId);
+    if (!item) {
+      throw new Error(`Shelf item not found: ${shelfId}`);
+    }
+
+    item.deletedAt = undefined;
+    this.saveShelfStorage(repo, storage);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+  }
+
+  /**
+   * Permanently remove a shelf item from storage (whether active or recycled).
+   * Cannot be undone. Throws when the entry can't be found. Mirrors IntelliJ's
+   * `ShelveChangesManager.clearShelvedLists` / `deleteChangeListCompletely`.
+   *
+   * @param repo - The repository
+   * @param shelfId - ID of the shelf item to purge
+   */
+  deleteShelfItemPermanently(repo: IRepository, shelfId: string): void {
+    if (!this.purgeShelfItem(repo, shelfId)) {
+      throw new Error(`Shelf item not found: ${shelfId}`);
+    }
+  }
+
+  /**
+   * Splice a shelf item out of storage outright (no recycle bin). Shared by
+   * the public {@link deleteShelfItemPermanently} and the unshelve cleanup
+   * path, where a successfully-applied entry is dropped rather than recycled.
+   *
+   * @returns `true` when an entry was removed, `false` when none matched.
+   */
+  private purgeShelfItem(repo: IRepository, shelfId: string): boolean {
+    const storage = this.loadShelfStorage(repo);
+
     const index = storage.items.findIndex((item) => item.id === shelfId);
     if (index === -1) {
-      throw new Error(`Shelf item not found: ${shelfId}`);
+      return false;
     }
 
     storage.items.splice(index, 1);
 
-    // Save updated storage
     this.saveShelfStorage(repo, storage);
-
-    // Update cache
-    const repoKey = this.getRepoKey(repo);
-    this._shelfCache.delete(repoKey);
-
-    // Fire change event
-    const items = this.getShelfItems(repo);
-    this._onDidChangeShelf.fire(items);
+    this._shelfCache.delete(this.getRepoKey(repo));
+    this._onDidChangeShelf.fire(this.getShelfItems(repo));
+    return true;
   }
 
   // ===========================================================================
@@ -1139,6 +1238,7 @@ export class ShelfService implements IShelfService {
         ...(file.binaryStatus !== undefined ? { binaryStatus: file.binaryStatus } : {}),
       })),
       unshelvedAt: item.unshelvedAt?.getTime(),
+      deletedAt: item.deletedAt?.getTime(),
     };
 
     // Add to storage
@@ -1251,6 +1351,7 @@ export class ShelfService implements IShelfService {
       })),
       unshelvedAt:
         storageItem.unshelvedAt !== undefined ? new Date(storageItem.unshelvedAt) : undefined,
+      deletedAt: storageItem.deletedAt !== undefined ? new Date(storageItem.deletedAt) : undefined,
     };
   }
 

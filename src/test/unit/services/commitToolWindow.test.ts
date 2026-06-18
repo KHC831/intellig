@@ -474,6 +474,9 @@ describe('CommitToolWindow — host behavior', () => {
       markAsUnshelved: notImplemented('markAsUnshelved'),
       restoreShelf: notImplemented('restoreShelf'),
       filterShelfFiles: notImplemented('filterShelfFiles'),
+      getRecycledShelfItems: notImplemented('getRecycledShelfItems'),
+      restoreFromRecycleBin: notImplemented('restoreFromRecycleBin'),
+      deleteShelfItemPermanently: notImplemented('deleteShelfItemPermanently'),
       dispose: () => {},
     };
 

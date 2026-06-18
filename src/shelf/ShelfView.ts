@@ -665,9 +665,10 @@ export class ShelfView implements IShelfView {
       return { success: false, error: `Shelf item not found: ${id}` };
     }
 
-    // Show confirmation dialog
+    // Show confirmation dialog. Deletion moves the entry to the recycle bin
+    // ("Recently Deleted"), so it is recoverable rather than destructive.
     const confirm = await vscode.window.showWarningMessage(
-      `Are you sure you want to delete the shelf item "${shelfItem.name}"?\nThis action cannot be undone.`,
+      `Move the shelf item "${shelfItem.name}" to Recently Deleted?\nYou can restore it later from the recycle bin.`,
       { modal: true },
       'Delete'
     );
@@ -678,7 +679,20 @@ export class ShelfView implements IShelfView {
 
     try {
       this._shelfService.deleteShelfItem(this._repository, id);
-      void vscode.window.showInformationMessage(`Deleted shelf item: "${shelfItem.name}"`);
+
+      // Offer a one-click Undo that restores the entry from the recycle bin.
+      void vscode.window
+        .showInformationMessage(`Moved shelf item to Recently Deleted: "${shelfItem.name}"`, 'Undo')
+        .then((choice) => {
+          if (choice === 'Undo' && this._repository) {
+            try {
+              this._shelfService.restoreFromRecycleBin(this._repository, id);
+              void this.refresh();
+            } catch {
+              /* entry already purged — nothing to undo */
+            }
+          }
+        });
 
       // refresh() never rejects — await it so a refresh failure produces a
       // visible warning rather than latent state. The delete itself
@@ -796,6 +810,89 @@ export class ShelfView implements IShelfView {
     }
 
     return this._handleAction(selected.action, id);
+  }
+
+  /**
+   * Show the recycle bin ("Recently Deleted"). Lists the entries deleted via
+   * {@link deleteShelfItem}, then offers Restore or Delete Permanently for the
+   * chosen entry. Mirrors IntelliJ's "Recently Deleted" shelf node
+   * (ShelvedChangesViewManager) backed by `getDeletedLists`.
+   */
+  async showRecycleBin(): Promise<IShelfActionResult> {
+    if (!this._repository) {
+      return { success: false, error: 'No repository available' };
+    }
+
+    const recycled = this._shelfService.getRecycledShelfItems(this._repository);
+    if (recycled.length === 0) {
+      void vscode.window.showInformationMessage('Recently Deleted is empty.');
+      return { success: true };
+    }
+
+    const entryPicks: Array<vscode.QuickPickItem & { shelfItem: IShelfItem }> = recycled.map(
+      (item) => ({
+        label: `$(trash) ${item.name}`,
+        description: `${item.files.length} file${item.files.length !== 1 ? 's' : ''}`,
+        detail: item.deletedAt ? `deleted ${this._getRelativeTime(item.deletedAt)}` : undefined,
+        shelfItem: item,
+      })
+    );
+
+    const chosen = await vscode.window.showQuickPick(entryPicks, {
+      title: 'Recently Deleted Shelves',
+      placeHolder: 'Select a deleted shelf to restore or remove permanently',
+    });
+    if (!chosen) {
+      return { success: false };
+    }
+    const shelfItem = chosen.shelfItem;
+
+    const RESTORE = '$(history) Restore';
+    const PURGE = '$(trashcan) Delete Permanently';
+    const action = await vscode.window.showQuickPick(
+      [
+        { label: RESTORE, description: 'Move this entry back to the active shelf list' },
+        { label: PURGE, description: 'Remove this entry for good (cannot be undone)' },
+      ],
+      {
+        title: `Recently Deleted: ${shelfItem.name}`,
+        placeHolder: 'Select an action',
+      }
+    );
+    if (!action) {
+      return { success: false };
+    }
+
+    try {
+      if (action.label === RESTORE) {
+        this._shelfService.restoreFromRecycleBin(this._repository, shelfItem.id);
+        void vscode.window.showInformationMessage(`Restored shelf: "${shelfItem.name}"`);
+        this._onDidRequestAction.fire({ action: 'restore', shelfItem });
+        await this.refresh();
+        return { success: true, action: 'restore', shelfItem };
+      }
+
+      // Permanent deletion is the one irreversible path — confirm it.
+      const confirm = await vscode.window.showWarningMessage(
+        `Permanently delete the shelf item "${shelfItem.name}"?\nThis action cannot be undone.`,
+        { modal: true },
+        'Delete Permanently'
+      );
+      if (confirm !== 'Delete Permanently') {
+        return { success: false, action: 'delete', shelfItem };
+      }
+      this._shelfService.deleteShelfItemPermanently(this._repository, shelfItem.id);
+      void vscode.window.showInformationMessage(`Permanently deleted shelf: "${shelfItem.name}"`);
+      this._onDidRequestAction.fire({ action: 'delete', shelfItem });
+      await this.refresh();
+      return { success: true, action: 'delete', shelfItem };
+    } catch (error) {
+      // Sanitize — see deleteShelfItem for the credential-leak rationale.
+      const raw = error instanceof Error ? error.message : String(error);
+      const sanitized = sanitizeGitError(raw);
+      void vscode.window.showErrorMessage(`Recycle bin action failed: ${sanitized}`);
+      return { success: false, shelfItem, error: sanitized };
+    }
   }
 
   /**
@@ -1165,6 +1262,10 @@ export class ShelfView implements IShelfView {
         // Toggle Already-Unshelved filter and re-show.
         this.setShowAlreadyUnshelved(!this._showAlreadyUnshelved);
         await this._showShelfList();
+      } else if (selected.isAction && selected.label.includes('Recently Deleted')) {
+        // Open the recycle bin, then re-show the list to reflect any restore.
+        await this.showRecycleBin();
+        await this._showShelfList();
       } else if (selected.shelfItem) {
         // Show context menu for the selected shelf item
         await this.showContextMenu(selected.shelfItem.id);
@@ -1206,6 +1307,19 @@ export class ShelfView implements IShelfView {
         : 'Include entries that have already been unshelved',
       isAction: true,
     });
+
+    // Surface the recycle bin only when it holds something, so the list stays
+    // uncluttered when nothing has been deleted.
+    const recycledCount = this._repository
+      ? this._shelfService.getRecycledShelfItems(this._repository).length
+      : 0;
+    if (recycledCount > 0) {
+      items.push({
+        label: `$(trash) Recently Deleted (${recycledCount})…`,
+        description: 'Restore or permanently remove deleted shelves',
+        isAction: true,
+      });
+    }
 
     // Separator
     if (this._state.shelfItems.length > 0) {

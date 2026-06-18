@@ -57,6 +57,17 @@ export interface IShelfItem {
    * view unless `Show Already Unshelved` is enabled.
    */
   unshelvedAt?: Date;
+  /**
+   * Timestamp of when this entry was deleted into the recycle bin. Once set
+   * the entry is in "Recently Deleted" — excluded from the active list
+   * returned by {@link IShelfService.getShelfItems} and surfaced only via
+   * {@link IShelfService.getRecycledShelfItems}. A deleted entry can be
+   * restored ({@link IShelfService.restoreFromRecycleBin}) or purged
+   * ({@link IShelfService.deleteShelfItemPermanently}). Mirrors IntelliJ's
+   * `ShelvedChangeList.isDeleted()` flag (ShelveChangesManager.markChangeListAsDeleted /
+   * restoreList).
+   */
+  deletedAt?: Date;
 }
 
 /**
@@ -132,9 +143,35 @@ export interface IShelfService {
   getShelfItems(repo: IRepository): IShelfItem[];
 
   /**
-   * Delete a shelf item
+   * Delete a shelf item by moving it to the recycle bin ("Recently
+   * Deleted") rather than permanently removing it. The entry's files are
+   * retained and it can be brought back via {@link restoreFromRecycleBin}.
+   * Throws when the entry can't be found. Mirrors IntelliJ's
+   * `ShelveChangesManager.markChangeListAsDeleted`.
    */
   deleteShelfItem(repo: IRepository, shelfId: string): void;
+
+  /**
+   * Get the recycle-bin entries for a repository — shelf items previously
+   * deleted via {@link deleteShelfItem} but not yet purged. Mirrors
+   * IntelliJ's `ShelveChangesManager.getDeletedLists`.
+   */
+  getRecycledShelfItems(repo: IRepository): IShelfItem[];
+
+  /**
+   * Restore a recycle-bin entry back to the active shelf list by clearing
+   * its `deletedAt` marker. Throws when the entry can't be found. Mirrors
+   * IntelliJ's `ShelveChangesManager.restoreList`.
+   */
+  restoreFromRecycleBin(repo: IRepository, shelfId: string): void;
+
+  /**
+   * Permanently remove a shelf entry from storage (whether active or in the
+   * recycle bin). Unlike {@link deleteShelfItem} this cannot be undone.
+   * Throws when the entry can't be found. Mirrors IntelliJ's
+   * `ShelveChangesManager.clearShelvedLists` / `deleteChangeListCompletely`.
+   */
+  deleteShelfItemPermanently(repo: IRepository, shelfId: string): void;
 
   /**
    * Rename a shelf entry. The new name is persisted to storage.

@@ -201,6 +201,15 @@ export interface IShelfView {
   showContextMenu(id: string): Promise<IShelfActionResult>;
 
   /**
+   * Show the recycle bin ("Recently Deleted") — a quick pick of the entries
+   * deleted via {@link deleteShelfItem}, each offering Restore or Delete
+   * Permanently. Mirrors IntelliJ's "Recently Deleted" shelf node.
+   *
+   * @returns Promise resolving to the action result
+   */
+  showRecycleBin(): Promise<IShelfActionResult>;
+
+  /**
    * Event fired when the shelf list changes
    */
   onDidChangeShelfItems: vscode.Event<IShelfItem[]>;

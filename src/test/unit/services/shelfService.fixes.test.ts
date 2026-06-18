@@ -222,6 +222,82 @@ describe('ShelfService — additions', () => {
     });
   });
 
+  describe('recycle bin (deleted-shelf restore)', () => {
+    it('deleteShelfItem recycles instead of permanently removing', async () => {
+      const id = await seedEntry([{ path: 'a.ts', diff: 'diff --git a/a.ts b/a.ts\n' }]);
+
+      svc.deleteShelfItem(repo, id);
+
+      // Gone from the active list…
+      assert.strictEqual(svc.getShelfItems(repo).length, 0, 'active list must exclude recycled');
+      // …but parked in the recycle bin with a deletedAt marker and files intact.
+      const recycled = svc.getRecycledShelfItems(repo);
+      assert.strictEqual(recycled.length, 1, 'recycle bin should hold the deleted entry');
+      assert.strictEqual(recycled[0].id, id);
+      assert.ok(recycled[0].deletedAt instanceof Date, 'deletedAt must be set');
+      assert.strictEqual(recycled[0].files.length, 1, 'shelved files must survive deletion');
+    });
+
+    it('restoreFromRecycleBin moves a deleted entry back to the active list', async () => {
+      const id = await seedEntry([{ path: 'a.ts', diff: 'diff --git a/a.ts b/a.ts\n' }]);
+      svc.deleteShelfItem(repo, id);
+
+      svc.restoreFromRecycleBin(repo, id);
+
+      const active = svc.getShelfItems(repo);
+      assert.strictEqual(active.length, 1, 'restored entry returns to active list');
+      assert.strictEqual(active[0].id, id);
+      assert.strictEqual(active[0].deletedAt, undefined, 'deletedAt must be cleared');
+      assert.strictEqual(svc.getRecycledShelfItems(repo).length, 0, 'recycle bin emptied');
+    });
+
+    it('deleteShelfItemPermanently truly removes a recycled entry', async () => {
+      const id = await seedEntry([{ path: 'a.ts', diff: 'diff --git a/a.ts b/a.ts\n' }]);
+      svc.deleteShelfItem(repo, id);
+
+      svc.deleteShelfItemPermanently(repo, id);
+
+      assert.strictEqual(svc.getShelfItems(repo).length, 0);
+      assert.strictEqual(svc.getRecycledShelfItems(repo).length, 0, 'entry is gone for good');
+    });
+
+    it('deleteShelfItemPermanently throws for a non-existent entry', () => {
+      assert.throws(
+        () => svc.deleteShelfItemPermanently(repo, 'no-such-id'),
+        /Shelf item not found/
+      );
+    });
+
+    it('restoreFromRecycleBin throws for a non-existent entry', () => {
+      assert.throws(() => svc.restoreFromRecycleBin(repo, 'no-such-id'), /Shelf item not found/);
+    });
+
+    it('the deletedAt marker survives a load/save round trip', async () => {
+      const id = await seedEntry([{ path: 'a.ts', diff: 'diff --git a/a.ts b/a.ts\n' }]);
+      svc.deleteShelfItem(repo, id);
+
+      // Fresh service instance reads from disk with a cold cache.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
+      const reloaded = new ShelfService(mockCli as any);
+      try {
+        const recycled = reloaded.getRecycledShelfItems(repo);
+        assert.strictEqual(recycled.length, 1);
+        assert.ok(recycled[0].deletedAt instanceof Date, 'deletedAt persisted');
+        assert.strictEqual(reloaded.getShelfItems(repo).length, 0);
+      } finally {
+        reloaded.dispose();
+      }
+    });
+
+    it('deleteShelfItem fires onDidChangeShelf', async () => {
+      const id = await seedEntry([{ path: 'a.ts', diff: 'diff --git a/a.ts b/a.ts\n' }]);
+      let fired = 0;
+      svc.onDidChangeShelf(() => fired++);
+      svc.deleteShelfItem(repo, id);
+      assert.ok(fired > 0, 'expected onDidChangeShelf to fire on recycle');
+    });
+  });
+
   describe('filterShelfFiles', () => {
     it('prunes to remaining paths and returns updated entry', async () => {
       const id = await seedEntry([
