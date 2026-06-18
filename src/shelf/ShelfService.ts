@@ -96,6 +96,17 @@ interface IShelfStorageFile {
   originalContent: string;
   patchContent: string;
   /**
+   * `true` for a binary file entry. Binary entries store their bytes in
+   * `binaryContent` (base64) rather than a text patch in `patchContent`, and
+   * are restored by writing those bytes to disk instead of via `git apply`.
+   * Mirrors IntelliJ's binary-aware shelf (ShelvedBinaryFile.java).
+   */
+  isBinary?: boolean;
+  /** Base64 of the shelved binary "after" bytes; absent for a deleted binary. */
+  binaryContent?: string;
+  /** Change status for a binary entry. Absent for text entries. */
+  binaryStatus?: 'added' | 'modified' | 'deleted';
+  /**
    * Unknown per-file keys captured during load. Spread back out when
    * saving so forward-compat per-file fields survive a round trip.
    * @internal
@@ -147,6 +158,9 @@ const KNOWN_SHELF_FILE_KEYS_SPEC = {
   path: true,
   originalContent: true,
   patchContent: true,
+  isBinary: true,
+  binaryContent: true,
+  binaryStatus: true,
 } as const satisfies Record<Exclude<keyof IShelfStorageFile, '_unknownFileField'>, true>;
 
 const KNOWN_SHELF_FILE_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_SHELF_FILE_KEYS_SPEC));
@@ -200,11 +214,22 @@ export function migrateShelfStorageForTest(parsed: unknown): IShelfStorage {
               unknownFileField[k] = fileRec[k];
             }
           }
+          const binaryStatus =
+            fileRec.binaryStatus === 'added' ||
+            fileRec.binaryStatus === 'modified' ||
+            fileRec.binaryStatus === 'deleted'
+              ? fileRec.binaryStatus
+              : undefined;
           return {
             path: typeof fileRec.path === 'string' ? fileRec.path : '',
             originalContent:
               typeof fileRec.originalContent === 'string' ? fileRec.originalContent : '',
             patchContent: typeof fileRec.patchContent === 'string' ? fileRec.patchContent : '',
+            ...(typeof fileRec.isBinary === 'boolean' ? { isBinary: fileRec.isBinary } : {}),
+            ...(typeof fileRec.binaryContent === 'string'
+              ? { binaryContent: fileRec.binaryContent }
+              : {}),
+            ...(binaryStatus ? { binaryStatus } : {}),
             ...(Object.keys(unknownFileField).length > 0
               ? { _unknownFileField: unknownFileField }
               : {}),
@@ -266,6 +291,15 @@ export function serializeShelfForDisk(storage: IShelfStorage): Record<string, un
           originalContent: f.originalContent,
           patchContent: f.patchContent,
         };
+        if (f.isBinary !== undefined) {
+          knownFile.isBinary = f.isBinary;
+        }
+        if (f.binaryContent !== undefined) {
+          knownFile.binaryContent = f.binaryContent;
+        }
+        if (f.binaryStatus !== undefined) {
+          knownFile.binaryStatus = f.binaryStatus;
+        }
         return f._unknownFileField ? { ...knownFile, ...f._unknownFileField } : knownFile;
       }),
     };
@@ -346,6 +380,17 @@ export class ShelfService implements IShelfService {
     const shelfFiles: IShelfFile[] = [];
 
     for (const filePath of filesToShelve) {
+      // Binary files cannot round-trip through a text patch — git's stdout is
+      // captured as a UTF-8 string, which corrupts non-UTF-8 bytes. Detect
+      // binary up-front and capture the raw bytes instead. Mirrors IntelliJ's
+      // ShelvedBinaryFile path (platform/vcs-impl/.../shelf/ShelvedBinaryFile.java),
+      // which stores the shelved binary as a separate file rather than text.
+      const binaryFile = await this.captureBinaryShelfFile(repo, filePath);
+      if (binaryFile) {
+        shelfFiles.push(binaryFile);
+        continue;
+      }
+
       // Get the diff for this file
       const diffResult = await this._gitCli.exec(['diff', '--', filePath], { cwd });
 
@@ -443,6 +488,16 @@ export class ShelfService implements IShelfService {
 
     // Apply each file's diff
     for (const file of filesToApply) {
+      // Binary files restore by writing their stored bytes (or deleting the
+      // path) rather than applying a text patch.
+      if (file.isBinary) {
+        if (this.restoreBinaryShelfFile(repo, file)) {
+          appliedCleanly.push(file.path);
+        } else {
+          conflicts.push(file.path);
+        }
+        continue;
+      }
       try {
         // Apply the patch to the working directory
         const result = await this._gitCli.exec(['apply', '--3way', '-'], {
@@ -756,6 +811,18 @@ export class ShelfService implements IShelfService {
     const diffs: IDiff[] = [];
 
     for (const file of shelfItem.files) {
+      if (file.isBinary) {
+        // No text hunks to parse — surface a binary IDiff so the diff view
+        // shows "binary file" rather than empty/garbled text. Mirrors how a
+        // ShelvedBinaryFile renders in IntelliJ's shelf diff.
+        diffs.push({
+          path: file.path,
+          status: file.binaryStatus ?? 'modified',
+          hunks: [],
+          binary: true,
+        });
+        continue;
+      }
       const parsedDiffs = parseDiff(file.diff);
       diffs.push(...parsedDiffs);
     }
@@ -781,6 +848,14 @@ export class ShelfService implements IShelfService {
     const file = shelfItem.files.find((f) => f.path === filePath);
     if (!file) {
       throw new Error(`File not found in shelf item: ${filePath}`);
+    }
+
+    if (file.isBinary) {
+      // A binary file has no text representation to reconstruct. The shelved
+      // bytes live in `binaryContent`; callers that need them should read those
+      // directly. Returning '' keeps the text "Compare with Local" flow inert
+      // for binaries rather than emitting decoded garbage.
+      return '';
     }
 
     // Pick the diff entry matching this file. A stored entry normally holds a
@@ -815,6 +890,125 @@ export class ShelfService implements IShelfService {
       throwOnError: false,
     });
     return result.exitCode === 0 ? result.stdout : '';
+  }
+
+  /**
+   * Detect whether `filePath` is a changed binary file and, if so, capture its
+   * shelved bytes into an {@link IShelfFile}. Returns `undefined` for a text
+   * file (or no change) so the caller falls back to the unified-diff path.
+   *
+   * git reports a binary change as `-\t-\t<path>` in `git diff --numstat`
+   * (the byte-count columns are `-` for binaries). We classify the change by
+   * comparing presence in HEAD vs. the working tree:
+   *   - absent at HEAD, present on disk → added
+   *   - present at HEAD, absent on disk → deleted (no bytes captured)
+   *   - present in both → modified
+   * The shelved bytes are the current working-tree bytes, read directly via
+   * `fs` so non-UTF-8 / NUL bytes survive byte-for-byte. This mirrors
+   * IntelliJ's ShelvedBinaryFile, which captures the local binary content
+   * rather than a text patch.
+   */
+  private async captureBinaryShelfFile(
+    repo: IRepository,
+    filePath: string
+  ): Promise<IShelfFile | undefined> {
+    const cwd = repo.rootUri.fsPath;
+
+    // --numstat prints byte counts; binary changes show `-` in both columns.
+    const numstat = await this._gitCli.exec(['diff', '--numstat', '--', filePath], {
+      cwd,
+      throwOnError: false,
+    });
+    const line = numstat.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (!line || !line.startsWith('-\t-')) {
+      return undefined; // Text change, or no change at all.
+    }
+
+    const existsInHead =
+      (
+        await this._gitCli.exec(['cat-file', '-e', `HEAD:${filePath}`], {
+          cwd,
+          throwOnError: false,
+        })
+      ).exitCode === 0;
+    const absPath = path.join(cwd, filePath);
+    const existsOnDisk = fs.existsSync(absPath);
+
+    let binaryStatus: 'added' | 'modified' | 'deleted';
+    let binaryContent: string | undefined;
+    if (!existsInHead && existsOnDisk) {
+      binaryStatus = 'added';
+      binaryContent = fs.readFileSync(absPath).toString('base64');
+    } else if (existsInHead && !existsOnDisk) {
+      binaryStatus = 'deleted';
+      binaryContent = undefined; // Matches ShelvedBinaryFile.SHELVED_PATH == null.
+    } else {
+      binaryStatus = 'modified';
+      binaryContent = fs.readFileSync(absPath).toString('base64');
+    }
+
+    return {
+      path: filePath,
+      diff: '',
+      isBinary: true,
+      binaryStatus,
+      ...(binaryContent !== undefined ? { binaryContent } : {}),
+    };
+  }
+
+  /**
+   * Restore a shelved binary file to the working tree. Writes the stored bytes
+   * for an added/modified entry, or deletes the path for a deleted entry. Bytes
+   * are written via `fs` so they round-trip exactly. Returns `true` on success.
+   */
+  private restoreBinaryShelfFile(repo: IRepository, file: IShelfFile): boolean {
+    const absPath = path.join(repo.rootUri.fsPath, file.path);
+    try {
+      if (file.binaryStatus === 'deleted') {
+        if (fs.existsSync(absPath)) {
+          fs.rmSync(absPath);
+        }
+        return true;
+      }
+      if (file.binaryContent === undefined) {
+        return false;
+      }
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, Buffer.from(file.binaryContent, 'base64'));
+      return true;
+    } catch (error) {
+      this._logger.error(
+        'Failed to restore shelved binary file',
+        { path: file.path },
+        error instanceof Error ? error : undefined
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Revert a binary file's working-tree change after it has been shelved.
+   * Inverse of the shelve classification: restore the HEAD bytes for an
+   * added/modified file (delete for an add, since there is no HEAD copy), and
+   * re-materialise the HEAD bytes for a deletion.
+   */
+  private async revertBinaryShelfFile(repo: IRepository, file: IShelfFile): Promise<void> {
+    const cwd = repo.rootUri.fsPath;
+    const absPath = path.join(cwd, file.path);
+    if (file.binaryStatus === 'added') {
+      // No HEAD revision — drop the working-tree copy.
+      if (fs.existsSync(absPath)) {
+        fs.rmSync(absPath);
+      }
+      // Clear any intent-to-add staging so the file no longer shows as a change.
+      await this._gitCli.exec(['reset', '--', file.path], { cwd, throwOnError: false });
+      return;
+    }
+    // modified or deleted → restore the committed bytes from HEAD.
+    await this._gitCli.exec(['checkout', 'HEAD', '--', file.path], { cwd, throwOnError: false });
   }
 
   /**
@@ -897,6 +1091,12 @@ export class ShelfService implements IShelfService {
     const cwd = repo.rootUri.fsPath;
 
     for (const file of shelfFiles) {
+      // Binary files have no text patch to reverse — restore the HEAD bytes
+      // (or drop an added file) directly.
+      if (file.isBinary) {
+        await this.revertBinaryShelfFile(repo, file);
+        continue;
+      }
       try {
         // Apply the reverse patch to remove the changes
         await this._gitCli.exec(['apply', '-R', '-'], {
@@ -934,6 +1134,9 @@ export class ShelfService implements IShelfService {
         path: file.path,
         originalContent: '', // Not storing original content for now
         patchContent: file.diff,
+        ...(file.isBinary !== undefined ? { isBinary: file.isBinary } : {}),
+        ...(file.binaryContent !== undefined ? { binaryContent: file.binaryContent } : {}),
+        ...(file.binaryStatus !== undefined ? { binaryStatus: file.binaryStatus } : {}),
       })),
       unshelvedAt: item.unshelvedAt?.getTime(),
     };
@@ -1042,6 +1245,9 @@ export class ShelfService implements IShelfService {
       files: storageItem.files.map((file) => ({
         path: file.path,
         diff: file.patchContent,
+        ...(file.isBinary !== undefined ? { isBinary: file.isBinary } : {}),
+        ...(file.binaryContent !== undefined ? { binaryContent: file.binaryContent } : {}),
+        ...(file.binaryStatus !== undefined ? { binaryStatus: file.binaryStatus } : {}),
       })),
       unshelvedAt:
         storageItem.unshelvedAt !== undefined ? new Date(storageItem.unshelvedAt) : undefined,

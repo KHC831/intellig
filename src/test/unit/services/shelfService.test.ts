@@ -467,4 +467,117 @@ describe('ShelfService', () => {
       }
     });
   });
+
+  describe('binary files', () => {
+    /**
+     * Build a byte sequence that is NOT valid UTF-8 and contains NUL bytes,
+     * so a lossy string round-trip (git stdout captured via `.toString()`)
+     * would corrupt it. This pins that the shelf preserves raw bytes.
+     */
+    function makeBinaryBytes(): Buffer {
+      const bytes: number[] = [];
+      for (let i = 0; i < 256; i++) {
+        bytes.push(i);
+      }
+      // Append known lone-continuation and lone-lead bytes plus extra NULs that
+      // a UTF-8 decode would replace with U+FFFD.
+      bytes.push(0x00, 0x80, 0xff, 0xfe, 0x00, 0xc0, 0xc1);
+      return Buffer.from(bytes);
+    }
+
+    it('should mark a binary file entry isBinary', async () => {
+      const binPath = path.join(testRepoPath, 'image.bin');
+      const original = makeBinaryBytes();
+      fs.writeFileSync(binPath, original);
+      await gitCli.exec(['add', '.'], { cwd: testRepoPath });
+      await gitCli.exec(['commit', '-m', 'Add binary'], { cwd: testRepoPath });
+
+      // Mutate the binary content so it shows up as a modification.
+      const modified = Buffer.concat([original, Buffer.from([0xde, 0xad, 0xbe, 0xef])]);
+      fs.writeFileSync(binPath, modified);
+
+      const shelfItem = await shelfService.shelve(mockRepo, 'Binary Shelf', {
+        files: ['image.bin'],
+      });
+
+      assert.strictEqual(shelfItem.files.length, 1, 'Shelf item should have one file');
+      assert.strictEqual(shelfItem.files[0].path, 'image.bin');
+      assert.strictEqual(shelfItem.files[0].isBinary, true, 'Entry should be marked binary');
+    });
+
+    it('should round-trip a modified binary file byte-for-byte', async () => {
+      const binPath = path.join(testRepoPath, 'image.bin');
+      const original = makeBinaryBytes();
+      fs.writeFileSync(binPath, original);
+      await gitCli.exec(['add', '.'], { cwd: testRepoPath });
+      await gitCli.exec(['commit', '-m', 'Add binary'], { cwd: testRepoPath });
+
+      const modified = Buffer.concat([original, Buffer.from([0xde, 0xad, 0xbe, 0xef])]);
+      fs.writeFileSync(binPath, modified);
+
+      const shelfItem = await shelfService.shelve(mockRepo, 'Binary Shelf', {
+        files: ['image.bin'],
+      });
+
+      // After shelving, the working tree must be back to the committed bytes.
+      const reverted = fs.readFileSync(binPath);
+      assert.ok(reverted.equals(original), 'Binary file should be reverted to committed bytes');
+
+      const result = await shelfService.unshelve(mockRepo, shelfItem.id);
+      assert.ok(result.success, 'Unshelve should succeed');
+      assert.strictEqual(result.conflicts, undefined, 'Should have no conflicts');
+
+      const restored = fs.readFileSync(binPath);
+      assert.ok(restored.equals(modified), 'Restored binary must be byte-for-byte identical');
+    });
+
+    it('should round-trip an added binary file byte-for-byte', async () => {
+      const binPath = path.join(testRepoPath, 'added.bin');
+      const bytes = makeBinaryBytes();
+      fs.writeFileSync(binPath, bytes);
+      await gitCli.exec(['add', '--intent-to-add', 'added.bin'], { cwd: testRepoPath });
+
+      const shelfItem = await shelfService.shelve(mockRepo, 'Added Binary', {
+        files: ['added.bin'],
+      });
+      assert.strictEqual(shelfItem.files[0].isBinary, true, 'Added binary should be marked binary');
+
+      // Shelving an added file removes it from the working tree.
+      assert.ok(!fs.existsSync(binPath), 'Added binary should be removed after shelve');
+
+      const result = await shelfService.unshelve(mockRepo, shelfItem.id);
+      assert.ok(result.success, 'Unshelve should succeed');
+
+      assert.ok(fs.existsSync(binPath), 'Added binary should be restored');
+      const restored = fs.readFileSync(binPath);
+      assert.ok(restored.equals(bytes), 'Restored added binary must be byte-for-byte identical');
+    });
+
+    it('should round-trip a deleted binary file', async () => {
+      const binPath = path.join(testRepoPath, 'todelete.bin');
+      const bytes = makeBinaryBytes();
+      fs.writeFileSync(binPath, bytes);
+      await gitCli.exec(['add', '.'], { cwd: testRepoPath });
+      await gitCli.exec(['commit', '-m', 'Add binary to delete'], { cwd: testRepoPath });
+
+      fs.rmSync(binPath);
+
+      const shelfItem = await shelfService.shelve(mockRepo, 'Deleted Binary', {
+        files: ['todelete.bin'],
+      });
+      assert.strictEqual(
+        shelfItem.files[0].isBinary,
+        true,
+        'Deleted binary should be marked binary'
+      );
+
+      // Shelving a deletion restores the file to the working tree.
+      assert.ok(fs.existsSync(binPath), 'Deleted binary should be restored after shelve');
+
+      const result = await shelfService.unshelve(mockRepo, shelfItem.id);
+      assert.ok(result.success, 'Unshelve should succeed');
+
+      assert.ok(!fs.existsSync(binPath), 'Binary should be deleted again after unshelve');
+    });
+  });
 });

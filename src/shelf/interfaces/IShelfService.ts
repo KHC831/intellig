@@ -11,11 +11,36 @@ export interface IShelveSelection {
 }
 
 /**
- * Shelved file information
+ * Shelved file information.
+ *
+ * Text files carry their change as a unified `diff`. Binary files cannot be
+ * represented as text hunks, so they instead capture the raw "after" bytes in
+ * `binaryContent` (base64) and set `isBinary`. This mirrors IntelliJ's
+ * `ShelvedBinaryFile` (platform/vcs-impl/.../shelf/ShelvedBinaryFile.java),
+ * which stores the shelved binary as a separate file referenced by
+ * `SHELVED_PATH` rather than encoding it in the text patch.
  */
 export interface IShelfFile {
   path: string;
   diff: string;
+  /**
+   * `true` when this entry is a binary file. Binary entries are restored by
+   * writing `binaryContent` back to disk (or deleting the file) rather than
+   * via `git apply`, and the diff view shows "binary file" instead of text.
+   */
+  isBinary?: boolean;
+  /**
+   * Base64-encoded raw bytes of the file's shelved ("after") content. Present
+   * only for binary entries. `undefined` for a deleted binary file — mirrors
+   * IntelliJ's `ShelvedBinaryFile.SHELVED_PATH == null` deletion marker.
+   */
+  binaryContent?: string;
+  /**
+   * Change status for a binary entry: whether the shelved file was added,
+   * modified, or deleted. Drives whether unshelve writes bytes or deletes the
+   * path, and lets the diff view label the status. Absent for text entries.
+   */
+  binaryStatus?: 'added' | 'modified' | 'deleted';
 }
 
 /**
