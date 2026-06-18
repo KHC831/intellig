@@ -6,6 +6,8 @@ IntelliJ `git4idea` + `platform/vcs-impl` (clone at `~/Documents/workspace/intel
 the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-18._
 
 > What's landed (progress log, SHAs, pending-merge branches) lives in **[`STATUS.md`](./STATUS.md)**.
+> UI/UX **layout** parity (menu order/grouping, labels, ellipsis, icons, tool-window tabs, dialogs)
+> is tracked separately in **[`UX-PARITY.md`](./UX-PARITY.md)**.
 > This doc lists only remaining work; done items are removed once they land in STATUS.
 
 ---
