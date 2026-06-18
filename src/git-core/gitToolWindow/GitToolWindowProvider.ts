@@ -3594,10 +3594,10 @@ ${bodyMarkup}
       .join('');
 
     // The `change` listener is wired from the main inline script
-    // (`_getInlineScript`), which already holds the single `vscode` API
-    // instance. A second `acquireVsCodeApi()` call inside an inline
-    // `onchange` handler would throw — VS Code only allows one acquire
-    // per webview lifetime — and silently drop the selection.
+    // (`_getInlineScript`), which reads the shared `vscode` API handle
+    // memoised on `window.__intelligVscodeApi`. A bare `acquireVsCodeApi()`
+    // call inside an inline `onchange` handler would throw — VS Code only
+    // allows one acquire per webview lifetime — and silently drop the selection.
     return `
       <div class="repository-selector-container">
         <select class="repository-selector" aria-label="Select repository">

@@ -2,8 +2,10 @@
  * Builds the inline `<script>` source for the Git tool window webview.
  *
  * Returns a self-contained IIFE (as a template string) that runs in the
- * webview: it acquires the single `vscode` API handle, wires the repository
- * selector, commit-row selection + range selection, the menu enable-map,
+ * webview: it reads the shared `vscode` API handle (memoised on
+ * `window.__intelligVscodeApi`, acquiring it only if no sibling script has
+ * yet), wires the repository selector, commit-row selection + range
+ * selection, the menu enable-map,
  * anchor restoration, scroll-to-commit, and the load-more / graph-scroll
  * observers. The string is fully static — it interpolates no host state and
  * carries no color literals — so it is assembled here, independent of the
@@ -19,13 +21,18 @@
 export function buildInlineScript(): string {
   return `
       (function() {
-        const vscode = acquireVsCodeApi();
+        // Share the one VS Code API handle across the document's inline
+        // scripts: reuse the handle memoised on \`window\`, or acquire it here if
+        // this script runs first. \`acquireVsCodeApi\` may be called only once
+        // per document; the tabbed layout hosts several inline scripts, so only
+        // the first to run acquires and the rest read \`window.__intelligVscodeApi\`.
+        const vscode = window.__intelligVscodeApi || (typeof acquireVsCodeApi === 'function' ? (window.__intelligVscodeApi = acquireVsCodeApi()) : undefined);
+        if (!vscode) return;
 
         // Repository selector wiring. Posts the selectRepository message
-        // through the single \`vscode\` instance acquired above. The
-        // dropdown intentionally has no inline onchange handler — calling
-        // \`acquireVsCodeApi()\` a second time in the same render throws
-        // a DOMException and the message would be silently dropped.
+        // through the shared \`vscode\` handle above. The dropdown intentionally
+        // has no inline onchange handler — an inline \`acquire\` would re-run
+        // before this IIFE memoised the handle, and the message would drop.
         const repoSelect = document.querySelector('.repository-selector');
         if (repoSelect) {
           repoSelect.addEventListener('change', function(e) {

@@ -4,7 +4,7 @@
  * Only the tab strip + wrapper ship here. The repository selector and gear
  * menu continue to be rendered by the monolithic Log-tab HTML (extracting them
  * would risk breaking the embedded `acquireVsCodeApi` script handling called
- * out as a hotspot in REVIEW section 7 / design section 3.6 line 1571).
+ * out as a hotspot in design section 3.6).
  *
  * All exports are pure string builders — no side effects, no DOM/Webview APIs
  * touched. Safe for unit tests.
@@ -110,7 +110,10 @@ export function wrapTabbedBody(input: {
 export function tabStripBehaviorScript(): string {
   return `
     (function () {
-      const vscode = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : undefined;
+      // Share the one VS Code API handle across the document's inline scripts:
+      // reuse the handle memoised on \`window\`, or acquire it here if this
+      // script runs first. \`acquireVsCodeApi\` throws if called more than once.
+      const vscode = window.__intelligVscodeApi || (typeof acquireVsCodeApi === 'function' ? (window.__intelligVscodeApi = acquireVsCodeApi()) : undefined);
       const strip = document.querySelector('.intellig-tab-strip');
       if (!strip || !vscode) return;
       strip.addEventListener('click', function (event) {

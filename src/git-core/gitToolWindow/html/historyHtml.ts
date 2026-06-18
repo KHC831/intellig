@@ -452,7 +452,10 @@ export function historyTabStyles(): string {
 export function historyTabBehaviorScript(): string {
   return `
     (function () {
-      const vscode = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : undefined;
+      // Share the one VS Code API handle across the document's inline scripts:
+      // reuse the handle memoised on \`window\`, or acquire it here if this
+      // script runs first. \`acquireVsCodeApi\` throws if called more than once.
+      const vscode = window.__intelligVscodeApi || (typeof acquireVsCodeApi === 'function' ? (window.__intelligVscodeApi = acquireVsCodeApi()) : undefined);
       if (!vscode) return;
 
       document.querySelectorAll('.history-commit-row').forEach(function (row) {

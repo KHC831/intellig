@@ -10,11 +10,15 @@ import * as vscode from 'vscode';
  * it interpolates no host state and is assembled independently of the provider
  * instance — so it is built here and injected verbatim into the rendered HTML.
  *
- * L8 invariant — the webview HTML this output is embedded into MUST contain
- * exactly ONE `acquireVsCodeApi(` call across the full document. Any inline
- * `onclick=`/`onchange=` attribute that re-acquires throws a DOMException and
- * silently drops every subsequent `postMessage`. New CSS / handler wiring goes
- * through the single IIFE-scoped `vscode = acquireVsCodeApi()` call. See
+ * L8 invariant — the webview HTML this output is embedded into may carry
+ * several inline scripts (the tabbed layout hosts the main, tab-strip, and
+ * History scripts together), but only ONE may actually execute
+ * `acquireVsCodeApi()`:
+ * the call throws a DOMException on every invocation after the first. Each
+ * script therefore reuses the handle memoised on `window.__intelligVscodeApi`,
+ * acquiring it only when no sibling has yet. Any inline `onclick=`/`onchange=`
+ * attribute that re-acquires bare would throw and silently drop every
+ * subsequent `postMessage`. New handler wiring reads that shared handle. See
  * `docs/design/git-tool-window-spec.md` section 8.L8.
  */
 export function buildInlineStyles(): string {
