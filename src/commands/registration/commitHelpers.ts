@@ -70,6 +70,37 @@ export async function pickRepositoryForCommit(
 }
 
 /**
+ * Resolve a repository from an explicit on-disk root hint, or `undefined` when
+ * no usable hint is supplied. Threaded through from the merged "all roots" log
+ * commit menu so a commit-context action targets the CLICKED commit's OWN repo
+ * instead of re-prompting / re-resolving by the active editor. A non-string /
+ * empty hint, or a root that no longer resolves to an open repo, yields
+ * `undefined` so callers fall back to their existing resolution.
+ */
+async function repoFromRootHint(
+  ctx: ICommandContext,
+  repoRootArg?: unknown
+): Promise<IRepository | undefined> {
+  const root = typeof repoRootArg === 'string' && repoRootArg.length > 0 ? repoRootArg : undefined;
+  if (!root || !ctx.services) {
+    return undefined;
+  }
+  return ctx.services.gitService.getRepository(vscode.Uri.file(root));
+}
+
+/**
+ * Resolve the repository for a commit-context action, preferring an explicit
+ * repo-root hint (the merged-log clicked-commit's own root) when present and
+ * falling back to {@link pickRepositoryForCommit} otherwise.
+ */
+export async function resolveRepoForCommit(
+  ctx: ICommandContext,
+  repoRootArg?: unknown
+): Promise<IRepository | undefined> {
+  return (await repoFromRootHint(ctx, repoRootArg)) ?? pickRepositoryForCommit(ctx);
+}
+
+/**
  * Pick a repository for the New Tag flow. Returns `undefined` if the user
  * cancels or no repository is available.
  */
@@ -270,9 +301,12 @@ export async function runNewTagFlow(
  */
 export async function runNewTagFlowFromContext(
   ctx: ICommandContext,
-  targetRef: string | undefined
+  targetRef: string | undefined,
+  repoRootArg?: unknown
 ): Promise<void> {
-  const repo = await pickRepositoryForTag(ctx);
+  // Prefer the clicked commit's own repo root (merged "all roots" log) so the
+  // tag lands on the right repo; otherwise fall back to the usual picker.
+  const repo = (await repoFromRootHint(ctx, repoRootArg)) ?? (await pickRepositoryForTag(ctx));
   if (!repo || !ctx.services) {
     return;
   }

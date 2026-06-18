@@ -6,7 +6,7 @@ import { commitUrl } from '../../utils/hostingLinks';
 import type { IGitService, IRepository } from '../../services';
 import type { LogContextAction } from '../../ui-shell/GitToolWindowProvider';
 import type { ICommandContext } from './CommandContext';
-import { extractCommitHash, pickRepositoryForCommit } from './commitHelpers';
+import { extractCommitHash, pickRepositoryForCommit, resolveRepoForCommit } from './commitHelpers';
 
 /**
  * Log-commit right-click menu parity commands (`intellig.commit.*` +
@@ -141,9 +141,12 @@ export function registerCommitMenuCommands(ctx: ICommandContext): vscode.Disposa
   // tracking / overwrite / checkout fields rather than a bare input box.
   const commitNewBranchCommand = registerLoggedCommand(
     'intellig.commit.newBranch',
-    async (commitArg?: unknown) => {
+    async (commitArg?: unknown, repoRootArg?: unknown) => {
       const hash = extractCommitHash(commitArg);
-      const repo = await pickRepositoryForCommit(ctx);
+      // `repoRootArg` (when present) pins the new branch to the clicked
+      // commit's OWN repo in the merged "all roots" log; absent, the usual
+      // picker runs (single-repo / specific-scope / palette callers).
+      const repo = await resolveRepoForCommit(ctx, repoRootArg);
       if (!repo || !ctx.services) {
         return;
       }

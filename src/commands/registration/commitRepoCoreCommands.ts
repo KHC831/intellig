@@ -971,9 +971,11 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   // New Tag — invoked from the log commit context menu with a commit arg.
   const commitNewTagCommand = registerLoggedCommand(
     'intellig.commit.newTag',
-    async (commitArg?: unknown) => {
+    async (commitArg?: unknown, repoRootArg?: unknown) => {
       const ref = extractCommitHash(commitArg);
-      await runNewTagFlowFromContext(ctx, ref);
+      // `repoRootArg` (merged "all roots" log) pins the tag to the clicked
+      // commit's OWN repo; absent, the usual repository picker runs.
+      await runNewTagFlowFromContext(ctx, ref, repoRootArg);
     }
   );
 
@@ -1001,7 +1003,7 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
   const PUSH_HASH_RE = /^[0-9a-f]{4,64}$/i;
   const pushUpToCommitCommand = registerLoggedCommand(
     'intellig.pushUpToCommit',
-    async (hash: string) => {
+    async (hash: string, repoRootArg?: unknown) => {
       if (!hash || !PUSH_HASH_RE.test(hash)) {
         void vscode.window.showErrorMessage('Cannot push: invalid commit hash.');
         return;
@@ -1011,11 +1013,20 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
         return;
       }
       const gitService = ctx.services.gitService;
-      const repo = await resolveRepo(gitService, {
-        preferActive: true,
-        pickerTitle: 'Push up to here — Choose Repository',
-        pickerPlaceholder: 'Select a repository',
-      });
+      // Prefer the clicked commit's OWN repo root when threaded through from
+      // the merged "all roots" log — pushing a foreign hash against the
+      // active-editor repo would move the WRONG remote branch. Falls back to
+      // the active-editor / picker resolution for single-repo / palette callers
+      // or when the recorded root no longer resolves.
+      const rootHint =
+        typeof repoRootArg === 'string' && repoRootArg.length > 0 ? repoRootArg : undefined;
+      const repo =
+        (rootHint ? await gitService.getRepository(vscode.Uri.file(rootHint)) : undefined) ??
+        (await resolveRepo(gitService, {
+          preferActive: true,
+          pickerTitle: 'Push up to here — Choose Repository',
+          pickerPlaceholder: 'Select a repository',
+        }));
       if (!repo) {
         return;
       }

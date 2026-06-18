@@ -1859,7 +1859,11 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       await commands._handleAction('newBranch', [testHash, 'deadbeef']);
 
       assert.strictEqual(executedCommand, 'intellig.commit.newBranch');
-      assert.deepStrictEqual(executedArgs, [testHash]);
+      // The clicked commit's resolved repo root is threaded as the second arg
+      // so the New Branch dialog targets that repo (merged "all roots" log fix).
+      // The mock provider records no source root, so resolution falls through
+      // to the single open repo's root.
+      assert.deepStrictEqual(executedArgs, [testHash, '/test-repo']);
     });
 
     it('does nothing when no commit is selected', async () => {
@@ -1900,7 +1904,9 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       await commands._handleAction('newTag', [testHash, 'deadbeef']);
 
       assert.strictEqual(executedCommand, 'intellig.commit.newTag');
-      assert.deepStrictEqual(executedArgs, [testHash]);
+      // Second arg = the clicked commit's resolved repo root (merged "all
+      // roots" log fix); falls through to the single open repo's root here.
+      assert.deepStrictEqual(executedArgs, [testHash, '/test-repo']);
     });
 
     it('does nothing when no commit is selected', async () => {

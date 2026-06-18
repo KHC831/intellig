@@ -248,6 +248,88 @@ export class CommitContextMenuCommands {
   }
 
   /**
+   * Resolve the repository a CLICKED commit belongs to.
+   *
+   * In the merged "All Repositories" scope the log interleaves commits from
+   * every root, so the dropdown's selected repo ({@link _getRepository}) is
+   * the context repo — NOT necessarily the clicked commit's owner. The
+   * provider records each commit's source root in a hash→root index
+   * (`getRepoRootForCommit`); when a root is recorded we resolve THAT repo so
+   * the op targets the commit's own repo. This mirrors `resolveCommitRepoByRoot`
+   * in `registration/wiring.ts`, which already fixed the commit select / diff
+   * handlers.
+   *
+   * Falls back to {@link _getRepository} (the selected/context repo) when:
+   *   - no hash is supplied (programmatic callers without a clicked commit),
+   *   - no root is recorded (single-repo / specific-scope log), or
+   *   - the recorded root no longer resolves to an open repo.
+   *
+   * The provider surface is read structurally + guarded so legacy test stubs
+   * that omit `getRepoRootForCommit` keep working (same defensive shape as
+   * `_getRepository`'s `getSelectedRepository` probe).
+   */
+  private async _getRepositoryForCommit(hash?: string): Promise<IRepository | undefined> {
+    if (hash) {
+      const root = this._recordedRepoRoot(hash);
+      if (root) {
+        const repo = await this._gitService.getRepository(vscode.Uri.file(root));
+        if (repo) {
+          return repo;
+        }
+      }
+    }
+    return this._getRepository();
+  }
+
+  /**
+   * Source repository root the provider recorded for `hash` in the merged
+   * "all roots" log, or `undefined` when none is recorded (single-repo /
+   * specific-scope) or the provider stub omits the index.
+   */
+  private _recordedRepoRoot(hash: string): string | undefined {
+    const maybeGetRoot = (
+      this._gitToolWindowProvider as unknown as {
+        getRepoRootForCommit?: (hash: string) => string | undefined;
+      }
+    ).getRepoRootForCommit;
+    if (typeof maybeGetRoot !== 'function') {
+      return undefined;
+    }
+    return maybeGetRoot.call(this._gitToolWindowProvider, hash);
+  }
+
+  /**
+   * Guard a multi-commit action against a selection that spans more than one
+   * source repository in the merged "all roots" log. Acting on such a
+   * selection would replay / rewrite foreign-repo hashes against a single
+   * resolved repo, so we refuse with a clear toast rather than guess.
+   *
+   * Cheap + non-intrusive: only the merged scope records roots, and only a
+   * multi-commit selection can straddle repos. Returns `false` (not blocked)
+   * for single-commit selections and for single-repo / specific-scope logs
+   * where no roots are recorded — leaving those paths unchanged.
+   */
+  private _isCrossRepoSelection(commitHashes: readonly string[]): boolean {
+    if (commitHashes.length < 2) {
+      return false;
+    }
+    const roots = new Set<string>();
+    for (const h of commitHashes) {
+      const root = this._recordedRepoRoot(h);
+      if (root) {
+        roots.add(root);
+      }
+    }
+    if (roots.size > 1) {
+      void vscode.window.showWarningMessage(
+        'This action spans commits from multiple repositories. Select commits from a single repository and try again.'
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Dispatch the action to the appropriate handler method.
    *
    * `commitNodes` is the slim
@@ -395,7 +477,7 @@ export class CommitContextMenuCommands {
    * confirm per the safety policy.
    */
   async dropSelectedChangesFromCommit(hash: string): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(hash);
     if (!repo || !hash) {
       return;
     }
@@ -594,7 +676,13 @@ export class CommitContextMenuCommands {
     if (commitHashes.length === 0) {
       return;
     }
-    const repo = await this._getRepository();
+    // All messages are read from a single resolved repo, so a cross-repo
+    // selection would fail noisily on the foreign hashes. Refuse uniformly with
+    // the other multi-commit arms rather than copy a partial / wrong result.
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo) {
       return;
     }
@@ -632,7 +720,10 @@ export class CommitContextMenuCommands {
    * is still `[h]`, no change.
    */
   private async _handleCherryPick(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -987,7 +1078,10 @@ export class CommitContextMenuCommands {
    * Multi-commit reverts always run the full-commit flow (no deselection).
    */
   private async _handleRevert(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1297,7 +1391,7 @@ export class CommitContextMenuCommands {
    * Uses the stash/force fallback pattern from BranchContextMenuCommands.
    */
   private async _handleCheckoutRevision(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1375,7 +1469,7 @@ export class CommitContextMenuCommands {
    * guard and single destructive-op confirm).
    */
   private async _handleResetToHere(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1469,7 +1563,10 @@ export class CommitContextMenuCommands {
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
   ): Promise<void> {
-    const repo = await this._getRepository();
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1683,7 +1780,7 @@ export class CommitContextMenuCommands {
    * Lists changed files and opens the diff for each.
    */
   private async _handleCompareWithLocal(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1753,7 +1850,10 @@ export class CommitContextMenuCommands {
     if (!allHashesValid(commitHashes)) {
       return;
     }
-    const repo = await this._getRepository();
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo) {
       return;
     }
@@ -1855,7 +1955,7 @@ export class CommitContextMenuCommands {
    * Opens the commit's changed files list so the user can browse the state at that point.
    */
   private async _handleShowRepoAtRevision(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1907,7 +2007,7 @@ export class CommitContextMenuCommands {
    * Only works if the selected commit is the HEAD commit.
    */
   private async _handleUndoCommit(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -1966,6 +2066,11 @@ export class CommitContextMenuCommands {
     if (commitHashes.length === 0) {
       return;
     }
+    // Guard a merged-log selection that straddles repos before any routing —
+    // a single rebase can't drop foreign-repo commits.
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
 
     // hash-format validation and initial-commit
     // guards apply to BOTH the single- and multi-commit drop paths. Lift
@@ -2000,7 +2105,7 @@ export class CommitContextMenuCommands {
       return;
     }
 
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo) {
       return;
     }
@@ -2131,7 +2236,7 @@ export class CommitContextMenuCommands {
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
   ): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length < 2) {
       return;
     }
@@ -2374,7 +2479,10 @@ export class CommitContextMenuCommands {
       commitHashesCount: commitHashes.length,
       commitNodesCount: commitNodes.length,
     });
-    const repo = await this._getRepository();
+    if (this._isCrossRepoSelection(commitHashes)) {
+      return;
+    }
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo) {
       log.warn('squash aborted: no repository resolved');
       void vscode.window.showWarningMessage(
@@ -2670,7 +2778,7 @@ export class CommitContextMenuCommands {
     commitHashes: string[],
     mode: 'squash' | 'fixup'
   ): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -2727,7 +2835,7 @@ export class CommitContextMenuCommands {
    * the diff purposes — no new GitService method needed.
    */
   private async _handleCompareWithBranch(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -2857,7 +2965,7 @@ export class CommitContextMenuCommands {
    * Both paths stash uncommitted/unmerged changes first to avoid conflicts.
    */
   private async _handleEditCommitMessage(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -3061,7 +3169,7 @@ export class CommitContextMenuCommands {
    * Merge the selected commit into the current branch.
    */
   private async _handleMergeIntoCurrent(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -3127,7 +3235,7 @@ export class CommitContextMenuCommands {
    * Start an interactive rebase session from the selected commit.
    */
   private async _handleInteractiveRebase(commitHashes: string[]): Promise<void> {
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
     if (!repo || commitHashes.length === 0) {
       return;
     }
@@ -3163,10 +3271,16 @@ export class CommitContextMenuCommands {
   /**
    * Handle "Push up to here" — IntelliJ's Git.PushUpToHere (parity).
    *
-   * Delegates to `intellig.pushUpToCommit` which owns repo resolution +
-   * refspec construction so the same logic is exercised from the context
-   * menu and the palette. The handler is a thin bridge; the command is the
-   * authoritative entry point.
+   * Delegates to `intellig.pushUpToCommit` which owns refspec construction so
+   * the same logic is exercised from the context menu and the palette. The
+   * handler is a thin bridge; the command is the authoritative entry point.
+   *
+   * Threads the clicked commit's OWN repo root as the second argument: in the
+   * merged "all roots" scope the command would otherwise re-resolve via
+   * `resolveRepo(preferActive)` (the active editor / a fresh QuickPick) and
+   * push the foreign hash against the wrong repo. The root pins the resolution
+   * to the clicked commit's repo; `undefined` leaves the command's existing
+   * resolution untouched for single-repo / specific-scope callers.
    */
   private async _handlePushUpToCommit(commitHashes: string[]): Promise<void> {
     if (commitHashes.length === 0) {
@@ -3177,21 +3291,32 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage('Cannot push: invalid commit hash.');
       return;
     }
-    await vscode.commands.executeCommand('intellig.pushUpToCommit', hash);
+    const repo = await this._getRepositoryForCommit(hash);
+    await vscode.commands.executeCommand('intellig.pushUpToCommit', hash, repo?.rootUri.fsPath);
   }
 
   private async _handleNewBranch(commitHashes: string[]): Promise<void> {
     if (commitHashes.length === 0) {
       return;
     }
-    await vscode.commands.executeCommand('intellig.commit.newBranch', commitHashes[0]);
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
+    await vscode.commands.executeCommand(
+      'intellig.commit.newBranch',
+      commitHashes[0],
+      repo?.rootUri.fsPath
+    );
   }
 
   private async _handleNewTag(commitHashes: string[]): Promise<void> {
     if (commitHashes.length === 0) {
       return;
     }
-    await vscode.commands.executeCommand('intellig.commit.newTag', commitHashes[0]);
+    const repo = await this._getRepositoryForCommit(commitHashes[0]);
+    await vscode.commands.executeCommand(
+      'intellig.commit.newTag',
+      commitHashes[0],
+      repo?.rootUri.fsPath
+    );
   }
 
   /**
@@ -3214,7 +3339,7 @@ export class CommitContextMenuCommands {
       void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
       return;
     }
-    const repo = await this._getRepository();
+    const repo = await this._getRepositoryForCommit(hash);
     if (!repo) {
       return;
     }
