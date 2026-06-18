@@ -1404,6 +1404,23 @@
           "default": "full",
           "description": "How the author is displayed in blame annotations. Matches IntelliJ's annotation 'Names' submenu (ShortNameType)."
         },
+        "intellig.diff.ignorePolicy": {
+          "type": "string",
+          "enum": [
+            "default",
+            "trim-whitespaces",
+            "ignore-whitespaces",
+            "ignore-whitespaces-empty-lines"
+          ],
+          "enumDescriptions": [
+            "Do not ignore whitespace (git default).",
+            "Ignore trailing whitespace (git --ignore-space-at-eol).",
+            "Ignore all whitespace (git -w / --ignore-all-space).",
+            "Ignore all whitespace and whitespace-only lines (git --ignore-all-space --ignore-blank-lines)."
+          ],
+          "default": "default",
+          "description": "Whitespace ignore policy applied when generating diffs. Mirrors IntelliJ's diff-viewer 'Ignore whitespace' dropdown (IgnorePolicy): DEFAULT / TRIM_WHITESPACES / IGNORE_WHITESPACES / IGNORE_WHITESPACES_CHUNKS."
+        },
         "intellig.showStatusBarBranch": {
           "type": "boolean",
           "default": true,

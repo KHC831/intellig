@@ -309,6 +309,12 @@ Enable the IntelliJ preset in settings:
 | `intellig.blame.showRevision`               | `true`     | Show the revision/hash column (Revision aspect) |
 | `intellig.blame.authorNameFormat`           | `"full"`   | Author rendering: `"full"`, `"firstname"`, `"lastname"`, `"initials"`, or `"email"` |
 
+### Diff
+
+| Setting                       | Default     | Description                                                                                                                              |
+| ----------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `intellig.diff.ignorePolicy`  | `"default"` | Whitespace ignore policy for diffs (IntelliJ "Ignore whitespace"): `"default"`, `"trim-whitespaces"`, `"ignore-whitespaces"`, or `"ignore-whitespaces-empty-lines"` |
+
 ### Branches popup
 
 | Setting                                | Default | Description                                                                         |

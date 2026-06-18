@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import {
   IRepository,
   IDiff,
@@ -8,6 +9,7 @@ import {
 import { buildGitArgs } from '../gitCli';
 import { parseDiff, parseBlame } from '../gitParser';
 import { sortCommitsStable } from '../commitSort';
+import { diffIgnorePolicyFlags, normalizeDiffIgnorePolicy } from '../diffIgnorePolicy';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -17,6 +19,20 @@ import { IGitOpsContext } from './GitOpsContext';
  */
 export class DiffOps {
   constructor(private readonly ctx: IGitOpsContext) {}
+
+  /**
+   * Resolve the user's configured diff whitespace ignore policy
+   * (`intellig.diff.ignorePolicy`) into git whitespace flags. Returns an empty
+   * array for the default (no-ignore) policy, so content diffs behave exactly
+   * as before unless the user opts in. Mirrors IntelliJ's diff-viewer "Ignore
+   * whitespace" dropdown — see {@link diffIgnorePolicyFlags}. The flags are
+   * fixed literals (never user text), so splicing them into the argv is
+   * injection-safe.
+   */
+  private whitespaceFlags(): string[] {
+    const raw = vscode.workspace.getConfiguration('intellig.diff').get<string>('ignorePolicy');
+    return diffIgnorePolicyFlags(normalizeDiffIgnorePolicy(raw));
+  }
 
   /**
    * Compute `git log --cherry-mark --left-right` classifications
@@ -82,6 +98,7 @@ export class DiffOps {
     if (staged) {
       args.push('--cached');
     }
+    args.push(...this.whitespaceFlags());
     args.push('--', path);
 
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
@@ -101,9 +118,12 @@ export class DiffOps {
   async getCommitDiff(repo: IRepository, hash: string): Promise<IDiff[]> {
     // `hash` is user-controlled; splice via buildGitArgs so a
     // hostile ref like `--upload-pack=evil` cannot land as a flag.
-    const result = await this.ctx.gitCli.exec(buildGitArgs('show', ['--format='], [hash]), {
-      cwd: repo.rootUri.fsPath,
-    });
+    const result = await this.ctx.gitCli.exec(
+      buildGitArgs('show', ['--format=', ...this.whitespaceFlags()], [hash]),
+      {
+        cwd: repo.rootUri.fsPath,
+      }
+    );
 
     return parseDiff(result.stdout);
   }
@@ -194,7 +214,7 @@ export class DiffOps {
     // computed parent SHA; newestCommit is direct user input). Splice
     // via buildGitArgs.
     const diffResult = await this.ctx.gitCli.exec(
-      buildGitArgs('diff', [], [baseRef, newestCommit]),
+      buildGitArgs('diff', this.whitespaceFlags(), [baseRef, newestCommit]),
       {
         cwd,
       }
