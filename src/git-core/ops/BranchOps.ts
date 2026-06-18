@@ -398,9 +398,25 @@ export class BranchOps {
     // declaration order. buildGitArgs places all flags between the subcommand
     // and `--end-of-options`, emitting e.g.
     // `rebase --autostash --update-refs --end-of-options <onto>`.
+    // Service-boundary: reject a `-`/`.`-leading newbase so a hostile ref can
+    // never be parsed as a git flag (mirrors the createBranch/setBranchUpstream
+    // guards). The newbase is the argument of `--onto` and is consumed
+    // positionally by git's option parser, but we reject defensively anyway.
+    if (options?.newBase && (options.newBase.startsWith('-') || options.newBase.startsWith('.'))) {
+      throw new Error(`Invalid rebase newbase: ${options.newBase}`);
+    }
     const flags = ['--autostash', ...rebaseOptionFlags(options)];
+    // `--onto <newbase>` rebases the `<upstream>..HEAD` range onto a different
+    // base (git4idea GitRebaseDialog "Onto" field). The newbase lands before
+    // `--end-of-options` as the argument of `--onto`; the upstream stays the
+    // guarded positional after the separator.
+    if (options?.newBase) {
+      flags.push('--onto', options.newBase);
+    }
     // `--root` rebases from the root commit, so no upstream/onto ref is passed
-    // (git4idea disables the upstream field when ROOT is selected).
+    // (git4idea disables the upstream field when ROOT is selected). `--root`
+    // and `<upstream>` are mutually exclusive; `--onto <newbase>` may pair with
+    // either (place the whole history, or the range, onto the newbase).
     const refs = options?.root ? [] : [onto];
     const args = buildGitArgs('rebase', flags, refs);
     const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });

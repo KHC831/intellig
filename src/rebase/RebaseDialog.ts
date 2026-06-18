@@ -71,6 +71,8 @@ export interface IRebaseDialogPreselect {
 interface IRebaseDialogMessage {
   type: 'rebase' | 'cancel';
   onto?: string;
+  /** Optional `--onto <newbase>` target; '' / absent means rebase onto upstream. */
+  newBase?: string;
   interactive?: boolean;
   rebaseMerges?: boolean;
   keepEmpty?: boolean;
@@ -304,6 +306,16 @@ export class RebaseDialog extends BaseWebviewPanel {
       })
       .join('');
 
+    // The optional `--onto <newbase>` target (git4idea GitRebaseDialog "Onto"
+    // field). An empty "(none)" default rebases onto the upstream as before;
+    // the choices are constrained to the offered branches so the webview can
+    // never steer the rebase onto an arbitrary ref.
+    const newbaseOptions =
+      `<option value="">(none — rebase onto upstream)</option>` +
+      this._branchChoices
+        .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+        .join('');
+
     const body = `
       <div class="summary">
         <div><span class="label">Branch:</span>${escapeHtml(this._currentBranch)} (current)</div>
@@ -312,6 +324,11 @@ export class RebaseDialog extends BaseWebviewPanel {
       <div class="field">
         <label class="field-label" for="onto-select">Rebase onto:</label>
         <select id="onto-select"${persistedOptions.root ? ' disabled' : ''}>${options}</select>
+      </div>
+
+      <div class="field">
+        <label class="field-label" for="newbase-select">New base (--onto):</label>
+        <select id="newbase-select">${newbaseOptions}</select>
       </div>
 
       <label class="flag" data-flag="interactive">
@@ -349,13 +366,16 @@ export class RebaseDialog extends BaseWebviewPanel {
         const interactiveBox = document.getElementById('flag-interactive');
         const optionsFieldset = document.getElementById('rebase-options');
         const ontoSelect = document.getElementById('onto-select');
+        const newbaseSelect = document.getElementById('newbase-select');
         const rootBox = document.getElementById('flag-root');
-        // The flag options apply to the non-interactive rebase only; the
-        // interactive path hands off to the todo editor. Disable them while
-        // Interactive is checked so the UI never implies they'd take effect.
+        // The flag options + the --onto newbase apply to the non-interactive
+        // rebase only; the interactive path hands off to the todo editor.
+        // Disable them while Interactive is checked so the UI never implies
+        // they'd take effect.
         const syncOptionsEnabled = () => {
           const disabled = interactiveBox.checked;
           optionsFieldset.classList.toggle('disabled', disabled);
+          newbaseSelect.disabled = disabled;
           for (const id of optionIds) {
             document.getElementById('flag-' + id).disabled = disabled;
           }
@@ -375,6 +395,7 @@ export class RebaseDialog extends BaseWebviewPanel {
           const msg = {
             type: 'rebase',
             onto: document.getElementById('onto-select').value,
+            newBase: newbaseSelect.value,
             interactive: interactiveBox.checked,
           };
           for (const id of optionIds) {
@@ -470,9 +491,18 @@ ${body}
             autosquash: msg.autosquash === true,
             root: msg.root === true,
           };
-          // Remember the chosen options so the next dialog pre-checks them.
+          // Remember the chosen options so the next dialog pre-checks them
+          // (newbase is target-specific and not persisted, like the upstream).
           void saveRebaseOptions(this._context.globalState, persisted);
-          await this._executeNonInteractive(onto, persisted);
+          // Defensive: only honor a newbase we offered. The webview <select>
+          // can only emit our options, but a compromised webview must not
+          // steer `--onto` at an arbitrary ref. The key is omitted entirely
+          // when unset so the default (no `--onto`) argv is unchanged.
+          const options: IRebaseOptions = { ...persisted };
+          if (typeof msg.newBase === 'string' && this._branchChoices.includes(msg.newBase)) {
+            options.newBase = msg.newBase;
+          }
+          await this._executeNonInteractive(onto, options);
         }
         return;
       }

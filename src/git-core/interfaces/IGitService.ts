@@ -558,6 +558,14 @@ export interface IRebaseOptions {
   updateRefs?: boolean;
   /** `--autosquash`. Reorder `fixup!`/`squash!` commits under their targets. */
   autosquash?: boolean;
+  /**
+   * `--onto <newbase>`. Rebase the `<upstream>..HEAD` range onto a different
+   * base than the upstream (git4idea GitRebaseDialog "Onto" field). When unset
+   * the argv is unchanged. The newbase lands as the argument of `--onto`,
+   * before `--end-of-options`; a `-`/`.`-leading newbase is rejected at the
+   * service boundary so a hostile ref can never be parsed as a git flag.
+   */
+  newBase?: string;
 }
 
 /**
