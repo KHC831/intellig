@@ -8,6 +8,7 @@ import {
   IBranch,
   IGitService,
   IRefDiffFile,
+  IRemote,
   IRepository,
 } from '../git-core/interfaces/IGitService';
 import { BranchTreeItem, BranchTreeProvider } from './BranchTreeProvider';
@@ -1148,6 +1149,59 @@ export class BranchContextMenuCommands {
   }
 
   /**
+   * Pick the target remote for a push — IntelliJ GitPushTarget.getRemoteToPush
+   * / GitUtil.getDefaultOrFirstRemote parity
+   * (git4idea/backend/src/push/GitPushTarget.java,
+   * git4idea/backend/src/GitUtil.java#getDefaultOrFirstRemote).
+   *
+   * With at most one remote there is nothing to choose, so we return it
+   * without prompting (single-remote fast path, unchanged behaviour). With
+   * several remotes we show a QuickPick whose default — preselected first so
+   * Enter accepts it, mirroring IntelliJ's preselected combobox — is the
+   * branch's tracked remote when it still exists, else `origin`, else the
+   * first remote. Returns the chosen remote name, or `undefined` if the user
+   * cancels (caller aborts the push).
+   *
+   * The returned name flows into `gitService.push` / `pushTag`, both of which
+   * splice it through `buildGitArgs` with `--end-of-options` ahead of the
+   * remote — so a hostile remote name from `.git/config` can never be parsed
+   * as a git flag (argv-injection defense; check:remote-ops-eoo).
+   */
+  private async _chooseTargetRemote(
+    repo: IRepository,
+    preferred?: string
+  ): Promise<string | undefined> {
+    let remotes: IRemote[];
+    try {
+      remotes = await this._gitService.getRemotes(repo);
+    } catch {
+      // Enumeration failed (rare) — fall back to the preferred/origin default
+      // and let the push itself surface any real error.
+      return preferred ?? 'origin';
+    }
+    if (remotes.length <= 1) {
+      return remotes[0]?.name ?? preferred ?? 'origin';
+    }
+
+    const names = remotes.map((r) => r.name);
+    const fallback = names.includes('origin') ? 'origin' : names[0];
+    const def = preferred && names.includes(preferred) ? preferred : fallback;
+    const ordered = [def, ...names.filter((n) => n !== def)];
+
+    const picked = await vscode.window.showQuickPick(
+      ordered.map((name) => ({
+        label: name,
+        description: name === def ? 'default' : undefined,
+      })),
+      {
+        title: 'Push — Choose Target Remote',
+        placeHolder: `Select the remote to push to (default: ${def})`,
+      }
+    );
+    return picked?.label;
+  }
+
+  /**
    * Handle push command for local branches.
    * Pushes the branch to its upstream remote, or sets upstream if none configured.
    */
@@ -1179,18 +1233,26 @@ export class BranchContextMenuCommands {
 
     try {
       const upstream = item.branch.upstream;
-      if (upstream) {
-        await this._gitService.push(repo, {
-          remote: upstream.remote,
-          branch: item.branch.name,
-        });
-      } else {
-        await this._gitService.push(repo, {
-          branch: item.branch.name,
-          setUpstream: true,
-        });
+      // When several remotes exist, let the user pick the target (default =
+      // tracked remote / origin); a single remote skips the prompt. Cancelling
+      // the picker aborts the push.
+      const targetRemote = await this._chooseTargetRemote(repo, upstream?.remote);
+      if (!targetRemote) {
+        return;
       }
-      void vscode.window.showInformationMessage(`Pushed branch '${item.branch.name}'`);
+      // Set upstream when the branch isn't yet tracking, or when the user
+      // redirected it to a remote other than its current upstream — matching
+      // IntelliJ's "set new upstream" on a remote change. Pushing to the
+      // already-tracked remote keeps the existing tracking untouched.
+      const setUpstream = !upstream || targetRemote !== upstream.remote;
+      await this._gitService.push(repo, {
+        remote: targetRemote,
+        branch: item.branch.name,
+        ...(setUpstream ? { setUpstream: true } : {}),
+      });
+      void vscode.window.showInformationMessage(
+        `Pushed branch '${item.branch.name}' to '${targetRemote}'`
+      );
       // Fallback push path lacked any
       // reload/refresh; add both so ahead/behind counts on the
       // branch tree match the post-push state.
@@ -2101,8 +2163,16 @@ export class BranchContextMenuCommands {
     }
 
     try {
-      await this._gitService.pushTag(repo, item.tag.name);
-      void vscode.window.showInformationMessage(`Pushed tag '${item.tag.name}' to remote`);
+      // Choose the target remote when several exist (default = origin / first);
+      // a single remote pushes without prompting. Cancel aborts.
+      const targetRemote = await this._chooseTargetRemote(repo);
+      if (!targetRemote) {
+        return;
+      }
+      await this._gitService.pushTag(repo, item.tag.name, targetRemote);
+      void vscode.window.showInformationMessage(
+        `Pushed tag '${item.tag.name}' to '${targetRemote}'`
+      );
       // pushTag updates remote-tracking refs;
       // reload + refresh so the tag tree's "pushed to remote" cue
       // (when present) reads the post-push state.
