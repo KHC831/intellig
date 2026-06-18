@@ -282,6 +282,25 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   }
 
   /**
+   * Reconcile dialog rows against the set of paths git still reports as
+   * unmerged. Any row currently `unresolved` whose path is NOT in the set has
+   * been resolved outside the dialog (e.g. the user finished the file in VS
+   * Code's native merge editor, which stages it) — flip it to resolved.
+   *
+   * Mirrors IntelliJ `MultipleFileMergeDialog.markFilesProcessed` /
+   * `updateModelFromFiles` (platform/vcs-impl), which drops files that
+   * `git ls-files --unmerged` (GitMergeProvider) no longer reports. Rows
+   * already resolved, and paths outside the dialog model, are left untouched.
+   */
+  reconcileResolved(unmergedPaths: ReadonlySet<string>): void {
+    for (const [path, status] of this._statuses) {
+      if (status === 'unresolved' && !unmergedPaths.has(path)) {
+        this.updateFileStatus(path, 'resolved');
+      }
+    }
+  }
+
+  /**
    * Return a snapshot of the current dialog file status map. Exposed for tests
    * and for the owning service to audit state.
    */

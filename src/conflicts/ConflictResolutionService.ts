@@ -121,6 +121,7 @@ export class ConflictResolutionService implements IConflictResolutionService {
       this._gitService.onDidChangeRepository(async (repo) => {
         const conflicts = await this.getConflictedFiles(repo);
         this._onDidChangeConflicts.fire({ repo, conflicts });
+        this._reconcileOpenDialog(repo, conflicts);
         this._scheduleStateFileCheck(repo);
       })
     );
@@ -204,6 +205,27 @@ export class ConflictResolutionService implements IConflictResolutionService {
     // Seed the context key so the VCS menu item & status-bar prompt reflect
     // the live state as soon as the dialog opens.
     await this._setConflictsActive(repo, true);
+  }
+
+  /**
+   * Sync an open Resolve Conflicts dialog against the freshly-queried unmerged
+   * set. When a conflicted file stops being unmerged — typically because the
+   * user finished it in VS Code's native merge editor (`git.openMergeEditor`),
+   * which stages the file and so mutates `.git/index` (a watched entry) — its
+   * row flips to resolved and the dialog's Continue button enables once every
+   * row is resolved.
+   *
+   * Mirrors IntelliJ `MultipleFileMergeDialog.updateModelFromFiles`
+   * (platform/vcs-impl), which re-reads `git ls-files --unmerged`
+   * (GitMergeProvider) on a refresh and drops rows no longer reported.
+   */
+  private _reconcileOpenDialog(repo: IRepository, conflicts: IConflictedFile[]): void {
+    const dialog = this._activeDialogs.get(repo.rootUri.fsPath);
+    if (!dialog) {
+      return;
+    }
+    const unmergedPaths = new Set(conflicts.map((c) => c.path));
+    dialog.reconcileResolved(unmergedPaths);
   }
 
   /**

@@ -130,13 +130,15 @@ function makeMockGitService(): IGitService & {
   _revertAbortCalls: number;
   _revertContinueCalls: number;
   _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
+  _fireRepoChange: (repo: IRepository) => void;
 } {
   const execCalls: string[][] = [];
   const statuses: Map<string, { indexStatus: string; workTreeStatus: string }> = new Map();
+  const repoChangeEmitter = new vscode.EventEmitter<IRepository>();
 
   const svc = {
     getRepositories: (): IRepository[] => [],
-    onDidChangeRepository: new vscode.EventEmitter<IRepository>().event,
+    onDidChangeRepository: repoChangeEmitter.event,
     getStatus: async () => {
       return Array.from(statuses.entries()).map(([p, s]) => ({
         path: p,
@@ -173,6 +175,7 @@ function makeMockGitService(): IGitService & {
     _revertAbortCalls: 0,
     _revertContinueCalls: 0,
     _statuses: statuses,
+    _fireRepoChange: (r: IRepository): void => repoChangeEmitter.fire(r),
   } as unknown as IGitService & {
     _execCalls: string[][];
     _cherryPickAbortCalls: number;
@@ -180,6 +183,7 @@ function makeMockGitService(): IGitService & {
     _revertAbortCalls: number;
     _revertContinueCalls: number;
     _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
+    _fireRepoChange: (repo: IRepository) => void;
   };
   return svc;
 }
@@ -416,6 +420,70 @@ describe('ResolveConflictsDialog', () => {
       assert.strictEqual(dialog.getFileStatuses().get('a.ts'), 'unresolved');
       mergeView._fireResolve('a.ts');
       assert.strictEqual(dialog.getFileStatuses().get('a.ts'), 'resolved');
+    });
+  });
+
+  // After the user resolves a conflict in VS Code's native merge editor
+  // (git.openMergeEditor → git.acceptMerge stages the file), the file stops
+  // being unmerged. The dialog must flip that row to resolved when re-synced
+  // against the live unmerged set — mirroring IntelliJ MultipleFileMergeDialog's
+  // markFilesProcessed/updateModelFromFiles, which drops files no longer
+  // reported by `git ls-files --unmerged`.
+  describe('post-native-editor resolved-row auto-flip', () => {
+    it('flips an unresolved row whose path is no longer in the unmerged set to resolved', () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [
+          { path: 'a.ts', resolved: false },
+          { path: 'b.ts', resolved: false },
+        ],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      // a.ts was resolved+staged outside the dialog; b.ts is still unmerged.
+      dialog.reconcileResolved(new Set(['b.ts']));
+
+      assert.strictEqual(dialog.getFileStatuses().get('a.ts'), 'resolved');
+      assert.strictEqual(dialog.getFileStatuses().get('b.ts'), 'unresolved');
+    });
+
+    it('leaves a still-unmerged row untouched', () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      // a.ts is still reported as unmerged — must NOT flip.
+      dialog.reconcileResolved(new Set(['a.ts']));
+
+      assert.strictEqual(dialog.getFileStatuses().get('a.ts'), 'unresolved');
+    });
+
+    it('does not touch paths outside the dialog model', () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: false }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      // An unrelated path going clean must not introduce a new row.
+      dialog.reconcileResolved(new Set());
+
+      assert.strictEqual(dialog.getFileStatuses().get('a.ts'), 'resolved');
+      assert.strictEqual(dialog.getFileStatuses().has('zzz.ts'), false);
     });
   });
 
@@ -791,6 +859,34 @@ describe('ConflictResolutionService — (a) additions', () => {
       true,
       'context key must still be true'
     );
+  });
+
+  it('flips an open dialog row to resolved when a repo change reports the file no longer unmerged', async () => {
+    // Two files conflicted; dialog opens with both unresolved.
+    gitService._statuses.set('a.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+    gitService._statuses.set('b.ts', { indexStatus: 'U', workTreeStatus: 'U' });
+    await conflictService.openResolveConflictsDialog(
+      repo,
+      [
+        { path: 'a.ts', resolved: false },
+        { path: 'b.ts', resolved: false },
+      ],
+      { operation: 'merge', canAbort: true, canContinue: true }
+    );
+    const openDialog = conflictService.getOpenDialog(repo);
+    assert.ok(openDialog);
+    assert.strictEqual(openDialog.getFileStatuses().get('a.ts'), 'unresolved');
+
+    // User resolves a.ts in the native merge editor → it is staged → `git
+    // status` no longer reports it as unmerged. The `.git/index` write fires
+    // onDidChangeRepository.
+    gitService._statuses.delete('a.ts');
+    gitService._fireRepoChange(repo);
+    // Let the async onDidChangeRepository handler settle.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.strictEqual(openDialog.getFileStatuses().get('a.ts'), 'resolved');
+    assert.strictEqual(openDialog.getFileStatuses().get('b.ts'), 'unresolved');
   });
 
   it('feature flag = true opens dialog and tracks it per repo (single-instance reveal)', async () => {
