@@ -50,7 +50,7 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
-| 2026-06-18 | UX layout polish (round 1) — webview log-menu reorder so the destructive trio (Reset→Revert→Drop) LEADS the history block per git4idea `Git.Log.ContextMenu` (test-locked ordering); command-palette ellipsis pass (dialog-opening titles end with `…`); reset-dialog destructive confirm verified already present. Seeded the new tracked `docs/parity/UX-PARITY.md` (per-surface UX heatmap + prioritized gap table from the ux-analyst pass) | 64c5a20, 05515e5 | local cherry-pick + UX gap map |
+| 2026-06-18 | UX layout polish (round 1) — webview log-menu reorder so the destructive trio (Reset→Revert→Drop) LEADS the history block per git4idea `Git.Log.ContextMenu` (test-locked ordering); command-palette ellipsis pass (dialog-opening titles end with `…`); reset-dialog destructive confirm verified already present. Mapped the per-surface UX heatmap + prioritized gap table (ux-analyst pass) — now folded into `NORTHSTAR.md` section 4b + `R2-UX-03-menus.md` | 64c5a20, 05515e5 | local cherry-pick + UX gap map |
 | 2026-06-18 | R2 re-audit fixes — RemoteOps.addRemote leading-dash guard; rebaseTodo first-entry squash/fixup pre-flight throw + full-hash message-file key (8-char collision); `_isCommitPushed` hex-guard; line-status LCS now capped by `m*n` cells (not just per-side) to protect the ext host; + a real-git autosquash round-trip test (locks the verified behavior, closes the argv-shape-only gap); comment-hygiene tidies | 836f47c, 2b69b00 | local cherry-pick + lead fixes |
 | 2026-06-18 | Workstream A (slice 3) — rollback / revert-local-changes dialog: modal IntelliJ-style confirm listing affected files (explicit untracked-delete warning), status-aware revert (modified/deleted → `checkout HEAD -- <paths>`, added → `rm --cached -- <paths>`, untracked → delete) with all paths positional behind `--`; recursive untracked delete is guarded by a path-containment check (rejects empty/`.`/`..`/outside-repo); mirrors `RollbackChangesDialog`/`RollbackWorker` | 2d41856 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream F (slice 8b) — line-status hover popup: hovering a changed line shows the old (HEAD) content + "Revert this change"/"Copy old content" via scoped-`isTrusted` command links (args `encodeURIComponent(JSON.stringify([uri,line]))`, content HTML-escaped in a fence-length-safe code block); revert is an in-memory `WorkspaceEdit` (working-tree-safe); reuses the A-2 range model; mirrors `LineStatusMarkerPopupActions` | 76ea5e4 | local cherry-pick (1 commit) |
@@ -113,9 +113,10 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 - `R2-01-log` … `R2-09-shell`, `R2-UX-01` … `R2-UX-04` — per-area review detail with file:line refs.
 - `full-parity-audit` content is folded into `NORTHSTAR.md` (the standalone file was removed in the
   2026-06-15 doc consolidation).
-- Reference/design docs: `accessibility.md`, `changed-files-tree.md`, `git-log-graph.md`,
-  `repo-states.md`; track design notes `before-commit-checks.md`, `commit-tool-window-changes.md`,
-  `incoming-tab.md`, `update-project.md`.
+- Contract specs that survived consolidation are folded into the `R2-05`/`R2-06`/`R2-08` appendices
+  (Changed-files-tree / Local-Changes / Before-commit-checks / Update-Project / Incoming-tab). The
+  jargon-heavy reference docs (`accessibility`, `git-log-graph`, `repo-states`) were removed — their
+  contracts live in the property/snapshot tests + ADR-013 they pointed to. See `NORTHSTAR.md` section 7.
 
 ## Open risk carried forward
 - R2 review predates the A/C/phase-0 merges — re-verify findings against the merged tree.

@@ -1,5 +1,7 @@
 # Parity review (Round 2) — History / Annotate (Blame)
 
+> **NORTHSTAR tie-back:** workstream **F** (Blame / History / Diff) · role: Round-2 deep audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 deep tech-lead review by the assigned component owner. North-star = IntelliJ git4idea + Platform (full clone at `~/Documents/workspace/intellij-community`). Our extension = `intellig` (VS Code). **You own this component.** Round 1 enumerated gaps; Round 2 is a fresh, opinionated tech-lead pass — re-verify R1's findings against the CURRENT code, AND surface whatever you judge important for this component regardless of whether R1 named it._
 
 ## Mandate (decide what matters for YOUR component)

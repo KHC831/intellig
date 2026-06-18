@@ -1,5 +1,7 @@
 # Round 2 UX Review — Context Menu Structure & Ordering
 
+> **NORTHSTAR tie-back:** cross-cutting **UI/UX layout** — menus · role: Round-2 UX audit (backs NORTHSTAR section 4b). See `NORTHSTAR.md` section 7 (reference index).
+
 **Agent:** senior-reviewer (UX reviewer role)  
 **Timestamp:** 2026-06-15  
 **Scope:** Context-menu ORDER, GROUPING (separators/sections), LABELS/wording, command-palette titles
@@ -419,3 +421,33 @@ Change to **"Rebase Current Branch onto This"** (add "Branch" for clarity) OR **
 
 **Recommendation:**  
 Fix Findings #1, #2, #3 (HIGH severity) before any "IntelliJ parity" claim in marketing. Findings #4, #5 (MEDIUM) are polish — acceptable to defer to a "menu consistency pass" batch post-P2.
+
+---
+
+## Follow-on pass — 2026-06-18 (ux-analyst sweep; folded from the former UX-PARITY.md)
+
+A second UX sweep extended the surface map beyond the 3 menus above. Items below are the **open**
+layout gaps; the forward-plan view (heatmap + ordering) is mirrored in `NORTHSTAR.md` section 4b.
+
+**Landed (`64c5a20`, see STATUS):**
+- **F#1 (log menu reorder)** — webview path done: Reset/Revert/Drop now LEAD the history block
+  (`htmlBuilders.ts`, test-locked `resetToHere` before edit/drop/merge). *Native tree menu still
+  diverges — see #2 below.*
+- **F#4 (palette ellipsis)** — dialog-opening command titles got `…` (Commit…/Push…/Pull…).
+- Reset-dialog destructive confirm verified already present (`ResetDialog._confirmDestructive`).
+
+**Still open (numbering matches NORTHSTAR section 4b):**
+
+| # | Surface | Gap | IntelliJ ref | IntelliG site |
+|---|---|---|---|---|
+| 2 | Log menu | Webview graph menu vs native tree menu diverge — pick one source of truth | `Git.Log.ContextMenu` | `htmlBuilders.ts:217` vs pkg.json logCommit |
+| 3 | Log menu | "Edit Commit Message" → "Reword…" + add to tree menu | `Git.Reword.Commit` | `htmlBuilders.ts:227` |
+| 4 | Branch popup | QuickPick: Rename/Delete LAST; missing Diff-with-Local / Update-Selected / Pull-into-current / New-Worktree / Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` |
+| 5 | Branch popup | Tracked-branch submenu (set-upstream / edit-tracked) — QuickPick cascade per Observation 1 | `Git.Branch.Tracked` | absent |
+| 6 | Explorer submenu | No "Commit File"; History should trail; Annotate grouped w/ diff; "Compare with Revision…" → "Compare with Branch" | `Git.FileActions` | pkg.json `explorerSubmenu` |
+| 8 | Palette | Drop redundant inner `Rebase:`/`Blame:` prefixes | plain action text | pkg.json commands |
+| 9 | Toolbar | Fetch & Update both `$(sync)` → distinct Fetch icon; branch widget to navigation@1 | `AllIcons.Vcs.Fetch` | pkg.json `view/title` |
+| 10 | Log menu | By-subject Fixup/Squash + New-Branch/New-Tag-from-commit in webview graph menu | `Git.Log.ContextMenu` | `htmlBuilders.ts:234` |
+
+**Order:** quick wins (#8, #9, #6-partial — pkg.json-mostly) → structural wave (#2, #3, #4, #5, #10).
+Tool-window Stash/Working-Trees tabs + per-dialog field audit are deferred.

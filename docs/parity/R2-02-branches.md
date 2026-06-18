@@ -1,5 +1,7 @@
 # Parity review (Round 2) — Branches
 
+> **NORTHSTAR tie-back:** workstream **D** (Branches & Tags) · role: Round-2 deep audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 deep tech-lead review by the assigned Branches component owner. North-star = IntelliJ git4idea (full clone at `~/Documents/workspace/intellij-community/plugins/git4idea`). Our extension = `intellig` (VS Code). This review covers: branch list/popup, create/checkout/delete/rename branch, compare branches, cherry-pick from a branch, merged-branch cleanup, branch context menus, multi-select/bulk branch ops, the branch front-door widget._
 
 **Review date:** 2026-06-15

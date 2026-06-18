@@ -1,5 +1,7 @@
 # Parity review (Round 2) — Shell / Actions / Commands
 
+> **NORTHSTAR tie-back:** workstream **C** (Shell / Menus / Sync) · role: Round-2 deep audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 deep review by tech-lead-reviewer. North-star = IntelliJ git4idea + the
 IntelliJ Platform (full clone at `~/Documents/workspace/intellij-community`). Our
 extension = `intellig` (VS Code). **Component owner: Shell/actions/commands** — the

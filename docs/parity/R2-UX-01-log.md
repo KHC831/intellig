@@ -1,5 +1,7 @@
 # UX/Visual Parity Review (Round 2) — Log / Commit Graph UI
 
+> **NORTHSTAR tie-back:** workstream **G** (Log & Commit Graph) · role: Round-2 UX audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 **UX-focused** review by senior-reviewer (UX lens). North-star = IntelliJ Platform VCS Log visual layout, filter bar structure, column presentation, graph rendering aesthetics, and interaction affordances. This review is ORTHOGONAL to R2-01-log.md (tech-lead correctness/functionality review) — both are required for full parity assessment._
 
 **Scope:** Visual structure, layout, column order & labels, filter bar field order/presentation, keyboard navigation, accessibility (ARIA, focus, tabindex), hover feedback, empty states, and "does it LOOK like IntelliJ?"

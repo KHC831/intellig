@@ -1946,7 +1946,6 @@ export class GitToolWindowProvider
    * highlights compared to a strict "tip → merge-base" path, but is
    * the safe conservative default — every commit the user can see
    * from the focused branch is "on path" from focus's perspective.
-   * Documented in `docs/parity/git-log-graph.md` §3.3.
    */
   private _bfsPathToMergeBase(targetHash: string, mergeBaseHash: string | undefined): Set<string> {
     const path = new Set<string>();

@@ -1267,8 +1267,7 @@ describe('Wave F / F3 — detached-HEAD pseudo-ref filtered through the renderin
  *   - snap-9f pins the inline CSS contract (renderer-styling stage)
  *
  * Per ADR-010 Layer 4 (repo-state coverage), snap-9b explicitly covers
- * detached-HEAD-with-no-branches; the §1.5 entry in
- * `docs/parity/repo-states.md` cites it as the back-reference.
+ * detached-HEAD-with-no-branches.
  */
 
 interface HeadStateInternals {

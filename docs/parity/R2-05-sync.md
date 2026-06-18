@@ -91,3 +91,194 @@ Source legend: `git4idea` (portable git logic) · `platform` (UI we hand-build) 
 **R1 closed vs open:** P1 #3/#19b CLOSED (19cd0fd — non-HEAD divergence + force-with-lease flip verified correct). Update Project PARTIAL (backend green, multi-repo + update-info log tab deferred). Remote ops CLOSED (backend c4119b7, UI deferred). Fetch --prune CLOSED (all 5 fetch paths wire it).
 
 **Blockers/security:** 2 CRITICAL findings BLOCK merge/release (fetch argv injection + credential leak). Both S effort (< 20 lines total). Push/pull argv guards VERIFIED SAFE (buildGitArgs + validation OK). Once fixed, Sync component is security-sound.
+
+
+---
+
+## Appendix — Update Project contract spec (durable; folded from former `update-project.md`)
+
+_Layer-3 contract spec (ADR-010), test-pinned. NORTHSTAR tie-back: workstream **C** (Shell/Menus/Sync)._
+
+Layer-3 reference doc (ADR-010) for IntelliJ's **Update Project**
+(`Vcs.UpdateProject`, Ctrl+T) — `GitUpdateOptionsDialog` +
+`GitUpdateProcess` + the **Update Info** results tab.
+
+Cross-references: ADR-001 (IGitService freeze), ADR-010,
+`docs/parity/NORTHSTAR.md` (workstream C — Shell/Menus/Sync), and the git4idea
+reference `plugins/git4idea/backend/src/update/{GitUpdateProcess.java,
+GitUpdateOptionsDialog.kt}` + `shared/.../config/UpdateMethod.java`.
+
+## 0. Repo-state landmap (ADR-010 Layer 4)
+
+| State | Behaviour | Coverage |
+| --- | --- | --- |
+| default, upstream set, incoming > 0 | fetch → pull with chosen strategy → `updated` | covered (updateProjectFlow.test.ts) |
+| in sync (incoming = 0) | fetch only → `up-to-date`, no pull | covered |
+| no upstream | `up-to-date`, no pull | covered |
+| rebase/merge in progress | per-repo `error` (preflight block), other repos continue | covered |
+| unmerged files | per-repo `error` (preflight block) | covered |
+| pull conflict | per-repo `conflict` | covered |
+| multi-root | each root updated independently, results aggregated | covered |
+
+## 1. Update method (GitUpdateOptionsDialog / UpdateMethod)
+
+The dialog (a QuickPick) offers three methods, mirroring git4idea's
+`UpdateMethod` (RESET is out of scope for the pure-Git surface):
+
+- **Merge** → `git pull` (merge fetched commits; fast-forwards when possible).
+- **Rebase** → `git pull --rebase` (replay local commits on the fetched tip).
+- **Branch default** → resolve per repo.
+
+### 1.1 BRANCH_DEFAULT resolution
+
+git4idea's `GitUpdater.getUpdater(BRANCH_DEFAULT)` reads, in order:
+`branch.<name>.rebase` → `pull.rebase` → MERGE.
+
+IntelliG approximates this with the `intellig.pullRebase` setting (the
+IntelliG analog of `pull.rebase`): `resolveUpdateRebase('branch-default',
+pullRebaseDefault)`. The finer-grained per-branch `branch.<name>.rebase`
+override needs a `git config` read on the service — a **deferred
+cross-cutting change** (a new git op + GitService method, ADR-001 pattern).
+Until then, branch-default == the repo/global pull.rebase analog.
+
+## 2. GitUpdateProcess flow (`runUpdateProject`)
+
+For each repository (multi-root):
+
+1. **Preflight** (`updateProjectBlockedReason`): block on rebase/merge in
+   progress or unmerged files (GitUpdateProcess parity). A blocked repo is
+   recorded as `error` and the run continues with the next repo.
+2. **`git fetch --all --prune`**.
+3. **Incoming count** via Phase-0a `getIncomingOutgoing` — populates the
+   Update Info summary and short-circuits `up-to-date` when nothing is
+   incoming / no upstream.
+4. **`git pull`** with the resolved strategy. A `CONFLICT` failure →
+   `conflict`; any other failure → `error`.
+
+The flow is pure orchestration over an injected git surface
+(`IUpdateGitService`) — no `vscode` import — so it is fully unit-testable.
+
+> **Deferred vs git4idea**: the save-local-changes (autostash) step is NOT
+> performed here; it is owed to the Pull `--autostash` follow-up (§C Item 6,
+> a cross-cutting change in `IPullOptions` + `RemoteOps`). The rebase-over-
+> merge problem dialog and the per-root `GitUpdatedRanges` log-range
+> computation are also out of scope for this pass.
+
+## 3. Update Info tab (`UpdateInfoTab`)
+
+Holds the latest `IUpdateInfoSummary` (per-repo `IUpdateRepoResult[]` +
+totals). `updateInfoHeadline(summary)` produces the one-line outcome used by
+the post-update notification and the tab header:
+
+- conflicts present → "Update finished with N conflict(s) …"
+- errors present → "Update failed in N of M repo(s)."
+- nothing incoming → "Already up to date." / "All repositories already up to date."
+- otherwise → "Updated N repositories; K commit(s) pulled."
+
+### 3.1 Render + provider wiring (DEFERRED to the Log/Graph workstream)
+
+`UpdateInfoTab` exposes `setSummary(summary)` + `asTabHandler()` + an
+`onStateChange` hook, mirroring HistoryTab/IncomingTab. The HTML renderer
+(`html/updateInfoHtml.ts`) and the provider wiring that calls `setSummary`
+after `intellig.updateProject` runs live in the Log/Graph (G) workstream.
+Until that lands, the command surfaces the headline via a notification with a
+"Show Update Info" deep-link that focuses the `updateInfo` tab.
+
+## 4. Test coverage
+
+- Method resolution: `resolveUpdateRebase`, `buildUpdatePullOptions`.
+- Orchestration: `runUpdateProject` (single/multi-root, in-sync, no-upstream,
+  blocked, conflict, error) — `updateProjectFlow.test.ts`.
+- Summary fold + headline: `summarizeUpdate`, `updateInfoHeadline`.
+- Tab state machine: `UpdateInfoTab` (setSummary, refresh, jump, malformed).
+- Preflight predicate: `updateProjectGuard.test.ts` (pre-existing).
+
+
+---
+
+## Appendix — Incoming tab contract spec (durable; folded from former `incoming-tab.md`)
+
+_Layer-3 contract spec (ADR-010), test-pinned. NORTHSTAR tie-back: workstream **C / G** (Incoming tab)._
+
+Layer-3 reference doc (ADR-010) for the Git tool window **Incoming** tab.
+IntelliJ reference: git4idea's "Incoming" view, fed by
+`GitBranchIncomingOutgoingManager` (the same notion that drives the
+incoming/outgoing branch arrows).
+
+Cross-references: ADR-001 (IGitService freeze), ADR-010 (visual parity
+discipline), `docs/parity/NORTHSTAR.md` (workstream C / G — Incoming tab).
+
+## 0. Repo-state landmap (ADR-010 Layer 4)
+
+| State | Behaviour | Coverage |
+| --- | --- | --- |
+| default (attached HEAD, upstream set) | lists incoming commits; shows counts | covered (incomingTab.test.ts, incomingCommitSelection.property) |
+| no upstream | `noUpstream: true`, empty list, no log calls | covered |
+| in sync (incoming = 0) | empty list, no log calls | covered |
+| diverged (branch + upstream both moved) | exact upstream-minus-HEAD difference | covered (property test) |
+| detached HEAD | resolves to `branch: 'HEAD'`, treated as no-upstream by 0a | inherited from `IncomingOutgoingOps.getForCurrentBranch` |
+| empty repo / mid-op | `getIncomingOutgoing` returns zero counts → empty list | inherited from 0a; renderer-stage NOT covered (deferred to Log/Graph stream) |
+
+## 1. Data model
+
+The tab's state (`IIncomingTabState`) is:
+
+- `branch` — current branch (or `HEAD` when detached)
+- `upstream` — resolved tracking ref (e.g. `origin/main`), or `undefined`
+- `incomingCount` — git "behind" count (commits a pull would bring in)
+- `outgoingCount` — git "ahead" count (shown as context)
+- `noUpstream` — true when the branch tracks nothing
+- `commits` — the incoming commits, newest first
+- `selectedCommit` — selected row hash
+- `error` / `loading` — UI side-bands
+
+### 1.1 Where the data comes from
+
+- **Counts + upstream**: `GitService.getIncomingOutgoing` (Phase 0a) —
+  `git rev-list --left-right --count <upstream>...HEAD`.
+- **Commit list**: computed as the **set difference** of the upstream's log
+  and HEAD's log, keyed on commit hash
+  (`selectIncomingCommits(upstreamLog, headHashSet(headLog))`). This uses only
+  the frozen `IGitService.getLog`, so the tab adds **no new git op** (ADR-001).
+  The set-difference is exact even when the branch and upstream have diverged —
+  a naïve "top N of the upstream log" slice would be wrong in that case.
+
+## 2. Render rules (DEFERRED to the Log/Graph workstream)
+
+The HTML renderer lives in `src/git-core/gitToolWindow/html/incomingHtml.ts`
+and the provider wiring in `GitToolWindowProvider.ts` — both owned by the
+Log/Graph (G) workstream. This workstream (C) ships the **data + handler
+layer** only (`tabs/IncomingTab.ts`). The intended render contract, for G to
+implement against this state:
+
+- Header row: `↓<incomingCount>` badge, branch → upstream label, and a Pull
+  button when `incomingCount > 0`.
+- "No upstream" empty state when `noUpstream`.
+- "Up to date" empty state when `incomingCount === 0 && !noUpstream`.
+- One row per `commits[i]`: short hash, first message line, author, date.
+- Row click posts `incoming.selectCommit`; double-click / Enter posts
+  `incoming.jumpToCommit` (routed to the Log tab's scroll-to-commit).
+- `error` rendered as an inline banner (HistoryTab state-sideband pattern).
+
+## 3. Message protocol
+
+Inbound (webview → host):
+
+- `incoming.refresh` — recompute counts + list
+- `incoming.selectCommit { hash }` — record selection
+- `incoming.jumpToCommit { hash }` — route to the Log tab via the
+  `jumpToCommit` hook
+
+Outbound (host → webview), posted by the provider via the `onStateChange`
+hook: `incoming.updateState { state }`.
+
+## 4. Test coverage (snapshot back-references)
+
+- Pure set-difference: `selectIncomingCommits` / `headHashSet`
+  (`incomingTab.test.ts`, `incomingCommitSelection.property.test.ts` — 200-run
+  fast-check).
+- State machine: refresh (no-upstream / in-sync / diverged / error / no-repo),
+  selection, jump routing, malformed-message handling, `onStateChange`
+  loading→settled emission (`incomingTab.test.ts`).
+- Renderer-stage / jsdom-layout snapshots are owed when the Log/Graph stream
+  lands `incomingHtml.ts` (ADR-010 Layer 1 multi-stage discipline).

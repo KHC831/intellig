@@ -1,5 +1,7 @@
 # Parity review (Round 2) — Conflicts / Merge
 
+> **NORTHSTAR tie-back:** workstream **B** (3-way Merge) · role: Round-2 deep audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 deep review by tech-lead (conflicts/merge component owner). North-star = IntelliJ git4idea + platform diff-impl. Focus: delete-vs-modify correctness (P1 #2 closed), merge options (P2 partial), 3-way merge editor, conflict detection, standalone Merge From picker, security (path handling in resolution ops, argv guards)._
 
 ## Reference map

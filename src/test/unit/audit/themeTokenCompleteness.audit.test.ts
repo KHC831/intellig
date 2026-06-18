@@ -3,8 +3,8 @@
  *
  * The panel's inline CSS resolves every fg/bg color through a VS Code
  * `var(--vscode-...)` token first, with an IntelliJ-parity hex literal ONLY
- * as the fallback for themes that don't define the token (ADR-010 /
- * accessibility.md 1). A raw hex that is NOT a documented fallback is the
+ * as the fallback for themes that don't define the token (ADR-010).
+ * A raw hex that is NOT a documented fallback is the
  * regression this audit forbids — it pins a color the user's theme can't
  * override, which breaks high-contrast and custom themes (spec 7.2).
  *

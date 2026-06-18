@@ -36,9 +36,8 @@ import { parseBranches } from '../../git-core/gitParser';
  * predicate, not at separator-collision behavior. (Note: git itself
  * accepts both characters in refnames — `git check-ref-format
  * 'refs/heads/foo|bar'` exits 0 — so a real branch with `|` in its
- * name is a pre-existing parser fragility, tracked in
- * `docs/parity/repo-states.md` §1.4 as a follow-up. It's
- * orthogonal to the pseudo-ref filter under test here.)
+ * name is a pre-existing parser fragility, orthogonal to the
+ * pseudo-ref filter under test here.)
  *
  * The remaining char-set is broad enough to cover ASCII + multi-byte
  * UTF-8 + whitespace + punctuation, which is what git actually emits

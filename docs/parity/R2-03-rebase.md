@@ -1,5 +1,7 @@
 # Parity review (Round 2) — Rebase
 
+> **NORTHSTAR tie-back:** workstream **H** (Rebase / Cherry-pick / Revert) · role: Round-2 deep audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 deep review by tech-lead. North-star = IntelliJ git4idea (`~/Documents/workspace/intellij-community/plugins/git4idea`). Our extension = `intellig` (VS Code). **I own this component.** R1 enumerated gaps; R2 is a fresh, opinionated tech-lead pass — re-verify R1 findings against CURRENT code, AND surface whatever I judge important regardless of whether R1 named it._
 
 ## Mandate

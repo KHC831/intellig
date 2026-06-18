@@ -1,5 +1,7 @@
 # Parity review (Round 2) — Log / Commit Graph
 
+> **NORTHSTAR tie-back:** workstream **G** (Log & Commit Graph) · role: Round-2 deep audit. See `NORTHSTAR.md` section 7 (reference index).
+
 _Round-2 deep review by tech-lead. North-star = IntelliJ git4idea + IntelliJ Platform VCS-log. Component owner: log/commit-graph tool window, graph rendering & edge routing, log filtering (filter bar, path/author/date/text filters), commit highlighting, log context menu._
 
 ## Reference map

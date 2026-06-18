@@ -1,5 +1,7 @@
 # R2-UX-04: UX Review — Editors & Panels (3-Way Merge, Blame Gutter, File History, Branch Popup)
 
+> **NORTHSTAR tie-back:** workstreams **B / F / D** — merge, blame/history, branch popup · role: Round-2 UX audit. See `NORTHSTAR.md` section 7 (reference index).
+
 **Reviewer:** senior-reviewer (UX-focused)  
 **Date:** 2026-06-15  
 **Scope:** Visual layout, interaction model, and UX parity for 4 surfaces against IntelliJ

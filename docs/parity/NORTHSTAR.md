@@ -7,8 +7,14 @@ the **wrong thing** > security hole > missing daily feature > visual polish. Las
 
 > What's landed (progress log, SHAs, pending-merge branches) lives in **[`STATUS.md`](./STATUS.md)**.
 > UI/UX **layout** parity (menu order/grouping, labels, ellipsis, icons, tool-window tabs, dialogs)
-> is tracked separately in **[`UX-PARITY.md`](./UX-PARITY.md)**.
+> is a first-class goal, tracked in **section 4b** below; the detailed per-menu findings live in
+> **[`R2-UX-03-menus.md`](./R2-UX-03-menus.md)** (+ `R2-UX-01/02/04` for log/dialogs/editors).
 > This doc lists only remaining work; done items are removed once they land in STATUS.
+>
+> **Doc map** (3 classes — that's all there is): **plan** = this file (what's left) · **log** =
+> `STATUS.md` (what landed) · **reference** = everything else (`R2-*` deep audits + the durable
+> per-surface contract specs). Every reference file carries a `> **NORTHSTAR tie-back:**` header
+> naming its workstream; the full file→workstream map is **section 7** below.
 
 ---
 
@@ -54,12 +60,58 @@ items in section 4.
 quoting + revert-hunk stale-index guard (5e6855a) and the any-scheme `sanitizeGitError` credential
 scrub (bafee52) all landed; see STATUS. Remaining backlog is daily-feature workstreams below._
 
-**Medium / polish:** menu order/grouping vs git4idea action XML (R2-UX-03 findings #1–3: Reset to top of
-log menu, Integrate↔Sync separator, tracked-branch submenu); command-palette title pass (drop redundant
-`Git:` prefix on remaining commands, ellipsis audit); reset-dialog F5 confirmation.
+**Medium / polish:** UI/UX layout parity (menu order/grouping, labels, ellipsis, icons, tool-window
+tabs, dialogs) — tracked as its own goal in **section 4b** (detail in `R2-UX-03-menus.md`).
 
 **Process:** F5 dogfood sweep for unit-locked-but-unconfirmed UI; re-run the R2 review against the
 merged tree (it predates the A/C/phase-0 merges). Evidence: `R2-0N-*.md`, `R2-UX-0N-*.md`.
+
+**Deferred backlog (non-blocking):**
+- _a11y (cross-cutting):_ chip `aria-haspopup="menu"` when chip-as-button interactivity lands (NOT
+  `aria-pressed` — chips open menus, they aren't toggles); left/right arrow-key navigation across chips
+  within a commit row (mirrors IntelliJ's branches-popup nav); per-feature manual high-contrast sweep
+  (`Default High Contrast` ± Light) — automation covers the theme-var contract, not contrast ratios.
+- _edge-state UI:_ merge-in-progress branch-chip rendering on the not-yet-committed merge (no SHA) +
+  "New Branch From Here" start-point selection during a paused merge; empty-repo log-graph / branches-
+  popup polish (currently blank — visually fine). _(Paused-rebase Continue/Skip/Abort + conflict
+  Continue/Abort are already landed — H/B workstreams — so they're dropped from this list.)_
+
+---
+
+## 4b. UI/UX layout parity (remaining)
+
+_Layout fidelity — menu order/grouping, labels, ellipsis, icons, tool-window tabs, dialog structure —
+is a parity goal in its own right, not just feature coverage. Authoritative ref = git4idea action XML
+`~/Documents/workspace/intellij-community/plugins/git4idea/backend/resources/intellij.vcs.git.backend.xml`
+(+ `GitBranchPopupActions.java`). Detailed findings + reorder recipes: `R2-UX-03-menus.md`._
+
+**Surface heatmap:** log/commit menu 🟡 ~70% · branch popup (QuickPick) 🟡 ~65% · branch tree menu
+🟢 ~90% · tool-window tabs 🟢 ~85% · explorer/editor submenu 🟡 ~70% · command-palette titles
+🟢 ~85% · toolbar/view-title 🟡 ~75% · major dialogs 🟢 ~85%.
+
+**Open gaps** (ref = git4idea XML group / Java class):
+
+| # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
+|---|---|---|---|---|---|
+| 2 | Log menu | Webview graph menu and native tree menu diverge (labels/actions/order); pick one source of truth | `Git.Log.ContextMenu` | `htmlBuilders.ts:217` vs pkg.json `view/item/context` logCommit | M/L |
+| 3 | Log menu | "Edit Commit Message" → "Reword…" + add to tree | `Git.Reword.Commit` (`GitRewordAction`) | `htmlBuilders.ts:227` | S |
+| 4 | Branch popup | QuickPick: Rename/Delete should be LAST; missing Diff-with-Local, Update-Selected, Pull-into-current, New-Worktree, Push-Tags | `Git.Branch.Backend` | `BranchPopup.ts ~721-792` | M |
+| 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
+| 6 | Explorer submenu | No "Commit File"; History should trail; Annotate grouped w/ diff; "Compare with Revision…" → "Compare with Branch" | `Git.FileActions` | pkg.json `explorerSubmenu` | S/M |
+| 8 | Palette | Drop redundant inner `Rebase:`/`Blame:` prefixes (render as "IntelliG: Rebase: …") | plain action text | pkg.json commands | S |
+| 9 | Toolbar | Fetch & Update both `$(sync)` → give Fetch a distinct icon; move branch widget to navigation@1 | `AllIcons.Vcs.Fetch`; `Git.ShowBranches` first | pkg.json `view/title` | S |
+| 10 | Log menu | Add by-subject Fixup/Squash + surface New-Branch/New-Tag-from-commit in webview graph menu | `Git.Log.ContextMenu` | `htmlBuilders.ts:234` | M |
+| — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
+| — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
+| — | Dialogs | Field-level checkbox/label/order audit per dialog (rebase/merge/push/pull/reset/new-branch/rollback) | per-dialog git4idea classes | `src/rebase`,`src/sync`,… | M |
+
+**Order:** quick wins first (#8, #9, #6-partial — pkg.json-mostly, no behavior change; these don't
+parallelize — single shared `contributes` block), then the structural wave (#2 unify the two log menus,
+#3, #4, #5, #10). Stash/Working-Trees tabs + per-dialog field audit are deferred.
+
+**Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
+dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
+(`ResetDialog._confirmDestructive`).
 
 ---
 
@@ -191,3 +243,33 @@ hash behind `--end-of-options`). (4) ~~"accept non-conflicting from both sides"~
 
 **Effort remaining:** ~1.5–2.5 engineer-years to faithful pure-Git parity. Everything outside the
 (now-native) merge view is parallelizable polish on already-working surfaces.
+
+---
+
+## 7. Reference docs index
+
+Every file in `docs/parity/` ties back to a workstream here. Two reference roles: **audit** =
+point-in-time Round-2 deep review (`R2-*`); **spec** = durable, test-pinned per-surface behavior
+contract (ADR-010 Layer-3). Each file repeats its mapping in a `> **NORTHSTAR tie-back:**` header.
+
+| Workstream / area (this doc) | Round-2 audit | Durable contract spec |
+|---|---|---|
+| **A** — Commit & Changelists (section 5.A-equiv) | `R2-06-localchanges`, `R2-08-commitops` | folded into appendices: Local-Changes panel + Changed-files tree = `R2-06`; Before-commit checks = `R2-08` |
+| **B** — 3-way Merge (section 5.B) | `R2-04-conflicts` | — (UX in `R2-UX-04`) |
+| **C** — Shell / Menus / Sync (section 5.C) | `R2-05-sync`, `R2-09-shell` | Update-Project + Incoming-tab specs = `R2-05` appendices |
+| **D** — Branches & Tags (section 5.D) | `R2-02-branches` | — (UX in `R2-UX-04`) |
+| **E** — Shelf / Stash / Patches (section 5.E) | `R2-06-localchanges` | — |
+| **F** — Blame / History / Diff (section 5.F) | `R2-07-history` | history-row layout = `R2-06` appendix; UX in `R2-UX-04` |
+| **G** — Log & Commit Graph (section 5.G) | `R2-01-log`, `R2-UX-01-log` | — |
+| **H** — Rebase / Cherry-pick / Revert (section 5.H) | `R2-03-rebase` | — |
+| **UI/UX layout** (section 4b) | `R2-UX-02-dialogs`, `R2-UX-03-menus` | — |
+
+The behavior contracts are enforced by the property + snapshot tests (and ADR-013 for the commit-graph
+data model), not by prose docs.
+
+_Removed in the 2026-06-18 consolidation: `UX-PARITY.md` (→ section 4b + `R2-UX-03`);
+`update-project.md` / `incoming-tab.md` (→ `R2-05` appendices); `commit-tool-window-changes.md` +
+`changed-files-tree.md` (→ `R2-06` appendices); `before-commit-checks.md` (→ `R2-08` appendix);
+`accessibility.md` / `git-log-graph.md` / `repo-states.md` (Wave-jargon reference narration — contracts
+live in the tests/ADR-013/code they pointed to); `_TEMPLATE.md` / `workstream-assignment-template.md`
+(dead scaffolding)._

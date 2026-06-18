@@ -1,5 +1,7 @@
 # IntelliG Dialogs UX Parity Review (Round 2)
 
+> **NORTHSTAR tie-back:** cross-cutting **UI/UX layout** — dialogs · role: Round-2 UX audit (backs NORTHSTAR section 4b). See `NORTHSTAR.md` section 7 (reference index).
+
 **Date**: 2026-06-15
 **Scope**: Visual/UX parity of IntelliG dialogs vs IntelliJ git4idea dialogs
 **Review Type**: Layout, field order, labels, defaults, button naming, validation messaging
