@@ -145,6 +145,117 @@ export interface IBranchPopupResult {
 }
 
 /**
+ * Header action carried by the branch popup's title bar, mirroring git4idea's
+ * `GitBranchesTreePopup` header (New Branch, Fetch, Settings gear).
+ */
+export type BranchPopupHeaderAction = 'new-branch' | 'fetch' | 'settings';
+
+/**
+ * A title-bar button on the main branch QuickPick. `commandId` is dispatched
+ * via `vscode.commands.executeCommand` for the action buttons; the Settings
+ * gear has none — it opens the in-popup toggle menu instead.
+ */
+export interface IBranchPopupHeaderButton extends vscode.QuickInputButton {
+  action: BranchPopupHeaderAction;
+  commandId?: string;
+}
+
+/**
+ * Settings-gear toggles, parity with git4idea `GitBranchesTreePopupSettings`
+ * (`shared/src/com/intellij/vcs/git/branch/popup/GitBranchesPopupHeaderActions.kt`).
+ * Multi-root-only toggles (filter-by-repository, track-repos-synchronously) are
+ * deferred with the multi-repo grouping slice.
+ */
+export interface IBranchPopupSettings {
+  /** Render the Tags section (git4idea `git.branches.show.tags`). */
+  showTags: boolean;
+  /** Render the Recent section (git4idea `git.branches.show.recent`). */
+  showRecentBranches: boolean;
+  /** Auto-indent `/`-prefixed siblings (git4idea `git.branches.group.by.directory`). */
+  groupByDirectory: boolean;
+}
+
+/** A toggle entry in the settings-gear sub-menu. */
+export interface IBranchSettingsToggleItem extends vscode.QuickPickItem {
+  setting: keyof IBranchPopupSettings;
+}
+
+/**
+ * Build the branch popup's header (title-bar) buttons, mirroring git4idea's
+ * `GitBranchesTreePopup` header — New Branch (`Git.CreateNewBranch`), Fetch
+ * (`Git.Branches.Popup.Fetch`), and the Settings gear
+ * (`Git.Branches.Popup.Settings`). Pure — safe to unit-test.
+ */
+export function buildBranchPopupHeaderButtons(): IBranchPopupHeaderButton[] {
+  return [
+    {
+      action: 'new-branch',
+      commandId: 'intellig.branch.new',
+      iconPath: new vscode.ThemeIcon('add'),
+      tooltip: 'New Branch…',
+    },
+    {
+      action: 'fetch',
+      commandId: 'intellig.fetch',
+      iconPath: new vscode.ThemeIcon('sync'),
+      tooltip: 'Fetch',
+    },
+    {
+      action: 'settings',
+      iconPath: new vscode.ThemeIcon('settings-gear'),
+      tooltip: 'Settings',
+    },
+  ];
+}
+
+/**
+ * Build the settings-gear toggle menu items, reflecting the current
+ * {@link IBranchPopupSettings} as checkbox state. Order mirrors git4idea's
+ * gear group (group-by-directory → show-recent → show-tags).
+ */
+export function buildSettingsToggleItems(
+  settings: IBranchPopupSettings
+): IBranchSettingsToggleItem[] {
+  return [
+    {
+      label: 'Group by Directory',
+      setting: 'groupByDirectory',
+      picked: settings.groupByDirectory,
+    },
+    {
+      label: 'Show Recent Branches',
+      setting: 'showRecentBranches',
+      picked: settings.showRecentBranches,
+    },
+    {
+      label: 'Show Tags',
+      setting: 'showTags',
+      picked: settings.showTags,
+    },
+  ];
+}
+
+/** VS Code configuration keys backing each branch-popup toggle. */
+const BRANCH_POPUP_SETTING_KEYS: Record<keyof IBranchPopupSettings, string> = {
+  showTags: 'branches.showTags',
+  showRecentBranches: 'branches.showRecentBranches',
+  groupByDirectory: 'branches.groupByDirectory',
+};
+
+/**
+ * Read the persisted branch-popup settings from VS Code configuration,
+ * defaulting every toggle to `true` so the popup's default layout is unchanged.
+ */
+export function readBranchPopupSettings(): IBranchPopupSettings {
+  const cfg = vscode.workspace.getConfiguration('intellig');
+  return {
+    showTags: cfg.get<boolean>(BRANCH_POPUP_SETTING_KEYS.showTags, true),
+    showRecentBranches: cfg.get<boolean>(BRANCH_POPUP_SETTING_KEYS.showRecentBranches, true),
+    groupByDirectory: cfg.get<boolean>(BRANCH_POPUP_SETTING_KEYS.groupByDirectory, true),
+  };
+}
+
+/**
  * Pure helper — returns the normalized label used in the Recent LRU.
  * For local branches, the name is used as-is (e.g. `main`, `feature/auth`).
  * For remote branches, the full remote-qualified name is used (`origin/main`).
@@ -316,6 +427,12 @@ export function buildSectionedItems(input: {
   /** Favorite branch names, insertion-order preserved. */
   favoriteBranchNames?: readonly string[];
   currentBranchName?: string;
+  /** Render the Tags section (default true). git4idea `git.branches.show.tags`. */
+  showTags?: boolean;
+  /** Render the Recent section (default true). git4idea `git.branches.show.recent`. */
+  showRecentBranches?: boolean;
+  /** Auto-indent `/`-prefix groups (default true). git4idea `git.branches.group.by.directory`. */
+  groupByDirectory?: boolean;
 }): IBranchQuickPickItem[] {
   const {
     localBranches,
@@ -324,6 +441,9 @@ export function buildSectionedItems(input: {
     recentBranchNames,
     favoriteBranchNames,
     currentBranchName,
+    showTags = true,
+    showRecentBranches = true,
+    groupByDirectory = true,
   } = input;
 
   const items: IBranchQuickPickItem[] = [];
@@ -386,7 +506,7 @@ export function buildSectionedItems(input: {
     }
   }
 
-  if (recentResolved.length > 0) {
+  if (showRecentBranches && recentResolved.length > 0) {
     items.push({
       label: 'Recent',
       kind: vscode.QuickPickItemKind.Separator,
@@ -405,7 +525,9 @@ export function buildSectionedItems(input: {
   // ── Local ─────────────────────────────────────────────────────────────
   if (localBranches.length > 0) {
     const localNames = localBranches.map((b) => b.name);
-    const localIndentablePrefixes = detectIndentablePrefixes(localNames);
+    const localIndentablePrefixes = groupByDirectory
+      ? detectIndentablePrefixes(localNames)
+      : new Set<string>();
 
     items.push({
       label: 'Local',
@@ -436,12 +558,14 @@ export function buildSectionedItems(input: {
   if (remoteBranches.length > 0) {
     // For remote indent detection, strip the leading "<remote>/" so grouping
     // works on the post-remote segment (e.g. `origin/feature/*`).
-    const remoteIndentablePrefixes = detectIndentablePrefixes(
-      remoteBranches.map((b) => {
-        const slash = b.name.indexOf('/');
-        return slash >= 0 ? b.name.substring(slash + 1) : b.name;
-      })
-    );
+    const remoteIndentablePrefixes = groupByDirectory
+      ? detectIndentablePrefixes(
+          remoteBranches.map((b) => {
+            const slash = b.name.indexOf('/');
+            return slash >= 0 ? b.name.substring(slash + 1) : b.name;
+          })
+        )
+      : new Set<string>();
 
     items.push({
       label: 'Remote',
@@ -476,7 +600,7 @@ export function buildSectionedItems(input: {
   }
 
   // ── Tags ──────────────────────────────────────────────────────────────
-  if (tags.length > 0) {
+  if (showTags && tags.length > 0) {
     items.push({
       label: 'Tags',
       kind: vscode.QuickPickItemKind.Separator,
@@ -934,10 +1058,16 @@ export class BranchPopup {
     quickPick.matchOnDescription = true;
     quickPick.matchOnDetail = true;
 
-    // Render with the current favorites; `refreshItems` re-invokes
-    // `buildSectionedItems` so star toggles update the UI in-place without
-    // dismissing the picker.
+    // Header (title-bar) actions: New Branch, Fetch, Settings gear — parity with
+    // git4idea GitBranchesTreePopup's header (Git.CreateNewBranch,
+    // Git.Branches.Popup.Fetch, Git.Branches.Popup.Settings).
+    quickPick.buttons = buildBranchPopupHeaderButtons();
+
+    // Render with the current favorites + settings toggles; `refreshItems`
+    // re-invokes `buildSectionedItems` so star toggles and the settings gear
+    // update the UI in-place without dismissing the picker.
     const refreshItems = (): void => {
+      const settings = readBranchPopupSettings();
       quickPick.items = buildSectionedItems({
         localBranches,
         remoteBranches,
@@ -945,6 +1075,9 @@ export class BranchPopup {
         recentBranchNames,
         favoriteBranchNames: getFavorites(this._workspaceState),
         currentBranchName,
+        showTags: settings.showTags,
+        showRecentBranches: settings.showRecentBranches,
+        groupByDirectory: settings.groupByDirectory,
       });
     };
     refreshItems();
@@ -974,6 +1107,23 @@ export class BranchPopup {
           const result = await this._showTagActionMenu(repo, selected.tag);
           finish(result);
         } else {
+          finish({ cancelled: true });
+        }
+      });
+
+      // Header buttons: New Branch / Fetch dispatch their command (dismissing
+      // the popup first, matching git4idea where the action closes the popup);
+      // the Settings gear opens the in-popup toggle menu and re-renders.
+      quickPick.onDidTriggerButton(async (button) => {
+        const header = button as IBranchPopupHeaderButton;
+        if (header.action === 'settings') {
+          await this._showBranchSettingsMenu();
+          refreshItems();
+          return;
+        }
+        if (header.commandId) {
+          quickPick.hide();
+          await this._dispatchHeaderCommand(header.commandId);
           finish({ cancelled: true });
         }
       });
@@ -1131,6 +1281,65 @@ export class BranchPopup {
       );
       return { cancelled: true };
     }
+  }
+
+  /**
+   * Dispatch a header-action command (New Branch / Fetch), surfacing a "Coming
+   * soon" hint if the backing command isn't registered yet and a sanitized
+   * error toast on failure. Mirrors {@link _dispatchSelectedAction}'s
+   * registration guard so the header behaves like the action menu.
+   */
+  private async _dispatchHeaderCommand(commandId: string): Promise<void> {
+    try {
+      const allCommands = await vscode.commands.getCommands(true);
+      if (!allCommands.includes(commandId)) {
+        void vscode.window.showInformationMessage(`Coming soon: ${commandId}`);
+        return;
+      }
+      await vscode.commands.executeCommand(commandId);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Branch operation failed: ${sanitizeGitError(errorMessage)}`
+      );
+    }
+  }
+
+  /**
+   * Show the settings-gear toggle menu (multi-select), parity with git4idea's
+   * `GitBranchesTreePopupSettings`. Persists each toggle to VS Code
+   * configuration so the choice survives across popups.
+   */
+  private async _showBranchSettingsMenu(): Promise<void> {
+    const before = readBranchPopupSettings();
+    const items = buildSettingsToggleItems(before);
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title: 'Branch Popup Settings',
+      placeHolder: 'Toggle which sections and grouping appear',
+      canPickMany: true,
+    });
+    // `undefined` = the user dismissed without confirming; leave settings as-is.
+    if (!picked) {
+      return;
+    }
+
+    const selectedSettings = new Set(picked.map((i) => i.setting));
+    const cfg = vscode.workspace.getConfiguration('intellig');
+    const updates: Thenable<void>[] = [];
+    for (const item of items) {
+      const next = selectedSettings.has(item.setting);
+      if (next !== before[item.setting]) {
+        updates.push(
+          cfg.update(
+            BRANCH_POPUP_SETTING_KEYS[item.setting],
+            next,
+            vscode.ConfigurationTarget.Global
+          )
+        );
+      }
+    }
+    await Promise.all(updates);
   }
 
   /**

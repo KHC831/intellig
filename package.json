@@ -243,6 +243,12 @@
         "category": "IntelliG"
       },
       {
+        "command": "intellig.branch.new",
+        "title": "New Branch…",
+        "category": "IntelliG",
+        "icon": "$(add)"
+      },
+      {
         "command": "intellig.branch.newBranchFrom",
         "title": "New Branch from Here…",
         "category": "IntelliG"
@@ -1200,6 +1206,21 @@
           "type": "boolean",
           "default": false,
           "description": "Add Signed-off-by line to commit messages by default"
+        },
+        "intellig.branches.showTags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Tags section in the branches popup. Toggle from the popup's settings gear."
+        },
+        "intellig.branches.showRecentBranches": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Recent section in the branches popup. Toggle from the popup's settings gear."
+        },
+        "intellig.branches.groupByDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group branches that share a '/'-prefix (e.g. feature/*) with indentation in the branches popup. Toggle from the popup's settings gear."
         },
         "intellig.commitMessageIssueLinks": {
           "type": "boolean",

@@ -26,15 +26,19 @@ import {
   AUTO_INDENT_MIN_GROUP_SIZE,
   BranchPopup,
   FAVORITE_BRANCHES_STATE_KEY,
+  IBranchPopupSettings,
   IBranchQuickPickItem,
   RECENT_BRANCHES_MAX,
+  buildBranchPopupHeaderButtons,
   buildLocalBranchActionMenu,
   buildRemoteBranchActionMenu,
   buildSectionedItems,
+  buildSettingsToggleItems,
   buildTagActionMenu,
   detectIndentablePrefixes,
   formatBranchLabel,
   getFavorites,
+  readBranchPopupSettings,
   updateFavoritesList,
   updateRecentLru,
 } from '../../../branches/BranchPopup';
@@ -1065,5 +1069,201 @@ describe('BranchPopup — empty-repo status-bar parity', () => {
       (vscode.window as unknown as { createStatusBarItem: unknown }).createStatusBarItem =
         originalCreate;
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Header actions — git4idea GitBranchesTreePopup header (New Branch / Fetch /
+// Settings gear). Mirrors backend/resources/intellij.vcs.git.backend.xml
+// (Git.CreateNewBranch, Git.Branches.Popup.Fetch) and shared
+// GitBranchesTreePopupSettings.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BranchPopup — buildBranchPopupHeaderButtons', () => {
+  it('exposes New Branch, Fetch, and Settings header buttons in that order', () => {
+    const buttons = buildBranchPopupHeaderButtons();
+    assert.deepStrictEqual(
+      buttons.map((b) => b.action),
+      ['new-branch', 'fetch', 'settings']
+    );
+  });
+
+  it('wires New Branch to the intellig.branch.new command', () => {
+    const newBranch = buildBranchPopupHeaderButtons().find((b) => b.action === 'new-branch');
+    assert.ok(newBranch);
+    assert.strictEqual(newBranch.commandId, 'intellig.branch.new');
+  });
+
+  it('wires Fetch to the existing intellig.fetch command', () => {
+    const fetch = buildBranchPopupHeaderButtons().find((b) => b.action === 'fetch');
+    assert.ok(fetch);
+    assert.strictEqual(fetch.commandId, 'intellig.fetch');
+  });
+
+  it('leaves the Settings gear without a command (it opens the in-popup toggle menu)', () => {
+    const settings = buildBranchPopupHeaderButtons().find((b) => b.action === 'settings');
+    assert.ok(settings);
+    assert.strictEqual(settings.commandId, undefined);
+  });
+
+  it('gives every header button a non-empty tooltip', () => {
+    for (const b of buildBranchPopupHeaderButtons()) {
+      assert.ok(
+        typeof b.tooltip === 'string' && b.tooltip.length > 0,
+        `expected tooltip for action ${b.action}`
+      );
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings toggle menu — git4idea GitBranchesTreePopupSettings gear toggles
+// (group by directory, show recent branches, show tags).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BranchPopup — buildSettingsToggleItems', () => {
+  const allOn: IBranchPopupSettings = {
+    groupByDirectory: true,
+    showRecentBranches: true,
+    showTags: true,
+  };
+
+  it('emits one toggle per setting: groupByDirectory, showRecentBranches, showTags', () => {
+    const items = buildSettingsToggleItems(allOn);
+    assert.deepStrictEqual(
+      items.map((i) => i.setting),
+      ['groupByDirectory', 'showRecentBranches', 'showTags']
+    );
+  });
+
+  it('marks a toggle picked when its setting is enabled', () => {
+    const items = buildSettingsToggleItems({ ...allOn, showTags: true });
+    const tags = items.find((i) => i.setting === 'showTags');
+    assert.ok(tags);
+    assert.strictEqual(tags.picked, true);
+  });
+
+  it('marks a toggle un-picked when its setting is disabled', () => {
+    const items = buildSettingsToggleItems({ ...allOn, showTags: false });
+    const tags = items.find((i) => i.setting === 'showTags');
+    assert.ok(tags);
+    assert.strictEqual(tags.picked, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// readBranchPopupSettings — reads the additive intellig.branches.* settings,
+// defaulting to the existing always-on behaviour.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BranchPopup — readBranchPopupSettings', () => {
+  // Drive config through the production `vscode.workspace` handle (the same
+  // instance readBranchPopupSettings reads) so the spec exercises the real
+  // configuration round-trip rather than a side-channel.
+  async function setBranchSetting(key: string, value: boolean | undefined): Promise<void> {
+    await vscode.workspace
+      .getConfiguration('intellig')
+      .update(`branches.${key}`, value, vscode.ConfigurationTarget.Global);
+  }
+
+  afterEach(async () => {
+    await setBranchSetting('showTags', undefined);
+    await setBranchSetting('showRecentBranches', undefined);
+    await setBranchSetting('groupByDirectory', undefined);
+  });
+
+  it('defaults all toggles to true (preserves existing popup behaviour)', () => {
+    const settings = readBranchPopupSettings();
+    assert.deepStrictEqual(settings, {
+      showTags: true,
+      showRecentBranches: true,
+      groupByDirectory: true,
+    });
+  });
+
+  it('reflects a user-disabled showTags setting', async () => {
+    await setBranchSetting('showTags', false);
+    assert.strictEqual(readBranchPopupSettings().showTags, false);
+  });
+
+  it('reflects a user-disabled groupByDirectory setting', async () => {
+    await setBranchSetting('groupByDirectory', false);
+    assert.strictEqual(readBranchPopupSettings().groupByDirectory, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildSectionedItems — settings-toggle integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BranchPopup — buildSectionedItems settings toggles', () => {
+  it('suppresses the Tags section when showTags is false', () => {
+    const items = buildSectionedItems({
+      localBranches: [localMain],
+      remoteBranches: [],
+      tags: [tagV1, tagV2],
+      recentBranchNames: [],
+      currentBranchName: 'main',
+      showTags: false,
+    });
+    assert.ok(!items.some((i) => label(i) === 'Tags'), 'Tags header should be suppressed');
+    assert.ok(!items.some((i) => i.tag), 'no tag items should be emitted');
+  });
+
+  it('still renders the Tags section when showTags is true (default)', () => {
+    const items = buildSectionedItems({
+      localBranches: [localMain],
+      remoteBranches: [],
+      tags: [tagV1],
+      recentBranchNames: [],
+      currentBranchName: 'main',
+    });
+    assert.ok(
+      items.some((i) => label(i) === 'Tags'),
+      'Tags header should be present by default'
+    );
+  });
+
+  it('suppresses the Recent section when showRecentBranches is false', () => {
+    const items = buildSectionedItems({
+      localBranches: [localMain, localDevelop],
+      remoteBranches: [],
+      tags: [],
+      recentBranchNames: ['develop'],
+      currentBranchName: 'main',
+      showRecentBranches: false,
+    });
+    assert.ok(!items.some((i) => label(i) === 'Recent'), 'Recent header should be suppressed');
+  });
+
+  it('drops auto-indent when groupByDirectory is false', () => {
+    const items = buildSectionedItems({
+      localBranches: [localFeatureAuth, localFeatureDashboard, localFeatureApi],
+      remoteBranches: [],
+      tags: [],
+      recentBranchNames: [],
+      currentBranchName: 'main',
+      groupByDirectory: false,
+    });
+    const featureItem = items.find((i) => i.branch?.name === 'feature/auth');
+    assert.ok(featureItem);
+    assert.strictEqual(
+      label(featureItem),
+      'feature/auth',
+      'label should not carry the 2-space indent prefix when grouping is off'
+    );
+  });
+
+  it('keeps auto-indent when groupByDirectory is true (default)', () => {
+    const items = buildSectionedItems({
+      localBranches: [localFeatureAuth, localFeatureDashboard, localFeatureApi],
+      remoteBranches: [],
+      tags: [],
+      recentBranchNames: [],
+      currentBranchName: 'main',
+    });
+    const featureItem = items.find((i) => i.branch?.name === 'feature/auth');
+    assert.ok(featureItem);
+    assert.strictEqual(label(featureItem), '  feature/auth');
   });
 });

@@ -304,6 +304,14 @@ Enable the IntelliJ preset in settings:
 | `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`                     |
 | `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`                  |
 
+### Branches popup
+
+| Setting                                | Default | Description                                                                         |
+| -------------------------------------- | ------- | ----------------------------------------------------------------------------------- |
+| `intellig.branches.showTags`           | `true`  | Show the Tags section in the branches popup (toggle from the popup's settings gear) |
+| `intellig.branches.showRecentBranches` | `true`  | Show the Recent section in the branches popup (toggle from the settings gear)       |
+| `intellig.branches.groupByDirectory`   | `true`  | Indent branches that share a `/`-prefix (e.g. `feature/*`) in the branches popup    |
+
 ### UI polish
 
 | Setting                              | Default     | Description                                                           |

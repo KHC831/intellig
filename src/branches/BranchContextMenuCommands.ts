@@ -199,6 +199,9 @@ export class BranchContextMenuCommands {
     );
 
     this._disposables.push(
+      registerLoggedCommand('intellig.branch.new', () => this._handleNewBranch())
+    );
+    this._disposables.push(
       registerLoggedCommand('intellig.branch.newBranchFrom', (item: BranchTreeItem) =>
         this._handleNewBranchFrom(item)
       )
@@ -459,6 +462,29 @@ export class BranchContextMenuCommands {
         );
       }
     }
+  }
+
+  /**
+   * Handle the popup-header "New Branch" action — create a new branch starting
+   * from the current HEAD (git4idea `Git.CreateNewBranch`). Routes through the
+   * New Branch Dialog when wired; the dialog defaults its start point to HEAD
+   * when none is supplied.
+   */
+  private _handleNewBranch(): void {
+    const repo = this._getRepository();
+    if (!repo) {
+      void vscode.window.showErrorMessage('No Git repository found');
+      return;
+    }
+
+    const startPoint = repo.head?.name?.replace('refs/heads/', '') || undefined;
+
+    if (this._newBranchDialogOpener) {
+      this._newBranchDialogOpener({ repo, startPoint });
+      return;
+    }
+
+    void vscode.window.showErrorMessage('New Branch dialog is not available.');
   }
 
   /**

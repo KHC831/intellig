@@ -327,6 +327,7 @@ describe('package.json coherence', () => {
   // -------------------------------------------------------------------------
   it('every New Branch dialog-opener title ends with "…"', () => {
     const newBranchOpeners = [
+      'intellig.branch.new',
       'intellig.branch.newBranchFrom',
       'intellig.tag.newBranchFrom',
       'intellig.commit.newBranch',
