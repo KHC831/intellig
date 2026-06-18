@@ -309,9 +309,10 @@ export class RebaseEditor {
     const commit = this._session.commits.find((c) => c.hash === hash);
     if (commit) {
       commit.action = action;
-      // Clear the pre-set message when switching away from reword so stale
-      // overrides don't accidentally carry through on a later re-selection.
-      if (action !== 'reword') {
+      // Clear the pre-set message when switching to an action that can't carry
+      // one inline, so stale overrides don't accidentally apply later. reword
+      // and squash both collect a message inline (H1).
+      if (action !== 'reword' && action !== 'squash') {
         commit.newMessage = undefined;
       }
       this._updateWebview();
@@ -457,7 +458,15 @@ export class RebaseEditor {
   private _getCommitItemHtml(commit: IRebaseCommit, index: number): string {
     const shortHash = commit.hash.substring(0, 7);
     const actionClass = this._getActionClass(commit.action);
-    const isReword = commit.action === 'reword';
+    // reword and squash both let the user edit the message inline (H1): reword
+    // replaces this commit's message; squash sets the combined message melded
+    // into the previous commit. A blank value falls back to git's interactive
+    // editor.
+    const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
+    const messagePlaceholder =
+      commit.action === 'squash'
+        ? 'Combined commit message (leave blank to edit interactively)'
+        : 'New commit message (leave blank to edit interactively)';
     const rewordValue = this._escapeHtml(commit.newMessage ?? commit.message);
 
     return `
@@ -478,13 +487,13 @@ export class RebaseEditor {
           ${this._escapeHtml(commit.message)}
         </div>
         ${
-          isReword
+          showMessageEditor
             ? `<div class="reword-message-editor">
           <textarea
             class="reword-message-input"
             data-hash="${this._escapeHtml(commit.hash)}"
             rows="3"
-            placeholder="New commit message (leave blank to edit interactively)"
+            placeholder="${this._escapeHtml(messagePlaceholder)}"
             oninput="updateMessage('${this._escapeHtml(commit.hash)}', this.value)"
           >${rewordValue}</textarea>
         </div>`
@@ -693,6 +702,7 @@ export class RebaseEditor {
 
       .commit-item.action-squash {
         border-left: 3px solid #ba68c8;
+        flex-wrap: wrap;
       }
 
       .commit-item.action-fixup {

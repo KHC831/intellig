@@ -37,6 +37,45 @@ export function hasRewordOverride(entry: IRebaseAction): boolean {
 }
 
 /**
+ * Whether a plan entry carries a usable pre-typed combined message for a squash
+ * — a 'squash' action whose `newMessage` is present and not blank. git4idea
+ * collects this combined message up front (`GitRebaseTodoModelConverter`
+ * unites the squash entry into its predecessor and stores
+ * `GitSquashedCommitsMessage.squash(old, entry)` on the root as a `Reword`).
+ *
+ * The blank guard mirrors {@link hasRewordOverride}: writing an empty `-F` file
+ * would make the post-fixup `git commit --amend` abort ("empty commit
+ * message") and break the rebase, so a blank override falls back to git's
+ * classic interactive squash instead.
+ */
+export function hasSquashOverride(entry: IRebaseAction): boolean {
+  return (
+    entry.action === 'squash' &&
+    entry.newMessage !== undefined &&
+    entry.newMessage.trim().length > 0
+  );
+}
+
+/**
+ * Whether a plan entry carries a usable inline message override (reword or
+ * squash) — the cases that pre-write a message file and amend non-interactively
+ * instead of pausing for git's editor.
+ */
+export function hasInlineMessageOverride(entry: IRebaseAction): boolean {
+  return hasRewordOverride(entry) || hasSquashOverride(entry);
+}
+
+/**
+ * Basename of the temp file holding an inline message override (reword or
+ * squash), keyed by the first 8 chars of the plan hash. Lives in the git dir;
+ * the `exec git commit --amend -F` line references it as `.git/<name>` relative
+ * to the repo root.
+ */
+export function messageOverrideFileName(hash: string): string {
+  return `.intellig-reword-${hash.substring(0, 8)}.txt`;
+}
+
+/**
  * Map a todo command token (full name or git's single-letter abbreviation) to
  * a {@link RebaseAction}, or `undefined` if it is not a commit command (so the
  * line is structural and preserved verbatim).
@@ -150,17 +189,26 @@ export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[])
       );
     }
     const subjectSuffix = group.subject ? ` ${group.subject}` : '';
+    const amendExec = `exec git commit --amend -F .git/${messageOverrideFileName(entry.hash)} --no-edit`;
     if (hasRewordOverride(entry)) {
       // User pre-typed a message in the planning UI (H1 parity). Emit 'pick'
       // so git never pauses, then amend the message via exec. The message file
       // is written by applyPlanToTodoFile before git runs.
       out.push(`pick ${group.hash}${subjectSuffix}`);
-      out.push(
-        `exec git commit --amend -F .git/.intellig-reword-${entry.hash.substring(0, 8)}.txt --no-edit`
-      );
+      out.push(amendExec);
+    } else if (hasSquashOverride(entry)) {
+      // User pre-typed the combined message (H1 parity). Emit 'fixup' rather
+      // than 'squash': fixup melds into the previous commit WITHOUT pausing and
+      // discards this commit's own message, then the exec amends the resulting
+      // commit to the user's combined message. This yields the same end-state
+      // as git4idea's "reword the unite root" (GitRebaseTodoModelConverter),
+      // without needing a persistent message-step editor.
+      out.push(`fixup ${group.hash}${subjectSuffix}`);
+      out.push(amendExec);
     } else {
-      // Classic path: emit the planned action verbatim. reword causes git to
-      // pause for user input via $GIT_EDITOR; other actions run without stopping.
+      // Classic path: emit the planned action verbatim. reword/squash cause git
+      // to pause for user input via $GIT_EDITOR; other actions run without
+      // stopping.
       out.push(`${entry.action} ${group.hash}${subjectSuffix}`);
     }
     out.push(...group.trailing);

@@ -16,7 +16,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { transformRebaseTodo, hasRewordOverride } from './rebaseTodo';
+import {
+  transformRebaseTodo,
+  hasInlineMessageOverride,
+  messageOverrideFileName,
+} from './rebaseTodo';
 import type { IRebaseAction } from './interfaces/IRebaseService';
 
 /** Env var carrying the JSON-encoded {@link IRebaseAction}[] plan. */
@@ -34,11 +38,12 @@ export function applyPlanToTodoFile(todoPath: string, plan: IRebaseAction[]): vo
   // root, so they must exist when git runs the exec commands.
   const gitDir = path.resolve(path.dirname(todoPath), '..');
   for (const entry of plan) {
-    // Only write a message file for a non-blank override; a blank one falls
-    // back to the classic interactive reword (see hasRewordOverride), so
-    // writing an empty -F file that would abort the amend is avoided.
-    if (hasRewordOverride(entry)) {
-      const msgFile = path.join(gitDir, `.intellig-reword-${entry.hash.substring(0, 8)}.txt`);
+    // Only write a message file for a non-blank reword/squash override; a blank
+    // one falls back to git's classic interactive editor (see
+    // hasInlineMessageOverride), so writing an empty -F file that would abort
+    // the amend is avoided.
+    if (hasInlineMessageOverride(entry)) {
+      const msgFile = path.join(gitDir, messageOverrideFileName(entry.hash));
       fs.writeFileSync(msgFile, entry.newMessage as string, 'utf8');
     }
   }

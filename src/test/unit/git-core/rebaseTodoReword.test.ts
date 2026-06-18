@@ -96,3 +96,65 @@ describe('transformRebaseTodo — reword + newMessage (H1)', () => {
     assert.doesNotMatch(result, /intellig-reword/);
   });
 });
+
+// H1 inline squash editing extends the reword-override mechanism to squash.
+// git4idea collects the combined message up front (GitRebaseTodoModelConverter
+// unites the squash entry into the previous commit and stores
+// GitSquashedCommitsMessage.squash(old, entry) on the root as a Reword). Lacking
+// a persistent message-step editor, we mirror that end-state non-interactively:
+// emit `fixup` for the squashed commit (no pause, drops its own message) then
+// `exec git commit --amend -F <file>` to set the user's combined message.
+describe('transformRebaseTodo — squash + newMessage (H1)', () => {
+  const SQUASH_TODO = 'pick aaaaaaa base commit\npick bbbbbbb to squash\n';
+
+  it('emits classic squash when newMessage is absent', () => {
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'squash' },
+    ];
+    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    assert.match(result, /^pick aaaaaaa base commit\n/);
+    assert.match(result, /squash bbbbbbb to squash\n$/);
+    assert.doesNotMatch(result, /exec git commit --amend/);
+  });
+
+  it('emits fixup + exec amend when a squash newMessage is provided', () => {
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'squash', newMessage: 'Combined message' },
+    ];
+    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    const lines = result.trimEnd().split('\n');
+    assert.strictEqual(lines[0], 'pick aaaaaaa base commit');
+    assert.strictEqual(lines[1], 'fixup bbbbbbb to squash');
+    assert.match(
+      lines[2],
+      /^exec git commit --amend -F .*intellig-reword-bbbbbbb.*\.txt --no-edit$/
+    );
+  });
+
+  // A blank combined message must NOT write an empty -F file (it would abort the
+  // amend mid-rebase). Fall back to the classic interactive squash, exactly as
+  // the reword override guards a blank message.
+  it('emits classic squash when the squash newMessage is empty', () => {
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'squash', newMessage: '' },
+    ];
+    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    assert.match(result, /squash bbbbbbb to squash\n$/);
+    assert.doesNotMatch(result, /exec git commit --amend/);
+    assert.doesNotMatch(result, /fixup bbbbbbb/);
+  });
+
+  it('emits classic squash when the squash newMessage is whitespace only', () => {
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'squash', newMessage: '   \n\t ' },
+    ];
+    const result = transformRebaseTodo(SQUASH_TODO, plan);
+    assert.match(result, /squash bbbbbbb to squash\n$/);
+    assert.doesNotMatch(result, /exec git commit --amend/);
+    assert.doesNotMatch(result, /fixup bbbbbbb/);
+  });
+});

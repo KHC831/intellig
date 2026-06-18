@@ -100,6 +100,45 @@ describe('rebaseTodoEditor (#4 sequence-editor glue)', () => {
     );
   });
 
+  it('runEditorMain with a squash newMessage writes the file and emits fixup + exec amend', () => {
+    fs.writeFileSync(todoPath, 'pick aaaaaaa base commit\npick bbbbbbb to squash\n');
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'squash', newMessage: 'Combined squash message' },
+    ];
+
+    runEditorMain(['node', 'editor.js', todoPath], { [REBASE_PLAN_ENV]: JSON.stringify(plan) });
+
+    const todoContent = fs.readFileSync(todoPath, 'utf8');
+    assert.match(todoContent, /fixup bbbbbbb to squash/);
+    assert.match(
+      todoContent,
+      /exec git commit --amend -F .git\/.intellig-reword-bbbbbbb\.txt --no-edit/
+    );
+
+    const msgFile = path.join(gitDir, '.intellig-reword-bbbbbbb.txt');
+    assert.ok(fs.existsSync(msgFile), 'squash message file should have been written');
+    assert.strictEqual(fs.readFileSync(msgFile, 'utf8'), 'Combined squash message');
+  });
+
+  it('runEditorMain with a blank squash newMessage writes no file and emits classic squash', () => {
+    fs.writeFileSync(todoPath, 'pick aaaaaaa base commit\npick bbbbbbb to squash\n');
+    const plan: IRebaseAction[] = [
+      { hash: 'aaaaaaa', action: 'pick' },
+      { hash: 'bbbbbbb', action: 'squash', newMessage: '  \n ' },
+    ];
+
+    runEditorMain(['node', 'editor.js', todoPath], { [REBASE_PLAN_ENV]: JSON.stringify(plan) });
+
+    const todoContent = fs.readFileSync(todoPath, 'utf8');
+    assert.match(todoContent, /squash bbbbbbb to squash/);
+    assert.doesNotMatch(todoContent, /exec git commit --amend/);
+    assert.ok(
+      !fs.existsSync(path.join(gitDir, '.intellig-reword-bbbbbbb.txt')),
+      'no message file should be written for a blank squash override'
+    );
+  });
+
   it('runEditorMain throws when the plan env var is missing (git then aborts)', () => {
     fs.writeFileSync(todoPath, 'pick aaaaaaa only\n');
     assert.throws(() => runEditorMain(['node', 'editor.js', todoPath], {}), /not set/);
