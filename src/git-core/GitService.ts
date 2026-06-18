@@ -14,6 +14,7 @@ import {
   IHunk,
   IBlameLine,
   ICommitOptions,
+  ICommitFixupResult,
   ICheckoutOptions,
   IPullOptions,
   IPushOptions,
@@ -1165,6 +1166,18 @@ export class GitService implements IGitService, IGitServiceCli {
 
   amend(repo: IRepository, message: string): Promise<void> {
     return this._remoteOps.amend(repo, message);
+  }
+
+  /**
+   * Commit the currently-staged changes as a `fixup!`/`squash!` of the
+   * selected commit — IntelliJ git4idea's Fixup… / Squash Into….
+   */
+  commitFixup(
+    repo: IRepository,
+    targetHash: string,
+    mode: 'fixup' | 'squash'
+  ): Promise<ICommitFixupResult> {
+    return this._remoteOps.commitFixup(repo, targetHash, mode);
   }
 
   // ============================================

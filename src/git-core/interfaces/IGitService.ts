@@ -283,6 +283,26 @@ export interface ICommitOptions {
 }
 
 /**
+ * Result of {@link IGitService.commitFixup}.
+ *
+ * `commitFixup` never throws on the expected failure surfaces (an invalid
+ * target hash, an empty index) so the caller can translate each into a
+ * specific toast. `reason` is populated only when `success` is `false`.
+ */
+export interface ICommitFixupResult {
+  success: boolean;
+  /**
+   * Machine-readable failure cause:
+   *   - `invalid-hash`: the target hash was not a hex sha (rejected before git ran);
+   *   - `nothing-to-commit`: no staged changes, so there was nothing to fixup/squash;
+   *   - `error`: any other git failure (see {@link message}).
+   */
+  reason?: 'invalid-hash' | 'nothing-to-commit' | 'error';
+  /** Raw git stderr/stdout for the `error` reason; sanitize before display. */
+  message?: string;
+}
+
+/**
  * Checkout options
  */
 export interface ICheckoutOptions {
@@ -922,6 +942,11 @@ export interface IGitService {
   // Commit operations
   commit(repo: IRepository, message: string, options: ICommitOptions): Promise<void>;
   amend(repo: IRepository, message: string): Promise<void>;
+  commitFixup(
+    repo: IRepository,
+    targetHash: string,
+    mode: 'fixup' | 'squash'
+  ): Promise<ICommitFixupResult>;
 
   // Branch operations
   getBranches(repo: IRepository): Promise<IBranch[]>;

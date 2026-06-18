@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   IRepository,
   ICommitOptions,
+  ICommitFixupResult,
   IFetchOptions,
   IFetchResult,
   IFetchRefUpdate,
@@ -63,6 +64,50 @@ export class RemoteOps {
 
   async amend(repo: IRepository, message: string): Promise<void> {
     await this.commit(repo, message, { amend: true });
+  }
+
+  /**
+   * Commit the currently-staged changes as a `fixup!`/`squash!` of the
+   * target commit — IntelliJ git4idea's Git.Fixup.To.Commit /
+   * Git.Squash.Into.Commit. The underlying primitive is `git commit
+   * --fixup=<hash>` (mode `fixup`) or `git commit --squash=<hash> --no-edit`
+   * (mode `squash`); git builds the `fixup! <subject>` / `squash! <subject>`
+   * message from the target automatically.
+   *
+   * @param targetHash - The commit to fixup/squash into. Validated as a hex
+   *   sha before interpolation so it can never escape the flag value.
+   * @returns A structured result; never throws on an empty index or an
+   *   invalid hash so the caller can surface a precise toast.
+   */
+  async commitFixup(
+    repo: IRepository,
+    targetHash: string,
+    mode: 'fixup' | 'squash'
+  ): Promise<ICommitFixupResult> {
+    // Reject anything that isn't a bare hex sha (leading dash, flag-like
+    // input, path traversal) before it reaches the `--fixup=`/`--squash=`
+    // flag value.
+    if (!/^[0-9a-f]{4,64}$/i.test(targetHash)) {
+      return { success: false, reason: 'invalid-hash' };
+    }
+
+    const args =
+      mode === 'fixup'
+        ? ['commit', `--fixup=${targetHash}`]
+        : ['commit', `--squash=${targetHash}`, '--no-edit'];
+
+    const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
+
+    if (result.exitCode !== 0) {
+      const combined = `${result.stdout}\n${result.stderr}`;
+      if (/nothing to commit|nothing added to commit|no changes added to commit/i.test(combined)) {
+        return { success: false, reason: 'nothing-to-commit' };
+      }
+      return { success: false, reason: 'error', message: result.stderr || result.stdout };
+    }
+
+    this.ctx.invalidateCache(repo.rootUri.fsPath);
+    return { success: true };
   }
 
   async fetch(repo: IRepository, optionsOrRemote?: IFetchOptions | string): Promise<IFetchResult> {

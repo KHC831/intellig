@@ -375,6 +375,7 @@ describe('CommitToolWindow — host behavior', () => {
       // exercise — throws on call so a future test that accidentally
       // invokes one fails loudly rather than returning undefined.
       amend: notImplemented('amend'),
+      commitFixup: notImplemented('commitFixup'),
       getBranches: notImplemented('getBranches'),
       getLogContributors: notImplemented('getLogContributors'),
       createBranch: notImplemented('createBranch'),

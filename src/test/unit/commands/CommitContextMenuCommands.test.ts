@@ -2489,4 +2489,117 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
       );
     });
   });
+
+  // ─── fixup / squashInto (Git.Fixup.To.Commit / Git.Squash.Into.Commit) ──────
+
+  describe('_handleAction fixup / squashInto', () => {
+    function makeServiceWithFixup(
+      fixupResult: { success: boolean; reason?: string } = { success: true }
+    ): IGitService & { calls: CallTracker[] } {
+      const repo = createMockRepo('head_hash');
+      return createMockGitService(repo, {
+        commitFixup: async () => fixupResult,
+      } as unknown as Partial<IGitService>);
+    }
+
+    it('fixup dispatches commitFixup with the selected hash and mode "fixup"', async () => {
+      const repo = createMockRepo('head_hash');
+      const calls: CallTracker[] = [];
+      const gitService = createMockGitService(repo, {
+        commitFixup: async (...args: unknown[]) => {
+          calls.push({ method: 'commitFixup', args });
+          return { success: true };
+        },
+      } as unknown as Partial<IGitService>);
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        createMockGitCli()
+      );
+
+      await commands._handleAction('fixup', [testHash]);
+
+      assert.strictEqual(calls.length, 1, 'commitFixup called once');
+      assert.strictEqual(calls[0].args[1], testHash, 'target hash forwarded');
+      assert.strictEqual(calls[0].args[2], 'fixup', 'mode is fixup');
+    });
+
+    it('squashInto dispatches commitFixup with the selected hash and mode "squash"', async () => {
+      const repo = createMockRepo('head_hash');
+      const calls: CallTracker[] = [];
+      const gitService = createMockGitService(repo, {
+        commitFixup: async (...args: unknown[]) => {
+          calls.push({ method: 'commitFixup', args });
+          return { success: true };
+        },
+      } as unknown as Partial<IGitService>);
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        createMockGitCli()
+      );
+
+      await commands._handleAction('squashInto', [testHash]);
+
+      assert.strictEqual(calls.length, 1, 'commitFixup called once');
+      assert.strictEqual(calls[0].args[1], testHash, 'target hash forwarded');
+      assert.strictEqual(calls[0].args[2], 'squash', 'mode is squash');
+    });
+
+    it('fixup no-ops on empty selection (no commitFixup call)', async () => {
+      const repo = createMockRepo('head_hash');
+      const calls: CallTracker[] = [];
+      const gitService = createMockGitService(repo, {
+        commitFixup: async (...args: unknown[]) => {
+          calls.push({ method: 'commitFixup', args });
+          return { success: true };
+        },
+      } as unknown as Partial<IGitService>);
+      const commands = new CommitContextMenuCommands(
+        gitService,
+        createMockRebaseService(),
+        createMockProvider(),
+        createMockGitCli()
+      );
+
+      await commands._handleAction('fixup', []);
+
+      assert.strictEqual(calls.length, 0, 'no commitFixup call for an empty selection');
+    });
+
+    it('surfaces an info toast on success', async () => {
+      const messages = createMessageTrackers();
+      const commands = new CommitContextMenuCommands(
+        makeServiceWithFixup({ success: true }),
+        createMockRebaseService(),
+        createMockProvider(),
+        createMockGitCli()
+      );
+
+      await commands._handleAction('fixup', [testHash]);
+
+      assert.strictEqual(messages.info.length, 1, 'one info toast on success');
+      assert.strictEqual(messages.error.length, 0, 'no error toast on success');
+    });
+
+    it('surfaces a nothing-to-commit error toast when the index is empty', async () => {
+      const messages = createMessageTrackers();
+      const commands = new CommitContextMenuCommands(
+        makeServiceWithFixup({ success: false, reason: 'nothing-to-commit' }),
+        createMockRebaseService(),
+        createMockProvider(),
+        createMockGitCli()
+      );
+
+      await commands._handleAction('squashInto', [testHash]);
+
+      assert.strictEqual(messages.error.length, 1, 'one error toast on nothing-to-commit');
+      assert.ok(
+        /nothing to commit/i.test(messages.error[0].message),
+        'toast explains there is nothing to commit'
+      );
+    });
+  });
 });

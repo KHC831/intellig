@@ -341,6 +341,14 @@ export class CommitContextMenuCommands {
       case 'fixupWithPrevious':
         await this._handleFixupWithPrevious(commitHashes);
         break;
+      // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: commit the
+      // currently-staged changes as a fixup!/squash! of the selected commit.
+      case 'fixup':
+        await this._handleCommitFixup(commitHashes, 'fixup');
+        break;
+      case 'squashInto':
+        await this._handleCommitFixup(commitHashes, 'squash');
+        break;
       // Open the Compare-with-Branch picker (local
       // remote + tags) and route through BranchComparisonView.
       case 'compareWithBranch':
@@ -3184,6 +3192,62 @@ export class CommitContextMenuCommands {
       return;
     }
     await vscode.commands.executeCommand('intellig.commit.newTag', commitHashes[0]);
+  }
+
+  /**
+   * Handle "Fixup…" / "Squash Into…" — IntelliJ's Git.Fixup.To.Commit /
+   * Git.Squash.Into.Commit (parity).
+   *
+   * Commits the currently-staged changes as a `fixup!`/`squash!` of the
+   * selected commit via `GitService.commitFixup`. Distinct from the
+   * with-previous rewrites, which rebase the selected commit into its parent.
+   */
+  private async _handleCommitFixup(
+    commitHashes: string[],
+    mode: 'fixup' | 'squash'
+  ): Promise<void> {
+    if (commitHashes.length === 0) {
+      return;
+    }
+    const hash = commitHashes[0];
+    if (!allHashesValid([hash])) {
+      void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
+      return;
+    }
+    const repo = await this._getRepository();
+    if (!repo) {
+      return;
+    }
+
+    const shortHash = hash.substring(0, 8);
+    const verb = mode === 'fixup' ? 'fixup' : 'squash';
+    try {
+      const result = await this._gitService.commitFixup(repo, hash, mode);
+      if (result.success) {
+        void vscode.window.showInformationMessage(`Created ${verb}! commit for ${shortHash}`);
+        await this._gitService.reloadRepository(repo);
+        this._gitToolWindowProvider.refresh();
+        return;
+      }
+      if (result.reason === 'nothing-to-commit') {
+        void vscode.window.showErrorMessage(
+          `Nothing to commit — stage changes to ${verb} into ${shortHash}`
+        );
+        return;
+      }
+      if (result.reason === 'invalid-hash') {
+        void vscode.window.showErrorMessage('Cannot commit: invalid commit hash.');
+        return;
+      }
+      void vscode.window.showErrorMessage(
+        `Failed to ${verb} into ${shortHash}: ${sanitizeGitError(result.message ?? 'unknown error')}`
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(
+        `Failed to ${verb} into ${shortHash}: ${sanitizeGitError(errorMessage)}`
+      );
+    }
   }
 }
 

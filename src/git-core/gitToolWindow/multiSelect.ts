@@ -61,6 +61,10 @@ export type MultiSelectMenuAction =
   // BranchComparisonView.
   | 'squashWithPrevious'
   | 'fixupWithPrevious'
+  // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: single-only.
+  // Commit the staged changes as a `fixup!`/`squash!` of the selected commit.
+  | 'fixup'
+  | 'squashInto'
   | 'compareWithBranch'
   // IntelliJ Git.PushUpToHere: single-only (push up to selected commit).
   | 'pushUpToCommit'
@@ -205,6 +209,8 @@ export function computeMenuVisibility(
     // single-only IntelliJ-parity entries.
     squashWithPrevious: !isMulti,
     fixupWithPrevious: !isMulti,
+    fixup: !isMulti,
+    squashInto: !isMulti,
     compareWithBranch: !isMulti,
     // IntelliJ Git.PushUpToHere — single-only.
     pushUpToCommit: !isMulti,
@@ -276,6 +282,8 @@ export function computeMenuEnableState(
     // the clicked commit's parents at execute time).
     squashWithPrevious: isSingle,
     fixupWithPrevious: isSingle,
+    fixup: isSingle,
+    squashInto: isSingle,
     compareWithBranch: isSingle,
     // IntelliJ Git.PushUpToHere — single-only.
     pushUpToCommit: isSingle,

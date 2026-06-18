@@ -41,6 +41,7 @@ function createMockGitService(): IGitService {
     getTags: async () => [],
     commit: async () => {},
     amend: async () => {},
+    commitFixup: async () => ({ success: true }),
     createBranch: async () => {},
     checkout: async () => {},
     deleteBranch: async () => {},

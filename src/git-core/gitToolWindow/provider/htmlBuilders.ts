@@ -232,6 +232,8 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
         <div class="context-menu-item" data-action="undoCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Undo Commit</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message\u2026</div>
+        <div class="context-menu-item" data-action="fixup" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup\u2026</div>
+        <div class="context-menu-item" data-action="squashInto" data-multi-action="single-only" role="menuitem" tabindex="0">Squash Into\u2026</div>
         <div class="context-menu-item" data-action="fixupWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup with Previous</div>
         <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
         <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>

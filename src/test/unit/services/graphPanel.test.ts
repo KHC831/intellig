@@ -770,6 +770,37 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       assert.ok(idx('newBranch') < idx('newTag'), 'New Branch before New Tag');
     });
 
+    it('exposes Fixup… (Git.Fixup.To.Commit) as a single-only item', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = html.indexOf('data-action="fixup"');
+      assert.ok(idx !== -1, 'Should expose the fixup action');
+      const item = html.substring(idx, idx + 140);
+      assert.ok(item.includes('data-multi-action="single-only"'), 'fixup is single-only');
+      assert.ok(item.includes('Fixup…'), 'Fixup label uses the unicode ellipsis');
+    });
+
+    it('exposes Squash Into… (Git.Squash.Into.Commit) as a single-only item', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = html.indexOf('data-action="squashInto"');
+      assert.ok(idx !== -1, 'Should expose the squashInto action');
+      const item = html.substring(idx, idx + 140);
+      assert.ok(item.includes('data-multi-action="single-only"'), 'squashInto is single-only');
+      assert.ok(item.includes('Squash Into…'), 'Squash Into label uses the unicode ellipsis');
+    });
+
+    it('orders Reword → Fixup… → Squash Into… per git4idea Git.Log.ContextMenu', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
+      // git4idea places Fixup / Squash Into immediately after Reword
+      // (editCommitMessage), and before the existing with-previous rewrites.
+      assert.ok(idx('editCommitMessage') < idx('fixup'), 'Reword before Fixup');
+      assert.ok(idx('fixup') < idx('squashInto'), 'Fixup before Squash Into');
+      assert.ok(
+        idx('squashInto') < idx('fixupWithPrevious'),
+        'Squash Into before Fixup with Previous'
+      );
+    });
+
     it('should render the commit context menu as hidden by default', () => {
       const html = provider._getCommitContextMenuHtml();
       const menuStart = html.indexOf('id="commit-context-menu"');
@@ -793,7 +824,8 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       // Plus pushUpToCommit (Gap B IntelliJ Git.PushUpToHere parity) = 20.
       // G9: goToParent + goToChild = 22.
       // Git.CreateNewBranch.FromCommit + Git.CreateNewTag = 24.
-      assert.strictEqual(menuItemCount, 24, 'Should have 24 menu items with role="menuitem"');
+      // Git.Fixup.To.Commit + Git.Squash.Into.Commit = 26.
+      assert.strictEqual(menuItemCount, 26, 'Should have 26 menu items with role="menuitem"');
     });
 
     it('should have aria-label on the menu', () => {

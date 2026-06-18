@@ -204,6 +204,13 @@ export type LogContextAction =
   // remote branches + tags and routes through BranchComparisonView.
   | 'squashWithPrevious'
   | 'fixupWithPrevious'
+  // IntelliJ Git.Fixup.To.Commit / Git.Squash.Into.Commit: commit the
+  // currently-staged changes as a `fixup!`/`squash!` of the selected commit
+  // (git commit --fixup=<hash> / --squash=<hash>). Distinct from the
+  // with-previous rewrites above, which rebase the selected commit into its
+  // parent. Single-only.
+  | 'fixup'
+  | 'squashInto'
   | 'compareWithBranch'
   // IntelliJ Git.PushUpToHere: push all local commits up to and including
   // the selected commit to the current branch's remote. Single-only.
