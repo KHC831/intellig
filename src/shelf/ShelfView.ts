@@ -5,6 +5,8 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import { IRepository, IDiff, IFileStatus } from '../git-core/interfaces/IGitService';
 import {
   IShelfService,
@@ -24,6 +26,16 @@ import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+
+/**
+ * URI scheme for the read-only virtual document that holds the reconstructed
+ * *shelved* version of a file. The shelved content forms the left-hand side of
+ * the shelf "Compare with Local" diff; the right-hand side is the live
+ * working-tree file. The shelf entry id travels in the URI query and the
+ * repo-relative file path in the URI path so the content provider can
+ * regenerate the content on demand.
+ */
+const SHELF_DIFF_SCHEME = 'intellig-shelf';
 
 /**
  * Quick pick item for shelf list
@@ -106,6 +118,36 @@ export class ShelfView implements IShelfView {
         this._onDidChangeShelfItems.fire(items);
       })
     );
+
+    // Serve the reconstructed shelved file content under the `intellig-shelf`
+    // scheme so it can be the left-hand side of a `vscode.diff` against the
+    // live working-tree file. Mirrors the central `intellig-git` provider that
+    // backs the commit "Compare with Local" flow.
+    this._disposables.push(
+      vscode.workspace.registerTextDocumentContentProvider(SHELF_DIFF_SCHEME, {
+        provideTextDocumentContent: (uri) => this._provideShelvedContent(uri),
+      })
+    );
+  }
+
+  /**
+   * Content provider callback for the `intellig-shelf` scheme. Returns the
+   * reconstructed shelved version of the file encoded in `uri` (shelf id in the
+   * query, repo-relative path in the path). Degrades to empty content on any
+   * failure so the diff editor still opens rather than surfacing a provider
+   * error.
+   */
+  private async _provideShelvedContent(uri: vscode.Uri): Promise<string> {
+    if (!this._repository) {
+      return '';
+    }
+    const filePath = uri.path.replace(/^\/+/, '');
+    const shelfId = uri.query;
+    try {
+      return await this._shelfService.getShelvedFileContent(this._repository, shelfId, filePath);
+    } catch {
+      return '';
+    }
   }
 
   /**
@@ -527,14 +569,59 @@ export class ShelfView implements IShelfView {
       );
 
       if (selectedDiff) {
-        // Show the diff content in a virtual document
-        await this._showDiffContent(shelfItem, selectedDiff);
+        // Real shelved-vs-working-tree comparison (IntelliJ's shelf
+        // "Compare with Local").
+        await this._showShelvedVsLocalDiff(shelfItem, selectedDiff);
       }
     }
   }
 
   /**
-   * Show diff content in a virtual document.
+   * Open a side-by-side diff between the *shelved* version of a file (left,
+   * reconstructed by applying the entry's patch onto its base) and the current
+   * working-tree file (right). Mirrors IntelliJ's
+   * `DiffShelvedChangesWithLocalActionProvider` /
+   * `DiffShelvedChangesActionProvider.createDiffRequestUsingBase`, which diffs
+   * the shelved content against the live local file so the user sees how the
+   * shelved change relates to what's on disk now.
+   *
+   * When the file has no working-tree counterpart (shelved as a deletion, or
+   * never created locally) there is nothing to compare against, so fall back to
+   * the static patch-text view.
+   */
+  private async _showShelvedVsLocalDiff(shelfItem: IShelfItem, diff: IDiff): Promise<void> {
+    if (!this._repository) {
+      return;
+    }
+
+    const fileName = this._getFileName(diff.path);
+    const absPath = path.join(this._repository.rootUri.fsPath, diff.path);
+
+    if (!fs.existsSync(absPath)) {
+      // No local file to diff against — show the shelved patch text instead.
+      await this._showDiffContent(shelfItem, diff);
+      return;
+    }
+
+    const leftUri = vscode.Uri.from({
+      scheme: SHELF_DIFF_SCHEME,
+      path: `/${diff.path}`,
+      query: shelfItem.id,
+    });
+    const rightUri = vscode.Uri.file(absPath);
+    const title = `${fileName} (Shelved ↔ Local)`;
+
+    try {
+      await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title);
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(`Failed to open shelf diff: ${sanitizeGitError(raw)}`);
+    }
+  }
+
+  /**
+   * Show diff content in a virtual document. Fallback for files with no
+   * working-tree counterpart to compare against.
    */
   private async _showDiffContent(shelfItem: IShelfItem, diff: IDiff): Promise<void> {
     // Create diff content

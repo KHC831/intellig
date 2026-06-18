@@ -30,7 +30,11 @@ import {
   IImportPatchOptions,
 } from '../../../shelf/interfaces/IShelfService';
 import { IRepository, IDiff } from '../../../git-core/interfaces/IGitService';
-import { setMockConfigValue, resetMockConfiguration } from '../../mocks/vscode';
+import {
+  setMockConfigValue,
+  resetMockConfiguration,
+  registeredContentProviders,
+} from '../../mocks/vscode';
 import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
 import { __resetOutputChannelForTest, getOutputChannel } from '../../../utils/outputChannel';
 
@@ -92,6 +96,9 @@ function makeMockShelfService(): IShelfService & {
     },
     getShelfDiff(): Promise<IDiff[]> {
       return Promise.resolve([]);
+    },
+    getShelvedFileContent(_repo: IRepository, _shelfId: string, filePath: string): Promise<string> {
+      return Promise.resolve(`shelved://${filePath}`);
     },
     renameShelf(_repo: IRepository, shelfId: string, newName: string): void {
       renamed.push({ id: shelfId, name: newName });
@@ -1219,6 +1226,106 @@ describe('ShelfView', () => {
       } finally {
         restoreMessageFunctions();
       }
+    });
+  });
+
+  describe('Compare with Local (shelved-vs-working-tree diff)', () => {
+    const SHELF_SCHEME = 'intellig-shelf';
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-view-diff-'));
+      repo = {
+        rootUri: vscode.Uri.file(tmpDir),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+      (view as unknown as { _repository: IRepository })._repository = repo;
+    });
+
+    afterEach(() => {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors.
+      }
+    });
+
+    it('registers an intellig-shelf content provider that serves the shelved file content', async () => {
+      const provider = registeredContentProviders.get(SHELF_SCHEME);
+      assert.ok(provider, 'ShelfView should register an intellig-shelf content provider');
+
+      svc._items.push({
+        id: 's1',
+        name: 'S',
+        timestamp: new Date(),
+        files: [{ path: 'a.ts', diff: '' }],
+      });
+      await view.refresh();
+
+      const uri = vscode.Uri.from({ scheme: SHELF_SCHEME, path: '/a.ts', query: 's1' });
+      const content = await provider.provideTextDocumentContent(uri);
+
+      // Mock getShelvedFileContent echoes `shelved://<path>`.
+      assert.strictEqual(content, 'shelved://a.ts');
+    });
+
+    it('opens vscode.diff with the shelved version on the left and the working-tree file on the right', async () => {
+      const fileAbs = path.join(tmpDir, 'a.ts');
+      fs.writeFileSync(fileAbs, 'local content\n');
+
+      svc._items.push({
+        id: 's2',
+        name: 'S2',
+        timestamp: new Date(),
+        files: [{ path: 'a.ts', diff: '' }],
+      });
+      await view.refresh();
+
+      svc.getShelfDiff = (): Promise<IDiff[]> =>
+        Promise.resolve([
+          {
+            path: 'a.ts',
+            status: 'modified',
+            hunks: [
+              { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, header: '@@', lines: [] },
+            ],
+            binary: false,
+          },
+        ]);
+
+      const calls: Array<{ command: string; args: unknown[] }> = [];
+      const origQuickPick = vscode.window.showQuickPick;
+      const origExec = vscode.commands.executeCommand;
+      (
+        vscode.window as unknown as { showQuickPick: (items: unknown[]) => Promise<unknown> }
+      ).showQuickPick = async (items: unknown[]) => items[0];
+      (
+        vscode.commands as unknown as {
+          executeCommand: (command: string, ...args: unknown[]) => Promise<unknown>;
+        }
+      ).executeCommand = async (command: string, ...args: unknown[]) => {
+        calls.push({ command, args });
+        return undefined;
+      };
+
+      try {
+        await view.viewShelfItem('s2');
+      } finally {
+        (vscode.window as unknown as { showQuickPick: typeof origQuickPick }).showQuickPick =
+          origQuickPick;
+        (vscode.commands as unknown as { executeCommand: typeof origExec }).executeCommand =
+          origExec;
+      }
+
+      const diffCall = calls.find((c) => c.command === 'vscode.diff');
+      assert.ok(diffCall, 'expected a vscode.diff invocation');
+      const [left, right] = diffCall.args as [vscode.Uri, vscode.Uri];
+      assert.strictEqual(left.scheme, SHELF_SCHEME, 'left side is the shelved virtual document');
+      assert.strictEqual(left.query, 's2', 'left side carries the shelf id');
+      assert.strictEqual(right.scheme, 'file', 'right side is the working-tree file');
+      assert.strictEqual(right.fsPath, fileAbs, 'right side points at the on-disk file');
     });
   });
 });

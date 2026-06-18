@@ -158,6 +158,21 @@ export interface IShelfService {
   getShelfDiff(repo: IRepository, shelfId: string): Promise<IDiff[]>;
 
   /**
+   * Reconstruct the *shelved* version of a single file — the content the user
+   * had when they shelved it — by applying the entry's stored patch back onto
+   * its base revision (`git show HEAD:<path>`, empty for an added file).
+   *
+   * Drives the shelf "Compare with Local" diff: the returned text is the
+   * left-hand side, the current working-tree file is the right-hand side, so
+   * the user sees how the shelved change relates to what's on disk now.
+   * Mirrors IntelliJ's `DiffShelvedChangesActionProvider` which materialises
+   * `texts.getPatched()` from the base revision plus the shelved patch.
+   *
+   * @throws when the shelf item or the file within it can't be found.
+   */
+  getShelvedFileContent(repo: IRepository, shelfId: string, filePath: string): Promise<string>;
+
+  /**
    * Event fired when shelf changes
    */
   onDidChangeShelf: vscode.Event<IShelfItem[]>;

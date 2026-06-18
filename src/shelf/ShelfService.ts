@@ -22,6 +22,7 @@ interface IGitServiceWithCli {
 }
 import { parseDiff } from '../git-core/gitParser';
 import { splitPatchByFile } from '../patches/PatchService';
+import { applyTextPatch } from '../patches/applyTextPatch';
 
 /**
  * Shelf storage file format version.
@@ -760,6 +761,60 @@ export class ShelfService implements IShelfService {
     }
 
     return Promise.resolve(diffs);
+  }
+
+  /**
+   * Reconstruct the shelved version of a single file. See
+   * {@link IShelfService.getShelvedFileContent} for the contract.
+   */
+  async getShelvedFileContent(
+    repo: IRepository,
+    shelfId: string,
+    filePath: string
+  ): Promise<string> {
+    const items = this.getShelfItems(repo);
+    const shelfItem = items.find((item) => item.id === shelfId);
+    if (!shelfItem) {
+      throw new Error(`Shelf item not found: ${shelfId}`);
+    }
+
+    const file = shelfItem.files.find((f) => f.path === filePath);
+    if (!file) {
+      throw new Error(`File not found in shelf item: ${filePath}`);
+    }
+
+    // Pick the diff entry matching this file. A stored entry normally holds a
+    // single-file patch, but importPatch can fold a multi-file patch into one
+    // entry, so match by path and fall back to the sole diff.
+    const diffs = parseDiff(file.diff);
+    const diff = diffs.find((d) => d.path === filePath) ?? diffs[0];
+    if (!diff) {
+      // Unparseable/headerless patch — nothing to reconstruct against a base.
+      return '';
+    }
+
+    const base = await this.readBaseContent(repo, diff);
+    return applyTextPatch(base, diff);
+  }
+
+  /**
+   * Read the base (pre-shelve) revision of a file via `git show HEAD:<path>`.
+   *
+   * Added files have no base revision, so return empty content directly. For a
+   * rename the base lives at the old path. Any git failure (file absent at
+   * HEAD, etc.) degrades to empty content so reconstruction still yields the
+   * patch's added lines rather than throwing.
+   */
+  private async readBaseContent(repo: IRepository, diff: IDiff): Promise<string> {
+    if (diff.status === 'added') {
+      return '';
+    }
+    const basePath = diff.oldPath ?? diff.path;
+    const result = await this._gitCli.exec(['show', `HEAD:${basePath}`], {
+      cwd: repo.rootUri.fsPath,
+      throwOnError: false,
+    });
+    return result.exitCode === 0 ? result.stdout : '';
   }
 
   /**

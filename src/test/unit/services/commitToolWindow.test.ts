@@ -464,6 +464,7 @@ describe('CommitToolWindow — host behavior', () => {
       unshelve: async () => ({ success: true }),
       deleteShelfItem: () => {},
       getShelfDiff: async () => [],
+      getShelvedFileContent: notImplemented('getShelvedFileContent'),
 
       // Newly-required by the dropped cast (additions that the
       // previous stub silently omitted). CommitToolWindow does not

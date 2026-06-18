@@ -461,7 +461,32 @@ export const workspace = {
     }),
     isWritableFileSystem: (_scheme: string): boolean | undefined => true,
   },
+
+  // Mock for `vscode.workspace.registerTextDocumentContentProvider`. Records
+  // the provider in `registeredContentProviders` keyed by scheme so tests can
+  // invoke `provideTextDocumentContent` directly, then disposes by removing it.
+  registerTextDocumentContentProvider(
+    scheme: string,
+    provider: { provideTextDocumentContent: (uri: Uri) => string | Promise<string> }
+  ): { dispose: () => void } {
+    registeredContentProviders.set(scheme, provider);
+    return {
+      dispose: () => {
+        registeredContentProviders.delete(scheme);
+      },
+    };
+  },
 };
+
+/**
+ * Registry of TextDocumentContentProviders registered through the mocked
+ * `workspace.registerTextDocumentContentProvider`. Tests read it to drive a
+ * provider's `provideTextDocumentContent` without a real editor.
+ */
+export const registeredContentProviders = new Map<
+  string,
+  { provideTextDocumentContent: (uri: Uri) => string | Promise<string> }
+>();
 
 // Mock FileSystemWatcher
 export interface FileSystemWatcher {
@@ -815,6 +840,22 @@ export class Uri {
 
   static parse(value: string): Uri {
     return new Uri('file', '', value, '', '');
+  }
+
+  static from(components: {
+    scheme: string;
+    authority?: string;
+    path?: string;
+    query?: string;
+    fragment?: string;
+  }): Uri {
+    return new Uri(
+      components.scheme,
+      components.authority ?? '',
+      components.path ?? '',
+      components.query ?? '',
+      components.fragment ?? ''
+    );
   }
 
   static joinPath(base: Uri, ...pathSegments: string[]): Uri {
