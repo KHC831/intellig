@@ -23,6 +23,10 @@ import { BaseWebviewPanel } from '../utils/BaseWebviewPanel';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getLogger } from '../utils/logger';
+import {
+  IBranchConflictContext,
+  validateBranchName as validateBranchNameWithConflicts,
+} from './branchNameValidator';
 
 /** Options for constructing a {@link NewBranchDialog}. */
 export interface INewBranchDialogOptions {
@@ -37,22 +41,14 @@ export interface INewBranchDialogOptions {
 }
 
 /**
- * Validate a branch name. Matches the regex used by the existing
- * `validateBranchName` in extension.ts so behaviour stays consistent
- * across all entry points.
+ * Validate a branch name's format (no conflict checks). Delegates to the pure
+ * {@link validateBranchNameWithConflicts} so the git `check-ref-format` rules
+ * stay in one place across every entry point.
  *
  * Returns an error string when invalid, or `undefined` when valid.
  */
 export function validateNewBranchName(value: string): string | undefined {
-  if (!value || !value.trim()) {
-    return 'Branch name cannot be empty';
-  }
-  // Security: reject leading `-` (git parses `-foo` as a CLI flag) and
-  // leading `.` (invalid per git-check-ref-format).
-  if (!/^(?![-.])[\w\-./]+$/.test(value)) {
-    return 'Branch name contains invalid characters';
-  }
-  return undefined;
+  return validateBranchNameWithConflicts(value);
 }
 
 /**
@@ -104,6 +100,8 @@ export class NewBranchDialog extends BaseWebviewPanel {
   private readonly _defaultName: string;
   private readonly _onBranchCreated?: () => void;
   private _busy = false;
+  /** Memoized conflict sources (existing branches + current branch). */
+  private _conflictContextPromise: Promise<IBranchConflictContext> | undefined;
 
   constructor(context: vscode.ExtensionContext, options: INewBranchDialogOptions) {
     super(context, VIEW_TYPE, TITLE, vscode.ViewColumn.One);
@@ -115,6 +113,53 @@ export class NewBranchDialog extends BaseWebviewPanel {
     this._defaultName = options.defaultName ?? '';
     this._onBranchCreated = options.onBranchCreated;
     this._render();
+    // Load the existing-branch list so the webview can flag conflicts live.
+    // Fire-and-forget: the dialog is usable before it resolves, and
+    // `_executeCreate` re-awaits it as a server-side safety net.
+    void this._ensureConflictContext().then((ctx) => this._postConflictContext(ctx));
+  }
+
+  /**
+   * Fetch and memoize the conflict sources (local + remote branch names and
+   * the current branch). Best-effort: a failure leaves an empty context so the
+   * dialog still works — git itself remains the final authority on create.
+   */
+  private _ensureConflictContext(): Promise<IBranchConflictContext> {
+    if (!this._conflictContextPromise) {
+      this._conflictContextPromise = (async (): Promise<IBranchConflictContext> => {
+        try {
+          const branches = await this._gitService.getBranches(this._repo);
+          const localBranches = branches.filter((b) => b.type === 'local').map((b) => b.name);
+          const remoteBranches = branches
+            .filter((b) => b.type === 'remote')
+            .map((b) => stripRemotePrefix(b.name));
+          const currentBranch =
+            branches.find((b) => b.isHead)?.name ?? stripHeadRef(this._repo.head?.name);
+          return { localBranches, remoteBranches, currentBranch };
+        } catch (err) {
+          getLogger()
+            .child({ component: 'NewBranchDialog' })
+            .warn('failed to load branch list for conflict checks', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          return {};
+        }
+      })();
+    }
+    return this._conflictContextPromise;
+  }
+
+  /** Push the loaded conflict sources to the webview for live validation. */
+  private _postConflictContext(ctx: IBranchConflictContext): void {
+    if (this._disposed) {
+      return;
+    }
+    void this.postMessage({
+      type: 'conflicts',
+      localBranches: ctx.localBranches ?? [],
+      remoteBranches: ctx.remoteBranches ?? [],
+      currentBranch: ctx.currentBranch ?? '',
+    });
   }
 
   protected override _getStyles(): string {
@@ -238,23 +283,75 @@ export class NewBranchDialog extends BaseWebviewPanel {
         const vscode = acquireVsCodeApi();
         const nameEl = document.getElementById('branch-name');
         const errorEl = document.getElementById('name-error');
+        const createBtn = document.getElementById('create-btn');
+        const overwriteEl = document.getElementById('flag-overwrite');
 
+        // Existing-branch conflict sources, pushed from the extension once the
+        // branch list loads (see NewBranchDialog._postConflictContext).
+        let conflicts = { localBranches: [], remoteBranches: [], currentBranch: '' };
+
+        // Mirror of branchNameValidator.isValidRefNameFormat (git check-ref-format).
+        const validFormat = (name) => {
+          if (!name || name.trim().length === 0) return false;
+          if (/[\\u0000-\\u001F\\u007F]/.test(name) || /\\s/.test(name)) return false;
+          if (/[~^:?*[\\\\"]/.test(name) || name.indexOf('@{') !== -1) return false;
+          if (name.indexOf('..') !== -1 || name.indexOf('//') !== -1) return false;
+          if (/^[.\\-/]/.test(name)) return false;
+          if (/[./]$/.test(name) || name.slice(-5) === '.lock') return false;
+          if (name.indexOf('./') !== -1 || name.indexOf('/.') !== -1) return false;
+          return true;
+        };
+
+        const dirClash = (name) => conflicts.localBranches.some(
+          (b) => b !== name && (b.indexOf(name + '/') === 0 || name.indexOf(b + '/') === 0)
+        );
+
+        // Mirror of branchNameValidator.validateBranchName.
         const validate = () => {
-          const v = nameEl.value;
-          if (!v || !v.trim()) return 'Branch name cannot be empty';
-          // Mirror validateNewBranchName: reject leading '-' / '.'.
-          if (!/^(?![-.])[\\w\\-.\\/]+$/.test(v)) return 'Branch name contains invalid characters';
+          const raw = nameEl.value;
+          const v = raw.trim();
+          if (v.length === 0) return 'Branch name cannot be empty';
+          if (v.toUpperCase() === 'HEAD') return "Branch name cannot be 'HEAD'";
+          if (!validFormat(raw)) return "Branch name '" + raw + "' is invalid";
+          if (conflicts.remoteBranches.indexOf(v) !== -1)
+            return "Branch name '" + v + "' clashes with an existing remote branch";
+          if (dirClash(v))
+            return "Branch name '" + v + "' clashes with an existing branch directory";
+          if (!overwriteEl.checked) {
+            if (conflicts.currentBranch && v === conflicts.currentBranch)
+              return "Branch '" + v + "' is the current branch";
+            if (conflicts.localBranches.indexOf(v) !== -1)
+              return "Branch '" + v + "' already exists";
+          }
           return '';
         };
 
-        nameEl.addEventListener('input', () => {
-          errorEl.textContent = validate();
+        const refresh = () => {
+          const err = validate();
+          errorEl.textContent = err;
+          createBtn.disabled = !!err;
+        };
+
+        nameEl.addEventListener('input', refresh);
+        overwriteEl.addEventListener('change', refresh);
+
+        window.addEventListener('message', (e) => {
+          const m = e.data;
+          if (m && m.type === 'conflicts') {
+            conflicts = {
+              localBranches: m.localBranches || [],
+              remoteBranches: m.remoteBranches || [],
+              currentBranch: m.currentBranch || '',
+            };
+            refresh();
+          }
         });
 
-        document.getElementById('create-btn').addEventListener('click', () => {
+        createBtn.addEventListener('click', () => {
           const err = validate();
           if (err) {
             errorEl.textContent = err;
+            createBtn.disabled = true;
             nameEl.focus();
             return;
           }
@@ -262,7 +359,7 @@ export class NewBranchDialog extends BaseWebviewPanel {
             type: 'create',
             name: nameEl.value.trim(),
             track: document.getElementById('flag-track').checked,
-            overwrite: document.getElementById('flag-overwrite').checked,
+            overwrite: overwriteEl.checked,
             checkout: document.getElementById('flag-checkout').checked,
           });
         });
@@ -272,7 +369,7 @@ export class NewBranchDialog extends BaseWebviewPanel {
         nameEl.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') {
             e.preventDefault();
-            document.getElementById('create-btn').click();
+            createBtn.click();
           }
         });
 
@@ -290,6 +387,9 @@ export class NewBranchDialog extends BaseWebviewPanel {
             document.getElementById('cancel-btn').click();
           }
         });
+
+        // Reflect the initial name's validity (disables Create on empty/default).
+        refresh();
       })();
     `;
 
@@ -359,7 +459,10 @@ ${body}
     overwrite: boolean;
     checkout: boolean;
   }): Promise<void> {
-    const error = validateNewBranchName(params.name);
+    const context = await this._ensureConflictContext();
+    const error = validateBranchNameWithConflicts(params.name, context, {
+      allowExistingLocal: params.overwrite,
+    });
     if (error) {
       void vscode.window.showErrorMessage(error);
       return;
@@ -400,6 +503,20 @@ export function showNewBranchDialog(
   options: INewBranchDialogOptions
 ): NewBranchDialog {
   return new NewBranchDialog(context, options);
+}
+
+/** `origin/feature/x` → `feature/x`; leaves a bare name untouched. */
+function stripRemotePrefix(name: string): string {
+  const slash = name.indexOf('/');
+  return slash > 0 ? name.substring(slash + 1) : name;
+}
+
+/** `refs/heads/main` → `main`; passes through a bare name or undefined. */
+function stripHeadRef(name: string | undefined): string | undefined {
+  if (!name) {
+    return undefined;
+  }
+  return name.startsWith('refs/heads/') ? name.substring('refs/heads/'.length) : name;
 }
 
 function escapeHtml(text: string): string {
