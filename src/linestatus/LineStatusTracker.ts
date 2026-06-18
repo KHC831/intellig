@@ -5,7 +5,7 @@ import { fetchHeadContent } from './lineStatusHead';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 
 /**
- * Live changed-line gutter tracker (workstream A, slice A-2).
+ * Live changed-line gutter tracker.
  *
  * Tracks each open file's buffer against its committed HEAD content and renders
  * IntelliJ-style change markers in the editor gutter (added / modified /

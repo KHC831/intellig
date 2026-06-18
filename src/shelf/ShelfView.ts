@@ -27,6 +27,7 @@ import { atomicWriteFile } from '../utils/atomicWrite';
 import { sanitizeGitError } from '../git-core/gitError';
 import { getOutputChannel } from '../utils/outputChannel';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
+import { renderDiffAsText } from './diffText';
 
 /**
  * URI scheme for the read-only virtual document that holds the reconstructed
@@ -723,21 +724,10 @@ export class ShelfView implements IShelfView {
    * working-tree counterpart to compare against.
    */
   private async _showDiffContent(shelfItem: IShelfItem, diff: IDiff): Promise<void> {
-    // Create diff content
-    let content = `Shelf: ${shelfItem.name}\n`;
-    content += `Created: ${this._formatTimestamp(shelfItem.timestamp)}\n`;
-    content += `File: ${diff.path}\n`;
-    content += `Status: ${diff.status}\n`;
-    content += '─'.repeat(60) + '\n\n';
-
-    for (const hunk of diff.hunks) {
-      content += `${hunk.header}\n`;
-      for (const line of hunk.lines) {
-        const prefix = line.type === 'add' ? '+' : line.type === 'delete' ? '-' : ' ';
-        content += `${prefix}${line.content}\n`;
-      }
-      content += '\n';
-    }
+    const content = renderDiffAsText(
+      [`Shelf: ${shelfItem.name}`, `Created: ${this._formatTimestamp(shelfItem.timestamp)}`],
+      diff
+    );
 
     // Show in a new untitled document
     const doc = await vscode.workspace.openTextDocument({

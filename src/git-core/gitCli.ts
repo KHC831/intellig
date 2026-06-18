@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { spawn, SpawnOptions, execFileSync } from 'child_process';
+import { getOutputChannel } from '../utils/outputChannel';
 
 /**
  * Upper bound (in chars) on each captured stream — stdout, stderr, and the
@@ -329,8 +330,16 @@ export class GitCli {
         );
       });
 
-      // Write input to stdin if provided
+      // Write input to stdin if provided. Attach an `'error'` handler first so
+      // a broken pipe (EPIPE — the child exited without draining stdin) or any
+      // other stream error is logged rather than thrown as an uncaught async
+      // exception that would crash the extension host.
       if (input && process.stdin) {
+        process.stdin.on('error', (error: Error) => {
+          getOutputChannel().appendLine(
+            `[git] stdin write failed for "${this._gitPath} ${args.join(' ')}": ${error.message}`
+          );
+        });
         process.stdin.write(input);
         process.stdin.end();
       }

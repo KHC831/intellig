@@ -168,6 +168,33 @@ describe('Git CLI Utilities', () => {
     });
   });
 
+  describe('stdin input', () => {
+    it('feeds provided input to the child stdin (git hash-object --stdin reads it)', async () => {
+      // `git hash-object --stdin` hashes whatever it reads on stdin. A fixed
+      // input yields a deterministic blob sha, proving the input reached the
+      // child's stdin intact.
+      const result = await gitCli.exec(['hash-object', '--stdin'], { input: 'hello\n' });
+      assert.strictEqual(result.exitCode, 0);
+      // Well-known git blob sha for "hello\n".
+      assert.strictEqual(result.stdout.trim(), 'ce013625030ba8dba906f756967f9e9ca394464a');
+    });
+
+    it('handles a stdin stream error (EPIPE) without an uncaught throw', async () => {
+      // `git --version` ignores stdin and exits immediately, so a large write
+      // races against a closed pipe and emits EPIPE on the child's stdin. The
+      // wired `'error'` handler must swallow+log it; without the handler this
+      // would surface as an uncaught async exception and crash the host (here:
+      // the test process). exec still resolves from the child's `close` event.
+      const big = 'x'.repeat(8 * 1024 * 1024);
+      const result = await gitCli.exec(['--version'], { input: big });
+      assert.strictEqual(result.exitCode, 0);
+      assert.ok(result.stdout.includes('git version'));
+      // Give any late async stdin 'error' a tick to fire; if unhandled it would
+      // crash the process rather than reach this assertion.
+      await new Promise((r) => setTimeout(r, 50));
+    });
+  });
+
   describe('execString', () => {
     it('should return stdout on success', async () => {
       const result = await gitCli.execString(['--version']);

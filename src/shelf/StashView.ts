@@ -21,6 +21,7 @@ import {
 } from './interfaces/IStashView';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
 import { sanitizeGitError } from '../git-core/gitError';
+import { renderDiffAsText } from './diffText';
 
 /**
  * Quick pick item for stash list
@@ -670,20 +671,10 @@ export class StashView implements IStashView {
    * Show diff content in a virtual document.
    */
   private async _showDiffContent(stash: IStash, diff: IDiff): Promise<void> {
-    // Create diff content
-    let content = `Stash@{${stash.index}}: ${stash.message || 'No message'}\n`;
-    content += `File: ${diff.path}\n`;
-    content += `Status: ${diff.status}\n`;
-    content += '─'.repeat(60) + '\n\n';
-
-    for (const hunk of diff.hunks) {
-      content += `${hunk.header}\n`;
-      for (const line of hunk.lines) {
-        const prefix = line.type === 'add' ? '+' : line.type === 'delete' ? '-' : ' ';
-        content += `${prefix}${line.content}\n`;
-      }
-      content += '\n';
-    }
+    const content = renderDiffAsText(
+      [`Stash@{${stash.index}}: ${stash.message || 'No message'}`],
+      diff
+    );
 
     // Show in a new untitled document
     const doc = await vscode.workspace.openTextDocument({

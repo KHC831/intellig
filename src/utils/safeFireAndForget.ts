@@ -79,10 +79,11 @@
  *    internalisation is the right pattern, not helper wrapping.
  *
  * 3. **`void this.reconcileWithGitStatus(repo).catch(...)`
- *    (ChangelistService:725)** — already wears an explicit `.catch` with
- *    a `console.error` log. Functionally equivalent to `safeFireAndForget`;
- *    left alone to keep the diff tight. Could be migrated in a future
- *    audit pass if we want exactly one canonical shape for this idiom.
+ *    (`ChangelistService.scheduleReconcile`)** — already wears an
+ *    explicit `.catch` that logs via `this._logger.error`. Functionally
+ *    equivalent to `safeFireAndForget`; left alone to keep the diff tight.
+ *    Could be migrated in a future audit pass if we want exactly one
+ *    canonical shape for this idiom.
  *
  * ### Why a fresh `Promise.resolve(...).catch` wrap
  *
