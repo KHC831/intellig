@@ -787,6 +787,21 @@ describe('GitToolWindowProvider - _getGraphPanelHtml()', () => {
       );
     });
 
+    it('orders the history block to match git4idea Git.Log.ContextMenu (Reset at the head)', () => {
+      const html = provider._getCommitContextMenuHtml();
+      const idx = (action: string) => html.indexOf(`data-action="${action}"`);
+      // The destructive/undo trio leads the history block, mirroring
+      // git4idea's Reset → Revert → Uncommit ordering.
+      assert.ok(idx('resetToHere') < idx('revert'), 'Reset before Revert');
+      assert.ok(idx('revert') < idx('undoCommit'), 'Revert before Undo');
+      // Reset is no longer buried beneath the history-rewrite actions.
+      assert.ok(idx('resetToHere') < idx('editCommitMessage'), 'Reset before Edit Commit Message');
+      assert.ok(idx('resetToHere') < idx('dropCommit'), 'Reset before Drop Commit');
+      assert.ok(idx('resetToHere') < idx('mergeIntoCurrent'), 'Reset before Merge into Current');
+      // Branch-integration actions still follow the history-rewrite block.
+      assert.ok(idx('dropCommit') < idx('mergeIntoCurrent'), 'history rewrite before integration');
+    });
+
     it('should have data-head-hash attribute on the menu root element', () => {
       const html = provider._getCommitContextMenuHtml();
       assert.ok(html.includes('data-head-hash='), 'Should have data-head-hash attribute');

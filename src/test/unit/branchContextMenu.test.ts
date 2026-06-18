@@ -156,11 +156,15 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.strictEqual(entries.length, 16, `Expected 16 items, got ${entries.length}`);
     });
 
-    it('should include New Worktree in section 1_branchOps@4', () => {
+    it('should include New Worktree in its own section between Integrate and Sync (3_worktree@1)', () => {
+      // git4idea places "Create New Working Tree" in its own group between the
+      // Integrate (Rebase/Merge) and Sync (Update/Push) sections
+      // (Git.Branch.Backend, intellij.vcs.git.backend.xml). "3_worktree" sorts
+      // after "3_integrate" and before "4_sync".
       const entry = entries.find(
-        (e) => e.command === 'intellig.branch.newWorktree' && e.group === '1_branchOps@4'
+        (e) => e.command === 'intellig.branch.newWorktree' && e.group === '3_worktree@1'
       );
-      assert.ok(entry, 'intellig.branch.newWorktree should be at 1_branchOps@4');
+      assert.ok(entry, 'intellig.branch.newWorktree should be at 3_worktree@1');
     });
 
     it('should include Open Worktree in section 1_branchOps@5', () => {
@@ -267,12 +271,13 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.branch.delete should be at 5_manage@2');
     });
 
-    it('should have 7 distinct group sections in correct order', () => {
+    it('should have 8 distinct group sections in correct order', () => {
       const sections = [...new Set(entries.map((e) => parseGroup(e.group).section))];
       assert.deepStrictEqual(sections.sort(), [
         '1_branchOps',
         '2_compare',
         '3_integrate',
+        '3_worktree',
         '4_sync',
         '5_manage',
         '6_favorite',
@@ -290,11 +295,12 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       entries = getEntriesForContext(allEntries, 'intellig.remoteBranch');
     });
 
-    it('should have exactly 12 menu items', () => {
-      // Added intellig.branch.focusOnGraph in `inline` group.
-      // Added intellig.remoteBranch.trackBranch in `5_manage`
-      // (smart-detect: switches to existing local OR creates tracking branch).
-      assert.strictEqual(entries.length, 12, `Expected 12 items, got ${entries.length}`);
+    it('should have exactly 10 menu items', () => {
+      // Track Branch + Pull Using Rebase + Pull Using Merge are now nested in
+      // the "Tracked Branch" submenu (git4idea Git.Branch.Tracked popup), so
+      // the flat list drops from 12 to 10: those three commands moved into the
+      // submenu, replaced by one submenu reference entry.
+      assert.strictEqual(entries.length, 10, `Expected 10 items, got ${entries.length}`);
     });
 
     it('Wave D — should include Focus on Graph in section inline@1', () => {
@@ -353,18 +359,37 @@ describe('Branch Context Menu - package.json Menu Contributions', () => {
       assert.ok(entry, 'intellig.branch.mergeIntoCurrent should be at 3_integrate@2');
     });
 
-    it('should include Pull Using Rebase in section 4_pull@1', () => {
+    it('should reference the Tracked Branch submenu in section 4_pull@1', () => {
       const entry = entries.find(
-        (e) => e.command === 'intellig.remoteBranch.pullUsingRebase' && e.group === '4_pull@1'
+        (e) =>
+          (e as unknown as { submenu?: string }).submenu === 'intellig.trackedBranchSubmenu' &&
+          e.group === '4_pull@1'
       );
-      assert.ok(entry, 'intellig.remoteBranch.pullUsingRebase should be at 4_pull@1');
+      assert.ok(
+        entry,
+        'remote-branch menu should reference intellig.trackedBranchSubmenu at 4_pull@1'
+      );
     });
 
-    it('should include Pull Using Merge in section 4_pull@2', () => {
-      const entry = entries.find(
-        (e) => e.command === 'intellig.remoteBranch.pullUsingMerge' && e.group === '4_pull@2'
-      );
-      assert.ok(entry, 'intellig.remoteBranch.pullUsingMerge should be at 4_pull@2');
+    it('Tracked Branch submenu nests Track Branch + both Pull modes (git4idea Git.Branch.Tracked)', () => {
+      const pkg = loadPackageJson();
+      const menus = (pkg.contributes as Record<string, unknown>).menus as Record<string, unknown>;
+      const sub = menus['intellig.trackedBranchSubmenu'] as MenuEntry[] | undefined;
+      assert.ok(sub, 'intellig.trackedBranchSubmenu menu contributions must exist');
+      const cmds = sub.map((e) => e.command);
+      assert.deepStrictEqual(cmds, [
+        'intellig.remoteBranch.trackBranch',
+        'intellig.remoteBranch.pullUsingRebase',
+        'intellig.remoteBranch.pullUsingMerge',
+      ]);
+
+      const submenus = (pkg.contributes as Record<string, unknown>).submenus as {
+        id: string;
+        label: string;
+      }[];
+      const def = submenus.find((s) => s.id === 'intellig.trackedBranchSubmenu');
+      assert.ok(def, 'intellig.trackedBranchSubmenu must be declared in contributes.submenus');
+      assert.strictEqual(def.label, 'Tracked Branch');
     });
 
     it('should include Delete Remote in section 5_manage@1', () => {

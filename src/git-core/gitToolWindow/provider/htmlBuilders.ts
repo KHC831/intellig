@@ -190,8 +190,11 @@ export function truncateMessage(message: string, maxLength: number): string {
  * Revert Commit, Undo Commit, Drop Commit, Edit Commit Message,
  * Merge into Current Branch, Interactively Rebase from Here.
  *
- * Items are organized into four sections separated by dividers:
- * Navigation & Inspection, Branch Operations, History Manipulation, Merge & Integration.
+ * Section ordering mirrors git4idea's `Git.Log.ContextMenu` group
+ * (intellij.vcs.git.backend.xml): inspect/copy utilities, then checkout &
+ * compare, then the destructive trio (Reset / Revert / Undo) at the head of
+ * the history block, then history-rewrite actions, then branch integration,
+ * then Push-up-to-here, then graph navigation.
  *
  * The menu is hidden by default and shown on right-click via JS handlers.
  * The data-head-hash attribute stores the HEAD commit hash for disabled state logic.
@@ -224,19 +227,19 @@ export function buildCommitContextMenuHtml(ctx: IGtwControllerContext): string {
         <div class="context-menu-item" data-action="compareWithLocal" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Local</div>
         <div class="context-menu-item menu-multi-hidden" data-action="compareVersions" data-multi-action="multi-only" role="menuitem" tabindex="0">Compare Versions</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message</div>
         <div class="context-menu-item context-menu-danger" data-action="resetToHere" data-multi-action="single-only" role="menuitem" tabindex="0">Reset Current Branch to Here\u2026</div>
         <div class="context-menu-item" data-action="revert" role="menuitem" tabindex="0">Revert Commit</div>
         <div class="context-menu-item" data-action="undoCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Undo Commit</div>
-        <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
-        <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
         <div class="context-menu-separator"></div>
-        <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
+        <div class="context-menu-item" data-action="editCommitMessage" data-multi-action="single-only" role="menuitem" tabindex="0">Edit Commit Message</div>
         <div class="context-menu-item" data-action="fixupWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Fixup with Previous</div>
+        <div class="context-menu-item" data-action="squashWithPrevious" data-multi-action="single-only" role="menuitem" tabindex="0">Squash with Previous</div>
+        <div class="context-menu-item menu-multi-hidden" data-action="squashCommits" data-multi-action="multi-only" role="menuitem" tabindex="0">Squash Commits</div>
+        <div class="context-menu-item context-menu-danger" data-action="dropCommit" role="menuitem" tabindex="0">Drop Commit</div>
+        <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="compareWithBranch" data-multi-action="single-only" role="menuitem" tabindex="0">Compare with Branch\u2026</div>
         <div class="context-menu-item" data-action="mergeIntoCurrent" data-multi-action="single-only" role="menuitem" tabindex="0">Merge into Current Branch</div>
-        <div class="context-menu-item" data-action="interactiveRebase" data-multi-action="single-only" role="menuitem" tabindex="0">Interactively Rebase from Here\u2026</div>
         <div class="context-menu-separator"></div>
         <div class="context-menu-item" data-action="pushUpToCommit" data-multi-action="single-only" role="menuitem" tabindex="0">Push up to here\u2026</div>
         <div class="context-menu-separator"></div>
