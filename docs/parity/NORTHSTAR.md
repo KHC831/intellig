@@ -26,8 +26,11 @@ interactive-rebase plumbing already *exceed* git4idea.
 
 Remaining backlog is now thin: **G** complete; **A / B / C / D / E / F / H** all effectively complete
 (~90-97%) — the last daily-feature gaps (A's rollback dialog, F-8b line-status hover popup) have landed.
-The remaining parity work is **UI/UX layout** fidelity (section 4b — menu order/grouping, labels, icons,
-dialogs) plus the R2 re-audit pass against the merged tree.
+**Section-4b UI/UX layout parity is complete** (all numbered gaps #2–#10), the R2 re-audit is done, and an
+independent code + security review passed (one HIGH security + one HIGH correctness bug found and fixed).
+What's left is low-tier: a few open polish items (branch-tree FilteringTree/search + multi-select, the F5
+dogfood sweep) + the explicitly-deferred a11y / edge-state / per-dialog-audit backlog — weeks of polish,
+not engineer-years.
 
 ## 2. Standing constraints
 
