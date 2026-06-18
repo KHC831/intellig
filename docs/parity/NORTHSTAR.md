@@ -102,7 +102,7 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 | Surface | Parity | Biggest remaining gap |
 |---|---|---|
 | Log / commit menu | 🟢 ~90% | — (#10 done: reword ellipsis + New-Branch/Tag + Fixup/Squash-into all landed; mirrors `Git.Log.ContextMenu`) |
-| Branch popup (QuickPick) | 🟡 ~75% | tracked-branch submenu (#5); New-Worktree/Push-Tags-in-popup (deferred). #4 Rename/Delete-last reorder landed |
+| Branch popup (QuickPick) | 🟢 ~85% | — (#4 reorder + #5 Set Upstream landed; New-Worktree/Push-Tags-in-popup deferred) |
 | Branch tree menu | 🟢 ~90% | — (near-complete) |
 | Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs (deferred) |
 | Explorer / editor submenu | 🟢 ~90% | — (#6 done: "Commit File…" via the SCM API per ADR-014) |
@@ -110,12 +110,13 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 | Toolbar / view-title | 🟢 ~85% | — (fetch icon + branch widget landed) |
 | Major dialogs | 🟢 ~85% | per-dialog field-level audit (deferred) |
 
-**Open gaps** (ref = git4idea XML group / Java class):
+**Open gaps** (ref = git4idea XML group / Java class): _all numbered gaps (#2–#10) are now landed — see
+the Landed note + STATUS. The remaining rows are the explicitly-deferred backlog._
 
 | # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
 |---|---|---|---|---|---|
-| 5 | Branch popup | Tracked-branch submenu missing (set-upstream / edit-tracked sub-popup; or QuickPick cascade) | `Git.Branch.Tracked` | absent | M |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
+| — | Branch popup | New-Worktree-from-branch + Push-Tags items in the QuickPick (both reachable elsewhere) | `GitBranchPopupActions` | `BranchPopup.ts` | S |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
 | — | Dialogs | Field-level checkbox/label/order audit per dialog (rebase/merge/push/pull/reset/new-branch/rollback) | per-dialog git4idea classes | `src/rebase`,`src/sync`,… | M |
 
@@ -124,9 +125,10 @@ menu" never existed — its 19 orphaned `view/item/context` entries were deleted
 true commit menu); #3 landed (reword-item ellipsis); **#10 complete** (New-Branch/New-Tag-from-commit +
 Fixup…/Squash Into… in the webview menu — the log/commit menu now mirrors `Git.Log.ContextMenu`; also
 resolved the orphaned-command parity gap); **#6 complete** ("Commit File…" via the SCM API per ADR-014);
-**#4 reorder landed** (Rename/Delete last in the branch popup). Next: **#5** (tracked-branch submenu) —
-the last open section-4b item. Branch-popup New-Worktree/Push-Tags additions + Stash/Working-Trees tabs +
-per-dialog field audit are deferred.
+**#4 reorder landed** (Rename/Delete last in the branch popup); **#5 complete** ("Set Upstream…" in the
+branch popup). **All numbered section-4b gaps (#2–#10) are now landed.** Remaining is the explicitly-
+deferred backlog only: branch-popup New-Worktree/Push-Tags, Pull-into-current on local branches,
+Stash/Working-Trees tabs, and the per-dialog field-level audit.
 
 **Landed (in STATUS):** log-menu reset-to-head reorder (webview) + palette ellipsis pass on
 dialog-opening titles (`64c5a20`); reset-dialog destructive confirm verified present
@@ -139,7 +141,8 @@ reword-item ellipsis. **#10 (`3853540`, `47b363b`):** New Branch / New Tag from 
 Into… in the webview log menu — the log/commit menu now mirrors `Git.Log.ContextMenu`. **#6 (`8cad885`):**
 "Commit File…" at the head of the explorer submenu via the SCM API (ADR-014) — stages the file + reveals
 the SCM commit input; wired `acceptInputCommand` (commit-on-accept). **#4 (`4729103`):** branch-popup
-Rename/Delete moved last (git4idea `Git.Branch.Backend` order).
+Rename/Delete moved last (git4idea `Git.Branch.Backend` order). **#5 (`285117e`):** "Set Upstream…" in the
+branch popup — nested QuickPick of remote refs → reuses `setBranchUpstream`.
 
 ---
 
