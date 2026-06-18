@@ -17,6 +17,11 @@
 
 import * as vscode from 'vscode';
 import { IBlameOptions } from './interfaces/IBlameService';
+import {
+  AuthorNameFormat,
+  DEFAULT_AUTHOR_NAME_FORMAT,
+  normalizeAuthorNameFormat,
+} from './authorNameFormat';
 
 /** Config keys (namespaced under `intellig.blame.*`). */
 const CONFIG_SECTION = 'intellig.blame';
@@ -24,6 +29,32 @@ const CONFIG_IGNORE_WS = 'ignoreWhitespace';
 const CONFIG_DETECT_WITHIN = 'detectMovementsWithinFile';
 const CONFIG_DETECT_ACROSS = 'detectMovementsAcrossFiles';
 const CONFIG_COLOR_MODE = 'colorMode';
+const CONFIG_SHOW_AUTHOR = 'showAuthor';
+const CONFIG_SHOW_DATE = 'showDate';
+const CONFIG_SHOW_REVISION = 'showRevision';
+const CONFIG_AUTHOR_NAME_FORMAT = 'authorNameFormat';
+
+/**
+ * The three annotation aspects whose visibility the user can toggle
+ * independently. Mirrors IntelliJ's `LineAnnotationAspect` IDs
+ * (`AUTHOR` / `DATE` / `REVISION`) and the per-aspect show/hide entries the
+ * `AnnotateActionGroup` builds via `ShowHideAspectAction`.
+ */
+export type BlameAspectId = 'author' | 'date' | 'revision';
+
+/** Visibility of each toggleable annotation aspect column. */
+export interface IBlameAspectVisibility {
+  author: boolean;
+  date: boolean;
+  revision: boolean;
+}
+
+/** Maps each aspect onto its backing config key. */
+const ASPECT_CONFIG_KEY: Readonly<Record<BlameAspectId, string>> = {
+  author: CONFIG_SHOW_AUTHOR,
+  date: CONFIG_SHOW_DATE,
+  revision: CONFIG_SHOW_REVISION,
+};
 
 /** Workspace-state key for the hidden-revision set. */
 const WS_STATE_HIDDEN = 'intellig.blame.hiddenRevisions';
@@ -51,6 +82,10 @@ export interface IBlameOptionsSnapshot extends Required<IBlameOptions> {
   hiddenRevisions: ReadonlySet<string>;
   /** Active background color mode for blame annotations. */
   colorMode: BlameColorMode;
+  /** Which annotation aspect columns are currently shown. */
+  aspects: IBlameAspectVisibility;
+  /** How the author identity is rendered in the annotation text. */
+  authorNameFormat: AuthorNameFormat;
 }
 
 /**
@@ -78,7 +113,11 @@ export class BlameOptionsSource {
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_IGNORE_WS}`) ||
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_WITHIN}`) ||
           event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_DETECT_ACROSS}`) ||
-          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_COLOR_MODE}`)
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_COLOR_MODE}`) ||
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_SHOW_AUTHOR}`) ||
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_SHOW_DATE}`) ||
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_SHOW_REVISION}`) ||
+          event.affectsConfiguration(`${CONFIG_SECTION}.${CONFIG_AUTHOR_NAME_FORMAT}`)
         ) {
           this._onDidChange.fire(this.snapshot());
         }
@@ -98,6 +137,14 @@ export class BlameOptionsSource {
       detectMovementsAcrossFiles: cfg.get<boolean>(CONFIG_DETECT_ACROSS, false),
       hiddenRevisions: new Set(this._hidden),
       colorMode: normalizeColorMode(cfg.get<string>(CONFIG_COLOR_MODE, DEFAULT_COLOR_MODE)),
+      aspects: {
+        author: cfg.get<boolean>(CONFIG_SHOW_AUTHOR, true),
+        date: cfg.get<boolean>(CONFIG_SHOW_DATE, true),
+        revision: cfg.get<boolean>(CONFIG_SHOW_REVISION, true),
+      },
+      authorNameFormat: normalizeAuthorNameFormat(
+        cfg.get<string>(CONFIG_AUTHOR_NAME_FORMAT, DEFAULT_AUTHOR_NAME_FORMAT)
+      ),
     };
   }
 
@@ -126,6 +173,23 @@ export class BlameOptionsSource {
     const next = !current;
     // Prefer Workspace target so per-project preference sticks; falls back to
     // Global if there's no open workspace.
+    const target = vscode.workspace.workspaceFolders
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    await cfg.update(key, next, target);
+    return next;
+  }
+
+  /**
+   * Toggle the visibility of a single annotation aspect column, persisting to
+   * workspace configuration. Mirrors IntelliJ's per-aspect `ShowHideAspectAction`.
+   *
+   * @returns the aspect's new visibility.
+   */
+  async toggleAspect(aspect: BlameAspectId): Promise<boolean> {
+    const key = ASPECT_CONFIG_KEY[aspect];
+    const cfg = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const next = !cfg.get<boolean>(key, true);
     const target = vscode.workspace.workspaceFolders
       ? vscode.ConfigurationTarget.Workspace
       : vscode.ConfigurationTarget.Global;

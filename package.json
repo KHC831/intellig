@@ -1328,6 +1328,40 @@
           "default": "order",
           "description": "Background color mode for blame annotations. 'order' shades lines by commit age (heat gradient); 'author' assigns each author a stable color. Matches IntelliJ's annotation color mode (Annotations Color menu)."
         },
+        "intellig.blame.showAuthor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the author column in blame annotations. Matches IntelliJ's per-aspect show/hide for the Author annotation field."
+        },
+        "intellig.blame.showDate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the date column in blame annotations. Matches IntelliJ's per-aspect show/hide for the Date annotation field."
+        },
+        "intellig.blame.showRevision": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the revision (commit hash) column in blame annotations. Matches IntelliJ's per-aspect show/hide for the Revision annotation field."
+        },
+        "intellig.blame.authorNameFormat": {
+          "type": "string",
+          "enum": [
+            "full",
+            "firstname",
+            "lastname",
+            "initials",
+            "email"
+          ],
+          "enumDescriptions": [
+            "Show the author's full name.",
+            "Show only the author's first name.",
+            "Show only the author's last name.",
+            "Show the author's initials.",
+            "Show the author's email address."
+          ],
+          "default": "full",
+          "description": "How the author is displayed in blame annotations. Matches IntelliJ's annotation 'Names' submenu (ShortNameType)."
+        },
         "intellig.showStatusBarBranch": {
           "type": "boolean",
           "default": true,

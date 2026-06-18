@@ -2,11 +2,24 @@ import * as vscode from 'vscode';
 import { IGutterBlameProvider } from './interfaces/IGutterBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine } from '../git-core/interfaces/IGitService';
-import { BlameOptionsSource } from './BlameOptionsSource';
+import { BlameOptionsSource, IBlameAspectVisibility } from './BlameOptionsSource';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { computeHeatColor } from './heatColor';
 import { buildAuthorColorMap } from './authorColor';
+import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
 import * as path from 'path';
+
+/** Aspect/name-format display config with provider defaults applied. */
+interface IBlameDisplay {
+  aspects: IBlameAspectVisibility;
+  authorNameFormat: AuthorNameFormat;
+}
+
+/** Defaults used when no options source is wired (every aspect visible). */
+const DEFAULT_DISPLAY: IBlameDisplay = {
+  aspects: { author: true, date: true, revision: true },
+  authorNameFormat: 'full',
+};
 
 /**
  * Gutter Blame Provider implementation.
@@ -455,49 +468,41 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   }
 
   /**
-   * Format the gutter text for the blame annotation.
-   * Shows author initials/name and relative date.
+   * Format the gutter text for the blame annotation. Renders only the aspect
+   * columns the user has left visible (author / date / revision), in that
+   * fixed order, with the author rendered per the chosen name format. Mirrors
+   * IntelliJ's per-aspect show/hide gutter columns.
    *
    * @param blameLine - The blame information
    * @returns The formatted gutter text
    */
   private formatGutterText(blameLine: IBlameLine): string {
-    const author = this.formatAuthor(blameLine.author);
-    const relativeDate = this.formatRelativeDate(blameLine.date);
-    const shortHash = blameLine.commit.substring(0, 7);
+    const { aspects, authorNameFormat } = this.resolveDisplay();
+    const columns: string[] = [];
+    if (aspects.author) {
+      columns.push(formatAuthorName(blameLine.author, blameLine.authorEmail, authorNameFormat));
+    }
+    if (aspects.date) {
+      columns.push(this.formatRelativeDate(blameLine.date));
+    }
+    if (aspects.revision) {
+      columns.push(blameLine.commit.substring(0, 7));
+    }
 
-    // Format: "author  date  hash"
-    return `${author.padEnd(12)} ${relativeDate.padEnd(12)} ${shortHash}`;
+    // Pad every column except the last so the visible columns stay aligned.
+    return columns.map((c, i) => (i < columns.length - 1 ? c.padEnd(12) : c)).join(' ');
   }
 
   /**
-   * Format author name for gutter display.
-   * Uses initials for long names, full name for short names.
-   *
-   * @param author - The author name
-   * @returns The formatted author string
+   * Resolve the aspect-visibility + name-format display config from the
+   * options source, applying provider defaults when none is wired.
    */
-  private formatAuthor(author: string): string {
-    // If name is short enough, use it directly
-    if (author.length <= 10) {
-      return author;
+  private resolveDisplay(): IBlameDisplay {
+    const snap = this._optionsSource?.snapshot();
+    if (!snap) {
+      return DEFAULT_DISPLAY;
     }
-
-    // Try to extract initials from name parts
-    const parts = author.split(/\s+/);
-    if (parts.length >= 2) {
-      // Use first name + last initial
-      const firstName = parts[0];
-      const lastInitial = parts[parts.length - 1].charAt(0).toUpperCase();
-      if (firstName.length <= 8) {
-        return `${firstName} ${lastInitial}.`;
-      }
-      // Use initials only
-      return parts.map((p) => p.charAt(0).toUpperCase()).join('');
-    }
-
-    // Truncate long single names
-    return author.substring(0, 9) + '…';
+    return { aspects: snap.aspects, authorNameFormat: snap.authorNameFormat };
   }
 
   /**

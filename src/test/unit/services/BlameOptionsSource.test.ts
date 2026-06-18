@@ -128,6 +128,59 @@ describe('BlameOptionsSource', () => {
     });
   });
 
+  describe('aspect columns', () => {
+    it('defaults every aspect column to visible', () => {
+      const snap = source!.snapshot();
+      assert.strictEqual(snap.aspects.author, true);
+      assert.strictEqual(snap.aspects.date, true);
+      assert.strictEqual(snap.aspects.revision, true);
+    });
+
+    it('reflects a hidden aspect from config', () => {
+      setMockConfigValue('intellig.blame', 'showDate', false);
+      assert.strictEqual(source!.snapshot().aspects.date, false);
+    });
+
+    it('toggleAspect flips the column and returns the new value', async () => {
+      assert.strictEqual(source!.snapshot().aspects.author, true);
+      const next = await source!.toggleAspect('author');
+      assert.strictEqual(next, false);
+      assert.strictEqual(source!.snapshot().aspects.author, false);
+    });
+
+    it('fires onDidChange when an aspect is toggled', async () => {
+      let fired = 0;
+      source!.onDidChange(() => fired++);
+      await source!.toggleAspect('revision');
+      assert.strictEqual(fired, 1);
+    });
+  });
+
+  describe('author name format', () => {
+    it('defaults to full', () => {
+      assert.strictEqual(source!.snapshot().authorNameFormat, 'full');
+    });
+
+    it('reflects a valid format from config', () => {
+      setMockConfigValue('intellig.blame', 'authorNameFormat', 'initials');
+      assert.strictEqual(source!.snapshot().authorNameFormat, 'initials');
+    });
+
+    it('falls back to full for an unrecognized format', () => {
+      setMockConfigValue('intellig.blame', 'authorNameFormat', 'bogus');
+      assert.strictEqual(source!.snapshot().authorNameFormat, 'full');
+    });
+
+    it('fires onDidChange when the format setting changes', async () => {
+      let fired = 0;
+      source!.onDidChange(() => fired++);
+      await vscode.workspace
+        .getConfiguration('intellig.blame')
+        .update('authorNameFormat', 'lastname', vscode.ConfigurationTarget.Workspace);
+      assert.strictEqual(fired, 1);
+    });
+  });
+
   describe('persistence across instances', () => {
     it('re-hydrates hidden revisions from workspaceState on construction', async () => {
       const sha = '5'.repeat(40);

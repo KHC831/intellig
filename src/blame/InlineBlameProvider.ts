@@ -2,12 +2,25 @@ import * as vscode from 'vscode';
 import { IInlineBlameProvider } from './interfaces/IInlineBlameProvider';
 import { IBlameService, IBlameInfo } from './interfaces/IBlameService';
 import { IGitService, IBlameLine, IRepository } from '../git-core/interfaces/IGitService';
-import { BlameOptionsSource } from './BlameOptionsSource';
+import { BlameOptionsSource, IBlameAspectVisibility } from './BlameOptionsSource';
 import { computeAuthorColor } from './authorColor';
+import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { parseRemoteUrl, type IRemoteUrl } from '../utils/remoteUrl';
 import { commitUrl } from '../utils/hostingLinks';
 import * as path from 'path';
+
+/** Aspect/name-format display config with provider defaults applied. */
+interface IBlameDisplay {
+  aspects: IBlameAspectVisibility;
+  authorNameFormat: AuthorNameFormat;
+}
+
+/** Defaults used when no options source is wired (every aspect visible). */
+const DEFAULT_DISPLAY: IBlameDisplay = {
+  aspects: { author: true, date: true, revision: true },
+  authorNameFormat: 'full',
+};
 
 /**
  * Inline Blame Provider implementation.
@@ -414,18 +427,50 @@ export class InlineBlameProvider implements IInlineBlameProvider {
   }
 
   /**
-   * Format the inline text for the blame annotation.
-   * Shows author, relative date, and truncated commit message.
+   * Format the inline text for the blame annotation. Renders only the aspect
+   * fields the user has left visible (revision / author / date), with the
+   * author rendered per the chosen name format, followed by the truncated
+   * commit message. Mirrors IntelliJ's per-aspect show/hide annotation fields.
    *
    * @param blameLine - The blame information
    * @returns The formatted inline text
    */
   private formatInlineText(blameLine: IBlameLine): string {
-    const author = this.truncateString(blameLine.author, 15);
-    const relativeDate = this.formatRelativeDate(blameLine.date);
-    const message = this.truncateString(blameLine.message, 40);
+    const { aspects, authorNameFormat } = this.resolveDisplay();
 
-    return `${author}, ${relativeDate} • ${message}`;
+    const meta: string[] = [];
+    if (aspects.author) {
+      meta.push(
+        this.truncateString(
+          formatAuthorName(blameLine.author, blameLine.authorEmail, authorNameFormat),
+          20
+        )
+      );
+    }
+    if (aspects.date) {
+      meta.push(this.formatRelativeDate(blameLine.date));
+    }
+
+    let prefix = meta.join(', ');
+    if (aspects.revision) {
+      const shortHash = blameLine.commit.substring(0, 7);
+      prefix = prefix ? `${shortHash} ${prefix}` : shortHash;
+    }
+
+    const message = this.truncateString(blameLine.message, 40);
+    return prefix ? `${prefix} • ${message}` : message;
+  }
+
+  /**
+   * Resolve the aspect-visibility + name-format display config from the
+   * options source, applying provider defaults when none is wired.
+   */
+  private resolveDisplay(): IBlameDisplay {
+    const snap = this._optionsSource?.snapshot();
+    if (!snap) {
+      return DEFAULT_DISPLAY;
+    }
+    return { aspects: snap.aspects, authorNameFormat: snap.authorNameFormat };
   }
 
   /**

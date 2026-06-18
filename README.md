@@ -303,6 +303,11 @@ Enable the IntelliJ preset in settings:
 | `intellig.blame.ignoreWhitespace`           | `false`    | Pass `-w` to `git blame`                     |
 | `intellig.blame.detectMovementsWithinFile`  | `false`    | Pass `-M` to `git blame`                     |
 | `intellig.blame.detectMovementsAcrossFiles` | `false`    | Pass `-C -C` to `git blame`                  |
+| `intellig.blame.colorMode`                  | `"order"`  | Background tint: `"order"` (age heat) or `"author"` |
+| `intellig.blame.showAuthor`                 | `true`     | Show the author column (Author aspect)       |
+| `intellig.blame.showDate`                   | `true`     | Show the date column (Date aspect)           |
+| `intellig.blame.showRevision`               | `true`     | Show the revision/hash column (Revision aspect) |
+| `intellig.blame.authorNameFormat`           | `"full"`   | Author rendering: `"full"`, `"firstname"`, `"lastname"`, `"initials"`, or `"email"` |
 
 ### Branches popup
 
