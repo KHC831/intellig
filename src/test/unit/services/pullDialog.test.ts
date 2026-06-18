@@ -234,6 +234,7 @@ describe('PullDialog — pure helpers', () => {
       squash: false,
       noCommit: false,
       noVerify: false,
+      autostash: false,
     };
 
     it('leaves flags untouched when no strategy flag is set', () => {
@@ -365,6 +366,13 @@ describe('PullDialog — pure helpers', () => {
       assert.strictEqual(rebaseItem?.picked, true);
       assert.strictEqual(ffOnlyItem?.picked, false);
     });
+
+    it('includes an --autostash toggle labelled with its CLI flag', () => {
+      const items = buildFlagItems(defaultPullFlags(false));
+      const autostashItem = items.find((i) => i.flagKey === 'autostash');
+      assert.ok(autostashItem, 'expected an autostash toggle');
+      assert.strictEqual(autostashItem?.label, '--autostash');
+    });
   });
 
   describe('applyFlagSelection', () => {
@@ -488,6 +496,32 @@ describe('PullDialog — runPullDialog', () => {
     assert.strictEqual(opts?.noVerify, true);
     assert.strictEqual(opts?.rebase, undefined);
     assert.strictEqual(opts?.ffOnly, undefined);
+  });
+
+  it('threads --autostash into the pull options when the checkbox is picked', async () => {
+    const h = createHarness({
+      sourcePick: '$(git-branch) main',
+      flagPicks: ['--autostash', '$(play) Pull'],
+    });
+    const outcome = await runPullDialog(h.deps);
+    assert.strictEqual(outcome.status, 'pulled');
+    assert.strictEqual(h.pullCalls[0].options?.autostash, true);
+  });
+
+  it('leaves autostash unset when the checkbox is not picked', async () => {
+    const h = createHarness({ sourcePick: '$(git-branch) main' });
+    await runPullDialog(h.deps);
+    assert.strictEqual(h.pullCalls[0].options?.autostash, undefined);
+  });
+
+  it('combines --autostash with a strategy flag without clearing it (modifier, not mutex)', async () => {
+    const h = createHarness({
+      sourcePick: '$(git-branch) main',
+      flagPicks: ['--rebase', '--autostash', '$(play) Pull'],
+    });
+    await runPullDialog(h.deps);
+    assert.strictEqual(h.pullCalls[0].options?.rebase, true);
+    assert.strictEqual(h.pullCalls[0].options?.autostash, true);
   });
 
   it('cancel at source step → no pull, no toasts', async () => {

@@ -10,7 +10,7 @@ import {
   IRemote,
 } from '../interfaces/IGitService';
 import { buildGitArgs } from '../gitCli';
-import { parseRemotes } from '../gitParser';
+import { parseRemotes, parseStatus, isConflictedStatus } from '../gitParser';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -200,6 +200,13 @@ export class RemoteOps {
     if (options?.noVerify) {
       flags.push('--no-verify');
     }
+    if (options?.autostash) {
+      // `--autostash` makes git stash a dirty working tree before integrating
+      // and re-apply it after, so an uncommitted change no longer dead-ends
+      // pull on "cannot pull with rebase: you have unstaged changes" /
+      // local-changes-overwrite (mirrors rebaseBranch's `--autostash`).
+      flags.push('--autostash');
+    }
     if (options?.prune) {
       flags.push('--prune');
     }
@@ -215,6 +222,27 @@ export class RemoteOps {
     const args = buildGitArgs('pull', flags, refs);
     await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath, throwOnError: true });
     this.ctx.invalidateCache(repo.rootUri.fsPath);
+
+    // With `--autostash` git integrates cleanly (exit 0) then pops the stash.
+    // A clean round-trip exits 0 with no unmerged files, but when popping the
+    // autostash collides with the pulled changes git leaves unmerged files AND
+    // still exits 0 — so the `throwOnError` above never fires. Read the
+    // porcelain status to surface that pop-conflict instead of a false success
+    // (mirrors rebaseBranch's post-status check). Routed as a CONFLICT error so
+    // PullDialog hands it to the Resolve Conflicts flow.
+    if (options?.autostash) {
+      const statusResult = await this.ctx.gitCli.exec(['status', '--porcelain'], {
+        cwd: repo.rootUri.fsPath,
+      });
+      const conflicts = parseStatus(statusResult.stdout)
+        .filter(isConflictedStatus)
+        .map((f) => f.path);
+      if (conflicts.length > 0) {
+        throw new Error(
+          `CONFLICT: applying the autostash left unmerged files (${conflicts.join(', ')}).`
+        );
+      }
+    }
   }
 
   async push(repo: IRepository, options?: IPushOptions): Promise<void> {

@@ -3612,6 +3612,72 @@ describe('GitService - Fetch, Pull, Push Operations', () => {
         ]);
       });
     });
+
+    describe('Pull with autostash option', () => {
+      it('splices --autostash before --end-of-options so a dirty tree no longer dead-ends pull', async () => {
+        await gitService.pull(mockRepo, { autostash: true, remote: 'origin', branch: 'main' });
+
+        const pullCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'pull');
+        assert.ok(pullCommand, 'Pull command should have been executed');
+        assert.deepStrictEqual(pullCommand.args, [
+          'pull',
+          '--autostash',
+          '--end-of-options',
+          'origin',
+          'main',
+        ]);
+      });
+
+      it('does not include --autostash when the option is omitted', async () => {
+        await gitService.pull(mockRepo, { remote: 'origin', branch: 'main' });
+
+        const pullCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'pull');
+        assert.ok(pullCommand, 'Pull command should have been executed');
+        assert.ok(!pullCommand.args.includes('--autostash'), 'Should not include --autostash flag');
+      });
+
+      it('combines --autostash with a strategy flag in flag order', async () => {
+        await gitService.pull(mockRepo, { autostash: true, rebase: true });
+
+        const pullCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'pull');
+        assert.ok(pullCommand, 'Pull command should have been executed');
+        assert.deepStrictEqual(pullCommand.args, ['pull', '--rebase', '--autostash']);
+      });
+
+      it('throws a CONFLICT error when an exit-0 autostash pop leaves unmerged files', async () => {
+        // With --autostash git integrates cleanly (exit 0) then pops the stash;
+        // if that pop collides git leaves unmerged files but STILL exits 0, so
+        // the post-status check must surface it as a conflict.
+        mockGitCli.setMockResult('status --porcelain', {
+          exitCode: 0,
+          stdout: 'UU shared.ts\n',
+          stderr: '',
+        });
+
+        await assert.rejects(
+          async () => gitService.pull(mockRepo, { autostash: true }),
+          /CONFLICT/,
+          'Should throw a CONFLICT error so the dialog routes to conflict resolution'
+        );
+      });
+
+      it('does not read porcelain status after a non-autostash pull', async () => {
+        await gitService.pull(mockRepo, { remote: 'origin', branch: 'main' });
+
+        const statusCommand = mockGitCli.executedCommands.find((cmd) => cmd.args[0] === 'status');
+        assert.strictEqual(statusCommand, undefined, 'Should not run status without autostash');
+      });
+
+      it('resolves cleanly when an autostash pull exits 0 with no unmerged files', async () => {
+        mockGitCli.setMockResult('status --porcelain', {
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+        });
+
+        await assert.doesNotReject(async () => gitService.pull(mockRepo, { autostash: true }));
+      });
+    });
   });
 
   describe('push()', () => {

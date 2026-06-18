@@ -312,6 +312,12 @@ export interface IPullOptions {
   noVerify?: boolean;
   /** Remove remote-tracking refs that no longer exist on the remote (`--prune`). */
   prune?: boolean;
+  /**
+   * Stash a dirty working tree before integrating and re-apply it after
+   * (`--autostash`), so an uncommitted change no longer dead-ends pull on
+   * "cannot pull with rebase: you have unstaged changes" / local-changes-overwrite.
+   */
+  autostash?: boolean;
   /** Remote name (default origin). */
   remote?: string;
   /** Branch name on the remote to pull from. */

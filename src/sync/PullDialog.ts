@@ -24,7 +24,14 @@ import { sanitizeGitError } from '../git-core/gitError';
 // ─── Flag-key helpers ────────────────────────────────────────────────────────
 
 /** Keys of {@link IPullOptions} that represent CLI flags (not remote/branch). */
-export type PullFlagKey = 'rebase' | 'ffOnly' | 'noFf' | 'squash' | 'noCommit' | 'noVerify';
+export type PullFlagKey =
+  | 'rebase'
+  | 'ffOnly'
+  | 'noFf'
+  | 'squash'
+  | 'noCommit'
+  | 'noVerify'
+  | 'autostash';
 
 /** CLI representation of each flag, for UI labelling. */
 const FLAG_LABELS: Record<PullFlagKey, string> = {
@@ -34,6 +41,7 @@ const FLAG_LABELS: Record<PullFlagKey, string> = {
   squash: '--squash',
   noCommit: '--no-commit',
   noVerify: '--no-verify',
+  autostash: '--autostash',
 };
 
 /**
@@ -43,7 +51,7 @@ const FLAG_LABELS: Record<PullFlagKey, string> = {
 const STRATEGY_FLAGS: ReadonlyArray<PullFlagKey> = ['rebase', 'ffOnly', 'noFf'];
 
 /** Flags that are not mutex-constrained (can be freely toggled). */
-const MODIFIER_FLAGS: ReadonlyArray<PullFlagKey> = ['squash', 'noCommit', 'noVerify'];
+const MODIFIER_FLAGS: ReadonlyArray<PullFlagKey> = ['squash', 'noCommit', 'noVerify', 'autostash'];
 
 /** All flag keys in picker order. */
 export const ALL_PULL_FLAGS: ReadonlyArray<PullFlagKey> = [...STRATEGY_FLAGS, ...MODIFIER_FLAGS];
@@ -104,6 +112,7 @@ export function defaultPullFlags(
     squash: false,
     noCommit: false,
     noVerify: false,
+    autostash: false,
   };
   if (preset === 'rebase') {
     flags.rebase = true;
@@ -250,6 +259,7 @@ export function applyFlagSelection(
     squash: selectedKeys.has('squash'),
     noCommit: selectedKeys.has('noCommit'),
     noVerify: selectedKeys.has('noVerify'),
+    autostash: selectedKeys.has('autostash'),
   };
 
   // Detect which strategy flag was freshly enabled relative to `previous`.
@@ -376,6 +386,7 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
     squash: resolvedFlags.squash || undefined,
     noCommit: resolvedFlags.noCommit || undefined,
     noVerify: resolvedFlags.noVerify || undefined,
+    autostash: resolvedFlags.autostash || undefined,
     prune: true,
   };
 
