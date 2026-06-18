@@ -118,15 +118,16 @@ describe('computeLineStatusRanges', () => {
     assert.deepStrictEqual(computeLineStatusRanges(head, buffer), []);
   });
 
-  it('still diffs a file right at the line cap', () => {
-    // Exactly MAX_TRACKED_LINES lines is within bounds and diffs normally.
-    const lines = Array.from({ length: MAX_TRACKED_LINES }, (_, i) => `L${i}`);
-    const head = `${lines.join('\n')}\n`;
-    const buffer = [...lines];
-    buffer[0] = 'CHANGED';
-    const ranges = computeLineStatusRanges(head, `${buffer.join('\n')}\n`);
-    assert.deepStrictEqual(ranges, [
-      { kind: 'modified', start: 0, end: 0, bufStart: 0, bufEnd: 1, vcsStart: 0, vcsEnd: 1 },
-    ]);
+  it('still diffs a file at the per-side line cap when the product stays under the cell cap', () => {
+    // HEAD exactly at MAX_TRACKED_LINES lines against a tiny buffer: the
+    // per-side cap is inclusive (10000 is not "over" 10000) and the product
+    // (10000 * 1) is well under MAX_DIFF_CELLS, so the diff still runs. (Two
+    // sides both at the per-side cap would exceed the cell cap and be skipped —
+    // see the cell-cap test above.)
+    const head = `${Array.from({ length: MAX_TRACKED_LINES }, (_, i) => `L${i}`).join('\n')}\n`;
+    const ranges = computeLineStatusRanges(head, 'L0\n');
+    // Line 0 matches; lines 1..9999 were removed → a single deleted range.
+    assert.ok(ranges.length > 0, 'a file at the per-side cap should still diff');
+    assert.strictEqual(ranges[0].kind, 'deleted');
   });
 });
