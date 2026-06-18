@@ -2287,10 +2287,26 @@ export class GitToolWindowProvider
       this._selectedRepositoryIndex = 0;
     }
 
+    const previousScope = this._repositoryScope;
     this._resolveRepositoryScope(repos, hadRepositories);
 
     this._updateWebview();
     this._onDidChangeState.fire();
+
+    // When the workspace shrinks from multiple repos to one, a merged 'all'
+    // scope collapses to the surviving single repo. The effective scope has
+    // genuinely changed (merged → single), so emit the scope event — mirroring
+    // the specific-repo case in `_handleRepositorySelection` — to re-route the
+    // log and branch wiring eagerly instead of waiting for the next
+    // repo-change/refresh. Guarded so it only fires when the collapse actually
+    // changed the scope value (not when 'all' is preserved, not when the scope
+    // was already a specific repo) and only when a surviving repo exists.
+    if (previousScope === 'all' && this._repositoryScope !== 'all') {
+      const collapsedRepo = this._availableRepositories[this._selectedRepositoryIndex];
+      if (collapsedRepo) {
+        this._onDidChangeRepositoryScope.fire({ kind: 'repository', repository: collapsedRepo });
+      }
+    }
   }
 
   /**

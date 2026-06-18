@@ -1950,6 +1950,84 @@ describe('Multi-Repository Selection State', () => {
     });
   });
 
+  describe('repository scope collapse on repo-set shrink', () => {
+    type ScopeEvent = { kind: string; repository?: { rootUri: { fsPath: string } } };
+
+    function scopeSurface(): {
+      _handleRepositorySelection(selection: number | 'all'): void;
+      onDidChangeRepositoryScope: (l: (s: ScopeEvent) => void) => { dispose(): void };
+    } {
+      return provider as unknown as {
+        _handleRepositorySelection(selection: number | 'all'): void;
+        onDidChangeRepositoryScope: (l: (s: ScopeEvent) => void) => { dispose(): void };
+      };
+    }
+
+    function setRepos(...paths: string[]): void {
+      provider.setAvailableRepositories(
+        paths.map((p) => createMockRepository(p)) as Parameters<
+          typeof provider.setAvailableRepositories
+        >[0]
+      );
+    }
+
+    it('fires onDidChangeRepositoryScope once with the surviving repo when all-scope collapses to one repo', () => {
+      const surface = scopeSurface();
+      setRepos('/workspace/repo-a', '/workspace/repo-b');
+      surface._handleRepositorySelection('all');
+
+      // Subscribe AFTER entering all-scope so the selection event isn't counted.
+      const events: ScopeEvent[] = [];
+      const sub = surface.onDidChangeRepositoryScope((s) => events.push(s));
+
+      // Workspace drops from two repos to one — the merged 'all' scope must
+      // collapse to the single surviving repo and re-route eagerly.
+      setRepos('/workspace/repo-a');
+      sub.dispose();
+
+      assert.strictEqual(events.length, 1, 'collapse must emit exactly one scope event');
+      assert.strictEqual(events[0].kind, 'repository', 'collapsed scope routes to a single repo');
+      assert.strictEqual(
+        events[0].repository!.rootUri.fsPath,
+        '/workspace/repo-a',
+        'the scope event carries the surviving repo'
+      );
+    });
+
+    it('does not fire a scope event when the all scope is preserved across a multi-repo reload', () => {
+      const surface = scopeSurface();
+      setRepos('/workspace/repo-a', '/workspace/repo-b');
+      surface._handleRepositorySelection('all');
+
+      const events: ScopeEvent[] = [];
+      const sub = surface.onDidChangeRepositoryScope((s) => events.push(s));
+
+      // Still more than one repo → scope stays 'all', so no collapse.
+      setRepos('/workspace/repo-a', '/workspace/repo-c');
+      sub.dispose();
+
+      assert.strictEqual(events.length, 0, 'a preserved all scope must not emit a scope event');
+    });
+
+    it('does not fire a scope event when an already single-repo scope shrinks to one repo', () => {
+      const surface = scopeSurface();
+      // Config-off default → specific-repo scope (not 'all').
+      setRepos('/workspace/repo-a', '/workspace/repo-b');
+
+      const events: ScopeEvent[] = [];
+      const sub = surface.onDidChangeRepositoryScope((s) => events.push(s));
+
+      setRepos('/workspace/repo-a');
+      sub.dispose();
+
+      assert.strictEqual(
+        events.length,
+        0,
+        'a non-all scope shrinking the repo set is not a collapse and must not emit'
+      );
+    });
+  });
+
   describe('scriptBuilder routes the all sentinel', () => {
     it('handles value === "all" before the numeric finite guard and posts the all sentinel', () => {
       const inlineScript = (
