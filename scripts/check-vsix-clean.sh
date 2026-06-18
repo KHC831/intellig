@@ -3,13 +3,13 @@
 # check-vsix-clean.sh — asserts `vsce ls` would not include any
 # forbidden file in the published .vsix.
 #
-# Maintenance contract (per ADR-007 §"Guard maintenance contract"):
+# Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
 # 1. Bug class
 #    `.vscodeignore` regression silently shipping internal files
 #    (.agent/ coordination notes, AGENT_WORKSPACE.md, IDE configs,
 #    test JS, source `.ts`, .map files, dev scripts) into the
-#    Marketplace .vsix. The original Wave 135 R0 .vscodeignore had a
+#    Marketplace .vsix. A prior .vscodeignore had a
 #    `!out/**/*.js` re-include that overrode `out/test/**`, leaking
 #    365 files / 1.54 MB before being noticed. Drift class is real
 #    and recurring.
@@ -37,7 +37,7 @@
 #    - vsce version drift: the @vscode/vsce package's `vsce ls`
 #      output format could change between versions and silently
 #      mask regressions. Mitigated by pinning to a specific vsce
-#      version below (M3 fix); update + re-test when bumping.
+#      version below; update + re-test when bumping.
 #    - New "forbidden" file class not in FORBIDDEN_PATTERNS:
 #      e.g. `.idea/sonar.config` ships fine if `.idea/` was missed
 #      from .vscodeignore (it isn't — but the bug class would
@@ -61,17 +61,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Pin vsce version (M3 fix) for reproducible `vsce ls` output. Bump
-# when adopting a new vsce minor; re-run RED inversion test after.
+# Pin vsce version for reproducible `vsce ls` output. Bump when
+# adopting a new vsce minor; re-run the RED inversion test after.
 VSCE_VERSION="2.24.0"
 
 # Patterns that MUST NOT appear in `vsce ls` output. POSIX-extended
 # regex; pipe-separated alternatives.
 FORBIDDEN_PATTERNS='(\.test\.js$|^out/test/|/\.agent/|^\.agent/|AGENT_WORKSPACE|^\.idea/|^\.kiro/|^\.vscode-test/|^docs/|^scripts/|^src/|tsconfig\.json|^\.eslintrc|^\.prettierrc|^\.prettierignore|^\.mocharc|^package-lock\.json$|^CONTRIBUTING\.md$|\.DS_Store|\.map$|\.ts$)'
 
-# Capture stderr to a temp file so we can surface vsce errors on
-# FAIL (M4 fix). Old behavior swallowed real errors as
-# "Did compile fail?".
+# Capture stderr to a temp file so we can surface vsce errors on FAIL
+# rather than swallowing them behind a generic message.
 STDERR_LOG="$(mktemp -t check-vsix-clean.XXXXXX)"
 trap 'rm -f "$STDERR_LOG"' EXIT
 
@@ -83,7 +82,7 @@ trap 'rm -f "$STDERR_LOG"' EXIT
 # (INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1) which is reserved for
 # structural guards that need `vsce ls` output without packaging.
 #
-# NOTE — coupling acknowledged (tech-lead-R3-M2 path C):
+# NOTE — coupling acknowledged:
 # This guard structurally REQUIRES knowledge of the placeholder
 # bypass mechanism in `prepublish-guard.mjs`. If a future refactor
 # changes the bypass mechanism, this script must be updated in
@@ -98,8 +97,20 @@ trap 'rm -f "$STDERR_LOG"' EXIT
 # --no-dependencies. Path B (split prepublish into two scripts) was
 # rejected — would not decouple this guard from the placeholder
 # guard. Path C (document the coupling) is the chosen approach.
+#
+# `vsce ls` runs `npm list --production --depth=99999`, which rejects a
+# SYMLINKED node_modules root (the git-worktree dev setup): every dep
+# is reported `extraneous` (ELSPROBLEMS) and vsce exits 1. Route the
+# invocation through with-real-node-modules.sh, which transparently
+# materialises a real node_modules clone when (and only when)
+# node_modules is a symlink — so this guard runs faithfully in a
+# worktree instead of being skipped, and is unchanged in a normal
+# checkout. `--no-dependencies` was NOT used here: it would drop the
+# production-dependency files (which genuinely ship in the .vsix) from
+# the scan and weaken the guard.
 set +e
 LISTING="$(INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1 \
+  bash scripts/lib/with-real-node-modules.sh \
   npx --yes "@vscode/vsce@${VSCE_VERSION}" ls 2>"$STDERR_LOG")"
 VSCE_EXIT=$?
 set -e
@@ -117,7 +128,7 @@ fi
 
 VIOLATIONS="$(echo "$LISTING" | grep -E "$FORBIDDEN_PATTERNS" || true)"
 
-# Note (senior-R3-LOW-2): the captured stderr always contains
+# Note: the captured stderr always contains
 # `[prepublish-guard] BYPASSED for INTERNAL DRYRUN` because we set
 # INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1 above. That warning is the
 # expected audit trail proving the bypass was scoped to this

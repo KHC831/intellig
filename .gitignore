@@ -4,6 +4,10 @@ dist/
 
 # Dependencies
 node_modules
+# Transient swap dirs from scripts/lib/with-real-node-modules.sh
+node_modules.real.*
+node_modules.link.*
+node_modules.swap.lock
 
 # VS Code test environment
 .vscode-test/
