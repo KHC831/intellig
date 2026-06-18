@@ -438,6 +438,29 @@ describe('multiSelect — pure helpers', () => {
       assert.strictEqual(nonHead.undoCommit.enabled, false);
     });
 
+    it('enables undoCommit in merged scope when the selected commit is any root HEAD (headHash suppressed)', () => {
+      // Merged "All Repositories": the single-repo HEAD spine/highlight is
+      // suppressed (headHash ''), so undoCommit decouples to per-root HEAD
+      // membership — 'ccc' is repo B's HEAD even though no single headHash is set.
+      const onRootHead = computeMenuState({
+        selectedHashes: new Set(['ccc']),
+        commitNodes: nodes,
+        headHash: '',
+        headHashes: new Set(['aaa', 'ccc']),
+      });
+      assert.strictEqual(onRootHead.undoCommit.enabled, true);
+    });
+
+    it('leaves undoCommit disabled in merged scope when the selected commit is no root HEAD', () => {
+      const offAllHeads = computeMenuState({
+        selectedHashes: new Set(['bbb']),
+        commitNodes: nodes,
+        headHash: '',
+        headHashes: new Set(['aaa', 'ccc']),
+      });
+      assert.strictEqual(offAllHeads.undoCommit.enabled, false);
+    });
+
     it('squashCommits enabled when 3 contiguous non-merge commits selected', () => {
       const state = computeMenuState({
         selectedHashes: new Set(['bbb', 'ccc', 'ddd']),

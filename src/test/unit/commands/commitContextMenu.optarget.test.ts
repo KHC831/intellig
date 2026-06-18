@@ -416,6 +416,98 @@ describe("H-1 — commit menu targets the clicked commit's own repo in all-repos
   });
 });
 
+// ─── L-2 — resolve by the clicked row, not the hash-keyed last-writer map ──────
+
+describe("L-2 — commit menu resolves the clicked row's own repo, not the hash-keyed index", () => {
+  // A single hash present in BOTH roots (shared history / fork / mirror). The
+  // provider's hash→root index can only hold ONE root for it; whichever repo
+  // wrote the merged log last wins. The rendered row, by contrast, carries its
+  // OWN repoRoot, so resolving by the clicked row is unambiguous.
+  const SHARED_HASH = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+
+  beforeEach(() => {
+    stubWindow();
+  });
+
+  it("routes revert to the clicked row's repoRoot (B) even when the hash index last-wrote repo A for that shared hash", async () => {
+    const repoA = makeRepo(ROOT_A, 'aaaa000000000000000000000000000000000000');
+    const repoB = makeRepo(ROOT_B);
+    const gitService = makeGitService(
+      new Map([
+        [ROOT_A, repoA],
+        [ROOT_B, repoB],
+      ])
+    );
+    // Index last-wrote A for the shared hash AND A is the context repo — so
+    // anything other than the clicked row's own root resolves to A.
+    const provider = makeProvider(repoA, new Map([[SHARED_HASH, ROOT_A]]));
+    const commands = new CommitContextMenuCommands(gitService, makeRebaseService(), provider);
+
+    await commands._handleAction(
+      'revert',
+      [SHARED_HASH],
+      [{ hash: SHARED_HASH, parentCount: 1, repoRoot: ROOT_B }]
+    );
+
+    const revert = gitService.opCalls.find((c) => c.method === 'revert');
+    assert.ok(revert, 'gitService.revert should have been invoked');
+    assert.strictEqual(
+      revert.repo.rootUri.fsPath,
+      ROOT_B,
+      "revert must target the clicked row's repo (B), not the index's last-writer (A)"
+    );
+  });
+
+  it('detects a cross-repo selection from the rows even when the index collapsed both hashes onto one root', async () => {
+    const warnings: string[] = [];
+    writableWindow().showWarningMessage = (message: string) => {
+      warnings.push(message);
+      return Promise.resolve(undefined);
+    };
+    const repoA = makeRepo(ROOT_A, 'aaaa000000000000000000000000000000000000');
+    const repoB = makeRepo(ROOT_B);
+    const gitService = makeGitService(
+      new Map([
+        [ROOT_A, repoA],
+        [ROOT_B, repoB],
+      ])
+    );
+    // The index maps BOTH selected hashes to ROOT_A (last-writer collapsed the
+    // shared second hash onto A), so a map-only guard would see one root and
+    // wrongly let the op through. The rows say otherwise: one is A, one is B.
+    const provider = makeProvider(
+      repoA,
+      new Map([
+        [HASH_A1, ROOT_A],
+        [SHARED_HASH, ROOT_A],
+      ])
+    );
+    const commands = new CommitContextMenuCommands(
+      gitService,
+      makeRebaseService(),
+      provider,
+      makeCleanGitCli()
+    );
+
+    await commands._handleAction(
+      'cherryPick',
+      [HASH_A1, SHARED_HASH],
+      [
+        { hash: HASH_A1, parentCount: 1, repoRoot: ROOT_A },
+        { hash: SHARED_HASH, parentCount: 1, repoRoot: ROOT_B },
+      ]
+    );
+
+    assert.strictEqual(
+      gitService.opCalls.find((c) => c.method === 'cherryPick'),
+      undefined,
+      'cherryPick must not run when the selected rows straddle two repos'
+    );
+    assert.strictEqual(warnings.length, 1, 'a cross-repo warning toast should be shown');
+    assert.match(warnings[0], /multiple repositories/i);
+  });
+});
+
 // ─── Cross-repo multi-selection guard ─────────────────────────────────────────
 
 describe('H-1 — cross-repo multi-selection guard refuses ops that span repositories', () => {

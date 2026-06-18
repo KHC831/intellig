@@ -371,6 +371,16 @@ export class GitToolWindowProvider
   private _commitRepoRoots: Map<string, string> = new Map();
 
   /**
+   * HEAD commit hashes of every root in the merged "all roots" log. In merged
+   * scope the single-repo HEAD spine / highlight is suppressed (no single
+   * `headHash`), so this set keeps `undoCommit` enabled for the clicked
+   * commit's own-repo HEAD — see {@link _postMenuStateUpdate} and
+   * {@link setMergedHeadCommitHashes}. Empty in single-repo / specific scope,
+   * where the single `_extendedLogState.headHash` drives the rule.
+   */
+  private _mergedHeadCommitHashes: ReadonlySet<string> = new Set();
+
+  /**
    * Parsed remote URL for the current repository, cached by repo key.
    * Populated by {@link _setParsedRemoteForSelectedRepo}. Used by
    * {@link _getDetailsPanelHtml} to turn issue/PR refs in commit messages
@@ -887,6 +897,10 @@ export class GitToolWindowProvider
         this._commitRepoRoots.set(commit.hash, commit.repoRoot);
       }
     }
+    // Reset the per-root HEAD set; the merged loader repopulates it via
+    // setMergedHeadCommitHashes right after this call. Single-repo / specific
+    // loads leave it empty (the single headHash drives undoCommit there).
+    this._mergedHeadCommitHashes = new Set();
 
     const branchNamesPresent = new Set<string>();
     if (branchMap) {
@@ -1381,6 +1395,9 @@ export class GitToolWindowProvider
       selectedHashes: this._extendedLogState.selectedCommits,
       commitNodes,
       headHash,
+      // Merged scope suppresses the single headHash; the per-root HEAD set
+      // keeps undoCommit enabled for the clicked commit's own-repo HEAD.
+      headHashes: this._mergedHeadCommitHashes,
     });
     const msg: WaveAOutboundMessage = {
       type: 'updateMenuEnableState',
@@ -2381,6 +2398,17 @@ export class GitToolWindowProvider
   }
 
   /**
+   * Record the HEAD commit hashes of every root shown in the merged "all
+   * roots" log. Called by the multi-root loader immediately after
+   * {@link updateLogState} (which clears the set). Lets `undoCommit` stay
+   * enabled in merged scope for a clicked commit that is its own repo's HEAD,
+   * even though the single-repo HEAD spine / highlight is suppressed.
+   */
+  public setMergedHeadCommitHashes(hashes: Iterable<string>): void {
+    this._mergedHeadCommitHashes = new Set(hashes);
+  }
+
+  /**
    * Handle a repository scope change from the webview.
    *
    * Accepts either the `'all'` sentinel (merged multi-root view) or a numeric
@@ -2454,6 +2482,11 @@ export class GitToolWindowProvider
     const commitNodes: IMenuStateNode[] = this._extendedLogState.commitNodes.map((n) => ({
       hash: n.commit.hash,
       parentCount: (n.commit.parents || []).length,
+      // Carry each row's source root (merged "all roots" log) so the action
+      // resolves the repo of the row clicked, not the hash-keyed index's
+      // last-writer for a hash shared across roots. Undefined in single-repo
+      // / specific-scope logs.
+      repoRoot: n.commit.repoRoot,
     }));
     this._onDidRequestLogContextAction.fire({
       action,

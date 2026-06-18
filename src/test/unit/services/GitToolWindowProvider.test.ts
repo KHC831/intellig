@@ -2091,6 +2091,59 @@ describe('Multi-Repository Selection State', () => {
       assert.strictEqual(provider.getRepoRootForCommit('aaaaaaa'), undefined);
       assert.strictEqual(provider.getRepoRootForCommit('bbbbbbb'), '/work/beta');
     });
+
+    // undoCommit stays functional in merged scope even though the single-repo
+    // HEAD spine / highlight is suppressed (headHash omitted): the per-root
+    // HEAD set drives the enable rule for the clicked commit's own-repo HEAD.
+    function postedMenuState(): Record<string, { enabled: boolean }> | undefined {
+      const posted: Array<{ type?: string; state?: Record<string, { enabled: boolean }> }> = [];
+      (provider as unknown as { _view: unknown })._view = {
+        webview: {
+          postMessage: (m: { type?: string; state?: Record<string, { enabled: boolean }> }) => {
+            posted.push(m);
+            return Promise.resolve(true);
+          },
+        },
+      };
+      (provider as unknown as { _postMenuStateUpdate: () => void })._postMenuStateUpdate();
+      return posted.find((m) => m.type === 'updateMenuEnableState')?.state;
+    }
+
+    it('enables undoCommit for a root HEAD in merged scope despite the suppressed single headHash', () => {
+      // Merged load: headHash omitted (spine/highlight suppressed). 'bbbbbbb'
+      // is repo beta's HEAD, recorded via the per-root set.
+      provider.updateLogState([
+        mergedCommit('aaaaaaa', '/work/alpha'),
+        mergedCommit('bbbbbbb', '/work/beta'),
+      ]);
+      provider.setMergedHeadCommitHashes(['bbbbbbb']);
+      (
+        provider as unknown as { _extendedLogState: { selectedCommits: Set<string> } }
+      )._extendedLogState.selectedCommits = new Set(['bbbbbbb']);
+
+      const state = postedMenuState();
+      assert.ok(state, 'a menu-enable-state message should be posted');
+      assert.strictEqual(
+        state.undoCommit.enabled,
+        true,
+        "undoCommit must stay enabled for the clicked commit's own-repo HEAD in merged scope"
+      );
+    });
+
+    it('keeps undoCommit disabled in merged scope for a commit that is no root HEAD', () => {
+      provider.updateLogState([
+        mergedCommit('aaaaaaa', '/work/alpha'),
+        mergedCommit('bbbbbbb', '/work/beta'),
+      ]);
+      provider.setMergedHeadCommitHashes(['bbbbbbb']);
+      (
+        provider as unknown as { _extendedLogState: { selectedCommits: Set<string> } }
+      )._extendedLogState.selectedCommits = new Set(['aaaaaaa']);
+
+      const state = postedMenuState();
+      assert.ok(state, 'a menu-enable-state message should be posted');
+      assert.strictEqual(state.undoCommit.enabled, false);
+    });
   });
 
   describe('_getGraphPanelHtml repository selector integration', () => {

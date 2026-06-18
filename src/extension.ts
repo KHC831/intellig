@@ -52,6 +52,7 @@ export {
   loadAllPanelDataCore,
   wireRepositorySelection,
   resolveCommitRepoByRoot,
+  resolveLogHeadAnchor,
   wireRebasePausedWarning,
   provideGitShowContent,
   type ILoadAllPanelDataProvider,

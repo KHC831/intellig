@@ -31,6 +31,7 @@ import {
   loadAllPanelDataCore,
   wireRepositorySelection,
   resolveCommitRepoByRoot,
+  resolveLogHeadAnchor,
   wireRebasePausedWarning,
   provideGitShowContent,
 } from './wiring';
@@ -356,14 +357,14 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         }
 
         if (ctx.gitToolWindowProvider) {
-          // Strip the `refs/heads/` prefix so the chip filter compares
-          // against the same shape `IBranchRef.name` carries.
-          const headBranchName = repo.head?.name?.replace(/^refs\/heads\//, '');
+          // Single-repo / specific scope: anchor to this repo's own HEAD (the
+          // helper de-prefixes the branch name to match `IBranchRef.name`).
+          const { headHash, headBranchName } = resolveLogHeadAnchor(false, repo);
           ctx.gitToolWindowProvider.updateLogState(
             commits,
             branchMap,
             tagMap,
-            repo.head?.commit,
+            headHash,
             headBranchName
           );
 
@@ -599,19 +600,24 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           })
         );
 
-        // Use the selected repo's HEAD for graph-spine anchoring.
-        const headRepo = ctx.gitToolWindowProvider?.getSelectedRepository() ?? repos[0];
-        const combinedHeadHash = headRepo.head?.commit;
-        const combinedHeadBranchName = headRepo.head?.name?.replace(/^refs\/heads\//, '');
+        // Merged scope: suppress the single-repo HEAD spine / current-branch
+        // highlight so the interleaved graph doesn't misleadingly single out
+        // the context repo's HEAD. See resolveLogHeadAnchor.
+        const { headHash, headBranchName } = resolveLogHeadAnchor(true, undefined);
 
         if (ctx.gitToolWindowProvider) {
           ctx.gitToolWindowProvider.updateLogState(
             merged,
             combinedBranchMap,
             combinedTagMap,
-            combinedHeadHash,
-            combinedHeadBranchName
+            headHash,
+            headBranchName
           );
+          // The single-repo HEAD anchor is suppressed above; record EVERY
+          // root's HEAD so undoCommit stays enabled for the clicked commit's
+          // own-repo HEAD (decoupled from the suppressed spine).
+          const rootHeadHashes = repos.map((r) => r.head?.commit).filter((c): c is string => !!c);
+          ctx.gitToolWindowProvider.setMergedHeadCommitHashes(rootHeadHashes);
         }
       } catch (error) {
         getLogger()

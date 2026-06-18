@@ -94,6 +94,16 @@ export class CommitContextMenuCommands {
   private _disposables: vscode.Disposable[] = [];
   private _context: vscode.ExtensionContext | undefined;
   private readonly _resolveRepo: RepoResolver;
+  /**
+   * Rendered commit rows for the in-flight {@link _handleAction} dispatch
+   * (newest-first), each carrying its own `repoRoot` in the merged
+   * "All Repositories" log. Set for the duration of one dispatch and restored
+   * afterwards so commit-targeted resolution prefers the row the user clicked
+   * over the provider's hash-keyed index — which can only hold one root per
+   * hash. Empty for entry points that arrive without rendered rows (palette
+   * commands), which then fall back to the index.
+   */
+  private _dispatchNodes: readonly IMenuStateNode[] = [];
 
   constructor(
     gitService: IGitService,
@@ -282,11 +292,26 @@ export class CommitContextMenuCommands {
   }
 
   /**
-   * Source repository root the provider recorded for `hash` in the merged
-   * "all roots" log, or `undefined` when none is recorded (single-repo /
-   * specific-scope) or the provider stub omits the index.
+   * Source repository root for `hash` in the merged "all roots" log, or
+   * `undefined` when none is known (single-repo / specific-scope, or the
+   * provider stub omits the index).
+   *
+   * Prefers the repoRoot carried on the CLICKED row in the current dispatch:
+   * the row reflects exactly what the user sees, so a hash shared across roots
+   * resolves to the repo whose row was clicked. Only when no row carries a
+   * root (palette entry points, or a single-repo log) do we fall back to the
+   * provider's hash-keyed index, which is last-writer-wins for a shared hash.
+   *
+   * Residual: if two rendered rows share the hash, the first in display order
+   * wins — the webview posts the hash, not a row identity, so the host can't
+   * distinguish two same-hash rows. This matches display order and is no worse
+   * than the index it replaces.
    */
   private _recordedRepoRoot(hash: string): string | undefined {
+    const row = this._dispatchNodes.find((n) => n.hash === hash);
+    if (row?.repoRoot) {
+      return row.repoRoot;
+    }
     const maybeGetRoot = (
       this._gitToolWindowProvider as unknown as {
         getRepoRootForCommit?: (hash: string) => string | undefined;
@@ -357,6 +382,24 @@ export class CommitContextMenuCommands {
     action: LogContextAction,
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[] = []
+  ): Promise<void> {
+    // Expose the rendered rows to repo resolution for this dispatch only, then
+    // restore the prior value — so the clicked row's own repoRoot wins over the
+    // provider's hash-keyed (last-writer-wins) index. Save/restore rather than
+    // clear keeps a nested/concurrent dispatch from blanking an outer one.
+    const previousDispatchNodes = this._dispatchNodes;
+    this._dispatchNodes = commitNodes;
+    try {
+      await this._dispatchAction(action, commitHashes, commitNodes);
+    } finally {
+      this._dispatchNodes = previousDispatchNodes;
+    }
+  }
+
+  private async _dispatchAction(
+    action: LogContextAction,
+    commitHashes: string[],
+    commitNodes: readonly IMenuStateNode[]
   ): Promise<void> {
     switch (action) {
       case 'copyHash':

@@ -203,6 +203,80 @@ describe('ShelfService — binary restore/revert path containment', () => {
     });
   });
 
+  describe('final-component symlink TOCTOU (O_NOFOLLOW / lstat hardening)', () => {
+    // The realpath containment guard PASSES a final path component that is a
+    // symlink whose target stays INSIDE the repo (realpath resolves in-repo).
+    // A plain `writeFileSync`/`rmSync` would then follow that link and clobber
+    // / unlink the wrong in-repo file — and the same window lets a component
+    // swapped to a symlink between check and write be followed. The write must
+    // refuse to follow a final-component symlink (O_NOFOLLOW), and the delete
+    // must refuse a non-regular final component (lstat).
+
+    it('restore does NOT write through a final-component symlink (in-repo target untouched)', () => {
+      const secret = path.join(repoRoot, 'secret.bin');
+      fs.writeFileSync(secret, 'original');
+      // `<repo>/target.bin` → `<repo>/secret.bin`: lexically + realpath inside
+      // the repo, so the containment guard passes; only O_NOFOLLOW stops it.
+      fs.symlinkSync(secret, path.join(repoRoot, 'target.bin'), 'file');
+
+      const result = restore({
+        path: 'target.bin',
+        diff: '',
+        isBinary: true,
+        binaryStatus: 'added',
+        binaryContent: Buffer.from('pwned').toString('base64'),
+      });
+
+      assert.strictEqual(result, false, 'writing through a symlink must be refused');
+      assert.strictEqual(
+        fs.readFileSync(secret).toString(),
+        'original',
+        'the symlink target must not be written through'
+      );
+    });
+
+    it('restore does NOT delete a final-component symlink on the deleted branch', () => {
+      const secret = path.join(repoRoot, 'secret2.bin');
+      fs.writeFileSync(secret, 'precious');
+      const link = path.join(repoRoot, 'del.bin');
+      fs.symlinkSync(secret, link, 'file');
+
+      const result = restore({
+        path: 'del.bin',
+        diff: '',
+        isBinary: true,
+        binaryStatus: 'deleted',
+      });
+
+      assert.strictEqual(result, false, 'deleting a symlinked shelf path must be refused');
+      assert.ok(
+        fs.lstatSync(link).isSymbolicLink(),
+        'the symlink itself must be left in place, not unlinked'
+      );
+      assert.ok(fs.existsSync(secret), 'the symlink target must survive');
+    });
+
+    it('revert does NOT delete a final-component symlink on the added branch', async () => {
+      const secret = path.join(repoRoot, 'secret3.bin');
+      fs.writeFileSync(secret, 'precious');
+      const link = path.join(repoRoot, 'added-link.bin');
+      fs.symlinkSync(secret, link, 'file');
+
+      await revert({
+        path: 'added-link.bin',
+        diff: '',
+        isBinary: true,
+        binaryStatus: 'added',
+      });
+
+      assert.ok(
+        fs.lstatSync(link).isSymbolicLink(),
+        'the symlink itself must be left in place, not unlinked'
+      );
+      assert.ok(fs.existsSync(secret), 'the symlink target must survive');
+    });
+  });
+
   describe('revertBinaryShelfFile (added branch raw-fs delete)', () => {
     it('refuses a traversal path and deletes nothing outside the repo', async () => {
       const escaped = path.join(sandbox, 'keepme2.txt');

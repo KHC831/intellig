@@ -152,6 +152,37 @@ export async function resolveCommitRepoByRoot(
 }
 
 /**
+ * HEAD anchor (graph spine + current-branch highlight) for a freshly loaded
+ * log.
+ *
+ * In the merged "All Repositories" scope the log interleaves commits from every
+ * root, so anchoring to ONE repo's HEAD would colour only that repo's current
+ * branch yellow and pin only its first-parent spine to lane 0 across the
+ * combined graph — misleadingly singling out the context repo. IntelliJ
+ * highlights EACH root's HEAD; matching that faithfully needs per-row repo
+ * identity on the branch chips (the combined branch map keys chips by commit
+ * hash, dropping which root they came from) plus a multi-spine layout, beyond
+ * this view's model. So merged mode SUPPRESSES the anchor — no single-repo HEAD
+ * highlight, no single-repo spine. Single-repo / specific scope keeps the
+ * repo's own HEAD (hash for the lane-0 spine, de-prefixed branch name for the
+ * yellow current-branch chip).
+ *
+ * @internal — exported for `src/test/unit/extension/commitRepoResolution.test.ts`.
+ */
+export function resolveLogHeadAnchor(
+  merged: boolean,
+  headRepo: Pick<IRepository, 'head'> | undefined
+): { headHash?: string; headBranchName?: string } {
+  if (merged) {
+    return {};
+  }
+  return {
+    headHash: headRepo?.head?.commit,
+    headBranchName: headRepo?.head?.name?.replace(/^refs\/heads\//, ''),
+  };
+}
+
+/**
  * Minimal git-service surface that {@link wireRebasePausedWarning} consumes.
  * Declared structurally so unit tests can pass a lightweight stub without
  * standing up the full `GitService`. Only the two members the wiring

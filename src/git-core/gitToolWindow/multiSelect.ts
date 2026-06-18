@@ -104,6 +104,16 @@ export interface IMenuStateNode {
    * `squashCommits` rule rejects regardless of contiguity.
    */
   parentCount: number;
+  /**
+   * Absolute repository root the rendered row belongs to, in the merged
+   * "All Repositories" log. Carried per-row so a commit-targeted action
+   * resolves the repo of the row the user actually clicked — unlike a
+   * hash-keyed index, this stays correct when a hash is shared across roots
+   * (the index can only hold one root per hash, last-writer-wins).
+   * `undefined` in single-repo / specific-scope logs, where rows carry no
+   * source root.
+   */
+  repoRoot?: string;
 }
 
 /**
@@ -117,9 +127,19 @@ export interface IMenuStateInputs {
   commitNodes: readonly IMenuStateNode[];
   /**
    * Hash of the current HEAD commit, or empty string when no commits are
-   * loaded. Drives the `undoCommit` enable rule.
+   * loaded. Drives the `undoCommit` enable rule in single-repo / specific
+   * scope.
    */
   headHash: string;
+  /**
+   * HEAD commit hashes of every root in the merged "All Repositories" log.
+   * In merged scope there is no single HEAD (and {@link headHash} is empty,
+   * because the misleading single-repo HEAD spine / highlight is suppressed),
+   * so `undoCommit` enables when the clicked commit is the HEAD of ITS OWN
+   * repo — i.e. a member of this set. Empty / omitted in single-repo scope,
+   * where {@link headHash} alone drives the rule.
+   */
+  headHashes?: ReadonlySet<string>;
 }
 
 /**
@@ -314,7 +334,7 @@ export function computeMenuEnableState(
 export function computeMenuState(
   inputs: IMenuStateInputs
 ): Record<MultiSelectMenuAction, IMenuItemState> {
-  const { selectedHashes, commitNodes, headHash } = inputs;
+  const { selectedHashes, commitNodes, headHash, headHashes } = inputs;
 
   // Project commitNodes to a hash list once for index lookups.
   const allHashes: string[] = [];
@@ -337,8 +357,14 @@ export function computeMenuState(
   const isContiguous = isSelectionContiguous(new Set(knownSelected), allHashes);
 
   // HEAD-in-selection: only matters at N=1, but compute literally so the
-  // input is consistent with computeMenuEnableState's contract.
-  const isHeadInSelection = selectedCount === 1 && knownSelected[0] === headHash && headHash !== '';
+  // input is consistent with computeMenuEnableState's contract. In merged
+  // scope the single `headHash` is suppressed, so membership in the per-root
+  // HEAD set (`headHashes`) keeps `undoCommit` enabled for the clicked
+  // commit's own-repo HEAD.
+  const isHeadInSelection =
+    selectedCount === 1 &&
+    ((knownSelected[0] === headHash && headHash !== '') ||
+      (headHashes?.has(knownSelected[0]) ?? false));
 
   // Merge-commit detection.
   let hasMergeCommitInSelection = false;

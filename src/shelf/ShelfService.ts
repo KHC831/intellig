@@ -84,6 +84,85 @@ function isShelfFilePathWithinRepo(rootFsPath: string, filePath: string): boolea
 }
 
 /**
+ * Write `data` to `absPath`, refusing to follow a symlink at the FINAL path
+ * component. {@link isShelfFilePathWithinRepo} confines `..` and rejects a
+ * symlink whose realpath escapes the repo, but it resolves the path BEFORE the
+ * write, so a final component swapped to a symlink between check and write — or
+ * an in-repo symlink whose target stays inside the repo (containment passes) —
+ * would still be followed. `O_NOFOLLOW` closes that on the final component: the
+ * open fails (`ELOOP`) when it is a symlink, so the bytes never route through
+ * it.
+ *
+ * `O_NOFOLLOW` exists on macOS/Linux; on platforms without it (Windows) we fall
+ * back to an `lstat`-before-write reject so the call still refuses a
+ * final-component symlink rather than throwing on an unknown flag.
+ *
+ * Residual: a NON-FINAL directory component swapped to a symlink between the
+ * containment check and this write is still traversed — fully closing that
+ * needs `openat`-style per-component `O_NOFOLLOW`, which Node does not expose.
+ * The caller re-runs the realpath containment check immediately before this
+ * write to narrow that window.
+ */
+function writeFileRejectingSymlink(absPath: string, data: Buffer): void {
+  const noFollow = (fs.constants as { O_NOFOLLOW?: number }).O_NOFOLLOW;
+  if (typeof noFollow === 'number') {
+    const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | noFollow;
+    const fd = fs.openSync(absPath, flags, 0o666);
+    try {
+      fs.writeFileSync(fd, data);
+    } finally {
+      fs.closeSync(fd);
+    }
+    return;
+  }
+  rejectFinalSymlink(absPath);
+  fs.writeFileSync(absPath, data);
+}
+
+/**
+ * Delete a REGULAR file at `absPath`, refusing a non-regular final component.
+ * `lstat` does not follow the final component, so a path swapped to a symlink
+ * is detected and refused rather than having its link unlinked or — for a
+ * directory component residual — followed. A missing path is a no-op (the
+ * working-tree copy is already gone, which is the desired end state).
+ */
+function unlinkRegularFile(absPath: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(absPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw err;
+  }
+  if (!stat.isFile()) {
+    throw new Error(`Refusing to delete non-regular shelf path: ${absPath}`);
+  }
+  fs.rmSync(absPath);
+}
+
+/**
+ * Throw when `absPath`'s final component is a symlink. Fallback used by
+ * {@link writeFileRejectingSymlink} on platforms lacking `O_NOFOLLOW`. A
+ * missing path is fine (a fresh write creates a regular file).
+ */
+function rejectFinalSymlink(absPath: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(absPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw err;
+  }
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Refusing to write through symlinked shelf path: ${absPath}`);
+  }
+}
+
+/**
  * Shelf storage file format version.
  * Increment this when making breaking changes to the storage format.
  *
@@ -1154,19 +1233,28 @@ export class ShelfService implements IShelfService {
       });
       return false;
     }
-    const absPath = path.join(repo.rootUri.fsPath, file.path);
+    const root = repo.rootUri.fsPath;
+    const absPath = path.join(root, file.path);
     try {
       if (file.binaryStatus === 'deleted') {
-        if (fs.existsSync(absPath)) {
-          fs.rmSync(absPath);
+        // Re-validate immediately before the unlink to narrow the check→act
+        // window, then refuse a non-regular (symlinked) final component.
+        if (!isShelfFilePathWithinRepo(root, file.path)) {
+          return false;
         }
+        unlinkRegularFile(absPath);
         return true;
       }
       if (file.binaryContent === undefined) {
         return false;
       }
       fs.mkdirSync(path.dirname(absPath), { recursive: true });
-      fs.writeFileSync(absPath, Buffer.from(file.binaryContent, 'base64'));
+      // Re-validate immediately before the write (mkdir may have materialised
+      // the parent chain) and refuse to follow a final-component symlink.
+      if (!isShelfFilePathWithinRepo(root, file.path)) {
+        return false;
+      }
+      writeFileRejectingSymlink(absPath, Buffer.from(file.binaryContent, 'base64'));
       return true;
     } catch (error) {
       this._logger.error(
@@ -1197,8 +1285,17 @@ export class ShelfService implements IShelfService {
         });
         return;
       }
-      if (fs.existsSync(absPath)) {
-        fs.rmSync(absPath);
+      // Refuse a non-regular (symlinked) final component rather than unlinking
+      // it; the lstat-before-unlink mirrors the restore path's hardening.
+      try {
+        unlinkRegularFile(absPath);
+      } catch (error) {
+        this._logger.error(
+          'Failed to revert shelved binary file',
+          { path: file.path },
+          error instanceof Error ? error : undefined
+        );
+        return;
       }
       // Clear any intent-to-add staging so the file no longer shows as a change.
       await this._gitCli.exec(['reset', '--', file.path], { cwd, throwOnError: false });

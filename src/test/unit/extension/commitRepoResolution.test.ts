@@ -16,7 +16,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { resolveCommitRepoByRoot } from '../../../extension';
+import { resolveCommitRepoByRoot, resolveLogHeadAnchor } from '../../../extension';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../git-core/interfaces/IGitService';
 
@@ -107,5 +107,41 @@ describe('resolveCommitRepoByRoot — clicked-commit repo in the merged all-root
       'aaaaaaa'
     );
     assert.strictEqual(resolved, undefined);
+  });
+});
+
+/**
+ * L-1 — the merged "All Repositories" graph must NOT anchor its HEAD highlight
+ * (the yellow current-branch chip) or its lane-0 spine to a single repo's HEAD.
+ * Doing so misleadingly singles out the context repo's current branch across an
+ * interleaved multi-repo graph. IntelliJ highlights each root's HEAD; matching
+ * that needs per-row repo identity on the branch chips, so merged mode instead
+ * SUPPRESSES the anchor. Single-repo / specific scope keeps the repo's own HEAD.
+ */
+describe('resolveLogHeadAnchor — merged-log HEAD spine / current-branch highlight', () => {
+  const repo = {
+    head: { name: 'refs/heads/main', commit: 'abc1230000000000000000000000000000000000' },
+  } as unknown as IRepository;
+
+  it('suppresses the HEAD anchor in merged (all-roots) mode so no single repo is highlighted as HEAD', () => {
+    assert.deepStrictEqual(
+      resolveLogHeadAnchor(true, repo),
+      {},
+      'merged mode must pass no headHash / headBranchName to the log state'
+    );
+  });
+
+  it("uses the repo's own HEAD (hash + de-prefixed branch name) in single-repo / specific scope", () => {
+    assert.deepStrictEqual(resolveLogHeadAnchor(false, repo), {
+      headHash: 'abc1230000000000000000000000000000000000',
+      headBranchName: 'main',
+    });
+  });
+
+  it('tolerates a missing repo / detached HEAD in single-repo scope', () => {
+    assert.deepStrictEqual(resolveLogHeadAnchor(false, undefined), {
+      headHash: undefined,
+      headBranchName: undefined,
+    });
   });
 });
