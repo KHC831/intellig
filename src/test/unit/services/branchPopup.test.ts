@@ -494,7 +494,7 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
     }
   });
 
-  it('routes each entry to an existing `intellig.branch.*` command ID', () => {
+  it('routes each command-dispatched entry to an existing `intellig.branch.*` command ID', () => {
     const expected = new Set([
       'intellig.branch.checkout',
       'intellig.branch.newBranchFrom',
@@ -505,10 +505,34 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
       'intellig.branch.rebaseCurrentOnto',
       'intellig.branch.push',
     ]);
+    // `Set Upstream…` is handled inline by the popup (nested QuickPick), so it
+    // intentionally carries no commandId — every OTHER entry must route to a
+    // registered command.
     for (const item of items) {
+      if (item.action === 'local.setUpstream') {
+        assert.strictEqual(item.commandId, undefined, 'Set Upstream… is inline-handled');
+        continue;
+      }
       assert.ok(item.commandId, `${label(item)} missing commandId`);
       assert.ok(expected.has(item.commandId), `unknown commandId ${item.commandId ?? ''}`);
     }
+  });
+
+  it('offers a `Set Upstream…` entry positioned after Push… and before Rename…/Delete', () => {
+    const labels = items.map((i) => label(i));
+    assert.ok(
+      labels.some((l) => l.includes('Set Upstream…')),
+      'Set Upstream… entry present'
+    );
+
+    const actions = items.map((i) => i.action);
+    const pushIdx = actions.indexOf('local.push');
+    const setUpstreamIdx = actions.indexOf('local.setUpstream');
+    const renameIdx = actions.indexOf('rename');
+
+    assert.ok(setUpstreamIdx !== -1, 'expected local.setUpstream action');
+    assert.ok(pushIdx < setUpstreamIdx, 'Set Upstream… must follow Push…');
+    assert.ok(setUpstreamIdx < renameIdx, 'Set Upstream… must precede Rename…');
   });
 
   it('interpolates branch name into `New Branch from …` and `Rebase Current onto …` labels', () => {
@@ -521,6 +545,206 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
       labels.some((l) => l.includes(`Rebase Current onto '${localDevelop.name}'`)),
       "Rebase Current onto '<branch>'"
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Set Upstream… inline handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('BranchPopup — _handleSetUpstream', () => {
+  const repo = {
+    rootUri: Uri.file('/repo'),
+    head: { name: 'refs/heads/develop', commit: 'bbb2222', ahead: 0, behind: 0 },
+  } as unknown as IRepository;
+
+  interface HandlerSeam {
+    _handleSetUpstream(
+      repo: IRepository,
+      branch: IBranch
+    ): Promise<{ cancelled: boolean; action?: string }>;
+    _showBranchActionMenu(
+      repo: IRepository,
+      branch: IBranch,
+      currentBranchName?: string
+    ): Promise<{ cancelled: boolean; action?: string }>;
+  }
+
+  // Build a BranchPopup with a stub git service and capture the calls. The
+  // status-bar listener is harmless; `dispose()` cleans it up.
+  function makePopup(overrides: Partial<IGitService>): {
+    popup: BranchPopup;
+    setUpstreamCalls: Array<[string, string]>;
+  } {
+    const repoChangeEmitter = new EventEmitter<IRepository>();
+    const setUpstreamCalls: Array<[string, string]> = [];
+    const gitService = {
+      getRepositories: () => [],
+      getRepository: async () => undefined,
+      onDidChangeRepository: repoChangeEmitter.event,
+      reloadRepository: async () => undefined,
+      setBranchUpstream: async (_r: IRepository, local: string, upstream: string) => {
+        setUpstreamCalls.push([local, upstream]);
+      },
+      ...overrides,
+    } as unknown as IGitService;
+    return { popup: new BranchPopup(gitService), setUpstreamCalls };
+  }
+
+  let oQuickPick: typeof vscode.window.showQuickPick;
+  let oInfo: typeof vscode.window.showInformationMessage;
+  let oErr: typeof vscode.window.showErrorMessage;
+  let infos: string[];
+  let errors: string[];
+
+  beforeEach(() => {
+    oQuickPick = vscode.window.showQuickPick;
+    oInfo = vscode.window.showInformationMessage;
+    oErr = vscode.window.showErrorMessage;
+    infos = [];
+    errors = [];
+    (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage = (
+      m: string
+    ): Promise<string | undefined> => {
+      infos.push(m);
+      return Promise.resolve(undefined);
+    };
+    (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = (
+      m: string
+    ): Promise<string | undefined> => {
+      errors.push(m);
+      return Promise.resolve(undefined);
+    };
+  });
+
+  afterEach(() => {
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = oQuickPick;
+    (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
+      oInfo;
+    (vscode.window as unknown as { showErrorMessage: unknown }).showErrorMessage = oErr;
+  });
+
+  it('sets the chosen remote ref as upstream and shows a success toast', async () => {
+    const { popup, setUpstreamCalls } = makePopup({
+      getBranches: async () => [localDevelop, remoteMain, remoteDevelop, remoteFeatureAuth],
+    });
+    // The nested picker resolves to the origin/feature/auth item.
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = (
+      items: Array<{ branch: IBranch }>
+    ): Promise<unknown> =>
+      Promise.resolve(items.find((i) => i.branch.name === 'origin/feature/auth'));
+
+    try {
+      const result = await (popup as unknown as HandlerSeam)._handleSetUpstream(repo, localDevelop);
+      assert.strictEqual(result.cancelled, false);
+      assert.deepStrictEqual(setUpstreamCalls, [['develop', 'origin/feature/auth']]);
+      assert.strictEqual(infos.length, 1);
+      assert.ok(infos[0].includes("'develop' now tracks 'origin/feature/auth'"), infos[0]);
+      assert.strictEqual(errors.length, 0);
+    } finally {
+      popup.dispose();
+    }
+  });
+
+  it('does NOT call setBranchUpstream and informs the user when there are no remote branches', async () => {
+    const { popup, setUpstreamCalls } = makePopup({
+      getBranches: async () => [localDevelop, localMain],
+    });
+    let pickerShown = false;
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick =
+      (): Promise<unknown> => {
+        pickerShown = true;
+        return Promise.resolve(undefined);
+      };
+
+    try {
+      const result = await (popup as unknown as HandlerSeam)._handleSetUpstream(repo, localDevelop);
+      assert.strictEqual(result.cancelled, true);
+      assert.strictEqual(setUpstreamCalls.length, 0, 'no op when no remotes');
+      assert.strictEqual(pickerShown, false, 'no picker when no remotes');
+      assert.strictEqual(infos.length, 1);
+      assert.ok(infos[0].includes('No remote branches'), infos[0]);
+    } finally {
+      popup.dispose();
+    }
+  });
+
+  it('does NOT call setBranchUpstream when the user cancels the picker', async () => {
+    const { popup, setUpstreamCalls } = makePopup({
+      getBranches: async () => [localDevelop, remoteMain],
+    });
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = (): Promise<unknown> =>
+      Promise.resolve(undefined);
+
+    try {
+      const result = await (popup as unknown as HandlerSeam)._handleSetUpstream(repo, localDevelop);
+      assert.strictEqual(result.cancelled, true);
+      assert.strictEqual(setUpstreamCalls.length, 0, 'no op on cancelled pick');
+      assert.strictEqual(infos.length, 0);
+    } finally {
+      popup.dispose();
+    }
+  });
+
+  it('surfaces a sanitized error toast when setBranchUpstream fails', async () => {
+    const { popup } = makePopup({
+      getBranches: async () => [localDevelop, remoteMain],
+      setBranchUpstream: async () => {
+        throw new Error('fatal: https://alice:secret@example.com/repo.git denied');
+      },
+    });
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = (
+      items: Array<{ branch: IBranch }>
+    ): Promise<unknown> => Promise.resolve(items[0]);
+
+    try {
+      const result = await (popup as unknown as HandlerSeam)._handleSetUpstream(repo, localDevelop);
+      assert.strictEqual(result.cancelled, true);
+      assert.strictEqual(errors.length, 1);
+      assert.ok(errors[0].startsWith('Failed to set upstream:'), errors[0]);
+      assert.ok(!errors[0].includes('alice:secret'), 'must not leak credentials');
+    } finally {
+      popup.dispose();
+    }
+  });
+
+  // Wiring guard: proves _showBranchActionMenu intercepts the accepted
+  // Set Upstream… entry and routes it to _handleSetUpstream INSTEAD of
+  // _dispatchSelectedAction. Without the interception the entry (which has no
+  // commandId) would fall through to the "Coming soon: …" branch and never
+  // call setBranchUpstream — so this fails if the interception is removed.
+  it('routes the accepted Set Upstream… entry through _handleSetUpstream (not "Coming soon" dispatch)', async () => {
+    const { popup, setUpstreamCalls } = makePopup({
+      getBranches: async () => [localDevelop, remoteMain, remoteFeatureAuth],
+    });
+    // The action-menu QuickPick carries an entry with action local.setUpstream;
+    // the nested remote-picker carries items whose branch is a remote. Use that
+    // shape difference to drive both showQuickPick calls from one stub.
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = (
+      items: IBranchQuickPickItem[]
+    ): Promise<unknown> => {
+      const setUpstreamItem = items.find((i) => i.action === 'local.setUpstream');
+      if (setUpstreamItem) {
+        return Promise.resolve(setUpstreamItem); // action menu → pick Set Upstream…
+      }
+      return Promise.resolve(items.find((i) => i.branch?.name === 'origin/feature/auth'));
+    };
+
+    try {
+      const result = await (popup as unknown as HandlerSeam)._showBranchActionMenu(
+        repo,
+        localDevelop,
+        'main'
+      );
+      assert.strictEqual(result.action, 'local.setUpstream', 'reached the inline handler');
+      assert.deepStrictEqual(setUpstreamCalls, [['develop', 'origin/feature/auth']]);
+      assert.ok(
+        !infos.some((m) => m.startsWith('Coming soon')),
+        'must NOT fall through to the Coming soon dispatch'
+      );
+    } finally {
+      popup.dispose();
+    }
   });
 });
 

@@ -115,6 +115,7 @@ export type BranchAction =
   | 'local.mergeIntoCurrent'
   | 'local.rebaseCurrentOnto'
   | 'local.push'
+  | 'local.setUpstream'
   // Tag specific
   | 'tag.checkoutDetached'
   | 'tag.newBranchFrom'
@@ -773,6 +774,19 @@ export function buildLocalBranchActionMenu(
       isAction: true,
     },
     {
+      // No commandId: when this entry is accepted, _showBranchActionMenu
+      // intercepts it before _dispatchSelectedAction and runs the in-popup
+      // _handleSetUpstream (a nested QuickPick of remote branches) rather than
+      // dispatching to a registered command. git4idea sets a local branch's
+      // upstream via the Push dialog / `checkout --track`; the label mirrors
+      // `git branch --set-upstream-to` (and VS Code's built-in "Set Upstream…").
+      label: '$(link) Set Upstream…',
+      description: `Choose which remote branch ${branch.name} tracks`,
+      action: 'local.setUpstream',
+      branch,
+      isAction: true,
+    },
+    {
       label: '$(edit) Rename…',
       description: `Rename ${branch.name}`,
       action: 'rename',
@@ -1213,7 +1227,75 @@ export class BranchPopup {
       return { cancelled: true };
     }
 
+    // Set Upstream… is handled inline (nested QuickPick of remote branches)
+    // rather than dispatched to a registered command.
+    if (selected.action === 'local.setUpstream') {
+      return this._handleSetUpstream(repo, branch);
+    }
+
     return this._dispatchSelectedAction(repo, selected);
+  }
+
+  /**
+   * Set (or change) a local branch's tracking upstream.
+   *
+   * Opens a nested QuickPick of the repository's remote branches and routes the
+   * choice through {@link IGitService.setBranchUpstream}
+   * (`git branch --set-upstream-to=<ref> -- <local>`). git4idea has no dedicated
+   * "set upstream" popup entry — it configures tracking via the Push dialog or
+   * `checkout --track`; this surfaces the same operation from the local-branch
+   * popup. Guards: no remote branches / a cancelled pick are graceful no-ops.
+   */
+  private async _handleSetUpstream(
+    repo: IRepository,
+    branch: IBranch
+  ): Promise<IBranchPopupResult> {
+    let remoteBranches: IBranch[];
+    try {
+      const all = await this._gitService.getBranches(repo);
+      remoteBranches = all.filter((b) => b.type === 'remote');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to load branches: ${sanitizeGitError(msg)}`);
+      return { cancelled: true };
+    }
+
+    if (remoteBranches.length === 0) {
+      void vscode.window.showInformationMessage(
+        `No remote branches available to set as upstream for '${branch.name}'.`
+      );
+      return { branch, cancelled: true };
+    }
+
+    const currentUpstream = branch.upstream
+      ? `${branch.upstream.remote}/${branch.upstream.name}`
+      : undefined;
+
+    const pickItems: IBranchQuickPickItem[] = remoteBranches.map((b) => ({
+      label: `$(cloud) ${b.name}`,
+      description: b.name === currentUpstream ? 'current upstream' : undefined,
+      branch: b,
+    }));
+
+    const picked = await vscode.window.showQuickPick(pickItems, {
+      title: `Set Upstream for '${branch.name}'`,
+      placeHolder: 'Select a remote branch to track',
+    });
+    if (!picked || !picked.branch) {
+      return { cancelled: true };
+    }
+
+    const upstreamRef = picked.branch.name;
+    try {
+      await this._gitService.setBranchUpstream(repo, branch.name, upstreamRef);
+      await this._gitService.reloadRepository(repo);
+      void vscode.window.showInformationMessage(`'${branch.name}' now tracks '${upstreamRef}'`);
+      return { branch, action: 'local.setUpstream', cancelled: false };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      void vscode.window.showErrorMessage(`Failed to set upstream: ${sanitizeGitError(msg)}`);
+      return { cancelled: true };
+    }
   }
 
   /** Show the secondary action menu for the picked tag. */
