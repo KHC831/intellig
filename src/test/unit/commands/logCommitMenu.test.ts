@@ -1,14 +1,12 @@
 /**
- * Unit tests for Log commit right-click menu parity.
+ * Unit tests for the Log commit command set parity.
  *
  * Verifies:
- *  - Every command referenced by `view/item/context` with
- *    `viewItem == intellig.logCommit` is also declared as a
- *    `contributes.commands` entry with a user-visible title.
- *  - All log-commit menu titles use the unicode ellipsis (U+2026), never
+ *  - Every `intellig.commit.*` / `intellig.rebase.interactiveFromHere`
+ *    command surfaced by the webview commit-graph overlay is declared as a
+ *    `contributes.commands` entry with the correct IntelliJ title.
+ *  - All commit-action titles use the unicode ellipsis (U+2026), never
  *    three ASCII dots.
- *  - The menu ordering matches the Cluster B design (group labels
- *    `1_copy@1`, `2_create@1`, ... , `9_patch@1`).
  *  - The `validateBranchName` helper accepts reasonable
  *    names and rejects empty / invalid-char inputs.
  *
@@ -27,19 +25,9 @@ interface IPackageJsonCommand {
   category?: string;
 }
 
-interface IPackageJsonMenuEntry {
-  command?: string;
-  submenu?: string;
-  when?: string;
-  group?: string;
-}
-
 interface IPackageJson {
   contributes: {
     commands: IPackageJsonCommand[];
-    menus: {
-      'view/item/context': IPackageJsonMenuEntry[];
-    };
   };
 }
 
@@ -49,10 +37,9 @@ function loadPackageJson(): IPackageJson {
   return JSON.parse(raw) as IPackageJson;
 }
 
-describe('Log commit menu parity', () => {
+describe('Log commit command parity', () => {
   let pkg: IPackageJson;
   let commandsById: Map<string, IPackageJsonCommand>;
-  let logCommitMenu: IPackageJsonMenuEntry[];
 
   before(() => {
     pkg = loadPackageJson();
@@ -60,9 +47,6 @@ describe('Log commit menu parity', () => {
     for (const c of pkg.contributes.commands) {
       commandsById.set(c.command, c);
     }
-    logCommitMenu = pkg.contributes.menus['view/item/context'].filter(
-      (m) => m.when === 'viewItem == intellig.logCommit'
-    );
   });
 
   describe('command registration', () => {
@@ -140,83 +124,6 @@ describe('Log commit menu parity', () => {
         assert.ok(
           !cmd.title?.includes('...'),
           `${cmd.command}: title "${cmd.title}" must use U+2026, not ASCII ...`
-        );
-      }
-    });
-  });
-
-  describe('view/item/context menu wiring', () => {
-    it('every log-commit menu entry references a registered command', () => {
-      for (const entry of logCommitMenu) {
-        assert.ok(entry.command, 'entry must have a command');
-        assert.ok(
-          commandsById.has(entry.command),
-          `${entry.command} must be registered in contributes.commands`
-        );
-      }
-    });
-
-    it('menu contains all 19 log-commit entries', () => {
-      // The initial set shipped 14 entries. 3 were added (cherryPickWithoutCommit,
-      // applySelectedChanges, applyFilesToBranch), then 1
-      // (dropSelectedChanges), then 1 (openOnHost at 10_external@1).
-      // Groups: 1_copy (1) + 2_create (2) + 3_checkout (1) + 4_reset (1)
-      // + 5_modify (6) + 6_view (3) + 7_files (2) + 8_rebase (1) + 9_patch (1)
-      // + 10_external (1) = 19
-      assert.strictEqual(logCommitMenu.length, 19, 'exactly 19 log-commit entries');
-    });
-
-    const expectedGroups: { command: string; group: string }[] = [
-      { command: 'intellig.commit.copyHash', group: '1_copy@1' },
-      { command: 'intellig.commit.newBranch', group: '2_create@1' },
-      { command: 'intellig.commit.newTag', group: '2_create@2' },
-      { command: 'intellig.commit.checkoutRevision', group: '3_checkout@1' },
-      { command: 'intellig.commit.resetToHere', group: '4_reset@1' },
-      { command: 'intellig.commit.revert', group: '5_modify@1' },
-      { command: 'intellig.commit.cherryPick', group: '5_modify@2' },
-      // Later additions:
-      { command: 'intellig.commit.cherryPickWithoutCommit', group: '5_modify@3' },
-      { command: 'intellig.commit.applySelectedChanges', group: '5_modify@4' },
-      { command: 'intellig.commit.applyFilesToBranch', group: '5_modify@5' },
-      { command: 'intellig.commit.dropSelectedChanges', group: '5_modify@6' },
-      { command: 'intellig.commit.showDiff', group: '6_view@1' },
-      { command: 'intellig.commit.compareWithHead', group: '6_view@2' },
-      { command: 'intellig.commit.compareWith', group: '6_view@3' },
-      { command: 'intellig.commit.showFileInRevision', group: '7_files@1' },
-      { command: 'intellig.commit.fileHistoryFromHere', group: '7_files@2' },
-      { command: 'intellig.rebase.interactiveFromHere', group: '8_rebase@1' },
-      { command: 'intellig.commit.createPatch', group: '9_patch@1' },
-      // Final addition:
-      { command: 'intellig.commit.openOnHost', group: '10_external@1' },
-    ];
-
-    for (const { command, group } of expectedGroups) {
-      it(`${command} is placed in group ${group}`, () => {
-        const entry = logCommitMenu.find((m) => m.command === command);
-        assert.ok(entry, `${command} must be in the log-commit menu`);
-        assert.strictEqual(entry.group, group);
-      });
-    }
-
-    it('numeric prefix groups sort strictly ascending (1_copy < 2_create < ...)', () => {
-      const groupPrefixes = logCommitMenu
-        .map((m) => m.group)
-        .filter((g): g is string => typeof g === 'string')
-        .map((g) => {
-          const m = g.match(/^(\d+)_/);
-          return m ? Number(m[1]) : -1;
-        });
-      // Every entry should have a numbered prefix. A later change extended the
-      // range to 10 (10_external@1 for Open on Host).
-      for (const n of groupPrefixes) {
-        assert.ok(n >= 1 && n <= 10, 'group prefix in range 1..10');
-      }
-      // Groups themselves should appear in order (order in package.json
-      // mirrors the design doc).
-      for (let i = 1; i < groupPrefixes.length; i++) {
-        assert.ok(
-          groupPrefixes[i] >= groupPrefixes[i - 1],
-          `group order must be monotonically non-decreasing at index ${i}`
         );
       }
     });

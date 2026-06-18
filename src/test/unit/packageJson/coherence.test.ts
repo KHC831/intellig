@@ -86,6 +86,76 @@ function describeViolations(label: string, violations: string[]): string {
   );
 }
 
+/**
+ * Collect every distinct `viewItem == <literal>` contextValue referenced by
+ * any `when` clause across all `contributes.menus.*`. Permissive about
+ * whitespace around `==`; the literal is the bare identifier (no quotes —
+ * VS Code `viewItem` comparisons are unquoted).
+ */
+function collectViewItemLiterals(pkg: PackageJson): Set<string> {
+  const out = new Set<string>();
+  const re = /viewItem\s*==\s*([A-Za-z0-9._-]+)/g;
+  const menus = pkg.contributes?.menus ?? {};
+  for (const entries of Object.values(menus)) {
+    for (const entry of entries) {
+      if (typeof entry.when !== 'string') {
+        continue;
+      }
+      for (const m of entry.when.matchAll(re)) {
+        out.add(m[1]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Concatenate the text of every production `.ts` file under `src/` (the
+ * `src/test/` tree is excluded — tests must not satisfy a coherence check).
+ */
+function readAllSourceText(): string {
+  const srcRoot = path.resolve(process.cwd(), 'src');
+  const chunks: string[] = [];
+  const walk = (dir: string): void => {
+    for (const dirent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, dirent.name);
+      if (dirent.isDirectory()) {
+        if (full === path.join(srcRoot, 'test')) {
+          continue;
+        }
+        walk(full);
+      } else if (dirent.isFile() && full.endsWith('.ts')) {
+        chunks.push(fs.readFileSync(full, 'utf-8'));
+      }
+    }
+  };
+  walk(srcRoot);
+  return chunks.join('\n');
+}
+
+/**
+ * A contextValue literal is "produced" if it appears verbatim in source, or
+ * if a dotted prefix of it appears (covering values built by string template,
+ * e.g. `intellig.scm.${kind}.${code}` whose static prefix `intellig.scm.`
+ * appears verbatim). Prefixes must retain at least one dot so the bare
+ * `intellig.` namespace can never satisfy an arbitrary literal.
+ */
+function sourceProducesContextValue(sourceText: string, literal: string): boolean {
+  if (sourceText.includes(literal)) {
+    return true;
+  }
+  const segments = literal.split('.');
+  // Drop the last segment progressively; require the remaining prefix to keep
+  // at least one dot (>= 2 segments) so it is more specific than `intellig.`.
+  for (let end = segments.length - 1; end >= 2; end--) {
+    const prefix = segments.slice(0, end).join('.') + '.';
+    if (sourceText.includes(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -381,6 +451,66 @@ describe('package.json coherence', () => {
       violations.length,
       0,
       '\n' + describeViolations('redundant-palette-prefix', violations)
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Invariant 10: every `viewItem == <X>` menu gate names a contextValue that
+  // some source file actually produces.
+  //
+  // VS Code only renders a `view/item/context` entry when a tree node sets a
+  // matching `contextValue`. A `when` clause that names a contextValue no
+  // source ever assigns is dead UI — the row never appears anywhere. This
+  // guard collects every distinct `viewItem == <literal>` across all menus
+  // and asserts each literal is produced under `src/`, either verbatim or via
+  // a dotted prefix (the SCM provider builds values like
+  // `intellig.scm.${kind}.${code}` from the literal prefix `intellig.scm.`).
+  // -------------------------------------------------------------------------
+  it('every viewItem == <X> menu gate names a contextValue produced under src/', () => {
+    const literals = collectViewItemLiterals(pkg);
+    assert.ok(literals.size > 0, 'expected at least one viewItem == <X> menu gate');
+
+    const sourceText = readAllSourceText();
+    const violations: string[] = [];
+
+    for (const literal of literals) {
+      if (!sourceProducesContextValue(sourceText, literal)) {
+        violations.push(
+          `no source under src/ produces contextValue "${literal}" (menu gate "viewItem == ${literal}" is dead UI)`
+        );
+      }
+    }
+
+    assert.strictEqual(
+      violations.length,
+      0,
+      '\n' + describeViolations('orphaned-viewItem-gate', violations)
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Invariant 11: regression guard — no menu entry is gated on the orphaned
+  // `intellig.logCommit` contextValue. The live commit menu is the webview
+  // graph overlay; no native tree produces this contextValue.
+  // -------------------------------------------------------------------------
+  it('no menu entry references the orphaned intellig.logCommit contextValue', () => {
+    const menus = pkg.contributes?.menus ?? {};
+    const violations: string[] = [];
+
+    for (const [menuId, entries] of Object.entries(menus)) {
+      for (const entry of entries) {
+        if (typeof entry.when === 'string' && entry.when.includes('intellig.logCommit')) {
+          violations.push(
+            `menu '${menuId}' entry (command '${entry.command ?? '<none>'}') gates on intellig.logCommit`
+          );
+        }
+      }
+    }
+
+    assert.strictEqual(
+      violations.length,
+      0,
+      '\n' + describeViolations('logCommit-orphan', violations)
     );
   });
 });
