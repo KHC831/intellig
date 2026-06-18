@@ -36,6 +36,13 @@ heatmap, execution order) lives in **[`NORTHSTAR.md`](./NORTHSTAR.md)**. Updated
   from both sides, **H-3** revert/cherry-pick `-m` mainline, **A-2** live changed-line gutter tracker.
   A-1 also fixed a latent unconditional-push bug; F-8 inline-diff-on-hover was investigated, found to
   need a line-status tracker first, and rescoped → A-2 (the tracker); the hover popup (F-8b) is deferred.
+- **Batch 10 landed 2026-06-18** (2 features + an R2 re-audit pass, combined gate green — 4585 unit +
+  746 property, config-coherence + `check:vsix-clean` OK): **F-8b** line-status hover popup, **A-3**
+  rollback dialog, **R2 re-audit** of merged main (`reviewer-r2`) + its **fix set**. The audit's one
+  HIGH (autosquash "no-op") was verified a FALSE POSITIVE on git 2.50.1; 6 real findings fixed +
+  a real-git autosquash test added. **Parity is now ~90%+ across every workstream** (G 100%; B/C/D/E/H
+  ~92-100%; A ~90%, F ~95%). Remaining: polish (menu order, palette titles, reset-dialog F5 confirm) +
+  an F5 dogfood sweep.
 
 ## Landing log
 
@@ -43,6 +50,9 @@ Newest at top. PR# where merged via GitHub; otherwise local squash commit.
 
 | When | Item | Ref | Notes |
 |---|---|---|---|
+| 2026-06-18 | R2 re-audit fixes — RemoteOps.addRemote leading-dash guard; rebaseTodo first-entry squash/fixup pre-flight throw + full-hash message-file key (8-char collision); `_isCommitPushed` hex-guard; line-status LCS now capped by `m*n` cells (not just per-side) to protect the ext host; + a real-git autosquash round-trip test (locks the verified behavior, closes the argv-shape-only gap); comment-hygiene tidies | 836f47c, 2b69b00 | local cherry-pick + lead fixes |
+| 2026-06-18 | Workstream A (slice 3) — rollback / revert-local-changes dialog: modal IntelliJ-style confirm listing affected files (explicit untracked-delete warning), status-aware revert (modified/deleted → `checkout HEAD -- <paths>`, added → `rm --cached -- <paths>`, untracked → delete) with all paths positional behind `--`; recursive untracked delete is guarded by a path-containment check (rejects empty/`.`/`..`/outside-repo); mirrors `RollbackChangesDialog`/`RollbackWorker` | 2d41856 | local cherry-pick (1 commit) |
+| 2026-06-18 | Workstream F (slice 8b) — line-status hover popup: hovering a changed line shows the old (HEAD) content + "Revert this change"/"Copy old content" via scoped-`isTrusted` command links (args `encodeURIComponent(JSON.stringify([uri,line]))`, content HTML-escaped in a fence-length-safe code block); revert is an in-memory `WorkspaceEdit` (working-tree-safe); reuses the A-2 range model; mirrors `LineStatusMarkerPopupActions` | 76ea5e4 | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream A (slice 2) — live changed-line gutter tracker: pure `computeLineStatusRanges` (in-memory LCS line diff of buffer vs `git show HEAD:<path>` → added/modified/deleted ranges, capped at `MAX_TRACKED_LINES=10000` to protect the ext host) + `LineStatusTracker` gutter/overview-ruler decorations, debounced live updates; mirrors `LineStatusTracker.java`. (Hover popup F-8b deferred) | 0af6b06 | local cherry-pick (squashed) |
 | 2026-06-18 | Workstream H (slice 3) — revert/cherry-pick `-m <mainline>` for merge commits: `-m` is added only when a (validated positive-integer) mainline is supplied so non-merge commits never get the invalid flag; hashes positional behind `--end-of-options`; mirrors git4idea revert/cherry-pick merge handling | 693044f | local cherry-pick (1 commit) |
 | 2026-06-18 | Workstream B (slice 1) — "accept non-conflicting changes from both sides": reads the index merge stages (`:1:/:2:/:3:`) and delegates the 3-way merge to `git merge-file -p` (auto-applies one-sided hunks, re-emits markers for two-sided), stages only when fully merged, skips modify/delete; no diff3 reinvention; mirrors `ApplyNonConflictsAction`/`applyNonConflictedChanges` | 541eefe | local cherry-pick (1 commit) |

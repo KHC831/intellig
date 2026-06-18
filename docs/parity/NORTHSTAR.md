@@ -36,13 +36,13 @@ items in section 4.
 |---|---|---|
 | Reset | 🟢 ~95% | — (exceeds ref) |
 | 3-way Merge view (B) | 🟢 ~92% | near-complete (native editor + auto-flip + accept-non-conflicting landed) |
-| Commit & Changelists (A) | 🟢 ~86% | rollback dialog, line-status hover popup (F-8b) (commit-and-push + live line-status gutter landed) |
+| Commit & Changelists (A) | 🟢 ~90% | near-complete (commit-and-push + live line-status gutter + hover popup + rollback dialog landed) |
 | Rebase / Cherry-pick / Revert (H) | 🟢 ~93% | near-complete (inline reword/squash + `--onto`/`--root` + `-m` revert/cherry-pick + accept-non-conflicting landed) |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
 | Branches & Tags (D) | 🟢 ~97% | near-complete (HEAD/favorites/validation/multi-repo/worktree/per-remote-push/tag-merge/align-local landed) |
 | Shell / Menus / Sync (C) | 🟢 ~95% | near-complete (`--autostash` + console + scm provider + log-menu history-rewrite guard + tabbed default-on landed) |
 | Shelf / Stash / Patches (E) | 🟢 ~95% | near-complete (unshelve + patch split + diff-against-local + binary + recycle bin + apply-index + apply-patch tree + target-changelist landed) |
-| Blame / History / Diff (F) | 🟢 ~92% | inline-diff-hover (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy + get-version landed) |
+| Blame / History / Diff (F) | 🟢 ~95% | near-complete (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy + get-version + inline-diff-hover landed) |
 
 ---
 
