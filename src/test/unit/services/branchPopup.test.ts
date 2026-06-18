@@ -470,6 +470,30 @@ describe('BranchPopup — buildLocalBranchActionMenu', () => {
     );
   });
 
+  it('places Rename… and Delete LAST, after the operational actions (git4idea order)', () => {
+    const actions = items.map((i) => i.action);
+    const renameIdx = actions.indexOf('rename');
+    const deleteIdx = actions.indexOf('delete');
+
+    // Rename and Delete are the final two entries…
+    assert.strictEqual(deleteIdx, actions.length - 1, 'Delete must be the last item');
+    assert.strictEqual(renameIdx, actions.length - 2, 'Rename… must be the second-to-last item');
+    // …with Rename preceding Delete.
+    assert.ok(renameIdx < deleteIdx, 'Rename… must precede Delete');
+
+    // Every operational action precedes Rename/Delete.
+    for (const op of [
+      'compare',
+      'local.mergeIntoCurrent',
+      'local.rebaseCurrentOnto',
+      'local.push',
+    ] as const) {
+      const idx = actions.indexOf(op);
+      assert.ok(idx !== -1, `expected operational action ${op}`);
+      assert.ok(idx < renameIdx, `${op} must precede Rename…`);
+    }
+  });
+
   it('routes each entry to an existing `intellig.branch.*` command ID', () => {
     const expected = new Set([
       'intellig.branch.checkout',
