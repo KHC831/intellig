@@ -24,7 +24,7 @@ export function isPathInsideOrEqual(rootPath: string, candidate: string): boolea
   if (candidate === rootPath) {
     return true;
   }
-  const rel = path.relative(rootPath, candidate);
+  const rel = path.relative(rootPath, candidate); // pathspec-guard-allow: containment check, not a git pathspec
   // path.relative returns '..' or starts with '..' + sep when candidate
   // is OUTSIDE rootPath; absolute path means different drive on Windows.
   if (rel.length === 0 || rel === '..' || rel.startsWith('..' + path.sep)) {
@@ -118,7 +118,7 @@ export function isNewRepoPathIgnored(
   repoParentDir: string,
   userIgnored: string[]
 ): boolean {
-  const rel = path.relative(folderPath, repoParentDir);
+  const rel = path.relative(folderPath, repoParentDir); // pathspec-guard-allow: containment check, not a git pathspec
   if (rel.length > 0 && (rel === '..' || rel.startsWith('..' + path.sep))) {
     // The created `.git/` is OUTSIDE the watched folder. This shouldn't
     // happen given the RelativePattern glob, but defend against it.
