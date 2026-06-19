@@ -349,12 +349,14 @@ export class GitToolWindowProvider
    */
   private _logTotalAvailable: number | undefined;
   /**
-   * One-shot flag: the NEXT graph render should tell the webview to restore
-   * its saved scroll position instead of resetting to the top. Set before a
-   * scroll-to-bottom load-more re-render so growing the window doesn't yank
-   * the user back to the newest commit. Consumed (cleared) by the render.
+   * One-shot flag: the NEXT graph render is a navigational one (repo switch,
+   * filter/branch/range change, initial load) and should reset the webview to
+   * the top instead of restoring the saved scroll position. Scroll is preserved
+   * by DEFAULT — every in-place re-render (load-more, cherry-mark arrival,
+   * selection/focus change) keeps the user where they are — so only intentional
+   * navigation sets this. Consumed (cleared) by the render.
    */
-  private _preserveScrollOnNextRender: boolean = false;
+  private _resetScrollOnNextRender: boolean = false;
   private _pendingChangedFiles: IChangedFile[] | undefined;
   private _pendingChangedFilesError: unknown;
   private _consoleEntries: IConsoleEntry[] = [];
@@ -1029,13 +1031,15 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Ask the NEXT graph render to preserve (restore) the webview's scroll
-   * position rather than resetting to the top. Used by scroll-to-bottom
-   * load-more so growing the window keeps the user where they were. The flag
-   * is one-shot: it is cleared by the render that consumes it.
+   * Ask the NEXT graph render to reset the webview to the top rather than
+   * preserving the saved scroll position. Used by navigational loads (repo
+   * switch, filter/branch/range change, initial load) where the user expects to
+   * land at the newest commit. Scroll is preserved by default for every other
+   * (in-place) re-render. The flag is one-shot: it is cleared by the render that
+   * consumes it.
    */
-  public markPreserveScrollOnNextRender(): void {
-    this._preserveScrollOnNextRender = true;
+  public markResetScrollOnNextRender(): void {
+    this._resetScrollOnNextRender = true;
   }
 
   /**
@@ -3199,15 +3203,14 @@ ${bodyMarkup}
 
     const scrollAttr = scrollToCommitHash ? ` data-scroll-to-commit="${scrollToCommitHash}"` : '';
 
-    // One-shot scroll-preserve flag: when a scroll-to-bottom load-more grows
-    // the window, mark the panel so the inline script restores the saved
-    // scroll position instead of letting the full re-render reset to the top.
-    // Consumed here so a subsequent normal render (filter/repo change) scrolls
-    // to the top as usual.
-    const preserveScrollAttr = this._preserveScrollOnNextRender
-      ? ' data-preserve-scroll="true"'
-      : '';
-    this._preserveScrollOnNextRender = false;
+    // Preserve-by-default: every render stamps data-preserve-scroll so the
+    // inline script restores the saved scroll position, keeping the user where
+    // they are across in-place re-renders (load-more, cherry-mark arrival,
+    // selection/focus change). A navigational render (repo switch, filter/branch/
+    // range change, initial load) sets the one-shot reset flag instead, omitting
+    // the attribute so the webview starts at the top. Consumed here.
+    const preserveScrollAttr = this._resetScrollOnNextRender ? '' : ' data-preserve-scroll="true"';
+    this._resetScrollOnNextRender = false;
 
     const repositorySelectorHtml = this._getRepositorySelectorHtml();
 

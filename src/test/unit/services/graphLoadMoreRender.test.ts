@@ -5,9 +5,11 @@
  *   - `updateLogState(..., totalAvailable)` stores the honest total so the
  *     graph panel can render "loaded of total" and the webview can decide
  *     whether scroll-to-bottom should request more;
- *   - `markPreserveScrollOnNextRender()` stamps `data-preserve-scroll` on the
- *     NEXT graph render exactly once, then clears — so a load-more re-render
- *     keeps the user's scroll position but a following normal render does not.
+ *   - scroll is preserved by DEFAULT — every render stamps `data-preserve-scroll`
+ *     so in-place re-renders (load-more, cherry-mark arrival, selection) keep the
+ *     user's scroll position; `markResetScrollOnNextRender()` omits the attribute
+ *     on exactly the next (navigational) render so a repo/filter change starts at
+ *     the top.
  */
 
 import '../../setup';
@@ -85,25 +87,68 @@ describe('GitToolWindowProvider — load-more render plumbing', () => {
     });
   });
 
-  describe('markPreserveScrollOnNextRender', () => {
-    it('does not stamp data-preserve-scroll by default', () => {
+  describe('scroll preserve-by-default / navigational reset', () => {
+    it('stamps data-preserve-scroll by default so in-place re-renders keep scroll', () => {
       const html = provider._getGraphPanelHtml([makeNode('a1')]);
-      assert.ok(!html.includes('data-preserve-scroll'), 'normal render does not preserve scroll');
+      assert.ok(
+        html.includes('data-preserve-scroll="true"'),
+        'every render preserves scroll unless a navigational reset is requested'
+      );
     });
 
-    it('stamps data-preserve-scroll on the next render exactly once', () => {
-      provider.markPreserveScrollOnNextRender();
+    it('omits data-preserve-scroll on exactly the next render after markResetScrollOnNextRender (one-shot)', () => {
+      provider.markResetScrollOnNextRender();
 
-      const first = provider._getGraphPanelHtml([makeNode('a1')]);
+      const navigational = provider._getGraphPanelHtml([makeNode('a1')]);
       assert.ok(
-        first.includes('data-preserve-scroll="true"'),
-        'load-more render asks the webview to restore scroll'
+        !navigational.includes('data-preserve-scroll'),
+        'a fresh navigational render resets to the top'
       );
 
-      const second = provider._getGraphPanelHtml([makeNode('a1')]);
+      const following = provider._getGraphPanelHtml([makeNode('a1')]);
       assert.ok(
-        !second.includes('data-preserve-scroll'),
-        'the flag is one-shot — the following render resets to top'
+        following.includes('data-preserve-scroll="true"'),
+        'the reset is one-shot — the following render preserves scroll again'
+      );
+    });
+
+    // Regression for the dogfood bug: the graph jumped to top after load-more
+    // because a SECOND incidental render (cherry marks arriving async) landed
+    // right after the load-more render and the old one-shot preserve flag was
+    // already consumed by the first. Preserve-by-default keeps BOTH renders'
+    // attribute so the user's scroll survives the incidental re-render.
+    it('preserves scroll across the incidental cherry-mark render after load-more', () => {
+      // Load-more is an in-place render: no reset requested → preserves.
+      const loadMoreRender = provider._getGraphPanelHtml([makeNode('a1')], undefined, 2, 600);
+      assert.ok(
+        loadMoreRender.includes('data-preserve-scroll="true"'),
+        'load-more render preserves scroll'
+      );
+
+      // Cherry marks arrive async → setCherryPickedHashes → _updateWebview →
+      // a second render with NO new load-more. It must STILL preserve scroll.
+      const cherryRender = provider._getGraphPanelHtml([makeNode('a1')], undefined, 2, 600);
+      assert.ok(
+        cherryRender.includes('data-preserve-scroll="true"'),
+        'the incidental second render must NOT reset to top'
+      );
+    });
+
+    it('resets only the navigational render, then preserves the incidental render after it', () => {
+      // Fresh navigational load (repo/filter change) → reset.
+      provider.markResetScrollOnNextRender();
+      const navigational = provider._getGraphPanelHtml([makeNode('a1')], undefined, 2, 600);
+      assert.ok(
+        !navigational.includes('data-preserve-scroll'),
+        'the navigational render resets to top'
+      );
+
+      // The cherry-mark render that follows a fresh load preserves — the webview
+      // clears the stale saved position on the reset render so this restores top.
+      const cherryRender = provider._getGraphPanelHtml([makeNode('a1')], undefined, 2, 600);
+      assert.ok(
+        cherryRender.includes('data-preserve-scroll="true"'),
+        'the render after a navigational reset preserves scroll'
       );
     });
   });

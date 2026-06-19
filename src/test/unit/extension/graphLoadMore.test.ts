@@ -6,7 +6,7 @@
  * emitter used to have NO subscriber, so the graph was hard-capped at the
  * first page. These specs pin the missing subscriber:
  *   - the controller grows the limit by one page per load-more, re-runs the
- *     SAME scoped load with preserveScroll, and resets on a fresh load;
+ *     SAME scoped load, and resets on a fresh load;
  *   - it no-ops until a fresh load establishes the active repo/filter;
  *   - `wireGraphLoadMore` actually subscribes to the provider's emitter (guard
  *     against regressing back to a dead emitter).
@@ -33,13 +33,12 @@ interface ReloadCall {
   repo: IRepository;
   filter: Filter | undefined;
   limit: number;
-  preserveScroll: boolean;
 }
 
 function makeController(basePage = 500) {
   const calls: ReloadCall[] = [];
   const controller = createGraphLoadMoreController<Filter>(basePage, (repo, filter, opts) => {
-    calls.push({ repo, filter, limit: opts.limit, preserveScroll: opts.preserveScroll });
+    calls.push({ repo, filter, limit: opts.limit });
   });
   return { controller, calls };
 }
@@ -56,7 +55,7 @@ describe('Graph load-more controller', () => {
     assert.strictEqual(calls.length, 0, 'no reload before any repo is active');
   });
 
-  it('grows the limit by one page and re-runs the scoped load preserving scroll', () => {
+  it('grows the limit by one page and re-runs the scoped load', () => {
     const { controller, calls } = makeController(500);
     controller.noteFreshLoad(repoA, { branch: 'feature' });
 
@@ -66,7 +65,6 @@ describe('Graph load-more controller', () => {
     assert.strictEqual(calls[0].repo, repoA);
     assert.deepStrictEqual(calls[0].filter, { branch: 'feature' });
     assert.strictEqual(calls[0].limit, 1000, 'limit grows base→2×base');
-    assert.strictEqual(calls[0].preserveScroll, true);
     assert.strictEqual(controller.currentLimit(), 1000);
   });
 

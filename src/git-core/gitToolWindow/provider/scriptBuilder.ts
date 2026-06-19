@@ -360,19 +360,54 @@ export function buildInlineScript(): string {
           }
         })();
 
-        // Restore scroll position after a scroll-to-bottom load-more re-render.
-        // The host stamps data-preserve-scroll on the grown render; the saved
+        // Restore-or-reset the scroll position on every full re-render.
+        // Scroll is preserved by DEFAULT: the host stamps data-preserve-scroll
+        // unless the render is navigational. On a preserve render the saved
         // scrollTop (persisted on every scroll above) is reapplied so the user
-        // stays where they were instead of being yanked back to the newest
-        // commit. Only runs for the load-more render — a normal filter/repo
-        // re-render omits the attribute and starts at the top as usual.
-        (function restoreScrollOnLoadMore() {
-          const graphPanel = document.querySelector('.graph-panel[data-preserve-scroll]');
+        // stays where they were across in-place re-renders (load-more, cherry
+        // marks, selection) instead of being yanked to the newest commit. On a
+        // navigational render (repo switch / filter change / initial load) the
+        // attribute is omitted: the panel starts at the top AND the saved
+        // position is cleared so a following incidental re-render doesn't
+        // restore the now-stale scroll.
+        (function restoreOrResetScroll() {
+          const graphPanel = document.querySelector('.graph-panel');
           if (!graphPanel || !vscode) return;
+
+          // An explicit jump-to-commit render (handled by autoScrollOnLoad
+          // above) wins: never let the preserve-restore override it.
+          if (graphPanel.hasAttribute('data-scroll-to-commit')) return;
+
+          if (!graphPanel.hasAttribute('data-preserve-scroll')) {
+            // Navigational reset: drop the stale saved position so the next
+            // incidental (preserve) render restores the top, not the old view.
+            const prev = vscode.getState() || {};
+            if (prev.graphScrollTop) {
+              prev.graphScrollTop = 0;
+              vscode.setState(prev);
+            }
+            return;
+          }
+
           const state = vscode.getState() || {};
           const saved = state.graphScrollTop;
-          if (typeof saved === 'number' && saved > 0) {
-            graphPanel.scrollTop = saved;
+          if (typeof saved !== 'number' || saved <= 0) return;
+
+          // A synchronous scrollTop assignment during the initial parse can be
+          // clamped or discarded before the real webview finishes its first
+          // layout pass, so the restore silently fails. Apply it now AND once
+          // more on the next animation frame (after layout settles) so it
+          // sticks in the Electron webview. jsdom models no layout, so the
+          // immediate assignment is what the unit tests observe.
+          graphPanel.scrollTop = saved;
+          // Exactly ONE retry, on purpose: it targets the Electron first-layout
+          // clamp and nothing later. More retries would only widen the window in
+          // which a user's in-frame scroll gets clobbered back to the saved
+          // value — do not grow this into a loop.
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function () {
+              graphPanel.scrollTop = saved;
+            });
           }
         })();
 

@@ -55,14 +55,16 @@ describe('Graph load-more — real git, more than one page', function () {
   // scope and threads getLog→getLogCount→total), mirroring exactly what
   // registerViews' loadLogCommitsForRepo does for the load-more-relevant
   // behavior: window via the controller's limit, push the honest total into the
-  // provider, and mark scroll-preserve on a load-more re-run.
-  async function load(loadMore?: { limit: number; preserveScroll: boolean }): Promise<void> {
+  // provider, and request a scroll RESET only on a fresh (navigational) load —
+  // load-more and other in-place re-renders preserve scroll by default.
+  async function load(loadMore?: { limit: number }): Promise<void> {
     let limit: number;
     if (loadMore) {
       limit = loadMore.limit;
     } else {
       controller.noteFreshLoad(repo(), undefined);
       limit = controller.currentLimit();
+      provider.markResetScrollOnNextRender();
     }
     const { commits, totalAvailable } = await fetchGraphPage(
       ops as unknown as Pick<IGitService, 'getLog' | 'getLogCount'>,
@@ -70,10 +72,14 @@ describe('Graph load-more — real git, more than one page', function () {
       undefined,
       limit
     );
-    if (loadMore?.preserveScroll) {
-      provider.markPreserveScrollOnNextRender();
-    }
     provider.updateLogState(commits, undefined, undefined, undefined, undefined, totalAvailable);
+    // The test has no webview, so the provider's _render is a no-op and never
+    // consumes the one-shot reset flag the way production does. Simulate that
+    // consuming render so a fresh load's reset doesn't leak into the next
+    // load-more's HTML. A single node is enough to reach the flag-consuming code
+    // path (an empty list short-circuits to the empty-state markup); the render
+    // output itself is discarded.
+    provider._getGraphPanelHtml(provider.getExtendedLogState().commitNodes.slice(0, 1));
   }
 
   const controller = createGraphLoadMoreController<undefined>(PAGE, (_r, _f, opts) => {
@@ -134,8 +140,13 @@ describe('Graph load-more — real git, more than one page', function () {
 
     // Drive the SAME path the webview's loadMoreCommits → emitter triggers.
     controller.handleLoadMore();
-    // Let the async reload settle.
-    await new Promise((r) => setTimeout(r, 50));
+    // The reload is fire-and-forget (the controller calls `void load(opts)`);
+    // poll for it to settle instead of a fixed sleep so the assertion can't race
+    // the async git read under CPU contention.
+    const deadline = Date.now() + 5000;
+    while (provider.getExtendedLogState().commitNodes.length < TOTAL && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
     const nodes = provider.getExtendedLogState().commitNodes;
     assert.strictEqual(nodes.length, TOTAL, 'window grew to include the older commits');
@@ -150,6 +161,9 @@ describe('Graph load-more — real git, more than one page', function () {
       provider.getLogTotalAvailable()
     );
     assert.ok(!html.includes('graph-loading-indicator'), 'hasMore is false at the true end');
-    assert.ok(html.includes('data-preserve-scroll="true"'), 'grown render preserves scroll');
+    assert.ok(
+      html.includes('data-preserve-scroll="true"'),
+      'grown load-more render preserves scroll by default'
+    );
   });
 });

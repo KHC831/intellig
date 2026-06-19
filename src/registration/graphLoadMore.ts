@@ -9,19 +9,20 @@ import type { IRepository } from '../git-core/interfaces/IGitService';
  * Nothing used to subscribe, so the graph was hard-capped at the first page.
  * This module supplies the missing subscriber: a small state machine that
  * tracks the active repo/filter + current display limit and grows the limit by
- * one page on each load-more, re-running the same scoped load while preserving
- * the user's scroll position.
+ * one page on each load-more, re-running the same scoped load. Scroll is kept by
+ * default — every in-place re-render preserves the user's position; only a fresh
+ * navigational load resets to the top (see GitToolWindowProvider).
  *
  * The controller is generic over the registerViews-local log-filter shape so
  * it carries the EXACT filter through to the grown fetch (and the rev-list
  * count) without depending on registerViews internals.
  */
 
-/** Re-run the scoped graph load at a grown limit, preserving scroll. */
+/** Re-run the scoped graph load at a grown limit. */
 export type GraphLoadMoreReloader<F> = (
   repo: IRepository,
   filter: F | undefined,
-  opts: { limit: number; preserveScroll: boolean }
+  opts: { limit: number }
 ) => void;
 
 export interface IGraphLoadMoreController<F> {
@@ -35,8 +36,8 @@ export interface IGraphLoadMoreController<F> {
   currentLimit(): number;
   /**
    * Handle a scroll-to-bottom request: grow the limit by one page and re-run
-   * the active scoped load, preserving scroll. No-op until a fresh load has
-   * established which repo/filter is active.
+   * the active scoped load. No-op until a fresh load has established which
+   * repo/filter is active.
    */
   handleLoadMore(): void;
 }
@@ -45,7 +46,7 @@ export interface IGraphLoadMoreController<F> {
  * Create the load-more state machine. `basePage` is both the initial limit and
  * the per-load-more increment (the task's `GRAPH_PAGE`). `reload` re-runs the
  * scoped load — in production this is `loadLogCommitsForRepo` with an explicit
- * limit + preserveScroll.
+ * grown limit.
  */
 export function createGraphLoadMoreController<F>(
   basePage: number,
@@ -69,7 +70,7 @@ export function createGraphLoadMoreController<F>(
         return;
       }
       limit += basePage;
-      reload(repo, filter, { limit, preserveScroll: true });
+      reload(repo, filter, { limit });
     },
   };
 }

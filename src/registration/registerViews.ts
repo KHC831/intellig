@@ -303,10 +303,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         searchCaseSensitive?: boolean;
       },
       // Present only on a scroll-to-bottom load-more re-run: an explicit grown
-      // limit and the request to keep the user's scroll position. Absent on a
-      // fresh load (repo switch / filter change / refresh), which resets the
-      // limit back to one page.
-      loadMore?: { limit: number; preserveScroll: boolean }
+      // limit. Absent on a fresh load (repo switch / filter change / refresh),
+      // which resets the limit back to one page and resets scroll to the top.
+      loadMore?: { limit: number }
     ): Promise<void> => {
       try {
         // A fresh load resets the grown limit to one page; a load-more re-run
@@ -317,6 +316,11 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         } else {
           graphLoadMore.noteFreshLoad(repo, filter);
           limit = graphLoadMore.currentLimit();
+          // A fresh load is navigational (repo switch / filter-branch-range
+          // change / initial load): reset the webview to the top. Every other
+          // (in-place) re-render preserves scroll by default, so load-more and
+          // incidental renders (cherry marks, selection) keep the user's place.
+          ctx.gitToolWindowProvider?.markResetScrollOnNextRender();
         }
 
         // Fetch the windowed commit list AND the honest total under ONE shared
@@ -369,11 +373,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // Single-repo / specific scope: anchor to this repo's own HEAD (the
           // helper de-prefixes the branch name to match `IBranchRef.name`).
           const { headHash, headBranchName } = resolveLogHeadAnchor(false, repo);
-          // Load-more grows the window in place; ask the next render to restore
-          // the user's scroll instead of snapping to the newest commit.
-          if (loadMore?.preserveScroll) {
-            ctx.gitToolWindowProvider.markPreserveScrollOnNextRender();
-          }
+          // Load-more grows the window in place; scroll is preserved by default
+          // (only a fresh navigational load above flips on the reset flag), so
+          // growing the window keeps the user on the commit they were viewing.
           ctx.gitToolWindowProvider.updateLogState(
             commits,
             branchMap,
