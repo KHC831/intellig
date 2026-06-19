@@ -11,6 +11,7 @@ import {
   FileStatus,
   IFileStatus,
 } from '../git-core/interfaces/IGitService';
+import { resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
 
 /**
  * Changelist storage file format version.
@@ -971,7 +972,10 @@ export class ChangelistService implements IChangelistService {
    * @returns The storage file path
    */
   private getStoragePath(repo: IRepository): string {
-    return path.join(repo.rootUri.fsPath, '.git', CHANGELIST_STORAGE_FILE);
+    // Resolve the real per-worktree git dir: in a linked worktree `<root>/.git`
+    // is a FILE (a `gitdir:` pointer), so the conventional `<root>/.git/<file>`
+    // would throw on write. See {@link resolveWorktreeGitDir}.
+    return path.join(resolveWorktreeGitDir(repo.rootUri.fsPath), CHANGELIST_STORAGE_FILE);
   }
 
   /**

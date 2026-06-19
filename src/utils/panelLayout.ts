@@ -137,6 +137,50 @@ const PANEL_WIDTHS_KEY = 'intellig.panelWidths';
 export const DEFAULT_PANEL_WIDTHS: [number, number] = [60, 40];
 
 /**
+ * Minimum share (%) for a single panel. Both panels must land within
+ * `[MIN_PANEL_RATIO, 100 - MIN_PANEL_RATIO]`, which is exactly the band
+ * {@link isValidPanelWidths} accepts (each in [5, 90], summing to 100).
+ */
+const MIN_PANEL_RATIO = 10;
+
+/**
+ * Clamp a requested [graph, details] percentage split into the valid layout
+ * band and re-normalise so the two shares sum to exactly 100.
+ *
+ * Mirrors the column splitter's `clampColumnWidths`: a rogue or bug-mutated
+ * webview can post an extreme value (e.g. `[100, 0]`) that would otherwise
+ * collapse a panel to zero and brick the current session's layout (the stored
+ * value only self-heals on the NEXT load via {@link loadPanelWidths}). Pure,
+ * no side effects.
+ *
+ * @param widths - Requested [graph, details] shares (any scale; re-normalised).
+ * @returns A valid [graph, details] percentage tuple summing to 100.
+ */
+export function clampPanelWidthRatios(widths: [number, number]): [number, number] {
+  const [a, b] = widths;
+
+  // Non-finite or non-positive total → fall back to the safe default.
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a + b <= 0) {
+    return [...DEFAULT_PANEL_WIDTHS];
+  }
+
+  const MAX_PANEL_RATIO = 100 - MIN_PANEL_RATIO;
+
+  // Already a valid in-band split that sums to 100 — return verbatim. Skipping
+  // the divide-then-multiply below avoids floating-point noise (e.g. a clean
+  // `[55, 45]` becoming `[55.00000000000001, 44.99999999999999]`).
+  if (a >= MIN_PANEL_RATIO && a <= MAX_PANEL_RATIO && Math.abs(a + b - 100) < 1e-9) {
+    return [a, b];
+  }
+
+  // Normalise to a percentage, clamp the first share into the valid band, and
+  // derive the second as its complement so the sum stays exactly 100.
+  const total = a + b;
+  const first = Math.min(MAX_PANEL_RATIO, Math.max(MIN_PANEL_RATIO, (a / total) * 100));
+  return [first, 100 - first];
+}
+
+/**
  * Validates whether a value is a valid panel width tuple.
  *
  * A valid tuple is an array of exactly 2 numbers where:

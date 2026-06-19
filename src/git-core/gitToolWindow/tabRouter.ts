@@ -69,8 +69,8 @@ export interface ITabRouterHooks {
  * Infer the target tab for a message that omits `tab` explicitly.
  *
  * Historical messages (`selectCommit`, `toggleCommitSelection`, `loadMoreCommits`,
- * `setLogFilter`, `panelResize`, `contextAction`, `doubleClickFile`, etc.) are
- * all implicit `tab: 'log'`.
+ * `setLogFilter`, `panelResize`, `doubleClickFile`, etc.) are all implicit
+ * `tab: 'log'`.
  *
  * Messages whose type starts with a known `<tab>.` prefix (`console.`,
  * `incoming.`, `updateInfo.`, `history.`) are dispatched by prefix.

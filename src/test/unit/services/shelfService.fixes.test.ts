@@ -109,6 +109,73 @@ describe('ShelfService — additions', () => {
     return item.id;
   }
 
+  describe('storage location — linked worktree (.git is a FILE)', () => {
+    it('persists in the resolved worktree git dir and round-trips without throwing', async () => {
+      // Linked-worktree shape: `<root>/.git` is a FILE pointing at the real
+      // per-worktree gitdir. Hardcoding `<root>/.git/<file>` would write inside
+      // a FILE and THROW (ENOTDIR); the resolver must follow the pointer.
+      const wtRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'shelf-wt-'));
+      const worktreeGitDir = path.join(wtRoot, 'gitdir-real');
+      fs.mkdirSync(worktreeGitDir, { recursive: true });
+      fs.writeFileSync(path.join(wtRoot, '.git'), `gitdir: ${worktreeGitDir}\n`, 'utf8');
+      const wtRepo = {
+        rootUri: Uri.file(wtRoot),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      } as unknown as IRepository;
+
+      try {
+        const patch = 'diff --git a/wt.ts b/wt.ts\n';
+        let item!: Awaited<ReturnType<ShelfService['importPatch']>>;
+        await assert.doesNotReject(async () => {
+          item = await svc.importPatch(wtRepo, { patchContent: patch, name: 'wt-entry' });
+        }, 'shelving in a linked worktree must not throw');
+
+        const storagePath = path.join(worktreeGitDir, 'intellig-shelf.json');
+        assert.ok(
+          fs.existsSync(storagePath),
+          'shelf storage should land in the resolved worktree git dir'
+        );
+
+        const reloaded = svc.getShelfItems(wtRepo).find((i) => i.id === item.id);
+        assert.ok(reloaded, 'shelf entry should round-trip back from the worktree git dir');
+      } finally {
+        fs.rmSync(wtRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('shelve — name validation (S1)', () => {
+    it('rejects an empty / whitespace-only shelf name', async () => {
+      await assert.rejects(
+        () => svc.shelve(repo, '   ', { files: ['a.ts'] }),
+        /Shelf name cannot be empty/,
+        'a whitespace-only name must be rejected like renameShelf does'
+      );
+    });
+
+    it('trims surrounding whitespace from the stored shelf name (matches renameShelf)', async () => {
+      mockCli.nextResult = (args): IGitCommandResult => {
+        if (args[0] === 'diff') {
+          return {
+            exitCode: 0,
+            stdout: 'diff --git a/a.ts b/a.ts\n',
+            stderr: '',
+            combined: '',
+          };
+        }
+        return { exitCode: 0, stdout: '', stderr: '', combined: '' };
+      };
+
+      const item = await svc.shelve(repo, '  padded name  ', { files: ['a.ts'] });
+      assert.strictEqual(item.name, 'padded name', 'returned item carries the trimmed name');
+
+      const reloaded = svc.getShelfItems(repo).find((i) => i.id === item.id);
+      assert.strictEqual(reloaded?.name, 'padded name', 'trimmed name round-trips from disk');
+    });
+  });
+
   describe('renameShelf', () => {
     it('renames a shelf entry and fires onDidChangeShelf', async () => {
       const id = await seedEntry([{ path: 'a.ts', diff: 'diff --git a/a.ts b/a.ts\n' }]);

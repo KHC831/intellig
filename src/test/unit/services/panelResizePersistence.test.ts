@@ -172,6 +172,30 @@ describe('GitToolWindowProvider - Panel Resize Persistence (Req 1.3, 1.4)', () =
       provider.dispose();
     });
 
+    it('W3: clamps an extreme width so a single panel can never brick the layout', () => {
+      const memento = createMockMemento();
+      const provider = new GitToolWindowProvider(extensionUri, memento);
+      const handler = (
+        provider as unknown as { _handleWebviewMessage: (msg: unknown) => void }
+      )._handleWebviewMessage.bind(provider);
+
+      // A rogue / bug-mutated webview posts a layout-bricking value.
+      handler({ type: 'panelResize', widths: [100, 0] });
+
+      const [graph, details] = provider.getPanelWidths();
+      assert.ok(graph >= 10 && graph <= 90, `graph width ${graph} must stay within [10, 90]`);
+      assert.ok(
+        details >= 10 && details <= 90,
+        `details width ${details} must stay within [10, 90]`
+      );
+      assert.ok(Math.abs(graph + details - 100) < 1e-6, 'clamped widths must still sum to 100');
+
+      // The persisted value must be the clamped one, not the rogue input.
+      const stored = memento.get<[number, number]>('intellig.panelWidths');
+      assert.deepStrictEqual(stored, [graph, details]);
+      provider.dispose();
+    });
+
     it('should handle multiple consecutive panelResize messages', () => {
       const memento = createMockMemento();
       const provider = new GitToolWindowProvider(extensionUri, memento);

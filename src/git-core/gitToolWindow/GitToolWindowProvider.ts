@@ -28,7 +28,12 @@ import {
   computeGraphWidth,
   DEFAULT_GRAPH_CONFIG,
 } from '../../utils/graphRenderer';
-import { savePanelWidths, loadPanelWidths, DEFAULT_PANEL_WIDTHS } from '../../utils/panelLayout';
+import {
+  savePanelWidths,
+  loadPanelWidths,
+  DEFAULT_PANEL_WIDTHS,
+  clampPanelWidthRatios,
+} from '../../utils/panelLayout';
 import {
   saveColumnWidths,
   loadColumnWidths,
@@ -1538,15 +1543,11 @@ export class GitToolWindowProvider
         }
         break;
       case 'doubleClickFile':
+        // The only emitter is the `.changed-file-item` dblclick delegation,
+        // which always carries both commitHash and path.
         if (message.commitHash && message.path) {
           // opens a VS Code diff view for that file at the selected commit.
           this._handleCommitFileDoubleClick(message.commitHash, message.path);
-        } else if (message.path) {
-          // Fallback: when no commitHash is provided, fire a showDiff context action
-          this._onDidRequestContextAction.fire({
-            action: 'showDiff',
-            files: [message.path],
-          });
         }
         break;
       case 'doubleClickCommitFile':
@@ -2201,12 +2202,15 @@ export class GitToolWindowProvider
   // as one atomic operation so extracted handlers never touch _workspaceState
   // and can't update the widths without persisting them.
   setPanelWidths(widths: [number, number]): void {
-    // Update internal panel widths state
-    this._panelWidths = widths;
+    // Clamp into the valid layout band first (mirrors _handleColumnResize): an
+    // extreme value from a rogue/bug-mutated webview must never collapse a
+    // panel and brick the current session's layout.
+    const clamped = clampPanelWidthRatios(widths);
+    this._panelWidths = clamped;
 
-    // Persist to workspace state if available
+    // Persist the clamped value (not the rogue input) if state is available.
     if (this._workspaceState) {
-      savePanelWidths(this._workspaceState, widths);
+      savePanelWidths(this._workspaceState, clamped);
     }
   }
 

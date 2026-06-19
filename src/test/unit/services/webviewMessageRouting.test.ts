@@ -16,8 +16,11 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GitToolWindowProvider } from '../../../ui-shell/GitToolWindowProvider';
 import { ICommit } from '../../../git-core/interfaces/IGitService';
+import { buildInlineScript } from '../../../git-core/gitToolWindow/provider/scriptBuilder';
 import { Uri, Memento } from '../../mocks/vscode';
 
 /**
@@ -533,18 +536,28 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       });
     });
 
-    it('should fall back to showDiff context action when only path is provided (no commitHash)', (done) => {
-      const disposable = provider.onDidRequestContextAction((event) => {
-        assert.strictEqual(event.action, 'showDiff');
-        assert.deepStrictEqual(event.files, ['src/app.ts']);
-        disposable.dispose();
-        done();
+    it('ignores a path-only doubleClickFile — the live emitter always sends commitHash', () => {
+      // The dead `window.doubleClickFile(path)` (path-only) was removed, so the
+      // host's old showDiff fallback is gone. A path-only message is now a no-op.
+      let contextActionFired = false;
+      let commitDiffFired = false;
+      const d1 = provider.onDidRequestContextAction(() => {
+        contextActionFired = true;
+      });
+      const d2 = provider.onDidRequestCommitDiff(() => {
+        commitDiffFired = true;
       });
 
-      handler({
-        type: 'doubleClickFile',
-        path: 'src/app.ts',
-      });
+      assert.doesNotThrow(() => handler({ type: 'doubleClickFile', path: 'src/app.ts' }));
+
+      assert.strictEqual(
+        contextActionFired,
+        false,
+        'no showDiff fallback for the dead path-only shape'
+      );
+      assert.strictEqual(commitDiffFired, false, 'no commit diff without a commitHash');
+      d1.dispose();
+      d2.dispose();
     });
   });
 
@@ -601,6 +614,72 @@ describe('GitToolWindowProvider - Webview Message Routing (Req 5.1, 5.2)', () =>
       assert.doesNotThrow(() => {
         handler({ type: 'unknownMessageType' });
       });
+    });
+  });
+
+  describe('client→host message exhaustiveness (W1, closed-set)', () => {
+    // Both sides are derived from REAL code so neither can silently drift:
+    //   emitted = every `type: '...'` the inline client script posts,
+    //   handled = every `case '...':` in the provider's _handleWebviewMessage
+    //             switch, plus the router-owned `tabChange`.
+    // If a future change emits a message with no handler case (an orphan), the
+    // subset assertion below reds.
+
+    /** Extract the message types the inline client script posts to the host. */
+    function emittedMessageTypes(): Set<string> {
+      const script = buildInlineScript();
+      const types = new Set<string>();
+      const re = /type:\s*'([\w.]+)'/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(script)) !== null) {
+        types.add(m[1]);
+      }
+      return types;
+    }
+
+    /** Extract the message types the provider's dispatch switch handles. */
+    function handledMessageTypes(): Set<string> {
+      const providerSrc = fs.readFileSync(
+        path.resolve(__dirname, '../../../git-core/gitToolWindow/GitToolWindowProvider.ts'),
+        'utf8'
+      );
+      // Slice out just the _handleWebviewMessage switch body so unrelated
+      // switches (e.g. keyboard `case 'ArrowLeft':`) don't pollute the set.
+      const methodStart = providerSrc.indexOf('_handleWebviewMessage(message: IWebviewMessage)');
+      assert.notStrictEqual(methodStart, -1, 'sanity: _handleWebviewMessage method found');
+      const switchStart = providerSrc.indexOf('switch (message.type)', methodStart);
+      const defaultIdx = providerSrc.indexOf('default:', switchStart);
+      assert.ok(
+        switchStart !== -1 && defaultIdx !== -1 && defaultIdx > switchStart,
+        'sanity: dispatch switch + default branch located'
+      );
+      const body = providerSrc.slice(switchStart, defaultIdx);
+
+      const handled = new Set<string>();
+      const re = /case\s+'([\w.]+)'\s*:/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(body)) !== null) {
+        handled.add(m[1]);
+      }
+      // The tab router consumes `tabChange` before the switch runs.
+      handled.add('tabChange');
+      return handled;
+    }
+
+    it('parses a non-trivial set from both the client script and the host switch', () => {
+      assert.ok(emittedMessageTypes().size >= 10, 'expected the client script to emit many types');
+      assert.ok(handledMessageTypes().size >= 10, 'expected the host switch to handle many types');
+    });
+
+    it('every message TYPE the client script emits has a matching host handler case', () => {
+      const emitted = emittedMessageTypes();
+      const handled = handledMessageTypes();
+      const orphans = [...emitted].filter((t) => !handled.has(t)).sort();
+      assert.deepStrictEqual(
+        orphans,
+        [],
+        `client emits message types with no host handler (orphans): ${orphans.join(', ')}`
+      );
     });
   });
 

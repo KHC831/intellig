@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { INTERNAL_IGNORED_FOLDERS } from '../repoScan';
 
@@ -34,6 +35,58 @@ export function isPathInsideOrEqual(rootPath: string, candidate: string): boolea
     return false;
   }
   return true;
+}
+
+/**
+ * Resolve the per-worktree git directory for `repoRoot`.
+ *
+ * In a normal checkout `<root>/.git` is a directory and IS the git dir.
+ * In a LINKED WORKTREE (and submodule) `<root>/.git` is a regular FILE holding
+ * a `gitdir: <path>` pointer to `<main>/.git/worktrees/<name>` — so reading or
+ * writing `<root>/.git/<file>` directly fails (it is a file, not a directory).
+ * Per-worktree storage (changelists, shelves) must follow that pointer.
+ *
+ * We deliberately resolve the *per-worktree* gitdir (mirrors `git rev-parse
+ * --git-dir`) rather than the shared common dir (`git rev-parse
+ * --git-common-dir`): a changelist or shelf groups uncommitted changes in one
+ * working tree, so each linked worktree gets its own isolated store. Sharing
+ * the common dir would surface another worktree's changelists against files
+ * that may not even exist (or differ) in the current checkout.
+ *
+ * Resolution is pure filesystem (no subprocess), matching the synchronous
+ * storage-path call chain in ChangelistService / ShelfService. The `.git`
+ * file format (`gitdir: <abs-or-rel-path>`) is git's stable on-disk contract.
+ *
+ * Always returns a path; on any anomaly (missing `.git`, unreadable/pointerless
+ * file) it falls back to the conventional `<root>/.git`, so a caller's
+ * mkdir-on-write still produces a usable location.
+ */
+export function resolveWorktreeGitDir(repoRoot: string): string {
+  const dotGit = path.join(repoRoot, '.git');
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(dotGit);
+  } catch {
+    return dotGit;
+  }
+
+  if (stat.isDirectory()) {
+    return dotGit;
+  }
+
+  // `.git` is a FILE (linked worktree / submodule): follow the `gitdir:`
+  // pointer. A relative pointer is resolved against the worktree root.
+  try {
+    const pointer = fs.readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+    if (pointer) {
+      return path.isAbsolute(pointer[1]) ? pointer[1] : path.resolve(repoRoot, pointer[1]);
+    }
+  } catch {
+    // Unreadable pointer — fall through to the conventional path.
+  }
+
+  return dotGit;
 }
 
 /**

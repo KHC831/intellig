@@ -17,7 +17,7 @@ import {
 } from './interfaces/IPatchService';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { IConflictedFile } from '../conflicts/interfaces/IConflictResolutionService';
-import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCli';
+import { GitCli, IGitCommandOptions, IGitCommandResult, buildGitArgs } from '../git-core/gitCli';
 import { sanitizeGitError } from '../git-core/gitError';
 import { atomicWriteFile } from '../utils/atomicWrite';
 import { getLogger, type Logger } from '../utils/logger';
@@ -51,17 +51,15 @@ export class PatchWriteFailed extends Error {
  * rather than a hard error. Covers the standard phrasing emitted by git when
  * `--3way` falls through to merge markers or when `am` pauses mid-patch.
  *
- * Mirrors the heuristic used in StashView.ts `_looksLikeConflictError`.
+ * Deliberately narrow: `'conflict'` already matches both `CONFLICT (content)`
+ * and `Applied patch to '...' with conflicts`, so the broad `'u '` token (which
+ * matched any "u " substring — e.g. "you ") and the over-broad
+ * `'applied patch to'` (which also fires on a clean "...cleanly" line) are
+ * dropped. Unmerged files are detected authoritatively from `git status`
+ * (`U` index/worktree), so the text heuristic only gates whether that read
+ * happens at all.
  */
-const CONFLICT_PHRASES = [
-  'conflict',
-  'patch does not apply',
-  'patch failed',
-  'patch failed at',
-  'applied patch to',
-  'needs merge',
-  'u ',
-];
+const CONFLICT_PHRASES = ['conflict', 'patch does not apply', 'patch failed', 'needs merge'];
 
 /**
  * Narrow `IGitService` to the surface we actually need (just `.gitCli`).
@@ -187,7 +185,9 @@ export class PatchService implements IPatchService {
     } finally {
       if (tempPath) {
         try {
-          await fs.promises.unlink(tempPath);
+          // Remove the whole mkdtemp directory (file + its private dir) so the
+          // per-apply temp dir doesn't leak for the process lifetime.
+          await fs.promises.rm(path.dirname(tempPath), { recursive: true, force: true });
         } catch {
           // Best-effort cleanup.
         }
@@ -278,21 +278,23 @@ export class PatchService implements IPatchService {
     // positional. It doesn't accept --3way by default — we add --3way so it
     // degrades to conflict markers instead of a hard stop where possible.
     if (options.useAm && !options.check) {
-      const args = ['am', '--3way'];
       if (options.reverse) {
         // `git am` doesn't support --reverse; fall back to `git apply` with
         // --reverse. This is a defensive choice — IntelliJ surfaces the same
         // fallback silently.
         return this._buildPlainApplyArgs(options, patchPath);
       }
+      const flags = ['--3way'];
       if (options.stripLevel !== undefined) {
-        args.push(`-p${options.stripLevel}`);
+        flags.push(`-p${options.stripLevel}`);
       }
       if (options.baseDir) {
-        args.push('--directory', options.baseDir);
+        flags.push('--directory', options.baseDir);
       }
-      args.push(patchPath);
-      return args;
+      // Splice `--` before the patch path (via buildGitArgs' `paths` arg) so a
+      // leading-dash path can never be parsed as a flag — uniform with the
+      // project's --end-of-options argv hardening.
+      return buildGitArgs('am', flags, [], [patchPath]);
     }
     return this._buildPlainApplyArgs(options, patchPath);
   }
@@ -303,23 +305,25 @@ export class PatchService implements IPatchService {
    * overlapping changes produce markers rather than a hard failure.
    */
   private _buildPlainApplyArgs(options: IApplyPatchOptions, patchPath: string): string[] {
-    const args = ['apply'];
+    const flags: string[] = [];
     if (options.check) {
-      args.push('--check');
+      flags.push('--check');
     } else {
-      args.push('--index', '--3way');
+      flags.push('--index', '--3way');
     }
     if (options.reverse) {
-      args.push('--reverse');
+      flags.push('--reverse');
     }
     if (options.stripLevel !== undefined) {
-      args.push(`-p${options.stripLevel}`);
+      flags.push(`-p${options.stripLevel}`);
     }
     if (options.baseDir) {
-      args.push('--directory', options.baseDir);
+      flags.push('--directory', options.baseDir);
     }
-    args.push(patchPath);
-    return args;
+    // Splice `--` before the patch path (via buildGitArgs' `paths` arg) so a
+    // leading-dash path can never be parsed as a flag — uniform with the
+    // project's --end-of-options argv hardening.
+    return buildGitArgs('apply', flags, [], [patchPath]);
   }
 
   /**
@@ -344,9 +348,15 @@ export class PatchService implements IPatchService {
   /**
    * Derive conflict file list. Strategy:
    *  1. If git stderr/stdout looks conflict-shaped, read `git status` and
-   *     return files with `U` index or worktree status (same signal as
+   *     collect files with `U` index or worktree status (same signal as
    *     ConflictResolutionService.getConflictedFiles).
-   *  2. If no conflict markers found, return [] (caller treats as hard error).
+   *  2. Scope those to the files THIS patch touched (parsed from git's output)
+   *     so a pre-existing, unrelated merge conflict elsewhere in the repo is
+   *     not mis-attributed to the patch. When the output yields no parseable
+   *     file list we fall back to all `U` files rather than risk dropping a
+   *     real conflict.
+   *  3. If no conflict markers found, return [] (caller treats as hard error)
+   *     and skip the status read entirely.
    */
   private async _extractConflicts(
     repo: IRepository,
@@ -357,9 +367,12 @@ export class PatchService implements IPatchService {
       return [];
     }
     const statusFiles = await this._gitService.getStatus(repo);
-    return statusFiles
-      .filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U')
-      .map((f) => ({ path: f.path, resolved: false }));
+    const unmerged = statusFiles.filter((f) => f.indexStatus === 'U' || f.workTreeStatus === 'U');
+
+    const touched = new Set(this._parseAppliedFiles(stdout + '\n' + stderr));
+    const scoped = touched.size > 0 ? unmerged.filter((f) => touched.has(f.path)) : unmerged;
+
+    return scoped.map((f) => ({ path: f.path, resolved: false }));
   }
 
   /**

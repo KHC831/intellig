@@ -11,6 +11,7 @@
 import * as assert from 'assert';
 import {
   clampPanelWidths,
+  clampPanelWidthRatios,
   savePanelWidths,
   loadPanelWidths,
   DEFAULT_PANEL_WIDTHS,
@@ -38,6 +39,49 @@ function createMockMemento(): import('vscode').Memento {
     },
   } as import('vscode').Memento;
 }
+
+describe('clampPanelWidthRatios', () => {
+  it('passes valid in-band ratios through unchanged', () => {
+    assert.deepStrictEqual(clampPanelWidthRatios([60, 40]), [60, 40]);
+    assert.deepStrictEqual(clampPanelWidthRatios([55, 45]), [55, 45]);
+    assert.deepStrictEqual(clampPanelWidthRatios([90, 10]), [90, 10]);
+  });
+
+  it('clamps a layout-bricking [100, 0] into the valid band, summing to 100', () => {
+    const [a, b] = clampPanelWidthRatios([100, 0]);
+    assert.deepStrictEqual([a, b], [90, 10]);
+  });
+
+  it('clamps the symmetric [0, 100] case', () => {
+    assert.deepStrictEqual(clampPanelWidthRatios([0, 100]), [10, 90]);
+  });
+
+  it('re-normalises off-100 totals to percentages summing to 100', () => {
+    // 3:1 ratio → 75/25 regardless of the absolute scale.
+    assert.deepStrictEqual(clampPanelWidthRatios([600, 200]), [75, 25]);
+  });
+
+  it('falls back to defaults for non-finite or non-positive input', () => {
+    assert.deepStrictEqual(clampPanelWidthRatios([NaN, 50]), DEFAULT_PANEL_WIDTHS);
+    assert.deepStrictEqual(clampPanelWidthRatios([0, 0]), DEFAULT_PANEL_WIDTHS);
+    assert.deepStrictEqual(clampPanelWidthRatios([-10, -10]), DEFAULT_PANEL_WIDTHS);
+  });
+
+  it('always returns a tuple within [10, 90] that sums to 100', () => {
+    for (const input of [
+      [100, 0],
+      [0, 100],
+      [95, 5],
+      [5, 95],
+      [1000, 1],
+    ] as [number, number][]) {
+      const [a, b] = clampPanelWidthRatios(input);
+      assert.ok(a >= 10 && a <= 90, `first ${a} in band for ${JSON.stringify(input)}`);
+      assert.ok(b >= 10 && b <= 90, `second ${b} in band for ${JSON.stringify(input)}`);
+      assert.ok(Math.abs(a + b - 100) < 1e-9, `sums to 100 for ${JSON.stringify(input)}`);
+    }
+  });
+});
 
 describe('clampPanelWidths', () => {
   describe('Basic behavior', () => {

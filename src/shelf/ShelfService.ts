@@ -24,7 +24,7 @@ interface IGitServiceWithCli {
 import { parseDiff } from '../git-core/gitParser';
 import { splitPatchByFile } from '../patches/PatchService';
 import { applyTextPatch } from '../patches/applyTextPatch';
-import { isPathInsideOrEqual } from '../git-core/repo/RepositoryDiscovery';
+import { isPathInsideOrEqual, resolveWorktreeGitDir } from '../git-core/repo/RepositoryDiscovery';
 
 /**
  * True when a shelved file path, resolved against the repository root, stays
@@ -524,6 +524,14 @@ export class ShelfService implements IShelfService {
    */
   async shelve(repo: IRepository, name: string, changes: IShelveSelection): Promise<IShelfItem> {
     const cwd = repo.rootUri.fsPath;
+
+    // Reject an empty / whitespace-only name at the boundary, and store the
+    // trimmed form (mirrors renameShelf) so a blank or padded shelf name never
+    // lands on disk.
+    name = name.trim();
+    if (name.length === 0) {
+      throw new Error('Shelf name cannot be empty');
+    }
 
     // Validate that we have something to shelve
     if (!changes.files?.length && !changes.changelists?.length && !changes.hunks?.size) {
@@ -1523,7 +1531,10 @@ export class ShelfService implements IShelfService {
    * @returns The storage file path
    */
   private getStoragePath(repo: IRepository): string {
-    return path.join(repo.rootUri.fsPath, '.git', SHELF_STORAGE_FILE);
+    // Resolve the real per-worktree git dir: in a linked worktree `<root>/.git`
+    // is a FILE (a `gitdir:` pointer), so the conventional `<root>/.git/<file>`
+    // would throw on write. See {@link resolveWorktreeGitDir}.
+    return path.join(resolveWorktreeGitDir(repo.rootUri.fsPath), SHELF_STORAGE_FILE);
   }
 
   /**

@@ -564,6 +564,41 @@ describe('ChangelistService', () => {
       const names = storage.changelists.map((cl) => cl.name);
       assert.ok(names.includes('Storage Test'), 'Should include created changelist');
     });
+
+    it('persists in the worktree git dir (not <root>/.git) when .git is a FILE — linked worktree', () => {
+      // Linked-worktree shape: `<root>/.git` is a regular FILE pointing at the
+      // real per-worktree gitdir. Hardcoding `<root>/.git/<file>` would write
+      // inside a FILE and THROW (ENOTDIR). The resolver must follow the pointer
+      // so save+load round-trips and stays isolated per worktree.
+      const wtRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'changelist-wt-'));
+      const worktreeGitDir = path.join(wtRoot, 'gitdir-real');
+      fs.mkdirSync(worktreeGitDir, { recursive: true });
+      fs.writeFileSync(path.join(wtRoot, '.git'), `gitdir: ${worktreeGitDir}\n`, 'utf8');
+      const wtRepo: IRepository = {
+        rootUri: Uri.file(wtRoot),
+        state: 'idle',
+        remotes: [],
+        submodules: [],
+      };
+
+      try {
+        assert.doesNotThrow(
+          () => changelistService.createChangelist(wtRepo, 'WT List'),
+          'creating a changelist in a linked worktree must not throw'
+        );
+
+        const storagePath = path.join(worktreeGitDir, 'intellig-changelists.json');
+        assert.ok(
+          fs.existsSync(storagePath),
+          'storage file should land in the resolved worktree git dir'
+        );
+
+        const names = changelistService.getChangelists(wtRepo).map((cl) => cl.name);
+        assert.ok(names.includes('WT List'), 'created changelist should round-trip back');
+      } finally {
+        fs.rmSync(wtRoot, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('onDidChangeChangelists event', () => {

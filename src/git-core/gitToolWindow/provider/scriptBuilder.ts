@@ -11,12 +11,11 @@
  * carries no color literals — so it is assembled here, independent of the
  * provider instance, and injected verbatim into the rendered HTML.
  *
- * NOTE on the trigger to externalise: when the inline-script function count
- * crosses 5 non-trivial functions, or the first inline-script function needs
- * async data flow, move these functions to a separate `.js` resource served
- * via `webview.asWebviewUri`. Current count is 5 (`applyMenuEnableMap`,
- * `applyRangeSelectionDom`, `refreshSelectedCount`, `readInitialAnchor`,
- * `scrollToCommit`); the threshold is imminent.
+ * NOTE on the trigger to externalise: this inline script long ago outgrew a
+ * handful of helpers. The remaining reason it stays inline is that it carries
+ * no async data flow and no host-state interpolation. The moment either is
+ * needed, move these functions to a separate `.js` resource served via
+ * `webview.asWebviewUri` (so a stricter CSP and source maps apply).
  */
 export function buildInlineScript(): string {
   return `
@@ -55,10 +54,6 @@ export function buildInlineScript(): string {
             });
           });
         }
-
-        // State for drag and drop
-        let draggedFiles = [];
-        let contextMenuTarget = null;
 
         // Multi-select webview state.
         //
@@ -259,6 +254,9 @@ export function buildInlineScript(): string {
         });
 
         function scrollToCommit(commitHash) {
+          // Commit hashes are hex (host-rendered into [data-hash]), so this and
+          // the sibling '[data-hash="' + hash + '"]' selectors carry no quote /
+          // selector-injection risk.
           const commitRow = document.querySelector('[data-hash="' + commitHash + '"]');
           if (!commitRow) { return; }                       // not in DOM: no action
 
@@ -600,47 +598,6 @@ export function buildInlineScript(): string {
           toggleChangedDir(dirItem);
         });
 
-        // Hide context menu when clicking elsewhere
-        document.addEventListener('click', (e) => {
-          const contextMenu = document.getElementById('context-menu');
-          if (contextMenu && !contextMenu.contains(e.target)) {
-            contextMenu.hidden = true;
-          }
-        });
-
-        // Handle context menu item clicks
-        document.addEventListener('click', (e) => {
-          const menuItem = e.target.closest('.context-menu-item');
-          if (menuItem && contextMenuTarget) {
-            const action = menuItem.dataset.action;
-            if (action) {
-              vscode.postMessage({
-                type: 'contextAction',
-                action: action,
-                files: [contextMenuTarget]
-              });
-              document.getElementById('context-menu').hidden = true;
-            }
-          }
-        });
-
-        // Global functions for onclick handlers
-        window.toggleChangelist = function(changelistId) {
-          vscode.postMessage({ type: 'toggleChangelist', changelistId });
-        };
-
-        window.selectFile = function(path) {
-          vscode.postMessage({ type: 'selectFile', path });
-        };
-
-        window.doubleClickFile = function(path) {
-          vscode.postMessage({ type: 'doubleClickFile', path });
-        };
-
-        window.clearConsole = function() {
-          vscode.postMessage({ type: 'clearConsole' });
-        };
-
         window.initRepository = function() {
           vscode.postMessage({ type: 'initRepository' });
         };
@@ -744,54 +701,6 @@ export function buildInlineScript(): string {
           });
         };
 
-        // Log context menu
-        let logContextMenuTarget = null;
-
-        window.showLogContextMenu = function(event, hash) {
-          event.preventDefault();
-          event.stopPropagation();
-          
-          logContextMenuTarget = hash;
-          const contextMenu = document.getElementById('log-context-menu');
-          if (contextMenu) {
-            const x = event.clientX;
-            const y = event.clientY;
-            
-            const menuWidth = 200;
-            const menuHeight = 300;
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            
-            const left = x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x;
-            const top = y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y;
-            
-            contextMenu.style.left = left + 'px';
-            contextMenu.style.top = top + 'px';
-            contextMenu.hidden = false;
-          }
-        };
-
-        // Handle log context menu item clicks
-        document.addEventListener('click', (e) => {
-          const logContextMenu = document.getElementById('log-context-menu');
-          if (logContextMenu && !logContextMenu.contains(e.target)) {
-            logContextMenu.hidden = true;
-          }
-
-          const menuItem = e.target.closest('#log-context-menu .context-menu-item');
-          if (menuItem && logContextMenuTarget) {
-            const action = menuItem.dataset.action;
-            if (action) {
-              vscode.postMessage({
-                type: 'logContextAction',
-                action: action,
-                commitHashes: [logContextMenuTarget]
-              });
-              document.getElementById('log-context-menu').hidden = true;
-            }
-          }
-        });
-
         // Keyboard handler for commits
         window.handleCommitKeydown = function(event, hash) {
           switch (event.key) {
@@ -886,7 +795,7 @@ export function buildInlineScript(): string {
             }
             case 'ContextMenu':
               event.preventDefault();
-              showLogContextMenu(event, hash);
+              showCommitContextMenu(event, hash);
               break;
             // G9: ArrowRight → go to parent; ArrowLeft → go to child.
             // Only fires when exactly one commit row is selected.
@@ -1310,124 +1219,6 @@ export function buildInlineScript(): string {
           }
         });
 
-        // Context menu functions
-        window.showContextMenu = function(event, path) {
-          event.preventDefault();
-          event.stopPropagation();
-          
-          contextMenuTarget = path;
-          const contextMenu = document.getElementById('context-menu');
-          if (contextMenu) {
-            // Position the menu at the cursor
-            const x = event.clientX;
-            const y = event.clientY;
-            
-            // Ensure menu stays within viewport
-            const menuWidth = 180;
-            const menuHeight = 280;
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            
-            const left = x + menuWidth > viewportWidth ? viewportWidth - menuWidth - 10 : x;
-            const top = y + menuHeight > viewportHeight ? viewportHeight - menuHeight - 10 : y;
-            
-            contextMenu.style.left = left + 'px';
-            contextMenu.style.top = top + 'px';
-            contextMenu.hidden = false;
-          }
-        };
-
-        // Drag and drop functions
-        window.handleDragStart = function(event, path) {
-          draggedFiles = [path];
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', path);
-          event.target.classList.add('dragging');
-          
-          // Create custom drag image
-          const dragGhost = document.createElement('div');
-          dragGhost.className = 'drag-ghost';
-          dragGhost.textContent = path.split('/').pop();
-          document.body.appendChild(dragGhost);
-          event.dataTransfer.setDragImage(dragGhost, 0, 0);
-          
-          // Remove ghost after drag starts
-          setTimeout(() => {
-            document.body.removeChild(dragGhost);
-          }, 0);
-        };
-
-        window.handleDragEnd = function(event) {
-          event.target.classList.remove('dragging');
-          draggedFiles = [];
-          
-          // Remove drag-over class from all changelists
-          document.querySelectorAll('.changelist').forEach(cl => {
-            cl.classList.remove('drag-over');
-          });
-        };
-
-        window.handleDragOver = function(event) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          
-          const changelist = event.target.closest('.changelist');
-          if (changelist) {
-            changelist.classList.add('drag-over');
-          }
-        };
-
-        window.handleDragLeave = function(event) {
-          const changelist = event.target.closest('.changelist');
-          if (changelist && !changelist.contains(event.relatedTarget)) {
-            changelist.classList.remove('drag-over');
-          }
-        };
-
-        window.handleDrop = function(event, targetChangelistId) {
-          event.preventDefault();
-          
-          const changelist = event.target.closest('.changelist');
-          if (changelist) {
-            changelist.classList.remove('drag-over');
-          }
-          
-          if (draggedFiles.length > 0) {
-            vscode.postMessage({
-              type: 'fileDrop',
-              files: draggedFiles,
-              targetChangelistId: targetChangelistId
-            });
-          }
-          
-          draggedFiles = [];
-        };
-
-        // Keyboard handlers
-        window.handleChangelistKeydown = function(event, changelistId) {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            toggleChangelist(changelistId);
-          }
-        };
-
-        window.handleFileKeydown = function(event, path) {
-          switch (event.key) {
-            case 'Enter':
-              event.preventDefault();
-              doubleClickFile(path);
-              break;
-            case ' ':
-              event.preventDefault();
-              selectFile(path);
-              break;
-            case 'ContextMenu':
-              event.preventDefault();
-              showContextMenu(event, path);
-              break;
-          }
-        };
-
         // Incremental commit loading
         // Monitor the graph panel scroll position and request more commits
         // when the user scrolls within 50px of the bottom.
@@ -1436,6 +1227,13 @@ export function buildInlineScript(): string {
         function setupGraphPanelScrollListener() {
           const graphPanel = document.querySelector('.graph-panel');
           if (!graphPanel) return;
+
+          // Attach at most once per panel element. The MutationObserver below
+          // re-runs this on every DOM mutation; without this guard a fresh
+          // scroll listener would leak on each one. A re-rendered panel is a
+          // NEW element without the flag, so it re-attaches as intended.
+          if (graphPanel.dataset.scrollListenerAttached === 'true') return;
+          graphPanel.dataset.scrollListenerAttached = 'true';
 
           graphPanel.addEventListener('scroll', function() {
             if (loadMoreCommitsRequested) return;
@@ -1468,10 +1266,13 @@ export function buildInlineScript(): string {
         // Set up the scroll listener on initial load
         setupGraphPanelScrollListener();
 
-        // Also observe DOM changes to re-attach the scroll listener if the graph panel is re-rendered
+        // Also observe DOM changes to wire the scroll listener when the graph
+        // panel is re-rendered as a new element. The attach is idempotent (see
+        // the dataset guard above); the load-more debounce flag is reset ONLY
+        // by the commitsLoaded message handler, never here — resetting it on
+        // every mutation would let a stray mutation re-fire loadMoreCommits.
         const observer = new MutationObserver(function() {
           setupGraphPanelScrollListener();
-          loadMoreCommitsRequested = false;
         });
         observer.observe(document.body, { childList: true, subtree: true });
       })();

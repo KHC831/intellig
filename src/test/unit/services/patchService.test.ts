@@ -142,6 +142,7 @@ describe('PatchService.applyPatch', () => {
       '-p2',
       '--directory',
       'subdir',
+      '--',
       '/tmp/x.patch',
     ]);
     assert.ok(res.appliedFiles.includes('a.ts'));
@@ -220,6 +221,97 @@ describe('PatchService.applyPatch', () => {
     const lastArg = git._exec[0].args[git._exec[0].args.length - 1];
     assert.ok(lastArg.includes('intellig-patch-') && lastArg.endsWith('patch.diff'));
     assert.strictEqual(fs.existsSync(lastArg), false, 'temp file should be unlinked');
+  });
+
+  it('P2: removes the temp DIRECTORY (not just the file) after an inline-content apply', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'patching file f.ts\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.applyPatch(repo, { patchContent: 'diff --git a/f.ts b/f.ts\n' });
+    const lastArg = git._exec[0].args[git._exec[0].args.length - 1];
+    const tempDir = path.dirname(lastArg);
+    assert.ok(
+      path.basename(tempDir).startsWith('intellig-patch-'),
+      'sanity: last arg lives in the mkdtemp dir'
+    );
+    assert.strictEqual(fs.existsSync(tempDir), false, 'temp DIR must be removed, not leaked');
+  });
+
+  it('P1: routes the patch path after `--` so a leading-dash path is a positional (apply)', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'patching file a.ts\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.applyPatch(repo, { patchPath: '-leading.patch', stripLevel: 1 });
+    const args = git._exec[0].args;
+    const sep = args.indexOf('--');
+    assert.notStrictEqual(sep, -1, 'argv must contain a -- end-of-options separator');
+    assert.strictEqual(
+      args[sep + 1],
+      '-leading.patch',
+      'the patch path must immediately follow -- as a positional'
+    );
+    assert.strictEqual(args[args.length - 1], '-leading.patch', 'patch path stays last');
+  });
+
+  it('P1: routes the patch path after `--` for `git am` too', async () => {
+    const git = makeMockGitService([{ exitCode: 0, stdout: 'Applying: x\n', stderr: '' }]);
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    await svc.applyPatch(repo, { patchPath: '-leading.patch', useAm: true });
+    const args = git._exec[0].args;
+    assert.strictEqual(args[0], 'am');
+    const sep = args.indexOf('--');
+    assert.notStrictEqual(sep, -1, 'am argv must contain a -- separator');
+    assert.strictEqual(args[sep + 1], '-leading.patch');
+  });
+
+  it('P3: scopes returned conflicts to the patch-touched files (ignores unrelated repo-wide U files)', async () => {
+    const git = makeMockGitService(
+      [
+        {
+          exitCode: 1,
+          stdout: 'Checking patch touched.ts...\n',
+          stderr: "Applied patch to 'touched.ts' with conflicts.",
+        },
+      ],
+      [
+        { path: 'touched.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+        { path: 'unrelated.ts', indexStatus: 'U', workTreeStatus: 'U' } as IFileStatus,
+      ]
+    );
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.ok(res.conflicts, 'should report conflicts');
+    assert.deepStrictEqual(
+      res.conflicts.map((c) => c.path),
+      ['touched.ts'],
+      'only the patch-touched file is reported; the pre-existing unrelated U file is excluded'
+    );
+  });
+
+  it('P3: does NOT read git status for a hard error lacking conflict phrasing (narrowed heuristic)', async () => {
+    // "you " embeds the legacy over-broad "u " token. The narrowed heuristic
+    // must NOT treat this hard error as conflict-shaped, so no status read fires.
+    const git = makeMockGitService([
+      { exitCode: 1, stdout: '', stderr: 'fatal: could not apply because you have local edits' },
+    ]);
+    let statusCalls = 0;
+    (git as unknown as { getStatus: () => Promise<IFileStatus[]> }).getStatus = async () => {
+      statusCalls++;
+      return [];
+    };
+    const svc = new PatchService(git);
+    const repo = makeRepo();
+
+    const res = await svc.applyPatch(repo, { patchPath: '/tmp/x.patch' });
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.conflicts, undefined);
+    assert.strictEqual(statusCalls, 0, 'no repo-wide status read without conflict phrasing');
   });
 
   it('rejects when neither patchPath nor patchContent provided', async () => {
