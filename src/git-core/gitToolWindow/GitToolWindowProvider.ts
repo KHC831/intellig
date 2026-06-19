@@ -43,7 +43,7 @@ import {
 import { TabRouter, type TabId } from './tabRouter';
 import { isTabbedGitToolWindowEnabled } from './config';
 import { tabStripStyles, wrapTabbedBody } from './html/commonHtml';
-import { renderConsoleTabBody } from './html/consoleHtml';
+import { renderConsoleTabBody, consoleTabStyles } from './html/consoleHtml';
 import { renderIncomingTabBody } from './html/incomingHtml';
 import { renderUpdateInfoTabBody } from './html/updateInfoHtml';
 import {
@@ -851,6 +851,9 @@ export class GitToolWindowProvider
       this._consoleEntries.shift();
     }
 
+    // Re-render so the Console tab reflects the new command live. Rebuilds HTML
+    // from in-memory state only (no git refetch); scroll is preserved by default.
+    this._updateWebview();
     this._onDidChangeState.fire();
   }
 
@@ -859,6 +862,7 @@ export class GitToolWindowProvider
    */
   public clearConsole(): void {
     this._consoleEntries = [];
+    this._updateWebview();
     this._onDidChangeState.fire();
   }
 
@@ -2742,7 +2746,7 @@ export class GitToolWindowProvider
       ? wrapTabbedBody({
           activeTab: this._tabRouter.getActiveTab(),
           logBodyHtml: logBody,
-          consoleBodyHtml: renderConsoleTabBody(),
+          consoleBodyHtml: renderConsoleTabBody(this._consoleEntries),
           incomingBodyHtml: renderIncomingTabBody(incomingState),
           updateInfoBodyHtml: renderUpdateInfoTabBody(),
           historyBodyHtml:
@@ -2754,7 +2758,9 @@ export class GitToolWindowProvider
         })
       : logBody;
 
-    const extraStyles = flagOn ? `${tabStripStyles()}\n${historyTabStyles()}` : '';
+    const extraStyles = flagOn
+      ? `${tabStripStyles()}\n${historyTabStyles()}\n${consoleTabStyles()}`
+      : '';
 
     // / HIG — codicon font loader. Without a `@font-face`
     // declaration that points to the actual TTF, the `<i class="codicon">`

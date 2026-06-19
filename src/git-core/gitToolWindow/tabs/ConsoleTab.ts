@@ -1,9 +1,9 @@
 /**
- * Stub for the Console tab host-side handler.
+ * Console tab host-side message handler.
  *
- * The HTML body is rendered by `html/consoleHtml.ts`. A future change will wire
- * this handler to `ConsoleService.stream` and implement `console.clear` /
- * `console.filter` (design section 3.4).
+ * The HTML body is rendered by `html/consoleHtml.ts` from the provider's
+ * captured `_consoleEntries`. This handler routes `console.*` webview messages;
+ * `console.clear` / `console.filter` are not yet surfaced in the UI.
  */
 
 import type { IWebviewTabMessage, TabMessageHandler } from '../tabRouter';
