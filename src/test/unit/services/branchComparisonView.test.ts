@@ -505,3 +505,65 @@ describe('BranchComparisonView TL-72 — action-path toasts route through saniti
     }
   });
 });
+
+// [HIGH-class] argv injection — `_showFileDiffContent` lands
+// `${branch1}...${branch2}` as the LEADING positional after `diff`. The branch
+// names are repo-derived refs; a `-`-leading one (e.g. `--output=/tmp/pwned`,
+// authorable in a hostile clone's packed-refs and selectable via the Compare
+// UI) would be parsed by git as a flag — `git diff --output=<file> …` writes an
+// arbitrary out-of-repo file. The range MUST ride behind `--end-of-options`.
+describe('BranchComparisonView — diff argv-injection (--end-of-options before the range)', () => {
+  function captureDiffArgv(): {
+    calls: string[][];
+    gitCli: { exec: (args: string[], options: { cwd: string }) => Promise<unknown> };
+  } {
+    const calls: string[][] = [];
+    return {
+      calls,
+      gitCli: {
+        exec: (args: string[]): Promise<unknown> => {
+          calls.push([...args]);
+          // exitCode 0 + empty stdout → method shows an info toast and returns,
+          // avoiding the openTextDocument success path.
+          return Promise.resolve({ stdout: '', exitCode: 0 });
+        },
+      },
+    };
+  }
+
+  it('treats a `--output=`-style branch name as a REV, never as a git flag', async () => {
+    const gitService = makeGitService();
+    const { calls, gitCli } = captureDiffArgv();
+    (gitService as unknown as { gitCli: unknown }).gitCli = gitCli;
+    const view = createBranchComparisonView(gitService);
+    try {
+      (view as unknown as { _repository: IRepository })._repository = makeRepo();
+      const state = (view as unknown as { _state: { branch1?: string; branch2?: string } })._state;
+      state.branch1 = '--output=/tmp/pwned';
+      state.branch2 = 'main';
+
+      await (
+        view as unknown as { _showFileDiffContent: (filePath: string) => Promise<void> }
+      )._showFileDiffContent('src/app.ts');
+
+      assert.strictEqual(calls.length, 1, 'expected one git diff invocation');
+      const argv = calls[0];
+      const eooIdx = argv.indexOf('--end-of-options');
+      assert.ok(eooIdx > 0, `expected --end-of-options in argv, got ${JSON.stringify(argv)}`);
+      // The payload must not sit ahead of the separator (where git parses flags).
+      for (let i = 1; i < eooIdx; i++) {
+        assert.ok(
+          !argv[i].startsWith('--output'),
+          `--output payload landed as a flag before --end-of-options: ${JSON.stringify(argv)}`
+        );
+      }
+      const rangeIdx = argv.indexOf('--output=/tmp/pwned...main', eooIdx);
+      assert.ok(
+        rangeIdx > eooIdx,
+        `range token must ride after --end-of-options; got ${JSON.stringify(argv)}`
+      );
+    } finally {
+      view.dispose();
+    }
+  });
+});

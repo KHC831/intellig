@@ -20,6 +20,7 @@ import {
   BranchComparisonAction,
 } from './interfaces/IBranchComparisonView';
 import { sanitizeGitError } from '../git-core/gitError';
+import { buildGitArgs } from '../git-core/gitCli';
 
 /**
  * Quick pick item for branch selection
@@ -650,8 +651,12 @@ export class BranchComparisonView implements IBranchComparisonView {
         return;
       }
 
+      // `branch1`/`branch2` are repo-derived refs (a hostile clone can author a
+      // `-`-leading ref). Route the range through buildGitArgs so
+      // `--end-of-options` is spliced ahead of it — git can never parse a
+      // `-`-leading branch as a flag (e.g. `git diff --output=<file>`).
       const result = await gitCli.exec(
-        ['diff', `${this._state.branch1}...${this._state.branch2}`, '--', filePath],
+        buildGitArgs('diff', [], [`${this._state.branch1}...${this._state.branch2}`], [filePath]),
         { cwd: this._repository.rootUri.fsPath }
       );
 

@@ -118,7 +118,11 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     assert.strictEqual(content, 'file contents at ref\n');
     assert.strictEqual(mockGitCli.executed.length, 1);
     const lastExec = mockGitCli.executed[0];
-    assert.deepStrictEqual(lastExec.args, ['show', 'origin/main:/test/repo/src/foo.ts']);
+    assert.deepStrictEqual(lastExec.args, [
+      'show',
+      '--end-of-options',
+      'origin/main:/test/repo/src/foo.ts',
+    ]);
 
     // Defensive: the forbidden shape must NOT appear anywhere in the argv.
     for (const arg of lastExec.args) {
@@ -138,7 +142,11 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
 
     assert.strictEqual(mockGitCli.executed.length, 1);
-    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'abc1234:/test/repo/src/foo.ts']);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, [
+      'show',
+      '--end-of-options',
+      'abc1234:/test/repo/src/foo.ts',
+    ]);
   });
 
   it('decodes a feature-branch ref with multiple `/` segments', async () => {
@@ -153,6 +161,7 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     assert.strictEqual(mockGitCli.executed.length, 1);
     assert.deepStrictEqual(mockGitCli.executed[0].args, [
       'show',
+      '--end-of-options',
       'feature/user/nested:/test/repo/src/foo.ts',
     ]);
   });
@@ -170,7 +179,11 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
 
     assert.strictEqual(content, 'file contents at ref\n');
     assert.strictEqual(mockGitCli.executed.length, 1);
-    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'ref:/test/repo/src/foo.ts']);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, [
+      'show',
+      '--end-of-options',
+      'ref:/test/repo/src/foo.ts',
+    ]);
   });
 
   it('throws when uri.query is empty (no ref supplied)', async () => {
@@ -204,7 +217,11 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
 
     assert.strictEqual(content, 'file contents at ref\n');
     assert.strictEqual(mockGitCli.executed.length, 1);
-    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'HEAD:src/foo.ts']);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, [
+      'show',
+      '--end-of-options',
+      'HEAD:src/foo.ts',
+    ]);
     assert.strictEqual(
       (mockGitCli.executed[0].options as { cwd?: string }).cwd,
       '/test/repo',
@@ -220,7 +237,63 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
 
     await provideGitShowContent(uri, gitService, []);
 
-    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'origin/main:src/foo.ts']);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, [
+      'show',
+      '--end-of-options',
+      'origin/main:src/foo.ts',
+    ]);
+  });
+
+  // [HIGH] argv injection — the `ref` is repo/producer-controlled (a malicious
+  // clone can hand-author `refs/tags/--output=…` in packed-refs, reachable via
+  // any `intellig-git:?ref=` opener / Compare-with-Branch). Routed bare, a ref
+  // starting with `-` lands as the LEADING positional after `show` and git
+  // parses it as a flag (`git show --output=<file> …` writes out-of-repo files).
+  // The rev:path token MUST ride behind `--end-of-options` so git can never
+  // treat it as an option.
+  describe('argv-injection: --end-of-options precedes the rev:path token', () => {
+    it('splices --end-of-options before the rev:path token for a benign ref', async () => {
+      const uri = buildIntelligGitUri('/test/repo/src/foo.ts', encodeURIComponent('origin/main'));
+
+      await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
+
+      const argv = mockGitCli.executed[0].args;
+      const eooIdx = argv.indexOf('--end-of-options');
+      assert.ok(eooIdx > 0, `expected --end-of-options in argv, got ${JSON.stringify(argv)}`);
+      const revIdx = argv.indexOf('origin/main:/test/repo/src/foo.ts', eooIdx);
+      assert.ok(
+        revIdx > eooIdx,
+        `rev:path token must follow --end-of-options; got ${JSON.stringify(argv)}`
+      );
+    });
+
+    it('treats a `--output=`-style ref as a REV, never as a git flag', async () => {
+      // The exploit payload: a ref named `--output=/tmp/pwned`. Without the
+      // separator git would honor it as `git show --output=/tmp/pwned …` and
+      // write an attacker-chosen out-of-repo file. With the fix it lands after
+      // `--end-of-options`, so git treats it strictly as a (bad) revision.
+      const evilRef = '--output=/tmp/pwned';
+      const uri = buildIntelligGitUri('/test/repo/src/foo.ts', encodeURIComponent(evilRef));
+
+      await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
+
+      const argv = mockGitCli.executed[0].args;
+      const eooIdx = argv.indexOf('--end-of-options');
+      assert.ok(eooIdx > 0, `expected --end-of-options in argv, got ${JSON.stringify(argv)}`);
+      // The payload must NOT appear ahead of the separator (where git would
+      // parse it as a flag). It rides as the rev:path token AFTER the separator.
+      for (let i = 1; i < eooIdx; i++) {
+        assert.ok(
+          !argv[i].startsWith('--output'),
+          `--output payload landed as a flag before --end-of-options: ${JSON.stringify(argv)}`
+        );
+      }
+      const revIdx = argv.indexOf(`${evilRef}:/test/repo/src/foo.ts`, eooIdx);
+      assert.ok(
+        revIdx > eooIdx,
+        `evil ref must ride as a rev after --end-of-options; got ${JSON.stringify(argv)}`
+      );
+    });
   });
 
   it('wraps malformed percent-encoded refs in a friendly error (task #103 A2)', async () => {

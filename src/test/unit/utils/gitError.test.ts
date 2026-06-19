@@ -84,6 +84,56 @@ describe('sanitizeGitError', () => {
     assert.strictEqual(sanitizeGitError(raw), raw);
   });
 
+  // The standard PAT clone URL puts the token in the userinfo with NO colon:
+  // `https://ghp_TOKEN@github.com/…`. The colon-requiring CREDENTIAL_URL_REGEX
+  // misses this shape entirely, so the token leaked through BOTH toasts and the
+  // structured logger (sanitize.ts routes every leaf through this helper). The
+  // token-as-userinfo pass redacts secret-looking userinfo while preserving
+  // benign ones (`git@`, short usernames).
+  describe('token-as-userinfo (no colon) credential scrubbing', () => {
+    it('redacts a GitHub PAT in `https://ghp_TOKEN@host/…` (no colon userinfo)', () => {
+      const raw =
+        "fatal: unable to access 'https://ghp_ABC123def456GHIjkl@github.com/owner/repo.git/'";
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('ghp_ABC123def456GHIjkl'), 'token must be redacted');
+      assert.ok(scrubbed.includes('<redacted>@github.com'), 'host preserved after redaction');
+      assert.ok(scrubbed.includes('https://'), 'scheme preserved');
+    });
+
+    it('redacts a fine-grained PAT (`github_pat_…@host`)', () => {
+      const raw = 'https://github_pat_11ABCDE0000aaaaBBBBcc_ddddEEEEffff@github.com/o/r.git';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('github_pat_11ABCDE0000aaaaBBBBcc_ddddEEEEffff'));
+      assert.ok(scrubbed.includes('https://<redacted>@github.com/o/r.git'));
+    });
+
+    it('redacts a GitLab PAT (`glpat-…@host`)', () => {
+      const raw = "fatal: access 'https://glpat-ABCDEF1234567890wxyz@gitlab.com/g/p.git'";
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('glpat-ABCDEF1234567890wxyz'));
+      assert.ok(scrubbed.includes('https://<redacted>@gitlab.com/g/p.git'));
+    });
+
+    it('redacts a long opaque token userinfo (40-hex legacy token)', () => {
+      const raw = 'https://0123456789abcdef0123456789abcdef01234567@github.com/o/r.git';
+      const scrubbed = sanitizeGitError(raw);
+      assert.ok(!scrubbed.includes('0123456789abcdef0123456789abcdef01234567'));
+      assert.ok(scrubbed.includes('https://<redacted>@github.com/o/r.git'));
+    });
+
+    it('leaves `ssh://git@github.com/…` UNCHANGED (benign short userinfo, no colon)', () => {
+      // Regression: the no-colon pass must not over-redact the SSH form's
+      // benign `git` user — it is a public identifier, not a secret.
+      const raw = 'ssh://git@github.com/owner/repo.git';
+      assert.strictEqual(sanitizeGitError(raw), raw);
+    });
+
+    it('leaves a short ordinary username (`https://alice@host`) UNCHANGED', () => {
+      const raw = "fatal: unable to access 'https://alice@github.com/owner/repo.git/'";
+      assert.strictEqual(sanitizeGitError(raw), raw);
+    });
+  });
+
   // Credential scrubbing must cover ANY URL scheme, not just http/https.
   // git embeds `user:password@` in ssh/git/ftp/custom-scheme remotes too,
   // and all of those route through sanitizeGitError before hitting a toast.

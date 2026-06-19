@@ -47,6 +47,49 @@
 const CREDENTIAL_URL_REGEX = /\b([A-Za-z][A-Za-z0-9+.-]*):\/\/([^\s:/@]+):[^@\s]*@/gi;
 
 /**
+ * Match the no-colon `<scheme>://<userinfo>@host` form, where `userinfo`
+ * carries NO `:` separator. This is the STANDARD PAT clone URL —
+ * `https://ghp_TOKEN@github.com/owner/repo.git` — which {@link
+ * CREDENTIAL_URL_REGEX} (it requires a literal `:` in the userinfo) misses
+ * entirely, leaking the token through both toasts and the structured logger.
+ *
+ * Matching alone is NOT enough: plenty of benign URLs use this shape too
+ * (`ssh://git@github.com/…`, `https://alice@host/…`). The replace callback
+ * therefore redacts ONLY when {@link looksLikeSecretUserinfo} says the
+ * userinfo looks like a secret; benign short usernames pass through unchanged.
+ *
+ * Groups:
+ *   [1] scheme (RFC 3986 scheme)
+ *   [2] userinfo (any chars except `:`, `/`, `@`, whitespace)
+ */
+const CREDENTIAL_URL_NO_COLON_REGEX = /\b([A-Za-z][A-Za-z0-9+.-]*):\/\/([^\s:/@]+)@/gi;
+
+/**
+ * Known secret-token userinfo prefixes: GitHub PATs (`ghp_`, `gho_`, `ghs_`,
+ * `ghu_`, `ghr_`), fine-grained PATs (`github_pat_`), GitLab PATs (`glpat-`),
+ * and Slack tokens (`xoxb-`/`xoxp-`/…). Anchored to the start of the userinfo.
+ */
+const TOKEN_USERINFO_PREFIX_REGEX = /^(?:gh[oprsu]_|github_pat_|glpat-|xox[abprs]-)/i;
+
+/**
+ * A long opaque run of token characters (≥ 20 of `[A-Za-z0-9_-]`). Catches
+ * provider-agnostic / legacy tokens (e.g. the old 40-hex GitHub token) that
+ * carry no recognizable prefix. The 20-char floor keeps ordinary usernames
+ * (`git`, `alice`, `octocat`) — which are public identifiers, not secrets —
+ * from being redacted.
+ */
+const LONG_OPAQUE_USERINFO_REGEX = /^[A-Za-z0-9_-]{20,}$/;
+
+/**
+ * Decide whether a no-colon URL userinfo segment looks like a secret token
+ * (and so must be redacted) versus a benign username (left intact). True when
+ * it carries a known token prefix OR is a long opaque token-character run.
+ */
+function looksLikeSecretUserinfo(userinfo: string): boolean {
+  return TOKEN_USERINFO_PREFIX_REGEX.test(userinfo) || LONG_OPAQUE_USERINFO_REGEX.test(userinfo);
+}
+
+/**
  * Match absolute home-dir prefixes on macOS (`/Users/<name>/`) and on
  * Linux (`/home/<name>/`). The username capture is any run of chars that
  * don't include a `/`, `\`, or whitespace — VS Code prints fs errnos as
@@ -130,6 +173,9 @@ const WINDOWS_FORWARDSLASH_HOME_PATH_REGEX = /(^|[\s'"([])([A-Za-z]):\/Users\/([
  * Replacements (applied in order — ordering matters; see per-regex JSDoc):
  *   1. `<scheme>://user:password@host…` → `<scheme>://<redacted>@host…`
  *      for any URL scheme (`http`, `https`, `ssh`, `git`, `ftp`, …)
+ *   1b. `<scheme>://<token>@host…` → `<scheme>://<redacted>@host…` for the
+ *      no-colon userinfo form (the standard PAT clone URL), but ONLY when the
+ *      userinfo looks like a secret — benign `git@`/short usernames pass through
  *   2. `C:\Users\<name>\` → `~\` (Windows backslash form)
  *   3. `C:/Users/<name>/` → `~/` (Windows forward-slash form — runs
  *      before the POSIX pass so the drive letter is consumed with the
@@ -151,6 +197,9 @@ export function sanitizeGitError(message: string): string {
   }
   return message
     .replace(CREDENTIAL_URL_REGEX, '$1://<redacted>@')
+    .replace(CREDENTIAL_URL_NO_COLON_REGEX, (match: string, scheme: string, userinfo: string) =>
+      looksLikeSecretUserinfo(userinfo) ? `${scheme}://<redacted>@` : match
+    )
     .replace(WINDOWS_BACKSLASH_HOME_PATH_REGEX, '$1~\\')
     .replace(WINDOWS_FORWARDSLASH_HOME_PATH_REGEX, '$1~/')
     .replace(POSIX_HOME_PATH_REGEX, '$1~/');

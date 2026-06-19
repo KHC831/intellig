@@ -2790,7 +2790,13 @@ diff --git a/src/file2.ts b/src/file2.ts
 
       const last = mockGitCli.getLastCommand();
       assert.ok(last);
-      assert.deepStrictEqual(last.args, ['stash', 'branch', 'feature/stashed-work', 'stash@{2}']);
+      assert.deepStrictEqual(last.args, [
+        'stash',
+        'branch',
+        '--end-of-options',
+        'feature/stashed-work',
+        'stash@{2}',
+      ]);
     });
 
     it('uses the correct working directory', async () => {
@@ -2815,14 +2821,37 @@ diff --git a/src/file2.ts b/src/file2.ts
       await assert.rejects(() => gitService.stashBranch(mockRepo, 1.5, 'x'), /Invalid stash index/);
     });
 
+    it('rejects branch names starting with - (CLI-flag injection guard)', async () => {
+      // `stashBranch` lands `branchName` as a leading positional; a `-`-leading
+      // name (e.g. `--output=…`) would be parsed by git as a flag. Mirrors the
+      // createBranch / createTag leading-dash guard.
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 0, '--track'),
+        /Invalid branch name/
+      );
+    });
+
+    it('rejects branch names starting with . (git-check-ref-format parity)', async () => {
+      await assert.rejects(
+        () => gitService.stashBranch(mockRepo, 0, '.hidden'),
+        /Invalid branch name/
+      );
+    });
+
     it('trims whitespace around the branch name', async () => {
       await gitService.stashBranch(mockRepo, 0, '  feature/x  ');
       const last = mockGitCli.getLastCommand();
-      assert.deepStrictEqual(last!.args, ['stash', 'branch', 'feature/x', 'stash@{0}']);
+      assert.deepStrictEqual(last!.args, [
+        'stash',
+        'branch',
+        '--end-of-options',
+        'feature/x',
+        'stash@{0}',
+      ]);
     });
 
     it('surfaces "branch already exists" errors from git', async () => {
-      mockGitCli.setMockResult('stash branch existing-branch stash@{0}', {
+      mockGitCli.setMockResult('stash branch --end-of-options existing-branch stash@{0}', {
         exitCode: 128,
         stdout: '',
         stderr: "fatal: A branch named 'existing-branch' already exists.",
@@ -2834,7 +2863,7 @@ diff --git a/src/file2.ts b/src/file2.ts
     });
 
     it('surfaces conflict errors from git during apply', async () => {
-      mockGitCli.setMockResult('stash branch wip stash@{0}', {
+      mockGitCli.setMockResult('stash branch --end-of-options wip stash@{0}', {
         exitCode: 1,
         stdout: '',
         stderr: 'CONFLICT (content): Merge conflict in file.txt',
@@ -2843,7 +2872,7 @@ diff --git a/src/file2.ts b/src/file2.ts
     });
 
     it('surfaces "bad stash" errors for invalid indexes at the git level', async () => {
-      mockGitCli.setMockResult('stash branch wip stash@{99}', {
+      mockGitCli.setMockResult('stash branch --end-of-options wip stash@{99}', {
         exitCode: 128,
         stdout: '',
         stderr: "fatal: bad revision 'stash@{99}'",

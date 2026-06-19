@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
+import { buildGitArgs } from '../git-core/gitCli';
 import { resolveRepo } from '../utils/resolveRepo';
 
 /**
@@ -383,8 +384,15 @@ export async function provideGitShowContent(
     // hatch — the frozen {@link IGitService} composite deliberately doesn't
     // wrap raw `git show <ref>:<path>`. An eventual role-interface
     // decomposition (see backlog) would fold this into a proper method.
+    //
+    // `ref` is repo/producer-controlled (a malicious clone can hand-author
+    // `refs/tags/--output=…` in packed-refs, reachable via any
+    // `intellig-git:?ref=` opener). Route the rev:path token through
+    // `buildGitArgs` so `--end-of-options` is spliced ahead of it — git can
+    // then never parse a `-`-leading ref as a flag (e.g. `git show
+    // --output=<file>`, an arbitrary out-of-repo file write).
     const result = await (gitService as unknown as IGitServiceCli).gitCli.exec(
-      ['show', `${ref}:${filePath}`],
+      buildGitArgs('show', [], [`${ref}:${filePath}`]),
       {
         cwd: repo.rootUri.fsPath,
       }

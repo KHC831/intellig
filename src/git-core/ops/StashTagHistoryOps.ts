@@ -124,8 +124,17 @@ export class StashTagHistoryOps {
     if (!branchName || !branchName.trim()) {
       throw new Error('Branch name cannot be empty');
     }
+    const name = branchName.trim();
+    // Reject names starting with `-` (git would parse `-foo` as a CLI flag —
+    // `branchName` is the leading positional here) or `.` (invalid per
+    // git-check-ref-format). Mirrors the createBranch / createTag guards. Also
+    // splice `--end-of-options` before the user-controlled name as structural
+    // defense in depth.
+    if (name.startsWith('-') || name.startsWith('.')) {
+      throw new Error(`Invalid branch name: ${name}`);
+    }
     this._validateStashIndex(index);
-    await this.ctx.gitCli.exec(['stash', 'branch', branchName.trim(), `stash@{${index}}`], {
+    await this.ctx.gitCli.exec(['stash', 'branch', '--end-of-options', name, `stash@{${index}}`], {
       cwd: repo.rootUri.fsPath,
       throwOnError: true,
     });
