@@ -207,6 +207,70 @@ npm run test:ext-host
 npm run test:e2e
 ```
 
+### Gate tiers
+
+There are two gates, and which one you owe depends on what you changed.
+
+- **`npm test` — the per-change gate.** Runs on every edit. It chains
+  lint (`--max-warnings 0`), `tsc`, the structural guards
+  (`check:all`), and the in-process `test:unit` + `test:property`
+  suites. Fast and mock-level: the VS Code API is faked, so no real
+  Extension Host or git subprocess is exercised. This is the gate you
+  run constantly while iterating.
+
+- **`npm run gate:full` — the pre-merge gate.** Runs `npm test` first
+  (fastest-first, so lint/type/unit failures surface before the slow
+  lanes), then the two runtime tiers: `test:ext-host` (boots a real VS
+  Code host, activates the extension, asserts every declared command
+  registers) and `test:e2e` (runs each command against a real temp-dir
+  git repo and verifies the effect by re-reading git state). On macOS a
+  real VS Code is downloaded and launched by the test runner, so no
+  `xvfb` is needed locally; the runtime lanes take roughly 12-14 minutes
+  and will briefly pop up transient VS Code windows that close
+  themselves.
+
+**`npm run gate:full` is REQUIRED before merging any change that touches:**
+
+- a webview (the Git tool window, commit tool window, merge view, or any
+  HTML/script builder),
+- an explorer, editor, or SCM command (anything under
+  `intellig.explorer.*`, `intellig.editor.*`, `intellig.commit.*`,
+  `intellig.branch.*`, and the like),
+- command registration or wiring (adding, renaming, or re-routing a
+  command handler), or
+- a context menu (the `menus` / `submenus` blocks in `package.json`).
+
+**Why this matters.** This project's day-to-day workflow is local-only:
+changes land on local `main` and the runtime lanes in CI
+(`.github/workflows/ci.yml`) only run once work is pushed. The
+develop-and-merge cycle never triggers CI, so the ext-host and e2e
+lanes effectively never run during development unless you run them. The
+only thing keeping those suites green is `gate:full` being run locally
+before a merge.
+
+Two concrete failure modes this catches, both of which slipped past the
+mock-level `npm test`:
+
+- **Specs rot silently.** Because nobody ran `test:e2e` per change,
+  three e2e specs (tags and commit-revert coverage) had quietly gone
+  stale on `main` and had to be repaired before an unrelated explorer
+  fix could merge. Mock unit tests stayed green the whole time and gave
+  no signal.
+
+- **Runtime and wiring bugs escape the mocks.** The explorer
+  context-menu Git ops targeted the wrong path because `asRelativePath`
+  behaves differently against a real workspace than against the mock —
+  only an e2e run against a real repo surfaces it. Likewise a webview
+  script that threw on `acquireVsCodeApi` looked fine to the unit
+  suite (which never loads the webview) and only failed when a real
+  Extension Host evaluated the script. `gate:full` is the lane that
+  exercises both.
+
+> **Known future test-infra task.** Multi-repo e2e fixtures (running
+> the e2e suite against a workspace with more than one repository) are
+> not yet wired — canonicalizing the `runTests.ts` sentinel to enable
+> them surfaces a flaky clipboard test that needs its own fix first.
+
 ## Local Development
 
 ```bash
