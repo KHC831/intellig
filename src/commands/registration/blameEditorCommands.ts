@@ -444,10 +444,11 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
       void vscode.window.showErrorMessage('Current file is not in a Git repository');
       return undefined;
     }
-    const relative = (await import('path')).relative(
-      repo.rootUri.fsPath,
-      editor.document.uri.fsPath
-    );
+    // git/blame run with `cwd = repo.rootUri.fsPath`, so they need the
+    // REPO-root-relative path. `repoRelativePath` canonicalizes both ends so a
+    // symlinked editor URI against a realpath-resolved root (macOS `/var` →
+    // `/private/var`) does not produce an escaping `../` pathspec.
+    const relative = repoRelativePath(repo.rootUri.fsPath, editor.document.uri.fsPath);
     const line = editor.selection.active.line + 1; // 1-indexed.
     const blameLine = await blameService.getBlameForLine(
       repo,

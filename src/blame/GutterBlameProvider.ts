@@ -7,7 +7,7 @@ import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { computeHeatColor } from './heatColor';
 import { buildAuthorColorMap } from './authorColor';
 import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
-import * as path from 'path';
+import { repoRelativePath } from '../utils/repoRelativePath';
 
 /** Aspect/name-format display config with provider defaults applied. */
 interface IBlameDisplay {
@@ -406,8 +406,11 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       return undefined;
     }
 
-    // Get relative path from repository root
-    const relativePath = path.relative(repo.rootUri.fsPath, uri.fsPath);
+    // git blame runs with `cwd = repo.rootUri.fsPath`, so it needs the
+    // REPO-root-relative path. `repoRelativePath` canonicalizes both ends so a
+    // symlinked editor URI against a realpath-resolved root (macOS `/var` →
+    // `/private/var`) does not produce an escaping `../` pathspec.
+    const relativePath = repoRelativePath(repo.rootUri.fsPath, uri.fsPath);
 
     // Check cache first
     const cacheKey = uri.toString();

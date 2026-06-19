@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { IMergeView, IMergeState } from './interfaces/IMergeView';
 import { IGitService, IRepository } from '../git-core/interfaces/IGitService';
 import { sanitizeGitError } from '../git-core/gitError';
+import { repoRelativePath } from '../utils/repoRelativePath';
 
 /**
  * Thin adapter that routes 3-way conflict resolution to VS Code's built-in
@@ -85,7 +86,11 @@ export class MergeView implements IMergeView {
     }
 
     // Record the repo-relative path so markResolved() can stage it later.
-    this._lastFile = path.relative(this._repository.rootUri.fsPath, absolutePath);
+    // `repoRelativePath` canonicalizes both ends so a symlinked working-tree
+    // path against a realpath-resolved root (macOS `/var` → `/private/var`)
+    // does not yield an escaping `../` pathspec that `git add` would silently
+    // ignore, leaving the resolved conflict unstaged.
+    this._lastFile = repoRelativePath(this._repository.rootUri.fsPath, absolutePath);
 
     // Hand off to VS Code's native 3-way merge editor. The command takes the
     // URI of the conflicted working-tree file; it resolves the index versions

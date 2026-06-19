@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { IGitService } from '../git-core/interfaces/IGitService';
+import { repoRelativePath } from '../utils/repoRelativePath';
 
 /**
  * Fetch the committed HEAD content for a document URI, or `undefined` when the
@@ -17,6 +17,10 @@ export async function fetchHeadContent(
   if (!repo || !gitService.getFileAtRevision) {
     return undefined;
   }
-  const relativePath = path.relative(repo.rootUri.fsPath, documentUri.fsPath);
+  // getFileAtRevision runs git with `cwd = repo.rootUri.fsPath`, so it needs
+  // the REPO-root-relative path. `repoRelativePath` canonicalizes both ends so
+  // a symlinked document URI against a realpath-resolved root (macOS `/var` →
+  // `/private/var`) does not produce an escaping `../` pathspec.
+  const relativePath = repoRelativePath(repo.rootUri.fsPath, documentUri.fsPath);
   return gitService.getFileAtRevision(repo, relativePath, 'HEAD');
 }
