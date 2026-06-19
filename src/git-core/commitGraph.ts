@@ -14,14 +14,23 @@ import { ICommit } from './interfaces/IGitService';
  * off-window stubs (the parent fell off our `--max-count` slice).
  *
  * - `'solid'`: the default — a full edge to a parent that's rendered.
- * - `'dashed'`: a phantom stub — "history continues below the loaded
- *   window". IntelliJ uses a similar dashed-line affordance for refs
- *   whose target isn't visible, so the user can tell at a glance
- *   that the edge isn't going to a row they can scroll to.
+ * - `'dashed'`: the DATA-MODEL marker for an off-window-parent stub. The
+ *   renderer reads it to draw IntelliG's "history continues below the loaded
+ *   window" affordance — but ONLY for a genuine LEAF stub (a commit whose
+ *   parents are all off-window, so nothing real continues its lane). An
+ *   off-window FIRST-PARENT mainline continuation (a merge whose first parent
+ *   fell off the slice but which has an in-window merged side branch) keeps
+ *   `style: 'dashed'` on the line yet renders SOLID: its lane is reserved and
+ *   extended into a full pass-through trunk down to the window bottom, so the
+ *   trunk reads as one unbroken column (the dangling-stub disconnect bug).
+ *   NB: IntelliJ uses its own dashed `LineStyle.DASHED` for COLLAPSED LONG
+ *   EDGES (a fold/"hidden commits" affordance we do not yet have) and draws
+ *   mainline trunks solid — see platform/vcs-log graph-api EdgePrintElement.kt
+ *   + testData/elementGenerator/manyNodes_out.txt.
  *
  * @invariant L9 — off-window parent edges MUST carry `style: 'dashed'`
  * and travel in the same lane as the source (`fromColumn === toColumn`).
- * See `docs/design/git-tool-window-spec.md` section 8.L9.
+ * See `docs/adr/ADR-013-graph-data-model-invariants.md` section 3 (spec 8.L9).
  */
 export type GraphLineStyle = 'solid' | 'dashed';
 
@@ -36,7 +45,7 @@ export type GraphLineStyle = 'solid' | 'dashed';
  * @invariant L9 — when the parent commit is off-window, this line is
  * emitted with `fromColumn === toColumn` and `style: 'dashed'`; the
  * algorithm MUST NOT call `allocateLane()` for an off-window parent.
- * See `docs/design/git-tool-window-spec.md` section 8.L9.
+ * See `docs/adr/ADR-013-graph-data-model-invariants.md` section 3 (spec 8.L9).
  */
 export interface IGraphLine {
   /** Starting column (lane) of the line */
@@ -50,11 +59,13 @@ export interface IGraphLine {
   /**
    * Visual style. Optional for backwards-compat with consumers that
    * predate the field; when undefined, the renderer treats it as
-   * `'solid'`. Set to `'dashed'` for off-window-parent stubs so the
-   * "history continues below" affordance is visible.
+   * `'solid'`. Set to `'dashed'` for off-window-parent stubs. The renderer
+   * draws the "history continues below" dashed stub only for a genuine LEAF
+   * (all parents off-window); an off-window first-parent mainline
+   * continuation carries `'dashed'` here but renders SOLID (reserved trunk).
    *
    * @invariant L9 — see interface-level note. `style: 'dashed'` is the
-   * sole signal the renderer uses to draw a stub stroke; dropping it on
+   * sole signal that an edge targets an off-window parent; dropping it on
    * an off-window edge silently regresses to a phantom bezier.
    */
   style?: GraphLineStyle;
@@ -66,9 +77,9 @@ export interface IGraphLine {
    * inclusive, and the bend into `toColumn` is drawn by the renderer at
    * row `endRow` (NOT represented as active-lane ink at `endRow` — the
    * parent's own `graphColumn` already inks `toColumn` there). Undefined
-   * is the default — the bend is drawn at the source row, matching the
-   * pre-Wave-2 behaviour for adjacent-row first-parent bends and for
-   * non-first-parent (merge / branch) lines.
+   * is the default — the bend is drawn at the source row, which is the
+   * behaviour for adjacent-row first-parent bends and for non-first-parent
+   * (merge / branch) lines.
    *
    * This preserves the orphan-stroke invariant ("a bending line's source
    * lane is NOT marked at the row where it lands"): with `endRow` set,
@@ -321,8 +332,11 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  *
  * @invariant L9 — A parent that is NOT in the loaded window emits a
  * single same-lane `{fromColumn === toColumn, style: 'dashed'}` line
- * and MUST NOT call `allocateLane()` for that parent. See
- * `docs/design/git-tool-window-spec.md` section 8.L9.
+ * and MUST NOT call `allocateLane()` for that parent. A mainline
+ * continuation (off-window FIRST parent + an in-window parent) additionally
+ * RESERVES its lane to the window bottom so the trunk stays unbroken; a
+ * genuine leaf (all parents off-window) releases normally. See
+ * `docs/adr/ADR-013-graph-data-model-invariants.md` section 3 (spec 8.L9).
  *
  * @invariant L10 — Branch type (`'local'` vs `'remote'`) flows through
  * `IBranchRef.type` from `parseBranches`. The graph algorithm and
@@ -446,10 +460,9 @@ export function generateCommitGraph(
   // so the children-map's "first child" tie-break can prefer a
   // HEAD-ancestry child over a divergent sibling.
   //
-  // Why this matters (regression discovered post-PR #9): when
-  // `git log --topo-order --all` interleaves a divergent branch's
-  // commits BEFORE mainline rows in the loaded window, the
-  // children-map's natural "first push wins" ordering picks the
+  // Why this matters: when `git log --topo-order --all` interleaves a
+  // divergent branch's commits BEFORE mainline rows in the loaded window,
+  // the children-map's natural "first push wins" ordering picks the
   // DIVERGENT child as `firstChildOfParent` of the merge-base
   // commit. The divergent child then claims the merge-base on its
   // OWN (non-zero) lane via straight-down inheritance, and when the
@@ -458,7 +471,7 @@ export function generateCommitGraph(
   // sideways into a different lane — visually a green-node-on-
   // blue-line mismatch on the mainline rows.
   //
-  // Fix: BFS from HEAD's tip backwards through `parents`, stopping
+  // So: BFS from HEAD's tip backwards through `parents`, stopping
   // at `commitsInWindow` boundary. Then in the children-map,
   // promote a HEAD-ancestry child to position 0 of every parent's
   // children array. The mainline always wins inheritance.
@@ -635,6 +648,17 @@ export function generateCommitGraph(
     //     off-window) — release `column` immediately.
     let firstParentDisposition: 'inherited' | 'end' = 'end';
     let bendReleaseRow = -1;
+    // True when the FIRST parent fell off the loaded window AND at least one
+    // OTHER parent is in-window — a mainline-continuation merge. The trunk
+    // genuinely continues BELOW the slice past the merged side branch, so this
+    // commit's lane must stay reserved (never freed for reuse): otherwise an
+    // unrelated branch grabs the freed column a few rows down and the trunk
+    // visually breaks into a dangling stub. A commit whose parents are ALL
+    // off-window is a genuine leaf (its lane ends here), NOT a continuation —
+    // it releases normally and renders as a dashed stub. See the lane-release
+    // block at the end of the row.
+    const hasInWindowParent = commit.parents.some((p) => commitsInWindow.has(p));
+    let firstParentOffWindow = false;
     const parents = commit.parents;
     for (let i = 0; i < parents.length; i++) {
       const parentHash = parents[i];
@@ -656,6 +680,9 @@ export function generateCommitGraph(
       // lane that has no node anywhere — producing the stray lateral
       // hook visible at the bottom of the row in user reports.
       if (!commitsInWindow.has(parentHash)) {
+        if (i === 0) {
+          firstParentOffWindow = true;
+        }
         graphLines.push({
           fromColumn: column,
           toColumn: column,
@@ -752,6 +779,17 @@ export function generateCommitGraph(
       // on it. Drop X's claim; the lane stays alive via the parent. Net: the
       // lane is continuously occupied down the mainline / branch spine.
       releaseClaim(state, commitHash, column);
+    } else if (firstParentOffWindow && hasInWindowParent) {
+      // Mainline-continuation merge: the first parent fell off the loaded
+      // window but a merged side branch is in-window. The trunk continues
+      // BELOW the slice past that side branch, so keep `column` reserved for
+      // the rest of the window — no unrelated branch may reuse it. The trunk
+      // then renders as one unbroken column down to the window bottom (the
+      // off-window dashed stub is extended into a full pass-through by
+      // computeActiveLanes). Without this reservation the freed lane was
+      // reclaimed a few rows down and the mainline broke into a dangling
+      // half-row stub (reported disconnect). (No releaseClaim /
+      // scheduleRelease — X stays a permanent claimant.)
     } else if (bendReleaseRow > rowIndex) {
       // The first-parent line bends away to a parent at `bendReleaseRow`.
       // Keep X as a claimant of `column` (reserving it) until that row, so a

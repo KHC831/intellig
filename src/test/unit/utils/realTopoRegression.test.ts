@@ -80,6 +80,23 @@ function groundTruthInk(nodes: ICommitNode[]): Map<number, Set<number>> {
   };
   nodes.forEach((n, i) => {
     mark(i, n.graphColumn);
+    // Off-window first-parent mainline continuation — derived INDEPENDENTLY
+    // from the topology (parent rows), NOT from the line-style rule under
+    // test, so this oracle is a genuine cross-check of computeActiveLanes'
+    // off-window handling. A commit whose FIRST parent is not in the loaded
+    // set but which HAS an in-window parent (a merged side branch occupying
+    // the rows below) is a continuation: its column is inked straight down to
+    // the window bottom. A commit with ALL parents off-window is a genuine
+    // leaf — no extension, it inks only its own row (handled by the per-line
+    // same-lane pass below, whose target stays at this row).
+    const firstParentOffWindow =
+      n.commit.parents.length > 0 && rowOf.get(n.commit.parents[0]) === undefined;
+    const hasInWindowParent = n.commit.parents.some((p) => rowOf.get(p) !== undefined);
+    if (firstParentOffWindow && hasInWindowParent) {
+      for (let r = i; r < nodes.length; r++) {
+        mark(r, n.graphColumn);
+      }
+    }
     for (const line of n.graphLines) {
       // Far-parent fork-point bend: the source lane runs
       // straight down at rows [row..endRow-1]; the bend itself lands at

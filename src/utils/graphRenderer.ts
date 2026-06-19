@@ -146,6 +146,31 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
         continue;
       }
 
+      // OFF-WINDOW FIRST-PARENT MAINLINE CONTINUATION. A first-parent
+      // (`type: 'commit'`) same-lane dashed stub means the mainline's parent
+      // fell off the loaded window. It is a CONTINUATION (trunk continues
+      // BELOW the slice) only when this commit also has an in-window parent —
+      // i.e. a merge whose merged side branch occupies the rows below. In that
+      // case the lane is reserved (generateCommitGraph never frees it), so
+      // mark it active straight down to the window bottom: the trunk renders
+      // as one unbroken column instead of collapsing to a half-row stub at
+      // this row (the gap the moment the row below sat on the side branch).
+      //
+      // When ALL of this commit's parents are off-window it is a genuine LEAF
+      // (its lane ends here); it is NOT extended and stays a short dashed
+      // stub at its own row — identical at any row, bottom or not. A
+      // second-parent off-window stub (`type: 'merge'`) is likewise never a
+      // continuation.
+      if (
+        line.type === 'commit' &&
+        line.style === 'dashed' &&
+        line.fromColumn === line.toColumn &&
+        node.commit.parents.some((p) => hashToRow.has(p))
+      ) {
+        intervals.push({ lane: line.fromColumn, startRow: rowIndex, endRow: nodes.length - 1 });
+        continue;
+      }
+
       // Find the target parent commit's row
       // The parent hash is the commit that sits at toColumn.
       // We need to find which parent this line points to.
@@ -594,8 +619,32 @@ export function renderGraphSvg(
       // off-window dashed 2nd-parent stub painted the centerY→bottomY
       // stub dashed even though the far-parent edge it shadows runs to a
       // real in-window fork. A far-parent downward presence forces solid.
+      //
+      // ALSO solid for an off-window first-parent MAINLINE CONTINUATION: a
+      // merge whose first parent fell off the slice but which has an in-window
+      // parent (a merged side branch). Its lane is reserved and extended into
+      // a full pass-through trunk to the window bottom, so it draws as one
+      // solid column. We detect it structurally — every same-lane line is a
+      // dashed off-window stub AND the node carries an in-window edge (a line
+      // that is not a same-lane dashed stub) — so the rule is independent of
+      // lane reuse below (a genuine LEAF, whose lane may be reused, stays
+      // dashed). Dashing is reserved for that genuine leaf stub (all parents
+      // off-window, nothing real continuing the lane), IntelliG's "history
+      // continues below the loaded window" hint. (IntelliJ instead reserves
+      // its dashed `LineStyle.DASHED` for collapsed long edges — a fold
+      // affordance we do not yet have — and draws trunks solid; see
+      // platform/vcs-log graph-api EdgePrintElement.kt + testData
+      // elementGenerator/manyNodes_out.txt.)
+      const hasInWindowEdge = node.graphLines.some(
+        (l) => !(l.fromColumn === l.toColumn && l.style === 'dashed')
+      );
+      const isOffWindowContinuation =
+        hasInWindowEdge &&
+        sameLaneLines.length > 0 &&
+        sameLaneLines.every((l) => l.style === 'dashed');
       const isDashed =
         !hasFarParentDownward &&
+        !isOffWindowContinuation &&
         sameLaneLines.length > 0 &&
         sameLaneLines.every((l) => l.style === 'dashed');
       const dashAttr = isDashed ? ` stroke-dasharray="4,3"` : '';

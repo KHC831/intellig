@@ -23,6 +23,12 @@ import {
   ICommitNode,
   IBranchRef,
 } from '../../../git-core/commitGraph';
+import {
+  computeActiveLanes,
+  renderGraphSvg,
+  getColumnX,
+  DEFAULT_GRAPH_CONFIG,
+} from '../../../utils/graphRenderer';
 import { ICommit } from '../../../git-core/interfaces/IGitService';
 
 /**
@@ -887,6 +893,213 @@ describe('Commit Graph Generation', () => {
           secondEdge.toColumn,
           featureTip.graphColumn,
           "merge bezier endpoint matches second parent's actual lane"
+        );
+      });
+    });
+
+    // ─── Off-window first-parent MAINLINE CONTINUATION ──────────────────
+    //
+    // Reproduces a dogfooded bug seen on a heavily-merged repo's mainline
+    // (a "Merge <feature> into master" commit): in a single-ref topo-order
+    // log the merged side branches drain FIRST, so the merge's first parent
+    // (the master continuation) is pushed PAST the loaded window. The merge
+    // sits on lane 0; its first-parent edge is the L9 off-window dashed
+    // same-lane stub. Pre-fix the trunk collapsed to a half-row stub at the
+    // merge row (`computeActiveLanes` found no parent row to span to), lane 0
+    // was freed, and an unrelated branch REUSED it a few rows lower — the
+    // reported "lane-0 line breaks below the merge then reappears connecting
+    // to nothing". The mainline lane continues below the loaded window, so it
+    // must stay an unbroken reserved column down to the window bottom.
+    describe('Off-window first-parent mainline continuation (dogfood: merge whose mainline parent fell off the slice)', () => {
+      // Mirrors the real neighbourhood: a lane-0 merge whose FIRST parent is
+      // off-window, the merged branch (S*) on lane 1 with its own back-merge
+      // (SM) pulling in a second branch (K*) that — pre-fix — grabbed the
+      // freed lane 0.
+      function buildOffWindowMergeChain(): ICommitNode[] {
+        const commits = [
+          createMockCommit('M', ['OFF_MAIN', 'S1']), // row0 lane0 merge, fp off-window
+          createMockCommit('S1', ['S2']), // row1 lane1
+          createMockCommit('S2', ['SM']), // row2 lane1
+          createMockCommit('SM', ['S3', 'K1']), // row3 lane1 back-merge
+          createMockCommit('S3', ['OFF_S']), // row4 lane1 (off-window parent)
+          createMockCommit('K1', ['K2']), // row5 — pre-fix REUSED lane0
+          createMockCommit('K2', ['OFF_K']), // row6
+        ];
+        return generateCommitGraph(commits);
+      }
+
+      it('marks the mainline lane active at EVERY intervening row (no gap below the merge)', () => {
+        const nodes = buildOffWindowMergeChain();
+        const active = computeActiveLanes(nodes);
+        const gapRows = [1, 2, 3, 4, 5, 6].filter((r) => !(active.get(r) ?? new Set()).has(0));
+        assert.deepStrictEqual(
+          gapRows,
+          [],
+          `lane 0 (the off-window mainline) must stay active down to the window bottom; ` +
+            `it was missing at rows ${JSON.stringify(gapRows)} (the gap below the merge).`
+        );
+      });
+
+      it('does NOT free the off-window mainline lane for reuse by an unrelated branch', () => {
+        const nodes = buildOffWindowMergeChain();
+        const k1 = nodes.find((n) => n.commit.hash === 'K1')!;
+        assert.notStrictEqual(
+          k1.graphColumn,
+          0,
+          'K1 belongs to an unrelated branch; it must NOT land on lane 0 ' +
+            '(reserved by the merge whose mainline parent is off-window).'
+        );
+      });
+
+      it('renders real lane-0 ink (an unbroken vertical trunk) through the intervening rows', () => {
+        const nodes = buildOffWindowMergeChain();
+        const active = computeActiveLanes(nodes);
+        const cfg = DEFAULT_GRAPH_CONFIG;
+        const x0 = getColumnX(0, cfg);
+        for (const r of [2, 3]) {
+          const svg = renderGraphSvg(
+            nodes[r],
+            r,
+            active.get(r) ?? new Set<number>(),
+            cfg,
+            false,
+            false,
+            new Set<number>(),
+            false,
+            active.get(r + 1) ?? new Set<number>(),
+            new Set<number>(),
+            active.get(r - 1) ?? new Set<number>()
+          );
+          const hasLane0Line = new RegExp(`<line x1="${x0}"[^>]*y2="${cfg.rowHeight}"`).test(svg);
+          assert.ok(
+            hasLane0Line,
+            `row ${r} must paint a full-height lane-0 vertical line (the continuing trunk); SVG: ${svg}`
+          );
+        }
+      });
+
+      // Renders one row with the same per-row context the production
+      // graphClusterBuilder threads (prev/next active lanes), so isDashed and
+      // pass-through decisions match the real pipeline.
+      function renderRow(nodes: ICommitNode[], r: number): string {
+        const active = computeActiveLanes(nodes);
+        return renderGraphSvg(
+          nodes[r],
+          r,
+          active.get(r) ?? new Set<number>(),
+          DEFAULT_GRAPH_CONFIG,
+          false,
+          false,
+          new Set<number>(),
+          false,
+          active.get(r + 1) ?? new Set<number>(),
+          new Set<number>(),
+          active.get(r - 1) ?? new Set<number>()
+        );
+      }
+
+      it('renders the merge-row trunk stub SOLID, not dashed (the load-bearing continuation clause)', () => {
+        // Pins the own-column solid-stub clause: drop it and the merge row
+        // renders its centerY→bottom stub DASHED — the exact reported bug —
+        // yet every other spec stays green. This is that guard.
+        const nodes = buildOffWindowMergeChain();
+        const x0 = getColumnX(0, DEFAULT_GRAPH_CONFIG);
+        const svg = renderRow(nodes, 0);
+        const stubRe = new RegExp(
+          `<line x1="${x0}" y1="${DEFAULT_GRAPH_CONFIG.rowHeight / 2}" x2="${x0}" y2="${DEFAULT_GRAPH_CONFIG.rowHeight}"[^>]*/>`
+        );
+        const stub = stubRe.exec(svg);
+        assert.ok(
+          stub,
+          `expected a lane-0 centerY→bottom trunk stub at the merge row; SVG: ${svg}`
+        );
+        assert.ok(
+          !/stroke-dasharray/.test(stub[0]),
+          `merge-row trunk stub must be SOLID (mainline continuation), not dashed; got: ${stub[0]}`
+        );
+      });
+
+      it('treats a merge with BOTH parents off-window as a dashed LEAF, not a reserved trunk', () => {
+        // Both histories fell off the slice — nothing continues this lane, so
+        // it is a genuine leaf: a dashed stub, and the lane is FREED (an
+        // unrelated commit below may reuse it), never permanently reserved.
+        const nodes = generateCommitGraph([
+          createMockCommit('M', ['OFF_A', 'OFF_B']), // both parents off-window
+          createMockCommit('X', ['OFF_C']), // unrelated leaf — reuses the freed lane 0
+        ]);
+        const svg = renderRow(nodes, 0);
+        assert.ok(
+          /stroke-dasharray/.test(svg),
+          `a both-parents-off-window merge must render a dashed leaf stub; SVG: ${svg}`
+        );
+        const x = nodes.find((n) => n.commit.hash === 'X')!;
+        assert.strictEqual(
+          x.graphColumn,
+          0,
+          'the leaf lane must be freed for reuse (not reserved), so X lands on lane 0'
+        );
+      });
+
+      it('renders a non-merge LEAF (only parent off-window) as a dashed stub at a NON-bottom row — identical to the bottom-row leaf', () => {
+        // A branch tip whose sole parent fell off the slice, sitting ABOVE
+        // other rows. It must render the SAME dashed stub it would at the
+        // window bottom — NOT a solid line run to the bottom — and its lane
+        // must NOT be extended past it.
+        const nodes = generateCommitGraph([
+          createMockCommit('M', ['P', 'B']), // merge: P in-window, B in-window
+          createMockCommit('B', ['OFF_B']), // non-merge leaf, off-window parent, NON-bottom row
+          createMockCommit('P', ['OFF_P']), // mainline tail
+        ]);
+        const b = nodes.find((n) => n.commit.hash === 'B')!;
+        const bRow = nodes.indexOf(b);
+        const svg = renderRow(nodes, bRow);
+        const xb = getColumnX(b.graphColumn, DEFAULT_GRAPH_CONFIG);
+        const stubRe = new RegExp(
+          `<line x1="${xb}" y1="${DEFAULT_GRAPH_CONFIG.rowHeight / 2}" x2="${xb}" y2="${DEFAULT_GRAPH_CONFIG.rowHeight}"[^>]*/>`
+        );
+        const stub = stubRe.exec(svg);
+        assert.ok(stub, `expected the leaf's own-lane stub; SVG: ${svg}`);
+        assert.ok(
+          /stroke-dasharray/.test(stub[0]),
+          `a genuine off-window leaf must render a DASHED stub at any row; got: ${stub[0]}`
+        );
+        const active = computeActiveLanes(nodes);
+        const belowRows = nodes
+          .map((_n, idx) => idx)
+          .filter((idx) => idx > bRow && (active.get(idx) ?? new Set()).has(b.graphColumn));
+        assert.deepStrictEqual(
+          belowRows,
+          [],
+          `the leaf's lane must NOT be extended past it; it was still active at rows ${JSON.stringify(belowRows)}`
+        );
+      });
+
+      it('does NOT leak a lane per leaf — N sequential off-window leaves keep the graph narrow (width bound)', () => {
+        // The reservation must apply ONLY to genuine continuations. A repo of
+        // N merges each pulling in a one-commit side branch whose base is
+        // off-window (a genuine LEAF) must keep those leaves on a single
+        // reused lane — max lane index tracks concurrent branches (~1), never
+        // escalating with the leaf count. A reservation leak would push each
+        // leaf onto its own ever-higher lane (max == N).
+        const N = 30;
+        const commits: ICommit[] = [];
+        for (let k = 0; k < N; k++) {
+          commits.push(createMockCommit(`M${k}`, [`M${k + 1}`, `L${k}`]));
+          commits.push(createMockCommit(`L${k}`, [`OFF_L${k}`])); // genuine leaf
+        }
+        commits.push(createMockCommit(`M${N}`, ['OFF_TAIL'])); // mainline tail leaf
+        const nodes = generateCommitGraph(commits);
+        let maxLane = 0;
+        for (const n of nodes) {
+          maxLane = Math.max(maxLane, n.graphColumn);
+          for (const l of n.graphLines) {
+            maxLane = Math.max(maxLane, l.fromColumn, l.toColumn);
+          }
+        }
+        assert.ok(
+          maxLane <= 2,
+          `genuine leaves must release their lane (no per-leaf reservation leak); ` +
+            `maxLane=${maxLane} for ${N} leaves (a leak would give ~${N})`
         );
       });
     });

@@ -175,6 +175,47 @@ off-window parent, the in-window edge is a normal bezier and the
 off-window edge is the dashed same-lane stub — no interaction
 between the two.
 
+#### Off-window FIRST-PARENT mainline continuation (renders SOLID)
+
+`style: 'dashed'` is the **data-model** marker that an edge targets an
+off-window parent; it is not, by itself, a "draw a dashed stub" command.
+There are two render shapes:
+
+- **Genuine leaf** — a commit whose parents are _all_ off-window. Nothing
+  real continues its lane, so the renderer draws the dashed "history
+  continues below the loaded window" stub. This renders identically at any
+  row (window bottom or not); the lane is released and may be reused below.
+
+- **Mainline continuation** — a merge whose _first_ parent is off-window but
+  which _also_ has an in-window parent (a merged side branch occupying the
+  rows below). In a single-ref `--topo-order` log the merged branches drain
+  first, pushing the mainline's first parent past the loaded slice; the
+  trunk genuinely continues below the window. The algorithm therefore
+  **reserves** the commit's lane for the rest of the window (never freed for
+  reuse) and `computeActiveLanes` extends the off-window stub into a full
+  pass-through down to the window bottom. The renderer draws this trunk
+  **SOLID** — one unbroken column — even though the line still carries
+  `style: 'dashed'`. Dashing it (the pre-fix behavior) collapsed the trunk
+  to a half-row stub and let an unrelated branch reuse the freed lane a few
+  rows down: the reported "lane-0 line breaks below a merge then reappears
+  connecting to nothing" disconnect.
+
+This is a deliberate parity call. IntelliJ reserves its dashed
+`LineStyle.DASHED` for **collapsed long edges** — the foldable "hidden
+commits" affordance (every DASHED edge in
+`platform/vcs-log/.../testData/elementGenerator/manyNodes_out.txt` is
+paired with an expand/unselect toggle; see
+`platform/vcs-log/graph-api/.../EdgePrintElement.kt`) — and draws mainline
+trunks SOLID. IntelliG has no long-edge fold yet, so it repurposes dashed
+only as a not-loaded-history hint on genuine leaves and keeps trunks solid,
+matching IntelliJ's trunk rendering.
+
+Pinned by the `Off-window first-parent mainline continuation` suite in
+`src/test/unit/utils/commitGraph.test.ts` (gap-fill, no-reuse, real-ink,
+the load-bearing SOLID-stub clause, both-parents-off-window leaf, non-bottom
+leaf, and the lane-width bound) and the no-orphan / width pins in
+`src/test/unit/utils/realTopoRegression.test.ts`.
+
 Pinned by:
 
 - `src/test/unit/utils/commitGraph.test.ts` "Phase 1a pins" suite
