@@ -18,7 +18,7 @@ import type { IRemoteUrl } from '../../../utils/remoteUrl';
  * cast through this surface.
  *
  * Kept deliberately small (single field the test genuinely drives) per
- * docs/testing.md §3. No `I`-prefix; no kitchen-sink fields.
+ * docs/testing.md section 3. No `I`-prefix; no kitchen-sink fields.
  */
 interface GitToolWindowProviderInternals {
   _parsedRemoteCache: Map<string, IRemoteUrl | undefined>;
@@ -2850,7 +2850,7 @@ describe('_getBranchLabelsHtml', () => {
     /**
      * Seed a parsed-remote cache entry for `repo` as-if `_getSelectedRepoRemote`
      * had run against it. Local to this suite (not on the production class)
-     * per docs/testing.md §3. Writes directly to `_parsedRemoteCache` — the
+     * per docs/testing.md section 3. Writes directly to `_parsedRemoteCache` — the
      * value is a minimal `IRemoteUrl` shape; these tests only assert
      * key-level membership, so the specific parse result is irrelevant.
      */

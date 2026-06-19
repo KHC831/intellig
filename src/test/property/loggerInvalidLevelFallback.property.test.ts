@@ -17,7 +17,7 @@
  *
  *   1. The cached threshold falls back to `'info'` for any
  *      out-of-enum value.
- *   2. The §2.5 warn signal is produced exactly once per distinct
+ *   2. The section 2.5 warn signal is produced exactly once per distinct
  *      invalid value seen — repeated `refresh()` calls observing the
  *      same invalid value MUST NOT re-signal (no log-flooding when a
  *      user saves the same typo'd setting repeatedly).
@@ -29,7 +29,7 @@
  * initLogger + driven config changes."* The cleanest unit for the
  * property is `LogLevelResolver` — it is the single component the
  * Logger consults for thresholds AND the single component whose
- * `refresh()` return value drives the §2.5 warn at the Logger
+ * `refresh()` return value drives the section 2.5 warn at the Logger
  * boundary (`initLogger` in `logger.ts` reads
  * `resolver.refresh()` and forwards the offending value to
  * `getLogger().warn(...)` exactly when the resolver reports one).
@@ -67,7 +67,7 @@ import { resetMockConfiguration, setMockConfigValue } from '../mocks/vscode';
 /**
  * The six valid `LogThreshold` strings, matching the
  * `package.json` `intellig.log.level` enum.
- * Any string outside this set is "invalid" for the purposes of §2.5.
+ * Any string outside this set is "invalid" for the purposes of section 2.5.
  */
 const VALID_THRESHOLDS: ReadonlySet<string> = new Set<LogThreshold>([
   'trace',
@@ -81,7 +81,7 @@ const VALID_THRESHOLDS: ReadonlySet<string> = new Set<LogThreshold>([
 /**
  * Arbitrary over strings that are NOT one of the six valid threshold
  * values. The filter rejects the six valid strings so every drawn
- * value triggers the §2.5 fallback path. The base `fc.string()`
+ * value triggers the section 2.5 fallback path. The base `fc.string()`
  * arbitrary already covers empty strings, mixed case (`'INFO'`,
  * `'Trace'`), substrings (`'inf'`), and arbitrary unicode garbage —
  * a `maxLength` of 32 keeps the input space narrow enough that

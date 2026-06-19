@@ -40,7 +40,7 @@ const EXT_ID = 'KaHoChan.intellig';
  * teardown hook that shouldn't leak onto the public service interface,
  * and `_drainPendingReloads` is a strictly test-only seam.
  *
- * See `docs/testing.md` §3 for the TestSurface convention.
+ * See `docs/testing.md` section 3 for the TestSurface convention.
  */
 interface GitServiceWorkspaceHelperSurface {
   getRepositories(): IRepository[];

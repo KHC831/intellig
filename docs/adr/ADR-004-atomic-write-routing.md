@@ -30,7 +30,7 @@ packages this pattern with temp-file cleanup and consistent error
 surfaces.
 
 Not every write site benefits from the helper, however. The questions
-that drove this ADR were: which writes *must* route through the helper,
+that drove this ADR were: which writes _must_ route through the helper,
 and which writes are safe to leave as direct calls?
 
 ## Decision
@@ -120,5 +120,5 @@ is on the author to justify why neither rule (1), (2), nor (3) applies.
 - `src/services/PatchService.ts::_writeTempPatch` — explicit
   exception: direct `fs.promises.writeFile` into a `mkdtemp`
   subdirectory.
-- `docs/testing.md` §7 — atomic-write testing patterns (`crash-during-
-  write`, `concurrent-read`, `Windows locked target`).
+- `docs/testing.md` section 7 — atomic-write testing patterns (`crash-during-
+write`, `concurrent-read`, `Windows locked target`).

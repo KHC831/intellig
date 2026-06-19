@@ -577,7 +577,7 @@ export function renderGraphSvg(
     // lane color (`commitColor` resolved above via
     // `getColumnColor(node.graphColumn)`), never a destination lane
     // color, even if a sibling line bends. See
-    // `docs/design/git-tool-window-spec.md` section 8.L4.
+    // `docs/adr/ADR-013-graph-data-model-invariants.md` section 4 (spec 8.L4).
     const sameLaneLines = node.graphLines.filter(
       (line) => line.fromColumn === node.graphColumn && line.toColumn === node.graphColumn
     );

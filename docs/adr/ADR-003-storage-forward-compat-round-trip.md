@@ -69,7 +69,7 @@ themselves deserialized from a bag. The `Exclude<...>` in the spec's
   different bag shapes and the abstraction-too-early cost outweighs the
   repeated boilerplate).
 - The pattern does **not** protect against destructive schema changes.
-  If a newer build *removes* a key, or changes an existing key's
+  If a newer build _removes_ a key, or changes an existing key's
   semantics, the round-trip will still be lossy in the direction the
   change specifies. The guarantee is only against additive changes.
 
@@ -113,6 +113,6 @@ Per-item and per-file bags follow the same shape. See
   `KNOWN_ITEM_KEYS_SPEC`, parse + serialize paths.
 - `src/services/ShelfService.ts` — per-file-level bag
   (`_unknownFileField`), same pattern.
-- `docs/testing.md` §7 — storage forward-compat testing registry
-  (round-trip spec must exercise an unknown top-level key *and* a
+- `docs/testing.md` section 7 — storage forward-compat testing registry
+  (round-trip spec must exercise an unknown top-level key _and_ a
   per-item/per-file key for every adopter).

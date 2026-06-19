@@ -700,10 +700,10 @@ describe('Commit Graph Generation', () => {
     // ─── Phase 1a pins (spec 8 L1, L9) ─────────────────────────────────────
     //
     // The four cases below are the unit-level pins for the Phase 1a
-    // matrix entries (`docs/design/git-tool-window-implementation-plan.md`).
-    // They live alongside the seeding suite above because they
-    // exercise exactly the same code paths from a different angle —
-    // each one names a specific bug-class shape from spec spec 8 and
+    // invariants (`docs/adr/ADR-013-graph-data-model-invariants.md`
+    // sections 2 and 3). They live alongside the seeding suite above
+    // because they exercise exactly the same code paths from a different
+    // angle — each one names a specific bug-class shape from spec 8 and
     // pins it in isolation, so a regression points the next reader
     // straight at the rule it broke.
     //

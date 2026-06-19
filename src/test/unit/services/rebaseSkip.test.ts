@@ -47,7 +47,7 @@ import type { IMergeView } from '../../../conflicts/interfaces/IMergeView';
  * implements only the shape the tests exercise (`exec`, `onCommandExecuted`,
  * `getRepositoryRoot`, `dispose`), not the full GitCli contract.
  *
- * See `docs/testing.md` §3 for the TestSurface convention.
+ * See `docs/testing.md` section 3 for the TestSurface convention.
  */
 interface GitServiceGitCliTestSurface {
   _gitCli: unknown;

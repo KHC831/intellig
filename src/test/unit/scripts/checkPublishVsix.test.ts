@@ -107,7 +107,7 @@ describe('scripts/check-publish-vsix.sh — TL-95 dogfood filename guard', () =>
   });
 
   it('does not require the file to exist on disk (filename-only guard)', () => {
-    // The intentional design (per TL-95 maintenance contract §2): this
+    // The intentional design (per TL-95 maintenance contract section 2): this
     // script validates filenames, not file existence. A non-existent
     // *-dogfood.vsix path still trips. The downstream `vsce publish`
     // is what asserts the file actually exists.

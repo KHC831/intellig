@@ -8,9 +8,9 @@
  *   2. MEDIUM  — selectCommits doesn't clear pending changed files
  *   3. MEDIUM  — weak runtime guard on JS-supplied anchorHash
  *   4. MEDIUM  — IMenuItemState.reason for disabled tooltips
- *   5. MEDIUM  — ADR-009 §3 post-ordering rule (doc, separate test)
- *   6. MEDIUM  — ADR-009 §2.1 counter-example (doc-only)
- *   7. MEDIUM  — ADR-009 §5 partial-vs-full (doc-only)
+ *   5. MEDIUM  — ADR-009 section 3 post-ordering rule (doc, separate test)
+ *   6. MEDIUM  — ADR-009 section 2.1 counter-example (doc-only)
+ *   7. MEDIUM  — ADR-009 section 5 partial-vs-full (doc-only)
  *   8. LOW     — selectCommits expandedCommit fallback
  *   9. LOW     — getSelectedCommits returns display order
  *  10. LOW     — LogContextAction superset comment (structural)
@@ -526,7 +526,7 @@ describe('Wave A R3 — consolidated review fixes', () => {
       );
     });
 
-    it('§3 includes a post-must-follow-html-reassignment rule', () => {
+    it('section 3 includes a post-must-follow-html-reassignment rule', () => {
       // Look for explicit language about ordering relative to webview.html.
       const hit =
         /webview\.html[\s\S]{0,200}post|post[\s\S]{0,200}webview\.html|after\s+(?:the\s+)?(?:re-?render|html\s*reassignment|html\s*reload)/i.test(
@@ -534,14 +534,14 @@ describe('Wave A R3 — consolidated review fixes', () => {
         );
       assert.ok(
         hit,
-        'ADR-009 §3 must include a sub-rule that posts follow webview.html reassignment'
+        'ADR-009 section 3 must include a sub-rule that posts follow webview.html reassignment'
       );
     });
 
-    it('§2.1 includes a counter-example', () => {
+    it('section 2.1 includes a counter-example', () => {
       assert.ok(
         /counter[- ]example/i.test(adr),
-        'ADR-009 §2.1 must include a counter-example so the click-anchor exception is not over-extended'
+        'ADR-009 section 2.1 must include a counter-example so the click-anchor exception is not over-extended'
       );
       assert.ok(
         /isSquashEnabled|rule\s+derivation/i.test(adr),

@@ -46,7 +46,7 @@
  * - **Fixed log level.** The threshold is the default `'info'`
  *   (the level the requirement names) so the hot-path check admits
  *   every emitted record. Driving the path at the threshold avoids
- *   the §7.1 short-circuit win that would otherwise inflate
+ *   the section 7.1 short-circuit win that would otherwise inflate
  *   throughput artificially.
  *
  * The CI generosity factor below (`PER_CALL_BUDGET_MS`) is set to

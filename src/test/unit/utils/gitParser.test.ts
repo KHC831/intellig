@@ -857,7 +857,7 @@ index 1234567,abcdefg..fedcba9
 
     it('parseBranches-detached-6: mid-cherry-pick pseudo-ref → filtered', () => {
       // git emits this while a cherry-pick is paused on a conflict.
-      // The parity doc §1.1 enumerates this as a covered variant; pin
+      // The parity doc section 1.1 enumerates this as a covered variant; pin
       // it explicitly so the structural rule's coverage is auditable
       // by-fixture rather than implied by the predicate shape alone.
       const output =

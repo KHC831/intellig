@@ -37,7 +37,7 @@ import { Uri, type Webview } from '../../mocks/vscode';
 
 /**
  * Narrow test-surface for the two private HTML emitters under test. Kept
- * deliberately minimal (docs/testing.md §3) — only the methods this snapshot
+ * deliberately minimal (docs/testing.md section 3) — only the methods this snapshot
  * drives, no kitchen-sink internals.
  */
 interface HtmlEmitterSurface {

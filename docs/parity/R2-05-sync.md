@@ -159,7 +159,7 @@ The flow is pure orchestration over an injected git surface
 (`IUpdateGitService`) — no `vscode` import — so it is fully unit-testable.
 
 > **Deferred vs git4idea**: the save-local-changes (autostash) step is NOT
-> performed here; it is owed to the Pull `--autostash` follow-up (§C Item 6,
+> performed here; it is owed to the Pull `--autostash` follow-up (section C Item 6,
 > a cross-cutting change in `IPullOptions` + `RemoteOps`). The rebase-over-
 > merge problem dialog and the per-root `GitUpdatedRanges` log-range
 > computation are also out of scope for this pass.

@@ -4,7 +4,7 @@
  * This is an ADR-007-style structural guard: the inline webview
  * `scrollToCommit(commitHash)` function cannot import the pure
  * `scrollVisibility.ts` predicate, so it MIRRORS the predicate's contract
- * inline (ADR-009 §2 — scroll position is webview-owned ephemeral state).
+ * inline (ADR-009 section 2 — scroll position is webview-owned ephemeral state).
  *
  * The guard pins that mirror so a future refactor cannot regress the inline
  * scroll back to the *unconditional* `scrollIntoView` that caused the

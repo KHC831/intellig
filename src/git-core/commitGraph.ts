@@ -40,7 +40,7 @@ export type GraphLineStyle = 'solid' | 'dashed';
  * @invariant L4 — when `fromColumn === toColumn` (a same-lane edge), the
  * renderer MUST stroke the segment using `getColumnColor(fromColumn)` —
  * i.e. the *source* commit's lane color, never a destination color.
- * See `docs/design/git-tool-window-spec.md` section 8.L4.
+ * See `docs/adr/ADR-013-graph-data-model-invariants.md` section 4 (spec 8.L4).
  *
  * @invariant L9 — when the parent commit is off-window, this line is
  * emitted with `fromColumn === toColumn` and `style: 'dashed'`; the
@@ -154,7 +154,7 @@ const GRAPH_COLORS = [
  * SVG renderer MUST resolve its `stroke=` via this function, keyed by
  * the *source* commit's `graphColumn` — never by a destination lane,
  * even when a graph line bends. See
- * `docs/design/git-tool-window-spec.md` section 8.L4.
+ * `docs/adr/ADR-013-graph-data-model-invariants.md` section 4 (spec 8.L4).
  *
  * @param column - The column index
  * @returns A color string from the palette
@@ -299,7 +299,8 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * Generate commit graph data from a list of commits.
  *
  * This function is the **algorithm boundary** for the lane / line
- * model defined in spec section 1.1 (`docs/design/git-tool-window-spec.md`).
+ * model defined in `docs/adr/ADR-013-graph-data-model-invariants.md`
+ * section 1 (the `IGraphLine` + `ICommitNode` data model).
  * It processes commits in topological order (newest first), assigns
  * each commit to a lane (column), and emits the graph lines connecting
  * each commit to its parents.
@@ -328,7 +329,7 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * @invariant L1 — Lane assignment is byte-identical across no-op
  * reloads and reflects HEAD ancestry: HEAD's branch tip pre-seeds
  * lane 0 (and ONLY HEAD's tip; non-HEAD branch tips go through the
- * main pass). See `docs/design/git-tool-window-spec.md` section 8.L1.
+ * main pass). See `docs/adr/ADR-013-graph-data-model-invariants.md` section 2 (spec 8.L1).
  *
  * @invariant L9 — A parent that is NOT in the loaded window emits a
  * single same-lane `{fromColumn === toColumn, style: 'dashed'}` line
@@ -341,7 +342,8 @@ export function buildChildrenMap(commits: ICommit[]): Map<string, string[]> {
  * @invariant L10 — Branch type (`'local'` vs `'remote'`) flows through
  * `IBranchRef.type` from `parseBranches`. The graph algorithm and
  * renderer MUST NOT infer type from the branch name shape (e.g. a
- * presence of `/`). See `docs/design/git-tool-window-spec.md` section 8.L10.
+ * presence of `/`) — the spec 8.L10 branch-type invariant; type is
+ * carried through `IBranchRef.type`, never inferred.
  *
  * @param commits - Array of commits in topological order (newest first)
  * @param branchMap - Optional map of commit hash to branch refs (name + type)

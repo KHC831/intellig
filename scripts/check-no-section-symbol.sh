@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Structural CI guard — the section-sign glyph (U+00A7) is banned in shipped
-# source and build scripts; write the word "section" instead.
+# Structural CI guard — the section-sign glyph (U+00A7) is banned across the
+# source, test, script, and documentation tree; write the word "section"
+# instead.
 #
 # Maintenance contract (per ADR-007 section "Guard maintenance contract"):
 #
@@ -14,23 +15,34 @@
 #    time. The fix is uniform: spell it "section".
 #
 # 2. Heuristic + how it scales
-#    grep the scanned paths for the raw U+00A7 byte, text content only
-#    (binary files are skipped — see case 3). The glyph is built at runtime
-#    with printf so this script's own source carries no literal occurrence
-#    and never self-matches. Default scope is production source
-#    (src, excluding the src/test tree) plus build scripts; pass explicit
-#    paths to scan a fixture (used by the companion spec). Adding a new
-#    source root is a one-word edit to the default PATHS.
+#    Search for the raw U+00A7 byte, text content only (binary files are
+#    skipped — see case 3). The glyph is built at runtime with printf so
+#    this script's own source carries no literal occurrence and never
+#    self-matches. The guard runs in two modes:
+#      * DEFAULT (no path args — the real gate): `git grep` over the
+#        git-TRACKED files in scope (src incl. the src/test subtree,
+#        scripts, docs, and the root-level *.md). Scanning only tracked
+#        files means untracked/gitignored scratch files (the teammates'
+#        AGENT_WORKSPACE.md coordination notes, local *.md) are NEVER
+#        flagged — they are out of scope by construction. Adding a new
+#        source root is a one-pathspec edit to the git-grep call.
+#      * EXPLICIT PATHS (used by the companion spec): plain recursive
+#        `grep -rnI` over the given paths. The spec's fixtures live in
+#        temp, non-git directories, so git-based scanning cannot apply
+#        there — this mode keeps the fixture tests working.
 #
 # 3. Known false-positive cases
-#    None in shipped code. The src/test tree and docs/ are deliberately out
-#    of scope: test describe/it titles and doc-content assertions cite doc
-#    sections that still use the glyph, and several couple to ADR text; that
-#    surface is a separate, doc-coupled cleanup, not this guard's remit.
-#    Binary files are skipped via grep -I: gitignored binaries that macOS
-#    Finder scatters through scanned dirs (notably .DS_Store) can carry a raw
-#    0xA7 byte and would otherwise false-fail the gate; -I treats them as
-#    non-matching so only text source is searched.
+#    None in shipped code. The src/test tree, docs/, and root .md are all
+#    IN scope: test describe/it titles, doc-content assertions, and ADR
+#    cross-references all spell the word "section" rather than the glyph,
+#    so there is no doc-coupled surface left to carve out. Untracked and
+#    gitignored files are not a false-positive surface: the default mode
+#    scans tracked files only, so a glyph in a local coordination note
+#    (AGENT_WORKSPACE.md) cannot fail the gate.
+#    Binary files are skipped via the -I flag: gitignored binaries that
+#    macOS Finder scatters through scanned dirs (notably .DS_Store) can
+#    carry a raw 0xA7 byte and would otherwise false-fail the gate; -I
+#    treats them as non-matching so only text source is searched.
 #
 # 4. Known false-negative cases
 #    Escaped spellings of the same glyph (the &sect; named entity, the
@@ -49,18 +61,22 @@ set -euo pipefail
 # U+00A7 (section sign) as its UTF-8 bytes, assembled at runtime.
 GLYPH=$(printf '\xc2\xa7')
 
-PATHS=("$@")
-if [ "${#PATHS[@]}" -eq 0 ]; then
-  PATHS=("src" "scripts")
+if [ "$#" -eq 0 ]; then
+  # Default (the real gate): only git-TRACKED files in scope. `git grep`
+  # never searches untracked/gitignored files, so local coordination
+  # scratch (AGENT_WORKSPACE.md, etc.) is excluded by construction.
+  hits=$(git grep -nFI "$GLYPH" -- src scripts docs '*.md' 2>/dev/null || true)
+else
+  # Explicit paths (companion-spec fixtures live in temp, non-git dirs):
+  # plain recursive text scan.
+  hits=$(grep -rnI "$GLYPH" "$@" 2>/dev/null || true)
 fi
 
-hits=$(grep -rnI --exclude-dir=test "$GLYPH" "${PATHS[@]}" 2>/dev/null || true)
-
 if [ -n "$hits" ]; then
-  echo "section-symbol guard FAILED — the U+00A7 glyph is banned in shipped source and build scripts." >&2
+  echo "section-symbol guard FAILED — the U+00A7 glyph is banned across source, tests, scripts, and docs." >&2
   echo "  Write the word \"section\" instead (e.g. \"ADR-009 section 6\"). Offending lines:" >&2
   echo "$hits" >&2
   exit 1
 fi
 
-echo "section-symbol guard OK (no U+00A7 glyph in production source or build scripts)."
+echo "section-symbol guard OK (no U+00A7 glyph in source, tests, scripts, or docs)."

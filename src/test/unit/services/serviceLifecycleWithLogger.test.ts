@@ -1,22 +1,22 @@
 /**
- * Service-lifecycle Logger waypoints (§6.3, §6.4 not
+ * Service-lifecycle Logger waypoints (section 6.3, section 6.4 not
  * covered elsewhere).
  *
  * Pins the Logger waypoints required for
- * the long-lived services that the §6.1 GitService test does
- * not cover. The §6.5 ConfigurationService change-key waypoint is
+ * the long-lived services that the section 6.1 GitService test does
+ * not cover. The section 6.5 ConfigurationService change-key waypoint is
  * already covered by `configurationServiceChangeKeys.property.test.ts`,
- * and the §6.6 extension activate/deactivate path is covered by
+ * and the section 6.6 extension activate/deactivate path is covered by
  * `src/test/ext-host/suite/09.logger-activation.test.ts`.
  *
  * Specifically asserted here:
  *
- *   §6.3 — BlameService, ChangelistService, ShelfService,
+ *   section 6.3 — BlameService, ChangelistService, ShelfService,
  *          AutoFetchService, ConflictResolutionService, PatchService
  *          each emit one info-level Log_Record on construction and
  *          one info-level Log_Record on `dispose()`.
  *
- *   §6.4 — BranchTreeProvider emits one debug-level Log_Record on
+ *   section 6.4 — BranchTreeProvider emits one debug-level Log_Record on
  *          each `refresh()` trigger. (The complementary warn-level
  *          waypoint on `getChildren()` failure paths through the
  *          existing `BranchTreeProvider.test.ts` tree-construction
@@ -47,10 +47,10 @@
  * - The exact `context` payload shape on construction/dispose records
  *   (e.g. `ownsGitCli` for BlameService/ShelfService,
  *   `cacheEntries`/`watchers` for BlameService dispose, etc.). The
- *   §6.3 contract pins the *level* and *fact of emission*; the context
+ *   section 6.3 contract pins the *level* and *fact of emission*; the context
  *   keys are an implementation detail of each service. Asserting them
- *   here would over-couple this test to the §9.x integration sweep.
- * - The §6.4 refresh-failure warn waypoint: `BranchTreeProvider.test.ts`
+ *   here would over-couple this test to the section 9.x integration sweep.
+ * - The section 6.4 refresh-failure warn waypoint: `BranchTreeProvider.test.ts`
  *   already exercises the failing-getChildren path through the
  *   tree-construction surface; duplicating it here would add no signal.
  *

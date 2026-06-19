@@ -87,7 +87,7 @@ extension-host-driven actions:
 - Drag state during a drag-and-drop gesture (the host learns the
   outcome via the drop event, not the in-progress state)
 - Anchor mirror for immediate range-selection feedback (`let
-  anchorHash`) — but ONLY as a mirror; the host owns the canonical
+anchorHash`) — but ONLY as a mirror; the host owns the canonical
   value and posts `syncSelection` after every operation that may have
   invalidated it
 
@@ -177,13 +177,13 @@ For each surface the host owns:
 
 Wave A's surfaces and message types:
 
-| Surface | Message | Owner |
-|---|---|---|
-| Menu visibility + enable | `updateMenuEnableState` | host |
-| Anchor + selection mirror | `syncSelection` | host |
-| Details panel HTML | `updateDetailsPanel` | host |
-| Graph row highlight | `selectGraphRow` | host |
-| Branch focus + on-path set (Wave D / D2 + D3) | `updateBranchFocus` | host |
+| Surface                                       | Message                 | Owner |
+| --------------------------------------------- | ----------------------- | ----- |
+| Menu visibility + enable                      | `updateMenuEnableState` | host  |
+| Anchor + selection mirror                     | `syncSelection`         | host  |
+| Details panel HTML                            | `updateDetailsPanel`    | host  |
+| Graph row highlight                           | `selectGraphRow`        | host  |
+| Branch focus + on-path set (Wave D / D2 + D3) | `updateBranchFocus`     | host  |
 
 The list is append-only as new surfaces are added.
 
@@ -215,7 +215,7 @@ The list is append-only as new surfaces are added.
 > cached in `_focusedPathHashes`). R1 dropped it from the wire.
 
 > **FU (R5-7, TL4-L-4)**: when Wave C adds another sequencing sub-rule,
-> consider bifurcating §3 into "§3 Posting contract (basic)" + "§3a
+> consider bifurcating section 3 into "section 3 Posting contract (basic)" + "section 3a
 > Sequencing rules", or splitting out a new ADR-N. Five sub-rules is
 > the upper edge of tractable for one section.
 
@@ -247,7 +247,7 @@ Wave A's selection setters split along an intentional axis:
   list, anchor state, or selection cardinality changes — i.e. when
   the host needs the new document to start with a known-good
   `data-anchor-hash` + `data-selected-count` attribute, plus a fresh
-  `menuEnableMap` posted right after the reload (§3).
+  `menuEnableMap` posted right after the reload (section 3).
 
 When in doubt, prefer full. Partial is an optimization for the
 single-click happy path that has explicit per-message DOM mutations
@@ -299,7 +299,7 @@ provider exposes a typed sibling helper:
 Wave B R1 (TLB-H-2) also pushed display-order forward through the
 context-menu dispatch event payload, so handlers receive
 `{commitHashes, commitNodes}` directly and don't reach back into
-provider state. ADR-009 §1 inversion fix. Wave B R2 (TLBR1-L-1)
+provider state. ADR-009 section 1 inversion fix. Wave B R2 (TLBR1-L-1)
 collapsed the originally-parallel `displayOrder: string[]` +
 `parentCounts: Record<string, number>` records to the typed
 `commitNodes: readonly IMenuStateNode[]` (same shape used by the menu

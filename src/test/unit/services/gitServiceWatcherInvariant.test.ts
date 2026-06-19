@@ -143,7 +143,7 @@ class StubGitCli {
 // ============================================================================
 // TestSurface — reach through `private` to install a stub gitCli, replace
 // `loadRepository` with a held latch, and call the private
-// `setupRepositoryWatcher` directly. See `docs/testing.md` §3 for the
+// `setupRepositoryWatcher` directly. See `docs/testing.md` section 3 for the
 // TestSurface convention.
 // ============================================================================
 

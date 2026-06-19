@@ -4,7 +4,7 @@
  * Covers:
  *  - webview branchName injection guard + argv hardening
  *  - async race generation guard
- *  - post-then-render ordering (ADR-009 §3)
+ *  - post-then-render ordering (ADR-009 section 3)
  *  - focus toggle semantics
  *  - setFocusedBranch preserves selection
  *  - drop focusedPathHashes from wire (covered in focusBranch.test.ts;
@@ -267,8 +267,8 @@ describe('Wave D R1 — review-round fixes', () => {
     });
   });
 
-  // ─── post-then-render ordering (ADR-009 §3) ────────────────────
-  describe('post-then-render ordering (TLD-M-1, ADR-009 §3)', () => {
+  // ─── post-then-render ordering (ADR-009 section 3) ────────────────────
+  describe('post-then-render ordering (TLD-M-1, ADR-009 section 3)', () => {
     it('setFocusedBranch posts updateBranchFocus AFTER the html reassignment', async () => {
       const recorded = stubWebview(provider);
 

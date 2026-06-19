@@ -82,6 +82,7 @@ three-way fork, merge with branches at both parents, focus state).
 > NOT exercise `_getBranchLabelsHtml(node)`. Wave E's bug (chips
 > don't render in narrow panels) lived entirely in the chip-emit +
 > CSS layout layers, both of which were untested. Wave E adds:
+>
 > - **Chip-emit-stage snapshots** (snap-7a..7e) asserting the
 >   literal HTML span output of `_getBranchLabelsHtml`
 > - **Layout-stage snapshot** (snap-7f) using jsdom to assert the
@@ -132,7 +133,7 @@ synthetic fixture / repro instructions the reviewer can use.
 > 2. **jsdom-rendered HTML test** — the reviewer writes (or cites)
 >    a test that synthesises the rendered HTML for the feature and
 >    asserts on the visual claim (e.g. `assert.ok(chip.parentElement
->    .classList.contains('commit-branches'))` for chip placement).
+.classList.contains('commit-branches'))` for chip placement).
 >    `commitGraphSnapshots.test.ts` snap-7f is the canonical
 >    template for this form.
 > 3. **Explicit cannot-F5 declaration** — only acceptable when the
@@ -168,7 +169,7 @@ The Wave D seed: `docs/parity/git-log-graph.md`.
 > parity doc that maps onto an algorithm/renderer/HTML output must
 > cite the corresponding snapshot test that pins it. Format:
 > `(see snap-Nx in commitGraphSnapshots.test.ts)`. Wave E updates
-> `docs/parity/git-log-graph.md` §2 to cite snap-7a..7f for chip
+> `docs/parity/git-log-graph.md` section 2 to cite snap-7a..7f for chip
 > rendering; future parity docs include this back-reference style
 > by default. Combined with the cannot-F5 declaration form above,
 > the back-reference makes "verified by test" a first-class
@@ -176,8 +177,8 @@ The Wave D seed: `docs/parity/git-log-graph.md`.
 
 ### Layer 4 — Repo-state coverage
 
-Layers 1–3 close the gap between *algorithm output* and *rendered
-visual* for the **default** repo state (clean working tree, attached
+Layers 1–3 close the gap between _algorithm output_ and _rendered
+visual_ for the **default** repo state (clean working tree, attached
 HEAD on a normal branch). Wave F surfaced the next gap: features that
 look correct against the default state can fail catastrophically when
 the repo is in a non-default state.
@@ -196,7 +197,7 @@ Layer 4 makes the repo-state input space explicit:
 
 1. **Repo-state landmap** — every parity-targeted feature must enumerate
    its behaviour across the canonical non-default states in
-   `docs/parity/repo-states.md` §0 at-a-glance table. The states
+   `docs/parity/repo-states.md` section 0 at-a-glance table. The states
    covered today are: default, detached HEAD, in-progress merge,
    in-progress rebase, in-progress cherry-pick, empty repo. New
    features mark each row as covered / partially covered / NOT
@@ -206,7 +207,7 @@ Layer 4 makes the repo-state input space explicit:
    property-test invariant) wired through the same parser → renderer
    → HTML chain. Wave F's seed: `parseBranches-detached-1..5` +
    snap-8a + snap-8b for the detached-HEAD state.
-3. **Repo-state cite in parity doc** — the §1.x section for each state
+3. **Repo-state cite in parity doc** — the section 1.x section for each state
    in `docs/parity/repo-states.md` carries the same snapshot
    back-reference shape Layer 3 mandates: `(see snap-Nx in <test>)`.
    The combination — landmap + fixtures + back-references — makes the
@@ -217,11 +218,11 @@ The discipline now reads: **(input space) repo-state landmap →
 snap-N → (final HTML emit) snap-N**. A regression at any stage in any
 covered state surfaces as a deliberate diff.
 
-> **Wave F seed**: `docs/parity/repo-states.md` §0 enumerates 6
+> **Wave F seed**: `docs/parity/repo-states.md` section 0 enumerates 6
 > repo states (default, detached HEAD, in-progress merge / rebase /
-> cherry-pick, empty repo). Wave F covers detached HEAD only (§1);
+> cherry-pick, empty repo). Wave F covers detached HEAD only (section 1);
 > the remaining states are flagged "NOT covered, Wave G candidate"
-> in the §0 at-a-glance table so future waves can pick them up
+> in the section 0 at-a-glance table so future waves can pick them up
 > without re-deriving the landmap.
 
 ## Consequences
@@ -277,15 +278,15 @@ serve the same comparison need without duplicating the surface.
 - ADR-007 — Structural guards as a complementary tool. Layer 1
   snapshots are the visual-output analogue of structural guards.
 - ADR-009 — Webview state ownership. The `updateBranchFocus` surface
-  added in Wave D is documented in ADR-009 §3.
+  added in Wave D is documented in ADR-009 section 3.
 - `src/test/unit/utils/commitGraphSnapshots.test.ts` — Wave D seed
   for Layer 1; Wave E adds snap-7a..7g (chip-emit, jsdom layout,
   message-text full-line emission); Wave E R1 adds snap-7h
   (chip max-width + ellipsis CSS contract).
 - `docs/parity/git-log-graph.md` — Wave D seed for Layer 3; Wave E
-  adds snap-back-references in §2.
+  adds snap-back-references in section 2.
 - `docs/parity/repo-states.md` — Wave F seed for Layer 4 (repo-state
-  landmap + detached-HEAD §1).
+  landmap + detached-HEAD section 1).
 - `src/utils/gitParser.ts` `parseBranches` — Wave F filter for git's
   parenthesized pseudo-refs; covered by `parseBranches-detached-1..5`,
   snap-8a, snap-8b, and the `parseBranches.property.test.ts` property.
@@ -308,7 +309,7 @@ serve the same comparison need without duplicating the surface.
   Every parity-targeted feature now enumerates its behaviour across
   the canonical non-default states (detached HEAD, in-progress merge
   / rebase / cherry-pick, empty repo) in `docs/parity/repo-states.md`
-  §0 at-a-glance table; each covered state gets at least one Layer-1
+  section 0 at-a-glance table; each covered state gets at least one Layer-1
   snapshot or property-test invariant; the parity-doc state section
   carries snapshot back-references. Wave F seeds the layer with the
   detached-HEAD entry (parseBranches filter for parenthesized pseudo-
@@ -320,7 +321,7 @@ serve the same comparison need without duplicating the surface.
   tech-lead reviews exercised the detached input shape. Layer 4
   makes the repo-state input space first-class.
 - **Wave G (2026-05-25)**: extended Layer 4 (repo-state coverage) with
-  §1.5 — HEAD chip rendering. Trigger: Wave F's detached-HEAD parser fix
+  section 1.5 — HEAD chip rendering. Trigger: Wave F's detached-HEAD parser fix
   closed the "Failed to create branch" crash, but user dogfood surfaced
   a downstream gap: in detached HEAD the user has no visual indicator
   of where HEAD lives. The chip-rendering pipeline (Wave A → D → E)
@@ -333,7 +334,7 @@ serve the same comparison need without duplicating the surface.
   `provider.refresh()` runs against fresh state instead of racing the
   watcher's 250 ms debounced reload.
 - **Wave H (2026-05-25)**: extended Layer 4 (repo-state coverage)
-  with §1.6 — branch tree detached row. Trigger: Wave G closed the
+  with section 1.6 — branch tree detached row. Trigger: Wave G closed the
   graph-side detached HEAD gap (yellow/gold HEAD chip on the commit
   row), but user dogfood surfaced that the BRANCHES tree sidebar
   showed nothing for detached state — no current-branch indicator,
@@ -410,15 +411,15 @@ serve the same comparison need without duplicating the surface.
     11px to match chip text height.
   - **WJ-5** (CSP / consistency): toggleLine inline `onclick=`
     cleaned up — diff lines now carry `data-action="toggleLine"
-    data-hunk-index="…" data-line-number="…"` and route through
+data-hunk-index="…" data-line-number="…"` and route through
     the existing CommitDialog dispatcher. Both args are
     caller-controlled numbers (no user input through the JS
     string), but consistency wins — every onclick interpolation
     in CommitDialog is now data-action.
 
   Layer 1 (snapshot) gained 7 new fixtures (snap-12a..g);
-  Layer 3 (`docs/parity/`) gained §2.6 Accessibility (Wave J)
-  with the per-WCAG-criterion test coverage matrix at §2.6.5.
+  Layer 3 (`docs/parity/`) gained section 2.6 Accessibility (Wave J)
+  with the per-WCAG-criterion test coverage matrix at section 2.6.5.
   Layer 2 (UX review) and Layer 4 (repo-state) were unchanged.
   The visible-parity surface gained the codicon prefix on each
   chip and the theme-aware coloring; the rest of the work was
@@ -463,7 +464,7 @@ serve the same comparison need without duplicating the surface.
     the background colour.
   - **MED-1 (focused chip non-colour affordance)**: added
     `font-weight: 700` (bumped from `600`) and `text-decoration:
-    underline` to `.branch-label-focused` so the focused-affordance
+underline` to `.branch-label-focused` so the focused-affordance
     is visible WITHOUT relying on the theme-defined focus outline
     alone — WCAG 1.4.1 invariant.
   - **MED-2 (focused chip aria-describedby)**: added
@@ -473,7 +474,7 @@ serve the same comparison need without duplicating the surface.
     `.visually-hidden` utility class to inline styles.
   - **MED-3 (detached HEAD aria)**: added
     `accessibilityInformation.label = "Detached HEAD at <shortSha> —
-    not on a branch"` to the synthetic detached-head BranchTreeItem
+not on a branch"` to the synthetic detached-head BranchTreeItem
     so SR users hear the same meaning the visible icon + tooltip
     convey to sighted users. Pinned by `branchTree-detached-aria-1`
     in BranchTreeProvider.test.ts.
@@ -481,15 +482,15 @@ serve the same comparison need without duplicating the surface.
     the worktree — already cleaned up by UX-reviewer's pane.
 
   Layer 3 (`docs/parity/`) gained the cross-cutting `accessibility.md`
-  alongside the per-feature `git-log-graph.md §2.6`. Layer 1
+  alongside the per-feature `git-log-graph.md section 2.6`. Layer 1
   (snapshot) gained 12 new tests (8 fileStatusTheme + 1 branchTree-aria
-  + 3 codiconFont) on top of the R0 set. Layer 2 (UX review) and
-  Layer 4 (repo-state) were unchanged. All 8 gates clean post-R1.
+  - 3 codiconFont) on top of the R0 set. Layer 2 (UX review) and
+    Layer 4 (repo-state) were unchanged. All 8 gates clean post-R1.
 
 - **Wave K (2026-05-26)**: closed 5 IntelliJ-parity findings (WK-1..5)
-  + the Wave J DJ-2 deferral (chip `aria-pressed` deferred further —
-  chips remain non-interactive until the chip-as-button work lands).
-  - **WK-1 (Squash/Fixup with Previous)**: added single-only commit
+  - the Wave J DJ-2 deferral (chip `aria-pressed` deferred further —
+    chips remain non-interactive until the chip-as-button work lands).
+  * **WK-1 (Squash/Fixup with Previous)**: added single-only commit
     context-menu entries `squashWithPrevious` + `fixupWithPrevious`
     that synthesise a 2-commit selection [clicked, parent] and
     delegate to the existing `_handleSquashCommits` pipeline with a
@@ -498,13 +499,13 @@ serve the same comparison need without duplicating the surface.
     verbatim, matching `git commit --fixup` semantics. Defence-in-
     depth checks reject root commits (no parent) and merge commits
     (>=2 parents) with friendlier per-action messages.
-  - **WK-2 (Compare with Branch picker)**: added single-only entry
+  * **WK-2 (Compare with Branch picker)**: added single-only entry
     `compareWithBranch` that opens a `vscode.window.showQuickPick`
     with three sections (`Local Branches` / `Remote Branches` /
     `Tags`) separated by `QuickPickItemKind.Separator`, then routes
     the selected ref through `BranchComparisonView`. Mirrors
     IntelliJ's "Compare with Branch…" dialog.
-  - **WK-3 (Track Remote Branch with smart-detect)**: added the
+  * **WK-3 (Track Remote Branch with smart-detect)**: added the
     `intellig.remoteBranch.trackBranch` command + its `5_manage`
     menu entry on `viewItem == intellig.remoteBranch`. Smart-detects
     whether a matching local branch already exists: if yes, calls
@@ -513,16 +514,16 @@ serve the same comparison need without duplicating the surface.
     Surfaces a single confirm before changing an existing upstream.
     New `IGitService.setBranchUpstream` method on the composite +
     GitService implementation + mockGitService stub.
-  - **WK-4 (Tag chips on log graph rows)**: extended the chip family
+  * **WK-4 (Tag chips on log graph rows)**: extended the chip family
     with `.tag-label`, rendered rightmost on each commit row after
     the HEAD + branch chips. Per-chip contract follows the Wave J
     chip-family discipline: `role="img"` + `aria-label="Tag: …"`
-    + leading `codicon-tag` glyph as the WCAG 1.4.1 non-color
-    affordance. Joined the existing `max-width: 200px` + ellipsis
-    rule so long tag names ellipsize. Codicon-tag glyph (`\\ea66`)
-    pinned from `@vscode/codicons@0.0.45` dist/codicon.css.
-  - **WK-5 (DJ-2 deferral closure)**: documented in
-    `docs/parity/accessibility.md` and `git-log-graph.md §2.6` that
+    - leading `codicon-tag` glyph as the WCAG 1.4.1 non-color
+      affordance. Joined the existing `max-width: 200px` + ellipsis
+      rule so long tag names ellipsize. Codicon-tag glyph (`\\ea66`)
+      pinned from `@vscode/codicons@0.0.45` dist/codicon.css.
+  * **WK-5 (DJ-2 deferral closure)**: documented in
+    `docs/parity/accessibility.md` and `git-log-graph.md section 2.6` that
     `aria-pressed` remains deferred — chips are still non-interactive
     surfaces and `aria-pressed` would lie about their state. No
     production code changes; pure documentation closure.
@@ -542,7 +543,7 @@ serve the same comparison need without duplicating the surface.
   shims, the menu binding would call `_handleSquashCommits` directly
   with a 1-element array, re-introducing the bug class where merge
   commits got silently squashed against `HEAD~1` regardless of
-  parentage. *Preservation directive:* do not collapse
+  parentage. _Preservation directive:_ do not collapse
   `_handleSquashWithPrevious` / `_handleFixupWithPrevious` into a single
   shared entry point or remove them in favour of calling
   `_handleSquashCommits` directly from the menu binding. Their job is
@@ -551,20 +552,20 @@ serve the same comparison need without duplicating the surface.
 
   **Architectural rationale — WK-2 late-bound view setter (TLK-3).**
   `CommitContextMenuCommands.setBranchComparisonView(view)` is a
-  deliberate construction-order trade-off, not an afterthought. *Why:*
+  deliberate construction-order trade-off, not an afterthought. _Why:_
   `extension.ts` constructs both `CommitContextMenuCommands` and
   `BranchComparisonView`, but `BranchComparisonView` itself depends on
   `CommitContextMenuCommands` being available — a constructor-injection
   approach would require either a circular import or a forward
   declaration that TypeScript's module graph cannot satisfy cleanly.
-  *How:* `extension.ts` constructs `CommitContextMenuCommands` first,
+  _How:_ `extension.ts` constructs `CommitContextMenuCommands` first,
   constructs `BranchComparisonView` afterwards, then wires the view
   back via the setter — all synchronous within `activate()`, so there
   is no race window for user input between the two steps. The handler
   at `CommitContextMenuCommands.ts:2399` keeps an `undefined` guard as
   belt-and-suspenders against pre-wiring dispatch (e.g. a future caller
-  that registers the command before `activate()` finishes). *Preservation
-  directive:* do not refactor this into constructor injection without
+  that registers the command before `activate()` finishes). _Preservation
+  directive:_ do not refactor this into constructor injection without
   first eliminating the import cycle between `extension.ts` /
   `BranchComparisonView` / `CommitContextMenuCommands`.
 
@@ -572,8 +573,8 @@ serve the same comparison need without duplicating the surface.
   `commitGraphSnapshots.test.ts` (tag chip ordering, empty-string
   return for the HEAD + branches + tags negation, escape, max-width
   sharing, theme var, codicon glyph). Layer 3 gained
-  `docs/parity/accessibility.md §1.4` (tag chip aria contract) and
-  `docs/parity/git-log-graph.md §2.7` (per-chip detail with §2.7.4
+  `docs/parity/accessibility.md section 1.4` (tag chip aria contract) and
+  `docs/parity/git-log-graph.md section 2.7` (per-chip detail with section 2.7.4
   test coverage matrix). Layer 2
   (UX review) and Layer 4 (repo-state) were unchanged — Wave K added
   no new repo-state fixtures (tags are repo-state-orthogonal: any

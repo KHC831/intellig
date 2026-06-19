@@ -32,7 +32,7 @@ const { Uri } = vscodeMock;
 
 interface FamilySurface {
   _fileWatchers: Map<string, vscode.Disposable[]>;
-  // Aligned to production type. ADR-008 §1 documents that the
+  // Aligned to production type. ADR-008 section 1 documents that the
   // new-repo family was widened from singular `vscode.FileSystemWatcher`
   // to `vscode.FileSystemWatcher[]` (single-element array) so the map
   // fits the uniform `_watcherMaps` registry walker. Earlier this

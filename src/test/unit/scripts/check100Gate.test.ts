@@ -114,7 +114,7 @@ describe('scripts/check-100-gate.sh — pre-1.0 short-circuit', () => {
       // default version-extraction uses `require('./<path>')`, which
       // doesn't accept absolute paths. The override is the supported
       // entry point for fixture-driven runs (per the script's
-      // §2 "Override hooks for testing only").
+      // section 2 "Override hooks for testing only").
       const r = runScript({ packageJsonPath: pkg, versionOverride: '0.1.0' });
       assert.strictEqual(
         r.status,

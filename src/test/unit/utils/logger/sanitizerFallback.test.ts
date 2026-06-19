@@ -91,7 +91,7 @@ function getCapturedLines(): string[] {
  * `Object.keys`, and read `inner[key]` — which invokes the getter
  * and throws. The sanitizer's top-level `try/catch` then converts
  * the throw into the documented `ok: false` sentinel result, which
- * the Logger forwards to the sinks as the §4.5 fallback warn record.
+ * the Logger forwards to the sinks as the section 4.5 fallback warn record.
  *
  * The thrown error message embeds {@link PAYLOAD_LEAK_SENTINEL} so
  * any test failure pointing at "leaked payload" is unambiguous.

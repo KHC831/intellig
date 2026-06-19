@@ -23,7 +23,7 @@
  *  11. Property-test fixture cross-reference.
  *  12. Delete unreachable swap-fallback.
  *  13. Rule-of-three follow-up on the property mock.
- *  14. ADR-009 §6 (display-order vs replay-order).
+ *  14. ADR-009 section 6 (display-order vs replay-order).
  */
 
 import '../../setup';
@@ -743,9 +743,9 @@ describe('Wave B R1 — review fixes', () => {
     });
   });
 
-  // ─── ADR-009 §6 ───────────────────────────────────────────────────────────
-  describe('ADR-009 §6 display-order vs replay-order', () => {
-    it('ADR-009 has a §6 section about display-order vs replay-order', async () => {
+  // ─── ADR-009 section 6 ───────────────────────────────────────────────────────────
+  describe('ADR-009 section 6 display-order vs replay-order', () => {
+    it('ADR-009 has a section 6 section about display-order vs replay-order', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const adr = fs.readFileSync(
@@ -754,11 +754,11 @@ describe('Wave B R1 — review fixes', () => {
       );
       assert.ok(
         /###?\s*6\.[\s\S]{0,200}(display[- ]order|replay[- ]order)/i.test(adr),
-        'expected ADR-009 §6 section about display-order / replay-order'
+        'expected ADR-009 section 6 section about display-order / replay-order'
       );
       assert.ok(
         /getSelectedCommitsOldestFirst/.test(adr),
-        '§6 must cross-link to the new oldest-first sibling helper'
+        'section 6 must cross-link to the new oldest-first sibling helper'
       );
     });
   });

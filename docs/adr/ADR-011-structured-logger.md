@@ -24,7 +24,7 @@ We want **one** boundary every layer of the extension writes through:
 services, tree/webview providers, command handlers, and the
 `safeFireAndForget` rejection path. One set of conventions, one
 sanitization seam, one place to change rendering. The open question
-this ADR answers is *how that boundary is exposed* — and specifically
+this ADR answers is _how that boundary is exposed_ — and specifically
 why it is a module-level singleton under `src/utils/` rather than a
 service on the `ExtensionServices` graph, given that ADR-002
 deliberately makes the singleton track a narrow exception.
@@ -54,9 +54,9 @@ interface Logger {
 ```
 
 - `error` carries an overload: the second argument may be a `Bindings`
-  bag *or* an `Error`, so the common shorthand `logger.error('failed',
-  err)` works without spelling out a third positional. `instanceof
-  Error` is the discriminator.
+  bag _or_ an `Error`, so the common shorthand `logger.error('failed',
+err)` works without spelling out a third positional. `instanceof
+Error` is the discriminator.
 - `child(bindings)` returns a fresh `Logger` whose state is the parent
   state shallow-merged with `bindings`. It is **non-destructive**:
   neither the parent's captured state nor the caller's `bindings`
@@ -100,7 +100,7 @@ interface LogSink {
   skipping the offending sink so a persistently broken sink cannot
   loop its own failure reports back into itself.
 - `dispose` is idempotent and detaches the sink's own subscription
-  only. A sink that *borrows* an externally-owned resource never
+  only. A sink that _borrows_ an externally-owned resource never
   disposes it (see the channel-ownership boundary below).
 
 Two production sinks ship today, both sharing the Logger's single
@@ -117,7 +117,7 @@ Two production sinks ship today, both sharing the Logger's single
   active only when `intellig.log.console` is `true`. It reuses the same
   `formatRecord` output as the OutputChannel sink (byte-for-byte
   parity) and forwards to `console[level]`, mapping `trace →
-  console.debug`. This file is the **one sanctioned production
+console.debug`. This file is the **one sanctioned production
   reference to `console.*`**; the structural guard
   `scripts/check-no-bare-console.sh` allowlists it and fails the build
   on any other `console` call site.
@@ -145,13 +145,13 @@ Two properties matter and are deliberate:
 - **Read at emit time, not at `child` time.** `child(bindings)` does
   not read the store. The store is read when a record is built, so a
   child Logger constructed inside one command frame and called inside
-  another attributes records to the *current* frame. An explicit
+  another attributes records to the _current_ frame. An explicit
   `correlationId` binding overrides the store read.
 - **Non-fabrication.** When no command frame is on the stack (e.g. a
   watcher event handler firing outside any `run(...)`),
   `getCurrentCorrelationId()` returns `undefined` and the Logger omits
   the field rather than synthesizing one. `safeFireAndForget` captures
-  the id *at call time* and closes over it, so a rejection that fires
+  the id _at call time_ and closes over it, so a rejection that fires
   after the frame has popped still emits the captured id.
 
 ### LogLevelResolver
@@ -161,13 +161,13 @@ threshold (`intellig.log.level`, default `info`) and the
 developer-console flag (`intellig.log.console`). Threshold ordering is
 the frozen `LEVEL_RANK` table `trace < debug < info < warn < error <
 off`; `admits(level)` is a single comparison `LEVEL_RANK[level] >=
-LEVEL_RANK[threshold]`. `'off'` is a *threshold-only* value — a record
+LEVEL_RANK[threshold]`. `'off'` is a _threshold-only_ value — a record
 can never be at level `'off'`.
 
 The resolver reads `vscode.workspace.getConfiguration('intellig')`
 **directly**, not through `ConfigurationService`. This is a bootstrap
 decision: `ConfigurationService` is constructed by `ExtensionServices`,
-which runs *after* `initLogger(context)`, so depending on it would
+which runs _after_ `initLogger(context)`, so depending on it would
 reintroduce the chicken-and-egg ordering hazard the singleton exists to
 avoid. `initLogger` instead registers a raw
 `onDidChangeConfiguration` listener — the same pattern
@@ -210,19 +210,19 @@ would belong on `ExtensionServices`.
 
 2. **Needs early access.** `GitService.setupRepositoryWatcher` and the
    `ConflictResolutionService` state-sync paths emit during service
-   *construction*, before `ExtensionServices.initialize` has finished
+   _construction_, before `ExtensionServices.initialize` has finished
    wiring the graph. The Logger is the uniform replacement for the
    `console.*` / direct-channel calls on those paths, so it inherits
    the same pre-`initialize()` access constraint that motivated the
    original `getOutputChannel` singleton. `initLogger(context)` runs in
-   `activate` *before* `ExtensionServices.initialize`.
+   `activate` _before_ `ExtensionServices.initialize`.
 
 3. **Test-isolation hook.** `__resetLoggerForTest()` drops the cached
    root Logger, detaches and disposes every registered sink, disposes
    the configuration listener, and resets the `LogLevelResolver`'s
    cached threshold and the idempotency guard — so each spec starts
    from a fresh singleton. The `__<name>ForTest` prefix is the
-   TestSurface convention (`docs/testing.md` §3); the structural guard
+   TestSurface convention (`docs/testing.md` section 3); the structural guard
    `scripts/check-test-only-surface.sh` fails the build on any
    production reference.
 
@@ -230,7 +230,7 @@ would belong on `ExtensionServices`.
    configuration-change listener and one disposable per sink onto
    `context.subscriptions`, so the deactivation chain tears them down
    alongside every other extension disposable. The underlying
-   `OutputChannel` is *not* double-disposed here — it is owned by
+   `OutputChannel` is _not_ double-disposed here — it is owned by
    `initOutputChannel(context)`'s own subscription (Requirement 3.4).
 
 ## Consequences
@@ -262,7 +262,7 @@ would belong on `ExtensionServices`.
 - The Logger is a second module-level singleton alongside
   `getOutputChannel`. ADR-002 names two as the informal ceiling before
   re-evaluating whether a small "bootstrap observability" service is
-  warranted; this ADR spends that budget. A *third* cross-cutting sink
+  warranted; this ADR spends that budget. A _third_ cross-cutting sink
   (telemetry, error routing) should trigger that re-evaluation rather
   than reflexively adding a third singleton.
 - The resolver talking directly to `vscode.workspace` duplicates the
@@ -297,7 +297,7 @@ looks up `getLogger().child({ component: 'commit' })` and calls
 frame's `correlationId`, `component: 'commit'`, and a sanitized
 `context`. If the same handler calls `safeFireAndForget(pushPromise,
 …)`, the push rejection — which fires after the handler returned and the
-`AsyncLocalStorage` frame popped — still logs the *same* correlation id
+`AsyncLocalStorage` frame popped — still logs the _same_ correlation id
 because `safeFireAndForget` captured it at call time. Every line is
 scrubbed by `sanitizeGitError` before it reaches the `IntelliG`
 channel, so a `fatal: unable to access https://user:token@host/…`
@@ -324,5 +324,5 @@ stderr fragment renders with the credential redacted.
   conformance justification its four criteria require.
 - ADR-005 — sanitizer pass ordering in `sanitizeGitError`; the Logger
   reuses that helper rather than re-deriving redaction.
-- `docs/testing.md` §3 — the `__<name>ForTest` TestSurface convention
+- `docs/testing.md` section 3 — the `__<name>ForTest` TestSurface convention
   the `__resetLoggerForTest` hook follows.

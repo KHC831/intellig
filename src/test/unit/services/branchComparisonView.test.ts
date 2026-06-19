@@ -291,7 +291,7 @@ describe('BranchComparisonView TL-68 — refresh() returns { error? } (no _state
 describe('BranchComparisonView TL-75 — _showComparisonResults early-return after failed comparison', () => {
   /**
    * Test surface — reaches into the private method for direct invocation.
-   * Standard `TestSurface` idiom (see `docs/testing.md` §3): the public
+   * Standard `TestSurface` idiom (see `docs/testing.md` section 3): the public
    * surface (`show()` → `_performComparison` → `_showComparisonResults`)
    * already short-circuits at `show()` line 129 before we'd reach the
    * private method, so we can't drive the invariant through the public

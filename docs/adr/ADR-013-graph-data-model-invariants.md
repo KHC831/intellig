@@ -46,11 +46,10 @@ six weeks against this same code:
 Each fix landed in `commitGraph.ts` as a focused change. None of
 them was canonical — there was no single document a future
 contributor could read to understand the contract the graph data
-model honors. The implementation plan
-(`docs/design/git-tool-window-implementation-plan.md`) lists spec 8.L1,
-spec 8.L4, and spec 8.L9 as the load-bearing rules that flow through this
-module; the spec (`docs/design/git-tool-window-spec.md` spec 8) names
-each rule in isolation but does not knit them together with the
+model honors. The load-bearing rules that flow through this module —
+spec 8.L1, spec 8.L4, and spec 8.L9 — were originally catalogued in
+the now-superseded Git Tool Window spec and implementation plan, which
+named each rule in isolation but did not knit them together with the
 algorithm and renderer surfaces they constrain.
 
 This ADR is that knitting. It records the decided shape of
@@ -286,9 +285,8 @@ Phase 4) will add rows that point at the test files this ADR cites.
 ### Negative
 
 - **One more ADR to keep current.** When the lane release pre-pass
-  ships (the deferred Phase 1b — see implementation plan "Open
-  questions resolved"), this ADR will gain a spec 6 covering the
-  released-after-row lifetime model. The append-only style means
+  ships (the deferred Phase 1b), this ADR will gain a spec 6 covering
+  the released-after-row lifetime model. The append-only style means
   the existing sections survive; the deferred work has its own
   follow-up entry in `KNOWN-ISSUES.md` task #49.
 - **Test-pin paths are coupled to file names.** A rename of any of
@@ -324,13 +322,12 @@ the rule. ADRs are that entry point.
 
 ### Inline the data-model contract into the spec
 
-The spec (`docs/design/git-tool-window-spec.md`) is the UX
-reference; it tells designers and reviewers what a user sees. The
-data-model contract is downstream of UX rules but upstream of every
-implementer touching the algorithm or the renderer. Folding it into
-the spec would mix two audiences. Keeping the spec rules (spec 8.L1,
-spec 8.L4, spec 8.L9) authoritative for the user-visible behaviour and this
-ADR authoritative for the algorithm / data-model implementation
+The Git Tool Window UX spec told designers and reviewers what a user
+sees. The data-model contract is downstream of UX rules but upstream
+of every implementer touching the algorithm or the renderer. Folding
+it into that spec would have mixed two audiences. Keeping the
+user-visible rules (spec 8.L1, spec 8.L4, spec 8.L9) scoped to UX and
+this ADR authoritative for the algorithm / data-model implementation
 keeps each surface scoped to one audience.
 
 ### One ADR per invariant (ADR-013, -014, -015)
@@ -345,13 +342,11 @@ exactly the algorithm boundary, so one ADR is the right altitude.
 
 ## Cross-references
 
-- `docs/design/git-tool-window-spec.md` spec 8.L1, spec 8.L4, spec 8.L9 — the
-  user-visible rules this ADR encodes for the algorithm + data-model
-  surface.
-- `docs/design/git-tool-window-implementation-plan.md` Phase 1a —
-  the plan that schedules this ADR alongside the test pins it
-  documents (so the canonical decision and its regression guards
-  land together, not as a Phase 7 afterthought).
+- Supersedes the retired Git Tool Window spec + implementation plan:
+  this ADR is the surviving record of the spec 8.L1 / L4 / L9
+  user-visible rules and the Phase 1a test pins that lock them (so the
+  canonical decision and its regression guards live together, not as a
+  Phase 7 afterthought).
 - `src/git-core/commitGraph.ts` — the algorithm boundary; carries
   `@invariant` JSDoc citing each rule and pointing at this ADR.
 - `src/utils/graphRenderer.ts` — the renderer surface that consumes

@@ -252,7 +252,7 @@ the host with **no surface** to receive it (audit gap).
 | detached HEAD         | grouping/unversioned are HEAD-state-orthogonal (operate on  |
 |                       | working-tree status, not refs); no special-casing needed.   |
 | in-progress merge     | conflicted files render with status `U`; the before-commit  |
-|                       | unresolved-merge check (see §A2) blocks committing them.    |
+|                       | unresolved-merge check (see section A2) blocks committing them.    |
 | empty repo            | empty changelist list → "No uncommitted changes." empty state |
 
 Grouping + unversioned are pure functions over the file list and carry no
@@ -276,10 +276,10 @@ feature:
 
 1. **Changed Files directory hierarchy** — the commit-details
    "Changed Files (N)" list, rendered as an IntelliJ-style folder
-   tree (§1).
+   tree (section 1).
 2. **Commit history row layout** — the per-file FileHistoryTab
    commit rows, with the author and date columns sitting adjacent
-   instead of separated by a wasted slack gap (§2).
+   instead of separated by a wasted slack gap (section 2).
 
 Both are governed by ADR-010 visual-parity discipline. The reference
 behaviour is IntelliJ IDEA's Git tool window. Per Layer 3, every
@@ -294,9 +294,9 @@ the repo-state tests rather than here.
 
 ---
 
-## §1 Changed Files directory hierarchy
+## section 1 Changed Files directory hierarchy
 
-### §1.1 IntelliJ reference behaviour
+### section 1.1 IntelliJ reference behaviour
 
 IntelliJ's commit-details "Changed Files" pane groups changed files
 under their parent folders as a nested tree, rather than printing a
@@ -315,7 +315,7 @@ flat list of full paths. Three behaviours define the reference:
   directory child) compacts to a single `src/main/java` row. A
   directory whose single child is a *file* is NOT compacted.
 
-### §1.2 Tree structure
+### section 1.2 Tree structure
 
 The pure transform `buildFileTree(files)` in
 `src/git-core/gitToolWindow/html/fileTree.ts` produces the forest;
@@ -350,7 +350,7 @@ case-insensitively by display name. At the top level, the
 precedes `App.java` and `Renamed.java` (`App` before `Renamed`,
 case-insensitive).
 
-### §1.3 Render rules
+### section 1.3 Render rules
 
 - **Indentation** is visual-only via an inline
   `padding-left: {depth * 16 + 4}px` on every row (16px per level,
@@ -382,7 +382,7 @@ case-insensitive).
   multi-commit combined (`_getMultiCommitDetailsPanelHtml`) — share
   the one `fileTree.ts` implementation.
 
-### §1.4 Test coverage
+### section 1.4 Test coverage
 
 Layer 1 — directory-tree HTML emit (Requirements 2.10, 2.11, 2.12):
 
@@ -417,7 +417,7 @@ Layer 1 — pure transform / renderer properties (Requirement 2,
   status letter/color, base name, and the renamed `oldPath` are all
   preserved.
 
-### §1.5 Cross-references
+### section 1.5 Cross-references
 
 - ADR-010 Layer 1 (snapshot discipline) / Layer 3 (this reference
   doc) — the discipline that produced this document.
@@ -431,9 +431,9 @@ Layer 1 — pure transform / renderer properties (Requirement 2,
 
 ---
 
-## §2 Commit history row layout
+## section 2 Commit history row layout
 
-### §2.1 IntelliJ reference behaviour
+### section 2.1 IntelliJ reference behaviour
 
 In IntelliJ's file-history view, each commit row uses the limited
 horizontal width efficiently: the author and date sit close together,
@@ -441,7 +441,7 @@ separated only by a single uniform gap, with the commit subject
 absorbing all remaining slack. There is no wide empty gap between the
 author and date columns.
 
-### §2.2 Column layout
+### section 2.2 Column layout
 
 The FileHistoryTab row (`renderCommitRow` in
 `src/git-core/gitToolWindow/html/historyHtml.ts`) is a CSS grid with
@@ -474,7 +474,7 @@ The markup order (`.history-commit-hash` → `.history-commit-subject`
 by the fix — only the grid track definition and the author/date
 ellipsis rule changed.
 
-### §2.3 Test coverage
+### section 2.3 Test coverage
 
 Layer 1 — history-row layout HTML/CSS emit (Requirements 1.3, 1.8,
 `src/test/unit/html/historyTabStyles.snapshots.test.ts`, suite
@@ -491,7 +491,7 @@ Visual_Parity_Snapshot`):
   hash → subject → author → date cell order, and asserts a multi-line
   message keeps only its first line in the subject cell.
 
-### §2.4 Cross-references
+### section 2.4 Cross-references
 
 - ADR-010 Layer 1 / Layer 3 — the visual-parity discipline.
 - `src/git-core/gitToolWindow/html/historyHtml.ts` —

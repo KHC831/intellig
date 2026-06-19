@@ -27,7 +27,7 @@ describe('buildFileTree()', () => {
     });
   });
 
-  describe('File-tree forest example (design §"File-tree forest example")', () => {
+  describe('File-tree forest example (design section "File-tree forest example")', () => {
     // Input (flat), matching the design's worked example.
     const fixture: IChangedFile[] = [
       { path: 'src/main/java/App.java', status: 'modified' },

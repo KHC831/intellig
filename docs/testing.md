@@ -5,7 +5,7 @@ directories. This document is the canonical reference for where a new
 test or test helper belongs, and how to reach into private state from
 a test without rotting the production API.
 
-## §1. Test layers
+## section 1. Test layers
 
 | Layer    | Path                   | CI lane                                    | VS Code host? | Real git? | Driver     | Approx. count |
 | -------- | ---------------------- | ------------------------------------------ | ------------- | --------- | ---------- | ------------: |
@@ -105,7 +105,7 @@ flake is high — silent activation failures bypass every in-process
 guard — and the cost of running `test:ext-host` once per PR on Linux
 is low.
 
-## §2. Test-infra locations
+## section 2. Test-infra locations
 
 ```
 src/test/
@@ -130,7 +130,7 @@ src/test/
 - **`src/test/e2e/support/`** — E2E-only: `Fixture`, `workspaceHelper`,
   test-process stubs. Depends on VS Code + real filesystem.
 
-## §3. The TestSurface idiom
+## section 3. The TestSurface idiom
 
 To reach private class members from tests, **declare a named
 `<ClassName>TestSurface` (or `<ClassName>Internals`) interface**
@@ -253,7 +253,7 @@ Exemplars:
 - `createErrorThrowingMockGitService` in
   `src/test/property/branchContextMenuErrors.property.test.ts`.
 
-## §4. Decision rules — where does my new test helper go?
+## section 4. Decision rules — where does my new test helper go?
 
 | Scenario                                                    | Put it in                |
 | ----------------------------------------------------------- | ------------------------ |
@@ -265,14 +265,14 @@ Exemplars:
 If a helper would be used only once, don't extract it. The overhead of
 reading across two files isn't paid back by a single caller.
 
-## §5. Related
+## section 5. Related
 
 - Production-side escape hatch for raw `GitCli` access from call sites
   that the frozen `IGitService` composite deliberately doesn't wrap: see
   `IGitServiceCli` in `src/services/interfaces/IGitService.ts`. That's a
   production interface (marked `@internal`), not a TestSurface.
 
-## §6. Lint rules that catch real bugs
+## section 6. Lint rules that catch real bugs
 
 A handful of lint rules have caught real production defects in this repo.
 This section teaches the pattern each rule detects so you recognise it in
@@ -317,7 +317,7 @@ a PR before the linter does. For policy on suppressing a rule, see
   template literal or `+` operator where a non-stringifiable value can
   flow in.
 
-## §7. Data-safety patterns
+## section 7. Data-safety patterns
 
 Two patterns live under this umbrella: forward-compat storage (survive
 version skew across reader / writer) and atomic working-tree writes

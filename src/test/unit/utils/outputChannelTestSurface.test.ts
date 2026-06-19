@@ -4,7 +4,7 @@
  *
  * Pre-rename, `disposeOutputChannel()` was the public name of a function
  * documented as "test-only" but lacking the project's TestSurface idiom
- * (`__*ForTest` prefix; see docs/testing.md §3). The mismatch made the
+ * (`__*ForTest` prefix; see docs/testing.md section 3). The mismatch made the
  * function look like a normal disposal hook and invited production
  * callers to drop the cached channel mid-flight.
  *

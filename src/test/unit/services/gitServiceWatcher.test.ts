@@ -136,7 +136,7 @@ class StubGitCli {
  *   - call `setupRepositoryWatcher` directly (the production entry point
  *     runs it as part of `loadRepository`, which we've already replaced).
  *
- * See `docs/testing.md` §3 for the TestSurface convention.
+ * See `docs/testing.md` section 3 for the TestSurface convention.
  */
 interface GitServiceWatcherTestSurface {
   _gitCli: StubGitCli;

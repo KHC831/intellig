@@ -1,9 +1,8 @@
 /**
- * Property test pins for spec spec 8 invariant L1 — lane assignment must be
+ * Property test pins for spec 8 invariant L1 — lane assignment must be
  * stable across reloads.
  *
- * Spec ref: `docs/design/git-tool-window-spec.md` spec 8.L1.
- * ADR ref: `docs/adr/ADR-013-graph-data-model-invariants.md`.
+ * ADR ref: `docs/adr/ADR-013-graph-data-model-invariants.md` section 2 (spec 8.L1).
  *
  * The spec 8 L1 rule:
  *

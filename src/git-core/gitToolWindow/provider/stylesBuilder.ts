@@ -18,8 +18,8 @@ import * as vscode from 'vscode';
  * script therefore reuses the handle memoised on `window.__intelligVscodeApi`,
  * acquiring it only when no sibling has yet. Any inline `onclick=`/`onchange=`
  * attribute that re-acquires bare would throw and silently drop every
- * subsequent `postMessage`. New handler wiring reads that shared handle. See
- * `docs/design/git-tool-window-spec.md` section 8.L8.
+ * subsequent `postMessage`. New handler wiring reads that shared handle.
+ * (spec 8.L8 single-`acquireVsCodeApi` invariant.)
  */
 export function buildInlineStyles(): string {
   return `

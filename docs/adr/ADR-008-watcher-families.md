@@ -13,16 +13,16 @@ Status: Accepted (2026-05-17)
    `refs/**`, `packed-refs`, in-progress markers). Feed a debounced
    refresh that calls `loadRepository` + fires
    `onDidChangeRepository`. Stored in `_fileWatchers: Map<string,
-   vscode.FileSystemWatcher[]>`. Disposed when the workspace folder
+vscode.FileSystemWatcher[]>`. Disposed when the workspace folder
    that contains the repo is removed, OR (TL-88 / #213) when the
    repo's `.git/HEAD` is deleted mid-session.
 
 2. **Mid-session new-repo watcher** (Wave 10, task #204). Installed by
    `setupNewRepoWatcher(folderPath)` once per workspace folder. Watch
-   `**/.git` *creations* under the folder so a fresh `git init` in a
+   `**/.git` _creations_ under the folder so a fresh `git init` in a
    subdir is picked up without window reload. Stored in
    `_newRepoWatchers: Map<string, vscode.Disposable[]>` (single-element
-   array per key to fit the registry shape — see Decision §1 below).
+   array per key to fit the registry shape — see Decision section 1 below).
    Disposed when the workspace folder is removed.
 
 3. **Per-repo `.git/HEAD` deletion watcher** (TL-88 / #213). NOT a
@@ -100,8 +100,8 @@ timeout handle?" branch that loses the registry's clarity.
 The cleanup function still handles them — but as a separate loop right
 after the registry walk, with an explicit comment naming them as
 non-watcher state. Reviewers can see at a glance that the registry
-covers all *watcher* families and the trailing loop covers the
-*driven* state.
+covers all _watcher_ families and the trailing loop covers the
+_driven_ state.
 
 ### 4. Path-child rule is a registry-level invariant
 
@@ -141,7 +141,7 @@ correctly distinguishes:
 ### Negative / costs
 
 - The new-repo family's "natural" shape (`Map<string,
-  FileSystemWatcher>`, one watcher per workspace folder) becomes
+FileSystemWatcher>`, one watcher per workspace folder) becomes
   `Map<string, FileSystemWatcher[]>` with single-element arrays. A
   small allocation cost (one extra array per workspace folder) and a
   cosmetic mismatch when reading the field declaration. Comment in
@@ -223,5 +223,5 @@ the constructor grows by one — no other site change.
   and disposes per-repo watchers cleanly.
 - `scripts/check-watcher-families-registered.mjs` — R1 / M2 structural
   guard enforcing every watcher-family field is registered with the
-  registry at construction time. ADR-007 §"Guard maintenance contract"
+  registry at construction time. ADR-007 section "Guard maintenance contract"
   five-section header inside the script.

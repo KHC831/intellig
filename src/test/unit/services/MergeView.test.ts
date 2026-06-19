@@ -14,7 +14,7 @@ import {
 
 /**
  * TestSurface for the private state MergeView exposes to
- * `markResolved()`. Matches docs/testing.md §3 — declared at the top of
+ * `markResolved()`. Matches docs/testing.md section 3 — declared at the top of
  * the test file, single-purpose, no `I`-prefix.
  */
 interface MergeViewInternals {

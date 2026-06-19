@@ -2258,9 +2258,9 @@ export class GitToolWindowProvider
    * Invariant — repo selector identity must be stable by **path**, not
    * by index, across rebuilds that shift the list (e.g. drop-commit
    * triggering a workspace re-scan). This method is the rebuild boundary
-   * that path-based hardening routes through. See
-   * `docs/design/git-tool-window-spec.md` section 8.L5 and section 8.L14
-   * (`normalizeRepoPath` helper).
+   * that path-based hardening routes through. Identity comparisons go
+   * through the `normalizeRepoPath` helper (spec 8.L5 selector-identity
+   * and spec 8.L14 normalized-path invariants).
    *
    * @param repos - Array of discovered repositories
    */

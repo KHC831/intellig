@@ -37,11 +37,11 @@ every one of the following is true:
 
 1. **Cross-cutting sink.** The value is a logging channel, telemetry
    reporter, error router, or similar observability surface that every
-   layer of the extension needs to write into. It is *not* business
-   state, *not* cached data, and *not* a configuration projection.
+   layer of the extension needs to write into. It is _not_ business
+   state, _not_ cached data, and _not_ a configuration projection.
 
 2. **Needs early access.** At least one real consumer must be able to
-   call `getX()` *before* `ExtensionServices.initialize()` has finished
+   call `getX()` _before_ `ExtensionServices.initialize()` has finished
    wiring the service graph. The canonical case is a watcher / state-sync
    path that fires during service construction itself, when requiring a
    constructed service would be a chicken-and-egg bootstrap failure.
@@ -51,7 +51,7 @@ every one of the following is true:
    instance so unit tests can run against a fresh singleton each time.
    Without this hook the singleton leaks between specs and creates
    order-dependent flakiness. The TestSurface idiom (see
-   `docs/testing.md` §3) requires the `__<name>ForTest` prefix on
+   `docs/testing.md` section 3) requires the `__<name>ForTest` prefix on
    module-scope test-only exports — it encodes the
    "production-callers-MUST-NOT" contract in the function name itself
    and pairs with a structural CI guard that fails the build on any
@@ -95,7 +95,7 @@ the cost of a little bootstrap plumbing.
 
 - The criteria are not a gate against adding a genuinely new cross-cutting
   sink. Telemetry, error routing, structured-log aggregation — all are
-  candidates if they arise. The rule is that the *third* such singleton
+  candidates if they arise. The rule is that the _third_ such singleton
   should prompt a fresh look at whether the utils-track is still the
   right shape or whether a small "bootstrap observability" service is
   warranted. Two is the informal ceiling before re-evaluation; it is a
@@ -112,7 +112,7 @@ the cost of a little bootstrap plumbing.
   construction, when `NotificationService` is not yet guaranteed wired.
 - (3) `__resetOutputChannelForTest()` drops the cached instance for
   unit tests. The `__<name>ForTest` prefix is the TestSurface
-  function-name convention (see `docs/testing.md` §3); a structural CI
+  function-name convention (see `docs/testing.md` section 3); a structural CI
   guard (`scripts/check-output-channel-test-surface.sh`) fails the build
   if any production file references it.
 - (4) `initOutputChannel(context)` pushes the channel onto

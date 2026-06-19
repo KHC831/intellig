@@ -13,7 +13,7 @@
  *   5. Follow-up: inline-script extraction trigger comment.
  *   6. Follow-up: recordingWebview extraction comment in both the
  *      `multiSelectR3.test.ts` and `multiSelectR4.test.ts` files.
- *   7. Follow-up: ADR-009 §3 bifurcation note.
+ *   7. Follow-up: ADR-009 section 3 bifurcation note.
  *   8. Follow-up: jsdom behavioural-witness note in the
  *      `multiSelectR4.test.ts` file.
  *
@@ -156,7 +156,7 @@ describe('Wave A R5 — final review fixes', () => {
       );
     });
 
-    it('ADR-009 §3 generalizes the fire-before-post rule beyond setters', async () => {
+    it('ADR-009 section 3 generalizes the fire-before-post rule beyond setters', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const adr = fs.readFileSync(
@@ -169,7 +169,7 @@ describe('Wave A R5 — final review fixes', () => {
         /any host method|methods?\s+that\s+call(?:s)?\s+`?_post|every\s+method|generalizes/i.test(
           adr
         ),
-        'ADR-009 §3 must generalize the fire-before-post rule beyond just setters'
+        'ADR-009 section 3 must generalize the fire-before-post rule beyond just setters'
       );
     });
   });
@@ -394,9 +394,9 @@ describe('Wave A R5 — final review fixes', () => {
     });
   });
 
-  // ─── follow-up: ADR-009 §3 bifurcation note ────────────────────────────
-  describe('ADR-009 §3 bifurcation FU', () => {
-    it('ADR-009 contains an FU note about §3 bifurcation when Wave C lands', async () => {
+  // ─── follow-up: ADR-009 section 3 bifurcation note ────────────────────────────
+  describe('ADR-009 section 3 bifurcation FU', () => {
+    it('ADR-009 contains an FU note about section 3 bifurcation when Wave C lands', async () => {
       const fs = await import('fs');
       const path = await import('path');
       const adr = fs.readFileSync(
@@ -404,8 +404,8 @@ describe('Wave A R5 — final review fixes', () => {
         'utf8'
       );
       assert.ok(
-        /FU\b[\s\S]{0,400}(?:bifurcat|sub-rule|§3a|new ADR)/i.test(adr),
-        'ADR-009 must carry an FU note about bifurcating §3 / splitting an ADR when Wave C adds another sub-rule'
+        /FU\b[\s\S]{0,400}(?:bifurcat|sub-rule|section 3a|new ADR)/i.test(adr),
+        'ADR-009 must carry an FU note about bifurcating section 3 / splitting an ADR when Wave C adds another sub-rule'
       );
     });
   });

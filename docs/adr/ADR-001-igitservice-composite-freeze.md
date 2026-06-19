@@ -17,7 +17,7 @@ point where a single interface was a net positive:
 
 - The method count crossed the threshold where test stubs were copy-pasting
   full signatures just to throw `'unreachable'`. The `variadic-unknown[]
-  throwError` idiom (see `docs/testing.md` §3) exists precisely because
+throwError` idiom (see `docs/testing.md` section 3) exists precisely because
   hand-typing every signature in an error-throwing stub is noise that
   drifts every time the interface changes.
 - Consumers that only care about a narrow slice of the surface
@@ -85,7 +85,7 @@ already available.
 ### Neutral
 
 - The `IGitServiceCli` `@internal` escape hatch (exported alongside
-  `IGitService`) is *not* part of the composite. It exposes the raw
+  `IGitService`) is _not_ part of the composite. It exposes the raw
   `GitCli` handle for call sites that need to issue commands the
   composite deliberately doesn't wrap (e.g. `git show <ref>:<path>`
   from the `intellig-git:` content provider, or console-capture wiring
@@ -112,7 +112,7 @@ state, and each is a natural seed for a role interface:
   Seed for a `IShelfPersistence` (or similar) interface that lives
   alongside `IGitWorkingTree`.
 
-Each surface already documents *why* the test reaches past the public
+Each surface already documents _why_ the test reaches past the public
 API — those "why"s describe exactly the contracts a role interface
 would eventually express.
 
@@ -120,8 +120,8 @@ would eventually express.
 
 - `src/services/interfaces/IGitService.ts` — composite interface + the
   `@internal IGitServiceCli` escape hatch.
-- `docs/testing.md` §3 — `variadic-unknown[] throwError` stub pattern.
-- `docs/testing.md` §5 — relationship between the production escape
+- `docs/testing.md` section 3 — `variadic-unknown[] throwError` stub pattern.
+- `docs/testing.md` section 5 — relationship between the production escape
   hatch and the test-side `TestSurface` idiom.
-- `docs/testing.md` §7 — data-safety patterns that live downstream of
+- `docs/testing.md` section 7 — data-safety patterns that live downstream of
   the service interfaces.

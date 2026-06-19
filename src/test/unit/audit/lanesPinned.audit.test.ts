@@ -1,32 +1,34 @@
 /**
  * Lanes-pinned audit (Phase 0 meta-test).
  *
- * The `docs/design/git-tool-window-spec.md` §8 catalog lists 14 invariants
- * (L1..L14) that the team has paid for in production bugs. Each invariant
- * is supposed to be locked down by a named test file somewhere under
- * `src/test/`. The implementation plan's "Bug-class invariants → test
- * coverage matrix" enumerates which test file pins which invariant.
+ * The `INVARIANT_PINS` table below catalogs the invariants (L1..L14)
+ * that the team has paid for in production bugs. Each invariant is
+ * supposed to be locked down by a named test file somewhere under
+ * `src/test/`. This audit's table is the coverage matrix — it enumerates
+ * which test file pins which invariant; the graph-data-model subset
+ * (L1, L4, L9) is documented in
+ * `docs/adr/ADR-013-graph-data-model-invariants.md`.
  *
  * **Failure mode this audit guards against**: a refactor (rename, file
  * move, or "this looks dead, let me delete it") quietly removes the test
  * that was the canonical pin for an invariant. The behavioral pin
  * vanishes; the next regression that touches the same code path now
- * lands silently. The bug class L1/L2/L4 catches in §8 are the ones
- * users have actually filed tickets about (T52 detached HEAD, T53
- * lane-bending, T54 dropdown auto-revert). Losing those guards is the
- * load-bearing risk this audit pins.
+ * lands silently. The bug classes L1/L2/L4 are the ones users have
+ * actually filed tickets about (T52 detached HEAD, T53 lane-bending,
+ * T54 dropdown auto-revert). Losing those guards is the load-bearing
+ * risk this audit pins.
  *
  * **Strategy**: this test is a **static string-search** sweep over the
  * test tree. For each invariant in the L1/L2/L4 set (the load-bearing
- * Phase 0 trio — see plan), it asserts that:
+ * Phase 0 trio — see the INVARIANT_PINS table), it asserts that:
  *
- *   1. A specific test file the matrix names exists.
+ *   1. A specific test file the table names exists.
  *   2. That file contains a regex / literal substring that uniquely
  *      identifies the test case pinning the invariant.
  *
  * If either check fails, the audit produces a message that points at
- * the spec §8 entry and the matrix row, so the next contributor knows
- * which file to restore (or which matrix row to update if the rename was
+ * the invariant's INVARIANT_PINS entry, so the next contributor knows
+ * which file to restore (or which table row to update if the rename was
  * deliberate).
  *
  * **Scope of this Phase 0 audit**: L1, L2, L4 only. Phase 1 + Phase 4
@@ -53,7 +55,7 @@ import * as path from 'path';
 // ---------------------------------------------------------------------------
 
 interface InvariantPin {
-  /** §8 invariant id (e.g. "L1"). */
+  /** Invariant id (e.g. "L1"). */
   id: string;
   /** One-line summary of the rule (mirrors the spec heading). */
   summary: string;
@@ -172,7 +174,7 @@ function describeMarker(marker: string | RegExp): string {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Meta-audit — spec section 8 invariants are pinned by named tests', () => {
+describe('Meta-audit — catalogued invariants are pinned by named tests', () => {
   for (const pin of INVARIANT_PINS) {
     describe(`${pin.id} — ${pin.summary}`, () => {
       const absFile = path.join(repoRoot(), pin.file);
@@ -183,11 +185,10 @@ describe('Meta-audit — spec section 8 invariants are pinned by named tests', (
           exists,
           [
             `Invariant ${pin.id} pin file is missing: ${pin.file}.`,
-            `If the file was renamed, update INVARIANT_PINS in this audit AND the`,
-            `"Bug-class invariants → test coverage matrix" in`,
-            `docs/design/git-tool-window-implementation-plan.md.`,
+            `If the file was renamed, update the INVARIANT_PINS table in this audit`,
+            `(it is the canonical coverage matrix for these invariants).`,
             `If the file was deleted, restore the test — see`,
-            `docs/design/git-tool-window-spec.md §8.${pin.id} for the rule.`,
+            `docs/adr/ADR-013-graph-data-model-invariants.md (invariant ${pin.id}: ${pin.summary}) for the rule.`,
           ].join('\n  ')
         );
       });
@@ -208,7 +209,7 @@ describe('Meta-audit — spec section 8 invariants are pinned by named tests', (
               `  marker: ${describeMarker(marker)}`,
               `If the test was intentionally renamed, update INVARIANT_PINS in this audit.`,
               `If the test was deleted, restore it — see`,
-              `docs/design/git-tool-window-spec.md §8.${pin.id} for the rule.`,
+              `docs/adr/ADR-013-graph-data-model-invariants.md (invariant ${pin.id}: ${pin.summary}) for the rule.`,
             ].join('\n  ')
           );
         });

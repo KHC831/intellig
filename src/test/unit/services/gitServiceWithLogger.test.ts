@@ -225,7 +225,7 @@ function findAndParseRecord(
 /**
  * Stub `GitCli` that records `exec` calls, never spawns subprocesses,
  * and exposes the production `onCommandExecuted` event so the
- * GitService listener (which emits the §9.1 `'git command executed'`
+ * GitService listener (which emits the section 9.1 `'git command executed'`
  * debug record) wires up correctly.
  *
  * The event emitter is constructed lazily on first access so the

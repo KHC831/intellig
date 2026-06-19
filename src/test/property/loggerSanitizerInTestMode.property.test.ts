@@ -11,7 +11,7 @@
  * `sanitizeRecord` (or to `sanitizeGitError` underneath) — typically a
  * mis-aimed attempt to "make tests easier to debug" by surfacing raw
  * paths/credentials. Such an early-out would silently break the
- * §4.1–§4.4 redaction guarantees for every property test that asserts
+ * section 4.1–section 4.4 redaction guarantees for every property test that asserts
  * the sanitizer removed a secret. The contract this file pins is:
  *
  *   sanitizeRecord(R, NODE_ENV='test', MOCHA_WORKER_ID='1') === sanitizeRecord(R)

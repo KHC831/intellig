@@ -39,7 +39,7 @@ Drift from that baseline blocks merge.
 ### Suppressing a lint rule
 
 Lint rules in this repo aren't cosmetic — see
-[`docs/testing.md` §6](docs/testing.md#6-lint-rules-that-catch-real-bugs)
+[`docs/testing.md` section 6](docs/testing.md#section-6-lint-rules-that-catch-real-bugs)
 for the class of production bugs they've caught. Before reaching for a
 disable, check whether the rule is pointing at something real. When a
 disable is genuinely the right call, follow these conventions so every
@@ -104,7 +104,7 @@ audited and land the "disable is cheaper than rewrite" way.
 
 - **File-level `require-await` disable for test-stub factory files that
   follow the variadic-`unknown[]` `throwError` pattern
-  (see [`docs/testing.md` §3](docs/testing.md#3-the-testsurface-idiom)).**
+  (see [`docs/testing.md` section 3](docs/testing.md#section-3-the-testsurface-idiom)).**
   Those factories synthesise service implementations whose method
   signatures return `Promise<T>`; the no-await stub bodies are
   intentional because the whole point is that every method throws. A
@@ -121,7 +121,7 @@ the bump goes through a triage pass:
    production, or tightens type safety on a hot path (e.g. a rule that
    would have caught `no-floating-promises`-style bugs before they
    shipped). Enable it in `.eslintrc.json`. Fix the call sites. Update
-   [`docs/testing.md` §6](docs/testing.md#6-lint-rules-that-catch-real-bugs)
+   [`docs/testing.md` section 6](docs/testing.md#section-6-lint-rules-that-catch-real-bugs)
    with a one-paragraph "why this rule" note.
 
 2. **Opt-in.** Cosmetic but improves grep/readability (e.g.

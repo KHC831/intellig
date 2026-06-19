@@ -5,7 +5,7 @@
  * — no double-dispatch, no missed handler. Each message type must map to a
  * single observable side effect.
  *
- * Design spec: `.agent/designs/cluster-C-tool-windows.md` §5.4 (message
+ * Design spec: `.agent/designs/cluster-C-tool-windows.md` section 5.4 (message
  * protocol).
  */
 

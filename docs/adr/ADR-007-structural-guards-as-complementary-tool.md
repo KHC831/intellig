@@ -31,7 +31,7 @@ The seven on-disk structural guards as of Wave 135 R4 / Cluster B R2:
   Awk-joins multi-line opener-to-closer call bodies, regex-flags any
   `${VAR}` interpolation where VAR matches a known err-derived name
   (`m | msg | errMsg | errorMessage | errMessage | message | raw |
-  reason | abortMsg | forceMsg | stashMsg`) AND the call body does
+reason | abortMsg | forceMsg | stashMsg`) AND the call body does
   NOT contain `sanitizeGitError(`, AND there is no
   `// sanitize-exempt: <category>: <reason>` comment on the same line
   or directly above. Reasoning: 60+ swept sites across 12+ files;
@@ -41,7 +41,7 @@ The seven on-disk structural guards as of Wave 135 R4 / Cluster B R2:
   BranchComparisonView, CommitDialog, etc., ~29 specs) plus the guard
   catches drift across the long tail without per-site enumeration.
 
-Two related artefacts are *not* structural guards by the rule below
+Two related artefacts are _not_ structural guards by the rule below
 but were sometimes discussed alongside them in review notes:
 
 - **NotificationService dispose-lifecycle tests** (Wave 6, see
@@ -65,18 +65,19 @@ drift).
 
 ### When each tool fits
 
-| Tool | Use when |
-|---|---|
-| **Per-site unit/property spec** | Behaviour contract: returns specific shape, calls specific helper, surfaces specific user-visible result. Single site or low N (≤ ~5). Contract is *not* mechanically expressible as a syntactic pattern. |
-| **Structural guard (CI script)** | Invariant applies to ≥ ~8 sites. Bug class has a syntactic signature an awk/grep heuristic can express. A per-FILE representative spec exists to anchor the bug class. Drift protection is valuable beyond enumeration of today's known sites. |
-| **Both** | High-stakes invariants — credential leak, dispose lifecycle, durable state contract. Defense-in-depth: representative specs prove the bug class is fixed; the guard prevents new sites from regressing the invariant silently. |
-| **Neither (escalate to integration / E2E)** | Invariant requires runtime state to verify (real subprocess effects, real fs side effects, real activation lifecycle). |
+| Tool                                        | Use when                                                                                                                                                                                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-site unit/property spec**             | Behaviour contract: returns specific shape, calls specific helper, surfaces specific user-visible result. Single site or low N (≤ ~5). Contract is _not_ mechanically expressible as a syntactic pattern.                                      |
+| **Structural guard (CI script)**            | Invariant applies to ≥ ~8 sites. Bug class has a syntactic signature an awk/grep heuristic can express. A per-FILE representative spec exists to anchor the bug class. Drift protection is valuable beyond enumeration of today's known sites. |
+| **Both**                                    | High-stakes invariants — credential leak, dispose lifecycle, durable state contract. Defense-in-depth: representative specs prove the bug class is fixed; the guard prevents new sites from regressing the invariant silently.                 |
+| **Neither (escalate to integration / E2E)** | Invariant requires runtime state to verify (real subprocess effects, real fs side effects, real activation lifecycle).                                                                                                                         |
 
 The "≥ ~8 sites" floor for guards isn't sacred but reflects observed
 maintenance economics: under that threshold, a one-spec-per-site
 approach is cheaper than maintaining a heuristic + its allowlist
-+ its exempt mechanism. Above that threshold the per-site test debt
-balloons faster than the guard scales.
+
+- its exempt mechanism. Above that threshold the per-site test debt
+  balloons faster than the guard scales.
 
 ### Per-FILE representative spec floor
 
@@ -88,7 +89,7 @@ isolation. The per-FILE representative-spec floor must hold:
   re-asserting the guard's own regex).
 - Wave 9 example: BranchContextMenuCommands has 26 swept toast sites;
   one representative spec (`_handlePush sanitizes credentialed URL +
-  home path in error toast`) anchors the bug class for the file. The
+home path in error toast`) anchors the bug class for the file. The
   guard catches the other 25 sites.
 
 This floor exists because a guard that only encodes a regex carries
@@ -98,8 +99,8 @@ guard silently misses the entire class. The representative spec is
 the safety net for the heuristic itself.
 
 The TDD rule (`feedback_tdd_workflow.md`, "structural guard
-acceptable substitute" clause) is read as *"acceptable substitute
-for per-site enumeration, conditional on the per-FILE floor"* — not
+acceptable substitute" clause) is read as _"acceptable substitute
+for per-site enumeration, conditional on the per-FILE floor"_ — not
 as a blanket bypass of TDD for structural problems.
 
 ### Guard maintenance contract
@@ -127,11 +128,11 @@ discipline.
 
 ### Substrate choice
 
-| Substrate | Use when |
-|---|---|
-| **awk** | Multi-line constructs (paren/brace tracking matters), structured per-line state machines, simple comment-strip + paren-count is enough. **Default for non-trivial guards.** |
-| **node + TS compiler API** | Guard needs AST awareness — actual binding analysis, type information, scope-following. Heavier; reach for it when awk's line-or-buffer model genuinely won't fit. |
-| **grep / sed (plain)** | Trivial single-line patterns where a regex match per line suffices and there's no nested context. |
+| Substrate                  | Use when                                                                                                                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **awk**                    | Multi-line constructs (paren/brace tracking matters), structured per-line state machines, simple comment-strip + paren-count is enough. **Default for non-trivial guards.** |
+| **node + TS compiler API** | Guard needs AST awareness — actual binding analysis, type information, scope-following. Heavier; reach for it when awk's line-or-buffer model genuinely won't fit.          |
+| **grep / sed (plain)**     | Trivial single-line patterns where a regex match per line suffices and there's no nested context.                                                                           |
 
 Both on-disk guards (`check-quickpick-state-no-error.sh`,
 `check-action-toasts-sanitized.sh`) chose awk because the patterns
@@ -152,11 +153,11 @@ cost.
 - Guard authors are forced to document false positives + false
   negatives + retirement criteria up front, which catches "I'd
   add a guard but I don't know how to limit its scope" earlier.
-- The per-FILE spec floor keeps the guard from becoming the *only*
+- The per-FILE spec floor keeps the guard from becoming the _only_
   evidence that the bug class is fixed — there's always a
   behavioural witness somewhere in `src/test/`.
-- Reviewers have a one-line check: *for each file the guard inspects,
-  is there at least one representative spec?* If no, that's a finding.
+- Reviewers have a one-line check: _for each file the guard inspects,
+  is there at least one representative spec?_ If no, that's a finding.
 
 ### Negative / costs
 
@@ -181,7 +182,7 @@ cost.
 - This ADR doesn't create a quota. "≥ 8 sites" is a guideline,
   not a hard floor — judgement applies.
 - The exempt-taxonomy rule (TL-79: `user-input | sha-prefix |
-  pre-sanitized | non-error-data`) is a per-guard concern, not a
+pre-sanitized | non-error-data`) is a per-guard concern, not a
   cross-guard one; the QuickPick-state guard has no exempts because
   its invariant is binary (the field is there or it isn't).
   Future guards may need their own taxonomy. Document it in the
@@ -226,11 +227,11 @@ cost.
   specs: none — the bug class is purely structural (markdown ↔
   JSON schema agreement), with no behavioural counterpart that a
   unit test could anchor. The R0 review caught 4 stale defaults
-  + 2 duplicate rows on first run; per-FILE spec floor would have
-  needed a test for every config table, which is itself the
-  drift surface this guard catches. False-positive log: none.
-  False-negative log: a schema with a non-primitive default that
-  doesn't JSON-normalize would silently mismatch.
+  - 2 duplicate rows on first run; per-FILE spec floor would have
+    needed a test for every config table, which is itself the
+    drift surface this guard catches. False-positive log: none.
+    False-negative log: a schema with a non-primitive default that
+    doesn't JSON-normalize would silently mismatch.
 
 - **`scripts/check-vsix-clean.sh` (Wave 135 R1 / H3).** Runs
   `vsce ls` (under the `INTELLIG_INTERNAL_PREPUBLISH_DRYRUN=1`
@@ -342,7 +343,7 @@ cost.
   prefix). False-negative log: a maintainer who renames the
   dogfood vsix back to `intellig-<version>.vsix` before
   uploading defeats the filename check (mitigation: documented
-  in TL-95 §4 — primary defense is the prepublish-guard's
+  in TL-95 section 4 — primary defense is the prepublish-guard's
   noisy `BYPASSED` line, this is the second line of defense
   against "forgot which terminal I built in").
 
@@ -353,11 +354,11 @@ guard catches a different temporal failure mode, and the layers
 together close the placeholder-bypass surface across the whole
 publish flow.
 
-| Layer | Tool | Catches |
-|---|---|---|
-| Build-time | `prepublish-guard.mjs` triple env-gate | Maintainer accidentally packages a placeholder-laden tree. Fail-closed unless ALL THREE of `INTELLIG_ALLOW_PLACEHOLDERS=1` + `INTELLIG_DOGFOOD_BUILD=1` + `INTELLIG_DOGFOOD_INVOCATION=1` are set. |
-| Artifact-at-rest | `package:dogfood --out intellig-<version>-dogfood.vsix` | Maintainer who legitimately ran `package:dogfood` for local install gets a marker filename so the artifact is unambiguously NOT for upload. |
-| Publish-time | `check-publish-vsix.sh` | Maintainer (or a publish script) who points `vsce publish` at a `*-dogfood.vsix` is refused before the upload starts. |
+| Layer            | Tool                                                    | Catches                                                                                                                                                                                            |
+| ---------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Build-time       | `prepublish-guard.mjs` triple env-gate                  | Maintainer accidentally packages a placeholder-laden tree. Fail-closed unless ALL THREE of `INTELLIG_ALLOW_PLACEHOLDERS=1` + `INTELLIG_DOGFOOD_BUILD=1` + `INTELLIG_DOGFOOD_INVOCATION=1` are set. |
+| Artifact-at-rest | `package:dogfood --out intellig-<version>-dogfood.vsix` | Maintainer who legitimately ran `package:dogfood` for local install gets a marker filename so the artifact is unambiguously NOT for upload.                                                        |
+| Publish-time     | `check-publish-vsix.sh`                                 | Maintainer (or a publish script) who points `vsce publish` at a `*-dogfood.vsix` is refused before the upload starts.                                                                              |
 
 No single layer is sufficient: a stale shell-export of the three
 env vars defeats the build-time gate; a maintainer renaming the
@@ -383,7 +384,7 @@ the Marketplace) is irreversible.
 - `scripts/check-watcher-families-registered.mjs` — TL-87 watcher-family registration guard.
 - `scripts/check-output-channel-test-surface.sh` — TL-58 OutputChannel test-surface boundary guard.
 - ADR-006 — error-state binding by view type. The rule TL-74 enforces.
-- `docs/testing.md` — TestSurface idiom (§3) and tier-escalation
+- `docs/testing.md` — TestSurface idiom (section 3) and tier-escalation
   guidance (referenced by the per-site spec column).
 - `feedback_tdd_workflow.md` (memory) — the "structural guard
   acceptable substitute" clause. This ADR is the criteria that

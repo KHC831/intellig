@@ -1,7 +1,7 @@
 /**
  * Workstream C, Item 1 — keymap conflict / semantics regression coverage.
  *
- * The full-parity audit (§C "Gaps") flagged four keymap defects in
+ * The full-parity audit (section C "Gaps") flagged four keymap defects in
  * `package.json`:
  *
  *   1. `ctrl+alt+z` double-bound — `intellig.unstageSelected` (global) AND

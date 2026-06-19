@@ -104,7 +104,7 @@ describe('logger — ADR-002 conformance', () => {
   // five level methods + `child(...)` so each consumer can bind
   // its own component without further plumbing.
 
-  describe('Criterion 1 — cross-cutting sink (ADR-002 §1)', () => {
+  describe('Criterion 1 — cross-cutting sink (ADR-002 section 1)', () => {
     it('the public barrel exports the cross-cutting surface every layer needs', () => {
       // Each accessor MUST be a function — no class constructors
       // exposed, no factories that need configuration before use.
@@ -184,7 +184,7 @@ describe('logger — ADR-002 conformance', () => {
   //     Logger instance starts emitting through them — services
   //     constructed pre-init don't need to re-fetch a logger.
 
-  describe('Criterion 2 — needs early access (ADR-002 §2)', () => {
+  describe('Criterion 2 — needs early access (ADR-002 section 2)', () => {
     it('getLogger() is safe before initLogger(context) — no throw, no allocation requirement', () => {
       // Reset has already cleared all module-level state. Calling
       // getLogger() now mimics a service constructor that fires
@@ -260,13 +260,13 @@ describe('logger — ADR-002 conformance', () => {
   // Criterion 3 — test-isolation hook
   // ---------------------------------------------------------------
   // The module exposes `__resetLoggerForTest()` following the
-  // `__<name>ForTest` prefix idiom (docs/testing.md §3). The hook
+  // `__<name>ForTest` prefix idiom (docs/testing.md section 3). The hook
   // drops the cached singleton AND detaches every registered sink.
   // Without this, sibling tests would inherit each other's sinks
   // and the resolver state, and a `_lines` assertion would mix
   // bleed-through writes with the test's own emissions.
 
-  describe('Criterion 3 — test-isolation hook (ADR-002 §3)', () => {
+  describe('Criterion 3 — test-isolation hook (ADR-002 section 3)', () => {
     it('__resetLoggerForTest follows the __<name>ForTest prefix idiom', () => {
       // Pin the literal name. The structural CI guard
       // `scripts/check-test-only-surface.sh` enforces that no
@@ -285,11 +285,11 @@ describe('logger — ADR-002 conformance', () => {
       );
       assert.ok(
         __resetLoggerForTest.name.startsWith('__'),
-        '__resetLoggerForTest must follow the __<name>ForTest prefix idiom (docs/testing.md §3)'
+        '__resetLoggerForTest must follow the __<name>ForTest prefix idiom (docs/testing.md section 3)'
       );
       assert.ok(
         __resetLoggerForTest.name.endsWith('ForTest'),
-        '__resetLoggerForTest must follow the __<name>ForTest suffix idiom (docs/testing.md §3)'
+        '__resetLoggerForTest must follow the __<name>ForTest suffix idiom (docs/testing.md section 3)'
       );
     });
 
@@ -339,7 +339,7 @@ describe('logger — ADR-002 conformance', () => {
   // getLogger() don't think about lifetime — the host
   // ExtensionContext owns it.
 
-  describe('Criterion 4 — registered for disposal (ADR-002 §4)', () => {
+  describe('Criterion 4 — registered for disposal (ADR-002 section 4)', () => {
     it('initLogger(context) pushes disposables onto context.subscriptions', () => {
       const ctx = makeFakeContext();
       // initOutputChannel already pushed the channel itself onto
@@ -439,34 +439,38 @@ describe('logger — ADR-002 conformance', () => {
   // ---------------------------------------------------------------
 
   it('all four criteria — end-to-end activation/deactivation respects ADR-002', () => {
-    // §2 — pre-init access works. Mimics a service constructor
+    // section 2 — pre-init access works. Mimics a service constructor
     // capturing the Logger before initLogger runs.
     const earlyLogger = getLogger().child({ component: 'EndToEndTest' });
-    assert.strictEqual(typeof earlyLogger.info, 'function', '§2 — pre-init Logger must be usable');
+    assert.strictEqual(
+      typeof earlyLogger.info,
+      'function',
+      'section 2 — pre-init Logger must be usable'
+    );
 
-    // §4 — initLogger registers disposables for VS Code teardown.
+    // section 4 — initLogger registers disposables for VS Code teardown.
     const ctx = makeFakeContext();
     initOutputChannel(ctx);
     const baseline = ctx.subscriptions.length;
     initLogger(ctx);
     assert.ok(
       ctx.subscriptions.length - baseline >= 2,
-      '§4 — initLogger must push ≥2 disposables (listener + sink wrappers)'
+      'section 4 — initLogger must push ≥2 disposables (listener + sink wrappers)'
     );
 
-    // §1 — emissions through the cross-cutting Logger reach the
+    // section 1 — emissions through the cross-cutting Logger reach the
     // OutputChannel sink. The pre-init Logger captured at top of
-    // this case still works, proving §2 stays operational once
+    // this case still works, proving section 2 stays operational once
     // sinks are wired.
     const linesBefore = getCapturedLines().length;
     earlyLogger.info('end-to-end conformance message');
     assert.strictEqual(
       getCapturedLines().length,
       linesBefore + 1,
-      '§1 + §2 — pre-init Logger emits through post-init sinks'
+      'section 1 + section 2 — pre-init Logger emits through post-init sinks'
     );
 
-    // §3 — the test-isolation hook tears it all down. Subsequent
+    // section 3 — the test-isolation hook tears it all down. Subsequent
     // emissions reach no sink.
     __resetLoggerForTest();
     const freshLogger = getLogger().child({ component: 'EndToEndTest' });
@@ -475,7 +479,7 @@ describe('logger — ADR-002 conformance', () => {
     assert.strictEqual(
       getCapturedLines().length,
       linesAfterReset,
-      '§3 — __resetLoggerForTest detaches every sink'
+      'section 3 — __resetLoggerForTest detaches every sink'
     );
   });
 });
