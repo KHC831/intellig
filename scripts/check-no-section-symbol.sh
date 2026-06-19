@@ -14,9 +14,10 @@
 #    time. The fix is uniform: spell it "section".
 #
 # 2. Heuristic + how it scales
-#    grep the scanned paths for the raw U+00A7 byte. The glyph is built
-#    at runtime with printf so this script's own source carries no literal
-#    occurrence and never self-matches. Default scope is production source
+#    grep the scanned paths for the raw U+00A7 byte, text content only
+#    (binary files are skipped — see case 3). The glyph is built at runtime
+#    with printf so this script's own source carries no literal occurrence
+#    and never self-matches. Default scope is production source
 #    (src, excluding the src/test tree) plus build scripts; pass explicit
 #    paths to scan a fixture (used by the companion spec). Adding a new
 #    source root is a one-word edit to the default PATHS.
@@ -26,6 +27,10 @@
 #    of scope: test describe/it titles and doc-content assertions cite doc
 #    sections that still use the glyph, and several couple to ADR text; that
 #    surface is a separate, doc-coupled cleanup, not this guard's remit.
+#    Binary files are skipped via grep -I: gitignored binaries that macOS
+#    Finder scatters through scanned dirs (notably .DS_Store) can carry a raw
+#    0xA7 byte and would otherwise false-fail the gate; -I treats them as
+#    non-matching so only text source is searched.
 #
 # 4. Known false-negative cases
 #    Escaped spellings of the same glyph (the &sect; named entity, the
@@ -49,7 +54,7 @@ if [ "${#PATHS[@]}" -eq 0 ]; then
   PATHS=("src" "scripts")
 fi
 
-hits=$(grep -rn --exclude-dir=test "$GLYPH" "${PATHS[@]}" 2>/dev/null || true)
+hits=$(grep -rnI --exclude-dir=test "$GLYPH" "${PATHS[@]}" 2>/dev/null || true)
 
 if [ -n "$hits" ]; then
   echo "section-symbol guard FAILED — the U+00A7 glyph is banned in shipped source and build scripts." >&2

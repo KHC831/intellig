@@ -37,6 +37,19 @@ describe('check-no-section-symbol guard', () => {
     }
   });
 
+  it('ignores a binary file whose raw bytes contain the glyph (e.g. a stray .DS_Store)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sect-guard-'));
+    try {
+      // macOS Finder drops gitignored .DS_Store binaries into scanned dirs; their
+      // raw bytes can contain 0xA7, which must not trip the text-only glyph guard.
+      fs.writeFileSync(path.join(dir, '.DS_Store'), Buffer.from([0x00, 0xc2, 0xa7, 0x00, 0xff]));
+      const { status, stderr } = runGuard([dir]);
+      assert.strictEqual(status, 0, `binary 0xA7 must be ignored; stderr:\n${stderr}`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('excludes the test subtree from scope', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sect-guard-'));
     try {
