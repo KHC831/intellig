@@ -419,6 +419,92 @@ export class StashTagHistoryOps {
     return parseLog(result.stdout);
   }
 
+  /**
+   * Count the commits the SAME refs/filter as {@link getLog} would produce,
+   * ignoring the load window (`git rev-list --count`).
+   *
+   * Every filter that changes the commit SET is mirrored from getLog so the
+   * count and the loaded list agree exactly: author, since, until, grep
+   * (+ case/regex modifiers), no-merges, first-parent, simplify-merges, parent
+   * counts, `--all`, a single `ref`, a `logRange`, and a path filter. The
+   * window-only `maxCount`/`skip` and the ordering-only `topoOrder` are
+   * intentionally NOT applied — they don't change the total. The same leading
+   * `-`/`.` guards as getLog keep `ref`/`logRange` injection-safe. When no
+   * `all`/`ref`/`logRange` scope is given, rev-list (unlike `git log`) needs an
+   * explicit starting revision, so we count from `HEAD` to match getLog's
+   * default.
+   */
+  async getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
+    const args = ['rev-list', '--count'];
+
+    if (options?.author) {
+      args.push(`--author=${options.author}`);
+    }
+    if (options?.since) {
+      args.push(`--since=${options.since.toISOString()}`);
+    }
+    if (options?.until) {
+      args.push(`--until=${options.until.toISOString()}`);
+    }
+    if (options?.grep) {
+      args.push(`--grep=${options.grep}`);
+      if (!options.caseSensitive) {
+        args.push('--regexp-ignore-case');
+      }
+      if (options.regex) {
+        args.push('-E');
+      }
+    }
+    if (options?.noMerges) {
+      args.push('--no-merges');
+    }
+    if (options?.firstParent) {
+      args.push('--first-parent');
+    }
+    if (options?.simplifyMerges) {
+      args.push('--simplify-merges');
+    }
+    if (options?.minParents !== undefined) {
+      args.push(`--min-parents=${options.minParents}`);
+    }
+    if (options?.maxParents !== undefined) {
+      args.push(`--max-parents=${options.maxParents}`);
+    }
+
+    const hasAll = !!options?.all;
+    if (hasAll) {
+      args.push('--exclude=refs/stash', '--all');
+    }
+    if (options?.ref) {
+      if (options.ref.startsWith('-') || options.ref.startsWith('.')) {
+        throw new Error(`Invalid ref: ${options.ref}`);
+      }
+      args.push(options.ref);
+    }
+    if (options?.logRange) {
+      const range = options.logRange;
+      if (range.startsWith('-') || range.startsWith('.')) {
+        throw new Error(`Invalid log range: ${range}`);
+      }
+      args.push(range);
+    }
+    // rev-list (unlike `git log`) has no implicit HEAD: with no ref/range/all
+    // scope it errors out, so anchor the walk to HEAD to mirror getLog.
+    if (!hasAll && !options?.ref && !options?.logRange) {
+      args.push('HEAD');
+    }
+    if (options?.path) {
+      args.push('--full-history', '--simplify-merges', '--', options.path);
+    }
+
+    const result = await this.ctx.gitCli.exec(args, { cwd: repo.rootUri.fsPath });
+    if (result.exitCode !== 0) {
+      return 0;
+    }
+    const count = parseInt(result.stdout.trim(), 10);
+    return Number.isFinite(count) ? count : 0;
+  }
+
   async getCommit(repo: IRepository, hash: string): Promise<ICommit> {
     const format = getLogFormat();
     // `hash` is user-controlled; splice via buildGitArgs.

@@ -360,6 +360,22 @@ export function buildInlineScript(): string {
           }
         })();
 
+        // Restore scroll position after a scroll-to-bottom load-more re-render.
+        // The host stamps data-preserve-scroll on the grown render; the saved
+        // scrollTop (persisted on every scroll above) is reapplied so the user
+        // stays where they were instead of being yanked back to the newest
+        // commit. Only runs for the load-more render — a normal filter/repo
+        // re-render omits the attribute and starts at the top as usual.
+        (function restoreScrollOnLoadMore() {
+          const graphPanel = document.querySelector('.graph-panel[data-preserve-scroll]');
+          if (!graphPanel || !vscode) return;
+          const state = vscode.getState() || {};
+          const saved = state.graphScrollTop;
+          if (typeof saved === 'number' && saved > 0) {
+            graphPanel.scrollTop = saved;
+          }
+        })();
+
         // ─── Empty-state action buttons ──────────────────────────────────
         // The filtered-empty graph state renders a "Clear filter" button
         // (data-action="clearLogFilter"). Route it to the host. Uses the
@@ -1236,9 +1252,19 @@ export function buildInlineScript(): string {
           graphPanel.dataset.scrollListenerAttached = 'true';
 
           graphPanel.addEventListener('scroll', function() {
+            const scrollTop = graphPanel.scrollTop;
+
+            // Persist scroll position so a load-more re-render (which fully
+            // replaces the DOM) can restore it instead of snapping to the top.
+            // Merged into existing webview state so we don't clobber other keys.
+            if (vscode) {
+              const prev = vscode.getState() || {};
+              prev.graphScrollTop = scrollTop;
+              vscode.setState(prev);
+            }
+
             if (loadMoreCommitsRequested) return;
 
-            const scrollTop = graphPanel.scrollTop;
             const scrollHeight = graphPanel.scrollHeight;
             const clientHeight = graphPanel.clientHeight;
             const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
@@ -1255,7 +1281,11 @@ export function buildInlineScript(): string {
           });
         }
 
-        // Reset the loadMoreCommitsRequested flag when new content is loaded
+        // Re-arm the load-more debounce when the host signals a requested page
+        // has finished rendering. The host posts \`commitsLoaded\` after every
+        // load-more render (GitToolWindowProvider.notifyCommitsLoaded), so the
+        // reset is explicit and does not rely on the full webview.html reload
+        // clearing the flag — a future in-place DOM patch keeps working.
         window.addEventListener('message', function(event) {
           const message = event.data;
           if (message.type === 'commitsLoaded') {
@@ -1269,7 +1299,7 @@ export function buildInlineScript(): string {
         // Also observe DOM changes to wire the scroll listener when the graph
         // panel is re-rendered as a new element. The attach is idempotent (see
         // the dataset guard above); the load-more debounce flag is reset ONLY
-        // by the commitsLoaded message handler, never here — resetting it on
+        // by the host's \`commitsLoaded\` message, never here — resetting it on
         // every mutation would let a stray mutation re-fire loadMoreCommits.
         const observer = new MutationObserver(function() {
           setupGraphPanelScrollListener();

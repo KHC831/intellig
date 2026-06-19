@@ -1124,6 +1124,18 @@ export interface IGitService {
 
   // History operations
   getLog(repo: IRepository, options?: ILogOptions): Promise<ICommit[]>;
+  /**
+   * Count how many commits the SAME refs/filter as {@link getLog} would yield,
+   * ignoring the `maxCount`/`skip` window (`git rev-list --count`). Used by the
+   * Graph view to render an honest "X of Y" loaded indicator and to know when
+   * scroll-to-bottom load-more has reached the true end of history.
+   *
+   * Mirrors the option-to-arg mapping of {@link getLog} for every filter that
+   * changes the commit SET (author/since/until/grep/no-merges/parent-count/
+   * ref/range/path/all); window-only options (`maxCount`, `skip`) and ordering
+   * options (`topoOrder`) are ignored because they don't change the total.
+   */
+  getLogCount(repo: IRepository, options?: ILogOptions): Promise<number>;
   getCommit(repo: IRepository, hash: string): Promise<ICommit>;
   getFileHistory(
     repo: IRepository,

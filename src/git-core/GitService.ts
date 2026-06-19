@@ -1516,6 +1516,10 @@ export class GitService implements IGitService, IGitServiceCli {
     return this._stashTagHistory.getLog(repo, options);
   }
 
+  getLogCount(repo: IRepository, options?: ILogOptions): Promise<number> {
+    return this._stashTagHistory.getLogCount(repo, options);
+  }
+
   getCommit(repo: IRepository, hash: string): Promise<ICommit> {
     return this._stashTagHistory.getCommit(repo, hash);
   }

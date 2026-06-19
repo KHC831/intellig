@@ -87,6 +87,7 @@ function createMockGitService(): IGitService {
     pushTag: async () => {},
     deleteRemoteTag: async () => {},
     getLog: async () => [],
+    getLogCount: async () => 0,
     getCommit: async () => ({
       hash: '',
       shortHash: '',

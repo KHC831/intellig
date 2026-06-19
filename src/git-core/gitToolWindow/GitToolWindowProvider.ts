@@ -339,6 +339,22 @@ export class GitToolWindowProvider
   private _hasRepository: boolean = false;
   private _isLoading: boolean = true;
   private _scrollToCommitHash: string | undefined;
+  /**
+   * Total commits available for the current repo/filter (from
+   * `getLogCount` → `git rev-list --count`). Drives the graph's honest
+   * "X of Y" loaded indicator and the `data-total-available` attribute the
+   * webview reads to decide whether scroll-to-bottom should load more.
+   * `undefined` falls back to "all loaded" (no more) so a missing count can
+   * never spin the indicator forever.
+   */
+  private _logTotalAvailable: number | undefined;
+  /**
+   * One-shot flag: the NEXT graph render should tell the webview to restore
+   * its saved scroll position instead of resetting to the top. Set before a
+   * scroll-to-bottom load-more re-render so growing the window doesn't yank
+   * the user back to the newest commit. Consumed (cleared) by the render.
+   */
+  private _preserveScrollOnNextRender: boolean = false;
   private _pendingChangedFiles: IChangedFile[] | undefined;
   private _pendingChangedFilesError: unknown;
   private _consoleEntries: IConsoleEntry[] = [];
@@ -870,15 +886,24 @@ export class GitToolWindowProvider
   }
 
   /**
-   * Update the Log state with commits
+   * Update the Log state with commits.
+   *
+   * @param totalAvailable - Total commits available for the current repo/filter
+   *   (from `git rev-list --count`), independent of how many are loaded into
+   *   `commits`. When provided and greater than `commits.length`, the graph
+   *   shows an honest "loaded of total" indicator and the webview enables
+   *   scroll-to-bottom load-more. Omit it (or pass `undefined`) when no count
+   *   is available — the indicator then treats everything as loaded.
    */
   public updateLogState(
     commits: ICommit[],
     branchMap?: Map<string, IBranchRef[]>,
     tagMap?: Map<string, string[]>,
     headHash?: string,
-    headBranchName?: string
+    headBranchName?: string,
+    totalAvailable?: number
   ): void {
+    this._logTotalAvailable = totalAvailable;
     // The graph caller fetches `git log --topo-order` (extension.ts),
     // so `commits` arrives in a topology-respecting order: every
     // parent of a commit appears later in the list (or off-window).
@@ -992,6 +1017,40 @@ export class GitToolWindowProvider
     this._onDidChangeState.fire();
     this._postSyncSelection();
     this._postMenuStateUpdate();
+  }
+
+  /**
+   * Total commits available for the current repo/filter, or `undefined` when
+   * no count has been supplied. Test seam for the load-more wiring — production
+   * reads it via the rendered `data-total-available` attribute.
+   */
+  public getLogTotalAvailable(): number | undefined {
+    return this._logTotalAvailable;
+  }
+
+  /**
+   * Ask the NEXT graph render to preserve (restore) the webview's scroll
+   * position rather than resetting to the top. Used by scroll-to-bottom
+   * load-more so growing the window keeps the user where they were. The flag
+   * is one-shot: it is cleared by the render that consumes it.
+   */
+  public markPreserveScrollOnNextRender(): void {
+    this._preserveScrollOnNextRender = true;
+  }
+
+  /**
+   * Tell the webview a requested page of commits has finished loading, so it
+   * re-arms the scroll-to-bottom load-more debounce (`loadMoreCommitsRequested`).
+   * Posted by the host after a load-more render completes. This makes the reset
+   * EXPLICIT and reload-independent: the debounce no longer relies on the full
+   * `webview.html` reload happening to clear it, so a future move to in-place
+   * DOM patching can't silently wedge load-more after the first extra page.
+   */
+  public notifyCommitsLoaded(): void {
+    if (!this._view) {
+      return;
+    }
+    void this._view.webview.postMessage({ type: 'commitsLoaded' });
   }
 
   /**
@@ -2592,7 +2651,9 @@ export class GitToolWindowProvider
       this._panelWidths,
       selectedCommits,
       commitNodes.length,
-      commitNodes.length
+      // Honest total from `git rev-list --count`; falls back to "all loaded"
+      // so a missing count never leaves the loaded indicator spinning.
+      this._logTotalAvailable ?? commitNodes.length
     );
   }
 
@@ -2921,7 +2982,7 @@ ${bodyMarkup}
    *   fixed Author and Date columns live by writing the panel's
    *   `--col-author-width` / `--col-date-width` custom properties.
    * - Min/max pixel clamps so a column can never be dragged to zero (or so
-   *   wide it crowds out the flexible Subject column). The clamp mirrors the
+   *   wide it crowds out the flexible Title column). The clamp mirrors the
    *   host-side `clampColumnWidths` bounds.
    * - Keyboard arrow support on a focused handle (10px steps).
    * - Posting a `columnResize` message so the new widths persist across
@@ -3138,6 +3199,16 @@ ${bodyMarkup}
 
     const scrollAttr = scrollToCommitHash ? ` data-scroll-to-commit="${scrollToCommitHash}"` : '';
 
+    // One-shot scroll-preserve flag: when a scroll-to-bottom load-more grows
+    // the window, mark the panel so the inline script restores the saved
+    // scroll position instead of letting the full re-render reset to the top.
+    // Consumed here so a subsequent normal render (filter/repo change) scrolls
+    // to the top as usual.
+    const preserveScrollAttr = this._preserveScrollOnNextRender
+      ? ' data-preserve-scroll="true"'
+      : '';
+    this._preserveScrollOnNextRender = false;
+
     const repositorySelectorHtml = this._getRepositorySelectorHtml();
 
     // Embed the anchor hash so a full
@@ -3165,7 +3236,7 @@ ${bodyMarkup}
     const logFilterBarHtml = this._getLogFilterBarHtml();
 
     return `
-      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px; --col-author-width: ${authorWidthPx}px; --col-date-width: ${dateWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}>
+      <div class="graph-panel" role="listbox" aria-label="Commit Graph" aria-multiselectable="true" style="--graph-width: ${graphColumnWidthPx}px; --col-author-width: ${authorWidthPx}px; --col-date-width: ${dateWidthPx}px;" data-selected-count="${selected.size}" data-anchor-hash="${this._escapeHtml(anchorAttr)}" data-loaded-count="${loaded}" data-total-available="${total}"${scrollAttr}${preserveScrollAttr}>
         ${focusedBranchHelpHtml}
         ${repositorySelectorHtml}
         ${logFilterBarHtml}
@@ -3224,14 +3295,14 @@ ${bodyMarkup}
    * Build the log column-header row.
    *
    * The header sits above the commit rows and labels the three columns —
-   * the flexible Subject column plus the two fixed-width Author and Date
+   * the flexible Title column plus the two fixed-width Author and Date
    * columns. Between the columns sit drag handles (`data-column-resize`):
-   * dragging the Subject↕Author handle resizes the Author column, and the
+   * dragging the Title↕Author handle resizes the Author column, and the
    * Author↕Date handle resizes the Date column. The fixed columns size
    * themselves from the `--col-author-width` / `--col-date-width` custom
    * properties published on the panel, so the header and every row stay
    * pixel-aligned. The graph cell's left spacer matches `--graph-width` so
-   * the Subject label lines up with the commit messages below it.
+   * the Title label lines up with the commit messages below it.
    *
    * @returns HTML string for the column-header row.
    */
@@ -3243,7 +3314,7 @@ ${bodyMarkup}
         <div class="log-column-header" role="row" aria-hidden="true">
           <div class="log-column-header-graph"></div>
           <div class="log-column-header-info">
-            <div class="log-column-header-title">Subject</div>
+            <div class="log-column-header-title">Title</div>
             <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="Resize author column" tabindex="0"></div>
             <div class="log-column-header-author">Author</div>
             <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="Resize date column" tabindex="0"></div>
@@ -3309,7 +3380,7 @@ ${bodyMarkup}
             </div>
             <div class="log-filter-group">
               <label class="log-filter-label" for="filter-search">Message / Hash</label>
-              <input type="text" id="filter-search" class="log-filter-input" data-action="filterKeydown" placeholder="Subject or commit hash" value="${search}" />
+              <input type="text" id="filter-search" class="log-filter-input" data-action="filterKeydown" placeholder="Title or commit hash" value="${search}" />
               <div class="log-filter-toggle-group">
                 <button type="button" id="filter-search-regex" class="log-filter-toggle-btn${searchRegex ? ' active' : ''}" data-action="toggleSearchRegex" title="Use regular expression" aria-pressed="${searchRegex}">.*</button>
                 <button type="button" id="filter-search-case" class="log-filter-toggle-btn${searchCaseSensitive ? ' active' : ''}" data-action="toggleSearchCase" title="Match case" aria-pressed="${searchCaseSensitive}">Aa</button>

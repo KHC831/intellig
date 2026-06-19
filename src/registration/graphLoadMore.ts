@@ -1,0 +1,87 @@
+import * as vscode from 'vscode';
+import type { IRepository } from '../git-core/interfaces/IGitService';
+
+/**
+ * Scroll-to-bottom "load more" for the Git tool window commit graph.
+ *
+ * The webview posts `loadMoreCommits` when the user scrolls near the bottom
+ * (scriptBuilder); the provider re-fires it as `onDidRequestLoadMoreCommits`.
+ * Nothing used to subscribe, so the graph was hard-capped at the first page.
+ * This module supplies the missing subscriber: a small state machine that
+ * tracks the active repo/filter + current display limit and grows the limit by
+ * one page on each load-more, re-running the same scoped load while preserving
+ * the user's scroll position.
+ *
+ * The controller is generic over the registerViews-local log-filter shape so
+ * it carries the EXACT filter through to the grown fetch (and the rev-list
+ * count) without depending on registerViews internals.
+ */
+
+/** Re-run the scoped graph load at a grown limit, preserving scroll. */
+export type GraphLoadMoreReloader<F> = (
+  repo: IRepository,
+  filter: F | undefined,
+  opts: { limit: number; preserveScroll: boolean }
+) => void;
+
+export interface IGraphLoadMoreController<F> {
+  /**
+   * Record a FRESH (non-load-more) load — a repo switch, filter change, or
+   * refresh. Resets the display limit back to one page so a previously-grown
+   * repo never carries its limit into a different repo/filter.
+   */
+  noteFreshLoad(repo: IRepository, filter: F | undefined): void;
+  /** The limit the current load should request (base page, or grown). */
+  currentLimit(): number;
+  /**
+   * Handle a scroll-to-bottom request: grow the limit by one page and re-run
+   * the active scoped load, preserving scroll. No-op until a fresh load has
+   * established which repo/filter is active.
+   */
+  handleLoadMore(): void;
+}
+
+/**
+ * Create the load-more state machine. `basePage` is both the initial limit and
+ * the per-load-more increment (the task's `GRAPH_PAGE`). `reload` re-runs the
+ * scoped load — in production this is `loadLogCommitsForRepo` with an explicit
+ * limit + preserveScroll.
+ */
+export function createGraphLoadMoreController<F>(
+  basePage: number,
+  reload: GraphLoadMoreReloader<F>
+): IGraphLoadMoreController<F> {
+  let limit = basePage;
+  let repo: IRepository | undefined;
+  let filter: F | undefined;
+
+  return {
+    noteFreshLoad(r: IRepository, f: F | undefined): void {
+      repo = r;
+      filter = f;
+      limit = basePage;
+    },
+    currentLimit(): number {
+      return limit;
+    },
+    handleLoadMore(): void {
+      if (!repo) {
+        return;
+      }
+      limit += basePage;
+      reload(repo, filter, { limit, preserveScroll: true });
+    },
+  };
+}
+
+/**
+ * Subscribe `onLoadMore` to the provider's `onDidRequestLoadMoreCommits`
+ * event. Extracted so the wiring (the previously-dead emitter now HAS a
+ * subscriber) is unit-testable in isolation from the registerViews closure.
+ */
+export function wireGraphLoadMore(
+  provider: { onDidRequestLoadMoreCommits: vscode.Event<void> },
+  onLoadMore: () => void
+): vscode.Disposable {
+  return provider.onDidRequestLoadMoreCommits(() => onLoadMore());
+}

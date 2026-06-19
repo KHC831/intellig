@@ -36,6 +36,18 @@ import {
   provideGitShowContent,
 } from './wiring';
 import { createInProgressStatusBar } from '../ui-shell/InProgressStatusBar';
+import {
+  createGraphLoadMoreController,
+  wireGraphLoadMore,
+  type IGraphLoadMoreController,
+} from './graphLoadMore';
+import { fetchGraphPage } from './graphLogPage';
+
+/**
+ * Base page size for the commit graph — the initial number of commits loaded
+ * AND the increment grown on each scroll-to-bottom load-more.
+ */
+const GRAPH_PAGE = 500;
 
 /**
  * Register views and view providers.
@@ -269,6 +281,9 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // `hoistedLoadLogCommitsForRepo` below so the second
     // `if (ctx.services)` block can pass it into
     // `wireRepositorySelection(...)`.
+    // Scroll-to-bottom load-more state machine. Declared as a `const` just
+    // below `loadLogCommitsForRepo`; the loader reaches it through this
+    // forward closure reference (only read at call time, after both exist).
     const loadLogCommitsForRepo = async (
       repo: IRepository,
       filter?: {
@@ -286,40 +301,34 @@ export function registerViews(ctx: IViewRegistrationContext): void {
         logRange?: string;
         searchRegex?: boolean;
         searchCaseSensitive?: boolean;
-      }
+      },
+      // Present only on a scroll-to-bottom load-more re-run: an explicit grown
+      // limit and the request to keep the user's scroll position. Absent on a
+      // fresh load (repo switch / filter change / refresh), which resets the
+      // limit back to one page.
+      loadMore?: { limit: number; preserveScroll: boolean }
     ): Promise<void> => {
       try {
-        // A branch or range filter scopes the log to that ref; suppress `--all`
-        // so we don't union every branch back in. Without one we walk all refs
-        // (minus refs/stash) for the full graph.
-        const branchRef = filter?.branch;
-        const logRange = filter?.logRange;
-        const commits = await gitService.getLog(repo, {
-          maxCount: 500,
-          all: !branchRef && !logRange,
-          ref: branchRef,
-          logRange,
-          // The graph algorithm needs topological order: a commit's
-          // parent MUST appear later in the list (or off-window).
-          // Without --topo-order, git falls back to date order; after
-          // a squash/rebase/cherry-pick, fresh committerDate values
-          // shuffle divergent branches between a commit and its
-          // parent, which the algorithm reads as "linear" — exactly
-          // the user-visible bug post-squash.
-          topoOrder: true,
-          author: filter?.author,
-          since: filter?.since,
-          until: filter?.until,
-          path: filter?.path,
-          grep: filter?.searchText,
-          noMerges: filter?.noMerges,
-          firstParent: filter?.firstParent,
-          simplifyMerges: filter?.simplifyMerges,
-          minParents: filter?.minParents,
-          maxParents: filter?.maxParents,
-          regex: filter?.searchRegex,
-          caseSensitive: filter?.searchCaseSensitive,
-        });
+        // A fresh load resets the grown limit to one page; a load-more re-run
+        // carries the explicit grown limit through.
+        let limit: number;
+        if (loadMore) {
+          limit = loadMore.limit;
+        } else {
+          graphLoadMore.noteFreshLoad(repo, filter);
+          limit = graphLoadMore.currentLimit();
+        }
+
+        // Fetch the windowed commit list AND the honest total under ONE shared
+        // scope (fetchGraphPage builds it once and passes it to both getLog and
+        // getLogCount), so the loaded list and the rev-list total can never
+        // diverge — that divergence is exactly what leaves hasMore stuck true
+        // (an endless load-more) or makes the "X of Y" indicator lie. Topo
+        // order is requested on the log: a commit's parent MUST appear later in
+        // the list (or off-window), else git's date order shuffles divergent
+        // branches between a commit and its parent after a squash/rebase and
+        // the algorithm renders it "linear" — the user-visible post-squash bug.
+        const { commits, totalAvailable } = await fetchGraphPage(gitService, repo, filter, limit);
 
         // Build branch map: commit hash -> branch refs (name + type).
         // Carry `branch.type` (local/remote, derived by parseBranches from
@@ -360,13 +369,27 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           // Single-repo / specific scope: anchor to this repo's own HEAD (the
           // helper de-prefixes the branch name to match `IBranchRef.name`).
           const { headHash, headBranchName } = resolveLogHeadAnchor(false, repo);
+          // Load-more grows the window in place; ask the next render to restore
+          // the user's scroll instead of snapping to the newest commit.
+          if (loadMore?.preserveScroll) {
+            ctx.gitToolWindowProvider.markPreserveScrollOnNextRender();
+          }
           ctx.gitToolWindowProvider.updateLogState(
             commits,
             branchMap,
             tagMap,
             headHash,
-            headBranchName
+            headBranchName,
+            totalAvailable
           );
+
+          // Re-arm the webview's load-more debounce now the grown page has
+          // rendered, so the next scroll-to-bottom can fire. Explicit + reload
+          // independent (see notifyCommitsLoaded). Only needed on a load-more
+          // re-run; a fresh load already starts with the debounce clear.
+          if (loadMore) {
+            ctx.gitToolWindowProvider.notifyCommitsLoaded();
+          }
 
           // Compute the cherry-mark map in the background and push it into
           // the provider. We don't block the log render on it — cherry marks
@@ -381,6 +404,17 @@ export function registerViews(ctx: IViewRegistrationContext): void {
           .error('failed to load git log', error instanceof Error ? error : undefined);
       }
     };
+
+    // Now that the single-repo loader exists, build the load-more controller
+    // (its reload re-runs that loader at the grown limit) and subscribe it to
+    // the provider's previously-dead `onDidRequestLoadMoreCommits` emitter.
+    const graphLoadMore: IGraphLoadMoreController<LogFilter> =
+      createGraphLoadMoreController<LogFilter>(GRAPH_PAGE, (repo, filter, opts) => {
+        void loadLogCommitsForRepo(repo, filter, opts);
+      });
+    ctx.context.subscriptions.push(
+      wireGraphLoadMore(ctx.gitToolWindowProvider, () => graphLoadMore.handleLoadMore())
+    );
 
     /**
      * Compute `git log --cherry-mark` for the given repo against its
