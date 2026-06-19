@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand, getLogger } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
+import { repoRelativePath } from '../../utils/repoRelativePath';
 import { sanitizeGitError, formatActionFailureToast } from '../../git-core/gitError';
 import { findCommitByQuery } from '../../git-core/gitToolWindow/jumpToHash';
 import { isTabbedGitToolWindowEnabled } from '../../git-core/gitToolWindow/config';
@@ -601,7 +602,10 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     // Get the active editor's file or selected files from explorer
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
-      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
+      // relative path. `asRelativePath` is workspace-folder-relative and breaks
+      // for nested/multi-root repos (see repoRelativePath).
+      const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
       try {
         await gitService.stage(repo, [filePath]);
         void vscode.window.showInformationMessage(`Staged: ${filePath}`);
@@ -639,7 +643,10 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
     // Get the active editor's file or selected files from explorer
     const activeEditor = vscode.window.activeTextEditor;
     if (activeEditor) {
-      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
+      // relative path. `asRelativePath` is workspace-folder-relative and breaks
+      // for nested/multi-root repos (see repoRelativePath).
+      const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
       try {
         await gitService.unstage(repo, [filePath]);
         void vscode.window.showInformationMessage(`Unstaged: ${filePath}`);
@@ -783,8 +790,11 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       return;
     }
 
+    // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
+    // relative path. `asRelativePath` is workspace-folder-relative and breaks
+    // for nested/multi-root repos (see repoRelativePath).
     const filePath = activeEditor
-      ? vscode.workspace.asRelativePath(activeEditor.document.uri)
+      ? repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath)
       : undefined;
 
     // When the tabbed Git tool window is enabled and we have a file path,
@@ -859,7 +869,10 @@ export function registerCommitRepoCoreCommands(ctx: ICommandContext): vscode.Dis
       return;
     }
 
-    const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+    // git runs with `cwd = repo.rootUri.fsPath`, so it needs the REPO-root-
+    // relative path. `asRelativePath` is workspace-folder-relative and breaks
+    // for nested/multi-root repos (see repoRelativePath).
+    const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
 
     const confirm = await vscode.window.showWarningMessage(
       `Are you sure you want to revert changes to ${filePath}? This cannot be undone.`,

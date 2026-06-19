@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
+import { repoRelativePath } from '../../utils/repoRelativePath';
 import { formatActionFailureToast } from '../../git-core/gitError';
 import {
   createInlineBlameProvider,
@@ -170,7 +171,10 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
       if (!repo) {
         return;
       }
-      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // git/blame run with `cwd = repo.rootUri.fsPath`, so they need the
+      // REPO-root-relative path. `asRelativePath` is workspace-folder-relative
+      // and breaks for nested/multi-root repos (see repoRelativePath).
+      const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
       const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
 
       try {
@@ -249,7 +253,10 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
       if (!repo) {
         return;
       }
-      const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // git/blame run with `cwd = repo.rootUri.fsPath`, so they need the
+      // REPO-root-relative path. `asRelativePath` is workspace-folder-relative
+      // and breaks for nested/multi-root repos (see repoRelativePath).
+      const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
       const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
 
       try {
@@ -311,7 +318,10 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
           // Click-through from the blame annotation — use the supplied commit.
           targetHash = commitHashArg;
         } else {
-          const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+          // blame runs with `cwd = repo.rootUri.fsPath`, so it needs the
+          // REPO-root-relative path. `asRelativePath` is workspace-folder-
+          // relative and breaks for nested/multi-root repos (see repoRelativePath).
+          const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);
           const line = activeEditor.selection.active.line + 1; // Convert to 1-indexed
           const blameLine = await blameService.getBlameForLine(repo, filePath, line);
           if (blameLine.commit.startsWith('0000000')) {

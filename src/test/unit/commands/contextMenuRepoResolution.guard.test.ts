@@ -25,6 +25,20 @@ const BRANCH_FILE = path.join(process.cwd(), 'src/branches/BranchContextMenuComm
 const COMMIT_FILE = path.join(process.cwd(), 'src/commits/CommitContextMenuCommands.ts');
 
 /**
+ * Editor / command-palette handler files whose commands resolve a repo + a
+ * file path. They run git with `cwd = repo.rootUri.fsPath`, so the second
+ * limb of the same wrong-target bug class lives here: the pathspec must be
+ * REPO-root-relative, derived via `repoRelativePath(repo.rootUri.fsPath, …)` —
+ * never `vscode.workspace.asRelativePath(…)` (workspace-folder-relative, wrong
+ * in a nested / multi-root repo). See {@link asRelativePathGitPathspecOffenders}.
+ */
+const EDITOR_PALETTE_HANDLER_FILES = [
+  'src/commands/registration/commitRepoCoreCommands.ts',
+  'src/commands/registration/blameEditorCommands.ts',
+  'src/commands/registration/explorerCommands.ts',
+].map((rel) => path.join(process.cwd(), rel));
+
+/**
  * Indices of every class-member start (method declaration or its JSDoc) at
  * class-body indentation. Used to bound a method body without brace-matching
  * through the template literals and nested callbacks that the handlers contain.
@@ -63,6 +77,42 @@ function bareRepoItemHandlers(src: string): string[] {
     }
   }
   return bad;
+}
+
+/**
+ * Executable lines in an editor/palette handler file that derive a git
+ * pathspec from `vscode.workspace.asRelativePath(...)`. That value is relative
+ * to the WORKSPACE FOLDER, but the git op runs under `cwd =
+ * repo.rootUri.fsPath`, so in a nested repo / submodule (or a multi-root
+ * workspace where the folder name is prefixed) the path is wrong and
+ * `git <op> -- <folder>/<file>` fails (mutations silently no-op; reads report
+ * a false "nothing here"). The only correct derivation is
+ * `repoRelativePath(repo.rootUri.fsPath, ...)`. A non-empty result is the bug
+ * class that regressed stage/unstage/revert/history/blame in nested repos.
+ *
+ * The handler signatures here are anonymous `registerLoggedCommand(...)` arrow
+ * functions, not `_handle*(item: BranchTreeItem)` methods — so the
+ * {@link bareRepoItemHandlers} detector cannot see them. This companion scans
+ * the executable source instead. Comment / JSDoc lines that merely MENTION the
+ * helper to warn against it (`asRelativePath` without an immediate `(`, or a
+ * `//` / `*` line) are excluded — only live derivations count.
+ */
+function asRelativePathGitPathspecOffenders(src: string): string[] {
+  const offenders: string[] = [];
+  for (const raw of src.split('\n')) {
+    const trimmed = raw.trim();
+    // Skip pure comment / JSDoc lines.
+    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {
+      continue;
+    }
+    // Strip a trailing line comment so an inline `// …asRelativePath(…` note
+    // can't masquerade as a live derivation.
+    const codeOnly = raw.replace(/\/\/.*$/, '');
+    if (/vscode\.workspace\.asRelativePath\(/.test(codeOnly)) {
+      offenders.push(trimmed);
+    }
+  }
+  return offenders;
 }
 
 describe('context-menu handlers resolve the target repo from the clicked item (wrong-repo guard)', () => {
@@ -130,4 +180,39 @@ describe('context-menu handlers resolve the target repo from the clicked item (w
         '_getRepositoryForCommit, not a handler bypassing per-commit resolution'
     );
   });
+});
+
+describe('editor/palette handlers derive the git pathspec repo-root-relative (wrong-path guard)', () => {
+  it('the detector has teeth: it flags a live asRelativePath derivation, not the repo-relative one or a comment', () => {
+    const synthetic = [
+      'async function bad() {',
+      '  const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);',
+      '  await gitService.stage(repo, [filePath]);',
+      '}',
+      'async function good() {',
+      '  // never vscode.workspace.asRelativePath(uri) — workspace-folder-relative',
+      '  const filePath = repoRelativePath(repo.rootUri.fsPath, activeEditor.document.uri.fsPath);',
+      '  await gitService.stage(repo, [filePath]);',
+      '}',
+    ].join('\n');
+    assert.deepStrictEqual(
+      asRelativePathGitPathspecOffenders(synthetic),
+      ['const filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);'],
+      'detector must flag the live asRelativePath derivation and only that one'
+    );
+  });
+
+  for (const file of EDITOR_PALETTE_HANDLER_FILES) {
+    it(`${path.basename(file)}: no command handler derives the git pathspec from asRelativePath`, () => {
+      const src = fs.readFileSync(file, 'utf8');
+      const offenders = asRelativePathGitPathspecOffenders(src);
+      assert.deepStrictEqual(
+        offenders,
+        [],
+        'these lines derive a git pathspec from vscode.workspace.asRelativePath (workspace-folder-' +
+          'relative) instead of repoRelativePath(repo.rootUri.fsPath, …), reintroducing the ' +
+          `nested/multi-root wrong-path bug:\n  ${offenders.join('\n  ')}`
+      );
+    });
+  }
 });

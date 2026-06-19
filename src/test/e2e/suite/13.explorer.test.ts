@@ -25,10 +25,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { createFixtureRepo, Fixture, execGit } from '../support/gitFixture';
+import { Fixture, execGit } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';
-import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
+import { clearWorkspace } from '../support/workspaceHelper';
 import { assertStaged, assertUnstaged, assertReverted } from '../support/gitStatusAssertions';
+import { setupNestedFixture } from '../support/nestedFixture';
 
 /** Count the currently-open diff editor tabs. */
 function diffTabCount(): number {
@@ -73,46 +74,13 @@ describe('e2e — explorer context-menu commands (nested repo, real git state)',
   });
 
   /**
-   * Build a fixture repo, then relocate it INSIDE the sentinel workspace
-   * folder so its root differs from the workspace-folder root — the shape that
-   * makes `asRelativePath(fileUri)` return a path that is NOT repo-root-relative.
-   *
-   * The repo is created under `os.tmpdir()` first (unwatched) and only then
-   * `rename`d under the sentinel as a single atomic step. Creating it directly
-   * under the sentinel would let the extension's folder watcher discover the
-   * `.git` mid-build and race `createFixtureRepo`'s commits on `index.lock`.
+   * Build the nested-repo fixture (root differs from the workspace folder —
+   * the shape that makes `asRelativePath(fileUri)` return a path that is NOT
+   * repo-root-relative) via the shared {@link setupNestedFixture} builder.
    */
-  async function setup(opts: Parameters<typeof createFixtureRepo>[0] = {}): Promise<void> {
-    const sentinel = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    assert.ok(sentinel, 'launcher sentinel workspace folder must exist');
-
-    const built = await createFixtureRepo({ commits: 2, ...opts });
-    const builtBase = path.dirname(built.rootPath); // <tmp>/intellig-e2e-XXXX
-    const destBase = path.join(sentinel, path.basename(builtBase));
-    fs.renameSync(builtBase, destBase); // atomic: the repo appears fully-formed
-    const rootPath = path.join(destBase, 'repo');
-    fix = {
-      ...built,
-      rootPath,
-      cleanup: async () => {
-        try {
-          fs.rmSync(destBase, { recursive: true, force: true, maxRetries: 3 });
-        } catch {
-          /* best-effort */
-        }
-        await built.cleanup();
-      },
-    };
-
-    await useFixtureWorkspace(fix.rootPath);
-    // Precondition: the file's workspace-relative path must be nested (not
-    // repo-root-relative), i.e. the buggy `asRelativePath` value differs from
-    // the correct repo-relative value. Otherwise the test proves nothing.
-    const rel = vscode.workspace.asRelativePath(uriFor('file0.txt'));
-    assert.ok(
-      rel.includes('/') && rel !== 'file0.txt',
-      `precondition: asRelativePath should be nested under the workspace folder, got "${rel}"`
-    );
+  async function setup(opts: Parameters<typeof setupNestedFixture>[0] = {}): Promise<void> {
+    const nested = await setupNestedFixture(opts);
+    fix = nested.fix;
   }
 
   function uriFor(rel: string): vscode.Uri {
