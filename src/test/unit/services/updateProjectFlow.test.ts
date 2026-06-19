@@ -10,6 +10,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import type { IPullOptions, IRepository } from '../../../git-core/interfaces/IGitService';
+import { GitCommandError, IGitCommandResult } from '../../../git-core/gitCli';
 import {
   buildUpdatePullOptions,
   repoDisplayName,
@@ -228,6 +229,35 @@ describe('runUpdateProject', () => {
     const git = makeGit({
       incomingByRoot: { '/repos/a': { incoming: 3 } },
       pullThrows: { '/repos/a': new Error('CONFLICT (content): Merge conflict in foo.ts') },
+    });
+    const summary = await runUpdateProject({
+      repos: [repo('a')],
+      gitService: git,
+      method: 'merge',
+      pullRebaseDefault: false,
+    });
+    assert.strictEqual(summary.repos[0].status, 'conflict');
+  });
+
+  // M4 — a real conflicting pull writes "CONFLICT (content)…" to STDOUT, while
+  // GitCommandError.message is `stderr || stdout`. When stderr carries hint
+  // text the marker is only on stdout/combined; classifying on `.message`
+  // would misreport the conflict as a generic error.
+  it('classifies a conflicting pull as status=conflict when the marker is only on stdout', async () => {
+    const result: IGitCommandResult = {
+      exitCode: 1,
+      stdout:
+        'Auto-merging foo.ts\nCONFLICT (content): Merge conflict in foo.ts\n' +
+        'Automatic merge failed; fix conflicts and then commit the result.',
+      stderr: 'hint: see git config advice.mergeConflict',
+      combined:
+        'Auto-merging foo.ts\nCONFLICT (content): Merge conflict in foo.ts\n' +
+        'Automatic merge failed; fix conflicts and then commit the result.\n' +
+        'hint: see git config advice.mergeConflict',
+    };
+    const git = makeGit({
+      incomingByRoot: { '/repos/a': { incoming: 3 } },
+      pullThrows: { '/repos/a': new GitCommandError('git', ['pull'], result) },
     });
     const summary = await runUpdateProject({
       repos: [repo('a')],

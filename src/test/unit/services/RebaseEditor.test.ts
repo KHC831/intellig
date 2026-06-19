@@ -4,7 +4,11 @@
 
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import { RebaseEditor, createRebaseEditor } from '../../../rebase/RebaseEditor';
+import {
+  RebaseEditor,
+  createRebaseEditor,
+  IRebaseEditorResult,
+} from '../../../rebase/RebaseEditor';
 import {
   IRebaseService,
   IRebaseSession,
@@ -360,6 +364,103 @@ describe('RebaseEditor', () => {
     });
   });
 
+  // M1 + M3 — paused / in-progress handoff to the Rebase Progress panel.
+  //
+  // M1: the paused toast tells the user to "use the Rebase Progress panel",
+  // but nothing ever opened it (the view was orphaned). The paused flow must
+  // actually `.show()` the panel.
+  //
+  // M3: a `status:'in-progress'` success result (reachable on an inline-amend
+  // exec failure that leaves the rebase mid-flight) hit neither the
+  // 'completed' nor 'paused' branch — so no toast fired and the editor promise
+  // never resolved, hanging the RebaseDialog (`_busy` stuck) forever. It must
+  // surface a toast and resolve the promise.
+  describe('M1/M3 — paused & in-progress handoff', () => {
+    function primeEditor(editor: RebaseEditor, capture: (r: IRebaseEditorResult) => void): void {
+      (editor as unknown as { _repository: IRepository })._repository = mockRepository;
+      (editor as unknown as { _session: IRebaseSession })._session =
+        mockRebaseService.getRebaseSession(mockRepository) ?? {
+          onto: 'main',
+          originalBranch: 'feature',
+          commits: [...mockRebaseService.mockCommits],
+          currentStep: 0,
+          status: 'planning',
+        };
+      (editor as unknown as { _resolvePromise: (r: IRebaseEditorResult) => void })._resolvePromise =
+        capture;
+    }
+
+    function captureInfoToasts(): { infos: string[]; restore: () => void } {
+      const infos: string[] = [];
+      const orig = vscode.window.showInformationMessage;
+      (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage = (
+        m: string
+      ): Promise<string | undefined> => {
+        infos.push(m);
+        return Promise.resolve(undefined);
+      };
+      return {
+        infos,
+        restore: (): void => {
+          (vscode.window as unknown as { showInformationMessage: unknown }).showInformationMessage =
+            orig;
+        },
+      };
+    }
+
+    it('M1: a paused rebase opens the Rebase Progress panel', async () => {
+      let shownRepo: IRepository | undefined;
+      const progressView = {
+        show: (repo: IRepository): void => {
+          shownRepo = repo;
+        },
+      };
+      const editor = createRebaseEditor(extensionUri, mockRebaseService, progressView);
+      mockRebaseService.executeResult = { success: true, status: 'paused' };
+
+      let resolved: IRebaseEditorResult | undefined;
+      primeEditor(editor, (r) => {
+        resolved = r;
+      });
+
+      const t = captureInfoToasts();
+      try {
+        await (editor as unknown as { _handleExecute: () => Promise<void> })._handleExecute();
+      } finally {
+        t.restore();
+        editor.dispose();
+      }
+
+      assert.strictEqual(shownRepo, mockRepository, 'paused flow must .show() the progress panel');
+      assert.ok(resolved?.executed, 'paused flow must resolve the editor promise');
+    });
+
+    it('M3: an in-progress result surfaces a toast and resolves (no hang)', async () => {
+      const editor = createRebaseEditor(extensionUri, mockRebaseService);
+      mockRebaseService.executeResult = { success: true, status: 'in-progress' };
+
+      let resolved: IRebaseEditorResult | undefined;
+      primeEditor(editor, (r) => {
+        resolved = r;
+      });
+
+      const t = captureInfoToasts();
+      try {
+        await (editor as unknown as { _handleExecute: () => Promise<void> })._handleExecute();
+      } finally {
+        t.restore();
+        editor.dispose();
+      }
+
+      assert.ok(
+        resolved !== undefined,
+        'in-progress result MUST resolve the promise (else the dialog hangs forever)'
+      );
+      assert.ok(resolved?.executed, 'resolution should mark the rebase as executed');
+      assert.strictEqual(t.infos.length >= 1, true, 'in-progress must surface a toast');
+    });
+  });
+
   // TL-72 (Wave 9) — both action-path catch blocks in RebaseEditor must
   // run the raw git stderr through `sanitizeGitError` before pushing it
   // into the showErrorMessage toast. Pre-fix, RebaseEditor.ts:93 (show
@@ -424,6 +525,46 @@ describe('RebaseEditor', () => {
       } finally {
         restore();
       }
+    });
+  });
+
+  // M2 follow-up — with GIT_EDITOR suppressed during executeRebase, a blank
+  // reword/squash no longer opens an external editor. The textarea placeholder
+  // must NOT promise "edit interactively" (a regression for users with
+  // core.editor=code --wait, and contrary to git4idea's in-UI message
+  // collection); it must state the real blank-handling instead.
+  describe('M2 follow-up — blank reword/squash affordance text', () => {
+    function placeholderFor(action: RebaseAction): string {
+      const html = (
+        editor as unknown as {
+          _getCommitItemHtml: (
+            c: { hash: string; message: string; action: RebaseAction },
+            i: number
+          ) => string;
+        }
+      )._getCommitItemHtml({ hash: 'abc1234567890', message: 'orig', action }, 0);
+      const m = html.match(/placeholder="([^"]*)"/);
+      return m ? m[1] : '';
+    }
+
+    let editor: RebaseEditor;
+    beforeEach(() => {
+      editor = createRebaseEditor(extensionUri, mockRebaseService);
+    });
+    afterEach(() => {
+      editor.dispose();
+    });
+
+    it('reword placeholder does not promise an interactive editor and says it keeps the original', () => {
+      const p = placeholderFor('reword');
+      assert.ok(!/interactiv/i.test(p), `must not promise interactive editing; got: ${p}`);
+      assert.match(p, /keep the original/i);
+    });
+
+    it('squash placeholder does not promise an interactive editor and says it auto-combines', () => {
+      const p = placeholderFor('squash');
+      assert.ok(!/interactiv/i.test(p), `must not promise interactive editing; got: ${p}`);
+      assert.match(p, /auto-combine/i);
     });
   });
 });

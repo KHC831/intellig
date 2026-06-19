@@ -252,6 +252,51 @@ export function formatActionFailureToast(prefix: string, error: unknown): string
 }
 
 /**
+ * Extract the fullest searchable git output from a thrown value, preferring
+ * BOTH streams over a single one.
+ *
+ * Motivation: `GitCommandError.message` is `stderr || stdout` — only ONE
+ * stream. git writes a merge/rebase conflict marker ("CONFLICT (content)…",
+ * "Automatic merge failed…") to STDOUT, so when stderr also carries text
+ * (hints, advice) the marker is invisible to a `.message`-only check and a
+ * conflicting pull misclassifies as a generic error. This returns the
+ * combined stdout+stderr when the value is a `GitCommandError`-shaped object
+ * (it exposes `result.combined`), falling back to `error.message` / the
+ * stringified value otherwise.
+ *
+ * Duck-typed on the `result` shape so this helper stays dependency-free (no
+ * import of the concrete `GitCommandError` class).
+ *
+ * @param error the thrown value (typically a `GitCommandError`).
+ * @returns the most complete output string to scan for markers.
+ */
+export function combinedGitErrorText(error: unknown): string {
+  if (error && typeof error === 'object' && 'result' in error) {
+    const result = (
+      error as { result?: { combined?: unknown; stdout?: unknown; stderr?: unknown } }
+    ).result;
+    if (result) {
+      if (typeof result.combined === 'string' && result.combined.length > 0) {
+        return result.combined;
+      }
+      const stdout = typeof result.stdout === 'string' ? result.stdout : '';
+      const stderr = typeof result.stderr === 'string' ? result.stderr : '';
+      const merged = `${stdout}\n${stderr}`;
+      if (merged.trim().length > 0) {
+        return merged;
+      }
+    }
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error);
+}
+
+/**
  * Detect git's "branch is checked out in another worktree" refusal and
  * translate it into an actionable, user-facing message.
  *

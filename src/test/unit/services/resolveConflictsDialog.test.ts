@@ -125,14 +125,23 @@ function makeMockMergeView(): IMergeView & {
  */
 function makeMockGitService(): IGitService & {
   _execCalls: string[][];
+  _execOpts: Array<{ env?: NodeJS.ProcessEnv } | undefined>;
   _cherryPickAbortCalls: number;
   _cherryPickContinueCalls: number;
   _revertAbortCalls: number;
   _revertContinueCalls: number;
+  _rebaseContinueCalls: number;
+  _rebaseContinueResult: {
+    success: boolean;
+    conflicts?: string[];
+    rebaseInProgress?: boolean;
+    failureReason?: string;
+  };
   _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
   _fireRepoChange: (repo: IRepository) => void;
 } {
   const execCalls: string[][] = [];
+  const execOpts: Array<{ env?: NodeJS.ProcessEnv } | undefined> = [];
   const statuses: Map<string, { indexStatus: string; workTreeStatus: string }> = new Map();
   const repoChangeEmitter = new vscode.EventEmitter<IRepository>();
 
@@ -161,27 +170,54 @@ function makeMockGitService(): IGitService & {
       svc._revertContinueCalls++;
       return { success: true };
     },
+    rebaseContinue: async (): Promise<{
+      success: boolean;
+      conflicts?: string[];
+      rebaseInProgress?: boolean;
+      failureReason?: string;
+    }> => {
+      svc._rebaseContinueCalls++;
+      return svc._rebaseContinueResult;
+    },
     gitCli: {
       exec: async (
-        args: string[]
+        args: string[],
+        opts?: { env?: NodeJS.ProcessEnv }
       ): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
         execCalls.push(args);
+        execOpts.push(opts);
         return { exitCode: 0, stdout: '', stderr: '' };
       },
     },
     _execCalls: execCalls,
+    _execOpts: execOpts,
     _cherryPickAbortCalls: 0,
     _cherryPickContinueCalls: 0,
     _revertAbortCalls: 0,
     _revertContinueCalls: 0,
+    _rebaseContinueCalls: 0,
+    _rebaseContinueResult: { success: true } as {
+      success: boolean;
+      conflicts?: string[];
+      rebaseInProgress?: boolean;
+      failureReason?: string;
+    },
     _statuses: statuses,
     _fireRepoChange: (r: IRepository): void => repoChangeEmitter.fire(r),
   } as unknown as IGitService & {
     _execCalls: string[][];
+    _execOpts: Array<{ env?: NodeJS.ProcessEnv } | undefined>;
     _cherryPickAbortCalls: number;
     _cherryPickContinueCalls: number;
     _revertAbortCalls: number;
     _revertContinueCalls: number;
+    _rebaseContinueCalls: number;
+    _rebaseContinueResult: {
+      success: boolean;
+      conflicts?: string[];
+      rebaseInProgress?: boolean;
+      failureReason?: string;
+    };
     _statuses: Map<string, { indexStatus: string; workTreeStatus: string }>;
     _fireRepoChange: (repo: IRepository) => void;
   };
@@ -726,8 +762,10 @@ describe('ResolveConflictsDialog', () => {
       },
       {
         op: 'rebase',
-        expectedContinue: (g) =>
-          g._execCalls.some((a) => a[0] === 'rebase' && a[1] === '--continue'),
+        // Continue routes through gitService.rebaseContinue (NOT a raw
+        // `rebase --continue` exec) so the expected non-zero exit at the next
+        // commit's conflicts is handled as data, not a thrown error.
+        expectedContinue: (g) => g._rebaseContinueCalls > 0,
         expectedAbort: (g) => g._execCalls.some((a) => a[0] === 'rebase' && a[1] === '--abort'),
       },
       {
@@ -785,6 +823,143 @@ describe('ResolveConflictsDialog', () => {
         });
         assert.ok(expectedAbort(gitService), `expected Abort dispatch for ${op}`);
       });
+    });
+  });
+
+  // H1 — multi-commit rebase Continue. The PRIMARY conflict UI must route
+  // rebase Continue through gitService.rebaseContinue (which returns the next
+  // commit's conflicts as data) rather than a raw `rebase --continue` exec
+  // (which THROWS on the expected non-zero when the rebase stops at the next
+  // commit). Pre-fix, the raw exec dead-ended the common multi-commit rebase:
+  // an error toast + a stale "all resolved" dialog, and the new conflicts
+  // never appeared.
+  describe('H1 — rebase Continue multi-commit loop', () => {
+    function makeRebaseDialog(): ResolveConflictsDialog {
+      return new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: true }],
+        { operation: 'rebase', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+    }
+
+    it('routes rebase Continue through gitService.rebaseContinue, never a raw rebase --continue exec', async () => {
+      gitService._rebaseContinueResult = { success: true };
+      dialog = makeRebaseDialog();
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      assert.strictEqual(gitService._rebaseContinueCalls, 1, 'rebaseContinue must be called');
+      assert.ok(
+        !gitService._execCalls.some((a) => a[0] === 'rebase' && a[1] === '--continue'),
+        'must NOT issue a raw `rebase --continue` exec (it throws on the expected non-zero)'
+      );
+    });
+
+    it('re-populates the dialog with the next commit conflicts and keeps it open (no completed-close)', async () => {
+      gitService._rebaseContinueResult = {
+        success: false,
+        conflicts: ['next/file.ts'],
+        rebaseInProgress: true,
+      };
+      dialog = makeRebaseDialog();
+
+      let closeReason: string | undefined;
+      dialog.onDidClose((r) => {
+        closeReason = r;
+      });
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      const statuses = dialog.getFileStatuses();
+      assert.strictEqual(statuses.size, 1, 'dialog should now list only the next conflict');
+      assert.strictEqual(
+        statuses.get('next/file.ts'),
+        'unresolved',
+        'the next commit conflict must show as unresolved'
+      );
+      assert.strictEqual(closeReason, undefined, 'dialog must stay open, not close as completed');
+    });
+
+    it('surfaces a non-conflict failure reason instead of a false "completed"', async () => {
+      gitService._rebaseContinueResult = {
+        success: false,
+        conflicts: [],
+        failureReason: 'no rebase in progress',
+      };
+      dialog = makeRebaseDialog();
+
+      let closeReason: string | undefined;
+      dialog.onDidClose((r) => {
+        closeReason = r;
+      });
+
+      const errors: string[] = [];
+      const origErr = vscode.window.showErrorMessage;
+      (
+        vscode.window as unknown as {
+          showErrorMessage: (msg: string) => Thenable<string | undefined>;
+        }
+      ).showErrorMessage = (msg: string): Thenable<string | undefined> => {
+        errors.push(msg);
+        return Promise.resolve(undefined);
+      };
+      try {
+        await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+          type: 'continue',
+        });
+      } finally {
+        (vscode.window as unknown as { showErrorMessage: typeof origErr }).showErrorMessage =
+          origErr;
+      }
+
+      assert.strictEqual(errors.length, 1, 'a non-conflict failure must surface an error toast');
+      assert.ok(
+        errors[0].includes('no rebase in progress'),
+        `toast should carry git's reason, got: ${errors[0]}`
+      );
+      assert.notStrictEqual(closeReason, 'completed', 'must not close as completed on failure');
+    });
+  });
+
+  // M5 — merge Continue must run non-interactively. `git merge --continue`
+  // opens $EDITOR for the merge message by default; under VS Code's non-TTY
+  // spawn that hangs/fails. completeMerge already commits with `--no-edit`, so
+  // the dialog's merge Continue must suppress the editor too (GIT_EDITOR=true,
+  // since `git merge --continue --no-edit` is rejected as "expects no
+  // arguments").
+  describe('M5 — merge Continue suppresses the commit-message editor', () => {
+    it('runs `git merge --continue` with GIT_EDITOR=true so no editor pops', async () => {
+      dialog = new ResolveConflictsDialog(
+        ctx,
+        repo,
+        [{ path: 'a.ts', resolved: true }],
+        { operation: 'merge', canAbort: true, canContinue: true },
+        conflictService,
+        mergeView,
+        gitService
+      );
+
+      await (dialog as unknown as { _onMessage: (m: unknown) => Promise<void> })._onMessage({
+        type: 'continue',
+      });
+
+      const idx = gitService._execCalls.findIndex((a) => a[0] === 'merge' && a[1] === '--continue');
+      assert.ok(idx >= 0, 'merge --continue must be issued');
+      const env = gitService._execOpts[idx]?.env;
+      assert.ok(env, 'merge --continue must run with an explicit env');
+      assert.strictEqual(
+        env?.GIT_EDITOR,
+        'true',
+        'GIT_EDITOR=true must be set so the merge-message editor never opens'
+      );
     });
   });
 });

@@ -824,7 +824,15 @@ export async function _openRebaseDialog(
     createRebaseEditor: () => {
       // Reuse the module singleton so deactivate() disposes the same editor.
       if (!rebaseEditor) {
-        rebaseEditor = createRebaseEditor(extensionContext!.extensionUri, rebaseService);
+        // Pass a thunk for the progress view so a paused/in-progress rebase
+        // reveals the live Rebase Progress panel (the panel is created during
+        // activation; the thunk resolves it at paused-time, tolerating a
+        // recreated panel across a deactivate/reactivate cycle).
+        rebaseEditor = createRebaseEditor(
+          extensionContext!.extensionUri,
+          rebaseService,
+          () => rebaseProgressView
+        );
       }
       return rebaseEditor;
     },

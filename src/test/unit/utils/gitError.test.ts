@@ -11,7 +11,9 @@ import {
   sanitizeGitError,
   formatActionFailureToast,
   worktreeConflictMessage,
+  combinedGitErrorText,
 } from '../../../git-core/gitError';
+import { GitCommandError, IGitCommandResult } from '../../../git-core/gitCli';
 
 describe('sanitizeGitError', () => {
   it('passes clean messages through unchanged', () => {
@@ -531,5 +533,47 @@ describe('worktreeConflictMessage — translate git worktree-conflict fatal into
     const msg = worktreeConflictMessage(raw);
     assert.ok(msg, 'should still surface an actionable message without a parsed path');
     assert.ok(!msg.includes('fatal:'), `must not surface the raw fatal; got: "${msg}"`);
+  });
+});
+
+describe('combinedGitErrorText — full-output extraction for conflict classification', () => {
+  function result(partial: Partial<IGitCommandResult>): IGitCommandResult {
+    return { exitCode: 1, stdout: '', stderr: '', combined: '', ...partial };
+  }
+
+  it('prefers GitCommandError.result.combined (carries BOTH streams)', () => {
+    const err = new GitCommandError(
+      'git',
+      ['pull'],
+      result({
+        stdout: 'CONFLICT (content): Merge conflict in foo.ts',
+        stderr: 'hint: unrelated',
+        combined: 'CONFLICT (content): Merge conflict in foo.ts\nhint: unrelated',
+      })
+    );
+    // The blind spot: message = stderr (no marker), combined has it.
+    assert.ok(!/CONFLICT/i.test(err.message), 'precondition: message lacks the marker');
+    assert.ok(/CONFLICT/i.test(combinedGitErrorText(err)), 'combined output carries the marker');
+  });
+
+  it('falls back to stdout+stderr when combined is empty', () => {
+    const err = new GitCommandError(
+      'git',
+      ['pull'],
+      result({ stdout: 'CONFLICT on stdout', stderr: 'noise', combined: '' })
+    );
+    assert.ok(/CONFLICT/i.test(combinedGitErrorText(err)));
+  });
+
+  it('uses Error.message for a plain Error', () => {
+    assert.strictEqual(combinedGitErrorText(new Error('boom')), 'boom');
+  });
+
+  it('returns a plain string verbatim', () => {
+    assert.strictEqual(combinedGitErrorText('CONFLICT (content)'), 'CONFLICT (content)');
+  });
+
+  it('stringifies an exotic non-Error value', () => {
+    assert.strictEqual(combinedGitErrorText(42), '42');
   });
 });

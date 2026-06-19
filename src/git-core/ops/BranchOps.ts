@@ -20,6 +20,7 @@ import {
   isConflictedStatus,
 } from '../gitParser';
 import { sanitizeGitError } from '../gitError';
+import { parseGitVersion, supportsUpdateRefs, IGitVersion } from '../gitVersion';
 import { IGitOpsContext } from './GitOpsContext';
 
 /**
@@ -375,6 +376,24 @@ export class BranchOps {
     if (options?.newBase && (options.newBase.startsWith('-') || options.newBase.startsWith('.'))) {
       throw new Error(`Invalid rebase newbase: ${options.newBase}`);
     }
+    // `--update-refs` HARD-ERRORS on git < 2.38 ("unknown option `update-refs'"),
+    // which would abort the rebase with a cryptic message. Pre-flight the git
+    // version and refuse the flag with a clear, actionable reason instead of
+    // passing it blindly. (Only pays the extra `git --version` call when the
+    // opt-in flag is actually requested.)
+    if (options?.updateRefs) {
+      const version = await this.getGitVersion(repo);
+      if (!supportsUpdateRefs(version)) {
+        const have = version
+          ? `${version.major}.${version.minor}.${version.patch}`
+          : 'an older version';
+        return {
+          success: false,
+          conflicts: [],
+          failureReason: `--update-refs requires git 2.38 or newer (you have ${have}). Update git, or turn off the "Update refs" rebase option.`,
+        };
+      }
+    }
     const flags = ['--autostash', ...rebaseOptionFlags(options)];
     // `--onto <newbase>` rebases the `<upstream>..HEAD` range onto a different
     // base (git4idea GitRebaseDialog "Onto" field). The newbase lands before
@@ -436,6 +455,20 @@ export class BranchOps {
       conflicts: [],
       failureReason: sanitizeGitError(result.stderr.trim() || result.stdout.trim()) || undefined,
     };
+  }
+
+  /**
+   * Read the running git's version via `git --version`. Returns `undefined`
+   * when the banner can't be parsed or the command fails, so callers
+   * fail open (a parsing quirk must never block a flag the git may support).
+   */
+  private async getGitVersion(repo: IRepository): Promise<IGitVersion | undefined> {
+    try {
+      const res = await this.ctx.gitCli.exec(['--version'], { cwd: repo.rootUri.fsPath });
+      return parseGitVersion(res.stdout);
+    } catch {
+      return undefined;
+    }
   }
 
   /**

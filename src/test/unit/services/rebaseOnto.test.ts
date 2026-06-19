@@ -75,6 +75,11 @@ function scriptCleanRebase(cli: ScriptedGitCli): void {
   cli.scripted.push({ exitCode: 0, stdout: '', stderr: '' }); // status --porcelain
 }
 
+/** Push a `git --version` banner (consumed by the --update-refs guard). */
+function scriptGitVersion(cli: ScriptedGitCli, banner = 'git version 2.50.1'): void {
+  cli.scripted.push({ exitCode: 0, stdout: banner, stderr: '' });
+}
+
 describe('GitService.rebaseBranch — --onto newbase (H-2 git4idea GitRebaseDialog)', () => {
   it('splices --onto <newbase> before the --end-of-options upstream guard', async () => {
     const cli = new ScriptedGitCli();
@@ -94,12 +99,17 @@ describe('GitService.rebaseBranch — --onto newbase (H-2 git4idea GitRebaseDial
 
   it('combines --onto with an option flag, both before the ref guard', async () => {
     const cli = new ScriptedGitCli();
+    // updateRefs triggers a `git --version` pre-flight guard; script a modern
+    // banner so the flag passes through.
+    scriptGitVersion(cli);
     scriptCleanRebase(cli);
     await createGitServiceWithCli(cli).rebaseBranch(createMockRepo(), 'origin/main', {
       updateRefs: true,
       newBase: 'feature',
     });
-    assert.deepStrictEqual(cli.executed[0].args, [
+    const rebaseCall = cli.executed.find((c) => c.args[0] === 'rebase');
+    assert.ok(rebaseCall, 'a rebase should have been executed');
+    assert.deepStrictEqual(rebaseCall.args, [
       'rebase',
       '--autostash',
       '--update-refs',

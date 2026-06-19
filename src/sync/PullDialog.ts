@@ -19,7 +19,7 @@ import {
   IRepository,
 } from '../git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../conflicts/interfaces/IConflictResolutionService';
-import { sanitizeGitError } from '../git-core/gitError';
+import { sanitizeGitError, combinedGitErrorText } from '../git-core/gitError';
 
 // ─── Flag-key helpers ────────────────────────────────────────────────────────
 
@@ -276,9 +276,16 @@ export function applyFlagSelection(
 
 // ─── Conflict detection helper ───────────────────────────────────────────────
 
-/** Heuristic: the git CLI writes "CONFLICT" markers on stderr when a merge/rebase leaves a conflict. */
-export function isConflictError(message: string): boolean {
-  return /CONFLICT/i.test(message);
+/**
+ * Heuristic: git writes "CONFLICT" markers when a merge/rebase leaves a
+ * conflict. The marker lands on STDOUT, but `GitCommandError.message` is
+ * `stderr || stdout` (one stream) — so inspect the COMBINED output, not just
+ * the message, or a conflicting pull whose stderr carries hint text
+ * misclassifies as a generic error. Accepts the raw thrown value (or a plain
+ * string) and scans the fullest available output.
+ */
+export function isConflictError(error: unknown): boolean {
+  return /CONFLICT/i.test(combinedGitErrorText(error));
 }
 
 // ─── Dependency-injected flow ────────────────────────────────────────────────
@@ -398,7 +405,7 @@ export async function runPullDialog(deps: IRunPullDialogDeps): Promise<PullDialo
     return { status: 'pulled', options };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    if (isConflictError(message)) {
+    if (isConflictError(error)) {
       // Hand conflicts off to the Resolve Conflicts dialog. The
       // operation union on IConflictResolutionService does not include
       // `'pull'` — a pull produces the same repo state that merge/rebase

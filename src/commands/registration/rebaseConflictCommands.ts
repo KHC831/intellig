@@ -525,7 +525,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
       if (result.success) {
         void vscode.window.showInformationMessage('Merge completed successfully');
       } else {
-        void vscode.window.showErrorMessage(result.error || 'Failed to complete merge');
+        void vscode.window.showErrorMessage(
+          result.error ? sanitizeGitError(result.error) : 'Failed to complete merge'
+        );
       }
     }
   );
@@ -568,7 +570,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
           `Rebase paused: ${result.remainingConflicts.length} more conflict(s) to resolve`
         );
       } else {
-        void vscode.window.showErrorMessage(result.error || 'Failed to continue rebase');
+        void vscode.window.showErrorMessage(
+          result.error ? sanitizeGitError(result.error) : 'Failed to continue rebase'
+        );
       }
     }
   );
@@ -603,7 +607,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     if (result.success) {
       void vscode.window.showInformationMessage('Merge aborted');
     } else {
-      void vscode.window.showErrorMessage(result.error || 'Failed to abort merge');
+      void vscode.window.showErrorMessage(
+        result.error ? sanitizeGitError(result.error) : 'Failed to abort merge'
+      );
     }
   });
 
@@ -637,7 +643,9 @@ export function registerRebaseConflictCommands(ctx: ICommandContext): vscode.Dis
     if (result.success) {
       void vscode.window.showInformationMessage('Rebase aborted');
     } else {
-      void vscode.window.showErrorMessage(result.error || 'Failed to abort rebase');
+      void vscode.window.showErrorMessage(
+        result.error ? sanitizeGitError(result.error) : 'Failed to abort rebase'
+      );
     }
   });
 

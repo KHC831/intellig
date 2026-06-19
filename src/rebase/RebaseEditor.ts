@@ -26,6 +26,16 @@ export interface IRebaseEditorOptions {
 }
 
 /**
+ * Minimal surface of the Rebase Progress panel the editor needs: the ability
+ * to reveal it when a rebase pauses (edit/reword) or is left mid-flight.
+ * Kept as a structural type so the editor doesn't hard-depend on the concrete
+ * RebaseProgressView (avoids a cyclic import and eases testing).
+ */
+export interface IRebasePausedView {
+  show(repository: IRepository, conflictedFiles?: string[]): void;
+}
+
+/**
  * Result from the rebase editor
  */
 export interface IRebaseEditorResult {
@@ -73,11 +83,25 @@ export class RebaseEditor {
    */
   private _executed = false;
 
+  /**
+   * Resolver for the Rebase Progress panel. A thunk (not a stored reference)
+   * so a panel recreated after a deactivate/reactivate cycle is always the
+   * live one at paused-time. Optional — when absent the editor degrades to a
+   * toast-only paused message.
+   */
+  private _getProgressView: (() => IRebasePausedView | undefined) | undefined;
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
-    rebaseService: IRebaseService
+    rebaseService: IRebaseService,
+    progressView?: IRebasePausedView | (() => IRebasePausedView | undefined)
   ) {
     this._rebaseService = rebaseService;
+    if (typeof progressView === 'function') {
+      this._getProgressView = progressView;
+    } else if (progressView) {
+      this._getProgressView = (): IRebasePausedView => progressView;
+    }
   }
 
   /**
@@ -238,7 +262,14 @@ export class RebaseEditor {
             this._resolvePromise = undefined;
           }
           this.hide();
-        } else if (result.status === 'paused') {
+        } else {
+          // 'paused' (edit/reword) or 'in-progress' (e.g. an inline-amend exec
+          // failure left the rebase mid-flight). Both hand control to the
+          // Rebase Progress panel so the user can continue/skip/abort. The
+          // 'in-progress' arm in particular MUST resolve the promise: pre-fix
+          // it fell through with no toast and never resolved, hanging the
+          // RebaseDialog (`_busy` stuck) forever.
+          this._getProgressView?.()?.show(this._repository);
           void vscode.window.showInformationMessage(
             'Rebase paused. Use the Rebase Progress panel to continue.'
           );
@@ -458,15 +489,16 @@ export class RebaseEditor {
   private _getCommitItemHtml(commit: IRebaseCommit, index: number): string {
     const shortHash = commit.hash.substring(0, 7);
     const actionClass = this._getActionClass(commit.action);
-    // reword and squash both let the user edit the message inline (H1): reword
-    // replaces this commit's message; squash sets the combined message melded
-    // into the previous commit. A blank value falls back to git's interactive
-    // editor.
+    // reword and squash both collect the message IN-UI (git4idea parity — we
+    // never punt to an external editor). The rebase runs with GIT_EDITOR
+    // suppressed, so a blank value does NOT open an editor: a blank reword
+    // keeps the commit's original message; a blank squash takes git's
+    // auto-combined message. The placeholders state that explicitly.
     const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
     const messagePlaceholder =
       commit.action === 'squash'
-        ? 'Combined commit message (leave blank to edit interactively)'
-        : 'New commit message (leave blank to edit interactively)';
+        ? 'Combined commit message (leave blank to auto-combine the messages)'
+        : 'New commit message (leave blank to keep the original)';
     const rewordValue = this._escapeHtml(commit.newMessage ?? commit.message);
 
     return `
@@ -1059,7 +1091,8 @@ export class RebaseEditor {
  */
 export function createRebaseEditor(
   extensionUri: vscode.Uri,
-  rebaseService: IRebaseService
+  rebaseService: IRebaseService,
+  progressView?: IRebasePausedView | (() => IRebasePausedView | undefined)
 ): RebaseEditor {
-  return new RebaseEditor(extensionUri, rebaseService);
+  return new RebaseEditor(extensionUri, rebaseService, progressView);
 }

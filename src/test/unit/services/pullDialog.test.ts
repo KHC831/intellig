@@ -49,6 +49,7 @@ import {
   IPullOptions,
   IRepository,
 } from '../../../git-core/interfaces/IGitService';
+import { GitCommandError, IGitCommandResult } from '../../../git-core/gitCli';
 import { IConflictResolutionService } from '../../../conflicts/interfaces/IConflictResolutionService';
 import { Uri } from '../../mocks/vscode';
 
@@ -409,6 +410,39 @@ describe('PullDialog — pure helpers', () => {
     it('does not match other git failures', () => {
       assert.strictEqual(isConflictError('fatal: refusing to merge unrelated histories'), false);
     });
+
+    // M4 — a merge-conflict pull writes "CONFLICT (content)…" / "Automatic
+    // merge failed…" to STDOUT, while GitCommandError.message is `stderr ||
+    // stdout` (only one stream). When stderr carries unrelated text the marker
+    // lives only on stdout/combined; classifying on `.message` misses it.
+    it('matches a GitCommandError whose conflict marker is only on stdout (combined stream)', () => {
+      const result: IGitCommandResult = {
+        exitCode: 1,
+        stdout:
+          'Auto-merging src/foo.ts\nCONFLICT (content): Merge conflict in src/foo.ts\n' +
+          'Automatic merge failed; fix conflicts and then commit the result.',
+        stderr: 'hint: Waiting for your editor to close the file...',
+        combined:
+          'Auto-merging src/foo.ts\nCONFLICT (content): Merge conflict in src/foo.ts\n' +
+          'Automatic merge failed; fix conflicts and then commit the result.\n' +
+          'hint: Waiting for your editor to close the file...',
+      };
+      const err = new GitCommandError('git', ['pull'], result);
+      // Precondition: message (= stderr) does NOT carry the marker — the exact
+      // blind spot the old `.message`-only classifier had.
+      assert.ok(!/CONFLICT/i.test(err.message), 'precondition: marker not on .message');
+      assert.strictEqual(isConflictError(err), true);
+    });
+
+    it('does not match a GitCommandError with no conflict marker on any stream', () => {
+      const result: IGitCommandResult = {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'fatal: could not read from remote repository',
+        combined: 'fatal: could not read from remote repository',
+      };
+      assert.strictEqual(isConflictError(new GitCommandError('git', ['pull'], result)), false);
+    });
   });
 });
 
@@ -598,6 +632,36 @@ describe('PullDialog — runPullDialog', () => {
     assert.deepStrictEqual(h.infoMessages, []);
     assert.deepStrictEqual(h.warningMessages, []);
     assert.deepStrictEqual(h.errorMessages, []);
+  });
+
+  // M4 — the real failure mode: git writes the conflict marker to STDOUT, but
+  // GitCommandError.message is `stderr || stdout`. When stderr carries
+  // unrelated hint text, classifying on `.message` misses the conflict and the
+  // pull dead-ends on a misleading "Failed to pull" toast with the Resolve
+  // dialog never opening. The classifier must inspect the combined stream.
+  it('pull CONFLICT on stdout-only (GitCommandError) still opens the Resolve dialog', async () => {
+    const conflictedFiles = [{ path: 'src/foo.ts', resolved: false }];
+    const result: IGitCommandResult = {
+      exitCode: 1,
+      stdout:
+        'Auto-merging src/foo.ts\nCONFLICT (content): Merge conflict in src/foo.ts\n' +
+        'Automatic merge failed; fix conflicts and then commit the result.',
+      stderr: 'hint: use git config advice.mergeConflict false to disable this',
+      combined:
+        'Auto-merging src/foo.ts\nCONFLICT (content): Merge conflict in src/foo.ts\n' +
+        'Automatic merge failed; fix conflicts and then commit the result.\n' +
+        'hint: use git config advice.mergeConflict false to disable this',
+    };
+    const h = createHarness({
+      sourcePick: '$(git-branch) main',
+      pullError: new GitCommandError('git', ['pull'], result),
+      conflictedFiles,
+    });
+    const outcome = await runPullDialog(h.deps);
+
+    assert.strictEqual(outcome.status, 'conflict', 'must classify as conflict, not generic error');
+    assert.strictEqual(h.openResolveConflictsDialogCalls.length, 1, 'Resolve dialog must open');
+    assert.deepStrictEqual(h.errorMessages, [], 'no misleading "Failed to pull" toast');
   });
 
   it('pull CONFLICT with --rebase maps operation to "rebase"', async () => {

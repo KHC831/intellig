@@ -374,6 +374,40 @@ describe('RebaseService', () => {
       );
     });
 
+    // M2 — the interactive rebase sets GIT_SEQUENCE_EDITOR (the todo shim) but
+    // git also consults GIT_EDITOR for a `reword`/`squash` message and an
+    // `edit` pause. Without it, git falls back to the host's ambient editor
+    // (vi/EDITOR) under a non-TTY spawn → hang/confusing fail. Pinning
+    // GIT_EDITOR=true keeps git non-interactive; the override path supplies
+    // reword/squash messages separately via `commit --amend -m`/`-F`.
+    it('pins GIT_EDITOR=true so a reword/squash/edit pause never invokes the ambient editor', async () => {
+      // Clear any ambient GIT_EDITOR so this proves executeRebase pins it
+      // EXPLICITLY rather than passively inheriting a leaked value.
+      const savedEditor = process.env.GIT_EDITOR;
+      delete process.env.GIT_EDITOR;
+      try {
+        await tmpRebaseService.executeRebase(tmpRepoObj);
+
+        const rebaseCall = mockGitCli
+          .getExecCalls()
+          .find((c) => c.args[0] === 'rebase' && c.args.includes('-i'));
+        assert.ok(rebaseCall);
+        const env = (rebaseCall.options as { env?: NodeJS.ProcessEnv }).env;
+        assert.ok(env, 'rebase must run with an explicit env');
+        assert.strictEqual(
+          env.GIT_EDITOR,
+          'true',
+          'GIT_EDITOR must be pinned to a no-op so the host editor is never spawned'
+        );
+      } finally {
+        if (savedEditor === undefined) {
+          delete process.env.GIT_EDITOR;
+        } else {
+          process.env.GIT_EDITOR = savedEditor;
+        }
+      }
+    });
+
     it('marks a pop conflict non-continuable (rebaseInProgress:false) when no rebase is in progress', async () => {
       // An interactive rebase can replay cleanly and exit 0, yet leave unmerged
       // files behind when git re-applies the autostash and it collides with the

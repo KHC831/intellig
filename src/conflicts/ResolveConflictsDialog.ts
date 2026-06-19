@@ -675,11 +675,34 @@ ${body}
         case 'merge': {
           // Prefer `git merge --continue` (honors merge-specific hooks and
           // MERGE_MSG) over `git commit --no-edit`. Available since git 2.12.
-          await this._execGit(['merge', '--continue']);
+          // `git merge --continue` opens $EDITOR for the merge message; under
+          // VS Code's non-TTY spawn that hangs/fails. `--no-edit` is rejected
+          // ("--continue expects no arguments"), so suppress the editor via
+          // GIT_EDITOR=true — the prepared MERGE_MSG is committed verbatim.
+          await this._execGit(['merge', '--continue'], { GIT_EDITOR: 'true' });
           break;
         }
         case 'rebase': {
-          await this._execGit(['rebase', '--continue']);
+          // Route through gitService.rebaseContinue (NOT a raw
+          // `rebase --continue` exec): when the rebase stops at the next
+          // commit's conflicts git exits non-zero, which the raw exec would
+          // throw on — dead-ending a multi-commit rebase with an error toast
+          // and a stale "all resolved" dialog. rebaseContinue returns those
+          // conflicts as data so we can re-populate the dialog in place,
+          // mirroring the cherryPick/revert continue loops above.
+          const res = await this._gitService.rebaseContinue(this._repo);
+          if (!res.success && res.conflicts && res.conflicts.length > 0) {
+            this.updateConflicts(res.conflicts.map((p) => ({ path: p, resolved: false })));
+            void vscode.window.showWarningMessage(
+              `Additional conflicts in ${res.conflicts.length} file(s). Please resolve.`
+            );
+            return;
+          }
+          if (!res.success) {
+            // Non-conflict failure (e.g. nothing staged, no rebase in
+            // progress). Surface git's reason rather than a false "completed".
+            throw new Error(res.failureReason ?? 'Failed to continue rebase');
+          }
           break;
         }
         case 'cherryPick': {
@@ -784,7 +807,7 @@ ${body}
    * GitService's git CLI. Mirrors the existing pattern used by
    * ConflictResolutionService for `commit` / `rebase --continue`.
    */
-  private async _execGit(args: string[]): Promise<void> {
+  private async _execGit(args: string[], envOverride?: NodeJS.ProcessEnv): Promise<void> {
     const gitCli = (
       this._gitService as unknown as {
         gitCli: {
@@ -795,7 +818,15 @@ ${body}
         };
       }
     ).gitCli;
-    const result = await gitCli.exec(args, { cwd: this._repo.rootUri.fsPath });
+    const options: { cwd: string; env?: NodeJS.ProcessEnv } = {
+      cwd: this._repo.rootUri.fsPath,
+    };
+    if (envOverride) {
+      // Merge over the ambient env so PATH/HOME survive; the override only
+      // pins editor-suppression vars (GIT_EDITOR) for non-interactive runs.
+      options.env = { ...process.env, ...envOverride };
+    }
+    const result = await gitCli.exec(args, options);
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || result.stdout || `git ${args.join(' ')} failed`);
     }

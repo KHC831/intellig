@@ -454,6 +454,14 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
           env: {
             ...process.env,
             GIT_SEQUENCE_EDITOR: todoScriptPath,
+            // git also consults GIT_EDITOR for a `reword`/`squash` message and
+            // an `edit` pause. Pin it to a no-op so a blank reword/squash or an
+            // edit stop never falls back to the host's ambient editor under a
+            // non-TTY spawn (which hangs/fails). The override path supplies
+            // reword/squash messages separately via `commit --amend -m`/`-F
+            // ... --no-edit`, so 'true' is safe — it only suppresses the
+            // interactive editor git would otherwise open.
+            GIT_EDITOR: 'true',
             [REBASE_PLAN_ENV]: JSON.stringify(plan),
           },
         }

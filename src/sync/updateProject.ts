@@ -3,6 +3,7 @@ import type {
   IRepository,
   RepositoryState,
 } from '../git-core/interfaces/IGitService';
+import { combinedGitErrorText } from '../git-core/gitError';
 
 /**
  * Inputs for the Update Project preflight guard — the subset of repository
@@ -160,9 +161,14 @@ export interface IUpdateGitService {
   reloadRepository(repo: IRepository): Promise<unknown>;
 }
 
-/** Conflict heuristic shared with the Pull dialog. */
-export function isUpdateConflict(message: string): boolean {
-  return /CONFLICT/i.test(message);
+/**
+ * Conflict heuristic shared with the Pull dialog. Scans the COMBINED git
+ * output (stdout+stderr), not just `error.message` (= one stream) — git writes
+ * the "CONFLICT" marker to stdout, so a `.message`-only check misses a
+ * conflicting pull whose stderr carries unrelated hint text.
+ */
+export function isUpdateConflict(error: unknown): boolean {
+  return /CONFLICT/i.test(combinedGitErrorText(error));
 }
 
 /** Dependencies for {@link runUpdateProject}, kept discrete for testing. */
@@ -261,7 +267,7 @@ export async function runUpdateProject(deps: IRunUpdateProjectDeps): Promise<IUp
         branch,
         rebase,
         incoming: 0,
-        status: isUpdateConflict(message) ? 'conflict' : 'error',
+        status: isUpdateConflict(error) ? 'conflict' : 'error',
         detail: message,
       });
     }
