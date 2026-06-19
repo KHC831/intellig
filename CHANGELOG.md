@@ -10,6 +10,31 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.0] - 2026-06-19
+
+A broad IntelliJ-parity release across the log, branches, shelf, rebase, merge, and blame surfaces.
+
+### Added
+
+- Multi-repo scope selector that drives the log and Branches views, with a filter bar for branch, author, range, and merge filters.
+- Richer commit log: GPG column, parent/child navigation, `fixup!`/`squash!` links, scroll-to-load-more, and a tabbed tool window by default.
+- File history with line-scoped history, affected paths, and per-revision file access.
+- Expanded shelf: partial and binary unshelve, a recycle bin, working-tree diff, and per-file patch import.
+- Fuller rebase and merge dialogs, including --onto/--root, autosquash, inline reword/squash, and a native three-way merge editor.
+- More branch, tag, push, pull, and cherry-pick/revert options, plus Set Upstream, worktrees, and Smart Reset.
+- Native VS Code Source Control provider, a changed-line gutter tracker with revert, a rollback dialog, and a Git command Console.
+
+### Fixed
+
+- Commit graph rendering around merges and off-window history, and scroll position is kept when more history loads.
+- Multi-repo and explorer actions now target the repository you clicked.
+- Blame and line-status caches refresh on repository state changes.
+- Hardened credential scrubbing and git argument handling.
+
+### Changed
+
+- Command palette titles, toolbar, and explorer menu order now follow IntelliJ's layout.
+
 ## [0.1.6] - 2026-06-13
 
 ### Added
