@@ -312,36 +312,63 @@ export async function provideGitShowContent(
   workspaceFolders?: readonly { uri: vscode.Uri }[]
 ): Promise<string> {
   const filePath = uri.path;
-  // The query string is the URL-encoded git ref (commit hash, hash~1, or
-  // branch ref such as `origin/main`). Producers across the codebase call
-  // `encodeURIComponent(ref)` when building `intellig-git:` URIs; decoding
-  // here ensures refs containing `/` (e.g. `origin/main` → `origin%2Fmain`)
-  // round-trip correctly to `git show`. Without this, `git show
-  // origin%2Fmain:path` fails to resolve the revision.
+  // Two query shapes are accepted (the provider is shared by many producers):
   //
-  // A malformed percent-encoding (e.g. `%GG`) throws a raw `URIError` from
-  // the platform `decodeURIComponent`. Wrap it in a friendly error that
-  // identifies the contract violation so upstream error handlers and logs
-  // point at the URI rather than at an opaque "URI malformed" message.
+  //   - STRUCTURED: `ref=<ref>&repoRoot=<absRepoRoot>` — emitted by producers
+  //     that know the repo root (the explorer diff commands). `repoRoot` is
+  //     essential when `filePath` is repo-root-relative AND the workspace
+  //     folder is an ANCESTOR of the repo (a nested repo / submodule, or a
+  //     multi-root workspace): the folder-fallback below would otherwise
+  //     resolve the wrong root and `git show` would fail.
+  //   - LEGACY: the entire query is `encodeURIComponent(ref)` with no
+  //     repoRoot — every other producer (commit/branch/history diffs). These
+  //     keep relying on the hint/active/first-folder fallback chain.
+  //
+  // Discriminate on BOTH structured keys being present: `buildIntelligGitUri`
+  // only emits the structured form when a repoRoot is set, and it always
+  // includes `ref`, so a structured URI always has both keys. A legacy query
+  // is `encodeURIComponent(ref)` — a single keyless token (any `=`/`&` in the
+  // ref is `%3D`/`%26`), so it can never carry two keys. A one-key check would
+  // misclassify a legacy ref literally named `ref` (query `ref` →
+  // `URLSearchParams('ref').get('ref')` is `''`, not `null`) — and a
+  // `repoRoot`-only check would just move that collision to a ref named
+  // `repoRoot`. Requiring both keys is collision-free.
   let ref: string;
-  try {
-    ref = decodeURIComponent(uri.query);
-  } catch (err) {
-    throw new Error(`Malformed ref in intellig-git URI: ${uri.query}`, { cause: err });
+  let repoRootHint: string | undefined;
+  const params = new URLSearchParams(uri.query);
+  if (params.has('ref') && params.has('repoRoot')) {
+    ref = params.get('ref') ?? '';
+    repoRootHint = params.get('repoRoot') ?? undefined;
+  } else {
+    // A malformed percent-encoding (e.g. `%GG`) throws a raw `URIError` from
+    // the platform `decodeURIComponent`. Wrap it in a friendly error that
+    // identifies the contract violation so logs point at the URI rather than
+    // at an opaque "URI malformed" message.
+    try {
+      ref = decodeURIComponent(uri.query);
+    } catch (err) {
+      throw new Error(`Malformed ref in intellig-git URI: ${uri.query}`, { cause: err });
+    }
   }
 
   if (!ref) {
     throw new Error('No git ref specified in URI query');
   }
 
-  // honor the URI's filePath as a repo hint so diff provider
-  // reaches for the correct repo in multi-root workspaces. Falls back
-  // to the active-editor's repo, then to workspace-folder discovery.
-  let repo = await resolveRepo(gitService, {
-    hintRepoPath: filePath,
-    preferActive: true,
-    silent: true,
-  });
+  // Prefer the explicit repoRoot the producer encoded — the only reliable
+  // hint when `filePath` is repo-relative. Fall back to the legacy chain:
+  // the path hint (works only for absolute paths), the active editor, then
+  // the first workspace folder.
+  let repo = repoRootHint
+    ? await gitService.getRepository(vscode.Uri.file(repoRootHint))
+    : undefined;
+  if (!repo) {
+    repo = await resolveRepo(gitService, {
+      hintRepoPath: filePath,
+      preferActive: true,
+      silent: true,
+    });
+  }
   if (!repo) {
     const folders = workspaceFolders ?? vscode.workspace.workspaceFolders;
     if (folders && folders.length > 0) {

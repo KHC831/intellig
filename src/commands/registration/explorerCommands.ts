@@ -31,18 +31,43 @@ export function resolveExplorerFileUri(
 }
 
 /**
+ * Build an `intellig-git:` URI whose left pane the content provider resolves
+ * via `git show <ref>:<filePath>`.
+ *
+ * When the producer knows the repository root it passes `repoRootFsPath`,
+ * encoded alongside the ref as `?ref=<ref>&repoRoot=<root>` (URLSearchParams).
+ * The provider needs that root because `filePath` here is repo-ROOT-relative:
+ * in a nested repo / submodule or a multi-root workspace the workspace folder
+ * is an ANCESTOR of the repo, so the provider's folder fallback would resolve
+ * the wrong root and the diff's left pane would fail to load. Without a
+ * `repoRootFsPath` the legacy single-query-is-the-ref form is emitted, kept
+ * for back-compat with the many existing producers.
+ */
+export function buildIntelligGitUri(
+  filePath: string,
+  ref: string,
+  repoRootFsPath?: string
+): vscode.Uri {
+  const query = repoRootFsPath
+    ? new URLSearchParams({ ref, repoRoot: repoRootFsPath }).toString()
+    : encodeURIComponent(ref);
+  return vscode.Uri.parse(`intellig-git:${filePath}?${query}`);
+}
+
+/**
  * Build the left-hand `intellig-git:` URI used by
- * `intellig.explorer.compareWithRepoVersion`. The query component is
- * URL-encoded so refs with `/` (e.g. remote-qualified branches) survive
- * round-tripping through `Uri.parse`.
+ * `intellig.explorer.compareWithRepoVersion`. Delegates to
+ * {@link buildIntelligGitUri}; when `repoRootFsPath` is supplied the provider
+ * can resolve the exact repo even for a nested/multi-root layout.
  *
  * Relocated verbatim from extension.ts; re-exported there for unit tests.
  */
 export function buildCompareWithRepoVersionLeftUri(
   filePath: string,
-  ref: string = 'HEAD'
+  ref: string = 'HEAD',
+  repoRootFsPath?: string
 ): vscode.Uri {
-  return vscode.Uri.parse(`intellig-git:${filePath}?${encodeURIComponent(ref)}`);
+  return buildIntelligGitUri(filePath, ref, repoRootFsPath);
 }
 
 /**
@@ -76,6 +101,69 @@ export function gitignorePatternFor(repoRoot: string, fileFsPath: string): strin
   }
   const rel = file.slice(prefix.length);
   return `/${rel}`;
+}
+
+/**
+ * Canonicalize an absolute filesystem path, resolving symlinked components
+ * (e.g. macOS `/var` → `/private/var`, where `git rev-parse --show-toplevel`
+ * reports the resolved repo root while an explorer URI keeps the symlink).
+ * Falls back to the deepest existing ancestor for a path that does not exist
+ * on disk (a just-deleted file) so the parent's symlinks still resolve.
+ */
+function canonicalizeFsPath(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    const parent = path.dirname(p);
+    if (parent === p) {
+      return p;
+    }
+    return path.join(canonicalizeFsPath(parent), path.basename(p));
+  }
+}
+
+/**
+ * Compute the repo-root-relative, POSIX-separated path git needs for a file.
+ *
+ * Unlike `vscode.workspace.asRelativePath` — which is relative to the
+ * WORKSPACE FOLDER and so wrong whenever the repo root differs from the folder
+ * (a nested repo / submodule, or a multi-root workspace where the folder name
+ * is prefixed) — this is always relative to the repository root, matching the
+ * `cwd` git commands run under. A workspace-folder-relative path makes
+ * `git add -- <folder>/<file>` fail with "pathspec did not match any files",
+ * which is why the explorer ops silently did nothing.
+ *
+ * Both ends are canonicalized first so a symlinked path component does not
+ * produce a spurious `../` escape. When the file is genuinely outside the
+ * repo the absolute fsPath is returned so git surfaces a clear "outside
+ * repository" error rather than us sending a bogus `../` pathspec.
+ */
+export function repoRelativePath(repoRootFsPath: string, fileFsPath: string): string {
+  return toRepoRelativePosix(canonicalizeFsPath(repoRootFsPath), canonicalizeFsPath(fileFsPath));
+}
+
+/**
+ * Pure (no-fs) separator/outside-repo core of {@link repoRelativePath}, split
+ * out and parameterized by the path implementation so the POSIX and Windows
+ * (back-slash + drive-letter) branches are unit-testable on any host.
+ *
+ * `rel === ''` means the target IS the repo root itself; `'../'` or an absolute
+ * result means it's outside the repo. In every such case the absolute fsPath is
+ * returned: git then operates on (or rejects) an explicit path rather than
+ * receiving a bogus `../` pathspec or an empty argument. The repo-root case is
+ * unreachable from the explorer menus (they bind to files only —
+ * `explorerResourceIsFolder == false`); the fallback is purely defensive.
+ */
+export function toRepoRelativePosix(
+  repoRootFsPath: string,
+  fileFsPath: string,
+  pathImpl: Pick<typeof path, 'relative' | 'isAbsolute'> = path
+): string {
+  const rel = pathImpl.relative(repoRootFsPath, fileFsPath).replace(/\\/g, '/');
+  if (rel === '' || rel.startsWith('../') || pathImpl.isAbsolute(rel)) {
+    return fileFsPath;
+  }
+  return rel;
 }
 
 /**
@@ -128,18 +216,16 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      // Get file path from URI or active editor
-      let filePath: string;
-      if (fileUri) {
-        filePath = vscode.workspace.asRelativePath(fileUri);
-      } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-          void vscode.window.showErrorMessage('No file selected');
-          return;
-        }
-        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // Resolve the target file (explorer selection, else active editor) and
+      // derive its REPO-root-relative path — the value git needs under
+      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
+      // relative and breaks for nested/multi-root repos (see repoRelativePath).
+      const targetUri = _resolveExplorerFileUri(fileUri);
+      if (!targetUri) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
       }
+      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       try {
         const history = await gitService.getFileHistory(repo, filePath);
@@ -201,21 +287,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      // Get file path from URI or active editor
-      let filePath: string;
-      let fileUriToUse: vscode.Uri;
-      if (fileUri) {
-        filePath = vscode.workspace.asRelativePath(fileUri);
-        fileUriToUse = fileUri;
-      } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-          void vscode.window.showErrorMessage('No file selected');
-          return;
-        }
-        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-        fileUriToUse = activeEditor.document.uri;
+      const fileUriToUse = _resolveExplorerFileUri(fileUri);
+      if (!fileUriToUse) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
       }
+      const filePath = repoRelativePath(repo.rootUri.fsPath, fileUriToUse.fsPath);
 
       try {
         // Get branches for selection
@@ -234,8 +311,12 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
           return;
         }
 
-        // Use VS Code's built-in diff command to compare
-        const branchUri = vscode.Uri.parse(`git:${filePath}?ref=${selected.label}`);
+        // Compare the working-tree file against its revision on the chosen
+        // branch via the `intellig-git:` content provider (this extension's
+        // scheme; the built-in `git:` scheme is unavailable when IntelliG runs
+        // in place of the bundled Git extension). The repo root is encoded so
+        // the provider resolves the right repo for a nested/multi-root layout.
+        const branchUri = buildIntelligGitUri(filePath, selected.label, repo.rootUri.fsPath);
         await vscode.commands.executeCommand(
           'vscode.diff',
           branchUri,
@@ -270,18 +351,16 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      // Get file path from URI or active editor
-      let filePath: string;
-      if (fileUri) {
-        filePath = vscode.workspace.asRelativePath(fileUri);
-      } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-          void vscode.window.showErrorMessage('No file selected');
-          return;
-        }
-        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // Resolve the target file (explorer selection, else active editor) and
+      // derive its REPO-root-relative path — the value git needs under
+      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
+      // relative and breaks for nested/multi-root repos (see repoRelativePath).
+      const targetUri = _resolveExplorerFileUri(fileUri);
+      if (!targetUri) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
       }
+      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       // Confirm revert
       const confirm = await vscode.window.showWarningMessage(
@@ -329,18 +408,16 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      // Get file path from URI or active editor
-      let filePath: string;
-      if (fileUri) {
-        filePath = vscode.workspace.asRelativePath(fileUri);
-      } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-          void vscode.window.showErrorMessage('No file selected');
-          return;
-        }
-        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // Resolve the target file (explorer selection, else active editor) and
+      // derive its REPO-root-relative path — the value git needs under
+      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
+      // relative and breaks for nested/multi-root repos (see repoRelativePath).
+      const targetUri = _resolveExplorerFileUri(fileUri);
+      if (!targetUri) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
       }
+      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       try {
         await gitService.stage(repo, [filePath]);
@@ -377,18 +454,16 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      // Get file path from URI or active editor
-      let filePath: string;
-      if (fileUri) {
-        filePath = vscode.workspace.asRelativePath(fileUri);
-      } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-          void vscode.window.showErrorMessage('No file selected');
-          return;
-        }
-        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
+      // Resolve the target file (explorer selection, else active editor) and
+      // derive its REPO-root-relative path — the value git needs under
+      // `cwd = repo.rootUri.fsPath`. `asRelativePath` is workspace-folder-
+      // relative and breaks for nested/multi-root repos (see repoRelativePath).
+      const targetUri = _resolveExplorerFileUri(fileUri);
+      if (!targetUri) {
+        void vscode.window.showErrorMessage('No file selected');
+        return;
       }
+      const filePath = repoRelativePath(repo.rootUri.fsPath, targetUri.fsPath);
 
       try {
         await gitService.unstage(repo, [filePath]);
@@ -415,35 +490,30 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       }
 
       const gitService = ctx.services.gitService;
-      const repositories = gitService.getRepositories();
-
-      if (repositories.length === 0) {
-        void vscode.window.showErrorMessage('No Git repository found');
+      const fileUriToUse = _resolveExplorerFileUri(fileUri);
+      if (!fileUriToUse) {
+        void vscode.window.showErrorMessage('No file selected');
         return;
       }
-
-      // Get file path from URI or active editor
-      let filePath: string;
-      let fileUriToUse: vscode.Uri;
-      if (fileUri) {
-        filePath = vscode.workspace.asRelativePath(fileUri);
-        fileUriToUse = fileUri;
-      } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-          void vscode.window.showErrorMessage('No file selected');
-          return;
-        }
-        filePath = vscode.workspace.asRelativePath(activeEditor.document.uri);
-        fileUriToUse = activeEditor.document.uri;
+      const repo = await resolveRepo(gitService, {
+        hintRepoPath: fileUriToUse.fsPath,
+        preferActive: true,
+      });
+      if (!repo) {
+        return;
       }
+      const filePath = repoRelativePath(repo.rootUri.fsPath, fileUriToUse.fsPath);
 
       try {
-        // Use VS Code's built-in Git diff command
-        const gitUri = vscode.Uri.parse(`git:${filePath}?ref=HEAD`);
+        // Diff the working-tree file against its HEAD revision via the
+        // `intellig-git:` content provider (the scheme this extension serves;
+        // the built-in `git:` scheme is unavailable when the user runs IntelliG
+        // in place of the bundled Git extension). The repo root is encoded so
+        // the provider resolves the right repo for a nested/multi-root layout.
+        const headUri = buildIntelligGitUri(filePath, 'HEAD', repo.rootUri.fsPath);
         await vscode.commands.executeCommand(
           'vscode.diff',
-          gitUri,
+          headUri,
           fileUriToUse,
           `${filePath} (HEAD ↔ Working Tree)`
         );
@@ -486,7 +556,7 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       if (!repo) {
         return;
       }
-      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
       try {
         await gitService.stage(repo, [filePath]);
         if (ctx.gitToolWindowProvider) {
@@ -533,7 +603,7 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       if (!repo) {
         return;
       }
-      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
       try {
         await gitService.stage(repo, [filePath]);
         void vscode.window.showInformationMessage(`Added to VCS: ${filePath}`);
@@ -572,7 +642,13 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
         return;
       }
 
-      const pattern = gitignorePatternFor(repo.rootUri.fsPath, resolvedUri.fsPath);
+      // Canonicalize both ends so a symlinked path component (macOS
+      // `/var` → `/private/var`: git reports the resolved root, the URI keeps
+      // the symlink) doesn't defeat the pure prefix match in gitignorePatternFor.
+      const pattern = gitignorePatternFor(
+        canonicalizeFsPath(repo.rootUri.fsPath),
+        canonicalizeFsPath(resolvedUri.fsPath)
+      );
       if (!pattern) {
         void vscode.window.showErrorMessage(
           'Cannot add to .gitignore: the file is outside the repository.'
@@ -628,8 +704,8 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       if (!repo) {
         return;
       }
-      const filePath = vscode.workspace.asRelativePath(resolvedUri);
-      const leftUri = buildCompareWithRepoVersionLeftUri(filePath);
+      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
+      const leftUri = buildCompareWithRepoVersionLeftUri(filePath, 'HEAD', repo.rootUri.fsPath);
       const title = buildCompareWithRepoVersionTitle(filePath);
       try {
         await vscode.commands.executeCommand('vscode.diff', leftUri, resolvedUri, title);
@@ -668,7 +744,7 @@ export function registerExplorerCommands(ctx: ICommandContext): vscode.Disposabl
       if (!repo) {
         return;
       }
-      const filePath = vscode.workspace.asRelativePath(resolvedUri);
+      const filePath = repoRelativePath(repo.rootUri.fsPath, resolvedUri.fsPath);
 
       const target = await vscode.window.showQuickPick(
         [

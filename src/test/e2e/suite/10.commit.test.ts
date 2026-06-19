@@ -47,7 +47,9 @@ describe('e2e — commit-context commands', function () {
     const headBefore = targetHash;
 
     await useFixtureWorkspace(fix.rootPath);
-    stubs = stubPrompts({});
+    // The single-commit revert flow prompts (InputBox) for the revert commit
+    // message, pre-filled with `Revert "<subject>"`; accept that default.
+    stubs = stubPrompts({ inputBox: (opts) => opts?.value });
 
     await vscode.commands.executeCommand('intellig.commit.revert', { hash: targetHash });
 

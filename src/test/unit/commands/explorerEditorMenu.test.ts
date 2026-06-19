@@ -22,6 +22,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  buildIntelligGitUri,
   buildCompareWithRepoVersionLeftUri,
   buildCompareWithRepoVersionTitle,
   resolveExplorerFileUri,
@@ -62,6 +63,27 @@ describe('resolveExplorerFileUri', () => {
     }) as Uri;
     const result = resolveExplorerFileUri(undefined, nonFileUri);
     assert.strictEqual(result, undefined);
+  });
+});
+
+// ─── buildIntelligGitUri ─────────────────────────────────────────────────────
+
+describe('buildIntelligGitUri', () => {
+  it('emits the legacy single-query-is-the-ref form when no repoRoot is given', () => {
+    const str = buildIntelligGitUri('src/foo.ts', 'origin/main').toString();
+    assert.ok(str.includes('intellig-git:'), `expected scheme, got: "${str}"`);
+    assert.ok(str.includes('src/foo.ts'), `expected path, got: "${str}"`);
+    assert.ok(str.includes('origin%2Fmain'), `ref should be URL-encoded, got: "${str}"`);
+    assert.ok(!str.includes('repoRoot'), `legacy form must not carry repoRoot, got: "${str}"`);
+  });
+
+  it('encodes ref and repoRoot as query params when a repoRoot is given', () => {
+    const str = buildIntelligGitUri('src/foo.ts', 'HEAD', '/path/to/repo').toString();
+    assert.ok(str.includes('ref=HEAD'), `expected ref param, got: "${str}"`);
+    assert.ok(
+      str.includes('repoRoot=%2Fpath%2Fto%2Frepo'),
+      `expected URL-encoded repoRoot param, got: "${str}"`
+    );
   });
 });
 

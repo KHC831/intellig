@@ -157,6 +157,22 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
     ]);
   });
 
+  it('treats a legacy URI whose ref is literally `ref` as legacy, not structured', async () => {
+    // Regression: the legacy form is `encodeURIComponent(ref)` — a single
+    // keyless token. For a branch/tag literally named `ref` that token is
+    // `ref`, and `new URLSearchParams('ref').get('ref')` is `''` (not null).
+    // A one-key discriminator misread it as the structured form and threw
+    // "No git ref specified". The two-key check (ref AND repoRoot) must keep
+    // it on the legacy path: `git show ref:<path>`, repo via the legacy chain.
+    const uri = buildIntelligGitUri('/test/repo/src/foo.ts', encodeURIComponent('ref'));
+
+    const content = await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
+
+    assert.strictEqual(content, 'file contents at ref\n');
+    assert.strictEqual(mockGitCli.executed.length, 1);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'ref:/test/repo/src/foo.ts']);
+  });
+
   it('throws when uri.query is empty (no ref supplied)', async () => {
     const uri = buildIntelligGitUri('/test/repo/src/foo.ts', '');
 
@@ -164,6 +180,47 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
       () => provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]),
       /No git ref specified/
     );
+  });
+
+  it('resolves the repo from an encoded repoRoot when filePath is repo-relative', async () => {
+    // The explorer diff commands emit `ref=<ref>&repoRoot=<absRoot>` with a
+    // REPO-root-relative path. Seed a SECOND repo so the provider's single-repo
+    // fallback cannot apply, and point the workspace-folder fallback at that
+    // OTHER repo: only honoring the encoded repoRoot resolves the right root.
+    // (Pre-fix, the provider ignored repoRoot, fell through to the workspace
+    // folder, and ran `git show` under `/test/other` — wrong repo.)
+    const otherRoot = '/test/other';
+    (gitService as any)._repositories.set(otherRoot, {
+      repository: { ...mockRepo, rootUri: Uri.file(otherRoot) },
+      lastUpdated: Date.now(),
+    });
+
+    const uri = buildIntelligGitUri(
+      'src/foo.ts',
+      `ref=HEAD&repoRoot=${encodeURIComponent('/test/repo')}`
+    );
+
+    const content = await provideGitShowContent(uri, gitService, [{ uri: Uri.file(otherRoot) }]);
+
+    assert.strictEqual(content, 'file contents at ref\n');
+    assert.strictEqual(mockGitCli.executed.length, 1);
+    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'HEAD:src/foo.ts']);
+    assert.strictEqual(
+      (mockGitCli.executed[0].options as { cwd?: string }).cwd,
+      '/test/repo',
+      'git show must run under the encoded repoRoot, not the workspace-folder fallback'
+    );
+  });
+
+  it('decodes a `/`-containing branch ref in the structured query form', async () => {
+    const uri = buildIntelligGitUri(
+      'src/foo.ts',
+      `ref=${encodeURIComponent('origin/main')}&repoRoot=${encodeURIComponent('/test/repo')}`
+    );
+
+    await provideGitShowContent(uri, gitService, []);
+
+    assert.deepStrictEqual(mockGitCli.executed[0].args, ['show', 'origin/main:src/foo.ts']);
   });
 
   it('wraps malformed percent-encoded refs in a friendly error (task #103 A2)', async () => {

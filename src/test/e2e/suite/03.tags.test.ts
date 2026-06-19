@@ -41,8 +41,9 @@ describe('e2e — tag lifecycle commands', function () {
     fix = await createFixtureRepo({ commits: 2 });
     await useFixtureWorkspace(fix.rootPath);
 
-    // Two input-box calls: first the tag name, then the annotation message.
-    const answers = ['v-e2e-1', ''];
+    // Three input-box calls: tag name, commit/ref (empty → HEAD), then the
+    // annotation message (empty → lightweight tag).
+    const answers = ['v-e2e-1', '', ''];
     let callIdx = 0;
     stubs = stubPrompts({
       inputBox: () => answers[callIdx++],
@@ -65,7 +66,9 @@ describe('e2e — tag lifecycle commands', function () {
     fix = await createFixtureRepo({ commits: 2 });
     await useFixtureWorkspace(fix.rootPath);
 
-    const answers = ['v-e2e-annotated', 'Release candidate 1'];
+    // Three input-box calls: tag name, commit/ref (empty → HEAD), then the
+    // annotation message.
+    const answers = ['v-e2e-annotated', '', 'Release candidate 1'];
     let callIdx = 0;
     stubs = stubPrompts({
       inputBox: () => answers[callIdx++],

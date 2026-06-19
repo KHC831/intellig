@@ -79,6 +79,7 @@ export { handlePullDialogOutcome } from './commands/registration/commitRepoCoreC
 // path `from '../../../extension'` is preserved (RULE E2).
 export {
   resolveExplorerFileUri,
+  buildIntelligGitUri,
   buildCompareWithRepoVersionLeftUri,
   buildCompareWithRepoVersionTitle,
 } from './commands/registration/explorerCommands';
