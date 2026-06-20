@@ -53,12 +53,6 @@ function allHashesValid(hashes: readonly string[]): boolean {
  *
  * TODO(post-locale): when locale work begins, replace this with a
  * message-id and ship the localised string from a resource bundle.
- *
- * TODO(security follow-up): the single-commit handlers (cherry-pick,
- * revert, etc.) still don't run `allHashesValid` on entry — only the
- * multi-commit ones do. Adopt the regex check at the top of every
- * single-commit handler; the dispatch path catches webview-driven
- * calls, but a palette / scripted entry could feed unvalidated hex.
  */
 const STALE_SELECTION_TOAST = 'Commit selection changed since the menu opened — please retry.';
 
@@ -400,6 +394,18 @@ export class CommitContextMenuCommands {
     commitHashes: string[],
     commitNodes: readonly IMenuStateNode[]
   ): Promise<void> {
+    // Central hash validation. Every action below operates on the selected
+    // commit hashes; reject a dispatch carrying a non-hex hash before it
+    // reaches any handler, so a palette / scripted entry can't feed
+    // unvalidated input downstream (the argv `--end-of-options` discipline
+    // is the deeper guard; this is the early, uniform rejection). The webview
+    // no-op actions carry no hash payload, so an empty list is allowed.
+    // `allHashesValid([])` is vacuously true; per-handler empty-selection
+    // guards still apply.
+    if (action !== 'goToParent' && action !== 'goToChild' && !allHashesValid(commitHashes)) {
+      return;
+    }
+
     switch (action) {
       case 'copyHash':
         await this._handleCopyHash(commitHashes);

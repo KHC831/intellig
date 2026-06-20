@@ -1219,4 +1219,35 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
       );
     });
   });
+
+  // ─── central hash validation rejects scripted/palette bad input ─────────────
+  describe('dispatch rejects a non-hex commit hash before it reaches git', () => {
+    it('does not call gitService.cherryPick when the dispatched hash is not hex', async () => {
+      let cherryPickCalled = false;
+      const gitService = createMockGitService(repo, {
+        cherryPick: async () => {
+          cherryPickCalled = true;
+          return { success: true };
+        },
+      });
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const rebaseService = createMockRebaseService(blankRebaseTracker());
+      const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
+
+      // A palette / scripted caller feeds a non-hex value. The central guard
+      // in _dispatchAction must reject it before _handleCherryPick runs.
+      await (cmds as unknown as CommandsInternal)._handleAction(
+        'cherryPick',
+        ['not-a-real-hash'],
+        []
+      );
+
+      assert.strictEqual(
+        cherryPickCalled,
+        false,
+        'a non-hex hash must be rejected at dispatch, never reaching gitService.cherryPick'
+      );
+    });
+  });
 });

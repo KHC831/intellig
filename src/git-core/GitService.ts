@@ -769,7 +769,6 @@ export class GitService implements IGitService, IGitServiceCli {
       state,
       head,
       remotes,
-      submodules: [], // TODO: Parse submodules if needed
       ...(inProgress ? { inProgress } : {}),
     };
 

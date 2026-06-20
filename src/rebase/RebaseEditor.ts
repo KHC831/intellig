@@ -945,7 +945,7 @@ export class RebaseEditor {
 
       function handleDragStart(e) {
         draggedElement = e.target.closest('.commit-item');
-        draggedIndex = parseInt(draggedElement.dataset.index);
+        draggedIndex = parseInt(draggedElement.dataset.index, 10);
         draggedElement.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', draggedIndex.toString());
@@ -987,7 +987,7 @@ export class RebaseEditor {
         const target = e.target.closest('.commit-item');
         if (!target || target === draggedElement) return;
 
-        const toIndex = parseInt(target.dataset.index);
+        const toIndex = parseInt(target.dataset.index, 10);
         
         if (draggedIndex !== -1 && toIndex !== draggedIndex) {
           vscode.postMessage({

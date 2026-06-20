@@ -143,7 +143,13 @@ export interface IRepository {
   state: RepositoryState;
   head?: IHead;
   remotes: IRemote[];
-  submodules: ISubmodule[];
+  /**
+   * Submodules of this repository. Optional because the loader does not parse
+   * them today (submodules surface instead as their own top-level repos via
+   * nested-repo discovery). Absent means "not computed", not "none" — a future
+   * loader that populates this carries the real list.
+   */
+  submodules?: ISubmodule[];
   /**
    * Payload for an in-progress merge/rebase/cherry-pick/revert. Undefined
    * when `state === 'idle'`. Drives the StatusBar verb-form prefix.

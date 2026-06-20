@@ -183,8 +183,10 @@ function makeProvider(): GitToolWindowProvider {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('CommitContextMenuCommands — merge commit detection (H3)', () => {
-  const MERGE_HASH = 'mergecommit1234';
-  const REGULAR_HASH = 'regularcommit12';
+  // Valid hex hashes — the dispatch boundary validates commit hashes as hex
+  // (HASH_RE), matching real git output.
+  const MERGE_HASH = 'ee11ee11ee11ee11';
+  const REGULAR_HASH = 'cc22cc22cc22cc22';
 
   afterEach(() => {
     // Restore showInputBox to accept-default after each test.

@@ -253,13 +253,24 @@ describe('Wave C R1 — review fixes', () => {
     });
   });
 
-  // ─── TODO trail for follow-up scope ──────────────────────────────────────
-  describe('TLC-L-2 / TLC-L-4 — TODO trail for follow-up scope', () => {
-    it('TLC-L-2: a TODO mentions adopting allHashesValid in single-commit handlers', () => {
+  // ─── central hash validation at the dispatch boundary ────────────────────
+  describe('dispatch validates commit hashes for every hash-consuming action', () => {
+    it('_dispatchAction guards with allHashesValid(commitHashes)', () => {
+      const dispatchIdx = src.indexOf('private async _dispatchAction(');
+      assert.ok(dispatchIdx > 0, 'expected _dispatchAction definition');
+      const switchIdx = src.indexOf('switch (action)', dispatchIdx);
+      const head = src.substring(dispatchIdx, switchIdx > 0 ? switchIdx : dispatchIdx + 1200);
       assert.ok(
-        /TODO[^\n]*(?:TLC-L-2|allHashesValid|single-commit)/i.test(src) ||
-          /single-commit handlers[^\n]*allHashesValid/i.test(src),
-        'expected a TODO calling out allHashesValid adoption in single-commit handlers'
+        /allHashesValid\s*\(\s*commitHashes\s*\)/.test(head),
+        '_dispatchAction must reject a non-hex hash before the switch so every ' +
+          'hash-consuming action is validated centrally (not per-handler)'
+      );
+    });
+
+    it('the misleading security-follow-up TODO is gone', () => {
+      assert.ok(
+        !/TODO\(security follow-up\)/.test(src),
+        'the security-follow-up TODO must be removed once validation is centralized'
       );
     });
   });

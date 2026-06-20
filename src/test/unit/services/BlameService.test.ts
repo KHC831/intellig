@@ -766,4 +766,33 @@ filename new/location.ts
       assert.strictEqual(info.lines[0].previousFilename, 'old/location.ts');
     });
   });
+
+  describe('invalidateCache (file-change watcher) precision', () => {
+    it('invalidating a file does not drop a sibling whose path shares its prefix', () => {
+      const svc = blameService as unknown as {
+        getCacheKey: (root: string, path: string) => string;
+        _blameCache: Map<string, { blame: { path: string; lines: [] }; timestamp: number }>;
+        invalidateCache: (filePath: string) => void;
+      };
+      const root = '/test/repo';
+      const keyFoo = svc.getCacheKey(root, '/test/repo/foo');
+      const keyFooBar = svc.getCacheKey(root, '/test/repo/foobar');
+      const entry = (p: string): { blame: { path: string; lines: [] }; timestamp: number } => ({
+        blame: { path: p, lines: [] },
+        timestamp: Date.now(),
+      });
+      svc._blameCache.set(keyFoo, entry('/test/repo/foo'));
+      svc._blameCache.set(keyFooBar, entry('/test/repo/foobar'));
+
+      // A change to `/test/repo/foo` must invalidate only that file, not the
+      // sibling `/test/repo/foobar` whose path merely shares the prefix.
+      svc.invalidateCache('/test/repo/foo');
+
+      assert.ok(!svc._blameCache.has(keyFoo), "the changed file's blame must be invalidated");
+      assert.ok(
+        svc._blameCache.has(keyFooBar),
+        'a sibling sharing a path prefix must NOT be invalidated'
+      );
+    });
+  });
 });

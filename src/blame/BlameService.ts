@@ -220,9 +220,13 @@ export class BlameService implements IBlameService {
    * @param filePath - The file path to invalidate
    */
   private invalidateCache(filePath: string): void {
-    // Remove all cache entries that contain this file path
+    // Cache keys are `${repoRoot}:${path}:${revision}:${flags}` (see
+    // getCacheKey). Match the path as a colon-delimited segment rather than a
+    // raw substring so a change to `/repo/foo` invalidates only that file —
+    // not a sibling like `/repo/foobar` whose path merely shares the prefix.
+    const segment = `:${filePath}:`;
     for (const key of this._blameCache.keys()) {
-      if (key.includes(filePath)) {
+      if (key.includes(segment)) {
         this._blameCache.delete(key);
       }
     }
