@@ -245,42 +245,74 @@ export class NewBranchDialog extends BaseWebviewPanel {
    * inside a string literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
-    const body = `
-      <div class="summary">
-        <span class="label">Start point:</span>${escapeHtml(this._startPointLabel)}
-      </div>
+    // Body ships an empty root; the script builds every control via
+    // document.createElement. Host data crosses as a JSON init island and
+    // reaches the DOM via .value / .textContent (injection-proof).
+    const body = `<div id="root"></div>`;
 
-      <div class="field">
-        <label class="top" for="branch-name">New branch name:</label>
-        <input type="text" id="branch-name" value="${escapeHtml(this._defaultName)}"
-               placeholder="feature/my-new-branch" autofocus />
-        <div id="name-error" class="error"></div>
-      </div>
-
-      <div class="flags">
-        <label class="flag">
-          <input type="checkbox" id="flag-track" ${this._defaultTrack ? 'checked' : ''} />
-          Track remote (<code>--track</code>)
-        </label>
-        <label class="flag">
-          <input type="checkbox" id="flag-overwrite" />
-          Overwrite if exists (<code>-f</code> / <code>-B</code>)
-        </label>
-        <label class="flag">
-          <input type="checkbox" id="flag-checkout" checked />
-          Checkout after create
-        </label>
-      </div>
-
-      <div class="actions">
-        <button id="cancel-btn" class="secondary" type="button">Cancel</button>
-        <button id="create-btn" type="button">Create</button>
-      </div>
-    `;
+    const initJson = JSON.stringify({
+      startPointLabel: this._startPointLabel,
+      defaultName: this._defaultName,
+      defaultTrack: this._defaultTrack,
+    }).replace(/</g, '\\u003c');
 
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
+        const INIT = ${initJson};
+        const root = document.getElementById('root');
+        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+        // ── Summary (start point) ──────────────────────────────────────────
+        const summary = el('div', { className: 'summary' });
+        summary.append(
+          el('span', { className: 'label', textContent: 'Start point:' }),
+          INIT.startPointLabel
+        );
+
+        // ── Name field ─────────────────────────────────────────────────────
+        const field = el('div', { className: 'field' });
+        const nameLabel = el('label', { className: 'top', htmlFor: 'branch-name', textContent: 'New branch name:' });
+        const nameInput = el('input', {
+          type: 'text',
+          id: 'branch-name',
+          placeholder: 'feature/my-new-branch',
+          value: INIT.defaultName,
+        });
+        const nameErr = el('div', { id: 'name-error', className: 'error' });
+        field.append(nameLabel, nameInput, nameErr);
+
+        // ── Option checkboxes ──────────────────────────────────────────────
+        const flagsBox = el('div', { className: 'flags' });
+        const flagRow = (id, checked, parts) => {
+          const label = el('label', { className: 'flag' });
+          const input = el('input', { type: 'checkbox', id: id });
+          input.checked = checked;
+          label.append(input, ...parts);
+          return label;
+        };
+        flagsBox.append(
+          flagRow('flag-track', INIT.defaultTrack, ['Track remote (', el('code', { textContent: '--track' }), ')']),
+          flagRow('flag-overwrite', false, [
+            'Overwrite if exists (',
+            el('code', { textContent: '-f' }),
+            ' / ',
+            el('code', { textContent: '-B' }),
+            ')',
+          ]),
+          flagRow('flag-checkout', true, ['Checkout after create'])
+        );
+
+        // ── Actions ────────────────────────────────────────────────────────
+        const actions = el('div', { className: 'actions' });
+        actions.append(
+          el('button', { id: 'cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' }),
+          el('button', { id: 'create-btn', type: 'button', textContent: 'Create' })
+        );
+
+        root.append(summary, field, flagsBox, actions);
+        nameInput.focus();
+
         const nameEl = document.getElementById('branch-name');
         const errorEl = document.getElementById('name-error');
         const createBtn = document.getElementById('create-btn');

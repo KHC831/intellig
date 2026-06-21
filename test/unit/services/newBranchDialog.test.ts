@@ -25,6 +25,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import { GitService } from '../../../src/git-core/GitService';
 import {
@@ -474,5 +475,100 @@ describe('NewBranchDialog — lifecycle', () => {
     assert.strictEqual(log.error.length, 1);
     assert.ok(log.error[0].includes('already exists'));
     assert.strictEqual(h.dialog.disposed(), false, 'dialog stays open so user can retry');
+  });
+});
+
+// ─── rendered DOM (script-built) ─────────────────────────────────────────────
+
+/**
+ * Run the dialog's inline nonce'd script in jsdom. Post-migration contract:
+ * the script BUILDS the body via document.createElement — the host markup
+ * ships an empty root, not pre-baked controls.
+ */
+function runNewBranchScript(dialog: NewBranchDialog): {
+  document: Document;
+  window: typeof globalThis;
+  posted: unknown[];
+} {
+  const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const window = dom.window;
+  const posted: unknown[] = [];
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (m: unknown): void => {
+      posted.push(m);
+    },
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+
+  assert.strictEqual(
+    window.document.querySelector('input#branch-name'),
+    null,
+    'controls must not be pre-baked in host markup — the script builds the DOM'
+  );
+
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+
+  return {
+    document: window.document as unknown as Document,
+    window: window as unknown as typeof globalThis,
+    posted,
+  };
+}
+
+describe('NewBranchDialog — rendered DOM (script-built)', () => {
+  it('builds the name input seeded with the default name', () => {
+    const { dialog } = makeDialog({ defaultName: 'feature/seed' });
+    const { document } = runNewBranchScript(dialog);
+    const input = document.querySelector('input#branch-name') as HTMLInputElement;
+    assert.ok(input, 'script must build #branch-name');
+    assert.strictEqual(input.value, 'feature/seed', 'name input seeded with the default name');
+    assert.ok(document.querySelector('#name-error'), 'script must build the error region');
+  });
+
+  it('builds the three option checkboxes; checkout defaults checked', () => {
+    const { dialog } = makeDialog();
+    const { document } = runNewBranchScript(dialog);
+    assert.ok(document.querySelector('#flag-track'), 'script must build #flag-track');
+    assert.ok(document.querySelector('#flag-overwrite'), 'script must build #flag-overwrite');
+    const checkout = document.querySelector('#flag-checkout') as HTMLInputElement;
+    assert.ok(checkout, 'script must build #flag-checkout');
+    assert.strictEqual(checkout.checked, true, 'checkout-after-create defaults to checked');
+  });
+
+  it('defaults --track checked when the start point looks remote', () => {
+    const { dialog } = makeDialog({ startPoint: 'origin/main' });
+    const { document } = runNewBranchScript(dialog);
+    const track = document.querySelector('#flag-track') as HTMLInputElement;
+    assert.strictEqual(track.checked, true, 'remote start point defaults --track on');
+  });
+
+  it('shows the start point in the summary via textContent', () => {
+    const { dialog } = makeDialog({ startPoint: 'origin/main' });
+    const { document } = runNewBranchScript(dialog);
+    const summary = document.querySelector('.summary');
+    assert.ok(summary?.textContent?.includes('origin/main'), 'summary shows the start point');
+  });
+
+  it('disables Create on an empty name and posts a create message on a valid one', () => {
+    const { dialog } = makeDialog({ defaultName: '' });
+    const { document, window } = runNewBranchScript(dialog);
+    const create = document.querySelector('#create-btn') as HTMLButtonElement;
+    assert.strictEqual(create.disabled, true, 'Create is disabled while the name is empty');
+
+    const name = document.querySelector('#branch-name') as HTMLInputElement;
+    name.value = 'feature/ok';
+    name.dispatchEvent(new window.Event('input', { bubbles: true }));
+    assert.strictEqual(create.disabled, false, 'a valid name enables Create');
+  });
+
+  it('Cancel posts a cancel message', () => {
+    const { dialog } = makeDialog();
+    const { document, posted } = runNewBranchScript(dialog);
+    (document.querySelector('#cancel-btn') as HTMLButtonElement).click();
+    assert.deepEqual(posted.at(-1), { type: 'cancel' }, 'Cancel posts a cancel message');
   });
 });
