@@ -27,6 +27,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import { GitService } from '../../../src/git-core/GitService';
 import {
@@ -469,3 +470,98 @@ describe('MergeDialog — lifecycle', () => {
     assert.ok(!log.error[0].includes('/Users/alice'), 'toast must not leak home path');
   });
 });
+
+/**
+ * Run the dialog's inline nonce'd script in jsdom, mirroring how the webview
+ * host executes it. The post-migration contract is that the script BUILDS the
+ * body via `document.createElement` — the host markup ships an empty root, not
+ * pre-baked controls. Returns the live document + the posted messages.
+ */
+function runMergeDialogScript(dialog: MergeDialog): {
+  document: Document;
+  posted: unknown[];
+} {
+  const html = (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const window = dom.window;
+  const posted: unknown[] = [];
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (m: unknown): void => {
+      posted.push(m);
+    },
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+
+  // Migration contract: controls are NOT pre-baked into the host markup.
+  assert.strictEqual(
+    window.document.querySelector('input[type="checkbox"]'),
+    null,
+    'flag checkboxes must not be pre-baked in host markup — the script builds the DOM'
+  );
+
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+
+  return { document: window.document as unknown as Document, posted };
+}
+
+describe('MergeDialog — rendered DOM (script-built)', () => {
+  it('builds the source/target summary from host data via textContent', () => {
+    const { dialog } = makeDialog({ sourceBranch: 'feature/x' });
+    const { document } = runMergeDialogScript(dialog);
+    const summary = document.querySelector('.summary');
+    assert.ok(summary, 'script must build the summary block');
+    assert.ok(summary.textContent?.includes('feature/x'), 'summary shows the source branch');
+    assert.ok(summary.textContent?.includes('main'), 'summary shows the target branch');
+  });
+
+  it('builds all six option checkboxes and a merge-message textarea', () => {
+    const { dialog } = makeDialog();
+    const { document } = runMergeDialogScript(dialog);
+    for (const id of [
+      'flag-ffOnly',
+      'flag-noFf',
+      'flag-squash',
+      'flag-noCommit',
+      'flag-noVerify',
+      'flag-allowUnrelatedHistories',
+    ]) {
+      assert.ok(document.querySelector('#' + id), `script must build #${id}`);
+    }
+    assert.ok(document.querySelector('textarea#merge-message'), 'script must build the textarea');
+    assert.ok(document.querySelector('#merge-btn'), 'script must build the Merge button');
+    assert.ok(document.querySelector('#cancel-btn'), 'script must build the Cancel button');
+  });
+
+  it('enforces the strategy mutex client-side (ffOnly clears noFf/squash)', () => {
+    const { dialog } = makeDialog();
+    const { document } = runMergeDialogScript(dialog);
+    const win = dialog2Window(document);
+    const noFf = document.querySelector('#flag-noFf') as HTMLInputElement;
+    const ffOnly = document.querySelector('#flag-ffOnly') as HTMLInputElement;
+    noFf.checked = true;
+    ffOnly.checked = true;
+    ffOnly.dispatchEvent(new win.Event('change', { bubbles: true }));
+    assert.strictEqual(noFf.checked, false, 'enabling ffOnly must clear noFf (mutex)');
+  });
+
+  it('Merge posts the flag state; Cancel posts a cancel message', () => {
+    const { dialog } = makeDialog();
+    const { document, posted } = runMergeDialogScript(dialog);
+    (document.querySelector('#flag-squash') as HTMLInputElement).checked = true;
+    (document.querySelector('#merge-btn') as HTMLButtonElement).click();
+    const last = posted.at(-1) as { type: string; flags: { squash: boolean } };
+    assert.strictEqual(last.type, 'merge', 'Merge posts a merge message');
+    assert.strictEqual(last.flags.squash, true, 'the squash flag is carried');
+
+    (document.querySelector('#cancel-btn') as HTMLButtonElement).click();
+    assert.deepEqual(posted.at(-1), { type: 'cancel' }, 'Cancel posts a cancel message');
+  });
+});
+
+/** Resolve the jsdom window from a document so tests can construct Events. */
+function dialog2Window(document: Document): typeof globalThis {
+  return (document.defaultView ?? globalThis) as unknown as typeof globalThis;
+}

@@ -209,71 +209,85 @@ export class MergeDialog extends BaseWebviewPanel {
    * inside a string literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
-    const body = `
-      <div class="summary">
-        <div><span class="label">Source:</span>${escapeHtml(this._sourceBranch)}</div>
-        <div><span class="label">Target:</span>${escapeHtml(this._targetBranch)}</div>
-      </div>
+    // Body ships an empty root; the script builds every control via
+    // document.createElement. Host data crosses as a JSON init island and
+    // reaches the DOM via .textContent (injection-proof) — never markup.
+    const body = `<div id="root"></div>`;
 
-      <div class="flags">
-        <label class="flag" data-flag="ffOnly">
-          <input type="checkbox" id="flag-ffOnly" />
-          <span class="label-text">
-            <span class="title-line">--ff-only</span>
-            <span class="desc">Require a fast-forward merge; abort if not possible.</span>
-          </span>
-        </label>
-        <label class="flag" data-flag="noFf">
-          <input type="checkbox" id="flag-noFf" />
-          <span class="label-text">
-            <span class="title-line">--no-ff</span>
-            <span class="desc">Always create a merge commit (even when fast-forward is possible).</span>
-          </span>
-        </label>
-        <label class="flag" data-flag="squash">
-          <input type="checkbox" id="flag-squash" />
-          <span class="label-text">
-            <span class="title-line">--squash</span>
-            <span class="desc">Stage changes from the merge without creating a commit.</span>
-          </span>
-        </label>
-        <label class="flag" data-flag="noCommit">
-          <input type="checkbox" id="flag-noCommit" />
-          <span class="label-text">
-            <span class="title-line">--no-commit</span>
-            <span class="desc">Stop before committing so the merge can be reviewed.</span>
-          </span>
-        </label>
-        <label class="flag" data-flag="noVerify">
-          <input type="checkbox" id="flag-noVerify" />
-          <span class="label-text">
-            <span class="title-line">--no-verify</span>
-            <span class="desc">Bypass the pre-merge and commit-message hooks.</span>
-          </span>
-        </label>
-        <label class="flag" data-flag="allowUnrelatedHistories">
-          <input type="checkbox" id="flag-allowUnrelatedHistories" />
-          <span class="label-text">
-            <span class="title-line">--allow-unrelated-histories</span>
-            <span class="desc">Merge two branches that share no common history.</span>
-          </span>
-        </label>
-      </div>
-
-      <div class="message-area">
-        <label for="merge-message">Merge commit message (optional, maps to <code>-m</code>):</label>
-        <textarea id="merge-message" placeholder="Enter a merge commit message, or leave blank for git default"></textarea>
-      </div>
-
-      <div class="actions">
-        <button id="cancel-btn" class="secondary" type="button">Cancel</button>
-        <button id="merge-btn" type="button">Merge</button>
-      </div>
-    `;
+    const initJson = JSON.stringify({
+      sourceBranch: this._sourceBranch,
+      targetBranch: this._targetBranch,
+    }).replace(/</g, '\\u003c');
 
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
+        const INIT = ${initJson};
+        const root = document.getElementById('root');
+        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+        // ── Summary (source → target) ──────────────────────────────────────
+        const summary = el('div', { className: 'summary' });
+        const summaryRow = (label, value) => {
+          const row = el('div');
+          row.append(el('span', { className: 'label', textContent: label }), value);
+          return row;
+        };
+        summary.append(
+          summaryRow('Source:', INIT.sourceBranch),
+          summaryRow('Target:', INIT.targetBranch)
+        );
+
+        // ── Option checkboxes ──────────────────────────────────────────────
+        const FLAGS = [
+          { id: 'ffOnly', title: '--ff-only', desc: 'Require a fast-forward merge; abort if not possible.' },
+          { id: 'noFf', title: '--no-ff', desc: 'Always create a merge commit (even when fast-forward is possible).' },
+          { id: 'squash', title: '--squash', desc: 'Stage changes from the merge without creating a commit.' },
+          { id: 'noCommit', title: '--no-commit', desc: 'Stop before committing so the merge can be reviewed.' },
+          { id: 'noVerify', title: '--no-verify', desc: 'Bypass the pre-merge and commit-message hooks.' },
+          { id: 'allowUnrelatedHistories', title: '--allow-unrelated-histories', desc: 'Merge two branches that share no common history.' },
+        ];
+        const flagsBox = el('div', { className: 'flags' });
+        for (const f of FLAGS) {
+          const label = el('label', { className: 'flag' });
+          label.setAttribute('data-flag', f.id);
+          const input = el('input', { type: 'checkbox', id: 'flag-' + f.id });
+          const text = el('span', { className: 'label-text' });
+          text.append(
+            el('span', { className: 'title-line', textContent: f.title }),
+            el('span', { className: 'desc', textContent: f.desc })
+          );
+          label.append(input, text);
+          flagsBox.append(label);
+        }
+
+        // ── Merge-message textarea ─────────────────────────────────────────
+        const messageArea = el('div', { className: 'message-area' });
+        const messageLabel = el('label', { htmlFor: 'merge-message' });
+        messageLabel.append(
+          'Merge commit message (optional, maps to ',
+          el('code', { textContent: '-m' }),
+          '):'
+        );
+        const messageEl = el('textarea', {
+          id: 'merge-message',
+          placeholder: 'Enter a merge commit message, or leave blank for git default',
+        });
+        messageArea.append(messageLabel, messageEl);
+
+        // ── Actions ────────────────────────────────────────────────────────
+        const actions = el('div', { className: 'actions' });
+        const cancelBtn = el('button', {
+          id: 'cancel-btn',
+          type: 'button',
+          className: 'secondary',
+          textContent: 'Cancel',
+        });
+        const mergeBtn = el('button', { id: 'merge-btn', type: 'button', textContent: 'Merge' });
+        actions.append(cancelBtn, mergeBtn);
+
+        root.append(summary, flagsBox, messageArea, actions);
+
         const strategyFlags = ['ffOnly', 'noFf', 'squash'];
         const readFlags = () => ({
           ffOnly: document.getElementById('flag-ffOnly').checked,
