@@ -275,6 +275,97 @@ describe('RebaseEditor', () => {
   // user abandons the editor — cancels or closes the panel — without executing,
   // that planning session must be cleared so it can't poison later branch ops
   // (issue #18).
+  describe('webview→host plan validation (injection hardening)', () => {
+    function panelOf(editor: RebaseEditor): { _fireMessage: (m: unknown) => void } {
+      return (editor as unknown as { _panel: { _fireMessage: (m: unknown) => void } })._panel;
+    }
+    function sessionOf(editor: RebaseEditor): IRebaseSession {
+      return (editor as unknown as { _session: IRebaseSession })._session;
+    }
+    async function untilPanel(editor: RebaseEditor): Promise<void> {
+      for (let i = 0; i < 20; i++) {
+        if ((editor as unknown as { _panel: unknown })._panel) {
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    it('rejects an updatePlan that introduces an unknown / traversal hash', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+      const before = sessionOf(rebaseEditor).commits.map((c) => c.hash);
+
+      panelOf(rebaseEditor)._fireMessage({
+        type: 'updatePlan',
+        commits: [{ hash: 'x/../../../../tmp/pwned', action: 'drop', message: 'x' }],
+      });
+
+      assert.deepStrictEqual(
+        sessionOf(rebaseEditor).commits.map((c) => c.hash),
+        before,
+        'a forged-hash plan must be rejected wholesale'
+      );
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+
+    it('rejects an updatePlan carrying a forged action on a known hash', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+      const before = sessionOf(rebaseEditor).commits.map((c) => c.action);
+
+      panelOf(rebaseEditor)._fireMessage({
+        type: 'updatePlan',
+        commits: [{ hash: 'abc1234567890', action: 'exec rm -rf ~', message: 'x' }],
+      });
+
+      assert.deepStrictEqual(
+        sessionOf(rebaseEditor).commits.map((c) => c.action),
+        before,
+        'a forged-action plan must be rejected wholesale'
+      );
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+
+    it('ignores an updateAction with an action outside the six commands', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+
+      panelOf(rebaseEditor)._fireMessage({
+        type: 'updateAction',
+        hash: 'abc1234567890',
+        action: 'exec evil',
+      });
+
+      const commit = sessionOf(rebaseEditor).commits.find((c) => c.hash === 'abc1234567890');
+      assert.strictEqual(commit?.action, 'pick', 'forged action must not be stored');
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+
+    it('still applies a legitimate reordering updatePlan', async () => {
+      const showPromise = rebaseEditor.show(mockRepository, { onto: 'main' });
+      await untilPanel(rebaseEditor);
+
+      panelOf(rebaseEditor)._fireMessage({
+        type: 'updatePlan',
+        commits: [
+          { hash: 'ghi3456789012', action: 'pick', message: 'Third commit' },
+          { hash: 'abc1234567890', action: 'drop', message: 'First commit' },
+          { hash: 'def2345678901', action: 'pick', message: 'Second commit' },
+        ],
+      });
+
+      const commits = sessionOf(rebaseEditor).commits;
+      assert.strictEqual(commits[0].hash, 'ghi3456789012');
+      assert.strictEqual(commits[1].action, 'drop');
+      panelOf(rebaseEditor)._fireMessage({ type: 'cancel' });
+      await showPromise;
+    });
+  });
+
   describe('abandon cleanup (issue #18)', () => {
     function panelOf(editor: RebaseEditor): {
       _fireMessage: (m: unknown) => void;

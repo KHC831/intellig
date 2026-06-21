@@ -21,6 +21,35 @@
 import type { IRebaseAction, RebaseAction } from './interfaces/IRebaseService';
 
 /**
+ * The six commit commands a rebase plan entry may carry. Any other token is a
+ * structural command (`label`/`reset`/`merge`/`exec`/…) that git owns — it must
+ * never arrive as a plan `action`, since the action is emitted verbatim into
+ * the todo (`<action> <hash> …`) where a forged `exec …` would inject.
+ */
+export const REBASE_ACTIONS: readonly RebaseAction[] = [
+  'pick',
+  'reword',
+  'edit',
+  'squash',
+  'fixup',
+  'drop',
+];
+
+/** Type guard: `value` is one of the six valid rebase commit actions. */
+export function isRebaseAction(value: unknown): value is RebaseAction {
+  return typeof value === 'string' && (REBASE_ACTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * Whether `hash` is a safe commit hash: 4-64 hex chars and nothing else.
+ * Rejects path separators and `..` so a plan hash can never traverse out of
+ * the git dir when interpolated into a message-override file path.
+ */
+export function isValidRebaseHash(hash: unknown): hash is string {
+  return typeof hash === 'string' && /^[0-9a-fA-F]{4,64}$/.test(hash);
+}
+
+/**
  * Whether a plan entry carries a usable pre-typed reword message — i.e. a
  * 'reword' action whose `newMessage` is present and not blank. A blank
  * override is treated as absent: writing an empty `-F` file would make
@@ -73,6 +102,12 @@ export function hasInlineMessageOverride(entry: IRebaseAction): boolean {
  * the repo root.
  */
 export function messageOverrideFileName(hash: string): string {
+  // Fail closed at the path sink: this name is joined onto `.git/`, so a hash
+  // carrying a separator or `..` would escape the git dir and write attacker
+  // content to an arbitrary file. Reject anything that isn't a bare hex hash.
+  if (!isValidRebaseHash(hash)) {
+    throw new Error('Invalid rebase commit hash for message-override file');
+  }
   return `.intellig-reword-${hash}.txt`;
 }
 
@@ -139,6 +174,20 @@ interface ICommitGroup {
  *   mismatch that would otherwise silently corrupt the rebase.
  */
 export function transformRebaseTodo(originalTodo: string, plan: IRebaseAction[]): string {
+  // Validate every plan entry before any of it reaches the todo or a file
+  // path. The plan originates from the webview; a forged `action` would inject
+  // an arbitrary todo command (`exec …`) and a non-hex `hash` would traverse
+  // out of the git dir via messageOverrideFileName. Fail closed so git aborts
+  // the rebase rather than replaying a poisoned plan.
+  for (const entry of plan) {
+    if (!isValidRebaseHash(entry.hash)) {
+      throw new Error(`Rebase plan entry has an invalid commit hash`);
+    }
+    if (!isRebaseAction(entry.action)) {
+      throw new Error(`Rebase plan entry has an invalid action`);
+    }
+  }
+
   // A squash/fixup melds into the PRECEDING commit, so it cannot lead the plan
   // (a squash override emits 'fixup', which has the same constraint). Catch it
   // here with a clear message instead of letting git abort the rebase mid-run

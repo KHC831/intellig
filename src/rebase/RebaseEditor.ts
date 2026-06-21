@@ -16,6 +16,7 @@ import {
 import { IRepository } from '../git-core/interfaces/IGitService';
 import { generateNonce } from '../utils/webviewNonce';
 import { sanitizeGitError } from '../git-core/gitError';
+import { isRebaseAction } from '../git-core/rebaseTodo';
 
 /**
  * Options for opening the rebase editor
@@ -337,6 +338,14 @@ export class RebaseEditor {
       return;
     }
 
+    // The action arrives from the webview and is later emitted verbatim into
+    // git's rebase todo; reject anything outside the six valid commands so a
+    // forged `exec …` can't be injected. The hash is constrained below by
+    // requiring it to match an existing session commit.
+    if (!isRebaseAction(action)) {
+      return;
+    }
+
     const commit = this._session.commits.find((c) => c.hash === hash);
     if (commit) {
       commit.action = action;
@@ -380,6 +389,21 @@ export class RebaseEditor {
    */
   private _handleUpdatePlan(commits: IRebaseCommit[]): void {
     if (!this._session) {
+      return;
+    }
+
+    // The webview may only reorder, re-action, or re-message the commits it was
+    // given — never introduce new hashes. Validate the incoming plan against
+    // the known session hashes and the valid action set; reject the whole
+    // update if anything is off so a forged hash (path-traversal sink) or a
+    // forged action (todo-injection sink) can't reach git. Fail closed: keep
+    // the prior plan rather than applying a partially-trusted one.
+    if (!Array.isArray(commits)) {
+      return;
+    }
+    const knownHashes = new Set(this._session.commits.map((c) => c.hash));
+    const allValid = commits.every((c) => c && knownHashes.has(c.hash) && isRebaseAction(c.action));
+    if (!allValid) {
       return;
     }
 
