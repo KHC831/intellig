@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import {
   RebaseProgressView,
@@ -423,11 +424,31 @@ describe('RebaseProgressView', () => {
     // inspect the rendered actions HTML directly.
     interface RebaseProgressViewInternals {
       _handleRebaseResult(result: IRebaseResult): void;
-      _getActionsSection(): string;
-      _getConflictSection(): string;
+      _getScript(): string;
     }
     const internals = (): RebaseProgressViewInternals =>
       rebaseProgressView as unknown as RebaseProgressViewInternals;
+
+    /**
+     * Run the view's inline nonce'd script in jsdom against an empty
+     * `#progress-root`. Post-migration the script BUILDS the header, progress,
+     * conflict, and action sections via document.createElement from a JSON
+     * init island serialized off the current view state.
+     */
+    function buildDom(): Document {
+      const script = internals()._getScript();
+      const dom = new JSDOM(`<div class="rebase-progress" id="progress-root"></div>`, {
+        runScripts: 'outside-only',
+      });
+      const window = dom.window;
+      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      window.eval(script);
+      return window.document as unknown as Document;
+    }
 
     it('offers continue/abort/skip for a continuable conflict (rebaseInProgress:true)', async () => {
       await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
@@ -440,10 +461,10 @@ describe('RebaseProgressView', () => {
         rebaseInProgress: true,
       });
 
-      const actions = internals()._getActionsSection();
-      assert.ok(actions.includes('continue-button'), 'continue button should be offered');
-      assert.ok(actions.includes('abort-button'), 'abort button should be offered');
-      assert.ok(actions.includes('skip-button'), 'skip button should be offered');
+      const doc = buildDom();
+      assert.ok(doc.querySelector('.continue-button'), 'continue button should be offered');
+      assert.ok(doc.querySelector('.abort-button'), 'abort button should be offered');
+      assert.ok(doc.querySelector('.skip-button'), 'skip button should be offered');
     });
 
     it('suppresses continue/abort/skip for an autostash-pop conflict (rebaseInProgress:false)', async () => {
@@ -457,17 +478,20 @@ describe('RebaseProgressView', () => {
         rebaseInProgress: false,
       });
 
-      const actions = internals()._getActionsSection();
-      assert.ok(
-        !actions.includes('continue-button'),
+      const doc = buildDom();
+      assert.strictEqual(
+        doc.querySelector('.continue-button'),
+        null,
         'continue must NOT be offered — `git rebase --continue` would dead-end on "no rebase in progress"'
       );
-      assert.ok(
-        !actions.includes('abort-button'),
+      assert.strictEqual(
+        doc.querySelector('.abort-button'),
+        null,
         'abort must NOT be offered for a completed rebase'
       );
-      assert.ok(
-        !actions.includes('skip-button'),
+      assert.strictEqual(
+        doc.querySelector('.skip-button'),
+        null,
         'skip must NOT be offered for a completed rebase'
       );
     });
@@ -482,7 +506,7 @@ describe('RebaseProgressView', () => {
         conflictedFiles: ['src/a.ts'],
         rebaseInProgress: true,
       });
-      const continuableHelp = internals()._getConflictSection();
+      const continuableHelp = buildDom().querySelector('.conflict-help')?.textContent ?? '';
       assert.ok(
         continuableHelp.includes('Continue') && continuableHelp.includes('Abort'),
         'continuable conflict help should mention Continue/Abort'
@@ -494,7 +518,7 @@ describe('RebaseProgressView', () => {
         conflictedFiles: ['src/a.ts'],
         rebaseInProgress: false,
       });
-      const popHelp = internals()._getConflictSection();
+      const popHelp = buildDom().querySelector('.conflict-help')?.textContent ?? '';
       assert.ok(
         popHelp.includes('rebase already completed'),
         'pop-conflict help should state the rebase already completed'
@@ -515,19 +539,18 @@ describe('RebaseProgressView', () => {
         rebaseInProgress: true,
       });
 
-      const actions = internals()._getActionsSection();
+      const script = internals()._getScript();
       assert.ok(
-        !/\sonclick=/.test(actions),
-        'inline onclick is blocked by the nonce-only CSP; use data-action delegation'
+        !/\son(click|change|input)\s*=/.test(script),
+        'inline handler attributes are blocked by the nonce-only CSP; use data-action delegation'
       );
+      const doc = buildDom();
       for (const action of ['abort', 'skip', 'continueRebase', 'refresh']) {
         assert.ok(
-          actions.includes(`data-action="${action}"`),
+          doc.querySelector(`[data-action="${action}"]`),
           `${action} must be wired via data-action`
         );
       }
-
-      const script = (rebaseProgressView as unknown as { _getScript(): string })._getScript();
       assert.ok(
         /addEventListener\('click'/.test(script) && /closest\('\[data-action\]'\)/.test(script),
         'script must install a delegated click dispatcher for the action buttons'
