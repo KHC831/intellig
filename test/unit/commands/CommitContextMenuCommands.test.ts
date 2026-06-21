@@ -273,6 +273,33 @@ function createMessageTrackers(): {
   return { info, error, warning };
 }
 
+/**
+ * Like {@link createMessageTrackers} but auto-accepts the destructive-op
+ * confirm modal (the one offering a `Drop` action) so drop-handler tests can
+ * drive past the confirm while still recording any subsequent warnings.
+ */
+function createMessageTrackersAcceptingDrop(): {
+  info: MessageRecord[];
+  error: MessageRecord[];
+  warning: MessageRecord[];
+} {
+  const trackers = createMessageTrackers();
+  writableWindow().showWarningMessage = (
+    message: string,
+    ...items: unknown[]
+  ): Promise<string | undefined> => {
+    const stringItems = items.filter((i): i is string => typeof i === 'string');
+    // Auto-accept (and swallow) the destructive-op confirm modal so it
+    // doesn't count as a user-facing warning toast; record everything else.
+    if (stringItems.includes('Drop')) {
+      return Promise.resolve('Drop');
+    }
+    trackers.warning.push({ message, items: stringItems });
+    return Promise.resolve(undefined);
+  };
+  return trackers;
+}
+
 function restoreMocks(): void {
   const w = writableWindow();
   w.showInformationMessage = (): Promise<string | undefined> => Promise.resolve(undefined);
@@ -1006,7 +1033,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
   describe('_handleDropCommit', () => {
     it('starts interactive rebase with hash~1, sets drop action, and executes', async () => {
-      createMessageTrackers();
+      createMessageTrackersAcceptingDrop();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
@@ -1035,7 +1062,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('shows warning on rebase conflicts', async () => {
-      const messages = createMessageTrackers();
+      const messages = createMessageTrackersAcceptingDrop();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
@@ -1057,7 +1084,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('shows error on failure', async () => {
-      const messages = createMessageTrackers();
+      const messages = createMessageTrackersAcceptingDrop();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService({
@@ -1077,7 +1104,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
 
     it('stashes dirty state before dropping and pops after', async () => {
       const execCalls: string[][] = [];
-      createMessageTrackers();
+      createMessageTrackersAcceptingDrop();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();
@@ -1103,7 +1130,7 @@ describe('CommitContextMenuCommands - Unit Tests', () => {
     });
 
     it('blocks drop when there are unmerged files', async () => {
-      const messages = createMessageTrackers();
+      const messages = createMessageTrackersAcceptingDrop();
       const repo = createMockRepo();
       const gitService = createMockGitService(repo);
       const rebaseService = createMockRebaseService();

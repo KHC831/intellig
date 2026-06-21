@@ -283,6 +283,9 @@ describe("H-1 — commit menu targets the clicked commit's own repo in all-repos
       makeCleanGitCli()
     );
 
+    // Drop now confirms before rewriting history — accept the modal.
+    writableWindow().showWarningMessage = () => Promise.resolve('Drop');
+
     await commands._handleAction(
       'dropCommit',
       [FOREIGN_HASH],

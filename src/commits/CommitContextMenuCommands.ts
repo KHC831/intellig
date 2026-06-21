@@ -2173,6 +2173,31 @@ export class CommitContextMenuCommands {
       return;
     }
 
+    // Confirm modal — dropping a commit rewrites history. The multi-drop
+    // sibling (_handleDropCommitMulti) confirms; the single path must match
+    // (feedback_data_loss_confirms minimal-confirm policy). Show the
+    // short-sha + subject for disambiguation, racing the subject lookup
+    // against a 500ms timeout so a hung git process can't stall the modal.
+    const shortSha = hash.substring(0, 8);
+    let subject = '';
+    try {
+      const previewCommit = await Promise.race([
+        this._gitService.getCommit(repo, hash),
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 500)),
+      ]);
+      subject = (previewCommit?.message ?? '').split('\n')[0].slice(0, 60);
+    } catch {
+      subject = '';
+    }
+    const confirmChoice = await vscode.window.showWarningMessage(
+      `Drop commit ${shortSha}${subject ? ` — ${subject}` : ''}? This rewrites history.`,
+      { modal: true },
+      'Drop'
+    );
+    if (confirmChoice !== 'Drop') {
+      return;
+    }
+
     try {
       const { stashed, blocked } = await this._stashIfDirty(cwd);
       if (blocked) {

@@ -470,6 +470,71 @@ describe('Wave C — Rebase-driven multi-commit ops', () => {
 
   afterEach(() => restoreMocks());
 
+  // ─── C1b — Drop single — destructive confirm parity with multi ────────────
+  describe('C1b — _handleDropCommit (single) destructive confirm', () => {
+    function singleDropTracker(): MockRebaseTracker {
+      const t = blankRebaseTracker();
+      t.sessionCommits = [{ hash: HASH_NEWEST, message: 'new', action: 'pick' }];
+      return t;
+    }
+
+    it('does NOT rewrite history when the user cancels the confirm', async () => {
+      const tracker = singleDropTracker();
+      const rebaseService = createMockRebaseService(tracker);
+      const gitService = createMockGitService(repo);
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
+
+      captureMessages();
+      // User cancels the destructive-op modal → resolves undefined.
+      writableWindow().showWarningMessage = (() => Promise.resolve(undefined)) as unknown as (
+        message: string,
+        ...items: unknown[]
+      ) => Promise<string | undefined>;
+
+      await (cmds as unknown as CommandsInternal)._handleAction(
+        'dropCommit',
+        [HASH_NEWEST],
+        NODES_4
+      );
+
+      assert.strictEqual(tracker.executeCalls, 0, 'executeRebase must not run on cancel');
+      assert.strictEqual(tracker.startedOnto, undefined, 'rebase must not start on cancel');
+    });
+
+    it('shows a "rewrites history" confirm and drops on accept', async () => {
+      const tracker = singleDropTracker();
+      const rebaseService = createMockRebaseService(tracker);
+      const gitService = createMockGitService(repo);
+      const provider = createMockProvider();
+      const gitCli = createMockGitCli();
+      const cmds = makeCommands({ repo, gitService, gitCli, provider, rebaseService });
+
+      captureMessages();
+      const prompts: string[] = [];
+      writableWindow().showWarningMessage = ((message: string) => {
+        prompts.push(message);
+        return Promise.resolve('Drop');
+      }) as unknown as (message: string, ...items: unknown[]) => Promise<string | undefined>;
+
+      await (cmds as unknown as CommandsInternal)._handleAction(
+        'dropCommit',
+        [HASH_NEWEST],
+        NODES_4
+      );
+
+      assert.ok(
+        prompts.some((m) => /rewrites history/i.test(m)),
+        'single-drop must show a "rewrites history" confirm modal'
+      );
+      assert.strictEqual(tracker.startedOnto, `${HASH_NEWEST}~1`, 'onto must be hash~1');
+      assert.strictEqual(tracker.executeCalls, 1, 'executeRebase must run on accept');
+      const planByHash = new Map(tracker.lastPlan!.map((a) => [a.hash, a.action]));
+      assert.strictEqual(planByHash.get(HASH_NEWEST), 'drop');
+    });
+  });
+
   // ─── C1 — Drop N (≥2) ──────────────────────────────────────────────────────
   describe('C1 — _handleDropCommitMulti', () => {
     it('starts rebase onto oldest^ when 2 contiguous commits selected', async () => {
