@@ -797,10 +797,15 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
   private async getCommitsToRebase(repo: IRepository, onto: string): Promise<IRebaseCommit[]> {
     const cwd = repo.rootUri.fsPath;
 
-    // Get commits between onto and HEAD
-    // These are the commits that will be rebased
+    // Get commits between onto and HEAD — these are the commits that will be
+    // rebased. `--no-merges` is essential: the interactive rebase runs as a
+    // plain `git rebase -i` (no `--rebase-merges`), which FLATTENS the history
+    // and omits merge commits from the todo. Without `--no-merges` here, a
+    // merge in `onto..HEAD` would appear in the plan but not in git's todo, and
+    // transformRebaseTodo would throw ("references commit not in todo"),
+    // aborting the rebase over any merge history.
     const result = await this._gitCli.exec(
-      buildGitArgs('log', ['--reverse', '--format=%H%x00%s'], [`${onto}..HEAD`]),
+      buildGitArgs('log', ['--reverse', '--no-merges', '--format=%H%x00%s'], [`${onto}..HEAD`]),
       { cwd }
     );
 

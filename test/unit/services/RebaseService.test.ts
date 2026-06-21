@@ -171,6 +171,27 @@ describe('RebaseService', () => {
 
       assert.strictEqual(session.commits.length, 0);
     });
+
+    it('enumerates the rebase commits with --no-merges (plain rebase -i flattens merges)', async () => {
+      // `git rebase -i` (no --rebase-merges) omits merge commits from the todo.
+      // If the commit list includes a merge that git's flattened todo doesn't,
+      // transformRebaseTodo throws ("references commit not in todo") and the
+      // rebase aborts. The enumeration must therefore also drop merges.
+      mockGitCli.setExecResult(
+        'rev-parse --abbrev-ref HEAD',
+        createMockResult(0, 'feature-branch\n')
+      );
+      mockGitCli.setExecResult('log --reverse', createMockResult(0, 'abc123\0First commit\n'));
+
+      await rebaseService.startInteractiveRebase(mockRepo, 'main');
+
+      const logCall = mockGitCli.getExecCalls().find((c) => c.args[0] === 'log');
+      assert.ok(logCall, 'a git log call should enumerate the rebase commits');
+      assert.ok(
+        logCall.args.includes('--no-merges'),
+        `commit enumeration must pass --no-merges; got: ${logCall.args.join(' ')}`
+      );
+    });
   });
 
   describe('getRebaseSession()', () => {
