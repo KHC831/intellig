@@ -158,12 +158,16 @@ function patchRegisterCommand(): { handlers: CapturedHandler[]; restore: () => v
   };
 }
 
-function repoAt(fsPath: string): IRepository {
+function repoAt(
+  fsPath: string,
+  head: { name: string } | undefined = { name: 'main' }
+): IRepository {
   return {
     rootUri: Uri.file(fsPath) as unknown as IRepository['rootUri'],
     state: 'idle',
     remotes: [],
     submodules: [],
+    head,
   } as unknown as IRepository;
 }
 
@@ -364,6 +368,68 @@ describe('GitScmProvider — commit-on-accept', () => {
     provider.dispose();
   });
 
+  it('runs before-commit checks and aborts when the user declines', async () => {
+    // Detached HEAD (no head.name) makes the before-commit chain surface a
+    // warning, so the SCM accept path must present the modal and honor a
+    // dismissal — the native Ctrl+Enter commit must not bypass the checks.
+    const repo = repoAt('/repo');
+    (repo as { head?: unknown }).head = undefined; // detached → before-commit warning
+    let commitCalled = false;
+    const git = createMockGitService(repo, {
+      getRepositories: () => [repo],
+      getStatus: async () => [],
+      commit: async (): Promise<void> => {
+        commitCalled = true;
+      },
+    });
+    const { api, created } = fakeScmApi();
+    const win = vscode.window as unknown as {
+      showWarningMessage: (...a: unknown[]) => Promise<string | undefined>;
+    };
+    const originalWarn = win.showWarningMessage;
+    win.showWarningMessage = () => Promise.resolve(undefined); // user dismisses
+
+    const provider = new GitScmProvider(git, api);
+    await provider.initialize();
+    const sc = created[0];
+    sc.inputBox.value = 'Commit on detached HEAD';
+    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
+
+    assert.strictEqual(commitCalled, false, 'declining the modal must abort the commit');
+    win.showWarningMessage = originalWarn;
+    provider.dispose();
+  });
+
+  it('commits when the user accepts the before-commit warning', async () => {
+    const repo = repoAt('/repo');
+    (repo as { head?: unknown }).head = undefined; // detached → before-commit warning
+    let commitCalled = false;
+    const git = createMockGitService(repo, {
+      getRepositories: () => [repo],
+      getStatus: async () => [],
+      commit: async (): Promise<void> => {
+        commitCalled = true;
+      },
+    });
+    const { api, created } = fakeScmApi();
+    const win = vscode.window as unknown as {
+      showWarningMessage: (...a: unknown[]) => Promise<string | undefined>;
+    };
+    const originalWarn = win.showWarningMessage;
+    // A detached-HEAD problem is a warning → the proceed label is 'Commit'.
+    win.showWarningMessage = () => Promise.resolve('Commit');
+
+    const provider = new GitScmProvider(git, api);
+    await provider.initialize();
+    const sc = created[0];
+    sc.inputBox.value = 'Commit on detached HEAD';
+    await provider.commitFromInput(sc as unknown as vscode.SourceControl);
+
+    assert.strictEqual(commitCalled, true, 'accepting the modal must let the commit proceed');
+    win.showWarningMessage = originalWarn;
+    provider.dispose();
+  });
+
   it('does NOT commit when the input message is empty/whitespace', async () => {
     const repo = repoAt('/repo');
     let commitCalled = false;
@@ -389,10 +455,12 @@ describe('GitScmProvider — commit-on-accept', () => {
 
   it('surfaces an error toast, preserves the message, and does not follow through when commit fails', async () => {
     const repo = repoAt('/repo');
-    // Count getStatus calls: one fires during initialize(); a success
-    // follow-through would call it again via syncRepo. A failed commit must
-    // not, so the count stays at the init baseline.
+    // Count getStatus calls. The before-commit checks read status before the
+    // commit; the success follow-through (syncRepo) reads it again AFTER. A
+    // failed commit must skip that follow-through, so the count must not grow
+    // past the value captured at the moment commit() was invoked.
     let getStatusCalls = 0;
+    let statusCallsAtCommit = -1;
     const git = createMockGitService(repo, {
       getRepositories: () => [repo],
       getStatus: async () => {
@@ -400,6 +468,7 @@ describe('GitScmProvider — commit-on-accept', () => {
         return [];
       },
       commit: async (): Promise<void> => {
+        statusCallsAtCommit = getStatusCalls;
         throw new Error('fatal: unable to write commit object');
       },
     });
@@ -410,7 +479,6 @@ describe('GitScmProvider — commit-on-accept', () => {
 
     const provider = new GitScmProvider(git, api);
     await provider.initialize();
-    const callsAfterInit = getStatusCalls;
 
     const sc = created[0];
     sc.inputBox.value = 'Message that should survive a failed commit';
@@ -428,10 +496,11 @@ describe('GitScmProvider — commit-on-accept', () => {
       'a failed commit must not clear the input box'
     );
     // (c) no success follow-through: no extra re-sync, no false success toast.
+    assert.notStrictEqual(statusCallsAtCommit, -1, 'the commit should have been attempted');
     assert.strictEqual(
       getStatusCalls,
-      callsAfterInit,
-      'a failed commit must not trigger a success re-sync'
+      statusCallsAtCommit,
+      'a failed commit must not trigger a success re-sync (no getStatus after commit)'
     );
     assert.strictEqual(
       infoTracker.calls.length,

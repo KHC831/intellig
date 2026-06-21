@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 
 import { formatActionFailureToast } from '../git-core/gitError';
 import type { IFileStatus, IGitService, IRepository, StatusCode } from '../services';
+import { runBeforeCommitChecks } from '../commits/CheckinChecks';
 
 /**
  * Command id wired to each SourceControl's `acceptInputCommand`. Internal
@@ -266,6 +267,33 @@ export class GitScmProvider implements vscode.Disposable {
       void vscode.window.showInformationMessage('Enter a commit message to commit.');
       return;
     }
+
+    // Mirror the commit dialog / tool window: run the IDE before-commit checks
+    // (missing identity, unresolved merge, detached HEAD) before a native
+    // Ctrl+Enter commit, so the SCM accept path can't silently skip them. This
+    // path has no `--no-verify` affordance, so the checks always run. The
+    // committed set is the staged files (a no-pathspec `git commit` records the
+    // index).
+    let stagedPaths: string[] = [];
+    try {
+      const statuses = await this.gitService.getStatus(entry.repo);
+      stagedPaths = statuses
+        .filter(
+          (s) =>
+            s.indexStatus !== 'U' &&
+            s.workTreeStatus !== 'U' &&
+            s.indexStatus !== ' ' &&
+            s.indexStatus !== '?'
+        )
+        .map((s) => s.path);
+    } catch {
+      stagedPaths = [];
+    }
+    const proceed = await runBeforeCommitChecks(this.gitService, entry.repo, stagedPaths);
+    if (!proceed) {
+      return;
+    }
+
     try {
       await this.gitService.commit(entry.repo, message, {});
       sourceControl.inputBox.value = '';
