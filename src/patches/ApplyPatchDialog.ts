@@ -224,55 +224,111 @@ export class ApplyPatchDialog extends BaseWebviewPanel {
    * would break a regex-based extractor.
    */
   private _getBodyParts(): { body: string; script: string } {
-    const escapedPath = escapeHtml(this._patchPath ?? '');
+    // Body ships an empty root; the script builds every control via
+    // document.createElement. Host data crosses as a JSON init island and
+    // reaches the DOM via .value / .textContent (injection-proof).
+    const body = `<div id="root"></div>`;
 
-    const body = `
-      <h3>Apply Patch</h3>
-
-      <div class="source-row">
-        <label><input type="radio" name="source" value="file" checked /> From file</label>
-        <label><input type="radio" name="source" value="clipboard" /> From clipboard</label>
-      </div>
-
-      <div class="row" data-row="file">
-        <label class="block">Patch file:</label>
-        <input type="text" id="patchPath" readonly value="${escapedPath}" placeholder="(none selected)" />
-        <button id="browseBtn" class="secondary" type="button">Browse…</button>
-      </div>
-
-      <div class="row">
-        <label class="block" for="stripLevel">Strip level (-p):</label>
-        <input type="number" id="stripLevel" min="0" max="10" value="1" />
-        <span class="hint">Leading path components to strip.</span>
-      </div>
-
-      <div class="row">
-        <label class="block" for="baseDir">Base directory:</label>
-        <input type="text" id="baseDir" placeholder="(repository root)" />
-      </div>
-
-      <div class="row">
-        <label><input type="checkbox" id="useAm" /> Use <code>git am</code> (preserve author)</label>
-      </div>
-
-      <div class="row">
-        <button id="previewBtn" class="secondary" type="button">Preview…</button>
-        <span class="hint">Shows the first ${PREVIEW_LINE_CAP} lines of the patch.</span>
-      </div>
-
-      <div class="preview" id="preview">
-        <span class="placeholder">No preview yet. Click “Preview…” to inspect the patch body.</span>
-      </div>
-
-      <div class="actions">
-        <button id="cancelBtn" class="secondary" type="button">Cancel</button>
-        <button id="applyBtn" type="button">Apply</button>
-      </div>
-    `;
+    const initJson = JSON.stringify({
+      patchPath: this._patchPath ?? '',
+      previewLineCap: PREVIEW_LINE_CAP,
+    }).replace(/</g, '\\u003c');
 
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
+        const INIT = ${initJson};
+        const root = document.getElementById('root');
+        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+        const radioLabel = (value, text, checked) => {
+          const label = el('label');
+          const input = el('input', { type: 'radio', name: 'source', value: value });
+          input.checked = checked;
+          label.append(input, ' ' + text);
+          return label;
+        };
+        const row = (children, cls) => {
+          const div = el('div', { className: cls || 'row' });
+          div.append(...children);
+          return div;
+        };
+
+        root.append(el('h3', { textContent: 'Apply Patch' }));
+
+        // ── Source radios ──────────────────────────────────────────────────
+        root.append(
+          row(
+            [radioLabel('file', 'From file', true), radioLabel('clipboard', 'From clipboard', false)],
+            'source-row'
+          )
+        );
+
+        // ── File row ───────────────────────────────────────────────────────
+        const fileRow = el('div', { className: 'row' });
+        fileRow.setAttribute('data-row', 'file');
+        const patchPathInput = el('input', {
+          type: 'text',
+          id: 'patchPath',
+          readOnly: true,
+          placeholder: '(none selected)',
+          value: INIT.patchPath,
+        });
+        fileRow.append(
+          el('label', { className: 'block', textContent: 'Patch file:' }),
+          patchPathInput,
+          el('button', { id: 'browseBtn', className: 'secondary', type: 'button', textContent: 'Browse…' })
+        );
+        root.append(fileRow);
+
+        // ── Strip level ────────────────────────────────────────────────────
+        const stripInput = el('input', { type: 'number', id: 'stripLevel', min: '0', max: '10', value: '1' });
+        root.append(
+          row([
+            el('label', { className: 'block', htmlFor: 'stripLevel', textContent: 'Strip level (-p):' }),
+            stripInput,
+            el('span', { className: 'hint', textContent: 'Leading path components to strip.' }),
+          ])
+        );
+
+        // ── Base directory ─────────────────────────────────────────────────
+        root.append(
+          row([
+            el('label', { className: 'block', htmlFor: 'baseDir', textContent: 'Base directory:' }),
+            el('input', { type: 'text', id: 'baseDir', placeholder: '(repository root)' }),
+          ])
+        );
+
+        // ── Use git am ─────────────────────────────────────────────────────
+        const amLabel = el('label');
+        const amInput = el('input', { type: 'checkbox', id: 'useAm' });
+        amLabel.append(amInput, ' Use ', el('code', { textContent: 'git am' }), ' (preserve author)');
+        root.append(row([amLabel]));
+
+        // ── Preview button ─────────────────────────────────────────────────
+        root.append(
+          row([
+            el('button', { id: 'previewBtn', className: 'secondary', type: 'button', textContent: 'Preview…' }),
+            el('span', { className: 'hint', textContent: 'Shows the first ' + INIT.previewLineCap + ' lines of the patch.' }),
+          ])
+        );
+
+        // ── Preview pane ───────────────────────────────────────────────────
+        const previewPane = el('div', { className: 'preview', id: 'preview' });
+        previewPane.append(
+          el('span', { className: 'placeholder', textContent: 'No preview yet. Click “Preview…” to inspect the patch body.' })
+        );
+        root.append(previewPane);
+
+        // ── Actions ────────────────────────────────────────────────────────
+        root.append(
+          row(
+            [
+              el('button', { id: 'cancelBtn', className: 'secondary', type: 'button', textContent: 'Cancel' }),
+              el('button', { id: 'applyBtn', type: 'button', textContent: 'Apply' }),
+            ],
+            'actions'
+          )
+        );
 
         function source() {
           const sel = document.querySelector('input[name="source"]:checked');
