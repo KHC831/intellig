@@ -138,11 +138,23 @@ describe('buildScmResources — working-tree partition', () => {
     assert.equal(cmd?.command, 'vscode.diff');
     const args = cmd?.arguments as [vscode.Uri, vscode.Uri, string];
     assert.equal(args.length, 3);
-    // Left side is the committed (HEAD) revision served by the intellig-git provider.
-    assert.ok(args[0].path.includes('intellig-git:'), 'left arg uses intellig-git scheme');
-    assert.ok(args[0].path.includes('HEAD'), 'left arg pins the HEAD ref');
+    // Left side is the committed (HEAD) revision served by the intellig-git
+    // provider, built from explicit URI components: scheme + repo-relative path
+    // + the ref in the query (the provider reads uri.path + uri.query).
+    assert.equal(args[0].scheme, 'intellig-git', 'left arg uses the intellig-git scheme');
+    assert.equal(args[0].path, 'src/a.ts', 'left arg path is the repo-relative file');
+    assert.equal(decodeURIComponent(args[0].query), 'HEAD', 'left arg pins the HEAD ref');
     // Right side is the live working-tree file.
     assert.equal(args[1].fsPath, path.join('/repo', 'src/a.ts'));
+  });
+
+  it('keeps a "?"-bearing filename intact in the head URI path (no query split)', () => {
+    const { changes } = buildScmResources([status('src/a?b.ts', ' ', 'M')], root);
+    const args = changes[0].command?.arguments as [vscode.Uri, vscode.Uri, string];
+    // A literal `?` in the filename must stay in the path, not bleed into the
+    // query — the bug that `Uri.parse('intellig-git:src/a?b.ts?HEAD')` caused.
+    assert.equal(args[0].path, 'src/a?b.ts', 'the "?" filename must survive in the path');
+    assert.equal(decodeURIComponent(args[0].query), 'HEAD', 'the ref stays HEAD');
   });
 });
 

@@ -151,9 +151,15 @@ function makeResource(
   const absPath = path.join(repoRoot.fsPath, relPath);
   const fileUri = vscode.Uri.file(absPath);
   // The intellig-git content provider keys off `uri.path` (repo-relative) and
-  // `uri.query` (the ref). Producers across the codebase build these URIs with
-  // `Uri.parse('intellig-git:<relPath>?<encodedRef>')`; mirror that exactly.
-  const headUri = vscode.Uri.parse(`intellig-git:${relPath}?${encodeURIComponent('HEAD')}`);
+  // `uri.query` (the ref). Build from explicit components rather than
+  // interpolating into `Uri.parse(...)`: a relPath containing `?` or `#` would
+  // otherwise be split into the query/fragment, corrupting the path the
+  // provider reads. `query` keeps the legacy `encodeURIComponent(ref)` contract.
+  const headUri = vscode.Uri.from({
+    scheme: 'intellig-git',
+    path: relPath,
+    query: encodeURIComponent('HEAD'),
+  });
   const suffix = kind === 'staged' ? 'Staged' : decoration.label;
   const title = `${path.basename(relPath)} (${suffix})`;
 
