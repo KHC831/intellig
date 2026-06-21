@@ -1382,4 +1382,35 @@ describe('RebaseService', () => {
       });
     });
   });
+
+  describe('reword-file cleanup on rebase completion', () => {
+    it('removes leftover .intellig-reword-*.txt files when a rebase completes', async () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-reword-clean-'));
+      fs.mkdirSync(path.join(tmp, '.git'));
+      const litter = path.join(tmp, '.git', '.intellig-reword-abc123.txt');
+      const keep = path.join(tmp, '.git', 'config');
+      fs.writeFileSync(litter, 'an override message');
+      fs.writeFileSync(keep, '[core]\n');
+      const repo = createMockRepository(tmp);
+
+      try {
+        // `rebase --continue` with no `.git/rebase-merge` dir present →
+        // isRebaseInProgress() is false → the rebase reads as completed.
+        await rebaseService.continueRebase(repo);
+
+        assert.strictEqual(
+          fs.existsSync(litter),
+          false,
+          'the reword override file must be removed when the rebase completes'
+        );
+        assert.strictEqual(
+          fs.existsSync(keep),
+          true,
+          'unrelated git-dir files must be left untouched'
+        );
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
+    });
+  });
 });

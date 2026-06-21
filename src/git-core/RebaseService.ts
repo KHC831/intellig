@@ -271,8 +271,7 @@ export class RebaseService implements IRebaseService {
       const isComplete = !this.isRebaseInProgress(repo);
 
       if (isComplete) {
-        this._sessions.delete(repoKey);
-        this._onDidChangeRebaseSession.fire(undefined);
+        this._finishRebase(repo, repoKey);
         return { success: true, status: 'completed' };
       }
 
@@ -327,8 +326,7 @@ export class RebaseService implements IRebaseService {
     }
 
     // Clear the session
-    this._sessions.delete(repoKey);
-    this._onDidChangeRebaseSession.fire(undefined);
+    this._finishRebase(repo, repoKey);
   }
 
   /**
@@ -355,8 +353,7 @@ export class RebaseService implements IRebaseService {
       const isComplete = !this.isRebaseInProgress(repo);
 
       if (isComplete) {
-        this._sessions.delete(repoKey);
-        this._onDidChangeRebaseSession.fire(undefined);
+        this._finishRebase(repo, repoKey);
         return { success: true, status: 'completed' };
       }
 
@@ -533,8 +530,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
     if (result.exitCode === 0) {
       const isComplete = !this.isRebaseInProgress(repo);
       if (isComplete) {
-        this._sessions.delete(repoKey);
-        this._onDidChangeRebaseSession.fire(undefined);
+        this._finishRebase(repo, repoKey);
         return { success: true, status: 'completed' };
       }
     }
@@ -568,8 +564,7 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
     }
 
     // Rebase completed
-    this._sessions.delete(repoKey);
-    this._onDidChangeRebaseSession.fire(undefined);
+    this._finishRebase(repo, repoKey);
     return { success: true, status: 'completed' };
   }
 
@@ -828,6 +823,46 @@ ELECTRON_RUN_AS_NODE=1 ${this.shellQuote(nodeBin)} ${this.shellQuote(editorJsPat
     }
 
     return commits;
+  }
+
+  /**
+   * Finalize a rebase that has reached a terminal state (completed or aborted):
+   * drop the cached session, notify listeners, and remove any leftover
+   * `.intellig-reword-*.txt` override files. Only called from terminal points
+   * so a paused rebase (whose remaining exec lines still reference those files)
+   * is never cleaned mid-flight.
+   */
+  private _finishRebase(repo: IRepository, repoKey: string): void {
+    this._sessions.delete(repoKey);
+    this._onDidChangeRebaseSession.fire(undefined);
+    this._cleanupRewordFiles(repo);
+  }
+
+  /**
+   * Remove the per-commit reword/squash message-override files the sequence
+   * editor wrote into the git dir (`.intellig-reword-<hash>.txt`). They are
+   * consumed by the `exec git commit --amend -F` todo lines during the rebase
+   * and only litter the git dir afterwards. Best-effort: an unreadable git dir
+   * (e.g. a linked-worktree gitlink file) or a concurrently-removed file is
+   * ignored.
+   */
+  private _cleanupRewordFiles(repo: IRepository): void {
+    const gitDir = path.join(repo.rootUri.fsPath, '.git');
+    let names: string[];
+    try {
+      names = fs.readdirSync(gitDir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (/^\.intellig-reword-.*\.txt$/.test(name)) {
+        try {
+          fs.unlinkSync(path.join(gitDir, name));
+        } catch {
+          // best-effort
+        }
+      }
+    }
   }
 
   /**
