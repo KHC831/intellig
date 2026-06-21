@@ -176,6 +176,31 @@ describe('SquashMessageDialog', () => {
       dialog.dispose();
     });
 
+    it('unicode-escapes "<" in the seed so a "</script>" cannot break out of the inline script', async () => {
+      const seedMessage = '</script><img src=x onerror=alert(1)> done';
+      const dialog = new SquashMessageDialog(makeContext(), {
+        seedMessage,
+        commitCount: 2,
+      });
+      void dialog.prompt();
+
+      const html = getHtml(dialog);
+      // The seed's literal "</script>" must NOT survive into the markup — it
+      // would close the inline <script> early and inject the trailing markup.
+      assert.ok(
+        !html.includes('</script><img'),
+        'seed must not be able to break out of the inline script'
+      );
+      // It is escaped to <, which the JS string decodes back to "<".
+      assert.ok(
+        html.includes('\\u003c/script>'),
+        'the seed "<" must be unicode-escaped in the embedded JSON'
+      );
+      assert.ok(html.includes('msgEl.value = '), 'the seed is still assigned to the textarea');
+
+      dialog.dispose();
+    });
+
     it('includes the commit count in the dialog title', async () => {
       const dialog = new SquashMessageDialog(makeContext(), {
         seedMessage: 'seed',

@@ -160,7 +160,12 @@ export class SquashMessageDialog extends BaseWebviewPanel {
     const nonce = this._getNonce();
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
-    const seedJson = JSON.stringify(this._seedMessage);
+    // Embed the seed as JSON inside an inline <script>. JSON.stringify alone
+    // does not escape `<`, so a seed containing `</script>` would close the
+    // script tag early (the HTML parser ignores JS string context) and inject
+    // the trailing markup. Unicode-escape `<`; the JS string decodes it back
+    // to `<`, so the textarea value is unchanged.
+    const seedJson = JSON.stringify(this._seedMessage).replace(/</g, '\\u003c');
     const submitLabel = this._commitCount > 0 ? `Squash ${this._commitCount} commits` : 'Squash';
     const submitLabelEscaped = escapeHtml(submitLabel);
 
