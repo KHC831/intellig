@@ -3,6 +3,7 @@
  */
 
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import {
   RebaseEditor,
@@ -143,34 +144,62 @@ describe('RebaseEditor', () => {
 
   describe('CSP-safe event wiring (no inline handlers)', () => {
     interface Internals {
-      _getFooterSection(): string;
-      _getCommitItemHtml(commit: IRebaseCommit, index: number): string;
       _getScript(): string;
+      _session?: { onto: string; originalBranch: string; commits: IRebaseCommit[] };
     }
     const internals = (): Internals => rebaseEditor as unknown as Internals;
 
-    it('footer buttons use data-action, not dead inline onclick', () => {
-      const footer = internals()._getFooterSection();
-      assert.ok(!/\sonclick=/.test(footer), 'footer must not use inline onclick');
-      assert.ok(footer.includes('data-action="cancel"'), 'Cancel must use data-action');
-      assert.ok(footer.includes('data-action="execute"'), 'Start Rebase must use data-action');
+    /**
+     * Run the editor's inline nonce'd script in jsdom against the empty
+     * `#rebase-root` skeleton. Post-migration contract: the script BUILDS the
+     * header, commit rows, and footer via document.createElement.
+     */
+    function buildDom(): Document {
+      const script = internals()._getScript();
+      const dom = new JSDOM(`<div class="rebase-editor" id="rebase-root"></div>`, {
+        runScripts: 'outside-only',
+      });
+      const window = dom.window;
+      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      window.eval(script);
+      return window.document as unknown as Document;
+    }
+
+    it('footer buttons build with data-action and no inline onclick', () => {
+      const script = internals()._getScript();
+      assert.ok(!/\son(click|change|input)\s*=/.test(script), 'no inline handler attributes');
+      const doc = buildDom();
+      assert.ok(doc.querySelector('button[data-action="cancel"]'), 'Cancel uses data-action');
+      assert.ok(
+        doc.querySelector('button[data-action="execute"]'),
+        'Start Rebase uses data-action'
+      );
     });
 
-    it('commit row drops inline onchange/oninput and keeps data-hash', () => {
-      const commit: IRebaseCommit = {
-        hash: 'abc1234567890',
-        message: 'msg',
-        action: 'reword',
-        newMessage: '',
+    it('commit row builds the action dropdown + reword textarea, each keyed by data-hash', () => {
+      // Seed a reword commit so the row renders its message editor.
+      internals()._session = {
+        onto: 'main',
+        originalBranch: 'feature',
+        commits: [{ hash: 'abc1234567890', message: 'msg', action: 'reword', newMessage: '' }],
       };
-      const row = internals()._getCommitItemHtml(commit, 0);
-      assert.ok(
-        !/\son(change|input)=/.test(row),
-        'commit row must not use inline onchange/oninput'
+      const doc = buildDom();
+      const select = doc.querySelector('.action-dropdown');
+      assert.ok(select, 'action dropdown built');
+      assert.strictEqual(
+        select.getAttribute('data-hash'),
+        'abc1234567890',
+        'select keeps data-hash'
       );
-      assert.ok(/class="action-dropdown"[\s\S]*?data-hash=/.test(row), 'select keeps data-hash');
-      assert.ok(
-        /class="reword-message-input"[\s\S]*?data-hash=/.test(row),
+      const textarea = doc.querySelector('.reword-message-input');
+      assert.ok(textarea, 'reword textarea built');
+      assert.strictEqual(
+        textarea.getAttribute('data-hash'),
+        'abc1234567890',
         'reword textarea keeps data-hash'
       );
     });
@@ -678,16 +707,30 @@ describe('RebaseEditor', () => {
   // collection); it must state the real blank-handling instead.
   describe('M2 follow-up — blank reword/squash affordance text', () => {
     function placeholderFor(action: RebaseAction): string {
-      const html = (
+      // Seed a single commit of the given action, build the DOM via the inline
+      // script, and read the reword textarea's placeholder.
+      (
         editor as unknown as {
-          _getCommitItemHtml: (
-            c: { hash: string; message: string; action: RebaseAction },
-            i: number
-          ) => string;
+          _session?: { onto: string; originalBranch: string; commits: unknown[] };
         }
-      )._getCommitItemHtml({ hash: 'abc1234567890', message: 'orig', action }, 0);
-      const m = html.match(/placeholder="([^"]*)"/);
-      return m ? m[1] : '';
+      )._session = {
+        onto: 'main',
+        originalBranch: 'feature',
+        commits: [{ hash: 'abc1234567890', message: 'orig', action }],
+      };
+      const script = (editor as unknown as { _getScript(): string })._getScript();
+      const dom = new JSDOM(`<div class="rebase-editor" id="rebase-root"></div>`, {
+        runScripts: 'outside-only',
+      });
+      const window = dom.window;
+      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      window.eval(script);
+      const ta = window.document.querySelector('.reword-message-input');
+      return ta?.getAttribute('placeholder') ?? '';
     }
 
     let editor: RebaseEditor;

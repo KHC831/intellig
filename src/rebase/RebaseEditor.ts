@@ -439,11 +439,7 @@ export class RebaseEditor {
   </style>
 </head>
 <body>
-  <div class="rebase-editor">
-    ${this._getHeaderSection()}
-    ${this._getCommitListSection()}
-    ${this._getFooterSection()}
-  </div>
+  <div class="rebase-editor" id="rebase-root"></div>
   <script nonce="${nonce}">
     ${this._getScript()}
   </script>
@@ -452,116 +448,12 @@ export class RebaseEditor {
   }
 
   /**
-   * Get the header section HTML.
+   * Serialize the host-side rebase session into the JSON init island the
+   * inline script reads to build the DOM. Every dynamic value reaches the DOM
+   * via .value / .textContent / element props (injection-proof) — never markup.
    */
-  private _getHeaderSection(): string {
-    const onto = this._session?.onto || '';
-    const originalBranch = this._session?.originalBranch || '';
-    const commitCount = this._session?.commits.length || 0;
-
-    return `
-      <div class="header">
-        <h2>Interactive Rebase</h2>
-        <div class="rebase-info">
-          <span class="info-item">
-            <span class="info-label">Rebasing:</span>
-            <span class="info-value">${this._escapeHtml(originalBranch)}</span>
-          </span>
-          <span class="info-item">
-            <span class="info-label">Onto:</span>
-            <span class="info-value">${this._escapeHtml(onto)}</span>
-          </span>
-          <span class="info-item">
-            <span class="info-label">Commits:</span>
-            <span class="info-value">${commitCount}</span>
-          </span>
-        </div>
-        <div class="instructions">
-          <p>Drag commits to reorder. Select an action for each commit.</p>
-          <p class="hint">Commits will be applied from top to bottom.</p>
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Get the commit list section HTML.
-   */
-  private _getCommitListSection(): string {
-    if (!this._session || this._session.commits.length === 0) {
-      return `
-        <div class="commit-list empty">
-          <p class="empty-message">No commits to rebase</p>
-        </div>
-      `;
-    }
-
-    const commitsHtml = this._session.commits
-      .map((commit, index) => this._getCommitItemHtml(commit, index))
-      .join('');
-
-    return `
-      <div class="commit-list" id="commit-list">
-        ${commitsHtml}
-      </div>
-    `;
-  }
-
-  /**
-   * Get HTML for a single commit item.
-   */
-  private _getCommitItemHtml(commit: IRebaseCommit, index: number): string {
-    const shortHash = commit.hash.substring(0, 7);
-    const actionClass = this._getActionClass(commit.action);
-    // reword and squash both collect the message IN-UI (git4idea parity — we
-    // never punt to an external editor). The rebase runs with GIT_EDITOR
-    // suppressed, so a blank value does NOT open an editor: a blank reword
-    // keeps the commit's original message; a blank squash takes git's
-    // auto-combined message. The placeholders state that explicitly.
-    const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
-    const messagePlaceholder =
-      commit.action === 'squash'
-        ? 'Combined commit message (leave blank to auto-combine the messages)'
-        : 'New commit message (leave blank to keep the original)';
-    const rewordValue = this._escapeHtml(commit.newMessage ?? commit.message);
-
-    return `
-      <div class="commit-item ${actionClass}"
-           data-hash="${commit.hash}"
-           data-index="${index}"
-           draggable="true">
-        <div class="drag-handle" title="Drag to reorder">⋮⋮</div>
-        <div class="action-selector">
-          <select class="action-dropdown"
-                  data-hash="${commit.hash}">
-            ${this._getActionOptions(commit.action)}
-          </select>
-        </div>
-        <div class="commit-hash" title="${this._escapeHtml(commit.hash)}">${shortHash}</div>
-        <div class="commit-message" title="${this._escapeHtml(commit.message)}">
-          ${this._escapeHtml(commit.message)}
-        </div>
-        ${
-          showMessageEditor
-            ? `<div class="reword-message-editor">
-          <textarea
-            class="reword-message-input"
-            data-hash="${this._escapeHtml(commit.hash)}"
-            rows="3"
-            placeholder="${this._escapeHtml(messagePlaceholder)}"
-          >${rewordValue}</textarea>
-        </div>`
-            : ''
-        }
-      </div>
-    `;
-  }
-
-  /**
-   * Get the action options HTML for the dropdown.
-   */
-  private _getActionOptions(currentAction: RebaseAction): string {
-    const actions: { value: RebaseAction; label: string; description: string }[] = [
+  private _getInitJson(): string {
+    const ACTIONS: { value: RebaseAction; label: string; description: string }[] = [
       { value: 'pick', label: 'pick', description: 'use commit' },
       { value: 'reword', label: 'reword', description: 'use commit, but edit the commit message' },
       { value: 'edit', label: 'edit', description: 'use commit, but stop for amending' },
@@ -577,42 +469,34 @@ export class RebaseEditor {
       },
       { value: 'drop', label: 'drop', description: 'remove commit' },
     ];
-
-    return actions
-      .map(
-        (action) =>
-          `<option value="${action.value}" ${action.value === currentAction ? 'selected' : ''} title="${action.description}">${action.label}</option>`
-      )
-      .join('');
-  }
-
-  /**
-   * Get CSS class for an action.
-   */
-  private _getActionClass(action: RebaseAction): string {
-    return `action-${action}`;
-  }
-
-  /**
-   * Get the footer section HTML.
-   */
-  private _getFooterSection(): string {
-    return `
-      <div class="footer">
-        <div class="action-legend">
-          <span class="legend-item pick">pick - use commit</span>
-          <span class="legend-item reword">reword - edit message</span>
-          <span class="legend-item edit">edit - stop for amending</span>
-          <span class="legend-item squash">squash - meld into previous</span>
-          <span class="legend-item fixup">fixup - meld, discard message</span>
-          <span class="legend-item drop">drop - remove commit</span>
-        </div>
-        <div class="button-row">
-          <button class="button cancel-button" data-action="cancel">Cancel</button>
-          <button class="button execute-button" data-action="execute">Start Rebase</button>
-        </div>
-      </div>
-    `;
+    // reword and squash both collect the message IN-UI (git4idea parity — we
+    // never punt to an external editor). The rebase runs with GIT_EDITOR
+    // suppressed, so a blank value does NOT open an editor: a blank reword
+    // keeps the commit's original message; a blank squash takes git's
+    // auto-combined message. The placeholders state that explicitly.
+    const commits = (this._session?.commits ?? []).map((commit) => {
+      const showMessageEditor = commit.action === 'reword' || commit.action === 'squash';
+      return {
+        hash: commit.hash,
+        shortHash: commit.hash.substring(0, 7),
+        message: commit.message,
+        action: commit.action,
+        actionClass: `action-${commit.action}`,
+        showMessageEditor,
+        messagePlaceholder:
+          commit.action === 'squash'
+            ? 'Combined commit message (leave blank to auto-combine the messages)'
+            : 'New commit message (leave blank to keep the original)',
+        rewordValue: commit.newMessage ?? commit.message,
+      };
+    });
+    return JSON.stringify({
+      originalBranch: this._session?.originalBranch || '',
+      onto: this._session?.onto || '',
+      commitCount: this._session?.commits.length || 0,
+      actions: ACTIONS,
+      commits,
+    }).replace(/</g, '\\u003c');
   }
 
   /**
@@ -941,6 +825,106 @@ export class RebaseEditor {
   private _getScript(): string {
     return `
       const vscode = acquireVsCodeApi();
+      const INIT = ${this._getInitJson()};
+      const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+      // ── Build the body via createElement (no HTML-string injection) ────────
+      (function buildBody() {
+        const root = document.getElementById('rebase-root');
+        if (!root) return;
+
+        // Header
+        const header = el('div', { className: 'header' });
+        header.append(el('h2', { textContent: 'Interactive Rebase' }));
+        const info = el('div', { className: 'rebase-info' });
+        const infoItem = (label, value) => {
+          const span = el('span', { className: 'info-item' });
+          span.append(
+            el('span', { className: 'info-label', textContent: label }),
+            el('span', { className: 'info-value', textContent: String(value) })
+          );
+          return span;
+        };
+        info.append(
+          infoItem('Rebasing:', INIT.originalBranch),
+          infoItem('Onto:', INIT.onto),
+          infoItem('Commits:', INIT.commitCount)
+        );
+        header.append(info);
+        const instructions = el('div', { className: 'instructions' });
+        instructions.append(
+          el('p', { textContent: 'Drag commits to reorder. Select an action for each commit.' }),
+          el('p', { className: 'hint', textContent: 'Commits will be applied from top to bottom.' })
+        );
+        header.append(instructions);
+        root.append(header);
+
+        // Commit list
+        if (INIT.commits.length === 0) {
+          const empty = el('div', { className: 'commit-list empty' });
+          empty.append(el('p', { className: 'empty-message', textContent: 'No commits to rebase' }));
+          root.append(empty);
+        } else {
+          const list = el('div', { className: 'commit-list', id: 'commit-list' });
+          INIT.commits.forEach((commit, index) => {
+            const item = el('div', { className: 'commit-item ' + commit.actionClass, draggable: true });
+            item.setAttribute('data-hash', commit.hash);
+            item.setAttribute('data-index', String(index));
+            item.append(el('div', { className: 'drag-handle', title: 'Drag to reorder', textContent: '⋮⋮' }));
+
+            const selector = el('div', { className: 'action-selector' });
+            const select = el('select', { className: 'action-dropdown' });
+            select.setAttribute('data-hash', commit.hash);
+            for (const a of INIT.actions) {
+              const opt = el('option', { value: a.value, title: a.description, textContent: a.label });
+              opt.selected = a.value === commit.action;
+              select.append(opt);
+            }
+            selector.append(select);
+            item.append(selector);
+
+            const hashEl = el('div', { className: 'commit-hash', title: commit.hash, textContent: commit.shortHash });
+            const msgEl = el('div', { className: 'commit-message', title: commit.message, textContent: commit.message });
+            item.append(hashEl, msgEl);
+
+            if (commit.showMessageEditor) {
+              const editor = el('div', { className: 'reword-message-editor' });
+              const ta = el('textarea', { className: 'reword-message-input', rows: 3, placeholder: commit.messagePlaceholder });
+              ta.setAttribute('data-hash', commit.hash);
+              ta.value = commit.rewordValue;
+              editor.append(ta);
+              item.append(editor);
+            }
+            list.append(item);
+          });
+          root.append(list);
+        }
+
+        // Footer
+        const footer = el('div', { className: 'footer' });
+        const legend = el('div', { className: 'action-legend' });
+        const LEGEND = [
+          ['pick', 'pick - use commit'],
+          ['reword', 'reword - edit message'],
+          ['edit', 'edit - stop for amending'],
+          ['squash', 'squash - meld into previous'],
+          ['fixup', 'fixup - meld, discard message'],
+          ['drop', 'drop - remove commit'],
+        ];
+        for (const [cls, text] of LEGEND) {
+          legend.append(el('span', { className: 'legend-item ' + cls, textContent: text }));
+        }
+        footer.append(legend);
+        const buttonRow = el('div', { className: 'button-row' });
+        const cancelBtn = el('button', { className: 'button cancel-button', textContent: 'Cancel' });
+        cancelBtn.setAttribute('data-action', 'cancel');
+        const executeBtn = el('button', { className: 'button execute-button', textContent: 'Start Rebase' });
+        executeBtn.setAttribute('data-action', 'execute');
+        buttonRow.append(cancelBtn, executeBtn);
+        footer.append(buttonRow);
+        root.append(footer);
+      })();
+
       let draggedElement = null;
       let draggedIndex = -1;
 
@@ -1078,18 +1062,6 @@ export class RebaseEditor {
    */
   private _getNonce(): string {
     return generateNonce();
-  }
-
-  /**
-   * Escape HTML special characters.
-   */
-  private _escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 
   /**
