@@ -162,8 +162,41 @@ export function safeFireAndForget(
     // The `correlationId` binding is supplied explicitly when present;
     // when absent we omit the field rather than passing `undefined`,
     // so the resulting `LogRecord` follows the "omit when no frame"
-    // convention.
-    const bindings = cid !== undefined ? { correlationId: cid } : undefined;
+    // convention. A non-Error rejection has no `err.message`/stack to
+    // forward, so its reason is captured in a `reason` binding instead of
+    // being dropped (the Logger sanitizes the string leaf).
+    const reason = err instanceof Error ? undefined : describeRejectionReason(err);
+    const bindings =
+      cid !== undefined || reason !== undefined
+        ? {
+            ...(cid !== undefined ? { correlationId: cid } : {}),
+            ...(reason !== undefined ? { reason } : {}),
+          }
+        : undefined;
     getLogger().error(context, bindings, err instanceof Error ? err : undefined);
   });
+}
+
+/**
+ * Render a non-Error rejection reason as a single log-safe string: a string
+ * reason verbatim, an object's `message` when it has a string one, otherwise a
+ * JSON serialization (falling back to `String()` for non-serializable values).
+ */
+function describeRejectionReason(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'message' in value &&
+    typeof (value as { message: unknown }).message === 'string'
+  ) {
+    return (value as { message: string }).message;
+  }
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }

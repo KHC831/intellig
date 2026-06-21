@@ -525,8 +525,15 @@ export class CommitContextMenuCommands {
    * confirm per the safety policy.
    */
   async dropSelectedChangesFromCommit(hash: string): Promise<void> {
+    // Defense-in-depth hex validation before any git work. The HEAD===hash
+    // rev-parse gate downstream already rejects a non-hex hash (it can't match
+    // a real commit), but mirror the central guard every other dispatched
+    // commit action runs so this entry point isn't an exception.
+    if (!hash || !allHashesValid([hash])) {
+      return;
+    }
     const repo = await this._getRepositoryForCommit(hash);
-    if (!repo || !hash) {
+    if (!repo) {
       return;
     }
     await this._handleDropSelectedChanges(repo, hash);

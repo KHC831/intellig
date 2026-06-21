@@ -681,6 +681,21 @@ describe('CommitContextMenuCommands — Drop Selected Changes', () => {
       restore();
     }
   });
+
+  it('refuses a non-hex hash before any git work (defense-in-depth)', async () => {
+    const { commands, cli } = makeHarness();
+    const { restore } = installWindowStubs(() => undefined);
+    try {
+      await commands.dropSelectedChangesFromCommit('not-a-hash; rm -rf ~');
+      assert.strictEqual(
+        cli.executed.length,
+        0,
+        'a non-hex hash must early-return before any CLI call'
+      );
+    } finally {
+      restore();
+    }
+  });
 });
 
 // ─── merge-commit mainline (-m <parent>) prompt ──────────────────────────────

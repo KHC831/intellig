@@ -136,6 +136,11 @@ describe('safeFireAndForget — Logger routing', () => {
       undefined,
       'non-Error rejections must not synthesise an err= block'
     );
+    assert.strictEqual(
+      record.context?.reason,
+      'plain string reason',
+      'the non-Error reason must be captured, not dropped'
+    );
   });
 
   it('captures the current Correlation_Id at call time and emits it on rejection', async () => {
