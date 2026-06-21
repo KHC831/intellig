@@ -299,70 +299,103 @@ export class RebaseDialog extends BaseWebviewPanel {
     // Pre-check the option boxes from the user's last-used rebase options
     // (IntelliJ GitRebaseSettings persists these per project).
     const persistedOptions = loadRebaseOptions(this._context.globalState);
-    const options = this._branchChoices
-      .map((name) => {
-        const selected = name === this._onto ? ' selected' : '';
-        return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
-      })
-      .join('');
 
-    // The optional `--onto <newbase>` target (git4idea GitRebaseDialog "Onto"
-    // field). An empty "(none)" default rebases onto the upstream as before;
-    // the choices are constrained to the offered branches so the webview can
-    // never steer the rebase onto an arbitrary ref.
-    const newbaseOptions =
-      `<option value="">(none — rebase onto upstream)</option>` +
-      this._branchChoices
-        .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
-        .join('');
+    // Body ships an empty root; the script builds every control via
+    // document.createElement. Host data crosses as a JSON init island and
+    // reaches the DOM via element props / .textContent (injection-proof).
+    const body = `<div id="root"></div>`;
 
-    const body = `
-      <div class="summary">
-        <div><span class="label">Branch:</span>${escapeHtml(this._currentBranch)} (current)</div>
-      </div>
-
-      <div class="field">
-        <label class="field-label" for="onto-select">Rebase onto:</label>
-        <select id="onto-select"${persistedOptions.root ? ' disabled' : ''}>${options}</select>
-      </div>
-
-      <div class="field">
-        <label class="field-label" for="newbase-select">New base (--onto):</label>
-        <select id="newbase-select">${newbaseOptions}</select>
-      </div>
-
-      <label class="flag" data-flag="interactive">
-        <input type="checkbox" id="flag-interactive"${this._interactiveDefault ? ' checked' : ''} />
-        <span class="label-text">
-          <span class="title-line">Interactive</span>
-          <span class="desc">Open the rebase todo editor to reorder, squash, edit, or drop commits.</span>
-        </span>
-      </label>
-
-      <fieldset id="rebase-options" class="rebase-options">
-        <legend class="rebase-options-legend">Options</legend>
-        ${REBASE_OPTION_CHECKBOXES.map(
-          (o) => `
-        <label class="flag" data-flag="${o.id}">
-          <input type="checkbox" id="flag-${o.id}"${persistedOptions[o.id] ? ' checked' : ''} />
-          <span class="label-text">
-            <span class="title-line">${escapeHtml(o.title)} <code>${escapeHtml(o.flag)}</code></span>
-            <span class="desc">${escapeHtml(o.desc)}</span>
-          </span>
-        </label>`
-        ).join('')}
-      </fieldset>
-
-      <div class="actions">
-        <button id="cancel-btn" class="secondary" type="button">Cancel</button>
-        <button id="rebase-btn" type="button">Rebase</button>
-      </div>
-    `;
+    const initJson = JSON.stringify({
+      currentBranch: this._currentBranch,
+      branchChoices: this._branchChoices,
+      onto: this._onto,
+      interactiveDefault: this._interactiveDefault,
+      rootDisablesOnto: persistedOptions.root,
+      optionCheckboxes: REBASE_OPTION_CHECKBOXES.map((o) => ({
+        id: o.id,
+        flag: o.flag,
+        title: o.title,
+        desc: o.desc,
+        checked: persistedOptions[o.id],
+      })),
+    }).replace(/</g, '\\u003c');
 
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
-        const optionIds = ${JSON.stringify(REBASE_OPTION_CHECKBOXES.map((o) => o.id))};
+        const INIT = ${initJson};
+        const root = document.getElementById('root');
+        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+        const optionIds = INIT.optionCheckboxes.map((o) => o.id);
+
+        // ── Summary (current branch) ───────────────────────────────────────
+        const summary = el('div', { className: 'summary' });
+        const summaryRow = el('div');
+        summaryRow.append(
+          el('span', { className: 'label', textContent: 'Branch:' }),
+          INIT.currentBranch + ' (current)'
+        );
+        summary.append(summaryRow);
+
+        // ── Onto select ────────────────────────────────────────────────────
+        const ontoField = el('div', { className: 'field' });
+        const ontoLabel = el('label', { className: 'field-label', htmlFor: 'onto-select', textContent: 'Rebase onto:' });
+        const ontoSelectEl = el('select', { id: 'onto-select' });
+        ontoSelectEl.disabled = INIT.rootDisablesOnto;
+        for (const name of INIT.branchChoices) {
+          const opt = el('option', { value: name, textContent: name });
+          opt.selected = name === INIT.onto;
+          ontoSelectEl.append(opt);
+        }
+        ontoField.append(ontoLabel, ontoSelectEl);
+
+        // ── New base (--onto) select ───────────────────────────────────────
+        const newbaseField = el('div', { className: 'field' });
+        const newbaseLabel = el('label', { className: 'field-label', htmlFor: 'newbase-select', textContent: 'New base (--onto):' });
+        const newbaseSelectEl = el('select', { id: 'newbase-select' });
+        newbaseSelectEl.append(el('option', { value: '', textContent: '(none — rebase onto upstream)' }));
+        for (const name of INIT.branchChoices) {
+          newbaseSelectEl.append(el('option', { value: name, textContent: name }));
+        }
+        newbaseField.append(newbaseLabel, newbaseSelectEl);
+
+        // ── Interactive flag ───────────────────────────────────────────────
+        const interactiveLabel = el('label', { className: 'flag' });
+        interactiveLabel.setAttribute('data-flag', 'interactive');
+        const interactiveInput = el('input', { type: 'checkbox', id: 'flag-interactive' });
+        interactiveInput.checked = INIT.interactiveDefault;
+        const interactiveText = el('span', { className: 'label-text' });
+        interactiveText.append(
+          el('span', { className: 'title-line', textContent: 'Interactive' }),
+          el('span', { className: 'desc', textContent: 'Open the rebase todo editor to reorder, squash, edit, or drop commits.' })
+        );
+        interactiveLabel.append(interactiveInput, interactiveText);
+
+        // ── Options fieldset ───────────────────────────────────────────────
+        const fieldset = el('fieldset', { id: 'rebase-options', className: 'rebase-options' });
+        fieldset.append(el('legend', { className: 'rebase-options-legend', textContent: 'Options' }));
+        for (const o of INIT.optionCheckboxes) {
+          const label = el('label', { className: 'flag' });
+          label.setAttribute('data-flag', o.id);
+          const input = el('input', { type: 'checkbox', id: 'flag-' + o.id });
+          input.checked = o.checked;
+          const text = el('span', { className: 'label-text' });
+          const titleLine = el('span', { className: 'title-line', textContent: o.title + ' ' });
+          titleLine.append(el('code', { textContent: o.flag }));
+          text.append(titleLine, el('span', { className: 'desc', textContent: o.desc }));
+          label.append(input, text);
+          fieldset.append(label);
+        }
+
+        // ── Actions ────────────────────────────────────────────────────────
+        const actions = el('div', { className: 'actions' });
+        actions.append(
+          el('button', { id: 'cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' }),
+          el('button', { id: 'rebase-btn', type: 'button', textContent: 'Rebase' })
+        );
+
+        root.append(summary, ontoField, newbaseField, interactiveLabel, fieldset, actions);
+
         const interactiveBox = document.getElementById('flag-interactive');
         const optionsFieldset = document.getElementById('rebase-options');
         const ontoSelect = document.getElementById('onto-select');

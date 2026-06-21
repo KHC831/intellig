@@ -22,6 +22,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import {
   RebaseDialog,
@@ -196,9 +197,33 @@ class TestRebaseDialog extends RebaseDialog {
   public disposed(): boolean {
     return (this as unknown as { _disposed: boolean })._disposed;
   }
-  public bodyHtml(): string {
-    return (this as unknown as { _getBodyParts(): { body: string } })._getBodyParts().body;
+  public renderedHtml(): string {
+    return (this as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
   }
+}
+
+/**
+ * Run the dialog's inline nonce'd script in jsdom. Post-migration contract:
+ * the script BUILDS the body via document.createElement — the host markup
+ * ships an empty root, not pre-baked controls.
+ */
+function renderRebaseDoc(dialog: TestRebaseDialog): Document {
+  const dom = new JSDOM(dialog.renderedHtml(), { runScripts: 'outside-only' });
+  const window = dom.window;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+  assert.strictEqual(
+    window.document.querySelector('#onto-select'),
+    null,
+    'controls must not be pre-baked in host markup — the script builds the DOM'
+  );
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+  return window.document as unknown as Document;
 }
 
 function makeDialog(overrides: Partial<IRebaseDialogOptions> = {}): {
@@ -359,33 +384,42 @@ describe('RebaseDialog — conflict + recovery (#25)', () => {
 
 // ─── Structural ────────────────────────────────────────────────────────────────
 
-describe('RebaseDialog — body structure (#25)', () => {
+describe('RebaseDialog — rendered DOM (script-built) (#25)', () => {
   it('adds a preselected non-branch onto (commit hash) to the dropdown', () => {
     installMessageTrackers();
     const h = makeDialog({ onto: 'abc1234', branchChoices: ['main', 'develop'] });
-    const body = h.dialog.bodyHtml();
-    assert.ok(body.includes('value="abc1234"'), 'commit-hash target is offered as an option');
-    assert.ok(body.includes('selected>abc1234<'), 'and it is the selected option');
+    const doc = renderRebaseDoc(h.dialog);
+    const opt = doc.querySelector('#onto-select option[value="abc1234"]') as HTMLOptionElement;
+    assert.ok(opt, 'commit-hash target is offered as an option');
+    assert.strictEqual(opt.selected, true, 'and it is the selected option');
   });
 
   it('reflects interactiveDefault in the Interactive checkbox', () => {
     installMessageTrackers();
-    const checked = makeDialog({ interactiveDefault: true });
-    assert.ok(/id="flag-interactive"[^>]*checked/.test(checked.dialog.bodyHtml()));
-    const unchecked = makeDialog({ interactiveDefault: false });
-    assert.ok(!/id="flag-interactive"[^>]*checked/.test(unchecked.dialog.bodyHtml()));
+    const checked = renderRebaseDoc(makeDialog({ interactiveDefault: true }).dialog);
+    assert.strictEqual(
+      (checked.querySelector('#flag-interactive') as HTMLInputElement).checked,
+      true
+    );
+    const unchecked = renderRebaseDoc(makeDialog({ interactiveDefault: false }).dialog);
+    assert.strictEqual(
+      (unchecked.querySelector('#flag-interactive') as HTMLInputElement).checked,
+      false
+    );
   });
 
   it('emits the five git4idea rebase-option checkboxes (#P2 + H2)', () => {
     installMessageTrackers();
-    const body = makeDialog({}).dialog.bodyHtml();
-    assert.ok(body.includes('id="flag-rebaseMerges"'), 'rebase-merges checkbox');
-    assert.ok(body.includes('id="flag-updateRefs"'), 'update-refs checkbox');
-    assert.ok(body.includes('id="flag-keepEmpty"'), 'keep-empty checkbox');
-    assert.ok(body.includes('id="flag-autosquash"'), 'autosquash checkbox');
-    assert.ok(body.includes('id="flag-root"'), 'root checkbox');
+    const doc = renderRebaseDoc(makeDialog({}).dialog);
+    for (const id of ['rebaseMerges', 'updateRefs', 'keepEmpty', 'autosquash', 'root']) {
+      assert.ok(doc.querySelector('#flag-' + id), id + ' checkbox');
+    }
     // Options start unchecked (off by default — legacy behavior).
-    assert.ok(!/id="flag-rebaseMerges"[^>]*checked/.test(body), 'options default to off');
+    assert.strictEqual(
+      (doc.querySelector('#flag-rebaseMerges') as HTMLInputElement).checked,
+      false,
+      'options default to off'
+    );
   });
 });
 

@@ -12,6 +12,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import {
   RebaseDialog,
@@ -113,9 +114,29 @@ class TestRebaseDialog extends RebaseDialog {
   public async simulateMessage(raw: unknown): Promise<void> {
     await (this as unknown as { _onMessage(m: unknown): Promise<void> })._onMessage(raw);
   }
-  public bodyHtml(): string {
-    return (this as unknown as { _getBodyParts(): { body: string } })._getBodyParts().body;
+  public renderedHtml(): string {
+    return (this as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
   }
+}
+
+/** Run the dialog's inline nonce'd script in jsdom and return the built DOM. */
+function renderRebaseDoc(dialog: TestRebaseDialog): Document {
+  const dom = new JSDOM(dialog.renderedHtml(), { runScripts: 'outside-only' });
+  const window = dom.window;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+  assert.strictEqual(
+    window.document.querySelector('#flag-root'),
+    null,
+    'controls must not be pre-baked in host markup — the script builds the DOM'
+  );
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+  return window.document as unknown as Document;
 }
 
 function makeDialog(
@@ -226,31 +247,35 @@ describe('saveRebaseOptions — root flag (H2)', () => {
 
 // ─── HTML structure ───────────────────────────────────────────────────────────
 
-describe('RebaseDialog — root checkbox HTML (H2)', () => {
-  it('includes a root checkbox in the body HTML', () => {
+describe('RebaseDialog — root checkbox DOM (H2)', () => {
+  it('builds a root checkbox with the --root flag label', () => {
     suppressVscodeMessages();
     const { dialog } = makeDialog();
-    const body = dialog.bodyHtml();
-    assert.ok(body.includes('id="flag-root"'), 'root checkbox is present');
-    assert.ok(body.includes('--root'), '--root flag label is shown');
+    const doc = renderRebaseDoc(dialog);
+    const root = doc.querySelector('#flag-root');
+    assert.ok(root, 'root checkbox is present');
+    const rootLabel = root.closest('label.flag');
+    assert.ok(rootLabel?.textContent?.includes('--root'), '--root flag label is shown');
   });
 
   it('root checkbox is unchecked by default', () => {
     suppressVscodeMessages();
     const { dialog } = makeDialog();
-    const body = dialog.bodyHtml();
-    assert.ok(!/id="flag-root"[^>]*checked/.test(body), 'root defaults to unchecked');
+    const doc = renderRebaseDoc(dialog);
+    assert.strictEqual(
+      (doc.querySelector('#flag-root') as HTMLInputElement).checked,
+      false,
+      'root defaults to unchecked'
+    );
   });
 
   it('onto select is NOT disabled when root is unchecked', () => {
     suppressVscodeMessages();
     const { dialog } = makeDialog();
-    const body = dialog.bodyHtml();
-    // The onto-select line should not have "disabled" when root is off.
-    const ontoSelectMatch = body.match(/id="onto-select"[^>]*/);
-    assert.ok(ontoSelectMatch, 'onto-select element is present');
-    assert.ok(
-      !ontoSelectMatch[0].includes('disabled'),
+    const doc = renderRebaseDoc(dialog);
+    assert.strictEqual(
+      (doc.querySelector('#onto-select') as HTMLSelectElement).disabled,
+      false,
       'onto-select is not disabled when root is off'
     );
   });
@@ -270,16 +295,17 @@ describe('RebaseDialog — root checkbox HTML (H2)', () => {
         },
       },
     });
-    const body = dialog.bodyHtml();
-    // The onto-select element should carry the disabled attribute.
-    const ontoSelectMatch = body.match(/id="onto-select"[^>]*/);
-    assert.ok(ontoSelectMatch, 'onto-select element is present');
-    assert.ok(
-      ontoSelectMatch[0].includes('disabled'),
+    const doc = renderRebaseDoc(dialog);
+    assert.strictEqual(
+      (doc.querySelector('#onto-select') as HTMLSelectElement).disabled,
+      true,
       'onto-select is disabled when root is checked'
     );
-    // Root checkbox itself should be pre-checked.
-    assert.ok(/id="flag-root"[^>]*checked/.test(body), 'root checkbox is pre-checked');
+    assert.strictEqual(
+      (doc.querySelector('#flag-root') as HTMLInputElement).checked,
+      true,
+      'root checkbox is pre-checked'
+    );
   });
 });
 

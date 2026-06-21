@@ -13,6 +13,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import { RebaseDialog, IRebaseDialogOptions } from '../../../src/rebase/RebaseDialog';
 import {
@@ -100,9 +101,29 @@ class TestRebaseDialog extends RebaseDialog {
   public async simulateMessage(raw: unknown): Promise<void> {
     await (this as unknown as { _onMessage(m: unknown): Promise<void> })._onMessage(raw);
   }
-  public bodyHtml(): string {
-    return (this as unknown as { _getBodyParts(): { body: string } })._getBodyParts().body;
+  public renderedHtml(): string {
+    return (this as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
   }
+}
+
+/** Run the dialog's inline nonce'd script in jsdom and return the built DOM. */
+function renderRebaseDoc(dialog: TestRebaseDialog): Document {
+  const dom = new JSDOM(dialog.renderedHtml(), { runScripts: 'outside-only' });
+  const window = dom.window;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+  assert.strictEqual(
+    window.document.querySelector('#newbase-select'),
+    null,
+    'controls must not be pre-baked in host markup — the script builds the DOM'
+  );
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+  return window.document as unknown as Document;
 }
 
 function makeDialog(overrides: Partial<IRebaseDialogOptions> = {}): {
@@ -129,13 +150,17 @@ function suppressVscodeMessages(): void {
     undefined;
 }
 
-describe('RebaseDialog — newbase (--onto) field HTML (H-2)', () => {
-  it('includes a newbase select with a "(none)" default option', () => {
+describe('RebaseDialog — newbase (--onto) field DOM (H-2)', () => {
+  it('builds a newbase select with a "(none)" default option', () => {
     suppressVscodeMessages();
     const { dialog } = makeDialog();
-    const body = dialog.bodyHtml();
-    assert.ok(body.includes('id="newbase-select"'), 'newbase select is present');
-    assert.ok(body.includes('value=""'), 'newbase select offers an empty (none) default');
+    const doc = renderRebaseDoc(dialog);
+    const select = doc.querySelector('#newbase-select');
+    assert.ok(select, 'newbase select is present');
+    assert.ok(
+      select.querySelector('option[value=""]'),
+      'newbase select offers an empty (none) default'
+    );
   });
 });
 
