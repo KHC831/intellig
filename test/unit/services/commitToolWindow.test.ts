@@ -23,6 +23,7 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { JSDOM } from 'jsdom';
 import {
   CommitToolWindow,
   changelistContextMenuLabels,
@@ -35,6 +36,28 @@ import {
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_STATE_KEY,
   COMMIT_TOOL_WINDOW_RECENT_MESSAGES_MAX as RECENT_MESSAGES_MAX,
 } from '../../../src/services';
+import type { IRenderInput } from '../../../src/services';
+
+/**
+ * Render the tool window, eval its inline nonce'd script in jsdom, and return
+ * the built document. The body ships as an empty `#ctw-root`; the script builds
+ * every panel via createElement from the INIT island, so the DOM is the
+ * assertion surface.
+ */
+function buildCtwDoc(input: Omit<IRenderInput, 'cspSource'>): Document {
+  const html = renderCommitToolWindowHtml({ cspSource: 'vscode-webview://mock', ...input });
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const { window } = dom;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): undefined => undefined,
+    setState: (): void => {},
+  });
+  const script = window.document.querySelector('script[nonce]');
+  assert.ok(script && script.textContent, 'rendered html must carry a nonce script');
+  window.eval(script.textContent);
+  return window.document as unknown as Document;
+}
 import type {
   IChangelist,
   IChangelistService,
@@ -212,35 +235,38 @@ describe('CommitToolWindow — gearMenuItems', () => {
 
 // ─── renderCommitToolWindowHtml ───────────────────────────────────────────────
 
-describe('CommitToolWindow — renderCommitToolWindowHtml', () => {
+describe('CommitToolWindow — rendered DOM (built via script)', () => {
   it('renders both tab buttons and marks the active one', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
+    const doc = buildCtwDoc({
       activeTab: 'shelf',
       changelists: [],
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
     });
-    assert.ok(html.includes('data-tab="localChanges"'));
-    assert.ok(html.includes('data-tab="shelf"'));
-    assert.ok(html.includes('data-tab="shelf" role="tab" aria-selected="true"'));
-    assert.ok(html.includes('data-tab="localChanges" role="tab" aria-selected="false"'));
+    const shelfTab = doc.querySelector('.ctw-tab[data-tab="shelf"]');
+    const localTab = doc.querySelector('.ctw-tab[data-tab="localChanges"]');
+    assert.ok(shelfTab && localTab, 'both tab buttons should render');
+    assert.strictEqual(shelfTab?.getAttribute('role'), 'tab');
+    assert.strictEqual(shelfTab?.getAttribute('aria-selected'), 'true');
+    assert.strictEqual(localTab?.getAttribute('aria-selected'), 'false');
+    assert.ok(shelfTab?.classList.contains('ctw-tab-active'));
   });
 
   it('displays an empty state for the Local Changes tab when no changelists exist', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
+    const doc = buildCtwDoc({
       activeTab: 'localChanges',
       changelists: [],
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
     });
-    assert.ok(html.includes('No uncommitted changes'));
+    assert.strictEqual(
+      doc.querySelector('[data-panel="localChanges"] .ctw-empty')?.textContent,
+      'No uncommitted changes.'
+    );
   });
 
-  it('escapes user-supplied changelist names', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
+  it('renders user-supplied changelist names as inert text (no markup injection)', () => {
+    const doc = buildCtwDoc({
       activeTab: 'localChanges',
       changelists: [
         {
@@ -254,8 +280,12 @@ describe('CommitToolWindow — renderCommitToolWindowHtml', () => {
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
     });
-    assert.ok(!html.includes('<script>alert(1)</script>'));
-    assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    // The name crosses as data (INIT json + textContent), never as parsed
+    // markup: no injected <script> element, and the literal text is preserved.
+    assert.strictEqual(doc.querySelectorAll('script:not([nonce])').length, 0);
+    const nameSpan = doc.querySelector('.ctw-changelist-name');
+    assert.ok(nameSpan, 'changelist name should render');
+    assert.ok(nameSpan?.textContent?.includes('<script>alert(1)</script>'));
   });
 });
 

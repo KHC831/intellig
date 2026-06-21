@@ -8,8 +8,9 @@
  *  - `shelfRowContextMenuLabels` surfaces Restore only for Already-Unshelved
  *    entries; otherwise returns the standard IR-parity list.
  *  - `stashRowContextMenuLabels` returns the full stash menu.
- *  - `renderShelfTabPanel` writes the active-filter CSS class + empty-state
- *    copy that matches the filter.
+ *  - the shelf panel (built client-side via the inline script from the INIT
+ *    island) writes the active-filter CSS class + empty-state copy that
+ *    matches the filter.
  *  - CommitToolWindow host-side: filter toggle persists to workspaceState,
  *    shelfTabContextAction dispatches to the correct controller method,
  *    and `contextOpen` escalates to a QuickPick that honors the row kind.
@@ -24,16 +25,17 @@
 import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+import { JSDOM } from 'jsdom';
 import {
   CommitToolWindow,
   buildShelfTabEntries,
   isShelfTabFilter,
   shelfRowContextMenuLabels,
   stashRowContextMenuLabels,
-  renderShelfTabPanel,
   renderCommitToolWindowHtml,
   COMMIT_TOOL_WINDOW_SHELF_TAB_FILTER_STATE_KEY,
 } from '../../../src/services';
+import type { IRenderInput } from '../../../src/services';
 import type {
   IShelfTabEntry,
   IShelfTabShelfController,
@@ -189,21 +191,66 @@ describe('stashRowContextMenuLabels', () => {
   });
 });
 
-// ─── renderShelfTabPanel ─────────────────────────────────────────────────────
+// ─── Shelf panel (built client-side via createElement) ──────────────────────
 
-describe('renderShelfTabPanel', () => {
+/**
+ * Render the tool window's HTML, eval its inline nonce'd script in jsdom, and
+ * return the built document. The body ships as an empty `#ctw-root`; the script
+ * builds every panel via createElement from the INIT island, so the rendered
+ * DOM — not a host-side HTML string — is the assertion surface.
+ */
+function buildCtwDoc(input: Omit<IRenderInput, 'cspSource'>): Document {
+  const html = renderCommitToolWindowHtml({ cspSource: 'vscode-webview://mock', ...input });
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const { window } = dom;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): undefined => undefined,
+    setState: (): void => {},
+  });
+  const script = window.document.querySelector('script[nonce]');
+  assert.ok(script && script.textContent, 'rendered html must carry a nonce script');
+  window.eval(script.textContent);
+  return window.document as unknown as Document;
+}
+
+/** Build a doc whose shelf tab shows the given entries + filter. */
+function buildShelfDoc(
+  entries: IShelfTabEntry[],
+  filter: 'shelves' | 'stashes' | 'both'
+): Document {
+  return buildCtwDoc({
+    activeTab: 'shelf',
+    changelists: [],
+    shelfItems: [],
+    shelfTabEntries: entries,
+    shelfTabFilter: filter,
+    composer: { message: '', amend: false, signOff: false },
+  });
+}
+
+describe('shelf panel (built via script)', () => {
   it('marks the active filter button with ctw-shelf-filter-active', () => {
-    const html = renderShelfTabPanel([], 'stashes');
-    const matches = html.match(/ctw-shelf-filter-active/g);
-    assert.ok(matches && matches.length === 1, 'exactly one button should be active');
-    assert.ok(html.includes('data-shelf-filter="stashes"'));
-    assert.ok(html.includes('aria-pressed="true"'));
+    const doc = buildShelfDoc([], 'stashes');
+    const active = doc.querySelectorAll('.ctw-shelf-filter-active');
+    assert.strictEqual(active.length, 1, 'exactly one button should be active');
+    assert.strictEqual(active[0].getAttribute('data-shelf-filter'), 'stashes');
+    assert.strictEqual(active[0].getAttribute('aria-pressed'), 'true');
   });
 
   it('renders filter-appropriate empty copy', () => {
-    assert.ok(renderShelfTabPanel([], 'shelves').includes('Shelf is empty.'));
-    assert.ok(renderShelfTabPanel([], 'stashes').includes('No stash entries.'));
-    assert.ok(renderShelfTabPanel([], 'both').includes('No shelf or stash entries.'));
+    assert.strictEqual(
+      buildShelfDoc([], 'shelves').querySelector('[data-panel="shelf"] .ctw-empty')?.textContent,
+      'Shelf is empty.'
+    );
+    assert.strictEqual(
+      buildShelfDoc([], 'stashes').querySelector('[data-panel="shelf"] .ctw-empty')?.textContent,
+      'No stash entries.'
+    );
+    assert.strictEqual(
+      buildShelfDoc([], 'both').querySelector('[data-panel="shelf"] .ctw-empty')?.textContent,
+      'No shelf or stash entries.'
+    );
   });
 
   it('renders type badges per row', () => {
@@ -211,13 +258,15 @@ describe('renderShelfTabPanel', () => {
       { kind: 'shelf', id: 's1', name: 'wip', timestamp: new Date(2000), fileCount: 2 },
       { kind: 'stash', id: 'stash@{0}', name: 'stashed', timestamp: new Date(1000), index: 0 },
     ];
-    const html = renderShelfTabPanel(entries, 'both');
-    assert.ok(html.includes('📚'), 'shelf badge should render');
-    assert.ok(html.includes('📦'), 'stash badge should render');
-    assert.ok(html.includes('data-row-kind="shelf"'));
-    assert.ok(html.includes('data-row-kind="stash"'));
-    assert.ok(html.includes('data-shelf-id="s1"'));
-    assert.ok(html.includes('data-stash-index="0"'));
+    const doc = buildShelfDoc(entries, 'both');
+    const shelfRow = doc.querySelector('.ctw-shelf-row[data-row-kind="shelf"]');
+    const stashRow = doc.querySelector('.ctw-shelf-row[data-row-kind="stash"]');
+    assert.ok(shelfRow, 'shelf row should render');
+    assert.ok(stashRow, 'stash row should render');
+    assert.strictEqual(shelfRow?.querySelector('.ctw-shelf-badge')?.textContent, '📚');
+    assert.strictEqual(stashRow?.querySelector('.ctw-shelf-badge')?.textContent, '📦');
+    assert.strictEqual(shelfRow?.getAttribute('data-shelf-id'), 's1');
+    assert.strictEqual(stashRow?.getAttribute('data-stash-index'), '0');
   });
 
   it('appends "(already unshelved)" suffix for entries with unshelvedAt', () => {
@@ -231,8 +280,11 @@ describe('renderShelfTabPanel', () => {
         unshelvedAt: new Date(2000),
       },
     ];
-    const html = renderShelfTabPanel(entries, 'both');
-    assert.ok(html.includes('(already unshelved)'));
+    const doc = buildShelfDoc(entries, 'both');
+    assert.strictEqual(
+      doc.querySelector('.ctw-shelf-alreadyUnshelved')?.textContent,
+      '(already unshelved)'
+    );
   });
 });
 
@@ -548,20 +600,21 @@ describe('CommitToolWindow shelfTabContextAction routing', () => {
 
 describe('renderCommitToolWindowHtml backward compat', () => {
   it('works without the new shelfTab* fields (legacy callers)', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
+    const doc = buildCtwDoc({
       activeTab: 'shelf',
       changelists: [],
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
     });
     // Falls back to filter='shelves' → "Shelf is empty." copy surfaces.
-    assert.ok(html.includes('Shelf is empty.'));
+    assert.strictEqual(
+      doc.querySelector('[data-panel="shelf"] .ctw-empty')?.textContent,
+      'Shelf is empty.'
+    );
   });
 
   it('honors explicit shelfTabEntries + shelfTabFilter', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
+    const doc = buildCtwDoc({
       activeTab: 'shelf',
       changelists: [],
       shelfItems: [],
@@ -571,8 +624,12 @@ describe('renderCommitToolWindowHtml backward compat', () => {
       shelfTabFilter: 'stashes',
       composer: { message: '', amend: false, signOff: false },
     });
-    assert.ok(html.includes('📦'));
-    assert.ok(html.includes('data-row-kind="stash"'));
-    assert.ok(html.includes('data-shelf-filter="stashes"'));
+    const stashRow = doc.querySelector('.ctw-shelf-row[data-row-kind="stash"]');
+    assert.ok(stashRow, 'stash row should render');
+    assert.strictEqual(stashRow?.querySelector('.ctw-shelf-badge')?.textContent, '📦');
+    assert.strictEqual(
+      doc.querySelector('.ctw-shelf-filter-active')?.getAttribute('data-shelf-filter'),
+      'stashes'
+    );
   });
 });

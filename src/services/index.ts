@@ -89,7 +89,7 @@ export {
   isShelfTabFilter,
   shelfRowContextMenuLabels,
   stashRowContextMenuLabels,
-  renderShelfTabPanel,
+  buildCommitToolWindowInitModel,
 } from '../commits/CommitToolWindow';
 export {
   ConfigurationService,

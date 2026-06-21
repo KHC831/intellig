@@ -9,12 +9,14 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import {
   groupFilesByDirectory,
   partitionUnversionedFiles,
   isChangesGroupingMode,
   renderCommitToolWindowHtml,
 } from '../../../src/commits/CommitToolWindow';
+import type { IRenderInput } from '../../../src/commits/CommitToolWindow';
 import type {
   IChangelist,
   IFileChange,
@@ -22,6 +24,26 @@ import type {
 
 function file(path: string, status: IFileChange['status'] = 'modified'): IFileChange {
   return { path, status, staged: false };
+}
+
+/**
+ * Render the tool window, eval its inline script in jsdom, and return the built
+ * document. The Local Changes tree is now built client-side via createElement
+ * from the INIT island, so the DOM is the assertion surface.
+ */
+function buildCtwDoc(input: Omit<IRenderInput, 'cspSource'>): Document {
+  const html = renderCommitToolWindowHtml({ cspSource: 'vscode-webview://mock', ...input });
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const { window } = dom;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): undefined => undefined,
+    setState: (): void => {},
+  });
+  const script = window.document.querySelector('script[nonce]');
+  assert.ok(script && script.textContent, 'rendered html must carry a nonce script');
+  window.eval(script.textContent);
+  return window.document as unknown as Document;
 }
 
 describe('groupFilesByDirectory', () => {
@@ -89,7 +111,7 @@ describe('isChangesGroupingMode', () => {
   });
 });
 
-describe('renderCommitToolWindowHtml — grouping + unversioned + diff pane', () => {
+describe('CommitToolWindow Local Changes — grouping + unversioned + diff pane (built via script)', () => {
   const changelists: IChangelist[] = [
     {
       id: 'def',
@@ -104,76 +126,62 @@ describe('renderCommitToolWindowHtml — grouping + unversioned + diff pane', ()
     },
   ];
 
-  it('renders the grouping segmented control with the active mode pressed', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
+  function buildLocalDoc(grouping?: 'flat' | 'directory'): Document {
+    return buildCtwDoc({
       activeTab: 'localChanges',
       changelists,
       shelfItems: [],
       composer: { message: '', amend: false, signOff: false },
-      grouping: 'directory',
+      grouping,
     });
-    assert.ok(html.includes('data-grouping="directory"'));
-    assert.ok(html.includes('data-grouping="flat"'));
-    assert.ok(html.includes('data-grouping="directory" aria-pressed="true"'));
-    assert.ok(html.includes('data-grouping="flat" aria-pressed="false"'));
+  }
+
+  it('renders the grouping segmented control with the active mode pressed', () => {
+    const doc = buildLocalDoc('directory');
+    const dir = doc.querySelector('.ctw-grouping-btn[data-grouping="directory"]');
+    const flat = doc.querySelector('.ctw-grouping-btn[data-grouping="flat"]');
+    assert.ok(dir && flat, 'both grouping buttons should render');
+    assert.strictEqual(dir?.getAttribute('aria-pressed'), 'true');
+    assert.strictEqual(flat?.getAttribute('aria-pressed'), 'false');
   });
 
   it('renders directory nodes in directory mode (basename file rows)', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
-      activeTab: 'localChanges',
-      changelists,
-      shelfItems: [],
-      composer: { message: '', amend: false, signOff: false },
-      grouping: 'directory',
-    });
+    const doc = buildLocalDoc('directory');
     // Directory header rows present.
-    assert.ok(html.includes('class="ctw-dir-row" data-dir="src"'));
-    assert.ok(html.includes('class="ctw-dir-row" data-dir="src/sub"'));
+    assert.ok(doc.querySelector('.ctw-dir-row[data-dir="src"]'));
+    assert.ok(doc.querySelector('.ctw-dir-row[data-dir="src/sub"]'));
     // File row carries the full path in data-path but shows the basename.
-    assert.ok(html.includes('data-path="src/a.ts"'));
-    assert.ok(html.includes('>a.ts</span>'));
+    const aRow = doc.querySelector('.ctw-file-row[data-path="src/a.ts"]');
+    assert.ok(aRow, 'file row should carry the full path in data-path');
+    assert.strictEqual(aRow?.querySelector('.ctw-file-path')?.textContent, 'a.ts');
   });
 
   it('renders full paths (no directory nodes) in flat mode', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
-      activeTab: 'localChanges',
-      changelists,
-      shelfItems: [],
-      composer: { message: '', amend: false, signOff: false },
-      grouping: 'flat',
-    });
-    assert.ok(!html.includes('class="ctw-dir-row"'));
-    assert.ok(html.includes('>src/a.ts</span>'));
+    const doc = buildLocalDoc('flat');
+    assert.strictEqual(doc.querySelector('.ctw-dir-row'), null);
+    assert.strictEqual(
+      doc.querySelector('.ctw-file-row[data-path="src/a.ts"] .ctw-file-path')?.textContent,
+      'src/a.ts'
+    );
   });
 
   it('renders an Unversioned Files node for untracked files', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
-      activeTab: 'localChanges',
-      changelists,
-      shelfItems: [],
-      composer: { message: '', amend: false, signOff: false },
-      grouping: 'flat',
-    });
-    assert.ok(html.includes('ctw-unversioned-row'));
-    assert.ok(html.includes('Unversioned Files'));
-    assert.ok(html.includes('data-changelist="_unversioned"'));
+    const doc = buildLocalDoc('flat');
+    const node = doc.querySelector('.ctw-unversioned-row[data-changelist="_unversioned"]');
+    assert.ok(node, 'unversioned node should render');
+    assert.ok(node?.textContent?.includes('Unversioned Files'));
     // The untracked file lives under the unversioned node, not the default CL.
-    assert.ok(html.includes('data-path="new.ts"'));
+    const block = node?.closest('.ctw-unversioned-block');
+    assert.ok(block?.querySelector('.ctw-file-row[data-path="new.ts"]'));
   });
 
   it('renders the diff-preview pane surface', () => {
-    const html = renderCommitToolWindowHtml({
-      cspSource: 'vscode-webview://mock',
-      activeTab: 'localChanges',
-      changelists,
-      shelfItems: [],
-      composer: { message: '', amend: false, signOff: false },
-    });
-    assert.ok(html.includes('data-diff-preview'));
-    assert.ok(html.includes('Select a file to preview changes'));
+    const doc = buildLocalDoc();
+    const pane = doc.querySelector('[data-diff-preview]');
+    assert.ok(pane, 'diff-preview pane should render');
+    assert.strictEqual(
+      pane?.querySelector('.ctw-diff-preview-empty')?.textContent,
+      'Select a file to preview changes'
+    );
   });
 });
