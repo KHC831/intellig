@@ -19,6 +19,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import type * as vscode from 'vscode';
 import { Uri as MockUri } from '../../mocks/vscode';
 import {
@@ -270,58 +271,89 @@ function makeDialog(opts: MakeDialogOpts = {}): {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
+/**
+ * Run the dialog's inline nonce'd script in jsdom. Post-migration contract:
+ * the script BUILDS the body via document.createElement — the host markup
+ * ships an empty root, not pre-baked radios.
+ */
+function runResetScript(dialog: TestResetDialog): { document: Document } {
+  const html = dialog.renderedHtml();
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const window = dom.window;
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+  assert.strictEqual(
+    window.document.querySelector('input[name="reset-mode"]'),
+    null,
+    'radios must not be pre-baked in host markup — the script builds the DOM'
+  );
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+  return { document: window.document as unknown as Document };
+}
+
+function radio(document: Document, mode: string): HTMLInputElement {
+  return document.querySelector(`input[name="reset-mode"][value="${mode}"]`) as HTMLInputElement;
+}
+
 describe('ResetDialog', () => {
-  describe('HTML rendering', () => {
-    it('renders all four radios (soft/mixed/hard/keep) with Mixed as the default', () => {
+  describe('rendered DOM (script-built)', () => {
+    it('builds all four radios (soft/mixed/hard/keep) with Mixed as the default', () => {
       const { dialog } = makeDialog();
-      const html = dialog.renderedHtml();
       try {
-        assert.ok(html.includes('value="soft"'), 'soft radio rendered');
-        assert.ok(html.includes('value="mixed"'), 'mixed radio rendered');
-        assert.ok(html.includes('value="hard"'), 'hard radio rendered');
-        assert.ok(html.includes('value="keep"'), 'keep radio rendered');
-
-        // The `checked` attribute should sit on the mixed radio.
-        const mixedMatch = html.match(/value="mixed"[^>]*checked/);
-        assert.ok(mixedMatch, 'mixed radio is checked by default');
-
-        // No other radio should be checked.
-        const softMatch = html.match(/value="soft"[^>]*checked/);
-        const hardMatch = html.match(/value="hard"[^>]*checked/);
-        const keepMatch = html.match(/value="keep"[^>]*checked/);
-        assert.ok(!softMatch, 'soft radio NOT checked');
-        assert.ok(!hardMatch, 'hard radio NOT checked');
-        assert.ok(!keepMatch, 'keep radio NOT checked');
+        const { document } = runResetScript(dialog);
+        for (const mode of ['soft', 'mixed', 'hard', 'keep']) {
+          assert.ok(radio(document, mode), `${mode} radio built`);
+        }
+        assert.strictEqual(radio(document, 'mixed').checked, true, 'mixed is checked by default');
+        assert.strictEqual(radio(document, 'soft').checked, false, 'soft NOT checked');
+        assert.strictEqual(radio(document, 'hard').checked, false, 'hard NOT checked');
+        assert.strictEqual(radio(document, 'keep').checked, false, 'keep NOT checked');
       } finally {
         dialog.dispose();
       }
     });
 
-    it('renders the target short hash and subject', () => {
+    it('builds the target short hash and subject via textContent', () => {
       const { dialog } = makeDialog({
         target: { hash: 'abcdef1234567890', subject: 'feat: widget' },
       });
-      const html = dialog.renderedHtml();
       try {
-        assert.ok(html.includes('abcdef12'), 'short hash rendered');
-        assert.ok(html.includes('feat: widget'), 'subject rendered');
+        const { document } = runResetScript(dialog);
+        const target = document.querySelector('.target');
+        assert.ok(target?.textContent?.includes('abcdef12'), 'short hash rendered');
+        assert.ok(target?.textContent?.includes('feat: widget'), 'subject rendered');
       } finally {
         dialog.dispose();
       }
     });
 
-    it('escapes HTML in the commit subject', () => {
+    it('renders a malicious subject as inert text (no injected script element)', () => {
       const { dialog } = makeDialog({
         target: {
           hash: 'abcdef1234567890',
           subject: '<script>alert(1)</script>',
         },
       });
-      const html = dialog.renderedHtml();
       try {
-        // Escaped form should appear, raw tag should NOT.
-        assert.ok(html.includes('&lt;script&gt;'), 'subject is html-escaped');
-        assert.ok(!html.includes('<script>alert(1)</script>'), 'raw script tag is absent');
+        const { document } = runResetScript(dialog);
+        const subject = document.querySelector('.target .subject');
+        assert.strictEqual(
+          subject?.textContent,
+          '<script>alert(1)</script>',
+          'the subject is set as literal text via textContent'
+        );
+        // The only <script> on the page is the nonce'd bootstrap — the subject
+        // string did not spawn one.
+        assert.strictEqual(
+          document.querySelectorAll('script').length,
+          1,
+          'subject text cannot inject a script element'
+        );
       } finally {
         dialog.dispose();
       }
@@ -332,17 +364,17 @@ describe('ResetDialog', () => {
         currentBranch: 'main',
         protectedBranches: ['main'],
       });
-      const html = dialog.renderedHtml();
       try {
-        const hardMatch = html.match(/value="hard"[^>]*disabled/);
-        const keepMatch = html.match(/value="keep"[^>]*disabled/);
-        const softMatch = html.match(/value="soft"[^>]*disabled/);
-        const mixedMatch = html.match(/value="mixed"[^>]*disabled/);
-        assert.ok(hardMatch, 'hard is disabled on protected branch');
-        assert.ok(keepMatch, 'keep is disabled on protected branch');
-        assert.ok(!softMatch, 'soft stays enabled on protected branch');
-        assert.ok(!mixedMatch, 'mixed stays enabled on protected branch');
-        assert.ok(html.includes('intellig.protectedBranches'), 'tooltip references the config key');
+        const { document } = runResetScript(dialog);
+        assert.strictEqual(radio(document, 'hard').disabled, true, 'hard disabled on protected');
+        assert.strictEqual(radio(document, 'keep').disabled, true, 'keep disabled on protected');
+        assert.strictEqual(radio(document, 'soft').disabled, false, 'soft stays enabled');
+        assert.strictEqual(radio(document, 'mixed').disabled, false, 'mixed stays enabled');
+        const hardLabel = document.querySelector('label.mode[data-mode="hard"]');
+        assert.ok(
+          hardLabel?.getAttribute('title')?.includes('intellig.protectedBranches'),
+          'tooltip references the config key'
+        );
       } finally {
         dialog.dispose();
       }

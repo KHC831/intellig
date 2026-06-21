@@ -309,10 +309,6 @@ export class ResetDialog extends BaseWebviewPanel {
    * inside a string literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
-    const shortHash = this._target.hash.substring(0, 8);
-    const subject = escapeHtml(this._target.subject);
-    const protectedTooltip = 'Protected branch — remove from intellig.protectedBranches to enable';
-
     // Compute the effective default explicitly instead of leaning
     // on the brittle `checked && !disabled` trick. If someone later flips
     // the designated default to Hard, a protected branch will now fall back
@@ -324,45 +320,71 @@ export class ResetDialog extends BaseWebviewPanel {
     const preferred = loadPreferredResetMode(this._context.globalState);
     const effectiveDefault = resolveDefaultMode(preferred, disabledSet);
 
-    const radio = (mode: ResetMode, label: string, desc: string, warn: boolean): string => {
-      const disabled = disabledSet.has(mode);
-      const disabledAttr = disabled ? 'disabled' : '';
-      const titleAttr = disabled ? ` title="${escapeHtml(protectedTooltip)}"` : '';
-      const checkedAttr = mode === effectiveDefault ? 'checked' : '';
-      const warnClass = warn ? ' warn' : '';
-      return `
-        <label class="mode"${titleAttr} data-mode="${mode}">
-          <input type="radio" name="reset-mode" value="${mode}" ${checkedAttr} ${disabledAttr} />
-          <span class="label-text">
-            <span class="title-line${warnClass}">${label}</span>
-            <span class="desc">${desc}</span>
-          </span>
-        </label>
-      `;
-    };
+    // Body ships an empty root; the script builds every control via
+    // document.createElement. Host data crosses as a JSON init island and
+    // reaches the DOM via .textContent / element props (injection-proof).
+    const body = `<div id="root"></div>`;
 
-    const body = `
-      <div class="target">
-        <span class="hash">${escapeHtml(shortHash)}</span>
-        <span class="subject">${subject}</span>
-      </div>
-
-      <div class="modes" role="radiogroup" aria-label="Reset mode">
-        ${radio('soft', 'Soft', 'Keep changes staged', false)}
-        ${radio('mixed', 'Mixed', 'Keep changes unstaged (default)', false)}
-        ${radio('hard', 'Hard', 'Discard all changes', true)}
-        ${radio('keep', 'Keep', 'Discard committed, keep local', true)}
-      </div>
-
-      <div class="actions">
-        <button id="cancel-btn" class="secondary" type="button">Cancel</button>
-        <button id="reset-btn" type="button">Reset</button>
-      </div>
-    `;
+    const initJson = JSON.stringify({
+      shortHash: this._target.hash.substring(0, 8),
+      subject: this._target.subject,
+      disabledModes: [...disabledSet],
+      effectiveDefault,
+      protectedTooltip: 'Protected branch — remove from intellig.protectedBranches to enable',
+    }).replace(/</g, '\\u003c');
 
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
+        const INIT = ${initJson};
+        const root = document.getElementById('root');
+        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+        // ── Target (hash + subject) ────────────────────────────────────────
+        const target = el('div', { className: 'target' });
+        target.append(
+          el('span', { className: 'hash', textContent: INIT.shortHash }),
+          el('span', { className: 'subject', textContent: INIT.subject })
+        );
+
+        // ── Reset-mode radios ──────────────────────────────────────────────
+        const MODES = [
+          { mode: 'soft', label: 'Soft', desc: 'Keep changes staged', warn: false },
+          { mode: 'mixed', label: 'Mixed', desc: 'Keep changes unstaged (default)', warn: false },
+          { mode: 'hard', label: 'Hard', desc: 'Discard all changes', warn: true },
+          { mode: 'keep', label: 'Keep', desc: 'Discard committed, keep local', warn: true },
+        ];
+        const modesBox = el('div', { className: 'modes' });
+        modesBox.setAttribute('role', 'radiogroup');
+        modesBox.setAttribute('aria-label', 'Reset mode');
+        for (const m of MODES) {
+          const disabled = INIT.disabledModes.includes(m.mode);
+          const label = el('label', { className: 'mode' });
+          label.setAttribute('data-mode', m.mode);
+          if (disabled) {
+            label.setAttribute('title', INIT.protectedTooltip);
+          }
+          const input = el('input', { type: 'radio', name: 'reset-mode', value: m.mode });
+          input.checked = m.mode === INIT.effectiveDefault;
+          input.disabled = disabled;
+          const text = el('span', { className: 'label-text' });
+          text.append(
+            el('span', { className: 'title-line' + (m.warn ? ' warn' : ''), textContent: m.label }),
+            el('span', { className: 'desc', textContent: m.desc })
+          );
+          label.append(input, text);
+          modesBox.append(label);
+        }
+
+        // ── Actions ────────────────────────────────────────────────────────
+        const actions = el('div', { className: 'actions' });
+        actions.append(
+          el('button', { id: 'cancel-btn', type: 'button', className: 'secondary', textContent: 'Cancel' }),
+          el('button', { id: 'reset-btn', type: 'button', textContent: 'Reset' })
+        );
+
+        root.append(target, modesBox, actions);
+
         const submit = () => {
           const checked = document.querySelector('input[name="reset-mode"]:checked');
           const mode = checked ? checked.value : 'mixed';
