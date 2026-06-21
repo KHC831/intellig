@@ -9,7 +9,6 @@ import {
   IGitService,
   IRepository,
   IDiff,
-  IHunk,
   ICommitOptions,
 } from '../git-core/interfaces/IGitService';
 import { RECENT_MESSAGES_STATE_KEY, updateRecentMessagesLru } from './CommitToolWindow';
@@ -1219,21 +1218,7 @@ export class CommitDialog {
   </style>
 </head>
 <body>
-  <div class="commit-dialog">
-    <div class="commit-main">
-      <div class="commit-left">
-        ${this._getMessageSection()}
-        ${this._getFilesSection()}
-      </div>
-      <div class="commit-right">
-        ${this._getDiffPreviewSection()}
-      </div>
-    </div>
-    <div class="commit-footer">
-      ${this._getOptionsSection()}
-      ${this._getButtonsSection()}
-    </div>
-  </div>
+  <div class="commit-dialog" id="root"></div>
   <script nonce="${nonce}">
     ${this._getScript()}
   </script>
@@ -1242,384 +1227,116 @@ export class CommitDialog {
   }
 
   /**
-   * Get the commit message section HTML.
+   * Serialize all host-side commit-dialog state into the JSON init island the
+   * inline script reads to build the DOM. Per-file and per-line display values
+   * (file name/dir, status colour, line classes, checkboxes) are precomputed
+   * here so the script just maps data → DOM. Every dynamic value reaches the
+   * DOM via .value / .textContent / element props (injection-proof).
    */
-  private _getMessageSection(): string {
-    const escapedMessage = this._escapeHtml(this._commitMessage);
+  private _getInitJson(): string {
+    const fileItem = (f: IStagedFile): unknown => ({
+      path: f.path,
+      fileName: this._getFileName(f.path),
+      fileDir: this._getFileDir(f.path),
+      statusChar: f.status.charAt(0),
+      statusColor: this._getStatusColor(f.status),
+      selected: f.selected,
+      isSelected: this._selectedFilePath === f.path,
+      staged: f.staged,
+    });
+
     const hasRecent = this._readRecentMessages().length > 0;
-    const recentBtnTitle = hasRecent
-      ? 'Pick a recent commit message'
-      : 'No recent commit messages yet';
-    return `
-      <div class="section message-section">
-        <div class="section-header">
-          <span class="section-title">Commit Message</span>
-          <div class="section-header-actions">
-            <button
-              id="recent-messages-btn"
-              class="header-action-button"
-              type="button"
-              title="${this._escapeHtml(recentBtnTitle)}"
-              ${hasRecent ? '' : 'disabled'}
-              data-action="openRecentMessages"
-            >∨</button>
-            <button
-              id="gear-btn"
-              class="header-action-button"
-              type="button"
-              title="Commit options"
-              data-action="openGearMenu"
-            >⚙</button>
-          </div>
-        </div>
-        <textarea
-          id="commit-message"
-          class="commit-message-input"
-          placeholder="Enter commit message..."
-        >${escapedMessage}</textarea>
-        ${this._getAuthorSection()}
-        ${this._getNoVerifyBadge()}
-      </div>
-    `;
-  }
 
-  /**
-   * Author-override input below the commit-message textarea.
-   */
-  private _getAuthorSection(): string {
-    const escapedAuthor = this._escapeHtml(this._author);
-    const errorHtml = this._authorError
-      ? `<div class="author-error" role="alert">${this._escapeHtml(this._authorError)}</div>`
-      : '';
-    return `
-      <div class="author-section">
-        <label for="commit-author" class="author-label">
-          Author (optional):
-        </label>
-        <input
-          id="commit-author"
-          class="author-input"
-          type="text"
-          placeholder="Name &lt;email@example.com&gt;"
-          value="${escapedAuthor}"
-        />
-        ${errorHtml}
-      </div>
-    `;
-  }
-
-  /**
-   * Small chip advertising the `--no-verify` state so the user is never
-   * surprised by a skipped-hook commit.
-   */
-  private _getNoVerifyBadge(): string {
-    if (!this._noVerify) {
-      return '';
-    }
-    return `
-      <div class="no-verify-badge" role="note">
-        ⚠ Git hooks will be skipped (<code>--no-verify</code>). Open the gear menu to turn this off.
-      </div>
-    `;
-  }
-
-  /**
-   * Get the files section HTML.
-   */
-  private _getFilesSection(): string {
-    const stagedFiles = this._stagedFiles.filter((f) => f.staged);
-    const unstagedFiles = this._stagedFiles.filter((f) => !f.staged);
-
-    let stagedHtml = '';
-    if (stagedFiles.length > 0) {
-      stagedHtml = `
-        <div class="file-group">
-          <div class="file-group-header">Staged Changes (${stagedFiles.length})</div>
-          ${stagedFiles.map((f) => this._getFileItemHtml(f)).join('')}
-        </div>
-      `;
+    let diff: unknown = null;
+    if (this._currentDiff && this._selectedFilePath) {
+      const file = this._stagedFiles.find((f) => f.path === this._selectedFilePath);
+      const isStaged = file?.staged ?? false;
+      diff = {
+        fileName: this._getFileName(this._selectedFilePath),
+        partialStagingMode: this._partialStagingMode,
+        binary: this._currentDiff.binary,
+        empty: this._currentDiff.hunks.length === 0,
+        hunks: this._currentDiff.binary
+          ? []
+          : this._currentDiff.hunks.map((hunk, hunkIndex) => {
+              const selectedLines = this._selectedLines.get(hunkIndex) || new Set<number>();
+              return {
+                header: hunk.header,
+                hunkIndex,
+                isStaged,
+                hasSelectedLines: selectedLines.size > 0,
+                selectedCount: selectedLines.size,
+                lines: hunk.lines.map((line) => {
+                  let lineClass = 'diff-line';
+                  let prefix = ' ';
+                  let isSelectable = false;
+                  let lineNumber: number | undefined;
+                  switch (line.type) {
+                    case 'add':
+                      lineClass += ' diff-add';
+                      prefix = '+';
+                      isSelectable = this._partialStagingMode;
+                      lineNumber = line.newLineNumber;
+                      break;
+                    case 'delete':
+                      lineClass += ' diff-delete';
+                      prefix = '-';
+                      isSelectable = this._partialStagingMode;
+                      lineNumber = line.oldLineNumber;
+                      break;
+                    case 'context':
+                      lineClass += ' diff-context';
+                      break;
+                  }
+                  const isSelected = lineNumber !== undefined && selectedLines.has(lineNumber);
+                  if (isSelected) {
+                    lineClass += ' line-selected';
+                  }
+                  if (isSelectable) {
+                    lineClass += ' selectable';
+                  }
+                  const showCheckbox =
+                    this._partialStagingMode && isSelectable && lineNumber !== undefined;
+                  return {
+                    lineClass,
+                    prefix,
+                    oldNum: line.oldLineNumber?.toString() ?? '',
+                    newNum: line.newLineNumber?.toString() ?? '',
+                    content: line.content,
+                    selectable:
+                      isSelectable && lineNumber !== undefined ? { hunkIndex, lineNumber } : null,
+                    checkbox: showCheckbox ? (isSelected ? '☑' : '☐') : null,
+                  };
+                }),
+              };
+            }),
+      };
     }
 
-    let unstagedHtml = '';
-    if (unstagedFiles.length > 0) {
-      unstagedHtml = `
-        <div class="file-group">
-          <div class="file-group-header">Unstaged Changes (${unstagedFiles.length})</div>
-          ${unstagedFiles.map((f) => this._getFileItemHtml(f)).join('')}
-        </div>
-      `;
-    }
-
-    const emptyMessage =
-      stagedFiles.length === 0 && unstagedFiles.length === 0
-        ? '<div class="empty-message">No changes to commit</div>'
-        : '';
-
-    return `
-      <div class="section files-section">
-        <div class="section-header">
-          <span class="section-title">Changes</span>
-          <button class="refresh-button" data-action="refresh" title="Refresh">↻</button>
-        </div>
-        <div class="files-list">
-          ${stagedHtml}
-          ${unstagedHtml}
-          ${emptyMessage}
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Get HTML for a single file item.
-   */
-  private _getFileItemHtml(file: IStagedFile): string {
-    const isSelected = this._selectedFilePath === file.path;
-    const statusColor = this._getStatusColor(file.status);
-
-    // Inline `onclick="X('${path}')"` is replaced by
-    // `data-action="X" data-path="${path}"`. The delegated dispatcher
-    // at the bottom of the inline <script> picks it up via
-    // `addEventListener('click', ...)`, matching the pattern at
-    // GitToolWindowProvider.ts:4523., escaping a path
-    // containing a `'` would still inject JavaScript through the inline
-    // attribute (`<button onclick="stageFile('foo\'-evil')">` →
-    // CSP-bypassing arbitrary script).
-    const escapedPath = this._escapeHtml(file.path);
-    return `
-      <div class="file-item ${isSelected ? 'selected' : ''}"
-           data-path="${escapedPath}"
-           data-action="selectFile">
-        <input
-          type="checkbox"
-          class="file-checkbox"
-          ${file.selected ? 'checked' : ''}
-          data-action="toggleFile"
-          data-path="${escapedPath}"
-        />
-        <span class="file-status" style="color: ${statusColor};">${file.status.charAt(0)}</span>
-        <span class="file-path">${this._escapeHtml(this._getFileName(file.path))}</span>
-        <span class="file-dir">${this._escapeHtml(this._getFileDir(file.path))}</span>
-        ${
-          file.staged
-            ? `<button class="stage-button unstage" data-action="unstageFile" data-path="${escapedPath}" title="Unstage">−</button>`
-            : `<button class="stage-button stage" data-action="stageFile" data-path="${escapedPath}" title="Stage">+</button>`
-        }
-      </div>
-    `;
-  }
-
-  /**
-   * Get the diff preview section HTML.
-   */
-  private _getDiffPreviewSection(): string {
-    if (!this._currentDiff || !this._selectedFilePath) {
-      return `
-        <div class="section diff-section">
-          <div class="section-header">
-            <span class="section-title">Diff Preview</span>
-          </div>
-          <div class="diff-content empty">
-            <div class="empty-message">Select a file to preview changes</div>
-          </div>
-        </div>
-      `;
-    }
-
-    const file = this._stagedFiles.find((f) => f.path === this._selectedFilePath);
-    const isStaged = file?.staged ?? false;
-    const diffHtml = this._renderDiffWithControls(this._currentDiff, isStaged);
-
-    return `
-      <div class="section diff-section">
-        <div class="section-header">
-          <span class="section-title">Diff: ${this._escapeHtml(this._getFileName(this._selectedFilePath))}</span>
-          <div class="diff-header-controls">
-            <button class="partial-staging-toggle ${this._partialStagingMode ? 'active' : ''}"
-                    data-action="togglePartialStagingMode"
-                    title="${this._partialStagingMode ? 'Exit line selection mode' : 'Enable line selection for partial staging'}">
-              ${this._partialStagingMode ? '✓ Line Selection' : '☐ Line Selection'}
-            </button>
-          </div>
-        </div>
-        <div class="diff-content">
-          ${diffHtml}
-        </div>
-      </div>
-    `;
-  }
-
-  /**
-   * Render a diff with staging controls as HTML.
-   */
-  private _renderDiffWithControls(diff: IDiff, isStaged: boolean): string {
-    if (diff.binary) {
-      return '<div class="binary-file">Binary file</div>';
-    }
-
-    if (diff.hunks.length === 0) {
-      return '<div class="empty-message">No changes</div>';
-    }
-
-    return diff.hunks
-      .map((hunk, index) => this._renderHunkWithControls(hunk, index, isStaged))
-      .join('');
-  }
-
-  /**
-   * Render a hunk with staging controls as HTML.
-   */
-  private _renderHunkWithControls(hunk: IHunk, hunkIndex: number, isStaged: boolean): string {
-    const selectedLines = this._selectedLines.get(hunkIndex) || new Set<number>();
-    const hasSelectedLines = selectedLines.size > 0;
-
-    const linesHtml = hunk.lines
-      .map((line) => {
-        let lineClass = 'diff-line';
-        let prefix = ' ';
-        let isSelectable = false;
-        let lineNumber: number | undefined;
-
-        switch (line.type) {
-          case 'add':
-            lineClass += ' diff-add';
-            prefix = '+';
-            isSelectable = this._partialStagingMode;
-            lineNumber = line.newLineNumber;
-            break;
-          case 'delete':
-            lineClass += ' diff-delete';
-            prefix = '-';
-            isSelectable = this._partialStagingMode;
-            lineNumber = line.oldLineNumber;
-            break;
-          case 'context':
-            lineClass += ' diff-context';
-            prefix = ' ';
-            break;
-        }
-
-        const isSelected = lineNumber !== undefined && selectedLines.has(lineNumber);
-        if (isSelected) {
-          lineClass += ' line-selected';
-        }
-
-        const oldNum = line.oldLineNumber?.toString() ?? '';
-        const newNum = line.newLineNumber?.toString() ?? '';
-
-        // toggleLine uses data-action delegation rather than an inline
-        // onclick. Both args are caller-controlled numbers (no user input
-        // through the JS string here, unlike the file/path onclicks), but
-        // keeping the dispatcher pattern uniform wins. The dispatcher at
-        // `_getInlineScript()` reads `data-hunk-index` and
-        // `data-line-number` and routes to the global toggleLine().
-        // Pinned by commitDialog-toggleLine-1 + -2.
-        const selectableAttr =
-          isSelectable && lineNumber !== undefined
-            ? `data-action="toggleLine" data-hunk-index="${hunkIndex}" data-line-number="${lineNumber}"`
-            : '';
-        const selectableClass = isSelectable ? ' selectable' : '';
-
-        const checkbox =
-          this._partialStagingMode && isSelectable && lineNumber !== undefined
-            ? `<span class="line-checkbox">${isSelected ? '☑' : '☐'}</span>`
-            : '';
-
-        return `
-          <div class="${lineClass}${selectableClass}" ${selectableAttr}>
-            ${checkbox}
-            <span class="line-num old">${oldNum}</span>
-            <span class="line-num new">${newNum}</span>
-            <span class="line-prefix">${prefix}</span>
-            <span class="line-content">${this._escapeHtml(line.content)}</span>
-          </div>
-        `;
-      })
-      .join('');
-
-    // Hunk controls - stage/unstage buttons.
-    // inline-onclick → data-action delegation. `hunkIndex`
-    // is a number (caller-controlled), but the data-action pattern
-    // brings the same uniform CSP-safe shape as the path-based handlers
-    // above. Matches GitToolWindowProvider:4523.
-    // For unstaged hunks, offer a "Revert Hunk" alongside "Stage Hunk" —
-    // IntelliJ's "Revert Chunk" discards the hunk's working-tree change. It's
-    // destructive (loses uncommitted work), so the handler confirms first.
-    const stageButton = isStaged
-      ? `<button class="hunk-button unstage-hunk" data-action="unstageHunk" data-hunk-index="${hunkIndex}" title="Unstage this hunk">− Unstage Hunk</button>`
-      : `<button class="hunk-button stage-hunk" data-action="stageHunk" data-hunk-index="${hunkIndex}" title="Stage this hunk">+ Stage Hunk</button>` +
-        `<button class="hunk-button revert-hunk" data-action="revertHunk" data-hunk-index="${hunkIndex}" title="Discard this hunk's changes">↶ Revert Hunk</button>`;
-
-    // Line selection controls (only shown in partial staging mode)
-    const lineSelectionControls = this._partialStagingMode
-      ? `
-        <div class="line-selection-controls">
-          <button class="hunk-button select-all" data-action="selectAllLinesInHunk" data-hunk-index="${hunkIndex}" title="Select all changed lines">Select All</button>
-          <button class="hunk-button deselect-all" data-action="deselectAllLinesInHunk" data-hunk-index="${hunkIndex}" title="Deselect all lines">Deselect All</button>
-          ${
-            hasSelectedLines && !isStaged
-              ? `<button class="hunk-button stage-selected" data-action="stageSelectedLines" data-hunk-index="${hunkIndex}" title="Stage selected lines">+ Stage ${selectedLines.size} Line${selectedLines.size !== 1 ? 's' : ''}</button>`
-              : ''
-          }
-        </div>
-      `
-      : '';
-
-    return `
-      <div class="diff-hunk">
-        <div class="hunk-header-row">
-          <div class="hunk-header">${this._escapeHtml(hunk.header)}</div>
-          <div class="hunk-controls">
-            ${stageButton}
-          </div>
-        </div>
-        ${lineSelectionControls}
-        ${linesHtml}
-      </div>
-    `;
-  }
-
-  /**
-   * Get the options section HTML.
-   */
-  private _getOptionsSection(): string {
-    return `
-      <div class="options-section">
-        <label class="option-label">
-          <input 
-            type="checkbox"
-            id="amend-checkbox"
-            ${this._amendMode ? 'checked' : ''}
-          />
-          <span>Amend</span>
-        </label>
-        <label class="option-label">
-          <input 
-            type="checkbox"
-            id="signoff-checkbox"
-            ${this._signOffMode ? 'checked' : ''}
-          />
-          <span>Sign-off</span>
-        </label>
-      </div>
-    `;
-  }
-
-  /**
-   * Get the buttons section HTML.
-   */
-  private _getButtonsSection(): string {
     const selectedCount = this._stagedFiles.filter((f) => f.selected).length;
-    const commitDisabled = selectedCount === 0 ? 'disabled' : '';
 
-    return `
-      <div class="buttons-section">
-        <button class="button cancel-button" data-action="cancel">Cancel</button>
-        <button class="button commit-button" data-action="commit" ${commitDisabled}>
-          Commit${this._amendMode ? ' (Amend)' : ''} (${selectedCount} file${selectedCount !== 1 ? 's' : ''})
-        </button>
-      </div>
-    `;
+    return JSON.stringify({
+      message: this._commitMessage,
+      author: this._author,
+      authorError: this._authorError,
+      noVerify: this._noVerify,
+      hasRecent,
+      recentBtnTitle: hasRecent ? 'Pick a recent commit message' : 'No recent commit messages yet',
+      stagedFiles: this._stagedFiles.filter((f) => f.staged).map(fileItem),
+      unstagedFiles: this._stagedFiles.filter((f) => !f.staged).map(fileItem),
+      diff,
+      amendMode: this._amendMode,
+      signOffMode: this._signOffMode,
+      selectedCount,
+      commitLabel:
+        'Commit' +
+        (this._amendMode ? ' (Amend)' : '') +
+        ' (' +
+        selectedCount +
+        ' file' +
+        (selectedCount !== 1 ? 's' : '') +
+        ')',
+    }).replace(/</g, '\\u003c');
   }
 
   /**
@@ -2135,6 +1852,182 @@ export class CommitDialog {
   private _getScript(): string {
     return `
       const vscode = acquireVsCodeApi();
+      const INIT = ${this._getInitJson()};
+      const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+      const setData = (node, attrs) => { for (const k in attrs) node.setAttribute(k, attrs[k]); return node; };
+
+      // ── Build the body via createElement (no HTML-string injection) ────────
+      (function buildBody() {
+        const root = document.getElementById('root');
+        if (!root) return;
+
+        // Message section
+        const messageSection = el('div', { className: 'section message-section' });
+        const msgHeader = el('div', { className: 'section-header' });
+        msgHeader.append(el('span', { className: 'section-title', textContent: 'Commit Message' }));
+        const headerActions = el('div', { className: 'section-header-actions' });
+        const recentBtn = el('button', { id: 'recent-messages-btn', className: 'header-action-button', type: 'button', title: INIT.recentBtnTitle, textContent: '∨' });
+        setData(recentBtn, { 'data-action': 'openRecentMessages' });
+        recentBtn.disabled = !INIT.hasRecent;
+        const gearBtn = el('button', { id: 'gear-btn', className: 'header-action-button', type: 'button', title: 'Commit options', textContent: '⚙' });
+        setData(gearBtn, { 'data-action': 'openGearMenu' });
+        headerActions.append(recentBtn, gearBtn);
+        msgHeader.append(headerActions);
+        messageSection.append(msgHeader);
+        const textarea = el('textarea', { id: 'commit-message', className: 'commit-message-input', placeholder: 'Enter commit message...' });
+        textarea.value = INIT.message;
+        messageSection.append(textarea);
+        // Author section
+        const authorSection = el('div', { className: 'author-section' });
+        authorSection.append(el('label', { htmlFor: 'commit-author', className: 'author-label', textContent: 'Author (optional):' }));
+        const authorInput = el('input', { id: 'commit-author', className: 'author-input', type: 'text', placeholder: 'Name <email@example.com>' });
+        authorInput.value = INIT.author;
+        authorSection.append(authorInput);
+        if (INIT.authorError) {
+          const errDiv = el('div', { className: 'author-error', textContent: INIT.authorError });
+          errDiv.setAttribute('role', 'alert');
+          authorSection.append(errDiv);
+        }
+        messageSection.append(authorSection);
+        if (INIT.noVerify) {
+          const badge = el('div', { className: 'no-verify-badge' });
+          badge.setAttribute('role', 'note');
+          badge.append('⚠ Git hooks will be skipped (', el('code', { textContent: '--no-verify' }), '). Open the gear menu to turn this off.');
+          messageSection.append(badge);
+        }
+
+        // Files section
+        const filesSection = el('div', { className: 'section files-section' });
+        const filesHeader = el('div', { className: 'section-header' });
+        filesHeader.append(el('span', { className: 'section-title', textContent: 'Changes' }));
+        const refreshBtn = el('button', { className: 'refresh-button', title: 'Refresh', textContent: '↻' });
+        setData(refreshBtn, { 'data-action': 'refresh' });
+        filesHeader.append(refreshBtn);
+        filesSection.append(filesHeader);
+        const filesList = el('div', { className: 'files-list' });
+        const buildFileItem = (f) => {
+          const item = el('div', { className: 'file-item' + (f.isSelected ? ' selected' : '') });
+          setData(item, { 'data-path': f.path, 'data-action': 'selectFile' });
+          const cb = el('input', { type: 'checkbox', className: 'file-checkbox' });
+          cb.checked = f.selected;
+          setData(cb, { 'data-action': 'toggleFile', 'data-path': f.path });
+          const status = el('span', { className: 'file-status', textContent: f.statusChar });
+          status.style.color = f.statusColor;
+          const stageBtn = f.staged
+            ? setData(el('button', { className: 'stage-button unstage', title: 'Unstage', textContent: '−' }), { 'data-action': 'unstageFile', 'data-path': f.path })
+            : setData(el('button', { className: 'stage-button stage', title: 'Stage', textContent: '+' }), { 'data-action': 'stageFile', 'data-path': f.path });
+          item.append(cb, status, el('span', { className: 'file-path', textContent: f.fileName }), el('span', { className: 'file-dir', textContent: f.fileDir }), stageBtn);
+          return item;
+        };
+        const fileGroup = (label, files) => {
+          const group = el('div', { className: 'file-group' });
+          group.append(el('div', { className: 'file-group-header', textContent: label + ' (' + files.length + ')' }));
+          for (const f of files) group.append(buildFileItem(f));
+          return group;
+        };
+        if (INIT.stagedFiles.length > 0) filesList.append(fileGroup('Staged Changes', INIT.stagedFiles));
+        if (INIT.unstagedFiles.length > 0) filesList.append(fileGroup('Unstaged Changes', INIT.unstagedFiles));
+        if (INIT.stagedFiles.length === 0 && INIT.unstagedFiles.length === 0) {
+          filesList.append(el('div', { className: 'empty-message', textContent: 'No changes to commit' }));
+        }
+        filesSection.append(filesList);
+
+        // Diff preview section
+        const diffSection = el('div', { className: 'section diff-section' });
+        const diffHeader = el('div', { className: 'section-header' });
+        if (!INIT.diff) {
+          diffHeader.append(el('span', { className: 'section-title', textContent: 'Diff Preview' }));
+          diffSection.append(diffHeader);
+          const dc = el('div', { className: 'diff-content empty' });
+          dc.append(el('div', { className: 'empty-message', textContent: 'Select a file to preview changes' }));
+          diffSection.append(dc);
+        } else {
+          diffHeader.append(el('span', { className: 'section-title', textContent: 'Diff: ' + INIT.diff.fileName }));
+          const ctrls = el('div', { className: 'diff-header-controls' });
+          const toggle = el('button', { className: 'partial-staging-toggle' + (INIT.diff.partialStagingMode ? ' active' : ''), title: INIT.diff.partialStagingMode ? 'Exit line selection mode' : 'Enable line selection for partial staging', textContent: INIT.diff.partialStagingMode ? '✓ Line Selection' : '☐ Line Selection' });
+          setData(toggle, { 'data-action': 'togglePartialStagingMode' });
+          ctrls.append(toggle);
+          diffHeader.append(ctrls);
+          diffSection.append(diffHeader);
+          const dc = el('div', { className: 'diff-content' });
+          if (INIT.diff.binary) {
+            dc.append(el('div', { className: 'binary-file', textContent: 'Binary file' }));
+          } else if (INIT.diff.empty) {
+            dc.append(el('div', { className: 'empty-message', textContent: 'No changes' }));
+          } else {
+            for (const hunk of INIT.diff.hunks) dc.append(buildHunk(hunk));
+          }
+          diffSection.append(dc);
+        }
+
+        // Footer
+        const footer = el('div', { className: 'commit-footer' });
+        const options = el('div', { className: 'options-section' });
+        const optionLabel = (id, checked, text) => {
+          const label = el('label', { className: 'option-label' });
+          const input = el('input', { type: 'checkbox', id: id });
+          input.checked = checked;
+          label.append(input, el('span', { textContent: text }));
+          return label;
+        };
+        options.append(optionLabel('amend-checkbox', INIT.amendMode, 'Amend'), optionLabel('signoff-checkbox', INIT.signOffMode, 'Sign-off'));
+        const buttons = el('div', { className: 'buttons-section' });
+        const cancelBtn = setData(el('button', { className: 'button cancel-button', textContent: 'Cancel' }), { 'data-action': 'cancel' });
+        const commitBtn = setData(el('button', { className: 'button commit-button', textContent: INIT.commitLabel }), { 'data-action': 'commit' });
+        commitBtn.disabled = INIT.selectedCount === 0;
+        buttons.append(cancelBtn, commitBtn);
+        footer.append(options, buttons);
+
+        // Layout
+        const main = el('div', { className: 'commit-main' });
+        const left = el('div', { className: 'commit-left' });
+        left.append(messageSection, filesSection);
+        const right = el('div', { className: 'commit-right' });
+        right.append(diffSection);
+        main.append(left, right);
+        root.append(main, footer);
+
+        function buildHunk(hunk) {
+          const h = el('div', { className: 'diff-hunk' });
+          const headerRow = el('div', { className: 'hunk-header-row' });
+          headerRow.append(el('div', { className: 'hunk-header', textContent: hunk.header }));
+          const hunkControls = el('div', { className: 'hunk-controls' });
+          if (hunk.isStaged) {
+            hunkControls.append(setData(el('button', { className: 'hunk-button unstage-hunk', title: 'Unstage this hunk', textContent: '− Unstage Hunk' }), { 'data-action': 'unstageHunk', 'data-hunk-index': String(hunk.hunkIndex) }));
+          } else {
+            hunkControls.append(
+              setData(el('button', { className: 'hunk-button stage-hunk', title: 'Stage this hunk', textContent: '+ Stage Hunk' }), { 'data-action': 'stageHunk', 'data-hunk-index': String(hunk.hunkIndex) }),
+              setData(el('button', { className: 'hunk-button revert-hunk', title: "Discard this hunk's changes", textContent: '↶ Revert Hunk' }), { 'data-action': 'revertHunk', 'data-hunk-index': String(hunk.hunkIndex) })
+            );
+          }
+          headerRow.append(hunkControls);
+          h.append(headerRow);
+          if (INIT.diff.partialStagingMode) {
+            const lsc = el('div', { className: 'line-selection-controls' });
+            lsc.append(
+              setData(el('button', { className: 'hunk-button select-all', title: 'Select all changed lines', textContent: 'Select All' }), { 'data-action': 'selectAllLinesInHunk', 'data-hunk-index': String(hunk.hunkIndex) }),
+              setData(el('button', { className: 'hunk-button deselect-all', title: 'Deselect all lines', textContent: 'Deselect All' }), { 'data-action': 'deselectAllLinesInHunk', 'data-hunk-index': String(hunk.hunkIndex) })
+            );
+            if (hunk.hasSelectedLines && !hunk.isStaged) {
+              lsc.append(setData(el('button', { className: 'hunk-button stage-selected', title: 'Stage selected lines', textContent: '+ Stage ' + hunk.selectedCount + ' Line' + (hunk.selectedCount !== 1 ? 's' : '') }), { 'data-action': 'stageSelectedLines', 'data-hunk-index': String(hunk.hunkIndex) }));
+            }
+            h.append(lsc);
+          }
+          for (const line of hunk.lines) {
+            const lineEl = el('div', { className: line.lineClass });
+            if (line.selectable) setData(lineEl, { 'data-action': 'toggleLine', 'data-hunk-index': String(line.selectable.hunkIndex), 'data-line-number': String(line.selectable.lineNumber) });
+            if (line.checkbox) lineEl.append(el('span', { className: 'line-checkbox', textContent: line.checkbox }));
+            lineEl.append(
+              el('span', { className: 'line-num old', textContent: line.oldNum }),
+              el('span', { className: 'line-num new', textContent: line.newNum }),
+              el('span', { className: 'line-prefix', textContent: line.prefix }),
+              el('span', { className: 'line-content', textContent: line.content })
+            );
+            h.append(lineEl);
+          }
+          return h;
+        }
+      })();
 
       function handleMessageChange(value) {
         vscode.postMessage({ type: 'updateMessage', message: value });
@@ -2359,20 +2252,6 @@ export class CommitDialog {
     }
     parts.pop();
     return parts.join('/');
-  }
-
-  /**
-   * Escape HTML special characters.
-   */
-  private _escapeHtml(text: string): string {
-    const escapeMap: Record<string, string> = {
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    };
-    return text.replace(/[&<>"']/g, (char) => escapeMap[char]);
   }
 
   /**

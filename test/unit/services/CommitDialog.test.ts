@@ -25,45 +25,57 @@ import '../../setup';
 import * as assert from 'assert';
 import { JSDOM } from 'jsdom';
 import { CommitDialog } from '../../../src/commits/CommitDialog';
+import { IGitService } from '../../../src/git-core/interfaces/IGitService';
+import { Uri } from '../../mocks/vscode';
 
-// CommitDialog's _getFileItemHtml is a private method. We invoke it
-// through prototype-level reflection: bind it to a minimal `this`
-// stub that exposes the helpers it relies on (_escapeHtml, _getStatusColor,
-// _getFileName, _getFileDir).
-interface FileItemRenderStub {
-  _selectedFilePath: string | null;
-  _escapeHtml(s: string): string;
-  _getStatusColor(s: string): string;
-  _getFileName(p: string): string;
-  _getFileDir(p: string): string;
+/**
+ * Build a CommitDialog's body the way the webview host does: seed the private
+ * render state, run the dialog's inline nonce'd script in jsdom (which now
+ * BUILDS the DOM via document.createElement), and return the live document.
+ */
+function buildDialogDoc(state: Record<string, unknown>): Document {
+  const dialog = new CommitDialog(Uri.file('/tmp/ext'), {} as IGitService);
+  Object.assign(dialog as unknown as Record<string, unknown>, state);
+  const script = (dialog as unknown as { _getScript(): string })._getScript();
+  const dom = new JSDOM(`<div class="commit-dialog" id="root"></div>`, {
+    runScripts: 'outside-only',
+  });
+  (dom.window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (): void => {},
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+  dom.window.eval(script);
+  dialog.dispose();
+  return dom.window.document as unknown as Document;
 }
 
+/** Render a single file row and return its built `.file-item` outerHTML. */
 function renderFileItem(file: {
   path: string;
   status: string;
   staged: boolean;
   selected: boolean;
 }): string {
-  // Bind the prototype method to a minimal `this`. The implementation
-  // reads `_selectedFilePath` for the `selected` highlight and the
-  // four helpers for HTML escaping / status / path display.
-  const proto = (
-    CommitDialog as unknown as {
-      prototype: { _getFileItemHtml: (this: FileItemRenderStub, f: unknown) => string };
-    }
-  ).prototype;
-  const stub: FileItemRenderStub = {
-    _selectedFilePath: null,
-    _escapeHtml: (s: string): string =>
-      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
-    _getStatusColor: (): string => '#fff',
-    _getFileName: (p: string): string => p.split('/').pop() ?? p,
-    _getFileDir: (p: string): string => {
-      const i = p.lastIndexOf('/');
-      return i >= 0 ? p.substring(0, i) : '';
-    },
-  };
-  return proto._getFileItemHtml.call(stub, file);
+  const doc = buildDialogDoc({ _stagedFiles: [file], _selectedFilePath: undefined });
+  return doc.querySelector('.file-item')?.outerHTML ?? '';
+}
+
+/** Render a single hunk and return its built `.diff-hunk` outerHTML. */
+function renderHunk(
+  hunk: unknown,
+  isStaged: boolean,
+  partialStagingMode: boolean,
+  selectedLines: Map<number, Set<number>> = new Map()
+): string {
+  const doc = buildDialogDoc({
+    _stagedFiles: [{ path: 'f.ts', status: 'Modified', staged: isStaged, selected: false }],
+    _selectedFilePath: 'f.ts',
+    _currentDiff: { binary: false, hunks: [hunk] },
+    _partialStagingMode: partialStagingMode,
+    _selectedLines: selectedLines,
+  });
+  return doc.querySelector('.diff-hunk')?.outerHTML ?? '';
 }
 
 describe('Wave I H-2 — CommitDialog data-action delegation', () => {
@@ -344,42 +356,8 @@ describe('Wave J / WJ-5 — CommitDialog toggleLine data-action delegation', () 
     //
     // The selectable path requires `_partialStagingMode = true` AND a
     // line that has a defined line-number (the `delete` lines use
-    // `oldLineNumber`, the `add` lines use `newLineNumber`).
-    interface RenderHunkProto {
-      _renderHunkWithControls: (
-        this: {
-          _escapeHtml: (s: string) => string;
-          _selectedLines: Map<number, Set<number>>;
-          _partialStagingMode: boolean;
-        },
-        hunk: {
-          oldStart: number;
-          oldLines: number;
-          newStart: number;
-          newLines: number;
-          header: string;
-          lines: Array<{
-            type: string;
-            content: string;
-            oldLineNumber?: number;
-            newLineNumber?: number;
-          }>;
-        },
-        hunkIndex: number,
-        isStaged: boolean
-      ) => string;
-    }
-    const proto = (CommitDialog as unknown as { prototype: RenderHunkProto }).prototype;
-    const stub = {
-      _escapeHtml: (s: string): string =>
-        s
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;'),
-      _selectedLines: new Map<number, Set<number>>(),
-      _partialStagingMode: true,
-    };
+    // `oldLineNumber`, the `add` lines use `newLineNumber`). The hunk is
+    // the only one in the diff, so its rendered index is 0.
     const hunk = {
       oldStart: 1,
       oldLines: 2,
@@ -391,7 +369,7 @@ describe('Wave J / WJ-5 — CommitDialog toggleLine data-action delegation', () 
         { type: 'delete', content: 'old line', oldLineNumber: 5, newLineNumber: undefined },
       ],
     };
-    const html = proto._renderHunkWithControls.call(stub, hunk, 2, false);
+    const html = renderHunk(hunk, false, true);
 
     // The forbidden inline-onclick form must NOT appear.
     assert.ok(
@@ -404,8 +382,8 @@ describe('Wave J / WJ-5 — CommitDialog toggleLine data-action delegation', () 
       `expected data-action="toggleLine"; got: ${html.substring(0, 800)}`
     );
     assert.ok(
-      /data-hunk-index="2"/.test(html),
-      `expected data-hunk-index="2"; got: ${html.substring(0, 800)}`
+      /data-hunk-index="0"/.test(html),
+      `expected data-hunk-index="0"; got: ${html.substring(0, 800)}`
     );
     assert.ok(
       /data-line-number="5"/.test(html),
@@ -415,32 +393,6 @@ describe('Wave J / WJ-5 — CommitDialog toggleLine data-action delegation', () 
 });
 
 describe('#P2 — CommitDialog Revert Hunk (IntelliJ Revert Chunk)', () => {
-  interface RenderHunkProto {
-    _renderHunkWithControls: (
-      this: {
-        _escapeHtml: (s: string) => string;
-        _selectedLines: Map<number, Set<number>>;
-        _partialStagingMode: boolean;
-      },
-      hunk: {
-        oldStart: number;
-        oldLines: number;
-        newStart: number;
-        newLines: number;
-        header: string;
-        lines: Array<{ type: string; content: string }>;
-      },
-      hunkIndex: number,
-      isStaged: boolean
-    ) => string;
-  }
-
-  const proto = (CommitDialog as unknown as { prototype: RenderHunkProto }).prototype;
-  const stub = {
-    _escapeHtml: (s: string): string => s,
-    _selectedLines: new Map<number, Set<number>>(),
-    _partialStagingMode: false,
-  };
   const hunk = {
     oldStart: 1,
     oldLines: 2,
@@ -451,14 +403,14 @@ describe('#P2 — CommitDialog Revert Hunk (IntelliJ Revert Chunk)', () => {
   };
 
   it('emits a Revert Hunk button (data-action, no inline onclick) for an UNSTAGED hunk', () => {
-    const html = proto._renderHunkWithControls.call(stub, hunk, 0, false);
+    const html = renderHunk(hunk, false, false);
     assert.ok(/data-action="revertHunk"/.test(html), 'revert-hunk button present when unstaged');
     assert.ok(/data-hunk-index="0"/.test(html), 'carries the hunk index');
     assert.ok(!/onclick="revertHunk\(/.test(html), 'no inline onclick (CSP-safe)');
   });
 
   it('does NOT offer Revert Hunk for a STAGED hunk (only Unstage)', () => {
-    const html = proto._renderHunkWithControls.call(stub, hunk, 0, true);
+    const html = renderHunk(hunk, true, false);
     assert.ok(!/data-action="revertHunk"/.test(html), 'no revert button on staged hunks');
     assert.ok(/data-action="unstageHunk"/.test(html), 'staged hunk still offers Unstage');
   });

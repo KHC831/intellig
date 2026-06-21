@@ -20,6 +20,7 @@
  */
 
 import '../../setup';
+import { JSDOM } from 'jsdom';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import {
@@ -817,7 +818,17 @@ describe('CommitDialog — recent messages + author + gear', () => {
     it('wires the Commit/Cancel buttons + gear/recent/refresh via data-action delegation', () => {
       const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
       try {
+        // Body is built by the inline script via createElement; run it in jsdom
+        // and assert the [data-action] elements exist on the built DOM.
         const html = renderHtml(dialog);
+        const dom = new JSDOM(html, { runScripts: 'outside-only' });
+        (dom.window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+          postMessage: (): void => {},
+          getState: (): void => {},
+          setState: (): void => {},
+        });
+        const scriptEl = dom.window.document.querySelector('script[nonce]');
+        dom.window.eval(scriptEl?.textContent ?? '');
         for (const action of [
           'commit',
           'cancel',
@@ -826,7 +837,7 @@ describe('CommitDialog — recent messages + author + gear', () => {
           'refresh',
         ]) {
           assert.ok(
-            html.includes(`data-action="${action}"`),
+            dom.window.document.querySelector(`[data-action="${action}"]`),
             `${action} must be wired via data-action delegation`
           );
         }
