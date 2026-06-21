@@ -229,19 +229,20 @@ export function buildInlineScript(): string {
           // Ref-aware filter options: populate the branch + author
           // datalists from the live repo so the filter inputs autocomplete.
           if (message.type === 'logFilterOptionsReady') {
-            const escapeAttr = function(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
-            const branchDatalist = document.getElementById('filter-branch-options');
-            if (branchDatalist && Array.isArray(message.branches)) {
-              branchDatalist.innerHTML = message.branches
-                .map(function(b) { return '<option value="' + escapeAttr(b) + '"></option>'; })
-                .join('');
-            }
-            const authorDatalist = document.getElementById('filter-author-options');
-            if (authorDatalist && Array.isArray(message.contributors)) {
-              authorDatalist.innerHTML = message.contributors
-                .map(function(c) { return '<option value="' + escapeAttr(c) + '"></option>'; })
-                .join('');
-            }
+            // Build <option> nodes via the DOM so the value crosses as a property
+            // (injection-proof — no HTML interpretation, no hand-rolled escaping).
+            const fillDatalist = function(id, values) {
+              const datalist = document.getElementById(id);
+              if (!datalist || !Array.isArray(values)) { return; }
+              datalist.replaceChildren();
+              values.forEach(function(v) {
+                const option = document.createElement('option');
+                option.value = String(v);
+                datalist.appendChild(option);
+              });
+            };
+            fillDatalist('filter-branch-options', message.branches);
+            fillDatalist('filter-author-options', message.contributors);
           }
           // Partial-update path for branch focus. The
           // render-time \`_getBranchLabelsHtml\` is the source of truth;
