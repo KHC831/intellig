@@ -40,6 +40,13 @@ export type SmartResetChoice = 'stash' | 'force' | 'cancel';
  * Pure orchestration over injected ops so it is unit-testable; the dialog wires
  * the real prompt + git calls.
  */
+export class SmartResetUnstashConflict extends Error {
+  constructor(override readonly cause: unknown) {
+    super('Stashed changes conflicted while restoring after reset');
+    this.name = 'SmartResetUnstashConflict';
+  }
+}
+
 export async function runSmartReset(
   mode: ResetMode,
   ops: {
@@ -53,7 +60,14 @@ export async function runSmartReset(
   if (choice === 'stash') {
     await ops.stash();
     await ops.reset(mode);
-    await ops.unstash();
+    // The reset has now landed (HEAD moved). A failure restoring the stash is a
+    // different outcome from a reset failure — tag it so the caller reports it
+    // correctly and never claims the reset itself failed.
+    try {
+      await ops.unstash();
+    } catch (err) {
+      throw new SmartResetUnstashConflict(err);
+    }
   } else if (choice === 'force') {
     await ops.reset('hard');
   }
@@ -502,6 +516,11 @@ ${body}
   private _finishReset(): void {
     const shortHash = this._target.hash.substring(0, 8);
     void vscode.window.showInformationMessage(`Reset to ${shortHash}`);
+    this._completeAndClose();
+  }
+
+  /** Fire the completion callback (refresh) and close the dialog. */
+  private _completeAndClose(): void {
     if (this._onResetComplete) {
       try {
         this._onResetComplete();
@@ -543,6 +562,20 @@ ${body}
       void savePreferredResetMode(this._context.globalState, mode);
       this._finishReset();
     } catch (error) {
+      if (error instanceof SmartResetUnstashConflict) {
+        // The reset landed; only restoring the stash conflicted. Report that
+        // distinctly — claiming "Failed to reset" here is false (HEAD moved)
+        // and dangerous. The stash is retained for the user to resolve. Still
+        // persist the mode + refresh + close as a completed reset.
+        void savePreferredResetMode(this._context.globalState, mode);
+        const shortHash = this._target.hash.substring(0, 8);
+        void vscode.window.showWarningMessage(
+          `Reset to ${shortHash} succeeded, but your stashed changes conflicted and were ` +
+            `left in the stash. Resolve the conflicts, then drop the stash.`
+        );
+        this._completeAndClose();
+        return;
+      }
       const msg = error instanceof Error ? error.message : 'Unknown error';
       void vscode.window.showErrorMessage(`Failed to reset: ${sanitizeGitError(msg)}`);
       this._busy = false;
