@@ -38,6 +38,7 @@ import {
   IRunPushRowDeps,
   isActionAllowedForRow,
   isProtectedTarget,
+  isValidPushRef,
   PushDialog,
   runPushRow,
 } from '../../../src/sync/PushDialog';
@@ -329,6 +330,23 @@ function makeDialog(
 // ─── Pure helpers ────────────────────────────────────────────────────────────
 
 describe('PushDialog — pure helpers', () => {
+  describe('isValidPushRef', () => {
+    it('accepts ordinary branch names', () => {
+      for (const ok of ['main', 'feature/x', 'release-1.0', 'user/topic_2', 'v1.0.0']) {
+        assert.strictEqual(isValidPushRef(ok), true, `${ok} should be valid`);
+      }
+    });
+    it('rejects a leading - or . (flag / invalid ref)', () => {
+      assert.strictEqual(isValidPushRef('-x'), false);
+      assert.strictEqual(isValidPushRef('.hidden'), false);
+    });
+    it('rejects ":" inside a half so it cannot expand the refspec', () => {
+      // a:b would otherwise produce the spec local:a:b.
+      assert.strictEqual(isValidPushRef('a:b'), false);
+      assert.strictEqual(isValidPushRef('feature:evil'), false);
+    });
+  });
+
   describe('isProtectedTarget', () => {
     it('returns true when target is in the list', () => {
       assert.strictEqual(isProtectedTarget('main', ['main', 'master']), true);

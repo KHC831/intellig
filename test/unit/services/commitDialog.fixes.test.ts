@@ -206,6 +206,10 @@ describe('CommitDialog — recent messages + author + gear', () => {
       'Name <weird space@example.com>',
       'Name <<nested@example.com>',
       'Name <unclosed@example.com',
+      // Control chars in the name can smuggle a second header line — reject.
+      'Bad\nName <a@b.co>',
+      'Bad\rName <a@b.co>',
+      'Bad\tName <a@b.co>',
     ];
 
     for (const ok of accept) {

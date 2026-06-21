@@ -196,12 +196,14 @@ export async function performCommit(
 /**
  * Author-format regex used by the author-override field.
  *
- * Requires `Name <email@domain>` where the name has no angle brackets,
+ * Requires `Name <email@domain>` where the name has no angle brackets and
+ * no control characters (so a newline/tab can't smuggle a second header line),
  * the email has no whitespace / angle brackets and contains `@`. Loose
  * enough to accept most real-world author strings; strict enough to
  * reject accidental free-form input.
  */
-export const AUTHOR_FORMAT_REGEX = /^[^<>]+ <[^<>@\s]+@[^<>\s]+>$/;
+// eslint-disable-next-line no-control-regex -- intentional C0 control-char exclusion in the name
+export const AUTHOR_FORMAT_REGEX = /^[^<>\x00-\x1f]+ <[^<>@\s]+@[^<>\s]+>$/;
 
 /**
  * Validate an author string against {@link AUTHOR_FORMAT_REGEX}. Empty

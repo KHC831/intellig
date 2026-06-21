@@ -245,10 +245,13 @@ export function buildPushOptions(
 /**
  * Security guard: a ref/branch name must not start with `-` (git would parse
  * it as a CLI flag) or `.` (invalid per git-check-ref-format). Allows the
- * same character set git refs normally accept.
+ * same character set git refs normally accept. `:` is excluded — it is the
+ * refspec half-separator (`local:remote`), never valid inside a single branch
+ * name (git-check-ref-format rejects it), so allowing it here would let `a:b`
+ * expand the spec to `local:a:b`.
  */
 export function isValidPushRef(name: string): boolean {
-  return /^(?![-.])[A-Za-z0-9_./@:~^-]+$/.test(name);
+  return /^(?![-.])[A-Za-z0-9_./@~^-]+$/.test(name);
 }
 
 /**
