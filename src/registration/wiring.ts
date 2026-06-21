@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { IGitService, IGitServiceCli, IRepository } from '../services';
 import { buildGitArgs } from '../git-core/gitCli';
+import { sanitizeGitError } from '../git-core/gitError';
 import { resolveRepo } from '../utils/resolveRepo';
 
 /**
@@ -398,12 +399,27 @@ export async function provideGitShowContent(
       }
     );
     if (result.exitCode !== 0) {
-      // File might not exist at this revision (e.g., newly added file)
-      return '';
+      // A path that is simply absent at this revision (a newly-added file
+      // diffed against HEAD) is the expected empty case — render an empty doc
+      // so the diff shows a full addition. Any OTHER non-zero exit (corrupt
+      // object, unreadable repo) must surface rather than masquerade as an
+      // empty file. An empty stderr is treated as the benign absence case.
+      const stderr = (result.stderr ?? '').trim();
+      const looksAbsent =
+        stderr === '' ||
+        /does not exist|exists on disk, but not in|no such path|invalid object name|not a valid object name|bad revision/i.test(
+          stderr
+        );
+      if (looksAbsent) {
+        return '';
+      }
+      throw new Error(`git show failed: ${sanitizeGitError(stderr)}`);
     }
     return result.stdout;
-  } catch {
-    // File doesn't exist at this revision
-    return '';
+  } catch (err) {
+    // A path-absent non-zero exit returned '' above. Reaching here means the
+    // exec itself threw (spawn failure, etc.) or git reported a real error —
+    // surface it instead of silently rendering an empty file.
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }

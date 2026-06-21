@@ -30,14 +30,16 @@ class CapturingGitCli {
   public executed: { args: string[]; options: unknown }[] = [];
   private _stdout: string;
   private _exitCode: number;
+  private _stderr: string;
 
   private _onCommandExecuted = {
     event: (): { dispose: () => void } => ({ dispose: (): void => {} }),
   };
 
-  constructor(opts: { stdout?: string; exitCode?: number } = {}) {
+  constructor(opts: { stdout?: string; exitCode?: number; stderr?: string } = {}) {
     this._stdout = opts.stdout ?? '';
     this._exitCode = opts.exitCode ?? 0;
+    this._stderr = opts.stderr ?? '';
   }
 
   get onCommandExecuted(): () => { dispose: () => void } {
@@ -49,7 +51,12 @@ class CapturingGitCli {
     options: { cwd?: string; throwOnError?: boolean } = {}
   ): Promise<{ exitCode: number; stdout: string; stderr: string; combined: string }> {
     this.executed.push({ args: [...args], options });
-    return { exitCode: this._exitCode, stdout: this._stdout, stderr: '', combined: this._stdout };
+    return {
+      exitCode: this._exitCode,
+      stdout: this._stdout,
+      stderr: this._stderr,
+      combined: this._stderr || this._stdout,
+    };
   }
 
   async getRepositoryRoot(path: string): Promise<string | undefined> {
@@ -131,6 +138,29 @@ describe('intellig-git: content provider — URI ref decoding (task #92)', () =>
         `git show received URL-encoded ref; expected decoded form. arg: ${arg}`
       );
     }
+  });
+
+  it('returns an empty doc for a path absent at the revision (newly-added file)', async () => {
+    (gitService as any)._gitCli = new CapturingGitCli({
+      exitCode: 128,
+      stderr: "fatal: path 'src/new.ts' does not exist in 'HEAD'",
+    });
+    const uri = buildIntelligGitUri('/test/repo/src/new.ts', encodeURIComponent('HEAD'));
+    const content = await provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]);
+    assert.strictEqual(content, '', 'a path absent at the revision renders as an empty addition');
+  });
+
+  it('throws on a non-absence git failure instead of masking it as an empty file', async () => {
+    (gitService as any)._gitCli = new CapturingGitCli({
+      exitCode: 128,
+      stderr: 'error: object file abc is empty or corrupt',
+    });
+    const uri = buildIntelligGitUri('/test/repo/src/foo.ts', encodeURIComponent('HEAD'));
+    await assert.rejects(
+      () => provideGitShowContent(uri, gitService, [{ uri: Uri.file('/test/repo') }]),
+      /git show failed/,
+      'a real git error must surface, not render as an empty file'
+    );
   });
 
   it('handles a raw commit-hash ref identically (no % escape in input)', async () => {
