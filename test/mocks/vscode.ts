@@ -1084,7 +1084,7 @@ export enum ExtensionMode {
 // Mock MarkdownString class
 export class MarkdownString {
   value: string = '';
-  isTrusted: boolean = false;
+  isTrusted: boolean | { readonly enabledCommands: readonly string[] } = false;
   supportHtml: boolean = false;
   supportThemeIcons: boolean = false;
 

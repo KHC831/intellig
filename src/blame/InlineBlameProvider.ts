@@ -8,6 +8,7 @@ import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { parseRemoteUrl, type IRemoteUrl } from '../utils/remoteUrl';
 import { commitUrl } from '../utils/hostingLinks';
+import { buildBlameHover } from './blameHover';
 import { repoRelativePath } from '../utils/repoRelativePath';
 
 /** Aspect/name-format display config with provider defaults applied. */
@@ -509,55 +510,11 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     blameLine: IBlameLine,
     repo?: IRepository | undefined
   ): vscode.MarkdownString {
-    const md = new vscode.MarkdownString();
-    md.isTrusted = true;
-    md.supportHtml = true;
-
-    // Commit hash (short)
-    const shortHash = blameLine.commit.substring(0, 7);
-
-    // Format the date
-    const dateStr = blameLine.date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    // Build the provider commit URL if we can. A failure at any step
-    // (no remotes, unparseable URL, unknown provider) leaves `providerLink`
-    // undefined and the hover falls back to the plain hash.
+    // A provider-link build failure at any step (no remotes, unparseable URL,
+    // unknown provider) leaves `providerLink` undefined and the hover falls
+    // back to the plain hash.
     const providerLink = this._buildCommitProviderLink(repo, blameLine.commit);
-
-    // Build the hover content
-    if (providerLink) {
-      md.appendMarkdown(`**Commit:** [\`${shortHash}\`](${providerLink})\n\n`);
-    } else {
-      md.appendMarkdown(`**Commit:** \`${shortHash}\`\n\n`);
-    }
-    md.appendMarkdown(`**Author:** ${blameLine.author}`);
-    if (blameLine.authorEmail) {
-      md.appendMarkdown(` <${blameLine.authorEmail}>`);
-    }
-    md.appendMarkdown(`\n\n`);
-    md.appendMarkdown(`**Date:** ${dateStr}\n\n`);
-    md.appendMarkdown(`---\n\n`);
-    md.appendMarkdown(`${blameLine.message}\n\n`);
-
-    // Add action links
-    md.appendMarkdown(`---\n\n`);
-    md.appendMarkdown(
-      `[View Commit](command:intellig.editor.showCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
-    );
-    md.appendMarkdown(
-      `[Copy Hash](command:intellig.editor.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))})`
-    );
-    if (providerLink) {
-      md.appendMarkdown(` | [Open on Host](${providerLink})`);
-    }
-
-    return md;
+    return buildBlameHover(blameLine, { providerLink, showOpenOnHost: true });
   }
 
   /**

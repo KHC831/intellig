@@ -8,6 +8,7 @@ import { computeHeatColor } from './heatColor';
 import { buildAuthorColorMap } from './authorColor';
 import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
 import { repoRelativePath } from '../utils/repoRelativePath';
+import { buildBlameHover } from './blameHover';
 
 /** Aspect/name-format display config with provider defaults applied. */
 interface IBlameDisplay {
@@ -515,49 +516,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * @returns The hover message as MarkdownString
    */
   private createHoverMessage(blameLine: IBlameLine): vscode.MarkdownString {
-    const md = new vscode.MarkdownString();
-    md.isTrusted = true;
-    md.supportHtml = true;
-
-    // Commit hash (short)
-    const shortHash = blameLine.commit.substring(0, 7);
-
-    // Format the date
-    const dateStr = blameLine.date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    // Build the hover content
-    md.appendMarkdown(`**Commit:** \`${shortHash}\`\n\n`);
-    md.appendMarkdown(`**Author:** ${blameLine.author}`);
-    if (blameLine.authorEmail) {
-      md.appendMarkdown(` <${blameLine.authorEmail}>`);
-    }
-    md.appendMarkdown(`\n\n`);
-    md.appendMarkdown(`**Date:** ${dateStr}\n\n`);
-    md.appendMarkdown(`---\n\n`);
-    md.appendMarkdown(`${blameLine.message}\n\n`);
-
-    // Add action links (click actions)
-    md.appendMarkdown(`---\n\n`);
-    md.appendMarkdown(
-      `[View Commit](command:intellig.editor.showCommit?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
-    );
-    md.appendMarkdown(
-      `[Copy Hash](command:intellig.editor.copyCommitHash?${encodeURIComponent(JSON.stringify(blameLine.commit))}) | `
-    );
-    if (blameLine.previousCommit) {
-      // Open the parent commit directly — reuses the same show-commit command.
-      md.appendMarkdown(
-        `[Previous Revision](command:intellig.editor.showCommit?${encodeURIComponent(JSON.stringify(blameLine.previousCommit))})`
-      );
-    }
-
-    return md;
+    return buildBlameHover(blameLine, { showPreviousRevision: true });
   }
 
   /**
