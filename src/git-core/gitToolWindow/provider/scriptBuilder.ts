@@ -146,16 +146,240 @@ export function buildInlineScript(): string {
           // Anchor unchanged — IntelliJ semantics.
         }
 
+        // Build the commit Details Panel DOM from a structured model (see
+        // detailsPanelModel.ts). Self-contained (only touches document) so it
+        // can be unit-tested in isolation. Returns the .details-panel element.
+        function buildDetailsPanelDom(model) {
+          const make = function (tag, className) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            return node;
+          };
+          const panel = make('div', 'details-panel');
+          panel.setAttribute('role', 'region');
+          panel.setAttribute('aria-label', 'Commit Details');
+
+          if (!model || model.kind === 'placeholder') {
+            panel.setAttribute('aria-label', 'Commit Details');
+            const ph = make('div', 'details-placeholder');
+            const p = make('p', 'placeholder-message');
+            p.textContent = 'Select a commit to view details';
+            ph.appendChild(p);
+            panel.appendChild(ph);
+            return panel;
+          }
+
+          // Append message tokens (inert text + issue links) into a parent.
+          const appendTokens = function (parent, tokens) {
+            (tokens || []).forEach(function (tok) {
+              if (tok.t === 'link') {
+                const a = make('a', 'commit-issue-link');
+                a.setAttribute('href', tok.href);
+                a.setAttribute('title', tok.title);
+                a.textContent = tok.text;
+                parent.appendChild(a);
+              } else {
+                parent.appendChild(document.createTextNode(tok.v));
+              }
+            });
+          };
+
+          // Build the changed-files list (tree | empty | error message).
+          const buildChangedFiles = function (count, tree, error) {
+            const wrap = make('div', 'details-changed-files');
+            const h4 = make('h4');
+            h4.textContent = 'Changed Files (' + count + ')';
+            wrap.appendChild(h4);
+            const list = make('div', 'changed-files-list');
+            list.setAttribute('role', 'tree');
+            list.setAttribute('aria-label', 'Changed Files');
+            if (error) {
+              const p = make('p', 'empty-message error-message');
+              p.textContent = 'Failed to load changed files: ' + error;
+              list.appendChild(p);
+            } else if (!tree || tree.length === 0) {
+              const p = make('p', 'empty-message');
+              p.textContent = 'No changed files';
+              list.appendChild(p);
+            } else {
+              appendTree(list, tree, 0, { next: 0 }, model.kind === 'single' ? model.hash : undefined);
+            }
+            wrap.appendChild(list);
+            return wrap;
+          };
+
+          if (model.kind === 'multi') {
+            panel.classList.add('multi-commit-details');
+            panel.setAttribute('aria-label', 'Multi-Commit Details');
+            panel.setAttribute('data-selected-count', String(model.count));
+            const header = make('h3', 'multi-commit-header');
+            header.textContent = model.count + ' commit' + (model.count !== 1 ? 's' : '') + ' selected';
+            panel.appendChild(header);
+            const list = make('div', 'multi-commit-list');
+            list.setAttribute('role', 'list');
+            list.setAttribute('aria-label', 'Selected Commits');
+            (model.commits || []).forEach(function (c) {
+              const item = make('div', 'multi-commit-item');
+              item.setAttribute('role', 'listitem');
+              const sh = make('span', 'commit-short-hash');
+              sh.textContent = c.shortHash;
+              const sm = make('span', 'commit-summary');
+              sm.textContent = c.summary;
+              item.appendChild(sh);
+              item.appendChild(sm);
+              list.appendChild(item);
+            });
+            panel.appendChild(list);
+            panel.appendChild(buildChangedFiles(model.changedFilesCount, model.fileTree, undefined));
+            return panel;
+          }
+
+          // Single-commit panel.
+          panel.appendChild(
+            buildChangedFiles(model.changedFilesCount, model.fileTree, model.changedFilesError)
+          );
+          const meta = make('div', 'details-metadata');
+          const row = function (labelText) {
+            const r = make('div', 'detail-row');
+            const l = make('span', 'detail-label');
+            l.textContent = labelText;
+            r.appendChild(l);
+            return r;
+          };
+
+          const msgRow = row('Message:');
+          msgRow.classList.add('message-row');
+          const pre = make('pre', 'detail-value commit-full-message');
+          appendTokens(pre, model.messageTokens);
+          if (model.bodyTokens) {
+            pre.appendChild(document.createTextNode('\\n\\n'));
+            appendTokens(pre, model.bodyTokens);
+          }
+          msgRow.appendChild(pre);
+          meta.appendChild(msgRow);
+
+          const hashRow = row('Hash:');
+          const hashVal = make('span', 'detail-value hash-value');
+          hashVal.setAttribute('data-copy-text', model.hash);
+          hashVal.setAttribute('title', 'Click to copy');
+          hashVal.textContent = model.hash;
+          hashRow.appendChild(hashVal);
+          meta.appendChild(hashRow);
+
+          const authorRow = row('Author:');
+          const authorVal = make('span', 'detail-value');
+          authorVal.textContent = model.authorName + ' <' + model.authorEmail + '>';
+          authorRow.appendChild(authorVal);
+          meta.appendChild(authorRow);
+
+          const dateRow = row('Date:');
+          const dateVal = make('span', 'detail-value');
+          dateVal.textContent = model.dateStr;
+          dateRow.appendChild(dateVal);
+          meta.appendChild(dateRow);
+
+          const parentsRow = row('Parents:');
+          const parentsVal = make('span', 'detail-value');
+          if (!model.parents || model.parents.length === 0) {
+            const none = make('span', 'no-parents');
+            none.textContent = 'None (root commit)';
+            parentsVal.appendChild(none);
+          } else {
+            model.parents.forEach(function (p, i) {
+              if (i > 0) parentsVal.appendChild(document.createTextNode(', '));
+              const span = make('span', 'parent-hash');
+              span.setAttribute('data-parent-hash', p.full);
+              span.setAttribute('title', p.full);
+              span.textContent = p.short;
+              parentsVal.appendChild(span);
+            });
+          }
+          parentsRow.appendChild(parentsVal);
+          meta.appendChild(parentsRow);
+
+          panel.appendChild(meta);
+          return panel;
+
+          // ---- nested file-tree builders (hoisted) ----
+          function appendTree(parent, nodes, depth, ids, commitHash) {
+            (nodes || []).forEach(function (node) {
+              if (node.kind === 'directory') {
+                const padding = depth * 16 + 4;
+                const dirItem = document.createElement('div');
+                dirItem.className = 'changed-dir-item';
+                dirItem.setAttribute('role', 'treeitem');
+                dirItem.setAttribute('aria-expanded', 'true');
+                const containerId = 'dir-children-' + ids.next++;
+                dirItem.setAttribute('aria-controls', containerId);
+                dirItem.setAttribute('tabindex', '0');
+                dirItem.setAttribute('style', 'padding-left: ' + padding + 'px;');
+                const chevron = document.createElement('span');
+                chevron.className = 'dir-chevron codicon codicon-chevron-down';
+                chevron.setAttribute('aria-hidden', 'true');
+                dirItem.appendChild(chevron);
+                const dirName = document.createElement('span');
+                dirName.className = 'dir-name';
+                dirName.textContent = node.name;
+                dirItem.appendChild(dirName);
+                parent.appendChild(dirItem);
+                const childrenWrap = document.createElement('div');
+                childrenWrap.className = 'changed-dir-children';
+                childrenWrap.setAttribute('role', 'group');
+                childrenWrap.id = containerId;
+                appendTree(childrenWrap, node.children, depth + 1, ids, commitHash);
+                parent.appendChild(childrenWrap);
+              } else {
+                const padding = depth * 16 + 4;
+                const item = document.createElement('div');
+                item.className = 'changed-file-item';
+                item.setAttribute('data-path', node.path);
+                item.setAttribute('data-status', node.status);
+                if (commitHash !== undefined) item.setAttribute('data-commit-hash', commitHash);
+                item.setAttribute('role', 'treeitem');
+                item.setAttribute('tabindex', '0');
+                item.setAttribute('style', 'padding-left: ' + padding + 'px;');
+                const indicator = document.createElement('span');
+                indicator.className = 'file-status-indicator';
+                indicator.setAttribute('style', 'color: ' + node.statusColor + ';');
+                indicator.setAttribute('title', node.status);
+                indicator.textContent = node.statusChar;
+                item.appendChild(indicator);
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'file-name';
+                nameSpan.setAttribute('style', 'color: ' + node.statusColor + ';');
+                nameSpan.textContent = node.fileName;
+                item.appendChild(nameSpan);
+                if (node.status === 'renamed' && node.oldPath) {
+                  item.appendChild(document.createTextNode(' '));
+                  const arrow = document.createElement('span');
+                  arrow.className = 'rename-arrow';
+                  arrow.textContent = '\\u2190';
+                  item.appendChild(arrow);
+                  item.appendChild(document.createTextNode(' '));
+                  const oldPath = document.createElement('span');
+                  oldPath.className = 'old-path';
+                  oldPath.setAttribute('title', node.oldPath);
+                  oldPath.textContent = node.oldPath;
+                  item.appendChild(oldPath);
+                }
+                parent.appendChild(item);
+              }
+            });
+          }
+        }
+
         // Handle state updates from extension
         window.addEventListener('message', event => {
           const message = event.data;
           if (message.type === 'scrollToCommit' && message.commitHash) {
             scrollToCommit(message.commitHash);
           }
-          if (message.type === 'updateDetailsPanel' && message.html) {
+          if (message.type === 'updateDetailsPanel' && message.model) {
             const detailsPanel = document.getElementById('details-panel');
             if (detailsPanel) {
-              detailsPanel.innerHTML = message.html;
+              // Build the panel via createElement from the structured model —
+              // no innerHTML, so a hostile message/path/author can't inject markup.
+              detailsPanel.replaceChildren(buildDetailsPanelDom(message.model));
             }
           }
           if (message.type === 'selectGraphRow' && message.commitHash) {
@@ -1359,6 +1583,18 @@ export function buildInlineScript(): string {
           setupGraphPanelScrollListener();
         });
         observer.observe(document.body, { childList: true, subtree: true });
+
+        // Build the initial Details Panel from the host-provided model. The body
+        // ships #details-panel empty; this mirrors the updateDetailsPanel path so
+        // the initial and subsequent renders share one createElement builder
+        // (no host-side details-panel HTML string).
+        (function() {
+          const dp = document.getElementById('details-panel');
+          const initialModel = window.__intelligInitialDetails;
+          if (dp && initialModel) {
+            dp.replaceChildren(buildDetailsPanelDom(initialModel));
+          }
+        })();
       })();
     `;
 }

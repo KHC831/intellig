@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails, IChangedFile } from '../../src/services/interfaces';
 import { Uri } from '../mocks/vscode';
+import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
 import { FileStatus } from '../../src/git-core/interfaces/IGitService';
 
 /**
@@ -111,7 +112,7 @@ describe('Details Panel Section Ordering Property Tests', () => {
     it('Property: details-changed-files section appears before details-metadata section', () => {
       fc.assert(
         fc.property(commitDetailsArb, (commitDetails) => {
-          const html = provider._getDetailsPanelHtml(commitDetails);
+          const html = renderDetailsPanelHtml(provider._getDetailsPanelModel(commitDetails));
 
           const changedFilesIndex = html.indexOf('details-changed-files');
           const metadataIndex = html.indexOf('details-metadata');

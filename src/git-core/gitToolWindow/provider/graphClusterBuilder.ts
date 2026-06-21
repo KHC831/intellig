@@ -153,10 +153,10 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       // still carries the full multi-line message so hover still
       // reveals everything.
       //
-      // `_truncateMessage` is preserved at :3149 — still used by
-      // `_getMultiCommitDetailsPanelHtml` at :3057 for the
-      // details-panel preview, where a hard char cap IS desired
-      // (no flex container, no responsive ellipsis behind it).
+      // The details-panel multi-commit preview uses a hard char cap
+      // instead (buildMultiCommitDetailsPanelModel's truncateSummary),
+      // where a fixed cap IS desired (no flex container, no responsive
+      // ellipsis behind it).
       const messageFirstLine = commit.message.split('\n')[0];
       // G6 parity: fixup!/squash! subjects render a clickable link on the
       // target text so the user can jump to the target commit in the log.

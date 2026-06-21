@@ -69,12 +69,15 @@ import {
   buildLoadingHtml,
   buildNoRepositoryHtml,
   buildCommitContextMenuHtml,
-  buildDetailsPanelPlaceholderHtml,
-  buildDetailsPanelHtml,
-  buildMultiCommitDetailsPanelHtml,
   escapeHtml,
   getFileStatusColor,
 } from './provider/htmlBuilders';
+import {
+  buildDetailsPanelModel,
+  buildDetailsPanelPlaceholderModel,
+  buildMultiCommitDetailsPanelModel,
+  type DetailsPanelModel,
+} from './provider/detailsPanelModel';
 import {
   handleLoadMoreCommits,
   handlePanelResize,
@@ -406,7 +409,7 @@ export class GitToolWindowProvider
   /**
    * Parsed remote URL for the current repository, cached by repo key.
    * Populated by {@link _setParsedRemoteForSelectedRepo}. Used by
-   * {@link _getDetailsPanelHtml} to turn issue/PR refs in commit messages
+   * {@link _getDetailsPanelModel} to turn issue/PR refs in commit messages
    * into clickable links.
    *
    * Kept as a map (rather than a single cached value) so repository-selector
@@ -693,7 +696,7 @@ export class GitToolWindowProvider
 
     // Parsed-remote cache must be invalidated whenever a repository
     // mutates (e.g. the user runs `git remote set-url`), otherwise
-    // `_getDetailsPanelHtml` keeps rendering issue/PR links against the old
+    // `_getDetailsPanelModel` keeps building issue/PR links against the old
     // forge URL until the extension reloads. Subscribe once per attached
     // service and drop both the prior subscription and any stale cache
     // entries on re-attach.
@@ -1215,10 +1218,9 @@ export class GitToolWindowProvider
           changedFiles,
           changedFilesError: error ? String(error) : undefined,
         };
-        const detailsHtml = this._getDetailsPanelHtml(commitDetails);
         void this._view.webview.postMessage({
           type: 'updateDetailsPanel',
-          html: detailsHtml,
+          model: this._getDetailsPanelModel(commitDetails),
         });
       }
     }
@@ -1298,12 +1300,12 @@ export class GitToolWindowProvider
     this._onDidSelectCommit.fire(hash);
   }
 
-  getDetailsPanelHtml(details: ICommitDetails): string {
-    return this._getDetailsPanelHtml(details);
+  getDetailsPanelModel(details: ICommitDetails): DetailsPanelModel {
+    return this._getDetailsPanelModel(details);
   }
 
-  getDetailsPanelPlaceholderHtml(): string {
-    return this._getDetailsPanelPlaceholderHtml();
+  getDetailsPanelPlaceholderModel(): DetailsPanelModel {
+    return buildDetailsPanelPlaceholderModel();
   }
 
   /**
@@ -1519,10 +1521,9 @@ export class GitToolWindowProvider
     }
     const node = this._extendedLogState.commitNodes.find((n) => n.commit.hash === expanded);
     if (!node) {
-      const placeholderHtml = this._getDetailsPanelPlaceholderHtml();
       void this._view.webview.postMessage({
         type: 'updateDetailsPanel',
-        html: placeholderHtml,
+        model: buildDetailsPanelPlaceholderModel(),
       });
       return;
     }
@@ -1537,10 +1538,9 @@ export class GitToolWindowProvider
       tags: node.tags || [],
       changedFiles: [],
     };
-    const detailsHtml = this._getDetailsPanelHtml(commitDetails);
     void this._view.webview.postMessage({
       type: 'updateDetailsPanel',
-      html: detailsHtml,
+      model: this._getDetailsPanelModel(commitDetails),
     });
   }
 
@@ -2707,9 +2707,11 @@ export class GitToolWindowProvider
       totalAvailable,
       this._scrollToCommitHash
     );
-    const detailsPanelHtml = commitDetails
-      ? this._getDetailsPanelHtml(commitDetails)
-      : this._getDetailsPanelPlaceholderHtml();
+    // The Details Panel is built client-side via createElement from this model;
+    // #details-panel ships empty and the inline script fills it on load.
+    const detailsPanelModel = commitDetails
+      ? this._getDetailsPanelModel(commitDetails)
+      : buildDetailsPanelPlaceholderModel();
 
     // Clear the scroll target after rendering so it's only used once
     this._scrollToCommitHash = undefined;
@@ -2728,9 +2730,7 @@ export class GitToolWindowProvider
       ${graphPanelHtml}
     </div>
     <div class="panel-divider" data-divider="0" role="separator" aria-label="Resize Graph and Details panels" tabindex="0"></div>
-    <div id="details-panel" class="panel" style="width: ${detailsWidth}%;" role="region" aria-label="Details Panel">
-      ${detailsPanelHtml}
-    </div>
+    <div id="details-panel" class="panel" style="width: ${detailsWidth}%;" role="region" aria-label="Details Panel"></div>
     ${commitContextMenuHtml}
     <div id="ref-popup" class="context-menu" hidden role="menu" aria-label="Branches at this commit"></div>
   </div>`;
@@ -2789,6 +2789,7 @@ export class GitToolWindowProvider
 ${bodyMarkup}
 
   <script nonce="${nonce}">
+    window.__intelligInitialDetails = ${JSON.stringify(detailsPanelModel).replace(/</g, '\\u003c')};
     ${this._getInlineScript()}
     ${this._getDividerDragScript()}
     ${this._getColumnResizeScript()}
@@ -3479,7 +3480,7 @@ ${bodyMarkup}
    *   call from production code outside this class"; the `public`
    *   visibility is intentional contract for white-box testability,
    *   matching the existing pattern (`_getGraphPanelHtml`,
-   *   `_getMultiCommitDetailsPanelHtml`, etc.).
+   *   `_getMultiCommitDetailsPanelModel`, etc.).
    */
   public _getBranchLabelsHtml(node: ICommitNode): string {
     const hasBranches = !!node.branches && node.branches.length > 0;
@@ -3729,45 +3730,28 @@ ${bodyMarkup}
    * - Colors follow IntelliJ conventions via INTELLIJ_FILE_STATUS_COLORS
    *
    * @param commitDetails - The commit details data to render
-   * @returns HTML string for the details panel content
+   * @returns the details-panel render-model (built into DOM client-side)
    */
-  public _getDetailsPanelHtml(commitDetails: ICommitDetails): string {
-    return buildDetailsPanelHtml(this, commitDetails);
+  public _getDetailsPanelModel(commitDetails: ICommitDetails): DetailsPanelModel {
+    return buildDetailsPanelModel(this, commitDetails);
   }
 
   /**
-   * Get placeholder HTML for the Details Panel when no commit is selected.
-   *
-   * a placeholder message indicating that a commit should be selected.
-   *
-   * @returns HTML string for the placeholder state
-   */
-  public _getDetailsPanelPlaceholderHtml(): string {
-    return buildDetailsPanelPlaceholderHtml();
-  }
-
-  /**
-   * Generate HTML for the Details Panel when multiple commits are selected.
-   * Displays a header showing how many commits are selected, a list of selected
-   * commit hashes/messages, and the combined changed files list with IntelliJ-style
-   * color coding.
-   *
-   * The combined changed files are computed by merging the changed files from all
-   * selected commits, deduplicating by path and keeping the most recent status.
-   *
-   * display the combined changes across all selected commits.
+   * Build the Details Panel render-model when multiple commits are selected.
+   * Carries a header count, the per-commit short-hash/summary list, and the
+   * combined changed-files tree (deduplicated by path, most-recent status kept).
    *
    * @param commitDetailsList - Array of commit details for the selected commits
    * @param combinedChangedFiles - Optional pre-computed combined changed files
    *   (e.g., from GitService.getMultiCommitDiff()). If not provided, the method
    *   merges changed files from the individual commit details.
-   * @returns HTML string for the multi-commit details panel
+   * @returns the multi-commit details-panel render-model
    */
-  public _getMultiCommitDetailsPanelHtml(
+  public _getMultiCommitDetailsPanelModel(
     commitDetailsList: ICommitDetails[],
     combinedChangedFiles?: IChangedFile[]
-  ): string {
-    return buildMultiCommitDetailsPanelHtml(commitDetailsList, combinedChangedFiles);
+  ): DetailsPanelModel {
+    return buildMultiCommitDetailsPanelModel(commitDetailsList, combinedChangedFiles);
   }
 
   /**

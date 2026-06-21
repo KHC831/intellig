@@ -16,6 +16,7 @@ import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider'
 import { ICommitNode, IGraphLine, IBranchRef } from '../../src/git-core/commitGraph';
 import { ICommit, IAuthor } from '../../src/git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
+import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -295,7 +296,9 @@ describe('Feature: intellig-ui-fixes - Commit Selection Details Property Tests',
               changedFiles: [],
             };
 
-            const detailsHtml = testProvider._getDetailsPanelHtml(commitDetails);
+            const detailsHtml = renderDetailsPanelHtml(
+              testProvider._getDetailsPanelModel(commitDetails)
+            );
 
             // Verify the details HTML contains the commit hash
             assert.ok(

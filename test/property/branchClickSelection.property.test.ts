@@ -16,6 +16,7 @@ import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider'
 import { ICommitNode, IGraphLine, IBranchRef } from '../../src/git-core/commitGraph';
 import { ICommit, IAuthor } from '../../src/git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
+import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
 import { invokePrivateHandler } from '../typed/privateHandler';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
@@ -378,7 +379,9 @@ describe('Feature: intellig-ui-fixes - Branch Click Selection Property Tests', (
                 changedFiles: [],
               };
 
-              const detailsHtml = testProvider._getDetailsPanelHtml(commitDetails);
+              const detailsHtml = renderDetailsPanelHtml(
+                testProvider._getDetailsPanelModel(commitDetails)
+              );
 
               // The details HTML should contain the commit hash
               assert.ok(

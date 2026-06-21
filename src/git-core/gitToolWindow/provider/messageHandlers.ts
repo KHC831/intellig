@@ -234,17 +234,15 @@ export function selectCommit(ctx: IGtwControllerContext, hash: string): void {
         tags: node.tags || [],
         changedFiles: [],
       };
-      const detailsHtml = ctx.getDetailsPanelHtml(commitDetails);
       ctx.postToWebview({
         type: 'updateDetailsPanel',
-        html: detailsHtml,
+        model: ctx.getDetailsPanelModel(commitDetails),
       });
     } else {
       // Commit not found — show placeholder
-      const placeholderHtml = ctx.getDetailsPanelPlaceholderHtml();
       ctx.postToWebview({
         type: 'updateDetailsPanel',
-        html: placeholderHtml,
+        model: ctx.getDetailsPanelPlaceholderModel(),
       });
     }
   }

@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails } from '../../src/services/interfaces';
 import { Uri } from '../mocks/vscode';
+import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
 
 /**
  * Property-based tests for Full Message Display in the Details Panel.
@@ -80,7 +81,7 @@ describe('Full Message Display Property Tests', () => {
     it('Property: HTML contains both message and body in commit-full-message element', () => {
       fc.assert(
         fc.property(commitDetailsWithBodyArb, (commitDetails) => {
-          const html = provider._getDetailsPanelHtml(commitDetails);
+          const html = renderDetailsPanelHtml(provider._getDetailsPanelModel(commitDetails));
 
           // The HTML should contain the message text
           assert.ok(

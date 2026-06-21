@@ -17,6 +17,7 @@ import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider'
 import { ICommitDetails, IChangedFile } from '../../src/services/interfaces';
 import { FileStatus } from '../../src/git-core/interfaces/IGitService';
 import { Uri } from '../mocks/vscode';
+import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
 
 // ─── Generators ───────────────────────────────────────────────────────────────
 
@@ -217,7 +218,7 @@ describe('Feature: intellig-layout - Details Panel Property Tests', () => {
     it('Feature: intellig-layout, Property 9: Details panel contains commit metadata and changed files — HTML contains full hash, author name, email, date, message, and all file paths with status indicators', () => {
       fc.assert(
         fc.property(arbitraryCommitDetails(), (commitDetails) => {
-          const html = provider._getDetailsPanelHtml(commitDetails);
+          const html = renderDetailsPanelHtml(provider._getDetailsPanelModel(commitDetails));
 
           // 1. Full commit hash must be present
           assert.ok(

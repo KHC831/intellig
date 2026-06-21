@@ -5,6 +5,7 @@
 import type { ICommitDetails } from '../../../services/interfaces';
 import type { IExtendedLogState } from '../GitToolWindowProvider';
 import type { IRemoteUrl } from '../../../utils/remoteUrl';
+import type { DetailsPanelModel } from './detailsPanelModel';
 
 /**
  * The slice of the Git tool window provider that extracted builder and
@@ -93,10 +94,10 @@ export interface IGtwControllerContext {
    * selection without gaining subscribe or dispose access to the emitter.
    */
   fireDidSelectCommit(hash: string): void;
-  /** Render the details-panel HTML for the given commit. */
-  getDetailsPanelHtml(details: ICommitDetails): string;
-  /** Render the empty/placeholder details-panel HTML. */
-  getDetailsPanelPlaceholderHtml(): string;
+  /** Build the details-panel render-model for the given commit. */
+  getDetailsPanelModel(details: ICommitDetails): DetailsPanelModel;
+  /** Build the empty/placeholder details-panel render-model. */
+  getDetailsPanelPlaceholderModel(): DetailsPanelModel;
   /**
    * Whether issue/PR auto-linking is enabled. Delegates to the provider's
    * config read so the `intellig.commitMessageIssueLinks` flag lookup stays

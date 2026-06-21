@@ -12,6 +12,33 @@ import {
 import { ICommitDetails } from '../../../src/services/interfaces';
 import { IRepository } from '../../../src/git-core/interfaces/IGitService';
 import { Uri, setMockConfigValue } from '../../mocks/vscode';
+import {
+  renderDetailsPanel as renderModelPanel,
+  renderDetailsPanelHtml as renderModelHtml,
+} from '../../helpers/detailsPanelDom';
+
+/**
+ * The Details Panel is built client-side via createElement (see
+ * scriptBuilder.buildDetailsPanelDom) from a host render-model. These tests
+ * pin the RENDERED markup, so they build the panel from a model in jsdom and
+ * assert against the built DOM (or its serialized `outerHTML`) — the same
+ * surface the old `_getDetailsPanelHtml` string was, now produced by the real
+ * client builder.
+ */
+
+/** Render the single-commit Details Panel HTML for the given commit. */
+function renderDetails(provider: GitToolWindowProvider, details: ICommitDetails): string {
+  return renderModelHtml(provider._getDetailsPanelModel(details));
+}
+
+/** Render the multi-commit Details Panel HTML. */
+function renderMulti(
+  provider: GitToolWindowProvider,
+  list: ICommitDetails[],
+  combined?: Parameters<GitToolWindowProvider['_getMultiCommitDetailsPanelModel']>[1]
+): string {
+  return renderModelHtml(provider._getMultiCommitDetailsPanelModel(list, combined));
+}
 
 /**
  * Helper to create a minimal ICommitDetails for testing.
@@ -45,7 +72,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
   describe('Commit metadata display', () => {
     it('should display the commit message', () => {
       const details = makeCommitDetails({ message: 'Implement new feature' });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Implement new feature'), 'Should contain the commit message');
     });
@@ -55,7 +82,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         message: 'Short summary',
         body: 'Detailed body explaining the change',
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Short summary'), 'Should contain the message');
       assert.ok(html.includes('Detailed body explaining the change'), 'Should contain the body');
@@ -64,7 +91,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     it('should display the full commit hash', () => {
       const hash = 'abc1234567890abcdef1234567890abcdef123456';
       const details = makeCommitDetails({ hash });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes(hash), 'Should contain the full hash');
     });
@@ -73,7 +100,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         author: { name: 'Jane Smith', email: 'jane@example.com' },
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Jane Smith'), 'Should contain the author name');
     });
@@ -82,7 +109,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         author: { name: 'Jane Smith', email: 'jane@example.com' },
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('jane@example.com'), 'Should contain the author email');
     });
@@ -90,7 +117,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     it('should display the commit date', () => {
       const date = new Date('2024-01-15T10:30:00Z');
       const details = makeCommitDetails({ date });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       const dateStr = date.toLocaleString();
       assert.ok(html.includes(dateStr), 'Should contain the formatted date');
@@ -102,7 +129,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         'bbb2222222222222222222222222222222222222222',
       ];
       const details = makeCommitDetails({ parents });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('aaa1111'), 'Should contain short form of first parent');
       assert.ok(html.includes('bbb2222'), 'Should contain short form of second parent');
@@ -110,42 +137,42 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
     it('should display "None (root commit)" when there are no parents', () => {
       const details = makeCommitDetails({ parents: [] });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('None (root commit)'), 'Should indicate root commit');
     });
 
     it('should have a "Parents:" label', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Parents:'), 'Should have Parents label');
     });
 
     it('should have a "Hash:" label', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Hash:'), 'Should have Hash label');
     });
 
     it('should have an "Author:" label', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Author:'), 'Should have Author label');
     });
 
     it('should have a "Date:" label', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Date:'), 'Should have Date label');
     });
 
     it('should have a "Message:" label', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Message:'), 'Should have Message label');
     });
@@ -159,7 +186,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
           { path: 'src/new-file.ts', status: 'added' },
         ],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('main.ts'), 'Should contain the file name');
       assert.ok(html.includes('new-file.ts'), 'Should contain the second file name');
@@ -169,7 +196,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       // The status indicator should contain 'M'
       const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*M[\s]*<\/span>/);
@@ -180,7 +207,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/new.ts', status: 'added' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*A[\s]*<\/span>/);
       assert.ok(statusMatch, 'Should have A status indicator for added files');
@@ -190,7 +217,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/old.ts', status: 'deleted' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*D[\s]*<\/span>/);
       assert.ok(statusMatch, 'Should have D status indicator for deleted files');
@@ -200,7 +227,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/renamed.ts', status: 'renamed', oldPath: 'src/original.ts' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*R[\s]*<\/span>/);
       assert.ok(statusMatch, 'Should have R status indicator for renamed files');
@@ -210,7 +237,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes(INTELLIJ_FILE_STATUS_COLORS.modified),
@@ -222,7 +249,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/new.ts', status: 'added' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes(INTELLIJ_FILE_STATUS_COLORS.added),
@@ -234,7 +261,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/old.ts', status: 'deleted' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes(INTELLIJ_FILE_STATUS_COLORS.deleted),
@@ -246,7 +273,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/renamed.ts', status: 'renamed', oldPath: 'src/original.ts' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes(INTELLIJ_FILE_STATUS_COLORS.renamed),
@@ -258,7 +285,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/utils/helpers.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('helpers.ts'), 'Should contain the file name');
       assert.ok(html.includes('src/utils'), 'Should contain the directory path');
@@ -268,14 +295,14 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/new-name.ts', status: 'renamed', oldPath: 'src/old-name.ts' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('src/old-name.ts'), 'Should show the old path for renamed files');
     });
 
     it('should display "No changed files" when the list is empty', () => {
       const details = makeCommitDetails({ changedFiles: [] });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('No changed files'), 'Should show empty message');
     });
@@ -288,7 +315,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
           { path: 'src/c.ts', status: 'deleted' },
         ],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('Changed Files (3)'), 'Should show file count');
     });
@@ -297,14 +324,14 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
   describe('HTML structure and accessibility', () => {
     it('should have role="region" on the details panel', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('role="region"'), 'Should have region role');
     });
 
     it('should have aria-label="Commit Details"', () => {
       const details = makeCommitDetails();
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('aria-label="Commit Details"'), 'Should have aria-label');
     });
@@ -313,7 +340,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       // The Changed Files panel is now a collapsible directory tree, so the
       // container carries tree semantics rather than a flat list.
@@ -327,7 +354,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(html.includes('role="treeitem"'), 'Should have treeitem role on file rows');
     });
@@ -336,7 +363,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         message: 'Fix <script>alert("xss")</script> bug',
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(!html.includes('<script>'), 'Should escape script tags');
       assert.ok(html.includes('&lt;script&gt;'), 'Should have escaped script tags');
@@ -346,18 +373,31 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         author: { name: "O'Brien & Co <test>", email: 'test@example.com' },
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(!html.includes('<test>'), 'Should escape angle brackets in author name');
     });
 
-    it('should escape HTML special characters in file paths', () => {
+    it('should render file paths as inert text (no script injection)', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/<script>.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const panel = renderModelPanel(provider._getDetailsPanelModel(details));
 
-      assert.ok(!html.includes('<script>.ts'), 'Should escape script tags in file paths');
+      // The path crosses as data: the visible file name is set via textContent
+      // (serializes escaped) and the raw path rides in a quoted data attribute —
+      // neither can introduce a parsed <script> element.
+      assert.strictEqual(panel.querySelector('script'), null, 'no <script> element injected');
+      assert.strictEqual(
+        panel.querySelector('.changed-file-item')?.getAttribute('data-path'),
+        'src/<script>.ts',
+        'raw path preserved safely in the data attribute'
+      );
+      assert.strictEqual(
+        panel.querySelector('.file-name')?.textContent?.trim(),
+        '<script>.ts',
+        'file name rendered as inert text'
+      );
     });
   });
 
@@ -366,7 +406,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes('data-commit-hash="') && html.includes('data-path="'),
@@ -380,7 +420,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
         hash,
         changedFiles: [{ path: 'src/main.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes(`data-commit-hash="${hash}"`),
@@ -392,7 +432,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: 'src/utils/helpers.ts', status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       assert.ok(
         html.includes('data-path="src/utils/helpers.ts"'),
@@ -407,7 +447,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
           { path: 'src/b.ts', status: 'added' },
         ],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       const matches = html.match(/data-commit-hash="/g);
       assert.strictEqual(
@@ -421,7 +461,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       const details = makeCommitDetails({
         changedFiles: [{ path: "src/file'name.ts", status: 'modified' }],
       });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
 
       // The path should be HTML-escaped in the data attribute
       assert.ok(
@@ -437,7 +477,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
   describe('Placeholder state when no commit is selected', () => {
     it('should return placeholder HTML with a message to select a commit', () => {
-      const html = provider._getDetailsPanelPlaceholderHtml();
+      const html = renderModelHtml(provider.getDetailsPanelPlaceholderModel());
 
       assert.ok(
         html.includes('Select a commit to view details'),
@@ -446,25 +486,25 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     });
 
     it('should have role="region" on the placeholder panel', () => {
-      const html = provider._getDetailsPanelPlaceholderHtml();
+      const html = renderModelHtml(provider.getDetailsPanelPlaceholderModel());
 
       assert.ok(html.includes('role="region"'), 'Should have region role');
     });
 
     it('should have aria-label="Commit Details" on the placeholder panel', () => {
-      const html = provider._getDetailsPanelPlaceholderHtml();
+      const html = renderModelHtml(provider.getDetailsPanelPlaceholderModel());
 
       assert.ok(html.includes('aria-label="Commit Details"'), 'Should have aria-label');
     });
 
     it('should have the details-panel class on the placeholder', () => {
-      const html = provider._getDetailsPanelPlaceholderHtml();
+      const html = renderModelHtml(provider.getDetailsPanelPlaceholderModel());
 
       assert.ok(html.includes('details-panel'), 'Should have details-panel class');
     });
 
     it('should have the placeholder-message class', () => {
-      const html = provider._getDetailsPanelPlaceholderHtml();
+      const html = renderModelHtml(provider.getDetailsPanelPlaceholderModel());
 
       assert.ok(html.includes('placeholder-message'), 'Should have placeholder-message class');
     });
@@ -486,21 +526,21 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     describe('Header display', () => {
       it('should display the number of selected commits', () => {
         const commits = makeMultipleCommitDetails(3);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('3 commits selected'), 'Should show "3 commits selected"');
       });
 
       it('should use singular "commit" for a single commit', () => {
         const commits = makeMultipleCommitDetails(1);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('1 commit selected'), 'Should show "1 commit selected"');
       });
 
       it('should display correct count for many commits', () => {
         const commits = makeMultipleCommitDetails(10);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('10 commits selected'), 'Should show "10 commits selected"');
       });
@@ -509,7 +549,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     describe('Selected commits list', () => {
       it('should display short hashes for each selected commit', () => {
         const commits = makeMultipleCommitDetails(3);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('hash000'), 'Should contain short hash of first commit');
         assert.ok(html.includes('hash100'), 'Should contain short hash of second commit');
@@ -518,7 +558,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
       it('should display commit messages for each selected commit', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('Commit message 1'), 'Should contain first commit message');
         assert.ok(html.includes('Commit message 2'), 'Should contain second commit message');
@@ -526,14 +566,14 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
       it('should have role="list" on the commits list container', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('role="list"'), 'Should have list role');
       });
 
       it('should have role="listitem" on each commit item', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         const matches = html.match(/class="multi-commit-item" role="listitem"/g);
         assert.strictEqual(matches?.length, 2, 'Should have listitem role on each commit');
@@ -554,7 +594,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [{ path: 'src/b.ts', status: 'added' }],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('a.ts'), 'Should contain file from first commit');
         assert.ok(html.includes('b.ts'), 'Should contain file from second commit');
@@ -573,7 +613,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [{ path: 'src/shared.ts', status: 'modified' }],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('Changed Files (1)'), 'Should show deduplicated count of 1');
       });
@@ -591,7 +631,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [{ path: 'src/file.ts', status: 'modified' }],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         // The file should show as modified (last status wins)
         const statusMatch = html.match(/class="file-status-indicator"[^>]*>[\s]*M[\s]*<\/span>/);
@@ -614,7 +654,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [{ path: 'src/c.ts', status: 'deleted' }],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('Changed Files (3)'), 'Should show total file count');
       });
@@ -632,7 +672,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('No changed files'), 'Should show empty message');
       });
@@ -649,7 +689,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             ],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(
           html.includes(INTELLIJ_FILE_STATUS_COLORS.modified),
@@ -671,7 +711,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
           { path: 'src/combined-a.ts', status: 'modified' as const },
           { path: 'src/combined-b.ts', status: 'added' as const },
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits, combinedFiles);
+        const html = renderMulti(provider, commits, combinedFiles);
 
         assert.ok(html.includes('combined-a.ts'), 'Should contain pre-computed file');
         assert.ok(html.includes('combined-b.ts'), 'Should contain pre-computed file');
@@ -682,28 +722,28 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
     describe('HTML structure and accessibility', () => {
       it('should have role="region" on the multi-commit details panel', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('role="region"'), 'Should have region role');
       });
 
       it('should have aria-label="Multi-Commit Details"', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('aria-label="Multi-Commit Details"'), 'Should have aria-label');
       });
 
       it('should have the details-panel class', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('details-panel'), 'Should have details-panel class');
       });
 
       it('should have the multi-commit-details class', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(html.includes('multi-commit-details'), 'Should have multi-commit-details class');
       });
@@ -716,7 +756,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(!html.includes('<script>'), 'Should escape script tags');
         assert.ok(html.includes('&lt;script&gt;'), 'Should have escaped script tags');
@@ -724,7 +764,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
 
       it('should have aria-label="Selected Commits" on the commits list', () => {
         const commits = makeMultipleCommitDetails(2);
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(
           html.includes('aria-label="Selected Commits"'),
@@ -740,7 +780,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
             changedFiles: [{ path: 'src/a.ts', status: 'modified' }],
           }),
         ];
-        const html = provider._getMultiCommitDetailsPanelHtml(commits);
+        const html = renderMulti(provider, commits);
 
         assert.ok(
           html.includes('aria-label="Changed Files"'),
@@ -768,7 +808,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       provider.setAvailableRepositories([makeRepoWithGitHub()]);
       setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
       const details = makeCommitDetails({ message: 'fix: close #42' });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
       assert.ok(
         html.includes('<a class="commit-issue-link"'),
         `expected an anchor tag for the issue ref; got:\n${html}`
@@ -783,7 +823,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       provider.setAvailableRepositories([makeRepoWithGitHub()]);
       setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
       const details = makeCommitDetails({ message: 'GH-99 and PROJECT-123: cleanup' });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
       assert.ok(html.includes('>GH-99</a>'), `expected GH-99 anchor; got: ${html}`);
       assert.ok(html.includes('>PROJECT-123</a>'), `expected PROJECT-123 anchor; got: ${html}`);
     });
@@ -792,7 +832,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       provider.setAvailableRepositories([makeRepoWithGitHub()]);
       setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
       const details = makeCommitDetails({ message: 'see abc#42 for context' });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
       assert.ok(
         !html.includes('<a class="commit-issue-link"'),
         `expected no issue-link anchors; got: ${html}`
@@ -804,7 +844,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       provider.setAvailableRepositories([makeRepoWithGitHub()]);
       setMockConfigValue('intellig', 'commitMessageIssueLinks', false);
       const details = makeCommitDetails({ message: 'fix: close #42' });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
       assert.ok(
         !html.includes('<a class="commit-issue-link"'),
         `flag off → no anchors; got: ${html}`
@@ -825,7 +865,7 @@ describe('GitToolWindowProvider - _getDetailsPanelHtml()', () => {
       provider.setAvailableRepositories([repo]);
       setMockConfigValue('intellig', 'commitMessageIssueLinks', true);
       const details = makeCommitDetails({ message: 'fix: close #42' });
-      const html = provider._getDetailsPanelHtml(details);
+      const html = renderDetails(provider, details);
       assert.ok(
         !html.includes('<a class="commit-issue-link"'),
         `no anchors without a remote; got: ${html}`
@@ -990,260 +1030,133 @@ describe('git-view-layout-parity / snap-changed-files-tree — Changed Files dir
     ];
   }
 
-  /**
-   * Extract the `.changed-files-list` fragment (its opening tag through its
-   * matching closing `</div>`) from a rendered details-panel HTML string, then
-   * trim trailing whitespace per line so the frozen literal is robust to the
-   * renderer's invisible template whitespace (documented normalization above).
-   */
-  function extractChangedFilesList(html: string): string {
-    const marker = '<div class="changed-files-list" role="tree" aria-label="Changed Files">';
-    const startIdx = html.indexOf(marker);
-    assert.ok(startIdx >= 0, 'rendered panel must contain the changed-files-list container');
-    const after = html.slice(startIdx);
-    // The container `</div>` is immediately followed by the
-    // details-changed-files `</div>` on the next line; this sequence is the
-    // unique terminator. The tree's own nested `.changed-dir-children`
-    // closers are inline (no newline before them), so they don't match.
-    const closeSeq = '</div>\n        </div>';
-    const endIdx = after.indexOf(closeSeq);
-    assert.ok(endIdx >= 0, 'changed-files-list container must be closed');
-    const fragment = after.slice(0, endIdx + '</div>'.length);
-    return fragment
-      .split('\n')
-      .map((line) => line.replace(/\s+$/, ''))
-      .join('\n');
-  }
-
-  // The single-commit tree: identical structure to the combined tree below,
-  // but every file leaf carries `data-commit-hash`.
-  const EXPECTED_SINGLE_COMMIT_TREE = `<div class="changed-files-list" role="tree" aria-label="Changed Files">
-
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" tabindex="0" style="padding-left: 4px;">
-            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
-            <span class="dir-name">src/main/java</span>
-          </div>
-          <div class="changed-dir-children" role="group" id="dir-children-0">
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" tabindex="0" style="padding-left: 20px;">
-            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
-            <span class="dir-name">util</span>
-          </div>
-          <div class="changed-dir-children" role="group" id="dir-children-1">
-          <div class="changed-file-item"
-               data-path="src/main/java/util/Helpers.java"
-               data-status="added"
-               data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 36px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-addedResourceForeground, #629755);" title="added">
-              A
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-addedResourceForeground, #629755);">
-              Helpers.java
-            </span>
-
-          </div></div>
-          <div class="changed-file-item"
-               data-path="src/main/java/App.java"
-               data-status="modified"
-               data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 20px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
-              M
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);">
-              App.java
-            </span>
-
-          </div>
-          <div class="changed-file-item"
-               data-path="src/main/java/Renamed.java"
-               data-status="renamed"
-               data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 20px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-renamedResourceForeground, #6897BB);" title="renamed">
-              R
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-renamedResourceForeground, #6897BB);">
-              Renamed.java
-            </span>
-             <span class="rename-arrow">←</span> <span class="old-path" title="src/main/java/Old.java">src/main/java/Old.java</span>
-          </div></div>
-          <div class="changed-file-item"
-               data-path="README.md"
-               data-status="modified"
-               data-commit-hash="abc1234567890abcdef1234567890abcdef123456"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 4px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
-              M
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);">
-              README.md
-            </span>
-
-          </div>
-          </div>`;
-
-  // The combined multi-commit tree: byte-identical to the single-commit tree
-  // EXCEPT it has no `data-commit-hash` line on any leaf (the combined view's
-  // leaves carry no single commit hash).
-  const EXPECTED_COMBINED_TREE = `<div class="changed-files-list" role="tree" aria-label="Changed Files">
-
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" tabindex="0" style="padding-left: 4px;">
-            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
-            <span class="dir-name">src/main/java</span>
-          </div>
-          <div class="changed-dir-children" role="group" id="dir-children-0">
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" tabindex="0" style="padding-left: 20px;">
-            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
-            <span class="dir-name">util</span>
-          </div>
-          <div class="changed-dir-children" role="group" id="dir-children-1">
-          <div class="changed-file-item"
-               data-path="src/main/java/util/Helpers.java"
-               data-status="added"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 36px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-addedResourceForeground, #629755);" title="added">
-              A
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-addedResourceForeground, #629755);">
-              Helpers.java
-            </span>
-
-          </div></div>
-          <div class="changed-file-item"
-               data-path="src/main/java/App.java"
-               data-status="modified"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 20px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
-              M
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);">
-              App.java
-            </span>
-
-          </div>
-          <div class="changed-file-item"
-               data-path="src/main/java/Renamed.java"
-               data-status="renamed"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 20px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-renamedResourceForeground, #6897BB);" title="renamed">
-              R
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-renamedResourceForeground, #6897BB);">
-              Renamed.java
-            </span>
-             <span class="rename-arrow">←</span> <span class="old-path" title="src/main/java/Old.java">src/main/java/Old.java</span>
-          </div></div>
-          <div class="changed-file-item"
-               data-path="README.md"
-               data-status="modified"
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: 4px;">
-            <span class="file-status-indicator" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);" title="modified">
-              M
-            </span>
-            <span class="file-name" style="color: var(--vscode-gitDecoration-modifiedResourceForeground, #6897BB);">
-              README.md
-            </span>
-
-          </div>
-          </div>`;
-
-  it('snap-tree-1: single-commit panel freezes the nested tree WITH data-commit-hash (Req 2.11, 2.12)', () => {
+  it('snap-tree-1: single-commit tree nests directories with data-commit-hash on every file leaf (Req 2.11, 2.12)', () => {
     const details = makeCommitDetails({
       hash: TREE_FIXTURE_HASH,
       changedFiles: makeTreeFixtureFiles(),
     });
-    const html = treeProvider._getDetailsPanelHtml(details);
-
-    assert.strictEqual(extractChangedFilesList(html), EXPECTED_SINGLE_COMMIT_TREE);
+    const list = renderModelPanel(treeProvider._getDetailsPanelModel(details)).querySelector(
+      '.changed-files-list'
+    );
+    assert.ok(list, 'changed-files-list must render');
+    const dirNames = Array.from(list.querySelectorAll('.dir-name')).map((n) => n.textContent);
+    assert.deepStrictEqual(dirNames, ['src/main/java', 'util'], 'compacted + nested dir labels');
+    const leaves = Array.from(list.querySelectorAll('.changed-file-item'));
+    assert.strictEqual(leaves.length, 4, 'four file leaves');
+    leaves.forEach((l) =>
+      assert.strictEqual(
+        l.getAttribute('data-commit-hash'),
+        TREE_FIXTURE_HASH,
+        'every single-commit leaf carries data-commit-hash'
+      )
+    );
+    const paths = leaves.map((l) => l.getAttribute('data-path'));
+    assert.deepStrictEqual(
+      paths.slice().sort(),
+      [
+        'README.md',
+        'src/main/java/App.java',
+        'src/main/java/Renamed.java',
+        'src/main/java/util/Helpers.java',
+      ],
+      'all fixture paths present'
+    );
   });
 
-  it('snap-tree-2: multi-commit combined panel freezes the SAME tree WITHOUT data-commit-hash (Req 2.11, 2.12)', () => {
+  it('snap-tree-2: multi-commit combined tree has the SAME structure WITHOUT data-commit-hash (Req 2.11, 2.12)', () => {
     const commits = [
       makeCommitDetails({ hash: TREE_FIXTURE_HASH, message: 'C1', changedFiles: [] }),
     ];
-    const html = treeProvider._getMultiCommitDetailsPanelHtml(commits, makeTreeFixtureFiles());
-
-    assert.strictEqual(extractChangedFilesList(html), EXPECTED_COMBINED_TREE);
+    const list = renderModelPanel(
+      treeProvider._getMultiCommitDetailsPanelModel(commits, makeTreeFixtureFiles())
+    ).querySelector('.changed-files-list');
+    assert.ok(list, 'changed-files-list must render');
+    const dirNames = Array.from(list.querySelectorAll('.dir-name')).map((n) => n.textContent);
+    assert.deepStrictEqual(dirNames, ['src/main/java', 'util'], 'same nested dir labels');
+    const leaves = Array.from(list.querySelectorAll('.changed-file-item'));
+    assert.strictEqual(leaves.length, 4, 'four file leaves');
+    leaves.forEach((l) =>
+      assert.strictEqual(
+        l.getAttribute('data-commit-hash'),
+        null,
+        'combined-view leaves carry NO data-commit-hash'
+      )
+    );
   });
 
   it('snap-tree-3: single-commit leaves carry data-commit-hash; combined leaves do not (Req 2.11)', () => {
-    const singleHtml = treeProvider._getDetailsPanelHtml(
-      makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
+    const singlePanel = renderModelPanel(
+      treeProvider._getDetailsPanelModel(
+        makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
+      )
     );
-    const combinedHtml = treeProvider._getMultiCommitDetailsPanelHtml(
-      [makeCommitDetails({ hash: TREE_FIXTURE_HASH, message: 'C1', changedFiles: [] })],
-      makeTreeFixtureFiles()
+    const combinedPanel = renderModelPanel(
+      treeProvider._getMultiCommitDetailsPanelModel(
+        [makeCommitDetails({ hash: TREE_FIXTURE_HASH, message: 'C1', changedFiles: [] })],
+        makeTreeFixtureFiles()
+      )
     );
-
-    const singleTree = extractChangedFilesList(singleHtml);
-    const combinedTree = extractChangedFilesList(combinedHtml);
-
-    // Four file leaves in the fixture → four data-commit-hash attributes on the
-    // single-commit tree, zero on the combined tree.
-    const singleHashCount = (singleTree.match(/data-commit-hash="/g) ?? []).length;
     assert.strictEqual(
-      singleHashCount,
+      singlePanel.querySelectorAll('.changed-file-item[data-commit-hash]').length,
       4,
       'every single-commit file leaf must carry data-commit-hash'
     );
-    assert.ok(
-      !combinedTree.includes('data-commit-hash'),
+    assert.strictEqual(
+      combinedPanel.querySelectorAll('.changed-file-item[data-commit-hash]').length,
+      0,
       'combined-view file leaves must NOT carry data-commit-hash'
     );
   });
 
   it('snap-tree-4: every emitted row (directory and file) carries role="treeitem" (Req 2.10)', () => {
-    const html = treeProvider._getDetailsPanelHtml(
-      makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
+    const list = renderModelPanel(
+      treeProvider._getDetailsPanelModel(
+        makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
+      )
+    ).querySelector('.changed-files-list');
+    assert.ok(list, 'changed-files-list must render');
+    assert.strictEqual(
+      list.querySelectorAll('.changed-dir-item[role="treeitem"]').length,
+      2,
+      'fixture must emit 2 directory rows'
     );
-    const tree = extractChangedFilesList(html);
-
-    // 2 directory rows + 4 file rows = 6 rows, each with role="treeitem".
-    const dirRows = (tree.match(/class="changed-dir-item" role="treeitem"/g) ?? []).length;
-    const fileRows = (tree.match(/class="changed-file-item"/g) ?? []).length;
-    const treeitemCount = (tree.match(/role="treeitem"/g) ?? []).length;
-
-    assert.strictEqual(dirRows, 2, 'fixture must emit 2 directory rows');
-    assert.strictEqual(fileRows, 4, 'fixture must emit 4 file rows');
-    assert.strictEqual(treeitemCount, 6, 'every directory and file row must carry role="treeitem"');
+    assert.strictEqual(
+      list.querySelectorAll('.changed-file-item[role="treeitem"]').length,
+      4,
+      'fixture must emit 4 file rows'
+    );
+    assert.strictEqual(
+      list.querySelectorAll('[role="treeitem"]').length,
+      6,
+      'every directory and file row must carry role="treeitem"'
+    );
   });
 
   it('snap-tree-5: pins the compacted directory label and nested directory row (Req 2.12, 2.14)', () => {
-    const html = treeProvider._getDetailsPanelHtml(
-      makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
-    );
-    const tree = extractChangedFilesList(html);
-
-    // src→main→java compacts into one collapsible label at depth 0 (padding-left 4px).
+    const list = renderModelPanel(
+      treeProvider._getDetailsPanelModel(
+        makeCommitDetails({ hash: TREE_FIXTURE_HASH, changedFiles: makeTreeFixtureFiles() })
+      )
+    ).querySelector('.changed-files-list');
+    assert.ok(list, 'changed-files-list must render');
+    const dirs = Array.from(list.querySelectorAll('.changed-dir-item'));
+    // src->main->java compacts into one collapsible label at depth 0 (padding-left 4px).
+    const top = dirs.find((d) => d.querySelector('.dir-name')?.textContent === 'src/main/java');
+    assert.ok(top, 'compacted src/main/java directory row must exist');
     assert.ok(
-      tree.includes(
-        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-0" tabindex="0" style="padding-left: 4px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">src/main/java</span>'
-      ),
-      'compacted src/main/java directory label must be pinned at padding-left 4px with a down-chevron'
+      top.getAttribute('style')?.includes('padding-left: 4px'),
+      'compacted dir label pinned at padding-left 4px'
+    );
+    assert.ok(
+      top.querySelector('.dir-chevron.codicon.codicon-chevron-down'),
+      'compacted dir carries a down-chevron'
     );
     // util is a nested directory row at depth 1 (padding-left 20px).
+    const util = dirs.find((d) => d.querySelector('.dir-name')?.textContent === 'util');
+    assert.ok(util, 'nested util directory row must exist');
     assert.ok(
-      tree.includes(
-        '<div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="dir-children-1" tabindex="0" style="padding-left: 20px;">\n            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>\n            <span class="dir-name">util</span>'
-      ),
-      'nested util directory row must be pinned at padding-left 20px with a down-chevron'
+      util.getAttribute('style')?.includes('padding-left: 20px'),
+      'nested util dir pinned at padding-left 20px'
     );
   });
 });

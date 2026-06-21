@@ -3,6 +3,7 @@ import * as assert from 'assert';
 import { GitToolWindowProvider } from '../../src/ui-shell/GitToolWindowProvider';
 import { ICommitDetails, IChangedFile } from '../../src/services/interfaces';
 import { Uri } from '../mocks/vscode';
+import { renderDetailsPanelHtml } from '../helpers/detailsPanelDom';
 import { FileStatus } from '../../src/git-core/interfaces/IGitService';
 
 /**
@@ -145,7 +146,7 @@ describe('Changed Files Count and Attributes Property Tests', () => {
     it('Property: changed files count text and data attributes match commit details', () => {
       fc.assert(
         fc.property(commitDetailsWithFilesArb, (commitDetails) => {
-          const html = provider._getDetailsPanelHtml(commitDetails);
+          const html = renderDetailsPanelHtml(provider._getDetailsPanelModel(commitDetails));
           const n = commitDetails.changedFiles.length;
 
           // Assert: HTML contains "Changed Files (N)" with the correct count

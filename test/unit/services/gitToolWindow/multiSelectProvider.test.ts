@@ -27,6 +27,7 @@ import {
   type IExtendedLogState,
 } from '../../../../src/ui-shell/GitToolWindowProvider';
 import { Uri } from '../../../mocks/vscode';
+import { renderDetailsPanelHtml } from '../../../helpers/detailsPanelDom';
 
 interface MultiSelectInternals {
   _extendedLogState: IExtendedLogState;
@@ -378,7 +379,7 @@ describe('Wave A — provider integration', () => {
           changedFiles: [],
         },
       ];
-      const html = provider._getMultiCommitDetailsPanelHtml(commits);
+      const html = renderDetailsPanelHtml(provider._getMultiCommitDetailsPanelModel(commits));
       assert.ok(html.includes('2 commits selected'));
       assert.ok(html.includes('data-selected-count="2"'));
     });
