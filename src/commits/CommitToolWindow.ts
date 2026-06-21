@@ -319,18 +319,6 @@ export function gearMenuItems(): Array<{ label: string; tooltip: string }> {
   ];
 }
 
-/**
- * HTML-escape for safe attribute/text interpolation.
- */
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Message shapes
 // ─────────────────────────────────────────────────────────────────────────────

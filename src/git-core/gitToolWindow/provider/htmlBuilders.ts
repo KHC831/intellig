@@ -169,18 +169,6 @@ export function mergeChangedFiles(commitDetailsList: ICommitDetails[]): IChanged
 }
 
 /**
- * Truncate message to specified length
- */
-export function truncateMessage(message: string, maxLength: number): string {
-  // Get first line only
-  const firstLine = message.split('\n')[0];
-  if (firstLine.length <= maxLength) {
-    return firstLine;
-  }
-  return firstLine.substring(0, maxLength - 3) + '...';
-}
-
-/**
  * Get the commit context menu HTML overlay for the Graph Panel.
  * Renders a context menu with all 7 required options:
  * Copy Revision Number, Create Patch, Cherry-Pick, Checkout Revision,

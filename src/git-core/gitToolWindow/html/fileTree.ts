@@ -1,10 +1,10 @@
 /**
- * Changed Files directory tree — pure transform + (later) pure render.
+ * Changed Files directory tree — pure transform.
  *
  * `buildFileTree` turns the flat `IChangedFile[]` that the Details Panel
  * already has into a sorted, compacted directory forest matching IntelliJ's
- * folder nesting. The renderer (`renderFileTree`, added in a later task)
- * walks that forest to emit the nested Changed Files markup.
+ * folder nesting. The webview's `buildDetailsPanelDom` (scriptBuilder) walks an
+ * annotated form of that forest to build the nested Changed Files DOM.
  *
  * Everything here is pure — no `this`, no DOM, no I/O — so it is directly
  * unit- and property-testable and can be shared by both the single-commit
@@ -12,7 +12,6 @@
  */
 
 import type { IChangedFile } from '../../interfaces/IGitToolWindowProvider';
-import type { FileStatus } from '../../interfaces/IGitService';
 
 /** A node in the Changed Files directory tree. */
 export type FileTreeNode = IDirectoryNode | IFileLeaf;
@@ -158,173 +157,4 @@ function compareNodes(a: FileTreeNode, b: FileTreeNode): number {
     return a.kind === 'directory' ? -1 : 1;
   }
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-}
-
-// ─── Rendering ───────────────────────────────────────────────────────────────
-
-/**
- * Injected, presentation-only callbacks the renderer needs to emit a row.
- *
- * These mirror the provider's existing styling helpers (`_escapeHtml`,
- * `_getFileStatusColor`, `_getFileStatusChar`, `_getFileName`) so the leaf
- * markup is identical to today's `.changed-file-item` row. Passing them in
- * (rather than importing the provider) keeps `renderFileTree` pure and lets
- * the single-commit and multi-commit panels share one implementation.
- */
-export interface IFileTreeRenderDeps {
-  /** HTML-escape a user-controlled string (path, name, oldPath, hash). */
-  escapeHtml: (s: string) => string;
-  /** CSS color expression for a file status. */
-  statusColor: (status: FileStatus) => string;
-  /** Single-letter indicator for a file status (M, A, D, R, …). */
-  statusChar: (status: FileStatus) => string;
-  /** Base file name (last path segment) for display. */
-  fileName: (path: string) => string;
-  /**
-   * Commit hash for the per-leaf `data-commit-hash` attribute. Omitted on the
-   * multi-commit combined view, whose leaves carry no single commit hash —
-   * matching today's markup which has no `data-commit-hash` there.
-   */
-  commitHash?: string;
-}
-
-/** Indentation per directory level, in pixels. */
-const INDENT_STEP_PX = 16;
-/** Base left inset shared with the existing `.changed-file-item` padding. */
-const INDENT_BASE_PX = 4;
-
-/** Depth-derived `padding-left` so depth-0 rows keep the existing 4px inset. */
-function paddingLeftPx(depth: number): number {
-  return depth * INDENT_STEP_PX + INDENT_BASE_PX;
-}
-
-/**
- * Render a directory forest to the nested Changed Files markup.
- *
- * `depth` starts at 0 for the top level and increases by 1 per directory
- * level. Each file leaf is a `.changed-file-item` row indented by a
- * depth-derived inline `padding-left`; this preserves the existing `dblclick`
- * event delegation (`.changed-file-item[data-path][data-commit-hash]`).
- *
- * Each directory is a collapsible `.changed-dir-item` row (IntelliJ-style):
- * it carries a chevron toggle, `aria-expanded`, and `aria-controls` pointing
- * at the `.changed-dir-children` container that wraps its descendants — so a
- * collapse is a single class toggle on that container. The tree opens fully
- * expanded; no state is persisted, so a re-render always resets to expanded.
- *
- * ARIA: the container is a `role="tree"`, directory and file rows are
- * `role="treeitem"`, and each directory's children container is a
- * `role="group"`.
- *
- * Pure given `deps`: deterministic string output, no DOM. Directory-children
- * container ids are assigned by a per-render counter, so they are stable
- * within one render (sufficient — there is no cross-render persistence).
- */
-export function renderFileTree(
-  nodes: readonly FileTreeNode[],
-  depth: number,
-  deps: IFileTreeRenderDeps
-): string {
-  return renderForest(nodes, depth, deps, { next: 0 });
-}
-
-/** Monotonic id source for directory-children container ids within one render. */
-interface IDirIdCounter {
-  next: number;
-}
-
-/** Render a sibling list of nodes, threading the shared id counter. */
-function renderForest(
-  nodes: readonly FileTreeNode[],
-  depth: number,
-  deps: IFileTreeRenderDeps,
-  ids: IDirIdCounter
-): string {
-  return nodes.map((node) => renderNode(node, depth, deps, ids)).join('');
-}
-
-/** Render one node (directory row + children container, or a file leaf). */
-function renderNode(
-  node: FileTreeNode,
-  depth: number,
-  deps: IFileTreeRenderDeps,
-  ids: IDirIdCounter
-): string {
-  return node.kind === 'directory'
-    ? renderDirectory(node, depth, deps, ids)
-    : renderLeaf(node, depth, deps);
-}
-
-/**
- * Emit a collapsible directory row followed by a `.changed-dir-children`
- * container holding its children rendered at `depth + 1`.
- *
- * The row carries a `codicon-chevron-down` toggle (expanded by default),
- * `role="treeitem"`, `aria-expanded="true"`, and `aria-controls` referencing
- * the container's id. `tabindex="0"` puts it in the tab order so the toggle is
- * keyboard-operable (the webview script toggles on click and on Enter/Space).
- * It has no `data-path` / `data-commit-hash`, so the `dblclick` file-open
- * delegation never matches it. Collapse is driven by the webview script
- * toggling a class on the referenced container.
- */
-function renderDirectory(
-  node: IDirectoryNode,
-  depth: number,
-  deps: IFileTreeRenderDeps,
-  ids: IDirIdCounter
-): string {
-  const padding = paddingLeftPx(depth);
-  const label = deps.escapeHtml(node.name);
-  const containerId = `dir-children-${ids.next++}`;
-  const childrenHtml = renderForest(node.children, depth + 1, deps, ids);
-
-  return `
-          <div class="changed-dir-item" role="treeitem" aria-expanded="true" aria-controls="${containerId}" tabindex="0" style="padding-left: ${padding}px;">
-            <span class="dir-chevron codicon codicon-chevron-down" aria-hidden="true"></span>
-            <span class="dir-name">${label}</span>
-          </div>
-          <div class="changed-dir-children" role="group" id="${containerId}">${childrenHtml}</div>`;
-}
-
-/**
- * Emit the `.changed-file-item` row. All existing data attributes are
- * preserved: `data-path`, `data-status`, `data-commit-hash` (only when
- * `deps.commitHash` is set), `tabindex="0"`, the color-coded status
- * indicator/letter, the file name, and the `renamed` old-path on the same
- * row. The row carries `role="treeitem"` to match the surrounding directory
- * tree's `role="tree"` / `role="group"` semantics.
- */
-function renderLeaf(node: IFileLeaf, depth: number, deps: IFileTreeRenderDeps): string {
-  const { file } = node;
-  const padding = paddingLeftPx(depth);
-  const statusColor = deps.statusColor(file.status);
-  const statusChar = deps.statusChar(file.status);
-  const fileName = deps.escapeHtml(deps.fileName(file.path));
-
-  const commitHashAttr =
-    deps.commitHash !== undefined
-      ? `\n               data-commit-hash="${deps.escapeHtml(deps.commitHash)}"`
-      : '';
-
-  // For renames, show the old path as well — full value retained.
-  const renameInfo =
-    file.status === 'renamed' && file.oldPath
-      ? ` <span class="rename-arrow">←</span> <span class="old-path" title="${deps.escapeHtml(file.oldPath)}">${deps.escapeHtml(file.oldPath)}</span>`
-      : '';
-
-  return `
-          <div class="changed-file-item"
-               data-path="${deps.escapeHtml(file.path)}"
-               data-status="${file.status}"${commitHashAttr}
-               role="treeitem"
-               tabindex="0"
-               style="padding-left: ${padding}px;">
-            <span class="file-status-indicator" style="color: ${statusColor};" title="${file.status}">
-              ${statusChar}
-            </span>
-            <span class="file-name" style="color: ${statusColor};">
-              ${fileName}
-            </span>
-            ${renameInfo}
-          </div>`;
 }

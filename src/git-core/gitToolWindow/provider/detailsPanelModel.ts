@@ -76,10 +76,9 @@ function truncateSummary(message: string, maxLength: number): string {
 }
 
 /**
- * Split a commit message into inert-text / issue-link tokens. Mirrors
- * `renderCommitMessageHtml` but yields structured runs instead of HTML so the
- * client can build text nodes + `<a>` elements (no escaping needed — the values
- * cross as data).
+ * Split a commit message into inert-text / issue-link tokens, so the client can
+ * build text nodes + `<a>` elements from structured runs (no escaping needed —
+ * the values cross as data).
  */
 export function buildMessageTokens(
   message: string,
