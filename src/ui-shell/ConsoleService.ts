@@ -15,6 +15,7 @@ import {
   IGitToolWindowProvider,
 } from '../services/interfaces';
 import { GitCli, IGitCommandResult } from '../git-core/gitCli';
+import { sanitizeGitError } from '../git-core/gitError';
 
 /**
  * Default maximum number of console entries to keep
@@ -157,6 +158,14 @@ export class ConsoleService implements IConsoleService {
 
   /**
    * Log a Git command and its output to the console.
+   *
+   * Both the command line and the output are scrubbed through
+   * `sanitizeGitError` before they are stored or mirrored. git embeds
+   * credentials in remote URLs that surface in the command args and in
+   * stderr on auth failure; the console event fires for every exit code
+   * (including unattended auto-fetch failures), so this is the single
+   * sink-side seam that keeps a PAT out of the OutputChannel, the
+   * tool-window console, and the stored entries.
    */
   public logCommand(
     command: string,
@@ -166,8 +175,8 @@ export class ConsoleService implements IConsoleService {
   ): void {
     const entry: IConsoleEntry = {
       timestamp: new Date(),
-      command,
-      output,
+      command: sanitizeGitError(command),
+      output: sanitizeGitError(output),
       exitCode,
       isError: options.isError ?? (exitCode !== undefined && exitCode !== 0),
     };
@@ -206,10 +215,13 @@ export class ConsoleService implements IConsoleService {
 
     return {
       onData: (data: string): void => {
-        // Update the entry with new data
+        // Update the entry with new data. Scrubbed per-chunk: a credential
+        // split across two chunks can evade the regex, so streaming callers
+        // should prefer whole-command logging — this is defense-in-depth.
         if (entryIndex < this._entries.length) {
-          this._entries[entryIndex].output += data;
-          this._getOutputChannel().append(data);
+          const safe = sanitizeGitError(data);
+          this._entries[entryIndex].output += safe;
+          this._getOutputChannel().append(safe);
           this._updateToolWindowEntry(this._entries[entryIndex]);
         }
       },
@@ -222,7 +234,7 @@ export class ConsoleService implements IConsoleService {
       },
       onError: (error: Error): void => {
         if (entryIndex < this._entries.length) {
-          const message = `\nError: ${error.message}`;
+          const message = `\nError: ${sanitizeGitError(error.message)}`;
           this._entries[entryIndex].output += message;
           this._entries[entryIndex].isError = true;
           this._entries[entryIndex].exitCode = 1;
