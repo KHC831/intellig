@@ -3,7 +3,16 @@
 _Forward-looking parity plan: **what's left**, by component, with files + ordered work. North-star =
 IntelliJ `git4idea` + `platform/vcs-impl` (clone at `~/Documents/workspace/intellij-community`). Scope:
 **pure Git plugin parity**; GitHub/GitLab/PR integration excluded. Weight: a git op that silently does
-the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-18._
+the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-21._
+
+> **2026-06-21 re-audit (grounded in current source + git4idea action XML):** two genuine
+> *feature* gaps surfaced that earlier revisions omitted — **Configure Remotes UI** (backend
+> fully built + unit-locked in `RemoteOps`, but no command/menu/dialog; ref `Git.Configure.Remotes`)
+> and **worktree lifecycle** (`WorktreeOps` has `list`+`add` only — no remove/prune/refresh; ref
+> `Git.WorkingTrees.Remove/Prune/Refresh`). Both are tracked in section 4b + section 5 below. Two
+> R2-02 branch findings (delete-remote "dead handler", checkout-as-local "no upstream") were
+> re-verified **resolved** in current source and the doc was corrected. Minor still-absent ops:
+> Unshallow, Open-Exclude-File, Add-Commit-To-Remote-Branch (all low-frequency).
 
 > What's landed (progress log, SHAs, pending-merge branches) lives in **[`STATUS.md`](./STATUS.md)**.
 > UI/UX **layout** parity (menu order/grouping, labels, ellipsis, icons, tool-window tabs, dialogs)
@@ -21,8 +30,10 @@ the **wrong thing** > security hole > missing daily feature > visual polish. Las
 ## 1. Headline
 
 The hard architecture exists — changelists, shelf-as-patch-store, interactive-rebase editor,
-commit-graph log, 3-way merge all built. **Remaining work is fidelity, not invention.** Reset and
-interactive-rebase plumbing already *exceed* git4idea.
+commit-graph log, 3-way merge all built. **Remaining work is mostly fidelity, not invention** —
+the two exceptions are the Configure-Remotes front door (backend done, UI missing) and the
+worktree remove/prune lifecycle (create+open done, teardown missing); see the 2026-06-21 re-audit
+note above. Reset and interactive-rebase plumbing already *exceed* git4idea.
 
 Remaining backlog is now thin: **G** complete; **A / B / C / D / E / F / H** all effectively complete
 (~90-97%) — the last daily-feature gaps (A's rollback dialog, F-8b line-status hover popup) have landed.
@@ -50,8 +61,8 @@ not engineer-years.
 | Commit & Changelists (A) | 🟢 ~90% | near-complete (commit-and-push + live line-status gutter + hover popup + rollback dialog landed) |
 | Rebase / Cherry-pick / Revert (H) | 🟢 ~93% | near-complete (inline reword/squash + `--onto`/`--root` + `-m` revert/cherry-pick + accept-non-conflicting landed) |
 | Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
-| Branches & Tags (D) | 🟢 ~97% | near-complete (HEAD/favorites/validation/multi-repo/worktree/per-remote-push/tag-merge/align-local landed) |
-| Shell / Menus / Sync (C) | 🟢 ~95% | near-complete (`--autostash` + console + scm provider + log-menu history-rewrite guard + tabbed default-on landed) |
+| Branches & Tags (D) | 🟢 ~95% | worktree teardown (remove/prune/refresh) unbuilt — create+open only; else near-complete |
+| Shell / Menus / Sync (C) | 🟢 ~93% | Configure-Remotes UI missing (backend done); else near-complete (`--autostash`/console/scm/tabbed all landed) |
 | Shelf / Stash / Patches (E) | 🟢 ~95% | near-complete (unshelve + patch split + diff-against-local + binary + recycle bin + apply-index + apply-patch tree + target-changelist landed) |
 | Blame / History / Diff (F) | 🟢 ~95% | near-complete (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy + get-version + inline-diff-hover landed) |
 
@@ -118,6 +129,8 @@ the Landed note + STATUS. The remaining rows are the explicitly-deferred backlog
 
 | # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
 |---|---|---|---|---|---|
+| R1 | Remotes | **Configure Remotes UI** — no command/menu/dialog to add/rename/remove/set-url a remote. Backend `RemoteOps.{addRemote,removeRemote,setRemoteUrl,renameRemote}` is built + unit-locked (`GitService.test` `#P2 Configure Remotes`); only the front door is missing. | `Git.Configure.Remotes` / `GitConfigureRemotesDialog` | `RemoteOps.ts:347-413` (no caller) | S/M |
+| R2 | Worktree | **Remove / Prune / Refresh** worktrees — `WorktreeOps` has `list`+`add` only; no teardown. Create+open already landed. | `Git.WorkingTrees.Remove/Prune/Refresh` | `WorktreeOps.ts:170,199` | S |
 | — | Branch | Pull-into-current (rebase/merge) on LOCAL tracked branches, not just remote | `GitPullBranchAction$WithRebase/$WithMerge` | pkg.json `4_pull` (remoteBranch only) | S/M |
 | — | Branch popup | New-Worktree-from-branch + Push-Tags items in the QuickPick (both reachable elsewhere) | `GitBranchPopupActions` | `BranchPopup.ts` | S |
 | — | Tool window | Consider Stash tab + Working-Trees tab; make Incoming/Update-Info transient | `git.enable.stash.toolwindow`, `Git.Show.WorkingTrees` | `tabRouter.ts:25` | M |
@@ -177,14 +190,21 @@ already-pushed commit, covering both the HEAD-amend and non-HEAD-rebase paths (m
 `GitCommitEditingActionBase.checkCommitsCanBeEdited`).
 **Landed 2026-06-18:** tabbed Git tool-window layout default-on (`intellig.useTabbedGitToolWindow`
 false→true; provider already honored the flag per render).
-**Remaining:** none tracked — workstream C is effectively complete.
+**Remaining (2026-06-21 re-audit):** **Configure Remotes UI** — the backend ops
+(`RemoteOps.{addRemote,removeRemote,setRemoteUrl,renameRemote}`, `:347-413`) are built, argv-guarded,
+and unit-locked (`#P2 Configure Remotes`), but no command/menu/dialog reaches them; git4idea exposes
+`Git.Configure.Remotes` (`GitConfigureRemotesDialog` — remote table with Add/Edit-URL/Rename/Remove).
+Wire a QuickPick multi-step (or webview) front door → existing ops. Low-frequency but a genuine
+front-door gap, not fidelity. (Detail: `R2-05-sync.md`, `R2-09-shell.md`.)
 **Files:** `package.json`, `src/ui-shell/{KeymapService,ConsoleService}.ts`, `src/sync/PullDialog.ts`,
 `src/git-core/gitToolWindow/tabs/*`.
 
 ### D. Branches & Tags — 🟢 ~97%
 **Remaining (verified residuals only):** tree `FilteringTree` / search-as-you-type (partly covered by VS
-Code's native TreeView filtering); branch-tree multi-select (`canSelectMany`). Everything else below has
-landed. Branch-cleanup (merged-branch deletion) is intentionally not implemented — git4idea's
+Code's native TreeView filtering; the branch *popup* already has it via QuickPick `matchOnDescription/Detail`);
+branch-tree multi-select (`canSelectMany`); **worktree teardown** — `WorktreeOps` (`:170,199`) implements
+`list`+`add` only, so Remove / Prune / Refresh (ref `Git.WorkingTrees.Remove/Prune/Refresh`) are unbuilt
+(create+open landed). Everything else below has landed. Branch-cleanup (merged-branch deletion) is intentionally not implemented — git4idea's
 `Git.Cleanup.Branches` action is `internal="true"`, so it is not a user-facing parity requirement; the
 orphaned backend was removed.
 **Work (ordered):** (1) ~~popup header+toggles~~ **DONE 2026-06-17**.

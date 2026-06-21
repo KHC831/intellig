@@ -4,7 +4,7 @@
 
 _Round-2 deep tech-lead review by the assigned Branches component owner. North-star = IntelliJ git4idea (full clone at `~/Documents/workspace/intellij-community/plugins/git4idea`). Our extension = `intellig` (VS Code). This review covers: branch list/popup, create/checkout/delete/rename branch, compare branches, cherry-pick from a branch, merged-branch cleanup, branch context menus, multi-select/bulk branch ops, the branch front-door widget._
 
-**Review date:** 2026-06-15
+**Review date:** 2026-06-15 (re-audited 2026-06-21 against current source — 2 findings resolved, worktree-teardown gap added)
 **Reviewer:** tech-lead-reviewer (Branches component owner)
 **Code state:** main @ 0bca889 (post-P1 autonomous run, P2 partial)
 
@@ -46,8 +46,8 @@ One row per distinct capability/finding. **Source** + **Severity** mandatory.
 | Capability / finding | IntelliJ behavior | intellig behavior | Status | Severity | Source | Notes / file refs |
 |---|---|---|---|---|---|---|
 | **Delete branch safety: unmerged-commit detection + restore** | `GitDeleteBranchOperation:104-139` detects `BRANCH_NOT_FULLY_MERGED` event, force-deletes, surfaces unmerged commits in notification with **Restore** action (recreates branch at deleted tip) + **View Commits** link | `BranchContextMenuCommands._handleDelete:789` calls `deleteBranch` (always force via `-D`), no unmerged detection, no restore affordance | ❌ missing | 🟠 high | git4idea | **Silent data-loss risk.** User deletes a branch with unique commits → no warning, no undo. IntelliJ stores `myDeletedBranchTips` and offers one-click restore. We'd need pre-delete `git branch --contains` check + tip-hash capture + create-from-SHA restore. Files: BranchOps.ts:247-259, BranchContextMenuCommands.ts:789-828 |
-| **Delete remote branch** | `GitDeleteRemoteBranchOperation` runs `git push <remote> :refs/tags/<name>` (empty-src push syntax), multi-repo + rollback support | `BranchContextMenuCommands._handleDeleteRemote:856` calls `vscode.window.showErrorMessage("Not implemented")` | ❌ missing | 🟠 high | git4idea | **Dead handler.** Context menu item registered (:258) but no-ops. NORTHSTAR missed this. git command = `git push <remote> :<branchName>` or `git push <remote> --delete <branchName>`. Files: BranchContextMenuCommands.ts:856-862 |
-| **Track Remote Branch (set-upstream)** | `GitBranchWorker` (no dedicated file; implicit in checkout/pull ops) — when checking out a non-existent local from a remote ref, creates local + sets upstream atomically | `BranchContextMenuCommands._handleTrackRemote:864` calls `setBranchUpstream` (BranchOps:273-286) for **existing** local branches with wrong/no upstream → CORRECT for that case but doesn't handle **checkout-as-local** (creates without upstream, then user must Track separately) | 🟡 partial | 🟡 medium | git4idea | **UX gap.** `_handleCheckoutAsLocal:772` creates via `createBranch(name, remote, {checkout:true})` without `track:true` → orphan local. IntelliJ's checkout-remote atomically sets upstream. Fix: `createBranch(..., {checkout:true, track:true})` in `:775` call, OR make checkout always infer track for remote-start. Files: BranchContextMenuCommands.ts:772-787, 864-896 |
+| **Delete remote branch** | `GitDeleteRemoteBranchOperation` runs `git push <remote> :refs/tags/<name>` (empty-src push syntax), multi-repo + rollback support | `BranchContextMenuCommands._handleDeleteRemote:2086` confirms (modal), parses `<remote>/<branch>`, runs `push({remote, branch: ':<branchName>'})` (empty-src delete), reloads + refreshes, errors via `sanitizeGitError` | ✅ parity | — | git4idea | **RESOLVED (re-verified 2026-06-21).** The earlier "dead handler / Not implemented" finding is stale — the handler now fully implements remote-branch deletion. Single-repo (git4idea's multi-repo orchestrator is richer, but out of single-repo scope). Files: BranchContextMenuCommands.ts:2086-2125 |
+| **Track Remote Branch (set-upstream)** | `GitBranchWorker` (no dedicated file; implicit in checkout/pull ops) — when checking out a non-existent local from a remote ref, creates local + sets upstream atomically | `_handleCheckoutAsLocal:1892` calls `checkout(branchName, {forceCreate:true, track})` — creates/​resets the local to the remote tip **and sets upstream atomically** (plus an ahead-commit data-loss guard with Stash-and-reset). `_handleTrackRemote` handles the existing-local cases. | ✅ parity | — | git4idea | **RESOLVED (re-verified 2026-06-21).** The earlier "orphan local / no upstream" finding is stale — checkout-as-local now passes `track`, so upstream is set in one step. Files: BranchContextMenuCommands.ts:1892-1936 |
 | **Branch not fully merged dialog** | `GitBranchIsNotFullyMergedDialog.java` shows unmerged-commit list + branches the local IS merged to ("safe to delete from X, Y") + Force/Cancel | Confirm uses generic `showWarningMessage` with OK/Cancel (BranchContextMenuCommands:809), no commit list, no merged-to hints | 🟡 partial | 🟡 medium | platform | **Polish + UX.** Our confirm works but IntelliJ's richer dialog reduces accidental force-deletes. Not a blocker (user CAN cancel), but daily-use polish. |
 | **Branch popup: favorites section** | `GitBranchesPopupBase` top section = starred/favorited branches (persisted, user toggles ⭐) | `BranchPopup.ts:48-157` has `FAVORITE_BRANCHES_STATE_KEY` + `updateFavoritesList` + render logic → EXISTS but **no UI affordance to add/remove favorites** (context menu missing "Add to Favorites" / "Remove from Favorites") | 🟡 partial | 🟡 medium | git4idea | **Wired but incomplete.** Backend ready, UI missing. Would need branch context-menu additions + popup action buttons. Files: BranchPopup.ts:48-157, BranchContextMenuCommands (no favorite commands registered) |
 | **Branch bulk operations (multi-select delete)** | `GitBranchesTreeActionsForSelectionTest` tests multi-select delete; UI supports Shift/Cmd-click → Delete Selected (N) | `BranchTreeProvider` is a TreeDataProvider (VS Code's single-select model); context menu acts on one `BranchTreeItem` | ❌ missing | 🟡 medium | platform | **Platform limitation + workaround gap.** VS Code TreeView doesn't natively support multi-select (2024 API). Workaround = shift TreeView to QuickPick with `canPickMany:true` OR add "Delete Multiple Branches…" palette command with checkbox picker. NORTHSTAR flagged this (P2). Not a blocker but daily-hit for cleanup workflows. |
@@ -61,6 +61,7 @@ One row per distinct capability/finding. **Source** + **Severity** mandatory.
 | **Checkout conflict: smart-checkout (stash/force/cancel)** | `GitCheckoutOperation` + `GitSmartOperationDialog` detects local changes that conflict with checkout target → modal "Stash and Checkout / Force Checkout / Cancel" (P1 #8 parity for reset, same pattern for checkout) | `BranchContextMenuCommands._handleCheckout:599-611` calls `checkout(ref, {force:false})` directly with no pre-check → git errors "Please commit or stash them" (error surfaced to user but no structured smart-checkout prompt) | 🟡 partial | 🟡 medium | git4idea | **UX gap** (same pattern as P1 #8 Smart Reset, already landed for reset 220dd7e). Checkout CAN fail-safe (git rejects, no data loss), but IntelliJ's structured prompt is smoother. Would extend Smart Reset pattern to checkout (pre-check dirty files, intersect with target diff, offer Stash/Force/Cancel). Files: BranchContextMenuCommands.ts:599-611. Lower priority than reset (checkout conflicts less frequent). |
 | **Checkout-and-rebase: rebase leg autostash** | "Checkout and Rebase" (remote branch context menu) checks out local copy THEN rebases onto tracking remote; rebase leg uses `--autostash` (mirrors P1 #9 fix for plain rebase) | `BranchContextMenuCommands._handleCheckoutAndRebase:965` calls `checkout` then `rebaseBranch(repo, branch, options)` with `options=undefined` → **rebase leg DOES use `--autostash`** (BranchOps.rebaseBranch:401 unconditionally includes it) | ✅ parity | — | git4idea | **P1 #9 autostash applies to all rebase call-sites.** No gap. Files: BranchContextMenuCommands.ts:965-1039, BranchOps.ts:401 (flags = ['--autostash', ...]) |
 | **Update (pull-with-rebase) on non-current branch** | `GitBranchPopupActions` "Update" action on non-HEAD branch: checks out → pulls → returns to original branch (3-step flow with smart-checkout on each leg) | `BranchContextMenuCommands._handleUpdate:1115` checks `if (repo.head?.name !== branch)` → `showErrorMessage("Checkout first")`, no auto-checkout | ❌ missing | 🟡 medium | git4idea | **Behavior gap.** User must manually checkout → update → checkout-back. IntelliJ does it atomically. Not a blocker (workaround exists) but daily-hit UX gap for updating feature branches. Files: BranchContextMenuCommands.ts:1115-1168 (error at :1123) |
+| **Worktree lifecycle: remove / prune / refresh** | `Git.WorkingTrees.Remove` (`git worktree remove [--force]`), `Git.WorkingTrees.Prune` (`git worktree prune`), `Git.WorkingTrees.Refresh` — full teardown from the Working-Trees toolwindow | `WorktreeOps.ts` (`:170` `listWorktrees`, `:199` `addWorktree`) implements **create + list only**; `intellig.branch.{newWorktree,openWorktree}` are the only commands. No remove/prune/refresh op, command, or menu. | ❌ missing | 🟡 medium | git4idea | **Feature gap (2026-06-21 re-audit).** Create+open landed but teardown is unbuilt — user must drop worktrees via CLI. Add `WorktreeOps.{removeWorktree,pruneWorktrees}` (argv-guard the path) + commands + Working-Trees-tab/branch-tree menu. Files: WorktreeOps.ts:170-199 |
 
 ## Top findings (ranked, this component)
 
@@ -75,14 +76,12 @@ Parity weight: **correctness (high-value daily op) > missing feature**. Severity
 
 IntelliJ reference: `GitDeleteBranchOperation.java:104-139` (unmerged detection), `:82-95` (tip capture), `:143-167` (restore notification action).
 
-### 2. **Delete remote branch: dead handler (not implemented)** — _blocker_
-Parity weight: **blocker (dead UI)**. Severity: 🟠 high. Source: git4idea. Effort: S.
-
-**Why it matters:** Context menu item `intellig.remoteBranch.deleteRemote` is registered (:258) but handler (:856) shows `"Not implemented"` error. NORTHSTAR missed this (wasn't in P1-P3 backlog). Common workflow for cleaning up merged PRs.
-
-**Files to touch:**
-- `BranchOps.ts` — add `deleteRemoteBranch(repo: IRepository, remote: string, branchName: string): Promise<void>` → runs `git push <remote> --delete <branchName>` (or `:refs/heads/<branchName>` empty-push syntax). Needs leading-`-`/`.` guards on both remote and branchName (argv injection).
-- `BranchContextMenuCommands.ts:856-862` — replace error with confirm modal → call new op → refresh tree.
+### 2. **Delete remote branch** — _RESOLVED (re-verified 2026-06-21)_
+The earlier "dead handler / Not implemented" finding is **stale**. `_handleDeleteRemote`
+(`BranchContextMenuCommands.ts:2086-2125`) now confirms (modal), parses `<remote>/<branch>`, runs
+`push({remote, branch: ':<branchName>'})` (empty-src delete), reloads + refreshes the tree, and
+sanitizes errors. No action needed; single-repo scope is intentional (git4idea's multi-repo
+orchestrator is out of scope).
 
 IntelliJ reference: `GitDeleteRemoteBranchOperation.java` (multi-repo orchestrator; our single-repo call is simpler).
 
@@ -123,8 +122,10 @@ IntelliJ reference: `GitNewBranchNameValidator.java` → `check-ref-format --bra
 **No CSP/webview holes in this component** (branch UI is TreeView + QuickPick, not webview).
 
 ## Blockers
-1. **Delete remote branch** (#2 above) — registered command but dead handler. **Fix:** implement `deleteRemoteBranch` op + wire handler.
-2. **None beyond #2.** Most context menu commands are wired end-to-end (verified via test grep: `branchContextMenu.test.ts` exercises 18 handlers). Missing features are UX gaps, not blockers (workarounds exist).
+**None (re-verified 2026-06-21).** The prior delete-remote blocker is resolved — `_handleDeleteRemote:2086`
+implements the empty-src push delete end-to-end. Most context menu commands are wired end-to-end (verified
+via test grep: `branchContextMenu.test.ts` exercises 18 handlers). Remaining items are UX gaps + the
+worktree-teardown feature gap (table row), not blockers (workarounds exist).
 
 ## Test-seam architecture (TDD lens)
 
@@ -149,19 +150,20 @@ IntelliJ reference: `GitNewBranchNameValidator.java` → `check-ref-format --bra
 
 ## Summary (exec brief for user)
 
-**Branch component parity status: 🟡 GOOD core ops, UX gaps + 2 blockers**
+**Branch component parity status: 🟢 GOOD — core ops solid, 0 blockers (both prior blockers resolved), residual UX polish**
 
-**Top 3 findings:**
-1. 🟠 **Delete branch: no unmerged detection + no restore** (Finding #1) — silent data-loss risk. IntelliJ force-deletes WITH warning + undo; we force-delete blind. **M effort,** high daily-use value.
-2. 🟠 **Delete remote branch: dead handler** (Finding #2) — `"Not implemented"` error. **S effort,** quick fix.
+**Top findings (2026-06-21 re-audit):**
+1. 🟠 **Delete branch: no unmerged detection + no restore** (Finding #1) — silent data-loss risk. IntelliJ force-deletes WITH warning + undo; we force-delete blind. **M effort,** high daily-use value. _Still open._
+2. ✅ **Delete remote branch** (Finding #2) — **RESOLVED**: `_handleDeleteRemote:2086` implements it (empty-src push delete + confirm + sanitize). Was stale.
 3. 🟡 **Validation: regex-only, never calls `git check-ref-format`** (Finding #3) — drift risk, opaque errors on bypass. **S effort,** improves error UX.
+4. ✅ **Track / checkout-as-local upstream** — **RESOLVED**: `_handleCheckoutAsLocal:1892` now passes `track`, setting upstream atomically. Was stale.
 
 **R1 closed vs. open:**
-- **CLOSED:** P1 #7 cherry-pick scoped to branch (cf88c99)
+- **CLOSED:** P1 #7 cherry-pick scoped to branch (cf88c99); delete-remote handler; checkout-as-local upstream
 - **NOT IMPLEMENTED (intentional):** merged-branch cleanup — git4idea `Git.Cleanup.Branches` is `internal="true"`, so it is not a user-facing parity requirement; the orphaned `getMergedBranches` backend was removed
-- **OPEN/PARTIAL:** Compare-with-current split UI (P4), bulk ops (P4), in-popup fetch (P4), menu ordering (P3)
+- **OPEN/PARTIAL:** delete-branch unmerged-restore safety (Finding #1), `check-ref-format` validation (Finding #3), Compare-with-current split UI (P4), bulk ops (P4), in-popup fetch (P4), menu ordering (P3)
 
-**🔴 Blockers:** 1 (delete remote branch dead handler)
+**🔴 Blockers:** 0 (both prior blockers re-verified resolved in current source)
 **Security:** CLEAN — argv injection systematically guarded, no credential leakage, no unsanitized surfaces
 
-**Recommendation:** Fix Finding #2 (delete remote) immediately (S, unblocks daily workflow). Queue Finding #1 (delete safety) + Finding #3 (validation) for next branch-focused wave (M+S combined = ~1 day). P4 UI rebuilds (popup tree, split-log) are multi-week efforts; defer per NORTHSTAR.
+**Recommendation:** Queue Finding #1 (delete-branch unmerged safety) + Finding #3 (validation) for the next branch-focused wave (M+S combined = ~1 day). P4 UI rebuilds (popup tree, split-log) are multi-week efforts; defer per NORTHSTAR.
