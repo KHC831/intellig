@@ -643,10 +643,14 @@ export class StashView implements IStashView {
    * Show a picker for stash diff files.
    */
   private async _showStashDiffPicker(stash: IStash, diffs: IDiff[]): Promise<void> {
-    const items: vscode.QuickPickItem[] = diffs.map((diff) => ({
+    // Carry the diff on each item so the selection resolves by identity. A
+    // label-based `find` keyed on the basename opens the wrong file when two
+    // paths share a basename (src/a/config.ts vs src/b/config.ts).
+    const items: (vscode.QuickPickItem & { diff: IDiff })[] = diffs.map((diff) => ({
       label: `$(file) ${this._getFileName(diff.path)}`,
       description: this._getFileDir(diff.path),
       detail: `${diff.hunks.length} hunk(s), ${this._getStatusLabel(diff.status)}`,
+      diff,
     }));
 
     const selected = await vscode.window.showQuickPick(items, {
@@ -655,15 +659,8 @@ export class StashView implements IStashView {
     });
 
     if (selected) {
-      // Find the corresponding diff
-      const selectedDiff = diffs.find(
-        (d) => `$(file) ${this._getFileName(d.path)}` === selected.label
-      );
-
-      if (selectedDiff) {
-        // Show the diff content in an output channel or document
-        await this._showDiffContent(stash, selectedDiff);
-      }
+      // Show the diff content in an output channel or document
+      await this._showDiffContent(stash, selected.diff);
     }
   }
 

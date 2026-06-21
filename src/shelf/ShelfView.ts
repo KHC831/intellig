@@ -651,10 +651,14 @@ export class ShelfView implements IShelfView {
    * Show a picker for shelf diff files.
    */
   private async _showShelfDiffPicker(shelfItem: IShelfItem, diffs: IDiff[]): Promise<void> {
-    const items: vscode.QuickPickItem[] = diffs.map((diff) => ({
+    // Carry the diff on each item so the selection resolves by identity. A
+    // label-based `find` keyed on the basename opens the wrong file when two
+    // paths share a basename (src/a/config.ts vs src/b/config.ts).
+    const items: (vscode.QuickPickItem & { diff: IDiff })[] = diffs.map((diff) => ({
       label: `$(file) ${this._getFileName(diff.path)}`,
       description: this._getFileDir(diff.path),
       detail: `${diff.hunks.length} hunk(s), ${this._getDiffStatusLabel(diff.status)}`,
+      diff,
     }));
 
     const selected = await vscode.window.showQuickPick(items, {
@@ -663,16 +667,9 @@ export class ShelfView implements IShelfView {
     });
 
     if (selected) {
-      // Find the corresponding diff
-      const selectedDiff = diffs.find(
-        (d) => `$(file) ${this._getFileName(d.path)}` === selected.label
-      );
-
-      if (selectedDiff) {
-        // Real shelved-vs-working-tree comparison (IntelliJ's shelf
-        // "Compare with Local").
-        await this._showShelvedVsLocalDiff(shelfItem, selectedDiff);
-      }
+      // Real shelved-vs-working-tree comparison (IntelliJ's shelf
+      // "Compare with Local").
+      await this._showShelvedVsLocalDiff(shelfItem, selected.diff);
     }
   }
 

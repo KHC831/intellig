@@ -1411,4 +1411,52 @@ describe('ShelfView', () => {
       assert.strictEqual(right.fsPath, fileAbs, 'right side points at the on-disk file');
     });
   });
+
+  describe('_showShelfDiffPicker — basename collision', () => {
+    it('opens the file the user picked, not a basename twin', async () => {
+      const diffA = {
+        path: 'src/a/config.ts',
+        status: 'modified',
+        hunks: [{}],
+        binary: false,
+      } as unknown as IDiff;
+      const diffB = {
+        path: 'src/b/config.ts',
+        status: 'modified',
+        hunks: [{}],
+        binary: false,
+      } as unknown as IDiff;
+
+      let captured: IDiff | undefined;
+      (
+        view as unknown as { _showShelvedVsLocalDiff: (i: IShelfItem, d: IDiff) => Promise<void> }
+      )._showShelvedVsLocalDiff = async (_i, d) => {
+        captured = d;
+      };
+
+      const oPick = vscode.window.showQuickPick;
+      // User picks the SECOND item — same basename (config.ts) as the first.
+      (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = async (
+        items: vscode.QuickPickItem[]
+      ) => items[1];
+
+      try {
+        await (
+          view as unknown as {
+            _showShelfDiffPicker: (i: IShelfItem, d: IDiff[]) => Promise<void>;
+          }
+        )._showShelfDiffPicker({ id: 'a', name: 'wip', timestamp: new Date(), files: [] }, [
+          diffA,
+          diffB,
+        ]);
+        assert.strictEqual(
+          captured?.path,
+          'src/b/config.ts',
+          'must open the picked file, not its basename twin'
+        );
+      } finally {
+        (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = oPick;
+      }
+    });
+  });
 });

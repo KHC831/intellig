@@ -17,7 +17,12 @@ import '../../setup';
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { createStashView } from '../../../src/shelf/StashView';
-import { IGitService, IRepository, IStash } from '../../../src/git-core/interfaces/IGitService';
+import {
+  IGitService,
+  IRepository,
+  IStash,
+  IDiff,
+} from '../../../src/git-core/interfaces/IGitService';
 import { IConflictResolutionService } from '../../../src/conflicts/interfaces/IConflictResolutionService';
 import { EventEmitter, Uri } from '../../mocks/vscode';
 
@@ -1020,6 +1025,55 @@ describe('StashView TL-72 — action-path toasts route through sanitizeGitError'
       assertSanitized(toasts.error[0], 'Failed to view stash');
     } finally {
       restore();
+      view.dispose();
+    }
+  });
+});
+
+describe('StashView — diff picker basename collision', () => {
+  it('opens the file the user picked, not a basename twin', async () => {
+    const gitService = makeGitService({ stashes: makeStashes() });
+    const view = createStashView(gitService);
+    const diffA = {
+      path: 'src/a/config.ts',
+      status: 'modified',
+      hunks: [{}],
+      binary: false,
+    } as unknown as IDiff;
+    const diffB = {
+      path: 'src/b/config.ts',
+      status: 'modified',
+      hunks: [{}],
+      binary: false,
+    } as unknown as IDiff;
+
+    let captured: IDiff | undefined;
+    (
+      view as unknown as { _showDiffContent: (s: IStash, d: IDiff) => Promise<void> }
+    )._showDiffContent = async (_s, d) => {
+      captured = d;
+    };
+
+    const oPick = vscode.window.showQuickPick;
+    // User picks the SECOND item — same basename (config.ts) as the first.
+    (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = async (
+      items: vscode.QuickPickItem[]
+    ) => items[1];
+
+    const stash: IStash = { index: 0, message: 'wip', date: new Date() };
+    try {
+      await (
+        view as unknown as {
+          _showStashDiffPicker: (s: IStash, d: IDiff[]) => Promise<void>;
+        }
+      )._showStashDiffPicker(stash, [diffA, diffB]);
+      assert.strictEqual(
+        captured?.path,
+        'src/b/config.ts',
+        'must open the picked file, not its basename twin'
+      );
+    } finally {
+      (vscode.window as unknown as { showQuickPick: unknown }).showQuickPick = oPick;
       view.dispose();
     }
   });
