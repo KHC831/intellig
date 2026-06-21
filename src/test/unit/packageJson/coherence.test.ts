@@ -513,4 +513,83 @@ describe('package.json coherence', () => {
       '\n' + describeViolations('logCommit-orphan', violations)
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Invariant 12: no two palette-VISIBLE commands share the same display
+  // title.
+  //
+  // A command appears in the Command Palette unless it carries a
+  // `contributes.menus.commandPalette` entry with `when: "false"`. The
+  // context-only commands (right-click a branch/tag/commit/file/blame line)
+  // must be gated out — otherwise they show up as confusing duplicates of
+  // the real, context-free entry point (e.g. "Push…" appearing twice:
+  // `intellig.push` and the branch-context `intellig.branch.push`).
+  // -------------------------------------------------------------------------
+  it('no two palette-visible commands share a title', () => {
+    const cmds = pkg.contributes?.commands ?? [];
+    const palette = pkg.contributes?.menus?.commandPalette ?? [];
+    const gatedOut = new Set(
+      palette.filter((e) => e.when === 'false' && e.command).map((e) => e.command as string)
+    );
+    const byTitle = new Map<string, string[]>();
+    for (const c of cmds) {
+      if (gatedOut.has(c.command) || typeof c.title !== 'string') {
+        continue;
+      }
+      const key = `${c.category ? c.category + ': ' : ''}${c.title}`;
+      byTitle.set(key, [...(byTitle.get(key) ?? []), c.command]);
+    }
+    const violations: string[] = [];
+    for (const [title, ids] of byTitle) {
+      if (ids.length > 1) {
+        violations.push(`palette title "${title}" is shared by: ${ids.join(', ')}`);
+      }
+    }
+    assert.strictEqual(
+      violations.length,
+      0,
+      '\n' + describeViolations('duplicate-palette-title', violations)
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Invariant 13: the known context-only commands stay gated out of the
+  // palette. A regression pin for the duplicate-title cleanup — these all
+  // require a clicked branch/tag/commit/file/blame line and either toast
+  // "No X selected" or no-op when invoked cold from the palette.
+  // -------------------------------------------------------------------------
+  it('context-only commands are gated out of the command palette', () => {
+    const palette = pkg.contributes?.menus?.commandPalette ?? [];
+    const gatedOut = new Set(
+      palette.filter((e) => e.when === 'false' && e.command).map((e) => e.command as string)
+    );
+    const mustBeGated = [
+      'intellig.branch.push',
+      'intellig.branch.checkout',
+      'intellig.branch.delete',
+      'intellig.branch.mergeIntoCurrent',
+      'intellig.remoteBranch.checkoutAsLocal',
+      'intellig.remoteBranch.deleteRemote',
+      'intellig.tag.cherryPick',
+      'intellig.tag.delete',
+      'intellig.tag.mergeIntoCurrent',
+      'intellig.commit.cherryPick',
+      'intellig.commit.copyHash',
+      'intellig.commit.newBranch',
+      'intellig.commit.newTag',
+      'intellig.commit.showDiff',
+      'intellig.explorer.showDiff',
+      'intellig.explorer.showHistory',
+      'intellig.blame.copyRevision',
+      'intellig.blame.showCommit',
+    ];
+    const violations = mustBeGated
+      .filter((id) => !gatedOut.has(id))
+      .map((id) => `${id} must carry a commandPalette { when: 'false' } entry`);
+    assert.strictEqual(
+      violations.length,
+      0,
+      '\n' + describeViolations('ungated-context-command', violations)
+    );
+  });
 });

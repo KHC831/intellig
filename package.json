@@ -741,6 +741,256 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "intellig.blame.annotatePrevious",
+          "when": "false"
+        },
+        {
+          "command": "intellig.blame.copyRevision",
+          "when": "false"
+        },
+        {
+          "command": "intellig.blame.hideRevision",
+          "when": "false"
+        },
+        {
+          "command": "intellig.blame.showCommit",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.checkout",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.checkoutAndRebase",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.compareWithCurrent",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.delete",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.focusOnGraph",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.mergeIntoCurrent",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.newBranchFrom",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.newWorktree",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.openWorktree",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.push",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.rebaseCurrentOnto",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.rename",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.showDiffWithWorkingTree",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.toggleFavorite",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.update",
+          "when": "false"
+        },
+        {
+          "command": "intellig.branch.updateSelected",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.applyFilesToBranch",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.applySelectedChanges",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.checkoutRevision",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.cherryPick",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.cherryPickWithoutCommit",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.compareWith",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.compareWithHead",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.copyHash",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.createPatch",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.dropSelectedChanges",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.fileHistoryFromHere",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.newBranch",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.newTag",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.openOnHost",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.resetToHere",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.revert",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.showDiff",
+          "when": "false"
+        },
+        {
+          "command": "intellig.commit.showFileInRevision",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.addToGitignore",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.addToVcs",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.commitFile",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.compareWithBranch",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.compareWithRepoVersion",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.createPatchFromFile",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.revert",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.showDiff",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.showHistory",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.stage",
+          "when": "false"
+        },
+        {
+          "command": "intellig.explorer.unstage",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.checkoutAsLocal",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.deleteRemote",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.pullUsingMerge",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.pullUsingRebase",
+          "when": "false"
+        },
+        {
+          "command": "intellig.remoteBranch.trackBranch",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.checkoutDetached",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.cherryPick",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.delete",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.deleteRemote",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.mergeIntoCurrent",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.newBranchFrom",
+          "when": "false"
+        },
+        {
+          "command": "intellig.tag.push",
+          "when": "false"
+        },
+        {
+          "command": "intellig.toggleBlame",
+          "when": "false"
+        }
+      ],
       "view/item/context": [
         {
           "command": "intellig.branch.checkout",
