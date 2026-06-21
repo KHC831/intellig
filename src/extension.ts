@@ -920,15 +920,6 @@ export function validateBranchName(value: string): string | undefined {
   return undefined;
 }
 
-/**
- * Internal alias used by the `validateInput` callback shape. Retained for
- * any legacy callers that still use `showInputBox`; current entry points
- * route through the New Branch Dialog webview.
- */
-export function _validateBranchName(value: string): string | undefined {
-  return validateBranchName(value);
-}
-
 // `resolveLocalChangesOpenFileTarget` was relocated verbatim to
 // `commands/registration/blameEditorCommands.ts` (with its consuming
 // `intellig.localChanges.openFile` handler) and is re-exported near the top

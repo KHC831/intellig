@@ -767,28 +767,3 @@ export class HistoryTab {
     void vscode.window.showErrorMessage(sanitizeGitError(msg));
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Factory
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Backwards-compatible factory. Earlier call sites use
- * `createHistoryTabHandler()` with no arguments; that continues to compile
- * because both parameters here are optional. Callers who can supply a
- * GitService + hooks get a fully functional tab.
- */
-export function createHistoryTabHandler(
-  gitService?: IGitService,
-  hooks?: IHistoryTabHooks
-): TabMessageHandler {
-  if (!gitService) {
-    // Safety net for early-boot invocations. Messages are dropped until the
-    // provider re-wires the handler with a real gitService.
-    return (_message: IWebviewTabMessage): void => {
-      /* no-op */
-    };
-  }
-  const tab = new HistoryTab(gitService, hooks ?? {});
-  return tab.asTabHandler();
-}

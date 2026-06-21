@@ -56,15 +56,6 @@ import { sanitizeGitError } from '../../git-core/gitError';
 import type { JsonValue, LogRecord } from './sinks/types';
 
 /**
- * Stable component name used by the sentinel record returned when the
- * top-level walk throws. The Logger inspects this constant to detect
- * a sanitization-failure result and synthesise the section 4.5 fallback warn
- * record on its side; nothing else should treat this as a regular
- * component name.
- */
-export const SANITIZE_FAILURE_COMPONENT = '__sanitize_failure__';
-
-/**
  * Marker substituted in place of any object or array that the walker
  * has already seen on the current recursion stack. Matches the
  * grammar used by other JSON-walking sanitizers in the wider Node.js

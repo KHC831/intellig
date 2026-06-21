@@ -122,16 +122,11 @@ export class UpdateInfoTab {
   }
 }
 
-/** Factory mirroring the rest of the tab layer. */
-export function createUpdateInfoTab(hooks?: IUpdateInfoTabHooks): UpdateInfoTab {
-  return new UpdateInfoTab(hooks);
-}
-
 /**
- * Backwards-compatible no-arg handler retained for the provider's
- * constructor-time registration. The provider swaps in a real
- * `createUpdateInfoTab(...).asTabHandler()` once wired (deferred cross-cutting
- * change in the Log/Graph workstream).
+ * No-arg handler used for the provider's constructor-time registration
+ * (`_tabRouter.register('updateInfo', …)`). Currently a no-op sink; the
+ * provider can swap in a real `new UpdateInfoTab(...).asTabHandler()` once the
+ * Update-Info tab is wired (deferred Log/Graph workstream change).
  */
 export function createUpdateInfoTabHandler(): TabMessageHandler {
   return (message: IWebviewTabMessage): void => {

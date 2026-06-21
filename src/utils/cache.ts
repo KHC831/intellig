@@ -275,13 +275,6 @@ export const DEFAULT_CACHE_CONFIGS = {
 };
 
 /**
- * Create a cache manager for Git service operations.
- */
-export function createGitCacheManager(): GitCacheManager {
-  return new GitCacheManager();
-}
-
-/**
  * Centralized cache manager for Git service operations.
  * Provides typed caches for different Git data types with appropriate configurations.
  */
