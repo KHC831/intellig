@@ -595,87 +595,149 @@ export class PushDialog extends BaseWebviewPanel {
    * literal would break the old regex).
    */
   private _getBodyParts(): { body: string; script: string } {
-    if (this._rows.length === 0) {
-      return { body: '<div>Loading repositories…</div>', script: '' };
-    }
+    // Body ships an empty root; the script builds the table, overflow options,
+    // and action bar via document.createElement. Host data crosses as a JSON
+    // init island and reaches the DOM via .value / .textContent / element props
+    // (injection-proof) — never markup.
+    const body = `<div id="root"></div>`;
 
-    const rowsHtml = this._rows
-      .map((r) => {
-        const protectedRow = isProtectedTarget(r.targetBranch, this._protectedBranches);
-        const protectedAttr = protectedRow ? ' data-protected="1"' : '';
-        const errorHtml = r.error
-          ? `<tr class="row-error" data-row-id="${escapeHtml(r.id)}">
-              <td colspan="5">
-                ⚠ ${escapeHtml(r.error.message)}
-                ${
-                  r.error.kind === 'rejected-non-ff'
-                    ? `<button data-action="pullAndRetry" data-row-id="${escapeHtml(r.id)}">Pull and Retry…</button>
-                       <button data-action="forceWithLease-row" data-row-id="${escapeHtml(r.id)}">Force with Lease</button>`
-                    : ''
-                }
-              </td>
-             </tr>`
-          : '';
-        return `
-          <tr data-row-id="${escapeHtml(r.id)}"${protectedAttr}>
-            <td><input type="checkbox" class="row-select" ${r.selected ? 'checked' : ''} data-row-id="${escapeHtml(r.id)}" /></td>
-            <td>${escapeHtml(r.repoLabel)}</td>
-            <td>${escapeHtml(r.localBranch)}</td>
-            <td><input type="text" class="row-target" value="${escapeHtml(r.targetBranch)}" data-row-id="${escapeHtml(r.id)}" /></td>
-            <td>${r.ahead === 0 ? '<span class="badge">up to date</span>' : `<span class="badge">${r.ahead}</span>`}</td>
-          </tr>
-          ${errorHtml}`;
-      })
-      .join('\n');
-
-    // Primary button label reflects default action.
-    const primaryLabel = primaryButtonLabel(this._primaryAction);
-
-    // Build the dropdown options.
     const anyProtected = this._rows.some(
       (r) => r.selected && isProtectedTarget(r.targetBranch, this._protectedBranches)
     );
-
-    const body = `
-      <table>
-        <thead>
-          <tr>
-            <th style="width:30px"></th>
-            <th>Repository</th>
-            <th>Branch</th>
-            <th>Target</th>
-            <th>Commits</th>
-          </tr>
-        </thead>
-        <tbody id="rows">${rowsHtml}</tbody>
-      </table>
-      <a class="edit-all" id="edit-all">Edit all targets</a>
-
-      <div class="overflow">
-        <label><input type="checkbox" id="no-verify" ${this._overflow.noVerify ? 'checked' : ''}/> --no-verify</label>
-        <label><input type="checkbox" id="push-tags" ${this._overflow.pushTags ? 'checked' : ''}/> Push tags</label>
-        <label><input type="radio" name="tag-scope" value="all" ${this._overflow.tagScope === 'all' ? 'checked' : ''}/> all tags</label>
-        <label><input type="radio" name="tag-scope" value="follow" ${this._overflow.tagScope === 'follow' ? 'checked' : ''}/> --follow-tags</label>
-      </div>
-
-      <div class="actions">
-        <button id="cancel-btn" class="secondary" type="button">Cancel</button>
-        <select id="action-select" aria-label="Push action">
-          <option value="push" ${this._primaryAction === 'push' ? 'selected' : ''}>Push</option>
-          <option value="forceWithLease" ${this._primaryAction === 'forceWithLease' ? 'selected' : ''}>Force Push with Lease</option>
-          <option value="force" ${this._primaryAction === 'force' ? 'selected' : ''} ${anyProtected ? 'disabled' : ''}>Force Push (Anyway)…</option>
-        </select>
-        <button id="push-btn" type="button">${escapeHtml(primaryLabel)}</button>
-      </div>
-    `;
+    const initJson = JSON.stringify({
+      empty: this._rows.length === 0,
+      rows: this._rows.map((r) => ({
+        id: r.id,
+        repoLabel: r.repoLabel,
+        localBranch: r.localBranch,
+        targetBranch: r.targetBranch,
+        ahead: r.ahead,
+        selected: r.selected,
+        protected: isProtectedTarget(r.targetBranch, this._protectedBranches),
+        error: r.error ? { message: r.error.message, kind: r.error.kind } : null,
+      })),
+      primaryAction: this._primaryAction,
+      primaryLabel: primaryButtonLabel(this._primaryAction),
+      anyProtected,
+      overflow: {
+        noVerify: this._overflow.noVerify,
+        pushTags: this._overflow.pushTags,
+        tagScope: this._overflow.tagScope,
+      },
+    }).replace(/</g, '\\u003c');
 
     // Script is returned separately so `_render()` can splice it into
-    // a nonced `<script>` without fragile regex extraction. Contains the
-    // Incremental patch handlers (patchRow / patchOverflow) that replace
-    // the old full-rerender path.
+    // a nonced `<script>` without fragile regex extraction. Builds the body
+    // via createElement, then wires events + the incremental patch handlers
+    // (patchRow / patchOverflow) that replace the old full-rerender path.
     const script = `
       (function() {
         const vscode = acquireVsCodeApi();
+        const INIT = ${initJson};
+        const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+        const root = document.getElementById('root');
+
+        if (INIT.empty) {
+          root.append(el('div', { textContent: 'Loading repositories…' }));
+          return;
+        }
+
+        // ── Repository table ───────────────────────────────────────────────
+        const table = el('table');
+        const thead = el('thead');
+        const headRow = el('tr');
+        const th0 = el('th');
+        th0.setAttribute('style', 'width:30px');
+        headRow.append(
+          th0,
+          el('th', { textContent: 'Repository' }),
+          el('th', { textContent: 'Branch' }),
+          el('th', { textContent: 'Target' }),
+          el('th', { textContent: 'Commits' })
+        );
+        thead.append(headRow);
+        const tbody = el('tbody', { id: 'rows' });
+        for (const r of INIT.rows) {
+          const tr = el('tr');
+          tr.setAttribute('data-row-id', r.id);
+          if (r.protected) tr.setAttribute('data-protected', '1');
+          const c0 = el('td');
+          const cb = el('input', { type: 'checkbox', className: 'row-select' });
+          cb.checked = r.selected;
+          cb.setAttribute('data-row-id', r.id);
+          c0.append(cb);
+          const c3 = el('td');
+          const ti = el('input', { type: 'text', className: 'row-target', value: r.targetBranch });
+          ti.setAttribute('data-row-id', r.id);
+          c3.append(ti);
+          const c4 = el('td');
+          c4.append(el('span', { className: 'badge', textContent: r.ahead === 0 ? 'up to date' : String(r.ahead) }));
+          tr.append(c0, el('td', { textContent: r.repoLabel }), el('td', { textContent: r.localBranch }), c3, c4);
+          tbody.append(tr);
+          if (r.error) {
+            const er = el('tr', { className: 'row-error' });
+            er.setAttribute('data-row-id', r.id);
+            const td = el('td');
+            td.setAttribute('colspan', '5');
+            td.append('⚠ ' + r.error.message + ' ');
+            if (r.error.kind === 'rejected-non-ff') {
+              const b1 = el('button', { textContent: 'Pull and Retry…' });
+              b1.setAttribute('data-action', 'pullAndRetry');
+              b1.setAttribute('data-row-id', r.id);
+              const b2 = el('button', { textContent: 'Force with Lease' });
+              b2.setAttribute('data-action', 'forceWithLease-row');
+              b2.setAttribute('data-row-id', r.id);
+              td.append(b1, ' ', b2);
+            }
+            er.append(td);
+            tbody.append(er);
+          }
+        }
+        table.append(thead, tbody);
+        root.append(table);
+
+        root.append(el('a', { className: 'edit-all', id: 'edit-all', textContent: 'Edit all targets' }));
+
+        // ── Overflow options ───────────────────────────────────────────────
+        const overflow = el('div', { className: 'overflow' });
+        const labelled = (input, text) => {
+          const l = el('label');
+          l.append(input, ' ' + text);
+          return l;
+        };
+        const noVerify = el('input', { type: 'checkbox', id: 'no-verify' });
+        noVerify.checked = INIT.overflow.noVerify;
+        const pushTags = el('input', { type: 'checkbox', id: 'push-tags' });
+        pushTags.checked = INIT.overflow.pushTags;
+        const tagAll = el('input', { type: 'radio', name: 'tag-scope', value: 'all' });
+        tagAll.checked = INIT.overflow.tagScope === 'all';
+        const tagFollow = el('input', { type: 'radio', name: 'tag-scope', value: 'follow' });
+        tagFollow.checked = INIT.overflow.tagScope === 'follow';
+        overflow.append(
+          labelled(noVerify, '--no-verify'),
+          labelled(pushTags, 'Push tags'),
+          labelled(tagAll, 'all tags'),
+          labelled(tagFollow, '--follow-tags')
+        );
+        root.append(overflow);
+
+        // ── Action bar ─────────────────────────────────────────────────────
+        const actionsBar = el('div', { className: 'actions' });
+        const cancelBtn = el('button', { id: 'cancel-btn', className: 'secondary', type: 'button', textContent: 'Cancel' });
+        const actionSelect = el('select', { id: 'action-select' });
+        actionSelect.setAttribute('aria-label', 'Push action');
+        const optPush = el('option', { value: 'push', textContent: 'Push' });
+        optPush.selected = INIT.primaryAction === 'push';
+        const optLease = el('option', { value: 'forceWithLease', textContent: 'Force Push with Lease' });
+        optLease.selected = INIT.primaryAction === 'forceWithLease';
+        const optForce = el('option', { value: 'force', textContent: 'Force Push (Anyway)…' });
+        optForce.selected = INIT.primaryAction === 'force';
+        optForce.disabled = INIT.anyProtected;
+        actionSelect.append(optPush, optLease, optForce);
+        const pushBtn = el('button', { id: 'push-btn', type: 'button', textContent: INIT.primaryLabel });
+        actionsBar.append(cancelBtn, actionSelect, pushBtn);
+        root.append(actionsBar);
+
         const postRowPatch = (rowId, patch) => {
           vscode.postMessage({ type: 'updateRow', rowId, rowPatch: patch });
         };

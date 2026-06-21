@@ -27,6 +27,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import {
   buildPushOptions,
@@ -1116,5 +1117,82 @@ describe('PushDialog — SR-5 incremental patch (no full re-render)', () => {
     );
     assert.strictEqual(dialog.rows[0].error?.kind, 'rejected-non-ff');
     dialog.dispose();
+  });
+});
+
+// ─── rendered DOM (script-built) ─────────────────────────────────────────────
+
+describe('PushDialog — rendered DOM (script-built)', () => {
+  /**
+   * Run the dialog's inline nonce'd script in jsdom. Post-migration contract:
+   * the script BUILDS the table/options/actions via document.createElement —
+   * the host markup ships an empty root, not pre-baked controls.
+   */
+  function renderDoc(dialog: TestPushDialog): { document: Document; posted: unknown[] } {
+    const html = dialog.renderedHtml();
+    const dom = new JSDOM(html, { runScripts: 'outside-only' });
+    const window = dom.window;
+    const posted: unknown[] = [];
+    (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+      postMessage: (m: unknown): void => {
+        posted.push(m);
+      },
+      getState: (): void => {},
+      setState: (): void => {},
+    });
+    assert.strictEqual(
+      window.document.querySelector('#rows'),
+      null,
+      'the table must not be pre-baked in host markup — the script builds the DOM'
+    );
+    const scriptEl = window.document.querySelector('script[nonce]');
+    assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+    window.eval(scriptEl.textContent ?? '');
+    return { document: window.document as unknown as Document, posted };
+  }
+
+  it('builds a table row per repository with checkbox, target input, and action bar', async () => {
+    const { dialog } = makeDialog({ repos: [makeRepo('/repo-a'), makeRepo('/repo-b')] });
+    try {
+      await dialog.waitUntilPopulated();
+      const { document } = renderDoc(dialog);
+      const rows = document.querySelectorAll('#rows tr[data-row-id]');
+      assert.strictEqual(rows.length, 2, 'one row per repository');
+      assert.strictEqual(
+        document.querySelectorAll('input.row-select').length,
+        2,
+        'a select checkbox per row'
+      );
+      assert.strictEqual(
+        document.querySelectorAll('input.row-target').length,
+        2,
+        'a target input per row'
+      );
+      assert.ok(document.querySelector('#action-select'), 'action select built');
+      assert.ok(document.querySelector('#push-btn'), 'push button built');
+      assert.ok(document.querySelector('#cancel-btn'), 'cancel button built');
+    } finally {
+      dialog.dispose();
+    }
+  });
+
+  it('toggling a row checkbox posts an updateRow patch', async () => {
+    const { dialog } = makeDialog({ repos: [makeRepo('/repo-a')] });
+    try {
+      await dialog.waitUntilPopulated();
+      const { document, posted } = renderDoc(dialog);
+      const cb = document.querySelector('input.row-select') as HTMLInputElement;
+      cb.checked = false;
+      cb.dispatchEvent(
+        new (document.defaultView as unknown as { Event: typeof Event }).Event('change', {
+          bubbles: true,
+        })
+      );
+      const last = posted.at(-1) as { type: string; rowPatch: { selected: boolean } };
+      assert.strictEqual(last.type, 'updateRow', 'change posts an updateRow message');
+      assert.strictEqual(last.rowPatch.selected, false, 'carries the new checkbox state');
+    } finally {
+      dialog.dispose();
+    }
   });
 });
