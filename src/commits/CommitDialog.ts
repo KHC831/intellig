@@ -1242,14 +1242,14 @@ export class CommitDialog {
               type="button"
               title="${this._escapeHtml(recentBtnTitle)}"
               ${hasRecent ? '' : 'disabled'}
-              onclick="openRecentMessages()"
+              data-action="openRecentMessages"
             >∨</button>
             <button
               id="gear-btn"
               class="header-action-button"
               type="button"
               title="Commit options"
-              onclick="openGearMenu()"
+              data-action="openGearMenu"
             >⚙</button>
           </div>
         </div>
@@ -1257,7 +1257,6 @@ export class CommitDialog {
           id="commit-message"
           class="commit-message-input"
           placeholder="Enter commit message..."
-          oninput="handleMessageChange(this.value)"
         >${escapedMessage}</textarea>
         ${this._getAuthorSection()}
         ${this._getNoVerifyBadge()}
@@ -1284,7 +1283,6 @@ export class CommitDialog {
           type="text"
           placeholder="Name &lt;email@example.com&gt;"
           value="${escapedAuthor}"
-          oninput="handleAuthorChange(this.value)"
         />
         ${errorHtml}
       </div>
@@ -1342,7 +1340,7 @@ export class CommitDialog {
       <div class="section files-section">
         <div class="section-header">
           <span class="section-title">Changes</span>
-          <button class="refresh-button" onclick="refresh()" title="Refresh">↻</button>
+          <button class="refresh-button" data-action="refresh" title="Refresh">↻</button>
         </div>
         <div class="files-list">
           ${stagedHtml}
@@ -1418,8 +1416,8 @@ export class CommitDialog {
         <div class="section-header">
           <span class="section-title">Diff: ${this._escapeHtml(this._getFileName(this._selectedFilePath))}</span>
           <div class="diff-header-controls">
-            <button class="partial-staging-toggle ${this._partialStagingMode ? 'active' : ''}" 
-                    onclick="togglePartialStagingMode()" 
+            <button class="partial-staging-toggle ${this._partialStagingMode ? 'active' : ''}"
+                    data-action="togglePartialStagingMode"
                     title="${this._partialStagingMode ? 'Exit line selection mode' : 'Enable line selection for partial staging'}">
               ${this._partialStagingMode ? '✓ Line Selection' : '☐ Line Selection'}
             </button>
@@ -1570,19 +1568,17 @@ export class CommitDialog {
       <div class="options-section">
         <label class="option-label">
           <input 
-            type="checkbox" 
-            id="amend-checkbox" 
-            ${this._amendMode ? 'checked' : ''} 
-            onchange="toggleAmend(this.checked)"
+            type="checkbox"
+            id="amend-checkbox"
+            ${this._amendMode ? 'checked' : ''}
           />
           <span>Amend</span>
         </label>
         <label class="option-label">
           <input 
-            type="checkbox" 
-            id="signoff-checkbox" 
-            ${this._signOffMode ? 'checked' : ''} 
-            onchange="toggleSignOff(this.checked)"
+            type="checkbox"
+            id="signoff-checkbox"
+            ${this._signOffMode ? 'checked' : ''}
           />
           <span>Sign-off</span>
         </label>
@@ -1599,8 +1595,8 @@ export class CommitDialog {
 
     return `
       <div class="buttons-section">
-        <button class="button cancel-button" onclick="cancel()">Cancel</button>
-        <button class="button commit-button" onclick="commit()" ${commitDisabled}>
+        <button class="button cancel-button" data-action="cancel">Cancel</button>
+        <button class="button commit-button" data-action="commit" ${commitDisabled}>
           Commit${this._amendMode ? ' (Amend)' : ''} (${selectedCount} file${selectedCount !== 1 ? 's' : ''})
         </button>
       </div>
@@ -2244,12 +2240,41 @@ export class CommitDialog {
           // coercion of the dataset strings. Pinned by
           // commitDialog-toggleLine-1.
           toggleLine: () => toggleLine(Number(hunkIndex), Number(target.dataset.lineNumber)),
+          // Header/footer controls. These were inline onclick handlers,
+          // which the nonce-only CSP (no 'unsafe-inline') blocks, leaving
+          // the buttons dead; routing through the delegated dispatcher
+          // restores them.
+          openRecentMessages: () => openRecentMessages(),
+          openGearMenu: () => openGearMenu(),
+          refresh: () => refresh(),
+          togglePartialStagingMode: () => togglePartialStagingMode(),
+          cancel: () => cancel(),
+          commit: () => commit(),
         };
         const handler = handlers[action];
         if (handler) {
           handler();
         }
       });
+
+      // Input / change controls. Inline oninput/onchange attributes are also
+      // blocked by the nonce-only CSP, so wire them through addEventListener.
+      const msgEl = document.getElementById('commit-message');
+      if (msgEl) {
+        msgEl.addEventListener('input', (e) => handleMessageChange(e.target.value));
+      }
+      const authorEl = document.getElementById('commit-author');
+      if (authorEl) {
+        authorEl.addEventListener('input', (e) => handleAuthorChange(e.target.value));
+      }
+      const amendEl = document.getElementById('amend-checkbox');
+      if (amendEl) {
+        amendEl.addEventListener('change', (e) => toggleAmend(e.target.checked));
+      }
+      const signoffEl = document.getElementById('signoff-checkbox');
+      if (signoffEl) {
+        signoffEl.addEventListener('change', (e) => toggleSignOff(e.target.checked));
+      }
 
       // Handle keyboard shortcuts
       document.addEventListener('keydown', (e) => {

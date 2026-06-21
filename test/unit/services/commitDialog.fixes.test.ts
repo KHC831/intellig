@@ -786,4 +786,74 @@ describe('CommitDialog — recent messages + author + gear', () => {
       }
     });
   });
+
+  describe('CSP-safe event wiring (no inline handlers)', () => {
+    function renderHtml(dialog: CommitDialog): string {
+      const webviewStub = { cspSource: 'vscode-resource:' } as unknown as vscode.Webview;
+      return (dialog as unknown as { _getHtmlContent(w: vscode.Webview): string })._getHtmlContent(
+        webviewStub
+      );
+    }
+
+    it('emits NO inline on*= handlers (they are dead under the nonce-only CSP)', () => {
+      const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
+      try {
+        const html = renderHtml(dialog);
+        const inlineHandler = html.match(/\son(click|input|change|submit|keydown|keyup)\s*=/i);
+        assert.strictEqual(
+          inlineHandler,
+          null,
+          `inline event handlers are blocked by the nonce-only CSP; found: ${inlineHandler?.[0]}`
+        );
+      } finally {
+        dialog.dispose();
+      }
+    });
+
+    it('wires the Commit/Cancel buttons + gear/recent/refresh via data-action delegation', () => {
+      const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
+      try {
+        const html = renderHtml(dialog);
+        for (const action of [
+          'commit',
+          'cancel',
+          'openGearMenu',
+          'openRecentMessages',
+          'refresh',
+        ]) {
+          assert.ok(
+            html.includes(`data-action="${action}"`),
+            `${action} must be wired via data-action delegation`
+          );
+        }
+      } finally {
+        dialog.dispose();
+      }
+    });
+
+    it('wires the message/author inputs + amend/sign-off checkboxes via addEventListener', () => {
+      const dialog = new CommitDialog(Uri.file('/tmp/ext'), makeGitService());
+      try {
+        const html = renderHtml(dialog);
+        assert.ok(
+          /getElementById\('commit-message'\)[\s\S]*addEventListener\('input'/.test(html),
+          'commit-message must wire input via addEventListener'
+        );
+        assert.ok(
+          /getElementById\('commit-author'\)[\s\S]*addEventListener\('input'/.test(html),
+          'commit-author must wire input via addEventListener'
+        );
+        assert.ok(
+          /getElementById\('amend-checkbox'\)[\s\S]*addEventListener\('change'/.test(html),
+          'amend-checkbox must wire change via addEventListener'
+        );
+        assert.ok(
+          /getElementById\('signoff-checkbox'\)[\s\S]*addEventListener\('change'/.test(html),
+          'signoff-checkbox must wire change via addEventListener'
+        );
+      } finally {
+        dialog.dispose();
+      }
+    });
+  });
 });
