@@ -160,14 +160,18 @@ export class SquashMessageDialog extends BaseWebviewPanel {
     const nonce = this._getNonce();
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
-    // Embed the seed as JSON inside an inline <script>. JSON.stringify alone
-    // does not escape `<`, so a seed containing `</script>` would close the
-    // script tag early (the HTML parser ignores JS string context) and inject
-    // the trailing markup. Unicode-escape `<`; the JS string decodes it back
-    // to `<`, so the textarea value is unchanged.
-    const seedJson = JSON.stringify(this._seedMessage).replace(/</g, '\\u003c');
-    const submitLabel = this._commitCount > 0 ? `Squash ${this._commitCount} commits` : 'Squash';
-    const submitLabelEscaped = escapeHtml(submitLabel);
+    // Cross host→script data as a JSON island read by the script. JSON.stringify
+    // alone does not escape `<`, so a seed containing `</script>` would close the
+    // inline script tag early (the HTML parser ignores JS string context) and
+    // inject the trailing markup. Unicode-escape `<`; the JS string decodes it
+    // back to `<`, so the values are unchanged. Every dynamic value reaches the
+    // DOM via `.value` / `.textContent` (injection-proof) — never HTML markup.
+    const initJson = JSON.stringify({
+      seedMessage: this._seedMessage,
+      commitCount: this._commitCount,
+      submitLabel: this._commitCount > 0 ? `Squash ${this._commitCount} commits` : 'Squash',
+      isMac: onMacOS(),
+    }).replace(/</g, '\\u003c');
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -179,20 +183,47 @@ export class SquashMessageDialog extends BaseWebviewPanel {
   <style>${styles}</style>
 </head>
 <body>
-  <h2>Squash ${this._commitCount} commits</h2>
-  <p class="helper">
-    Edit the combined commit message below. Press <kbd>${onMacOS() ? 'Cmd' : 'Ctrl'}+Enter</kbd> to squash, or <kbd>Esc</kbd> to cancel.
-  </p>
-  <textarea id="msg" autofocus spellcheck="false"></textarea>
-  <div class="actions">
-    <button id="cancel-btn" class="secondary" type="button">Cancel</button>
-    <button id="submit-btn" type="button">${submitLabelEscaped}</button>
-  </div>
+  <div id="root"></div>
   <script nonce="${nonce}">
     (function() {
       const vscode = acquireVsCodeApi();
-      const msgEl = document.getElementById('msg');
-      msgEl.value = ${seedJson};
+      const INIT = ${initJson};
+      const root = document.getElementById('root');
+
+      const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+      const heading = el('h2', { textContent: 'Squash ' + INIT.commitCount + ' commits' });
+
+      // Helper line with two <kbd> hints. Built from text nodes + elements so
+      // no markup interpolation is needed.
+      const helper = el('p', { className: 'helper' });
+      helper.append(
+        'Edit the combined commit message below. Press ',
+        el('kbd', { textContent: (INIT.isMac ? 'Cmd' : 'Ctrl') + '+Enter' }),
+        ' to squash, or ',
+        el('kbd', { textContent: 'Esc' }),
+        ' to cancel.'
+      );
+
+      const msgEl = el('textarea', { id: 'msg', spellcheck: false });
+      msgEl.value = INIT.seedMessage;
+
+      const actions = el('div', { className: 'actions' });
+      const cancelBtn = el('button', {
+        id: 'cancel-btn',
+        type: 'button',
+        className: 'secondary',
+        textContent: 'Cancel',
+      });
+      const submitBtn = el('button', {
+        id: 'submit-btn',
+        type: 'button',
+        textContent: INIT.submitLabel,
+      });
+      actions.append(cancelBtn, submitBtn);
+
+      root.append(heading, helper, msgEl, actions);
+
       // Place caret at the end of the seed so the user can keep typing.
       msgEl.setSelectionRange(msgEl.value.length, msgEl.value.length);
       msgEl.focus();
@@ -204,8 +235,8 @@ export class SquashMessageDialog extends BaseWebviewPanel {
         vscode.postMessage({ type: 'cancel' });
       };
 
-      document.getElementById('submit-btn').addEventListener('click', submit);
-      document.getElementById('cancel-btn').addEventListener('click', cancel);
+      submitBtn.addEventListener('click', submit);
+      cancelBtn.addEventListener('click', cancel);
 
       // Keyboard shortcuts:
       //   Cmd+Enter / Ctrl+Enter → submit (IntelliJ + git commit-template parity)

@@ -18,6 +18,7 @@
 
 import '../../setup';
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as vscode from 'vscode';
 import { SquashMessageDialog } from '../../../src/commits/SquashMessageDialog';
 
@@ -56,6 +57,48 @@ function postMessage(dialog: SquashMessageDialog, msg: unknown): void {
  */
 function getHtml(dialog: SquashMessageDialog): string {
   return (dialog as unknown as { _panel: { webview: { html: string } } })._panel.webview.html;
+}
+
+/**
+ * Load the dialog's rendered HTML into jsdom and run its inline nonce'd
+ * script, mirroring how the webview host executes it. Returns the live
+ * document plus the messages the script posted back.
+ *
+ * The post-migration contract is that the script BUILDS the body via
+ * `document.createElement` — the host markup ships an empty root, not
+ * pre-baked controls. So this harness asserts the controls are absent
+ * before the script runs, then present after.
+ */
+function runDialogScript(dialog: SquashMessageDialog): {
+  document: Document;
+  posted: unknown[];
+} {
+  const html = getHtml(dialog);
+  const dom = new JSDOM(html, { runScripts: 'outside-only' });
+  const window = dom.window;
+  const posted: unknown[] = [];
+  (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+    postMessage: (m: unknown): void => {
+      posted.push(m);
+    },
+    getState: (): void => {},
+    setState: (): void => {},
+  });
+
+  // Migration contract: controls are NOT pre-baked into the host markup —
+  // the script constructs them. (Pre-migration this fails: the textarea
+  // ships in the body string.)
+  assert.strictEqual(
+    window.document.querySelector('textarea'),
+    null,
+    'controls must not be pre-baked in host markup — the script builds the DOM'
+  );
+
+  const scriptEl = window.document.querySelector('script[nonce]');
+  assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+  window.eval(scriptEl.textContent ?? '');
+
+  return { document: window.document as unknown as Document, posted };
 }
 
 describe('SquashMessageDialog', () => {
@@ -134,28 +177,27 @@ describe('SquashMessageDialog', () => {
     });
   });
 
-  describe('rendered HTML', () => {
-    it('includes a textarea for multi-line composition (not an input box)', async () => {
+  describe('rendered DOM (script-built)', () => {
+    it('builds a textarea for multi-line composition (not an input box)', async () => {
       const dialog = new SquashMessageDialog(makeContext(), {
         seedMessage: 'seed',
         commitCount: 4,
       });
-      // Drive _render via prompt(); we don't await because the panel
-      // is captured below.
       void dialog.prompt();
 
-      const html = getHtml(dialog);
-      assert.ok(html.includes('<textarea'), 'rendered HTML must contain a <textarea>');
-      assert.ok(
-        !/<input\s+type="text"/.test(html),
-        'rendered HTML must NOT contain a single-line <input type="text"> for the message'
+      const { document } = runDialogScript(dialog);
+      const textarea = document.querySelector('textarea#msg');
+      assert.ok(textarea, 'script must build a <textarea id="msg">');
+      assert.strictEqual(
+        document.querySelector('input[type="text"]'),
+        null,
+        'must NOT build a single-line <input type="text"> for the message'
       );
 
-      // Cleanup — let the prompt() resolve via dispose so we don't leak.
       dialog.dispose();
     });
 
-    it('JSON-encodes the seed message so newlines and quotes in commit messages survive interpolation', async () => {
+    it('seeds the textarea with newlines, quotes, and backslashes preserved verbatim', async () => {
       const seedMessage = 'first line\n\n"quoted body" with newlines\nand backslashes \\n in text';
       const dialog = new SquashMessageDialog(makeContext(), {
         seedMessage,
@@ -163,20 +205,19 @@ describe('SquashMessageDialog', () => {
       });
       void dialog.prompt();
 
-      const html = getHtml(dialog);
-      // The JSON encoding is the load-bearing thing — without it,
-      // a commit message containing a quote or a newline would break
-      // the inline script's `msgEl.value = "<seed>";` assignment.
-      const expectedJsonEncoded = JSON.stringify(seedMessage);
-      assert.ok(
-        html.includes(`msgEl.value = ${expectedJsonEncoded};`),
-        `rendered HTML must include JSON-encoded seed (got HTML; expected substring: ${expectedJsonEncoded})`
+      const { document } = runDialogScript(dialog);
+      const textarea = document.querySelector('textarea#msg') as HTMLTextAreaElement;
+      assert.ok(textarea, 'script must build the textarea');
+      assert.strictEqual(
+        textarea.value,
+        seedMessage,
+        'the seed must round-trip into the textarea value unmodified'
       );
 
       dialog.dispose();
     });
 
-    it('unicode-escapes "<" in the seed so a "</script>" cannot break out of the inline script', async () => {
+    it('unicode-escapes "<" in the embedded seed so a "</script>" cannot break out', async () => {
       const seedMessage = '</script><img src=x onerror=alert(1)> done';
       const dialog = new SquashMessageDialog(makeContext(), {
         seedMessage,
@@ -196,22 +237,58 @@ describe('SquashMessageDialog', () => {
         html.includes('\\u003c/script>'),
         'the seed "<" must be unicode-escaped in the embedded JSON'
       );
-      assert.ok(html.includes('msgEl.value = '), 'the seed is still assigned to the textarea');
+      // And it round-trips intact into the textarea after the script runs.
+      const { document } = runDialogScript(dialog);
+      const textarea = document.querySelector('textarea#msg') as HTMLTextAreaElement;
+      assert.strictEqual(textarea.value, seedMessage, 'the seed is assigned to the textarea');
 
       dialog.dispose();
     });
 
-    it('includes the commit count in the dialog title', async () => {
+    it('shows the commit count in the heading', async () => {
       const dialog = new SquashMessageDialog(makeContext(), {
         seedMessage: 'seed',
         commitCount: 7,
       });
       void dialog.prompt();
 
-      const html = getHtml(dialog);
+      const { document } = runDialogScript(dialog);
+      const heading = document.querySelector('h2');
+      assert.ok(heading, 'script must build a heading');
       assert.ok(
-        html.includes('Squash 7 commits'),
-        'rendered HTML must show the commit count in the heading'
+        heading.textContent?.includes('Squash 7 commits'),
+        'heading must show the commit count'
+      );
+
+      dialog.dispose();
+    });
+
+    it('wires Cancel and Submit buttons that post back the right message', async () => {
+      const dialog = new SquashMessageDialog(makeContext(), {
+        seedMessage: 'seed',
+        commitCount: 3,
+      });
+      void dialog.prompt();
+
+      const { document, posted } = runDialogScript(dialog);
+      const submit = document.querySelector('#submit-btn') as HTMLButtonElement;
+      const cancel = document.querySelector('#cancel-btn') as HTMLButtonElement;
+      assert.ok(submit && cancel, 'script must build Submit and Cancel buttons');
+      assert.ok(
+        submit.textContent?.includes('Squash 3 commits'),
+        'submit button label must reflect the commit count'
+      );
+
+      // Posted objects originate in the jsdom realm, so compare by field
+      // rather than deepStrictEqual (which rejects on cross-realm prototypes).
+      cancel.click();
+      assert.deepEqual(posted.at(-1), { type: 'cancel' }, 'Cancel posts a cancel message');
+
+      submit.click();
+      assert.deepEqual(
+        posted.at(-1),
+        { type: 'submit', message: 'seed' },
+        'Submit posts the current textarea value'
       );
 
       dialog.dispose();
