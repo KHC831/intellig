@@ -580,8 +580,6 @@ describe('package.json coherence', () => {
       'intellig.commit.showDiff',
       'intellig.explorer.showDiff',
       'intellig.explorer.showHistory',
-      'intellig.blame.copyRevision',
-      'intellig.blame.showCommit',
     ];
     const violations = mustBeGated
       .filter((id) => !gatedOut.has(id))

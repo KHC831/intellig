@@ -689,7 +689,7 @@
       },
       {
         "command": "intellig.editor.copyCommitHash",
-        "title": "Copy Commit Hash",
+        "title": "Copy Revision Number",
         "category": "IntelliG",
         "icon": "$(clippy)"
       },
@@ -698,16 +698,6 @@
         "title": "Show Commit",
         "category": "IntelliG",
         "icon": "$(git-commit)"
-      },
-      {
-        "command": "intellig.blame.showCommit",
-        "title": "Show Commit",
-        "category": "IntelliG"
-      },
-      {
-        "command": "intellig.blame.copyRevision",
-        "title": "Copy Revision Number",
-        "category": "IntelliG"
       },
       {
         "command": "intellig.blame.annotatePrevious",
@@ -747,15 +737,7 @@
           "when": "false"
         },
         {
-          "command": "intellig.blame.copyRevision",
-          "when": "false"
-        },
-        {
           "command": "intellig.blame.hideRevision",
-          "when": "false"
-        },
-        {
-          "command": "intellig.blame.showCommit",
           "when": "false"
         },
         {
@@ -1341,11 +1323,11 @@
       ],
       "editor/lineNumber/context": [
         {
-          "command": "intellig.blame.showCommit",
+          "command": "intellig.editor.showCommit",
           "group": "1_commit@1"
         },
         {
-          "command": "intellig.blame.copyRevision",
+          "command": "intellig.editor.copyCommitHash",
           "group": "1_commit@2"
         },
         {

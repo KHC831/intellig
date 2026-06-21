@@ -216,7 +216,8 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     }
   );
 
-  // Copy Commit Hash command for editor context menu.
+  // Copy Revision Number command — serves both the editor context submenu
+  // and the blame gutter (editor/lineNumber/context).
   //
   // `commitHashArg` is supplied when invoked from a blame gutter/inline hover
   // link; otherwise the commit is resolved from the cursor line's blame.
@@ -350,7 +351,7 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
             action: 'files',
           },
           {
-            label: '$(clippy) Copy Commit Hash',
+            label: '$(clippy) Copy Revision Number',
             description: commit.hash,
             action: 'copy',
           },
@@ -462,19 +463,6 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     }
     return { editor, repo, filePath: relative, line, blameLine };
   }
-
-  // Show Commit — delegates to the existing intellig.editor.showCommit.
-  const blameShowCommitCommand = registerLoggedCommand('intellig.blame.showCommit', async () => {
-    await vscode.commands.executeCommand('intellig.editor.showCommit');
-  });
-
-  // Copy Revision Number — delegates to the existing copy-hash command.
-  const blameCopyRevisionCommand = registerLoggedCommand(
-    'intellig.blame.copyRevision',
-    async () => {
-      await vscode.commands.executeCommand('intellig.editor.copyCommitHash');
-    }
-  );
 
   // Annotate Previous Revision — re-blame the file at <sha>^ (parent of the
   // blamed commit). Uses the parent SHA recorded by git blame when available.
@@ -598,8 +586,6 @@ export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Dispos
     editorShowLineHistoryCommand,
     editorCopyCommitHashCommand,
     editorShowCommitCommand,
-    blameShowCommitCommand,
-    blameCopyRevisionCommand,
     blameAnnotatePreviousCommand,
     blameHideRevisionCommand,
     blameToggleIgnoreWhitespaceCommand,
