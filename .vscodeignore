@@ -37,3 +37,4 @@ AGENT_WORKSPACE.md
 **/*.ts
 out/test/**
 out/**/*.test.js
+out-test/**

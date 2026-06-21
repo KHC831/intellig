@@ -42,3 +42,4 @@ workspace-notes/
 # Reviewer / runtime-verification scratchpad — local artifacts (e.g. UX-
 # reviewer's runtime-check probes), never committed.
 scratch/
+out-test/

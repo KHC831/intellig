@@ -65,7 +65,7 @@ if [ "$#" -eq 0 ]; then
   # Default (the real gate): only git-TRACKED files in scope. `git grep`
   # never searches untracked/gitignored files, so local coordination
   # scratch (AGENT_WORKSPACE.md, etc.) is excluded by construction.
-  hits=$(git grep -nFI "$GLYPH" -- src scripts docs '*.md' 2>/dev/null || true)
+  hits=$(git grep -nFI "$GLYPH" -- src test scripts docs '*.md' 2>/dev/null || true)
 else
   # Explicit paths (companion-spec fixtures live in temp, non-git dirs):
   # plain recursive text scan.

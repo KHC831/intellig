@@ -1,6 +1,6 @@
 {
   "extension": ["ts"],
-  "require": ["ts-node/register", "src/test/setup.ts"],
+  "require": ["ts-node/register", "test/setup.ts"],
   "timeout": 30000,
   "recursive": true,
   "exit": true

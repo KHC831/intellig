@@ -59,7 +59,8 @@
       }
     },
     {
-      "files": ["src/test/**/*.ts"],
+      "files": ["test/**/*.ts"],
+      "parserOptions": { "project": "./tsconfig.test.json" },
       "rules": {
         "@typescript-eslint/require-await": "off",
         "@typescript-eslint/unbound-method": "off",
