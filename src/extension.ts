@@ -35,6 +35,7 @@ import { CommitContextMenuCommands } from './commits';
 import { getOutputChannel, initOutputChannel } from './utils/outputChannel';
 import { getLogger, initLogger } from './utils/logger';
 import { runKeymapMigrationSafe } from './utils/keymapMigration';
+import { safeFireAndForget } from './utils/safeFireAndForget';
 import { sanitizeGitError, formatActionFailureToast } from './git-core/gitError';
 import { ICommandContext } from './commands/registration/CommandContext';
 import { IViewRegistrationContext } from './registration/ViewRegistrationContext';
@@ -284,7 +285,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // VS Code disposes its SourceControls on deactivation.
     const gitScmProvider = new GitScmProvider(extensionServices.gitService);
     context.subscriptions.push(gitScmProvider);
-    void gitScmProvider.initialize();
+    safeFireAndForget(
+      gitScmProvider.initialize(),
+      'extension.activate: GitScmProvider initial wiring'
+    );
 
     // Start the auto-fetch scheduler.
     // Registering in context.subscriptions lets VS Code dispose it on

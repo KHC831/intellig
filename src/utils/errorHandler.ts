@@ -4,6 +4,7 @@
  */
 
 import { GitCommandError } from '../git-core/gitCli';
+import { sanitizeGitError } from '../git-core/gitError';
 
 /**
  * Categories of Git errors for appropriate handling
@@ -383,8 +384,11 @@ export function categorizeGitError(error: Error | string): IGitError {
 
       return {
         category: pattern.category,
-        message,
-        details: fullMessage,
+        // The template can interpolate captured groups (e.g. a URL), and the
+        // details carry raw stderr — both can embed credentials or home-dir
+        // paths, so scrub before they reach any toast / notification / log.
+        message: sanitizeGitError(message),
+        details: sanitizeGitError(fullMessage),
         recoveryActions: pattern.recoveryActions,
         originalError: error instanceof Error ? error : new Error(error),
       };
@@ -395,7 +399,7 @@ export function categorizeGitError(error: Error | string): IGitError {
   return {
     category: GitErrorCategory.Unknown,
     message: getDefaultErrorMessage(errorMessage),
-    details: fullMessage,
+    details: sanitizeGitError(fullMessage),
     recoveryActions: [
       { label: 'View Details', description: 'Show full error details' },
       { label: 'Retry', description: 'Try the operation again' },
@@ -411,8 +415,9 @@ export function categorizeGitError(error: Error | string): IGitError {
  * @returns A cleaned up, user-friendly message
  */
 function getDefaultErrorMessage(errorMessage: string): string {
-  // Remove common Git prefixes
-  let message = errorMessage
+  // Scrub credentials / home-dir paths first: this message is shown to the user
+  // and an Unknown-category error (no template) echoes the raw git text.
+  let message = sanitizeGitError(errorMessage)
     .replace(/^fatal:\s*/i, '')
     .replace(/^error:\s*/i, '')
     .replace(/^warning:\s*/i, '')
@@ -579,10 +584,13 @@ export function formatErrorForLogging(error: Error | string): string {
 
   if (gitError.originalError instanceof GitCommandError) {
     const cmdError = gitError.originalError;
-    lines.push(`Command: git ${cmdError.args.join(' ')}`);
+    // args can carry a tokenized remote URL and stderr can echo it back —
+    // scrub both before they hit the Output channel / log file. (details +
+    // message arrive already sanitized from categorizeGitError.)
+    lines.push(`Command: git ${sanitizeGitError(cmdError.args.join(' '))}`);
     lines.push(`Exit Code: ${cmdError.result.exitCode}`);
     if (cmdError.result.stderr) {
-      lines.push(`Stderr: ${cmdError.result.stderr}`);
+      lines.push(`Stderr: ${sanitizeGitError(cmdError.result.stderr)}`);
     }
   }
 

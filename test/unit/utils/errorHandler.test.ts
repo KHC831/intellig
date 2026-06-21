@@ -274,6 +274,52 @@ describe('Error Handler', () => {
         assert.strictEqual(categorized.category, GitErrorCategory.Repository);
       });
     });
+
+    describe('credential redaction', () => {
+      const TOKEN = 'ghp_abc123def456ghi789jkl012';
+      const TOKEN_URL = `https://x-access-token:${TOKEN}@github.com/owner/repo.git`;
+      const AUTH_STDERR = `fatal: unable to access '${TOKEN_URL}/': 403`;
+
+      it('redacts a token in the categorized error details (unknown category)', () => {
+        const result: IGitCommandResult = {
+          exitCode: 128,
+          stdout: '',
+          stderr: AUTH_STDERR,
+          combined: AUTH_STDERR,
+        };
+        const categorized = categorizeGitError(new GitCommandError('git', ['fetch'], result));
+        assert.ok(
+          !categorized.details?.includes(TOKEN),
+          `token leaked into details: ${categorized.details}`
+        );
+        assert.ok(
+          !categorized.message.includes(TOKEN),
+          `token leaked into message: ${categorized.message}`
+        );
+      });
+
+      it('redacts a token in formatErrorForLogging (Details + Stderr + Command)', () => {
+        const result: IGitCommandResult = {
+          exitCode: 128,
+          stdout: '',
+          stderr: AUTH_STDERR,
+          combined: AUTH_STDERR,
+        };
+        const error = new GitCommandError('git', ['fetch', TOKEN_URL], result);
+        const formatted = formatErrorForLogging(error);
+        assert.ok(!formatted.includes(TOKEN), `token leaked into log output: ${formatted}`);
+      });
+
+      it('rewrites a home-dir path in the default message', () => {
+        const categorized = categorizeGitError(
+          new Error("ENOENT: open '/Users/alice/secret/repo/.git/config'")
+        );
+        assert.ok(
+          !categorized.message.includes('/Users/alice'),
+          `home path leaked: ${categorized.message}`
+        );
+      });
+    });
   });
 
   describe('Helper Functions', () => {

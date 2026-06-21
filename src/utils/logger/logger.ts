@@ -299,13 +299,12 @@ class LoggerImpl implements Logger {
     // bindings.
     const record = this._buildRecord(level, message, context, error);
 
-    // Sanitize. On failure the sanitizer returns a
-    // sentinel record we forward as-is; the sanitization-failure
-    // branch deliberately bypasses a second sanitize pass.
+    // Sanitize. On failure the sanitizer returns a sentinel record (already
+    // scrubbed) carrying the same `record` field, so we forward it as-is
+    // either way without a second sanitize pass.
     const result = sanitizeRecord(record);
-    const recordToEmit: LogRecord = result.ok ? result.record : result.record;
 
-    _multicast(recordToEmit);
+    _multicast(result.record);
   }
 
   /**

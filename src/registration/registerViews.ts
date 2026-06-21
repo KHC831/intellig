@@ -25,7 +25,7 @@ import { createBranchContextMenuCommands, createCommitContextMenuCommands } from
 import { getOutputChannel } from '../utils/outputChannel';
 import { getLogger } from '../utils/logger';
 import { resolveRepo } from '../utils/resolveRepo';
-import { formatActionFailureToast } from '../git-core/gitError';
+import { formatActionFailureToast, sanitizeGitError } from '../git-core/gitError';
 import { IViewRegistrationContext } from './ViewRegistrationContext';
 import {
   loadAllPanelDataCore,
@@ -170,7 +170,7 @@ export function registerViews(ctx: IViewRegistrationContext): void {
       const refreshResult = await shelfViewRef.refresh();
       if (refreshResult.error) {
         getOutputChannel().appendLine(
-          `[${new Date().toISOString()}] [intellig] extension.bindShelfRepo: refresh failed: ${refreshResult.error}`
+          `[${new Date().toISOString()}] [intellig] extension.bindShelfRepo: refresh failed: ${sanitizeGitError(refreshResult.error)}`
         );
       }
       return repo;
