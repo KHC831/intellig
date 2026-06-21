@@ -533,8 +533,7 @@ export class RebaseEditor {
         <div class="drag-handle" title="Drag to reorder">⋮⋮</div>
         <div class="action-selector">
           <select class="action-dropdown"
-                  data-hash="${commit.hash}"
-                  onchange="updateAction('${this._escapeHtml(commit.hash)}', this.value)">
+                  data-hash="${commit.hash}">
             ${this._getActionOptions(commit.action)}
           </select>
         </div>
@@ -550,7 +549,6 @@ export class RebaseEditor {
             data-hash="${this._escapeHtml(commit.hash)}"
             rows="3"
             placeholder="${this._escapeHtml(messagePlaceholder)}"
-            oninput="updateMessage('${this._escapeHtml(commit.hash)}', this.value)"
           >${rewordValue}</textarea>
         </div>`
             : ''
@@ -610,8 +608,8 @@ export class RebaseEditor {
           <span class="legend-item drop">drop - remove commit</span>
         </div>
         <div class="button-row">
-          <button class="button cancel-button" onclick="cancel()">Cancel</button>
-          <button class="button execute-button" onclick="execute()">Start Rebase</button>
+          <button class="button cancel-button" data-action="cancel">Cancel</button>
+          <button class="button execute-button" data-action="execute">Start Rebase</button>
         </div>
       </div>
     `;
@@ -1044,8 +1042,30 @@ export class RebaseEditor {
         vscode.postMessage({ type: 'cancel' });
       }
 
+      // Wire the action dropdowns, reword textareas, and footer buttons via
+      // addEventListener / delegation. They were inline onchange/oninput/onclick
+      // attributes, which the nonce-only CSP (no 'unsafe-inline') blocks —
+      // leaving the action selector, message editor, and Cancel / Start Rebase
+      // buttons dead. Reading the hash from data-hash (DOM property channel)
+      // also removes the attribute quote-breakout footgun.
+      function initControls() {
+        document.querySelectorAll('.action-dropdown').forEach((sel) => {
+          sel.addEventListener('change', () => updateAction(sel.dataset.hash, sel.value));
+        });
+        document.querySelectorAll('.reword-message-input').forEach((ta) => {
+          ta.addEventListener('input', () => updateMessage(ta.dataset.hash, ta.value));
+        });
+        document.addEventListener('click', (e) => {
+          const target = e.target.closest('[data-action]');
+          if (!target) return;
+          if (target.dataset.action === 'cancel') cancel();
+          else if (target.dataset.action === 'execute') execute();
+        });
+      }
+
       // Initialize on load
       initDragAndDrop();
+      initControls();
     `;
   }
 

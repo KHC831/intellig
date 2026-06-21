@@ -13,6 +13,7 @@ import {
   IRebaseService,
   IRebaseSession,
   IRebaseAction,
+  IRebaseCommit,
   IRebaseResult,
   RebaseAction,
 } from '../../../src/git-core/interfaces/IRebaseService';
@@ -138,6 +139,57 @@ describe('RebaseEditor', () => {
   afterEach(() => {
     rebaseEditor.dispose();
     mockRebaseService.dispose();
+  });
+
+  describe('CSP-safe event wiring (no inline handlers)', () => {
+    interface Internals {
+      _getFooterSection(): string;
+      _getCommitItemHtml(commit: IRebaseCommit, index: number): string;
+      _getScript(): string;
+    }
+    const internals = (): Internals => rebaseEditor as unknown as Internals;
+
+    it('footer buttons use data-action, not dead inline onclick', () => {
+      const footer = internals()._getFooterSection();
+      assert.ok(!/\sonclick=/.test(footer), 'footer must not use inline onclick');
+      assert.ok(footer.includes('data-action="cancel"'), 'Cancel must use data-action');
+      assert.ok(footer.includes('data-action="execute"'), 'Start Rebase must use data-action');
+    });
+
+    it('commit row drops inline onchange/oninput and keeps data-hash', () => {
+      const commit: IRebaseCommit = {
+        hash: 'abc1234567890',
+        message: 'msg',
+        action: 'reword',
+        newMessage: '',
+      };
+      const row = internals()._getCommitItemHtml(commit, 0);
+      assert.ok(
+        !/\son(change|input)=/.test(row),
+        'commit row must not use inline onchange/oninput'
+      );
+      assert.ok(/class="action-dropdown"[\s\S]*?data-hash=/.test(row), 'select keeps data-hash');
+      assert.ok(
+        /class="reword-message-input"[\s\S]*?data-hash=/.test(row),
+        'reword textarea keeps data-hash'
+      );
+    });
+
+    it('script wires dropdowns/textareas via listeners + delegated button clicks', () => {
+      const script = internals()._getScript();
+      assert.ok(
+        /action-dropdown[\s\S]*?addEventListener\('change'/.test(script),
+        'action dropdowns must wire change via addEventListener'
+      );
+      assert.ok(
+        /reword-message-input[\s\S]*?addEventListener\('input'/.test(script),
+        'reword textareas must wire input via addEventListener'
+      );
+      assert.ok(
+        /closest\('\[data-action\]'\)/.test(script),
+        'footer buttons must route through a delegated click dispatcher'
+      );
+    });
   });
 
   describe('createRebaseEditor', () => {

@@ -504,6 +504,35 @@ describe('RebaseProgressView', () => {
         'pop-conflict help must steer away from continue/abort'
       );
     });
+
+    it('wires the action buttons via data-action delegation, not dead inline onclick', async () => {
+      await mockRebaseService.startInteractiveRebase(mockRepository, 'main');
+      rebaseProgressView.show(mockRepository);
+      internals()._handleRebaseResult({
+        success: false,
+        status: 'conflict',
+        conflictedFiles: ['src/a.ts'],
+        rebaseInProgress: true,
+      });
+
+      const actions = internals()._getActionsSection();
+      assert.ok(
+        !/\sonclick=/.test(actions),
+        'inline onclick is blocked by the nonce-only CSP; use data-action delegation'
+      );
+      for (const action of ['abort', 'skip', 'continueRebase', 'refresh']) {
+        assert.ok(
+          actions.includes(`data-action="${action}"`),
+          `${action} must be wired via data-action`
+        );
+      }
+
+      const script = (rebaseProgressView as unknown as { _getScript(): string })._getScript();
+      assert.ok(
+        /addEventListener\('click'/.test(script) && /closest\('\[data-action\]'\)/.test(script),
+        'script must install a delegated click dispatcher for the action buttons'
+      );
+    });
   });
 
   describe('Cleared-stale honest message (issue #21)', () => {

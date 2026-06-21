@@ -603,12 +603,12 @@ export class RebaseProgressView implements vscode.Disposable {
     return `
       <div class="actions-section">
         <div class="button-row">
-          ${showAbort ? '<button class="button abort-button" onclick="abort()" title="Abort the rebase and restore the repository to its pre-rebase state">Abort Rebase</button>' : ''}
-          ${showSkip ? '<button class="button skip-button" onclick="skip()" title="Skip this commit and continue with the next one">Skip Commit</button>' : ''}
-          ${showContinue ? '<button class="button continue-button" onclick="continueRebase()" title="Continue the rebase after resolving conflicts">Continue</button>' : ''}
+          ${showAbort ? '<button class="button abort-button" data-action="abort" title="Abort the rebase and restore the repository to its pre-rebase state">Abort Rebase</button>' : ''}
+          ${showSkip ? '<button class="button skip-button" data-action="skip" title="Skip this commit and continue with the next one">Skip Commit</button>' : ''}
+          ${showContinue ? '<button class="button continue-button" data-action="continueRebase" title="Continue the rebase after resolving conflicts">Continue</button>' : ''}
         </div>
         <div class="refresh-row">
-          <button class="button refresh-button" onclick="refresh()" title="Refresh the rebase status">↻ Refresh</button>
+          <button class="button refresh-button" data-action="refresh" title="Refresh the rebase status">↻ Refresh</button>
         </div>
       </div>
     `;
@@ -1074,6 +1074,23 @@ export class RebaseProgressView implements vscode.Disposable {
       function provideRewordMessage(message) {
         vscode.postMessage({ type: 'provideRewordMessage', message: message });
       }
+
+      // Delegated click dispatcher. The action buttons were inline onclick
+      // handlers, which the nonce-only CSP (no 'unsafe-inline') blocks —
+      // leaving Abort / Skip / Continue / Refresh dead. Route them through a
+      // single delegated listener instead.
+      document.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+        const handlers = {
+          abort: abort,
+          skip: skip,
+          continueRebase: continueRebase,
+          refresh: refresh,
+        };
+        const handler = handlers[target.dataset.action];
+        if (handler) handler();
+      });
     `;
   }
 
