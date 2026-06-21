@@ -168,7 +168,25 @@ export function buildInlineScript(): string {
             if (targetRow) {
               targetRow.classList.add('selected');
               targetRow.setAttribute('aria-selected', 'true');
-              targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              // Only scroll when the row isn't already fully on-screen. This
+              // mirrors scrollToCommit's fullyVisible gate (and shouldScrollToRow
+              // in scrollVisibility.ts). selectCommit echoes selectGraphRow on
+              // every plain click; an unconditional smooth re-center here made
+              // the graph "jerk around" on each selection of an already-visible
+              // row. Same bug class as the branch-click "sweep from the top".
+              const panel = targetRow.closest('.graph-panel');
+              if (panel) {
+                const rowTop = targetRow.offsetTop;
+                const rowBottom = rowTop + targetRow.offsetHeight;
+                const viewportTop = panel.scrollTop;
+                const viewportBottom = viewportTop + panel.clientHeight;
+                const fullyVisible = rowTop >= viewportTop && rowBottom <= viewportBottom;
+                if (!fullyVisible) {
+                  targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              } else {
+                targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
             }
             refreshSelectedCount();
           }
