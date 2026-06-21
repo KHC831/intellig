@@ -35,7 +35,12 @@ import {
   resetMockConfiguration,
   registeredContentProviders,
 } from '../../mocks/vscode';
-import { installErrorMessageTracker, restoreMessageFunctions } from '../../typed/windowStub';
+import {
+  installErrorMessageTracker,
+  installWarningMessageTracker,
+  installInfoMessageTracker,
+  restoreMessageFunctions,
+} from '../../typed/windowStub';
 import { __resetOutputChannelForTest, getOutputChannel } from '../../../src/utils/outputChannel';
 
 /**
@@ -461,6 +466,67 @@ describe('ShelfView', () => {
         // No sibling tmp-debris remains after the atomic rename.
         const debris = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp-'));
         assert.strictEqual(debris.length, 0, `unexpected tmp debris: ${debris.join(', ')}`);
+      } finally {
+        (vscode.window as unknown as { showSaveDialog: typeof originalSave }).showSaveDialog =
+          originalSave;
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    it('warns that binary files were excluded instead of silently dropping them', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intellig-shelfpatch-bin-'));
+      const outPath = path.join(tmpDir, 'wip.patch');
+
+      svc._items.push({
+        id: 'a',
+        name: 'wip',
+        timestamp: new Date(),
+        files: [
+          { path: 'x.ts', diff: 'diff --git a/x.ts b/x.ts\n' },
+          // A binary entry carries no text diff — it must NOT vanish silently.
+          {
+            path: 'logo.png',
+            diff: '',
+            isBinary: true,
+            binaryContent: 'AAAA',
+            binaryStatus: 'added',
+          },
+        ],
+      });
+      await view.refresh();
+
+      const warnings = installWarningMessageTracker();
+      const infos = installInfoMessageTracker();
+      const originalSave = vscode.window.showSaveDialog;
+      (
+        vscode.window as unknown as {
+          showSaveDialog: () => Promise<vscode.Uri | undefined>;
+        }
+      ).showSaveDialog = async () => vscode.Uri.file(outPath);
+
+      try {
+        const result = await view.createPatchFromShelf('a');
+        assert.strictEqual(result.success, true, 'the text portion still exports successfully');
+
+        // The text file is written; the binary is excluded but ANNOUNCED.
+        const written = fs.readFileSync(outPath, 'utf-8');
+        assert.ok(written.includes('diff --git a/x.ts'), 'text file must be in the patch');
+
+        assert.strictEqual(infos.calls.length, 0, 'a plain success toast would hide the data loss');
+        assert.strictEqual(
+          warnings.calls.length,
+          1,
+          'binary exclusion must be surfaced as a warning'
+        );
+        assert.ok(
+          /binary/i.test(warnings.calls[0].message) &&
+            warnings.calls[0].message.includes('logo.png'),
+          `warning must name the excluded binary, got: ${warnings.calls[0].message}`
+        );
       } finally {
         (vscode.window as unknown as { showSaveDialog: typeof originalSave }).showSaveDialog =
           originalSave;

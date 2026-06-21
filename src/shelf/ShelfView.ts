@@ -1155,9 +1155,28 @@ export class ShelfView implements IShelfView {
     // Sibling-tmp + rename keeps the target either at its previous content
     // or at the new content, never a partial intermediate.
     try {
-      const content = shelfItem.files.map((f) => f.diff).join('\n');
+      // A text `.patch` can't carry binary file bytes (their `diff` is empty),
+      // so a binary entry would otherwise be dropped silently behind a success
+      // toast — data loss disguised as success. Export the text files and, when
+      // any binaries are excluded, say so explicitly in a warning that names
+      // them, rather than the plain success toast.
+      const binaryFiles = shelfItem.files.filter((f) => f.isBinary);
+      const textFiles = shelfItem.files.filter((f) => !f.isBinary);
+      const content = textFiles.map((f) => f.diff).join('\n');
       await atomicWriteFile(target.fsPath, content);
-      void vscode.window.showInformationMessage(`Patch written to ${target.fsPath}`);
+      if (binaryFiles.length > 0) {
+        const shown = binaryFiles
+          .slice(0, 3)
+          .map((f) => f.path)
+          .join(', ');
+        const more = binaryFiles.length > 3 ? `, and ${binaryFiles.length - 3} more` : '';
+        void vscode.window.showWarningMessage(
+          `Patch written to ${target.fsPath}, but ${binaryFiles.length} binary file(s) could ` +
+            `not be represented in a text patch and were excluded: ${shown}${more}.`
+        );
+      } else {
+        void vscode.window.showInformationMessage(`Patch written to ${target.fsPath}`);
+      }
       this._onDidRequestAction.fire({ action: 'createPatch', shelfItem });
       return { success: true, action: 'createPatch', shelfItem };
     } catch (error) {
