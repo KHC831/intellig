@@ -142,8 +142,15 @@ describe('Dialog-framework conventions audit (spec 5.1)', () => {
           // an abort action so the exception stays meaningful: if abort ever
           // becomes non-destructive, revisit whether the contract should
           // apply.
+          // Accept either spelling of the abort action: the legacy
+          // `data-action="abort"` markup attribute, or the createElement form
+          // `setAttribute('data-action', 'abort')` used after the string→DOM
+          // migration.
+          const hasAbortAction =
+            /data-action="abort"/.test(source) ||
+            /setAttribute\(\s*['"]data-action['"]\s*,\s*['"]abort['"]\s*\)/.test(source);
           assert.ok(
-            /data-action="abort"/.test(source),
+            hasAbortAction,
             `${dialog.name} is the keyboard-contract exception because its only ` +
               `non-primary action is the destructive 'abort'. See spec 5.1 + this file's header.`
           );

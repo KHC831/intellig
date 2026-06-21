@@ -350,54 +350,16 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
    * block is appended in `_render()`.
    */
   protected _getBodyHtml(): string {
-    const title = ResolveConflictsDialog.describeOp(this._opContext);
-    const opLabel = OP_LABELS[this._opContext.operation];
-    const allResolved = this.allResolved();
-
-    const rows = Array.from(this._statuses.entries())
-      .map(([path, status]) => this._renderRow(path, status))
-      .join('');
-
-    const abortButton = this._opContext.canAbort
-      ? `<button class="btn secondary" data-action="abort">Abort ${escapeHtml(opLabel)}</button>`
-      : '';
-
-    // Skip This Commit — only meaningful during a LIVE rebase. Sits between
-    // Abort and Continue to match IntelliJ's Resolve Conflicts layout. Skip's
-    // precondition is identical to Continue's: `git rebase --skip` needs a
-    // rebase in progress, so it is gated on `canContinue` too. For a
-    // post-completion autostash-pop conflict (operation:'rebase' but
-    // canContinue:false) skip would dead-end on "no rebase in progress".
-    const skipButton =
-      this._opContext.operation === 'rebase' && this._opContext.canContinue
-        ? `<button class="btn secondary" data-action="skip" title="Drop the current commit and move on to the next one in the rebase sequence. The commit's changes will NOT be applied.">Skip This Commit</button>`
-        : '';
-
-    const continueButton = this._opContext.canContinue
-      ? `<button class="btn" data-action="continue" ${allResolved ? '' : 'disabled'}>Continue</button>`
-      : '';
-
-    return `
-      <div class="header">${escapeHtml(title)}</div>
-      <div class="file-list" data-role="file-list">
-        ${rows || '<div class="file-row"><span class="file-path">No conflicted files.</span></div>'}
-      </div>
-      <div class="bulk-row">
-        Tip: use <strong>Apply Non-Conflicting</strong> to take every one-sided
-        change automatically, then <strong>Merge…</strong> for the true conflicts.
-      </div>
-      <div class="footer">
-        ${abortButton}
-        ${skipButton}
-        ${continueButton}
-      </div>
-    `;
+    // Body ships an empty root; the script builds the header, file rows,
+    // bulk-row, and footer via document.createElement from a JSON init island.
+    return `<div id="root"></div>`;
   }
 
   /**
    * Override the base renderer so we can embed a real (non-sentinel) script
-   * carrying the CSP nonce. The script handles click dispatch and incremental
-   * DOM updates on host-originated postMessages.
+   * carrying the CSP nonce. The script builds the body via createElement from a
+   * JSON init island, then handles click dispatch and incremental DOM updates
+   * on host-originated postMessages.
    */
   protected override _render(): void {
     if (this._disposed) {
@@ -407,8 +369,24 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
     const nonce = this._getNonce();
     const csp = this._buildCsp(nonce);
     const styles = this._getStyles();
-    const body = this._getBodyHtml();
     const title = `Resolve Conflicts — ${ResolveConflictsDialog.describeOp(this._opContext)}`;
+
+    // Host data crosses as a JSON init island; every dynamic value reaches the
+    // DOM via .textContent / element props (injection-proof) — never markup.
+    const initJson = JSON.stringify({
+      headerText: ResolveConflictsDialog.describeOp(this._opContext),
+      opLabel: OP_LABELS[this._opContext.operation],
+      files: Array.from(this._statuses.entries()).map(([path, status]) => ({ path, status })),
+      canAbort: this._opContext.canAbort,
+      // Skip This Commit — only meaningful during a LIVE rebase. Skip's
+      // precondition is identical to Continue's (a rebase in progress), so it
+      // is gated on `canContinue` too; a post-completion autostash-pop conflict
+      // (operation:'rebase' but canContinue:false) would dead-end on "no rebase
+      // in progress".
+      skipVisible: this._opContext.operation === 'rebase' && this._opContext.canContinue === true,
+      continueVisible: this._opContext.canContinue,
+      allResolved: this.allResolved(),
+    }).replace(/</g, '\\u003c');
 
     this._panel.webview.html = `<!DOCTYPE html>
 <html lang="en">
@@ -420,10 +398,85 @@ export class ResolveConflictsDialog extends BaseWebviewPanel {
   <style>${styles}</style>
 </head>
 <body>
-${body}
+<div id="root"></div>
 <script nonce="${nonce}">
 (function() {
   const vscode = acquireVsCodeApi();
+  const INIT = ${initJson};
+  const el = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+  // ── Build the body ────────────────────────────────────────────────────────
+  const root = document.getElementById('root');
+  root.append(el('div', { className: 'header', textContent: INIT.headerText }));
+
+  const fileList = el('div', { className: 'file-list' });
+  fileList.setAttribute('data-role', 'file-list');
+  const buildRow = (path, status) => {
+    const row = el('div', { className: 'file-row' });
+    row.setAttribute('data-row-path', path);
+    row.append(
+      el('span', { className: 'file-status ' + status, textContent: status === 'resolved' ? '✓' : '⚠' }),
+      el('span', { className: 'file-path', textContent: path })
+    );
+    const actions = el('span', { className: 'file-actions' });
+    if (status === 'resolved') {
+      actions.append(el('span', { className: 'resolved-label', textContent: 'resolved' }));
+    } else {
+      const btn = (cls, action, text, title) => {
+        const b = el('button', { className: 'btn' + (cls ? ' ' + cls : ''), textContent: text });
+        b.setAttribute('data-action', action);
+        b.setAttribute('data-path', path);
+        if (title) b.setAttribute('title', title);
+        return b;
+      };
+      actions.append(
+        btn('secondary', 'acceptYours', 'Accept Yours'),
+        btn('secondary', 'acceptTheirs', 'Accept Theirs'),
+        btn('', 'openMergeView', 'Merge…'),
+        btn('secondary', 'applyNonConflicting', 'Apply Non-Conflicting', "Apply changes that don't conflict, leaving the true conflicts to resolve")
+      );
+    }
+    row.append(actions);
+    return row;
+  };
+  if (INIT.files.length > 0) {
+    for (const f of INIT.files) fileList.append(buildRow(f.path, f.status));
+  } else {
+    const empty = el('div', { className: 'file-row' });
+    empty.append(el('span', { className: 'file-path', textContent: 'No conflicted files.' }));
+    fileList.append(empty);
+  }
+  root.append(fileList);
+
+  const bulk = el('div', { className: 'bulk-row' });
+  bulk.append(
+    'Tip: use ',
+    el('strong', { textContent: 'Apply Non-Conflicting' }),
+    ' to take every one-sided change automatically, then ',
+    el('strong', { textContent: 'Merge…' }),
+    ' for the true conflicts.'
+  );
+  root.append(bulk);
+
+  const footer = el('div', { className: 'footer' });
+  if (INIT.canAbort) {
+    const b = el('button', { className: 'btn secondary', textContent: 'Abort ' + INIT.opLabel });
+    b.setAttribute('data-action', 'abort');
+    footer.append(b);
+  }
+  if (INIT.skipVisible) {
+    const b = el('button', { className: 'btn secondary', textContent: 'Skip This Commit' });
+    b.setAttribute('data-action', 'skip');
+    b.setAttribute('title', "Drop the current commit and move on to the next one in the rebase sequence. The commit's changes will NOT be applied.");
+    footer.append(b);
+  }
+  if (INIT.continueVisible) {
+    const b = el('button', { className: 'btn', textContent: 'Continue' });
+    b.setAttribute('data-action', 'continue');
+    if (!INIT.allResolved) b.setAttribute('disabled', 'disabled');
+    footer.append(b);
+  }
+  root.append(footer);
 
   function send(msg) { vscode.postMessage(msg); }
 
@@ -462,7 +515,11 @@ ${body}
       }
       const actionsEl = row.querySelector('.file-actions');
       if (actionsEl && msg.status === 'resolved') {
-        actionsEl.innerHTML = '<span class="resolved-label">resolved</span>';
+        actionsEl.textContent = '';
+        const lbl = document.createElement('span');
+        lbl.className = 'resolved-label';
+        lbl.textContent = 'resolved';
+        actionsEl.appendChild(lbl);
       }
       const rows = document.querySelectorAll('[data-row-path]');
       let allResolved = rows.length > 0;
@@ -481,34 +538,6 @@ ${body}
 </script>
 </body>
 </html>`;
-  }
-
-  /**
-   * Render a single file row.
-   */
-  private _renderRow(path: string, status: ConflictFileStatus): string {
-    const icon = status === 'resolved' ? '✓' : '⚠';
-    const escapedPath = escapeHtml(path);
-
-    const actions =
-      status === 'resolved'
-        ? '<span class="resolved-label">resolved</span>'
-        : [
-            `<button class="btn secondary" data-action="acceptYours" data-path="${escapedPath}">Accept Yours</button>`,
-            `<button class="btn secondary" data-action="acceptTheirs" data-path="${escapedPath}">Accept Theirs</button>`,
-            `<button class="btn" data-action="openMergeView" data-path="${escapedPath}">Merge…</button>`,
-            // Apply only the changes that don't actually conflict (one-sided
-            // edits), leaving the true conflicts for the user to settle.
-            `<button class="btn secondary" data-action="applyNonConflicting" data-path="${escapedPath}" title="Apply changes that don't conflict, leaving the true conflicts to resolve">Apply Non-Conflicting</button>`,
-          ].join('');
-
-    return `
-      <div class="file-row" data-row-path="${escapedPath}">
-        <span class="file-status ${status}">${icon}</span>
-        <span class="file-path">${escapedPath}</span>
-        <span class="file-actions">${actions}</span>
-      </div>
-    `;
   }
 
   /**

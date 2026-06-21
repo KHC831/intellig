@@ -27,6 +27,7 @@
  */
 
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -258,6 +259,31 @@ describe('ResolveConflictsDialog', () => {
   });
 
   describe('rendering', () => {
+    /**
+     * Run the dialog's inline nonce'd script in jsdom. Post-migration contract:
+     * the script BUILDS the body via document.createElement — the host markup
+     * ships an empty root, not pre-baked rows/buttons.
+     */
+    function renderDoc(d: ResolveConflictsDialog): Document {
+      const html = (d as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const dom = new JSDOM(html, { runScripts: 'outside-only' });
+      const window = dom.window;
+      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      assert.strictEqual(
+        window.document.querySelector('.file-row'),
+        null,
+        'rows must not be pre-baked in host markup — the script builds the DOM'
+      );
+      const scriptEl = window.document.querySelector('script[nonce]');
+      assert.ok(scriptEl, 'a nonce-tagged inline script must be present');
+      window.eval(scriptEl.textContent ?? '');
+      return window.document as unknown as Document;
+    }
+
     it('renders a row per conflict file', () => {
       dialog = new ResolveConflictsDialog(
         ctx,
@@ -272,16 +298,11 @@ describe('ResolveConflictsDialog', () => {
         gitService
       );
 
-      const html = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      assert.ok(html.includes('src/a.ts'), 'row for src/a.ts should render');
-      assert.ok(html.includes('src/b.ts'), 'row for src/b.ts should render');
-      assert.ok(html.includes('Resolve Conflicts'), 'title should include Resolve Conflicts');
-      // Title is HTML-escaped so the apostrophe renders as &#39; (
-      // codebase-wide the apostrophe entity is the short form).
-      assert.ok(
-        html.includes('Merge from &#39;feature/x&#39;') || html.includes("Merge from 'feature/x'"),
-        'title should include escaped target'
-      );
+      const doc = renderDoc(dialog);
+      assert.ok(doc.querySelector('[data-row-path="src/a.ts"]'), 'row for src/a.ts should render');
+      assert.ok(doc.querySelector('[data-row-path="src/b.ts"]'), 'row for src/b.ts should render');
+      const header = doc.querySelector('.header');
+      assert.ok(header?.textContent?.includes("Merge from 'feature/x'"), 'header shows the op');
     });
 
     it('hides Abort button when canAbort is false', () => {
@@ -294,8 +315,12 @@ describe('ResolveConflictsDialog', () => {
         mergeView,
         gitService
       );
-      const html = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      assert.ok(!html.includes('data-action="abort"'), 'abort button should not render');
+      const doc = renderDoc(dialog);
+      assert.strictEqual(
+        doc.querySelector('[data-action="abort"]'),
+        null,
+        'abort button should not render'
+      );
     });
 
     it('renders Skip This Commit for a continuable rebase conflict', () => {
@@ -308,8 +333,11 @@ describe('ResolveConflictsDialog', () => {
         mergeView,
         gitService
       );
-      const html = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      assert.ok(html.includes('data-action="skip"'), 'skip button should render for a live rebase');
+      const doc = renderDoc(dialog);
+      assert.ok(
+        doc.querySelector('[data-action="skip"]'),
+        'skip button should render for a live rebase'
+      );
     });
 
     it('hides Skip This Commit for a non-continuable rebase conflict (autostash pop)', () => {
@@ -326,15 +354,13 @@ describe('ResolveConflictsDialog', () => {
         mergeView,
         gitService
       );
-      const html = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      // Match the rendered <button> elements specifically: the client-side
-      // script references `[data-action="continue"]` via querySelector, so a
-      // bare substring check would false-positive on the script body.
-      assert.ok(!/<button[^>]*data-action="skip"/.test(html), 'skip button must NOT render');
-      assert.ok(!/<button[^>]*data-action="abort"/.test(html), 'abort button must NOT render');
-      assert.ok(
-        !/<button[^>]*data-action="continue"/.test(html),
-        'continue button must NOT render'
+      const doc = renderDoc(dialog);
+      assert.strictEqual(doc.querySelector('[data-action="skip"]'), null, 'skip must NOT render');
+      assert.strictEqual(doc.querySelector('[data-action="abort"]'), null, 'abort must NOT render');
+      assert.strictEqual(
+        doc.querySelector('[data-action="continue"]'),
+        null,
+        'continue must NOT render'
       );
     });
 
@@ -351,13 +377,13 @@ describe('ResolveConflictsDialog', () => {
         mergeView,
         gitService
       );
-      const htmlBefore = (dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview.html;
-      // Look for the continue button and verify it has disabled.
-      const continueMatch = htmlBefore.match(/<button[^>]*data-action="continue"[^>]*>/);
-      assert.ok(continueMatch, 'continue button should render');
-      assert.ok(
-        /disabled/.test(continueMatch[0]),
-        `continue should be disabled: ${continueMatch[0]}`
+      const doc = renderDoc(dialog);
+      const continueBtn = doc.querySelector('[data-action="continue"]') as HTMLButtonElement;
+      assert.ok(continueBtn, 'continue button should render');
+      assert.strictEqual(
+        continueBtn.hasAttribute('disabled'),
+        true,
+        'continue should be disabled while rows are unresolved'
       );
 
       // Resolve all rows → re-render via updateFileStatus (which posts a message).

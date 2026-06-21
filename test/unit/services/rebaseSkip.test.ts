@@ -19,6 +19,7 @@
  */
 
 import * as assert from 'assert';
+import { JSDOM } from 'jsdom';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -238,29 +239,39 @@ describe('ResolveConflictsDialog Skip button', () => {
   });
 
   it('renders the Skip button only when operation === rebase', () => {
+    // Post-migration the body is built by the inline script via createElement;
+    // run it in jsdom and assert the resulting DOM.
+    const hasSkipButton = (dialog: unknown): boolean => {
+      const html = (dialog as { _panel: vscode.WebviewPanel })._panel.webview.html;
+      const dom = new JSDOM(html, { runScripts: 'outside-only' });
+      const window = dom.window;
+      (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
+        postMessage: (): void => {},
+        getState: (): void => {},
+        setState: (): void => {},
+      });
+      const scriptEl = window.document.querySelector('script[nonce]');
+      window.eval(scriptEl?.textContent ?? '');
+      return window.document.querySelector('[data-action="skip"]') !== null;
+    };
+
     const rebaseEnv = buildEnv({ operation: 'rebase', canAbort: true, canContinue: true });
     try {
-      const html = (rebaseEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview
-        .html;
-      assert.ok(html.includes('data-action="skip"'), 'rebase dialog should render the Skip button');
+      assert.ok(hasSkipButton(rebaseEnv.dialog), 'rebase dialog should render the Skip button');
     } finally {
       rebaseEnv.dialog.dispose();
     }
 
     const mergeEnv = buildEnv({ operation: 'merge', canAbort: true, canContinue: true });
     try {
-      const html = (mergeEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview
-        .html;
-      assert.ok(!html.includes('data-action="skip"'), 'merge dialog should NOT render Skip');
+      assert.ok(!hasSkipButton(mergeEnv.dialog), 'merge dialog should NOT render Skip');
     } finally {
       mergeEnv.dialog.dispose();
     }
 
     const cherryEnv = buildEnv({ operation: 'cherryPick', canAbort: true, canContinue: true });
     try {
-      const html = (cherryEnv.dialog as unknown as { _panel: vscode.WebviewPanel })._panel.webview
-        .html;
-      assert.ok(!html.includes('data-action="skip"'), 'cherry-pick dialog should NOT render Skip');
+      assert.ok(!hasSkipButton(cherryEnv.dialog), 'cherry-pick dialog should NOT render Skip');
     } finally {
       cherryEnv.dialog.dispose();
     }
