@@ -368,6 +368,38 @@ describe('GitScmProvider — commit-on-accept', () => {
     provider.dispose();
   });
 
+  it('does not double-commit on a rapid second accept (re-entrancy guard)', async () => {
+    const repo = repoAt('/repo');
+    let commitCount = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const git = createMockGitService(repo, {
+      getRepositories: () => [repo],
+      getStatus: async () => [],
+      commit: async (): Promise<void> => {
+        commitCount += 1;
+        await gate; // hold the first commit in flight
+      },
+    });
+    const { api, created } = fakeScmApi();
+
+    const provider = new GitScmProvider(git, api);
+    await provider.initialize();
+    const sc = created[0];
+    sc.inputBox.value = 'Commit once, not twice';
+
+    const first = provider.commitFromInput(sc as unknown as vscode.SourceControl);
+    // Rapid second accept while the first is still in flight — must be ignored.
+    const second = provider.commitFromInput(sc as unknown as vscode.SourceControl);
+    release();
+    await Promise.all([first, second]);
+
+    assert.strictEqual(commitCount, 1, 'a rapid second accept must not produce a second commit');
+    provider.dispose();
+  });
+
   it('runs before-commit checks and aborts when the user declines', async () => {
     // Detached HEAD (no head.name) makes the before-commit chain surface a
     // warning, so the SCM accept path must present the modal and honor a

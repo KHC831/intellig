@@ -441,6 +441,8 @@ export class CommitToolWindow extends BaseWebviewView {
   private _activeTab: CommitToolWindowTab = 'localChanges';
   private _amend = false;
   private _signOff = false;
+  /** Re-entrancy guard: true while a commit is in flight (blocks double-submit). */
+  private _committing = false;
   private _composerMessage = '';
 
   private _changelists: IChangelist[] = [];
@@ -756,6 +758,23 @@ export class CommitToolWindow extends BaseWebviewView {
   }
 
   private async _handleCommit(message: ICommitToolWebviewMessage, push: boolean): Promise<void> {
+    // Re-entrancy guard: a rapid second accept must not launch a second commit
+    // while the first is still in flight.
+    if (this._committing) {
+      return;
+    }
+    this._committing = true;
+    try {
+      await this._handleCommitInner(message, push);
+    } finally {
+      this._committing = false;
+    }
+  }
+
+  private async _handleCommitInner(
+    message: ICommitToolWebviewMessage,
+    push: boolean
+  ): Promise<void> {
     const repo = await this._resolveRepo();
     if (!repo) {
       void vscode.window.showErrorMessage('No Git repository found');

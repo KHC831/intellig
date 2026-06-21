@@ -233,6 +233,8 @@ interface IRepoScm {
 export class GitScmProvider implements vscode.Disposable {
   private readonly repos = new Map<string, IRepoScm>();
   private readonly disposables: vscode.Disposable[] = [];
+  /** Repo paths with a commit in flight — blocks a double-submit per repo. */
+  private readonly _committing = new Set<string>();
 
   constructor(
     private readonly gitService: IGitService,
@@ -274,6 +276,27 @@ export class GitScmProvider implements vscode.Disposable {
       return;
     }
 
+    // Re-entrancy guard (per repo): a rapid second accept must not launch a
+    // second commit while the first — including its before-commit modal — is
+    // still in flight.
+    const key = entry.repo.rootUri.fsPath;
+    if (this._committing.has(key)) {
+      return;
+    }
+    this._committing.add(key);
+    try {
+      await this._runCommitFromInput(entry, sourceControl, message);
+    } finally {
+      this._committing.delete(key);
+    }
+  }
+
+  /** The commit flow behind {@link commitFromInput}'s re-entrancy guard. */
+  private async _runCommitFromInput(
+    entry: IRepoScm,
+    sourceControl: vscode.SourceControl,
+    message: string
+  ): Promise<void> {
     // Mirror the commit dialog / tool window: run the IDE before-commit checks
     // (missing identity, unresolved merge, detached HEAD) before a native
     // Ctrl+Enter commit, so the SCM accept path can't silently skip them. This

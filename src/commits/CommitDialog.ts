@@ -392,6 +392,8 @@ export class CommitDialog {
   private _selectedFilePath: string | undefined;
   private _amendMode: boolean = false;
   private _signOffMode: boolean = false;
+  /** Re-entrancy guard: true while a commit is in flight (blocks double-submit). */
+  private _committing: boolean = false;
   private _commitMessage: string = '';
   private _previousCommitMessage: string = '';
   private _resolvePromise: ((result: ICommitDialogResult) => void) | undefined;
@@ -825,6 +827,21 @@ export class CommitDialog {
    * Handle commit action.
    */
   private async _handleCommit(message: IWebviewMessage): Promise<void> {
+    // Re-entrancy guard: a rapid second accept (double Enter, or Enter while the
+    // before-commit modal is open) must not launch a second commit while the
+    // first is still in flight.
+    if (this._committing) {
+      return;
+    }
+    this._committing = true;
+    try {
+      await this._handleCommitInner(message);
+    } finally {
+      this._committing = false;
+    }
+  }
+
+  private async _handleCommitInner(message: IWebviewMessage): Promise<void> {
     if (!this._repository) {
       return;
     }
