@@ -124,6 +124,32 @@ describe('ConflictResolutionService', () => {
       const conflicts = await conflictService.getConflictedFiles(mockRepo);
       assert.strictEqual(conflicts.length, 3);
     });
+
+    it('should detect both-added (AA) conflicts that carry no U column', async () => {
+      // AA (add/add) is an unmerged path but neither column is `U`; a
+      // U-only filter misses it. git leaves this after an autostash re-apply
+      // collides on a newly added path while still exiting 0.
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'added.txt', indexStatus: 'A', workTreeStatus: 'A' } as IFileStatus,
+          { path: 'clean.txt', indexStatus: 'M', workTreeStatus: ' ' } as IFileStatus,
+        ]);
+
+      const conflicts = await conflictService.getConflictedFiles(mockRepo);
+      assert.strictEqual(conflicts.length, 1);
+      assert.strictEqual(conflicts[0].path, 'added.txt');
+    });
+
+    it('should detect both-deleted (DD) conflicts that carry no U column', async () => {
+      mockGitService.getStatus = (): Promise<IFileStatus[]> =>
+        Promise.resolve([
+          { path: 'gone.txt', indexStatus: 'D', workTreeStatus: 'D' } as IFileStatus,
+        ]);
+
+      const conflicts = await conflictService.getConflictedFiles(mockRepo);
+      assert.strictEqual(conflicts.length, 1);
+      assert.strictEqual(conflicts[0].path, 'gone.txt');
+    });
   });
 
   describe('hasUnresolvedConflicts()', () => {

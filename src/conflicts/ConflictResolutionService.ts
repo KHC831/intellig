@@ -13,6 +13,7 @@ import { GitCli, IGitCommandOptions, IGitCommandResult } from '../git-core/gitCl
 import { ResolveConflictsDialog, IConflictOpContext } from './ResolveConflictsDialog';
 import { IMergeView } from './interfaces/IMergeView';
 import { getOutputChannel } from '../utils/outputChannel';
+import { isConflictedStatus } from '../git-core/gitParser';
 import { safeFireAndForget } from '../utils/safeFireAndForget';
 import { getLogger, type Logger } from '../utils/logger';
 
@@ -390,12 +391,14 @@ export class ConflictResolutionService implements IConflictResolutionService {
   async getConflictedFiles(repo: IRepository): Promise<IConflictedFile[]> {
     const status = await this._gitService.getStatus(repo);
 
-    // Filter for conflicted files (status code 'U' in either index or work tree)
+    // Use the canonical unmerged-status predicate so both-added (AA) and
+    // both-deleted (DD) conflicts — which carry no `U` column — are caught
+    // alongside the `U`-marked ones. A U-only filter silently dropped them.
     const conflictedFiles = status
-      .filter((file) => file.indexStatus === 'U' || file.workTreeStatus === 'U')
+      .filter((file) => isConflictedStatus(file))
       .map((file) => ({
         path: file.path,
-        resolved: false, // Files with 'U' status are not yet resolved
+        resolved: false,
       }));
 
     return conflictedFiles;
