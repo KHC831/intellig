@@ -48,10 +48,16 @@ class MockBlameService implements IBlameService {
 
 class MockGitService {
   public mockRepository: IRepository | undefined;
+  /**
+   * Simulate a failed fresh `git rev-parse` resolution (the bug: `getRepository`
+   * returns undefined for a file even though the repo is open) while the repo is
+   * still present in `getRepositories()`.
+   */
+  public failGetRepository = false;
   private _onDidChangeRepository = new EventEmitter<IRepository>();
   readonly onDidChangeRepository = this._onDidChangeRepository.event;
   getRepository(_uri: unknown): Promise<IRepository | undefined> {
-    return Promise.resolve(this.mockRepository);
+    return Promise.resolve(this.failGetRepository ? undefined : this.mockRepository);
   }
   getRepositories(): IRepository[] {
     return this.mockRepository ? [this.mockRepository] : [];
@@ -159,6 +165,30 @@ describe('Annotate with Git Blame — forced full-file gutter', () => {
     assert.ok(
       fake.lastCount() > 0,
       "forced annotate must override the 'off' kill-switch (matches IntelliJ Annotate)"
+    );
+    provider.dispose();
+  });
+
+  it('resolves the repo from open repositories when getRepository() fails', async () => {
+    // Reproduces the user-reported "Annotate enabled, nothing shows" bug: the
+    // provider resolved the repo only via gitService.getRepository(uri), which
+    // does a fresh `git rev-parse` that can fail (git PATH / transient) even
+    // when the repo is open and cached — leaving the gutter empty. It must fall
+    // back to the open-repositories ancestor match.
+    setMockConfigValue('intellig', 'blameAnnotationStyle', 'gutter');
+    gitService.failGetRepository = true;
+    const provider = new GutterBlameProvider(
+      blameService as unknown as IBlameService,
+      gitService as unknown as IGitService
+    );
+    const fake = fakeFileEditor();
+
+    provider.enable(fake.editor as never, { force: true });
+    await flush();
+
+    assert.ok(
+      fake.lastCount() > 0,
+      'annotate must resolve the open repo and decorate even when getRepository() returns undefined'
     );
     provider.dispose();
   });

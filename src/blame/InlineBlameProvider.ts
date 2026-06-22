@@ -10,6 +10,7 @@ import { parseRemoteUrl, type IRemoteUrl } from '../utils/remoteUrl';
 import { commitUrl } from '../utils/hostingLinks';
 import { buildBlameHover } from './blameHover';
 import { repoRelativePath } from '../utils/repoRelativePath';
+import { resolveBlameRepo } from './resolveBlameRepo';
 
 /** Aspect/name-format display config with provider defaults applied. */
 interface IBlameDisplay {
@@ -363,8 +364,9 @@ export class InlineBlameProvider implements IInlineBlameProvider {
     const document = editor.document;
     const uri = document.uri;
 
-    // Get repository for this file
-    const repo = await this._gitService.getRepository(uri);
+    // Resolve from open repositories first (no subprocess); see resolveBlameRepo
+    // for why the bare `getRepository` fresh-resolve was unreliable.
+    const repo = await resolveBlameRepo(this._gitService, uri);
     if (!repo) {
       return undefined;
     }

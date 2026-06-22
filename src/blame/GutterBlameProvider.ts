@@ -8,6 +8,8 @@ import { computeHeatColor } from './heatColor';
 import { buildAuthorColorMap } from './authorColor';
 import { AuthorNameFormat, formatAuthorName } from './authorNameFormat';
 import { repoRelativePath } from '../utils/repoRelativePath';
+import { resolveBlameRepo } from './resolveBlameRepo';
+import { getLogger } from '../utils/logger';
 import { buildBlameHover } from './blameHover';
 
 /** Aspect/name-format display config with provider defaults applied. */
@@ -320,6 +322,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * @param editor - The text editor
    */
   private async updateDecorations(editor: vscode.TextEditor): Promise<void> {
+    const log = getLogger().child({ component: 'GutterBlameProvider' });
     if (!this._sharedDecorationType) {
       return;
     }
@@ -327,20 +330,35 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // Clear existing decorations first
     editor.setDecorations(this._sharedDecorationType, []);
 
+    log.debug('updateDecorations: begin', {
+      uri: editor.document.uri.toString(),
+      scheme: editor.document.uri.scheme,
+      forced: this._forced,
+      enabled: this._enabled,
+    });
+
     // Respect the master annotation style kill-switch — unless annotation was
     // turned on via the explicit Annotate action, which always renders.
     if (!this._forced && !this.isAnnotationStyleEnabled()) {
+      log.debug('updateDecorations: skipped — style kill-switch and not forced');
       return;
     }
 
     // Skip if not a file scheme (e.g., output, debug console)
     if (editor.document.uri.scheme !== 'file') {
+      log.debug('updateDecorations: skipped — non-file scheme', {
+        scheme: editor.document.uri.scheme,
+      });
       return;
     }
 
     try {
       const blameInfo = await this.getBlameForFile(editor);
       if (!blameInfo || blameInfo.lines.length === 0) {
+        log.debug('updateDecorations: no blame lines for file', {
+          uri: editor.document.uri.toString(),
+          lines: blameInfo?.lines.length ?? 0,
+        });
         return;
       }
 
@@ -362,6 +380,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
       }
       // Guard against a file with only uncommitted lines.
       if (!isFinite(oldestMs)) {
+        log.debug('updateDecorations: all lines uncommitted — nothing to annotate');
         return;
       }
 
@@ -379,11 +398,20 @@ export class GutterBlameProvider implements IGutterBlameProvider {
             )
           : undefined;
 
-      // Get visible ranges
-      const visibleRanges = editor.visibleRanges;
-      if (visibleRanges.length === 0) {
-        return;
-      }
+      // Annotate the visible viewport (re-run on scroll). When the editor has
+      // not reported a viewport yet — e.g. immediately after the file is opened
+      // by the Annotate action — fall back to the whole document so the column
+      // appears right away instead of waiting for a scroll event.
+      const visibleRanges =
+        editor.visibleRanges.length > 0
+          ? editor.visibleRanges
+          : [new vscode.Range(0, 0, Math.max(0, editor.document.lineCount - 1), 0)];
+
+      log.debug('updateDecorations: computing decorations', {
+        blameLines: blameInfo.lines.length,
+        viewports: visibleRanges.length,
+        usedFullDocFallback: editor.visibleRanges.length === 0,
+      });
 
       const decorations: vscode.DecorationOptions[] = [];
 
@@ -416,9 +444,15 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         }
       }
 
+      log.debug('updateDecorations: applying decorations', { count: decorations.length });
       editor.setDecorations(this._sharedDecorationType, decorations);
-    } catch {
-      // Silently fail - blame may not be available for this file
+    } catch (error) {
+      // Blame may genuinely be unavailable (file untracked, not in a repo, git
+      // error). Log at debug so the failure is diagnosable instead of silent.
+      log.debug('updateDecorations: blame unavailable / failed', {
+        uri: editor.document.uri.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -432,9 +466,14 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     const document = editor.document;
     const uri = document.uri;
 
-    // Get repository for this file
-    const repo = await this._gitService.getRepository(uri);
+    // Resolve from the already-open repositories first (no subprocess); see
+    // resolveBlameRepo for why the bare `getRepository` fresh-resolve was
+    // unreliable and silently emptied the annotation.
+    const repo = await resolveBlameRepo(this._gitService, uri);
     if (!repo) {
+      getLogger()
+        .child({ component: 'GutterBlameProvider' })
+        .debug('getBlameForFile: no repository for file', { uri: uri.toString() });
       return undefined;
     }
 
