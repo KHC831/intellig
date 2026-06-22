@@ -110,8 +110,8 @@
       "note": "git rebase --abort; needs an in-progress-rebase fixture"
     },
     "intellig.branch.push": {
-      "category": "backlog",
-      "note": "push a branch; needs a remote fixture"
+      "category": "dialog",
+      "note": "PushDialog webview (_pushDialogOpener)"
     },
     "intellig.branch.update": {
       "category": "backlog",
@@ -150,17 +150,9 @@
       "category": "backlog",
       "note": "push --delete a tag; needs a remote fixture"
     },
-    "intellig.patch.createFromLocal": {
-      "category": "backlog",
-      "note": "create patch to clipboard/file; e2e-able"
-    },
     "intellig.commit.cherryPick": {
       "category": "backlog",
       "note": "cherry-pick by hash; needs tool-window repo wiring"
-    },
-    "intellig.rollbackChanges": {
-      "category": "backlog",
-      "note": "revert working-tree changes; e2e-able"
     }
   }
 }

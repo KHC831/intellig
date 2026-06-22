@@ -1,0 +1,88 @@
+/**
+ * Tier-2 E2E — single-repo local-change commands:
+ * `intellig.patch.createFromLocal` (clipboard target) and
+ * `intellig.rollbackChanges`.
+ *
+ * Both run git directly against the resolved repo. Assert real effects: the
+ * generated patch text on the clipboard, and the working tree reverted to its
+ * committed state.
+ */
+
+import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as vscode from 'vscode';
+
+import { Fixture, createFixtureRepo, execGit } from '../support/gitFixture';
+import { stubPrompts, PromptStubs } from '../support/stubs';
+import { clearWorkspace, useFixtureWorkspace } from '../support/workspaceHelper';
+
+describe('e2e — local patch / rollback (real git)', function () {
+  this.timeout(30_000);
+
+  let fix: Fixture;
+  let stubs: PromptStubs;
+
+  async function setup(): Promise<void> {
+    fix = await createFixtureRepo({ commits: 2 });
+    await useFixtureWorkspace(fix.rootPath);
+  }
+
+  afterEach(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    if (stubs) {
+      stubs.restore();
+    }
+    await clearWorkspace();
+    if (fix) {
+      await fix.cleanup();
+    }
+  });
+
+  it('intellig.patch.createFromLocal — copies a unified diff of local changes to the clipboard', async () => {
+    await setup();
+    fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'locally modified\n');
+    await vscode.env.clipboard.writeText('SENTINEL-NOT-A-PATCH');
+    stubs = stubPrompts({
+      quickPick: (items) => (items as Array<{ id?: string }>).find((i) => i.id === 'clipboard'),
+    });
+
+    await vscode.commands.executeCommand('intellig.patch.createFromLocal');
+
+    const clip = await vscode.env.clipboard.readText();
+    assert.ok(
+      clip.includes('file0.txt') && /^(diff --git|---|\+\+\+|@@)/m.test(clip),
+      `clipboard should hold a unified diff of the local change; got "${clip.slice(0, 120)}". ` +
+        `err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+    );
+  });
+
+  it('intellig.rollbackChanges — reverts the selected file to its committed state', async () => {
+    await setup();
+    fs.writeFileSync(path.join(fix.rootPath, 'file0.txt'), 'locally modified\n');
+    // Precondition: the working tree is dirty.
+    const dirty = (
+      await execGit(fix.rootPath, ['status', '--porcelain', 'file0.txt'])
+    ).stdout.trim();
+    assert.ok(dirty.length > 0, 'precondition: file0.txt should be modified');
+    stubs = stubPrompts({ warningMessage: () => 'Rollback' });
+
+    await vscode.commands.executeCommand('intellig.rollbackChanges', [
+      { path: 'file0.txt', status: 'modified' },
+    ]);
+
+    const clean = (
+      await execGit(fix.rootPath, ['status', '--porcelain', 'file0.txt'])
+    ).stdout.trim();
+    assert.strictEqual(
+      clean,
+      '',
+      `file0.txt should be reverted (clean status); err=${JSON.stringify(stubs.errorMessageCalls.map((c) => c.message))}`
+    );
+    assert.strictEqual(
+      fs.readFileSync(path.join(fix.rootPath, 'file0.txt'), 'utf8'),
+      'content-0\n',
+      'file content should match the committed version'
+    );
+  });
+});
