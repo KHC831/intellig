@@ -85,6 +85,12 @@ describe('e2e — rebase recovery (real in-progress rebase)', function () {
     assert.ok(rebaseInProgress(), 'fixture: rebase should be paused on a conflict');
     const gitService = getServices()!.gitService;
     await gitService.reloadRepository(gitService.getRepositories()[0]);
+    // The rebase churned .git; the repo watcher has a ~250ms-debounced reload
+    // SCHEDULED (not yet fired), which would otherwise hold index.lock midway
+    // through the command's own `git rebase --continue/--abort`. Wait past the
+    // debounce, then drain, so the watcher reload fires and settles BEFORE the
+    // command runs — leaving the command a clean lock.
+    await new Promise((r) => setTimeout(r, 600));
     await drain();
   }
 
