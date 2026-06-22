@@ -7,72 +7,72 @@
       "note": "buildInlineScript run in jsdom (toolWindowScript.test.ts)"
     },
     "src/git-core/gitToolWindow/GitToolWindowProvider.ts": {
-      "status": "backlog",
-      "note": "full tool-window HTML assembly; static-HTML fragments have jsdom structure tests, client script not yet run end-to-end"
+      "status": "tested",
+      "note": "full _getThreePanelHtmlContent document (init island + buildInlineScript + divider/column scripts) run in jsdom (gitToolWindowProviderScript.test.ts)"
     },
     "src/git-core/gitToolWindow/html/commonHtml.ts": {
-      "status": "backlog",
-      "note": "tool-window html helper"
+      "status": "tested",
+      "note": "tabStripBehaviorScript run in jsdom over rendered tab strip (toolWindowHtmlPieces.test.ts)"
     },
     "src/git-core/gitToolWindow/html/historyHtml.ts": {
-      "status": "backlog",
-      "note": "history tab html + behavior script"
+      "status": "tested",
+      "note": "historyTabBehaviorScript run in jsdom over rendered loaded/empty history body (toolWindowHtmlPieces.test.ts)"
     },
     "src/git-core/gitToolWindow/provider/htmlBuilders.ts": {
-      "status": "backlog",
-      "note": "tool-window html builders"
+      "status": "tested",
+      "note": "buildNoRepositoryHtml inline init-repo script run in jsdom (toolWindowHtmlPieces.test.ts)"
     },
     "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
-      "status": "backlog",
-      "note": "tool-window styles (no behavior)"
+      "status": "tested",
+      "note": "buildInlineStyles mounted as a stylesheet and asserted to parse in jsdom — no behavior script (toolWindowHtmlPieces.test.ts)"
     },
     "src/commits/CommitToolWindow.ts": {
-      "status": "backlog",
-      "note": "commit tool-window client script"
+      "status": "tested",
+      "note": "commitToolWindowBehaviorScript (localChanges + shelf tabs) run in jsdom (commitToolWindowScript.test.ts)"
     },
     "src/commits/CommitDialog.ts": {
-      "status": "backlog",
-      "note": "commit dialog client script (inline in _getBodyHtml)"
+      "status": "tested",
+      "note": "_getScript inline createElement builder run in jsdom (commitDialogsScript.test.ts)"
     },
     "src/commits/SquashMessageDialog.ts": {
-      "status": "backlog",
-      "note": "squash-message dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; textarea seeded from squash message (commitDialogsScript.test.ts)"
     },
     "src/branches/NewBranchDialog.ts": {
-      "status": "backlog",
-      "note": "new-branch dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds form + cancel wiring (branchResetScript.test.ts)"
     },
     "src/conflicts/MergeDialog.ts": {
-      "status": "backlog",
-      "note": "merge dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds strategy flags (conflictDialogsScript.test.ts)"
     },
     "src/conflicts/ResolveConflictsDialog.ts": {
-      "status": "backlog",
-      "note": "resolve-conflicts dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds per-file rows + handles fileResolved update (conflictDialogsScript.test.ts)"
     },
     "src/ui-shell/ResetDialog.ts": {
-      "status": "backlog",
-      "note": "reset dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds reset-mode radios + cancel wiring (branchResetScript.test.ts)"
     },
     "src/sync/PushDialog.ts": {
-      "status": "backlog",
-      "note": "push dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds push/cancel + cancel wiring (syncPatchScript.test.ts)"
     },
     "src/patches/ApplyPatchDialog.ts": {
-      "status": "backlog",
-      "note": "apply-patch dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds patch inputs + cancel wiring (syncPatchScript.test.ts)"
     },
     "src/rebase/RebaseDialog.ts": {
-      "status": "backlog",
-      "note": "rebase dialog client script"
+      "status": "tested",
+      "note": "rendered dialog script run in jsdom; builds onto select + cancel wiring (rebaseViewsScript.test.ts)"
     },
     "src/rebase/RebaseEditor.ts": {
-      "status": "backlog",
-      "note": "interactive-rebase editor client script"
+      "status": "tested",
+      "note": "_getScript run in jsdom over #rebase-root skeleton (rebaseViewsScript.test.ts)"
     },
     "src/rebase/RebaseProgressView.ts": {
-      "status": "backlog",
-      "note": "rebase progress view client script"
+      "status": "tested",
+      "note": "_getScript run in jsdom over #progress-root skeleton (rebaseViewsScript.test.ts)"
     }
   }
 }
