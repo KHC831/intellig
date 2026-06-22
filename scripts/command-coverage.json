@@ -1,0 +1,166 @@
+{
+  "$comment": "Coverage classification for every intellig.* command that is NOT exercised by a command-level e2e test. e2e-covered commands (their id literal appears in test/e2e/) must NOT be listed here. check:command-coverage fails if a package.json command is neither e2e-covered nor listed below — so a NEW command can't ship untested-and-unclassified. Categories: 'dialog' = git effect runs through a webview/modal dialog or the native SCM input (covered by dialog/unit tests); 'view' = operates on a live tree / merge-view / stash-view / changelist / annotation state and no-ops without that UI (covered by view unit/property tests); 'nav' = read-only / opens a diff, history, file, browser, or popup menu — no git mutation to assert; 'backlog' = direct-git and e2e-able, not yet covered (explicit debt, printed every run).",
+  "categories": ["dialog", "view", "nav", "backlog"],
+  "commands": {
+    "intellig.commit": { "category": "dialog", "note": "native SCM commit input" },
+    "intellig.commitAndPush": { "category": "dialog", "note": "commit+push via SCM/dialog" },
+    "intellig.changelist.commitOnly": { "category": "dialog", "note": "commit flow" },
+    "intellig.push": { "category": "dialog", "note": "PushDialog webview" },
+    "intellig.pushUpToCommit": { "category": "dialog", "note": "push dialog" },
+    "intellig.pull": { "category": "dialog", "note": "PullDialog webview" },
+    "intellig.mergeFrom": { "category": "dialog", "note": "Merge dialog" },
+    "intellig.branch.new": { "category": "dialog", "note": "NewBranchDialog" },
+    "intellig.branch.newBranchFrom": { "category": "dialog", "note": "NewBranchDialog" },
+    "intellig.branch.mergeIntoCurrent": { "category": "dialog", "note": "MergeDialog" },
+    "intellig.branch.rebaseCurrentOnto": { "category": "dialog", "note": "rebase dialog/flow" },
+    "intellig.branch.checkoutAndRebase": { "category": "dialog", "note": "checkout+rebase flow" },
+    "intellig.branch.newWorktree": { "category": "dialog", "note": "worktree dialog" },
+    "intellig.branch.openWorktree": { "category": "dialog", "note": "worktree picker dialog" },
+    "intellig.tag.newBranchFrom": { "category": "dialog", "note": "NewBranchDialog" },
+    "intellig.tag.mergeIntoCurrent": { "category": "dialog", "note": "MergeDialog" },
+    "intellig.patch.apply": { "category": "dialog", "note": "ApplyPatchDialog" },
+    "intellig.commit.resetToHere": { "category": "dialog", "note": "ResetDialog webview" },
+    "intellig.commit.newBranch": { "category": "dialog", "note": "NewBranchDialog" },
+    "intellig.commit.dropSelectedChanges": {
+      "category": "dialog",
+      "note": "drop-selected confirm/rewrite dialog"
+    },
+    "intellig.showResolveConflictsDialog": {
+      "category": "dialog",
+      "note": "ResolveConflictsDialog webview"
+    },
+    "intellig.rebase.interactive": {
+      "category": "dialog",
+      "note": "interactive-rebase editor/dialog"
+    },
+    "intellig.rebase.interactiveFromHere": {
+      "category": "dialog",
+      "note": "interactive-rebase editor/dialog"
+    },
+    "intellig.shelve.importPatches": { "category": "dialog", "note": "import-patches open dialog" },
+    "intellig.remoteBranch.cherryPickCommits": {
+      "category": "dialog",
+      "note": "commit-selection dialog"
+    },
+
+    "intellig.merge.openMergeView": { "category": "view", "note": "opens/operates the merge view" },
+    "intellig.merge.acceptCurrent": { "category": "view", "note": "mergeView state" },
+    "intellig.merge.acceptIncoming": { "category": "view", "note": "mergeView state" },
+    "intellig.merge.acceptBoth": { "category": "view", "note": "mergeView state" },
+    "intellig.merge.acceptAllCurrent": { "category": "view", "note": "mergeView state" },
+    "intellig.merge.acceptAllIncoming": { "category": "view", "note": "mergeView state" },
+    "intellig.merge.nextConflict": { "category": "view", "note": "mergeView navigation" },
+    "intellig.merge.previousConflict": { "category": "view", "note": "mergeView navigation" },
+    "intellig.merge.markResolved": { "category": "view", "note": "mergeView state" },
+    "intellig.stash.branchFromStash": { "category": "view", "note": "stash-view picker" },
+    "intellig.stash.rename": { "category": "view", "note": "stash-view picker" },
+    "intellig.changelist.editDescription": { "category": "view", "note": "changelist tree" },
+    "intellig.changelist.moveFilesTo": { "category": "view", "note": "changelist tree" },
+    "intellig.changelist.shelve": { "category": "view", "note": "changelist tree selection" },
+    "intellig.commit.applySelectedChanges": {
+      "category": "view",
+      "note": "commit file-tree selection"
+    },
+    "intellig.commit.applyFilesToBranch": {
+      "category": "view",
+      "note": "commit file-tree selection"
+    },
+    "intellig.branch.toggleFavorite": { "category": "view", "note": "branch-tree favorite state" },
+    "intellig.blame.annotatePrevious": {
+      "category": "view",
+      "note": "active blame annotation state"
+    },
+    "intellig.blame.hideRevision": { "category": "view", "note": "active blame annotation state" },
+    "intellig.editor.toggleBlame": {
+      "category": "view",
+      "note": "inline blame decoration on active editor"
+    },
+
+    "intellig.showCommitToolWindow": { "category": "nav", "note": "opens the Git tool window" },
+    "intellig.showGitConsole": {
+      "category": "nav",
+      "note": "opens the git-console output channel"
+    },
+    "intellig.showBranchPopup": { "category": "nav", "note": "QuickPick popup" },
+    "intellig.vcsOperationsPopup": { "category": "nav", "note": "QuickPick popup" },
+    "intellig.toolWindow.jumpToHash": { "category": "nav", "note": "graph navigation" },
+    "intellig.branch.focusOnGraph": { "category": "nav", "note": "graph navigation" },
+    "intellig.branch.compareWithCurrent": { "category": "nav", "note": "opens a diff" },
+    "intellig.branch.showDiffWithWorkingTree": { "category": "nav", "note": "opens a diff" },
+    "intellig.commit.showDiff": { "category": "nav", "note": "opens a diff" },
+    "intellig.commit.compareWithHead": { "category": "nav", "note": "opens a diff" },
+    "intellig.commit.compareWith": { "category": "nav", "note": "opens a diff" },
+    "intellig.commit.showFileInRevision": {
+      "category": "nav",
+      "note": "opens a read-only revision"
+    },
+    "intellig.commit.fileHistoryFromHere": { "category": "nav", "note": "opens file history" },
+    "intellig.commit.openOnHost": {
+      "category": "nav",
+      "note": "opens the hosting provider in a browser"
+    },
+    "intellig.localChanges.openFile": { "category": "nav", "note": "opens a file" },
+
+    "intellig.rebase.continue": {
+      "category": "backlog",
+      "note": "git rebase --continue; needs an in-progress-rebase fixture"
+    },
+    "intellig.rebase.abort": {
+      "category": "backlog",
+      "note": "git rebase --abort; needs an in-progress-rebase fixture"
+    },
+    "intellig.branch.push": {
+      "category": "backlog",
+      "note": "push a branch; needs a remote fixture"
+    },
+    "intellig.branch.update": {
+      "category": "backlog",
+      "note": "fetch+pull a branch; needs a remote fixture"
+    },
+    "intellig.branch.updateSelected": {
+      "category": "backlog",
+      "note": "fetch+pull selected; needs a remote fixture"
+    },
+    "intellig.remoteBranch.checkoutAsLocal": {
+      "category": "backlog",
+      "note": "checkout remote as local; e2e-able"
+    },
+    "intellig.remoteBranch.pullIntoCurrent": {
+      "category": "backlog",
+      "note": "pull; needs a remote fixture"
+    },
+    "intellig.remoteBranch.pullUsingRebase": {
+      "category": "backlog",
+      "note": "pull --rebase; needs a remote fixture"
+    },
+    "intellig.remoteBranch.pullUsingMerge": {
+      "category": "backlog",
+      "note": "pull --merge; needs a remote fixture"
+    },
+    "intellig.remoteBranch.trackBranch": {
+      "category": "backlog",
+      "note": "set upstream; e2e-able"
+    },
+    "intellig.remoteBranch.deleteRemote": {
+      "category": "backlog",
+      "note": "push --delete; needs a remote fixture"
+    },
+    "intellig.tag.push": { "category": "backlog", "note": "push a tag; needs a remote fixture" },
+    "intellig.tag.deleteRemote": {
+      "category": "backlog",
+      "note": "push --delete a tag; needs a remote fixture"
+    },
+    "intellig.patch.createFromLocal": {
+      "category": "backlog",
+      "note": "create patch to clipboard/file; e2e-able"
+    },
+    "intellig.commit.cherryPick": {
+      "category": "backlog",
+      "note": "cherry-pick by hash; needs tool-window repo wiring"
+    },
+    "intellig.rollbackChanges": {
+      "category": "backlog",
+      "note": "revert working-tree changes; e2e-able"
+    }
+  }
+}
