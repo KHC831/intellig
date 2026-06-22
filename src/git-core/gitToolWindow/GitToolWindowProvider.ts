@@ -25,6 +25,7 @@ import {
 } from '../commitGraph';
 import {
   computeActiveLanes,
+  computeLaneContinuesFromAbove,
   computeGraphWidth,
   DEFAULT_GRAPH_CONFIG,
 } from '../../utils/graphRenderer';
@@ -3146,6 +3147,9 @@ ${bodyMarkup}
 
     // Compute active lanes for the entire commit list
     const activeLaneMap = computeActiveLanes(commitNodes);
+    // Per-row "continues from the row above as the same line" — lets the row
+    // builder keep a genuine through-line's pass-through at a branch-split row.
+    const continuesFromAboveMap = computeLaneContinuesFromAbove(commitNodes);
 
     // Compute terminal nodes and child count map for icon rendering
     const terminalNodes = computeTerminalNodes(commitNodes);
@@ -3186,6 +3190,7 @@ ${bodyMarkup}
       cherryPickedHashes,
       cherryPickBaseRef,
       activeLaneMap,
+      continuesFromAboveMap,
       terminalNodes,
       childCountMap,
       childLanesMap,

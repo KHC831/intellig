@@ -95,11 +95,11 @@ export function getColumnX(column: number, config: IGraphRenderConfig): number {
  * @param nodes - Array of ICommitNode in topological order (newest first)
  * @returns Map from row index to the set of active lane indices at that row
  */
-export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
-  const result: ActiveLaneMap = new Map();
-
+function collectMergedLaneIntervals(
+  nodes: ICommitNode[]
+): Map<number, Array<{ startRow: number; endRow: number }>> {
   if (nodes.length === 0) {
-    return result;
+    return new Map();
   }
 
   // Build a hash-to-row-index map for quick parent row lookups
@@ -259,21 +259,18 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
     });
   }
 
-  // Initialize result map with empty sets for each row
-  for (let i = 0; i < nodes.length; i++) {
-    result.set(i, new Set());
-  }
-
-  // For each lane, merge overlapping intervals and mark rows as active
+  // Merge overlapping/adjacent intervals per lane. NOTE: two intervals that
+  // are merely ADJACENT but represent DIFFERENT lines (a lane reused one row
+  // after a previous line bent away) do NOT overlap (the second's startRow is
+  // strictly greater than the first's endRow), so they stay SEPARATE — which is
+  // what `computeLaneContinuesFromAbove` relies on to tell a reused lane apart
+  // from a genuine through-line.
+  const mergedByLane = new Map<number, Array<{ startRow: number; endRow: number }>>();
   for (const [lane, rawIntervals] of laneIntervals) {
-    // Sort intervals by startRow
     rawIntervals.sort((a, b) => a.startRow - b.startRow);
-
-    // Merge overlapping/adjacent intervals
     const merged: Array<{ startRow: number; endRow: number }> = [];
     for (const interval of rawIntervals) {
       if (merged.length > 0 && interval.startRow <= merged[merged.length - 1].endRow) {
-        // Overlapping or adjacent — extend the current merged interval
         merged[merged.length - 1].endRow = Math.max(
           merged[merged.length - 1].endRow,
           interval.endRow
@@ -282,15 +279,48 @@ export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
         merged.push({ startRow: interval.startRow, endRow: interval.endRow });
       }
     }
+    mergedByLane.set(lane, merged);
+  }
+  return mergedByLane;
+}
 
-    // Mark the lane as active for all rows in the merged intervals
-    for (const interval of merged) {
-      for (let row = interval.startRow; row <= interval.endRow; row++) {
+/**
+ * Active lanes per row index: every row covered by any lane's merged interval.
+ */
+export function computeActiveLanes(nodes: ICommitNode[]): ActiveLaneMap {
+  const result: ActiveLaneMap = new Map();
+  for (let i = 0; i < nodes.length; i++) {
+    result.set(i, new Set());
+  }
+  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+    for (const iv of merged) {
+      for (let row = iv.startRow; row <= iv.endRow; row++) {
         result.get(row)!.add(lane);
       }
     }
   }
+  return result;
+}
 
+/**
+ * Per row, the lanes that CONTINUE from the row above as the SAME line — i.e.
+ * the row is strictly inside a merged interval (not its first row). A lane that
+ * is merely REUSED by an unrelated line one row down starts a NEW interval and
+ * is NOT reported here, letting the renderer distinguish a genuine transiting
+ * through-line at a branch-split row from a reused lane.
+ */
+export function computeLaneContinuesFromAbove(nodes: ICommitNode[]): ActiveLaneMap {
+  const result: ActiveLaneMap = new Map();
+  for (let i = 0; i < nodes.length; i++) {
+    result.set(i, new Set());
+  }
+  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+    for (const iv of merged) {
+      for (let row = iv.startRow + 1; row <= iv.endRow; row++) {
+        result.get(row)!.add(lane);
+      }
+    }
+  }
   return result;
 }
 
@@ -413,7 +443,16 @@ export function renderGraphSvg(
    * loaded" affordance — so the line no longer reads as a real edge running to
    * nothing. Defaults to false (interior rows draw no chevron).
    */
-  isLastRow: boolean = false
+  isLastRow: boolean = false,
+  /**
+   * Lanes that continue into THIS row from the row above as the SAME line
+   * (from {@link computeLaneContinuesFromAbove}). Used to tell a genuine
+   * transiting through-line at a branch-split row apart from a lane that is
+   * merely reused by a new line here — only the former must keep its pass-
+   * through stroke at the split. Empty default = "no continuation info" (the
+   * pre-existing split-suppression behaviour).
+   */
+  continuesFromAbove: Set<number> = new Set()
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -514,9 +553,21 @@ export function renderGraphSvg(
     if (rowIndex === 0) {
       continue;
     }
-    // On a branch split row, suppress pass-through lines for diverging child lanes.
-    // These lanes only exist above the split point (the children), not below it.
-    if (isBranchSplitPoint && childLanes.has(lane)) {
+    // On a branch split row, suppress the pass-through for a diverging child
+    // lane — that lane only exists ABOVE the split (the children), not below,
+    // so a full-height stroke would dangle beneath the split commit.
+    //
+    // EXCEPT for a genuine transiting through-line: a lane that both continues
+    // FROM the row above as the same line AND continues below is carrying a
+    // separate line straight through this row (e.g. a "Merge mainline into
+    // <branch>" merge whose first parent is far down its own lane, landing on a
+    // row that is also a branch split). Suppressing it punched a one-row hole in
+    // that trunk — the reported "gap with multiple branches / merge operations".
+    // A lane that continues below but does NOT continue from above is merely
+    // REUSED here (a previous line bent away, a new line is born) — that stays
+    // suppressed so it draws no spurious top stub above the merge.
+    const isThroughLine = continuesFromAbove.has(lane) && nextActiveLanes.has(lane);
+    if (isBranchSplitPoint && childLanes.has(lane) && !isThroughLine) {
       continue;
     }
     // Incoming far-parent bend: this lane's straight-down ink stops at

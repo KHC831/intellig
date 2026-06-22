@@ -20,6 +20,12 @@ export interface ICommitRowData {
   cherryPickBaseRef?: string;
   /** Active lanes per row index. */
   activeLaneMap: ActiveLaneMap;
+  /**
+   * Per row, lanes that continue from the row above as the same line. Optional
+   * for back-compat with callers/tests that predate the through-line fix; when
+   * omitted, a branch-split row falls back to the prior suppression behaviour.
+   */
+  continuesFromAboveMap?: ActiveLaneMap;
   /** Hashes that are terminal (branch-tip) nodes. */
   terminalNodes: Set<string>;
   /** Child count per commit hash, for split-point detection. */
@@ -93,6 +99,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     cherryPickedHashes,
     cherryPickBaseRef,
     activeLaneMap,
+    continuesFromAboveMap,
     terminalNodes,
     childCountMap,
     childLanesMap,
@@ -123,6 +130,9 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       // row (a merge's second-parent lane) and must not draw a top-half stub
       // floating above the merge diamond.
       const prevActiveLanes = activeLaneMap.get(index - 1) || new Set<number>();
+      // Lanes transiting straight through THIS row from above (same line), so a
+      // branch-split row keeps a genuine through-line's pass-through stroke.
+      const continuesFromAbove = continuesFromAboveMap?.get(index) || new Set<number>();
       // Source lanes whose far-parent first-parent
       // line lands at THIS row from above. The renderer draws a top-half
       // bend per lane.
@@ -142,7 +152,8 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
         nextActiveLanes,
         incomingBendLanes,
         prevActiveLanes,
-        isLastRow
+        isLastRow,
+        continuesFromAbove
       );
 
       // Format fields.
