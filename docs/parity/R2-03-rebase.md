@@ -23,17 +23,7 @@ Component: rebase (interactive + non-interactive), rebase options (--rebase-merg
   - `src/rebase/RebaseDialog.ts` (rebase dialog + options + persistence)
   - Tests: `src/test/unit/git-core/rebaseTodoTransform.test.ts` (10 transform tests incl. real git 2.50 fixture), `src/test/unit/services/rebaseOptions.test.ts` (8 argv tests), `src/test/unit/services/rebaseOptionsPersistence.test.ts` (4 persistence tests), e2e + property suites
 
-## R1 follow-up
-_No R1 report exists for rebase (03-rebase.md not found). Per PROGRESS.md, the following rebase items were landed autonomously in P1–P3:_
-
-| Gap (from PROGRESS.md) | Status | Commit/Notes |
-|---|---|---|
-| P1 #4 rebase todo drops update-ref/exec/label/reset/merge | ✅ CLOSED | 0bca889 (2026-06-14). transformRebaseTodo in-place transform, 10 transform unit tests + real git 2.50 fixture, Node sequence-editor via execPath+ELECTRON_RUN_AS_NODE |
-| P2 rebase options (--rebase-merges/--keep-empty/--update-refs/--autosquash) | ✅ CLOSED | fd15118 (2026-06-14). rebaseOptionFlags, 8 argv unit tests. --root API-only (no dialog) |
-| P2 rebase-in-progress guard | ✅ CLOSED | 005c220 (2026-06-14). rebaseInProgressMessage, showRebaseDialog blocks on 'rebasing', 2 unit tests |
-| P3 rebase-options persistence | ✅ CLOSED | 7def0ac (2026-06-14). loadRebaseOptions/saveRebaseOptions (globalState), 4 unit tests |
-
-## Gap table (Round 2 — fresh)
+## Gap table
 
 | Capability / finding | IntelliJ behavior | intellig behavior | Status | Severity | Source | Notes / file refs |
 |---|---|---|---|---|---|---|

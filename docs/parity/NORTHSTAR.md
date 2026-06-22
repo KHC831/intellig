@@ -5,14 +5,12 @@ IntelliJ `git4idea` + `platform/vcs-impl` (clone at `~/Documents/workspace/intel
 **pure Git plugin parity**; GitHub/GitLab/PR integration excluded. Weight: a git op that silently does
 the **wrong thing** > security hole > missing daily feature > visual polish. Last updated 2026-06-21._
 
-> **2026-06-21 re-audit (grounded in current source + git4idea action XML):** two genuine
-> *feature* gaps surfaced that earlier revisions omitted — **Configure Remotes UI** (backend
-> fully built + unit-locked in `RemoteOps`, but no command/menu/dialog; ref `Git.Configure.Remotes`)
-> and **worktree lifecycle** (`WorktreeOps` has `list`+`add` only — no remove/prune/refresh; ref
-> `Git.WorkingTrees.Remove/Prune/Refresh`). Both are tracked in section 4b + section 5 below. Two
-> R2-02 branch findings (delete-remote "dead handler", checkout-as-local "no upstream") were
-> re-verified **resolved** in current source and the doc was corrected. Minor still-absent ops:
-> Unshallow, Open-Exclude-File, Add-Commit-To-Remote-Branch (all low-frequency).
+> **Open feature gaps surfaced by the 2026-06-21 source-grounded re-audit** (tracked in sections 4b/5
+> below): **Configure Remotes UI** (backend built + unit-locked in `RemoteOps`, but no command/menu/dialog;
+> ref `Git.Configure.Remotes`); **worktree lifecycle** (`WorktreeOps` = `list`+`add` only — no
+> remove/prune/refresh; ref `Git.WorkingTrees.Remove/Prune/Refresh`); **`Git.RevertResolved`** (un-resolve a
+> conflicted file). Minor still-absent ops: Unshallow, Open-Exclude-File, Add-Commit-To-Remote-Branch (all
+> low-frequency).
 
 > What's landed (progress log, SHAs, pending-merge branches) lives in **[`STATUS.md`](./STATUS.md)**.
 > UI/UX **layout** parity (menu order/grouping, labels, ellipsis, icons, tool-window tabs, dialogs)
@@ -30,18 +28,22 @@ the **wrong thing** > security hole > missing daily feature > visual polish. Las
 ## 1. Headline
 
 The hard architecture exists — changelists, shelf-as-patch-store, interactive-rebase editor,
-commit-graph log, 3-way merge all built. **Remaining work is mostly fidelity, not invention** —
-the two exceptions are the Configure-Remotes front door (backend done, UI missing) and the
-worktree remove/prune lifecycle (create+open done, teardown missing); see the 2026-06-21 re-audit
-note above. Reset and interactive-rebase plumbing already *exceed* git4idea.
+commit-graph log, 3-way merge all built. **Remaining work is mostly fidelity, not invention.** The
+2026-06-21 source-grounded re-audit found a handful of genuine *feature* gaps (not fidelity): the
+Configure-Remotes front door (backend done, UI missing), worktree remove/prune teardown, `Git.RevertResolved`
+(un-resolve a file), the rejected-push strategy dialog (partial), and the 3 unported before-commit checks
+(CRLF / large-file / bad-filename). Everything else is polish. Reset and interactive-rebase plumbing already
+*exceed* git4idea.
 
-Remaining backlog is now thin: **G** complete; **A / B / C / D / E / F / H** all effectively complete
-(~90-97%) — the last daily-feature gaps (A's rollback dialog, F-8b line-status hover popup) have landed.
-**Section-4b UI/UX layout parity is complete** (all numbered gaps #2–#10), the R2 re-audit is done, and an
-independent code + security review passed (one HIGH security + one HIGH correctness bug found and fixed).
-What's left is low-tier: a few open polish items (branch-tree FilteringTree/search + multi-select, the F5
-dogfood sweep) + the explicitly-deferred a11y / edge-state / per-dialog-audit backlog — weeks of polish,
-not engineer-years.
+**Functional/backend** parity is high: **G** ~98%; **A / B / C / D / E / F / H** all effectively complete
+(~90-98%) on feature coverage. **But visual/layout fidelity is a separate, lower axis** — section 4b's
+*numbered feature gaps* (#2–#10) landed, yet the surfaces do **not** visually match IntelliJ: the merge editor
+is VS Code's native one (not IntelliJ's Swing 3-pane), the blame gutter is a single inline decoration (not a
+multi-column gutter), the log panel is webview flex-rows (not a JTable), and the major dialogs use a QuickPick
+wizard / read-only-ref paradigm (not IntelliJ's modal forms). Some of these are **accepted platform
+substitutions** (Swing → VS Code can't be pixel-matched); others (dialog paradigm, gutter render, menu
+ordering) are real visual-parity gaps. Tracked honestly in section 4b + `R2-UX-01/02/03/04`. The F5 dogfood
+sweep for visual confirmation remains open.
 
 ## 2. Standing constraints
 
@@ -57,14 +59,14 @@ not engineer-years.
 | Component | Parity | Biggest remaining gap |
 |---|---|---|
 | Reset | 🟢 ~95% | — (exceeds ref) |
-| 3-way Merge view (B) | 🟢 ~92% | near-complete (native editor + auto-flip + accept-non-conflicting landed) |
-| Commit & Changelists (A) | 🟢 ~90% | near-complete (commit-and-push + live line-status gutter + hover popup + rollback dialog landed) |
-| Rebase / Cherry-pick / Revert (H) | 🟢 ~93% | near-complete (inline reword/squash + `--onto`/`--root` + `-m` revert/cherry-pick + accept-non-conflicting landed) |
-| Log & Commit Graph (G) | ✅ 100% | DONE — G1-G9 all merged (ref filters, cherry-compare, GPG, fixup links, incoming tab, push-up-to, multi-root, go-to-parent/child) |
+| 3-way Merge view (B) | 🟢 ~92% | native editor + auto-flip + accept-non-conflicting landed; only `RevertResolved` (un-resolve) + conflict-type labels remain |
+| Commit & Changelists (A) | 🟢 ~90% | 3 unported before-commit checks (CRLF / large-file / bad-filename) + `commit.template` prefill remain; else near-complete |
+| Rebase / Cherry-pick / Revert (H) | 🟢 ~93% | ops complete; residuals: Action.Other "edit as text" fallback (🟠 stacked-branch), interactive-editor richness (P4), `fixup -C/-c` (polish) |
+| Log & Commit Graph (G) | ✅ ~98% | G1-G9 features all merged (filters, highlighting, headers, GPG, incoming, multi-root, nav); only UI polish left (branch-union picker, user dropdown, file context menu, Ctrl+F) |
 | Branches & Tags (D) | 🟢 ~95% | worktree teardown (remove/prune/refresh) unbuilt — create+open only; else near-complete |
 | Shell / Menus / Sync (C) | 🟢 ~93% | Configure-Remotes UI missing (backend done); else near-complete (`--autostash`/console/scm/tabbed all landed) |
-| Shelf / Stash / Patches (E) | 🟢 ~95% | near-complete (unshelve + patch split + diff-against-local + binary + recycle bin + apply-index + apply-patch tree + target-changelist landed) |
-| Blame / History / Diff (F) | 🟢 ~95% | near-complete (AUTHOR color + aspects + affected paths + line-scoped history + details-pane/commit-graph + diff ignore-policy + get-version + inline-diff-hover landed) |
+| Shelf / Stash / Patches (E) | 🟢 ~95% | residuals: stash apply-time `--index` UI toggle, file-subset stash, stash per-file changes browser; shelf/patches complete |
+| Blame / History / Diff (F) | 🟢 ~95% | blame complete; residuals are file-history-panel P4 polish (single-rev show-diff, sortable columns/tree-as-graph) |
 
 ---
 
@@ -111,21 +113,34 @@ is a parity goal in its own right, not just feature coverage. Authoritative ref 
 `~/Documents/workspace/intellij-community/plugins/git4idea/backend/resources/intellij.vcs.git.backend.xml`
 (+ `GitBranchPopupActions.java`). Detailed findings + reorder recipes: `R2-UX-03-menus.md`._
 
-**Surface heatmap:**
+> **Two different things — don't conflate them.** (1) **Structural/menu parity** — do the right actions
+> exist, grouped/labelled/ordered like git4idea's XML. This is high (~85-90%, below). (2) **Visual rendering
+> fidelity** — does the surface *look* like IntelliJ. This is inherently a **standing partial** because the
+> platform differs: IntelliJ is Swing (JTable log, multi-column blame gutter, 3-pane Swing merge viewer,
+> modal form dialogs); we are VS Code (webview flex-rows, single inline-decoration gutter, the **native**
+> merge editor, QuickPick/webview dialogs). Many of these are **accepted non-matches**, not gaps to "close" —
+> a webview cannot be made to look like Swing. They are tracked honestly (not stamped "✅ parity") in
+> `R2-UX-01-log.md` (log panel) and `R2-UX-04-editors-panels.md` (merge editor, blame gutter, file-history
+> panel). The percentages below are **structural** parity; visual fidelity is lower and platform-bounded.
 
-| Surface | Parity | Biggest remaining gap |
+**Surface heatmap (structural/menu parity):**
+
+| Surface | Structural parity | Visual note |
 |---|---|---|
-| Log / commit menu | 🟢 ~90% | — (#10 done: reword ellipsis + New-Branch/Tag + Fixup/Squash-into all landed; mirrors `Git.Log.ContextMenu`) |
-| Branch popup (QuickPick) | 🟢 ~85% | — (#4 reorder + #5 Set Upstream landed; New-Worktree/Push-Tags-in-popup deferred) |
-| Branch tree menu | 🟢 ~90% | — (near-complete) |
-| Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs (deferred) |
-| Explorer / editor submenu | 🟢 ~90% | — (#6 done: "Commit File…" via the SCM API per ADR-014) |
-| Command-palette titles | 🟢 ~90% | — (de-prefix + ellipsis landed) |
-| Toolbar / view-title | 🟢 ~85% | — (fetch icon + branch widget landed) |
-| Major dialogs | 🟢 ~85% | per-dialog field-level audit (deferred) |
+| Log / commit menu | 🟢 ~90% | item set mirrors `Git.Log.ContextMenu`; ordering/grouping differs slightly (VS Code menus sort by group-string, no separator API) |
+| Branch popup (QuickPick) | 🟢 ~85% | QuickPick sectioned menu, **not** IntelliJ's tree-grouped Swing popup — visual paradigm differs |
+| Branch tree menu | 🟢 ~90% | VS Code TreeView (single-select, no separators) vs Swing tree |
+| Tool-window tabs | 🟢 ~85% | Stash / Working-Trees tabs deferred |
+| Explorer / editor submenu | 🟢 ~90% | reordered to `Git.FileActions` |
+| Command-palette titles | 🟢 ~90% | de-prefix + ellipsis landed |
+| Toolbar / view-title | 🟢 ~85% | fetch icon + branch widget landed |
+| Major dialogs | 🟡 ~70% | **paradigm differs** — Pull is a 2-step QuickPick wizard (not a modal form); Reset/Merge show the clicked ref read-only (IntelliJ lets you edit it); push commit-preview pane missing. Per-dialog field audit deferred. See `R2-UX-02-dialogs.md` |
+| Blame gutter | 🟡 ~60% | options complete, but single inline-string render vs IntelliJ multi-column + text-tint vs bg-gradient. See `R2-UX-04` |
+| 3-way merge editor | n/a | intentional native-editor substitution — functional, **not** an IntelliJ visual match (accepted). See `R2-UX-04` |
+| Log panel layout | 🟡 ~75% | webview flex-rows vs JTable; details panel right vs IntelliJ bottom. See `R2-UX-01` |
 
-**Open gaps** (ref = git4idea XML group / Java class): _all numbered gaps (#2–#10) are now landed — see
-the Landed note + STATUS. The remaining rows are the explicitly-deferred backlog._
+**Numbered feature gaps #2–#10:** landed (item coverage). **Visual/layout fidelity** is the standing partial
+above + the deferred backlog below.
 
 | # | Surface | Gap | IntelliJ ref | IntelliG site | Size |
 |---|---|---|---|---|---|
@@ -174,7 +189,11 @@ flipping externally-resolved rows and enabling Continue.
 **Landed 2026-06-18:** "Accept non-conflicting from both sides" — reads the index merge stages
 (`:1:/:2:/:3:`) and delegates the 3-way merge to `git merge-file -p` (auto-applies one-sided hunks,
 re-emits markers for two-sided), staging only when fully merged; mirrors `ApplyNonConflictsAction`.
-**Remaining:** none tracked — workstream B is effectively complete.
+**Remaining:** **`Git.RevertResolved`** — no in-product affordance to send a resolved/staged file back to
+conflicted (`git checkout --merge -- <file>`) to redo a mis-resolution; git4idea exposes it in the merge
+menus. S effort (op + command + Conflicts-list entry). Plus a P3 polish item: conflict-type labels
+(DU/UD/AA) aren't shown in the file list (the resolution layer already distinguishes them for correct
+`git rm` routing — only the label is missing).
 **Files:** `src/conflicts/{MergeView,ResolveConflictsDialog,ConflictResolutionService}.ts`.
 
 ### C (residuals). Shell / Menus / Sync — 🟢 ~95%
@@ -190,12 +209,17 @@ already-pushed commit, covering both the HEAD-amend and non-HEAD-rebase paths (m
 `GitCommitEditingActionBase.checkCommitsCanBeEdited`).
 **Landed 2026-06-18:** tabbed Git tool-window layout default-on (`intellig.useTabbedGitToolWindow`
 false→true; provider already honored the flag per render).
-**Remaining (2026-06-21 re-audit):** **Configure Remotes UI** — the backend ops
-(`RemoteOps.{addRemote,removeRemote,setRemoteUrl,renameRemote}`, `:347-413`) are built, argv-guarded,
-and unit-locked (`#P2 Configure Remotes`), but no command/menu/dialog reaches them; git4idea exposes
-`Git.Configure.Remotes` (`GitConfigureRemotesDialog` — remote table with Add/Edit-URL/Rename/Remove).
-Wire a QuickPick multi-step (or webview) front door → existing ops. Low-frequency but a genuine
-front-door gap, not fidelity. (Detail: `R2-05-sync.md`, `R2-09-shell.md`.)
+**Remaining:**
+- **Configure Remotes UI** — backend ops (`RemoteOps.{addRemote,removeRemote,setRemoteUrl,renameRemote}`,
+  `:347-413`) built, argv-guarded, unit-locked (`#P2 Configure Remotes`), but no command/menu/dialog reaches
+  them; git4idea exposes `Git.Configure.Remotes` (`GitConfigureRemotesDialog`). Wire a QuickPick/webview front
+  door → existing ops. S/M.
+- **Rejected-push strategy dialog** — on a non-ff push rejection git4idea loops push → modal (Merge/Rebase) →
+  update → retry (max 10). Ours offers a per-row "Pull and Retry" button that opens the Pull dialog but
+  doesn't auto-push or loop, with no Merge/Rebase modal (`PushDialog.ts:873-894`). 🟠 high, M.
+- **Unshallow** (`Git.Unshallow` → `git fetch --unshallow`) — not surfaced. ⚪ polish, shallow-clone only.
+
+(Detail: `R2-05-sync.md`, `R2-09-shell.md`.)
 **Files:** `package.json`, `src/ui-shell/{KeymapService,ConsoleService}.ts`, `src/sync/PullDialog.ts`,
 `src/git-core/gitToolWindow/tabs/*`.
 
@@ -224,61 +248,58 @@ mirrors `GitBranchPopupActions` update-selected).
 `src/commands/registration/commitHelpers.ts`, `package.json`.
 
 ### E. Shelf / Stash / Patches — 🟢 ~95%
-**Remaining:** no per-file/partial unshelve; no per-file shelve from changelist; no "diff with local
-changes" (static patch text only); **no binary support**; no deleted-shelf recycle bin; imported
-multi-file patch collapses to one entry; Apply Patch whole-patch only; stash apply always `--index`
-(no reinstate toggle).
-**Work (ordered):** (1) ~~per-file unshelve~~ **DONE 2026-06-17** (files[] subset apply, remaining stay
-shelved; "Unshelve Files…" picker). (2) ~~parse imported patches per-file~~ **DONE 2026-06-17**
-(`splitPatchByFile` on `diff --git` boundaries → one shelf file per change). (3) ~~diff-against-local~~
-**DONE 2026-06-17** (reconstruct shelved version + real `vscode.diff` vs working tree). (4) ~~binary~~
-**DONE 2026-06-18** (`git diff --numstat` detect → capture raw bytes base64, byte-for-byte round-trip,
-add/modified/deleted, restore via `fs`; mirrors `ShelvedBinaryFile`). (5) ~~recycle bin~~
-**DONE 2026-06-18** (`deletedAt` marker → Recently-Deleted; restore / delete-permanently;
-unshelve-cleanup still purges; mirrors `ShelveChangesManager.markChangeListAsDeleted`/`restoreList`).
-(6) ~~target-changelist routing~~ **DONE 2026-06-18** (optional `targetChangelist` →
-`moveToChangelist` on cleanly-applied files; mirrors `ShelveChangesManager.unshelveChangeList`).
-(7) ~~per-file Apply Patch tree~~ **DONE 2026-06-18** (`filterPatchByFiles` reassembles the selected
-verbatim blocks; mirrors `ApplyPatchDifferentiatedDialog`). (8) ~~stash apply-index toggle~~
-**DONE 2026-06-18** (`reinstateIndex` gates `--index` on apply/pop; mirrors `GitUnstashDialog`).
+Per-file/partial unshelve, per-file imported-patch split, diff-against-local, binary support, deleted-shelf
+recycle bin, target-changelist routing, per-file Apply-Patch tree, and stash `reinstateIndex` (backend) all
+landed. Patches: apply (`git am`/`git apply`) + create-from-local + `--reverse` all present.
+**Remaining (verified residuals):**
+- **Stash apply-time `--index` UI toggle** — the `reinstateIndex` backend param exists (default true) but no
+  apply-time UI affordance to disable it (`StashView.applyStash:286`). 🟡 medium.
+- **Stash per-file changes browser** — StashView does whole-stash apply/pop/drop/branch-from only; no per-file
+  view with Show-Diff-with-Local / Apply-Selected-Changes (`Git.Stash.ChangesBrowser.ContextMenu`). The shelf
+  already has per-file granularity; the stash doesn't. ⚪ polish.
+- **File-subset stash** (`stash push -- <paths>`) and **shelf "restore to changelist" picker** — both still
+  whole-tree / active-changelist only. 🟡 medium / ⚪ polish.
 **Files:** `src/shelf/{ShelfService,ShelfView,StashView}.ts`, `src/patches/{ApplyPatchDialog,PatchService}.ts`,
 `src/git-core/ops/StashTagHistoryOps.ts`.
 
 ### F. Blame / History / Diff — 🟢 ~95%
-**Remaining:** none tracked — workstream F is effectively complete. (Item (7) inline-diff-on-hover = the
-landed F-8b line-status hover popup, `LineStatusHoverProvider`; same feature, not a distinct gap.)
-**Work (ordered):** (1) ~~AUTHOR color mode + selector~~ **DONE 2026-06-17** (stable per-author tint,
-faithful IntelliJ palette port; `intellig.blame.colorMode` ORDER/AUTHOR). (2) ~~aspect columns + name
-format~~ **DONE 2026-06-17** (Author/Date/Revision show-hide toggles + author-name format
-full/firstname/lastname/initials/email; `LineAnnotationAspect`/`ShortNameType` port). (3) affected-paths
-**DONE 2026-06-17** (changed-files pane per selected revision via `getCommitDiff`). (4) ~~details pane +
-graph (reuse `commitGraph.ts`)~~ **DONE 2026-06-18** (details pane: message/author+email/dates/full hash
-+ copy/parents, committer line only when ≠ author; mini commit-graph column reusing `commitGraph.ts`;
-single HTML-escape boundary). (5) ~~line-scoped history~~ **DONE 2026-06-17** (`git
-log -L` op + HistoryTab wiring). ~~get-version~~ **DONE 2026-06-18** (`DiffOps.getFileAtRevision` →
-`git show <rev>:<path>` behind `--end-of-options`, opens read-only). (6) ~~diff options~~ **DONE 2026-06-18**
-(`intellig.diff.ignorePolicy` → git whitespace flags at all diff sites; mirrors `IgnorePolicy`).
-(7) ~~inline-diff-on-hover~~ **DONE** (= the F-8b line-status hover popup, `LineStatusHoverProvider`; same feature).
+Blame is feature-complete: AUTHOR/ORDER color modes, aspect columns + name formats, affected-paths pane,
+details pane + mini-graph, annotate-previous-revision (wired), hide-revision, detect-movements (-M/-C),
+ignore-whitespace, interactive gutter/inline hover (View-Commit / Previous-Revision links), options
+persisted via Memento. History: line-scoped (`log -L`), `--follow` + `--full-history --simplify-merges`,
+get-version (read-only), diff ignore-policy. Argv-secure (buildGitArgs).
+**Remaining (P4 polish):**
+- **File-history single-rev "Show Diff"** (commit vs parent) — HistoryTab has compare-two + compare-with-local
+  but no one-click rev-vs-parent (`resolveDiffParent` exists to reuse). 🟡 medium, S.
+- **File-history panel richness** — sortable columns / tree-as-graph / speed-search / copy (Platform rebuild). 🟡 P4.
+- Blame hunk-header origLine (line-level previous-rev nav) + cache-invalidation on HEAD change — ⚪ polish.
 **Files:** `src/blame/*`, `src/git-core/gitToolWindow/tabs/HistoryTab.ts` + `html/historyHtml.ts`,
 `src/commands/registration/blameEditorCommands.ts`, `package.json`.
 
-### G. Log & Commit Graph — ✅ 100% COMPLETE
-**All 9 items merged:** (1) ref-aware branch+author dropdowns. (2) match-mode toggles (regex/case).
+### G. Log & Commit Graph — ✅ ~98% (core complete)
+**All 9 feature items merged:** (1) ref-aware branch+author dropdowns. (2) match-mode toggles (regex/case).
 (3) range/parent/simplify-merges filters. (4) manual cherry-compare. (5) GPG signature column.
 (6) fixup!/squash! message links. (7) Incoming tab + push-up-to-commit. (8) merged multi-root log.
-(9) go-to-parent/child nav (Right/Left keys + context menu).
+(9) go-to-parent/child nav (Right/Left keys + context menu). Column headers, focused-branch highlighting,
+and cherry-mark badges all render.
+**Remaining (UI polish only):** branch filter as a multi-select *union* picker (single-ref + range cover most
+cases); known-committers user dropdown; file-row context menu in the details panel; Up/Down row-stepping
+keyboard nav; in-page Ctrl+F search; log-filter persistence across sessions; `Git.AddCommitToRemoteBranch`
+(niche). None are correctness gaps. (Detail: `R2-01-log.md`, `R2-UX-01-log.md`.)
 
 ### H. Rebase / Cherry-pick / Revert — 🟢 ~93%
-**Remaining:** no inline reword/squash message editing; `--onto <newbase>`/`--root` not surfaced;
-revert `--no-edit` only (no `-m` mainline, no multi-commit); cherry-pick no `-m`/`--edit` for merge
-commits.
-**Work (ordered):** (1) ~~inline reword/squash box~~ **DONE 2026-06-18** (`hasSquashOverride` mirrors the
-reword guard — blank message never writes an empty `-F`; squash applies via `fixup` + `exec git commit
---amend -F`). (2) ~~surface `--onto`/`--root`~~ **DONE 2026-06-18** (`rebase [--root] [--onto <newbase>]
---end-of-options [<upstream>]`, refs validated, root↔upstream exclusive). (3) ~~revert/cherry-pick
-`-m` + edit-message~~ **DONE 2026-06-18** (`-m <mainline>` only for merge commits, validated int,
-hash behind `--end-of-options`). (4) ~~"accept non-conflicting from both sides"~~ **DONE 2026-06-18**
-(shared with B — `git merge-file -p` over the index stages).
+Inline reword/squash message editing, `--onto`/`--root` (RebaseDialog:124), revert/cherry-pick `-m <mainline>`
+for merge commits (CherryPickRevertOps:80/253, validated), and accept-non-conflicting (shared with B) all
+landed. Rebase continue/skip/abort + options (`--rebase-merges`/`--keep-empty`/`--update-refs`/`--autosquash`)
++ in-progress guard + options-persistence all present.
+**Remaining:**
+- **Unstructured "Edit as text" fallback for Action.Other lines** — when a todo carries label/reset/merge/exec
+  (`--rebase-merges` / `rebase.updateRefs`), git4idea drops to a raw text editor for hand-editing; we always
+  show the commit-list UI and preserve those lines silently (`RebaseService` keeps them but can't hand-edit).
+  🟠 high for stacked-branch users (dormant otherwise). M effort.
+- **Interactive editor richness** — commit detail pane + inline diff preview + P/R/E/S/F/D keyboard mnemonics
+  (RebaseEditor has dropdown + drag only). 🟡 P4 polish.
+- **`fixup -C`/`-c`** parameter recognition (git 2.38+) — ⚪ polish. **`--no-ff`** rebase — ⚪ near-zero demand.
 **Files:** `src/rebase/{RebaseEditor,RebaseDialog}.ts`, `src/git-core/{rebaseTodo,RebaseService}.ts`,
 `src/git-core/ops/CherryPickRevertOps.ts`, `package.json`.
 **Fragility:** interactive rebase spawns the Electron binary as node (`ELECTRON_RUN_AS_NODE=1`) — worth a fallback.

@@ -13,20 +13,16 @@ status-bar widgets, tool-window chrome, keybindings._
 
 ## Executive Summary
 
-The command/action surface has good **feature-level coverage** (101 registered commands in package.json) but suffers from **architectural inconsistencies** that compound as parity gaps and risk silent-wrong operations.
+The command/action surface has good **feature-level coverage** (127 registered commands in package.json) with argv safety systematically enforced. Remaining gaps are a small, enumerable set of unbuilt actions + UI-layout fidelity.
 
-**Top 3 Findings:**
-1. **🔴 CRITICAL: Command-injection vulnerability** — Argv construction in command handlers lacks systematic `--end-of-options` guards at registration layer. User-supplied branch/tag/file names containing `--` prefixes (e.g., branch named `--force`) can inject git flags, causing silent-wrong ops or data loss. While core git operations (BranchOps, StashTagHistoryOps) DO use guards correctly, the command REGISTRATION layer doesn't enforce this systematically. **BLOCKS any release beyond internal testing.** (Finding #1)
+**Top findings:**
+1. **🟠 HIGH: Context-menu ordering & grouping diverges from IntelliJ** — VS Code menu groups (1_branchOps, 2_compare, etc.) approximate IntelliJ's declarative action-group XML but diverge in separator positions and sub-group boundaries. Tracked in the UI/UX workstream (4b / `R2-UX-03-menus.md`). (Finding #1)
 
-2. **🟠 HIGH: Context-menu ordering & grouping diverges from IntelliJ** — VS Code menu groups (1_branchOps, 2_compare, etc.) approximate IntelliJ's declarative action-group XML structure but diverge in separator positions, sub-group boundaries, and log-commit menu hard-coded dispatch order. Breaks user muscle memory and discoverability. (Finding #2)
+2. **🟠 HIGH: Enumerable missing actions** — against the git4idea action XML (`backend/resources/intellij.vcs.git.backend.xml`), the genuinely-unbuilt user-facing actions are: **Configure Remotes UI** (`Git.Configure.Remotes`), **worktree Remove/Prune/Refresh** (`Git.WorkingTrees.*`), **Revert Resolved** (`Git.RevertResolved`), **Unshallow** (`Git.Unshallow`), **Add Commit To Remote Branch** (`Git.AddCommitToRemoteBranch`), **Open Exclude File** (`Git.OpenExcludeFile`), **GPG agent config** (`gpg.agent.configuration`), and the 3 before-commit checks (CRLF/large-file/bad-filename). Clone/Init are intentionally VS Code-native. (Finding #2)
 
-3. **🟠 HIGH: Missing/partial action-ID coverage** — Of 98 IntelliJ action IDs, approximately 33 remain entirely missing (bulk ops, advanced filters, remote/stash flows), and 32 are only partially implemented (backend without menu surface, or command without full options). PROGRESS.md shows P1/P2 additions landed (Update Project, gitignore, rebase options), but systematic reconciliation audit is needed. (Finding #3)
+**Argv safety:** systematically enforced — ops build argv via `buildGitArgs` (splices `--end-of-options`), the command-registration layer never `exec`s raw interpolated user input, and two source-scanning anti-pattern tests gate the build (`checkExecLeadingRev.test.ts`, `checkPathspecCanonicalized.test.ts`) plus `fetchArgInjection.test.ts`. No injection path found.
 
-**R1 Progress:** Unable to verify R1 follow-ups (no 09-shell.md exists), but PROGRESS.md shows forward movement: Update Project, add-to-gitignore, Copy Commit Message, rebase options, Configure Remotes backend all landed.
-
-**Updated Action-ID Counts:** 101 registered commands vs. 98 IntelliJ actions; ~33 full parity / ~32 partial / ~33 missing (estimated; reconciliation document required).
-
-**Blockers:** ONE 🔴 CRITICAL security finding (argv injection); otherwise no end-to-end function blockers (all 101 commands have handlers wired).
+**Blockers:** 0 (all registered commands have handlers wired; argv safety verified).
 
 ---
 
@@ -45,32 +41,15 @@ The command/action surface has good **feature-level coverage** (101 registered c
 
 ---
 
-## R1 follow-up (verify each prior finding against current code)
-
-**Note:** No R1 report file (09-shell.md) exists; inferring gaps from NORTHSTAR and PROGRESS.md.
-
-| R1 gap (inferred) | R1 status | Current status (re-verified) | Commit that closed it (if any) | Notes |
-|---|---|---|---|---|
-| Update Project command missing | ❌ missing | ✅ full | 2eedae9 per PROGRESS.md | P2 slice landed |
-| add-to-gitignore command missing | ❌ missing | ✅ full | 3d9c3c4 per PROGRESS.md | P2 slice landed |
-| Copy Commit Message action missing | ❌ missing | ✅ full | 07e0cd8 per PROGRESS.md | P3 slice landed |
-| Rebase options (--rebase-merges, etc.) missing | ❌ missing or 🟡 partial | ✅ backend full, 🟡 UI needs F5 verify | fd15118 per PROGRESS.md | Backend argv unit-locked; dialog checkboxes want F5 |
-| Configure Remotes backend missing | ❌ missing | ✅ backend only, UI deferred | c4119b7 per PROGRESS.md | setRemoteUrl, renameRemote ops landed; dialog UI deferred (still P2 gap) |
-| Compare-with-Current toast not split-log | 🟡 partial | 🟡 partial (still toast) | — | P2/P4 gap per NORTHSTAR, not yet addressed |
-| Context-menu ordering diverges from IntelliJ | 🟡 partial | 🟡 partial (Finding #2) | — | Systematic ordering mismatch, no single commit closes it |
-| ~33 missing action IDs (implied from NORTHSTAR) | ❌ missing | ❌ missing (reduced count unknown, reconciliation needed) | — | See Finding #3; action-inventory audit required |
-
----
-
-## Gap table (Round 2 — fresh)
+## Gap table
 
 One row per distinct capability/finding. **Source** + **Severity** mandatory.
 
 | Capability / finding | IntelliJ behavior | intellig behavior | Status | Severity | Source | Notes / file refs |
 |---|---|---|---|---|---|---|
-| **Argv injection guards (systematic)** | Every user-supplied ref uses `--end-of-options` or positional-only forms; enforced at GitCommandLine build time | Ad-hoc per-method guards correct where present (BranchOps, StashTagHistoryOps), but NOT systematically enforced at command-registration layer; risk of under-guarded paths | 🟡 partial | 🔴 blocker/security | git4idea GitCommandLine.java | **CRITICAL:** Audit all command handlers in src/commands/registration/**, BranchContextMenuCommands.ts for unsafe argv construction. Add CI audit script. See Finding #1. |
-| **Context-menu ordering & grouping** | Declarative action-group XML with explicit group IDs, separators, anchors (e.g., Git.ContextMenu.BranchActions, Git.ContextMenu.IntegrateActions) | package.json groups (1_branchOps@N, 2_compare@N, etc.) approximate IntelliJ but diverge in separator positions, sub-group boundaries | 🟡 partial | 🟠 high (usability) | platform action system, git4idea XML | **HIGH:** Read actual git4idea XML, document canonical ordering in workspace-notes/parity/shell-menu-structure.md, align package.json. See Finding #2. Files: package.json, GTWProvider log menu. |
-| **Action-ID coverage (98 total)** | 98 distinct action IDs across branch/commit/remote/stash/log/sync/rebase/conflict domains | 101 registered commands, but ~33 IntelliJ IDs entirely missing, ~32 only partial (backend without menu, or missing options). PROGRESS shows P1/P2 additions (Update Project, gitignore, rebase options, etc.) | 🟡 partial | 🟠 high (parity) | git4idea action registry | **IMPORTANT:** Need R2-shell-action-inventory.md reconciliation. See Finding #3. P2/P3 work to close gaps. |
+| **Argv injection guards (systematic)** | Every user-supplied ref uses `--end-of-options` or positional-only forms; enforced at GitCommandLine build time | Ops build argv via `buildGitArgs` (splices `--end-of-options`); the command-registration layer never `exec`s raw interpolated user input. Two source-scanning anti-pattern tests gate the build (`checkExecLeadingRev.test.ts`, `checkPathspecCanonicalized.test.ts`) + `fetchArgInjection.test.ts`. | ✅ secure | 🟢 | git4idea GitCommandLine.java | No injection path found. The CI anti-pattern scanners are the "systematic enforcement" mechanism. |
+| **Context-menu ordering & grouping** | Declarative action-group XML with explicit group IDs, separators, anchors (e.g., Git.ContextMenu.BranchActions, Git.ContextMenu.IntegrateActions) | package.json groups (1_branchOps@N, 2_compare@N, etc.) approximate IntelliJ but diverge in separator positions, sub-group boundaries | 🟡 partial | 🟠 high (usability) | platform action system, git4idea XML | **HIGH:** tracked in UI/UX workstream (4b / `R2-UX-03-menus.md`). Files: package.json, GTWProvider log menu. |
+| **Missing actions (vs git4idea XML)** | git4idea backend action XML | Enumerable unbuilt set: Configure Remotes UI (`Git.Configure.Remotes`), worktree Remove/Prune/Refresh (`Git.WorkingTrees.*`), Revert Resolved (`Git.RevertResolved`), Unshallow (`Git.Unshallow`), Add-Commit-To-Remote-Branch (`Git.AddCommitToRemoteBranch`), Open-Exclude-File (`Git.OpenExcludeFile`), GPG-agent config (`gpg.agent.configuration`), 3 before-commit checks (CRLF/large-file/bad-filename). Clone/Init = VS Code-native (intentional). | 🟡 partial | 🟠 high (parity) | git4idea action registry | The "missing" set is small + enumerable (not "~33"); each tracked in its component doc. |
 | **Command-palette title consistency** | Action text in XML; no "Git:" prefix (context implicit), ellipsis for dialogs | Inconsistent: some use "Git:" prefix in title, some lack ellipsis on dialog commands | 🟡 partial | 🟡 medium (UX) | mixed | Audit package.json titles vs. IntelliJ XML action text. See Finding #4. |
 | **Status-bar VCS widget actions** | Status-bar widget shows branch, fetch status, click opens branch popup; inline actions for update/commit | Status-bar item present but surface area may not match IntelliJ's | 🟡 partial (needs verification) | 🟡 medium (platform integration) | platform VCS widget | Inventory IntelliJ widget actions, compare with ours. See Finding #5. |
 | **Tool-window title bar actions** | Inline refresh/settings/gear in tool-window title | Webview title actions in package.json (view/title contributions); set may not match IntelliJ's | 🟡 partial (needs verification) | 🟡 medium (platform integration) | platform tool-window chrome | Compare view/title menus with IntelliJ's tool-window actions. See Finding #5. |
@@ -90,21 +69,8 @@ Source legend: `git4idea` (portable git logic) · `platform` (UI we hand-build) 
 
 ## Top findings (ranked, this component)
 
-### 1. Argv-injection vulnerability in command handlers (CRITICAL)
-**Severity:** 🔴 BLOCKER/SECURITY
-**Source:** git4idea GitCommandLine.java (systematic `--end-of-options` enforcement)
-**Effort:** M (audit all handlers + add CI script)
-
-**Why it matters:** User-controlled branch names, tag names, or file paths containing `--` prefixes can inject git flags, causing silent-wrong operations or data-loss commands to execute with unintended flags. A branch named `--force` or tag `--delete` passed through an under-guarded command path could flip intended safe operations into destructive ones.
-
-**Evidence:**
-- Package.json command surface exposes user-input-derived argv paths across branch/tag/remote operations without systematic `--end-of-options` protection.
-- While core git operations in `BranchOps.ts`, `StashTagHistoryOps.ts` DO use `--end-of-options` correctly (verified PROGRESS.md shows P1 fixes landed including argv guards), the **command REGISTRATION layer** does not enforce or audit this systematically.
-- IntelliJ baseline: git4idea `GitCommandLine.java` enforces `--end-of-options` at command-build time; every user-supplied ref goes through positional-protected forms. Our ad-hoc per-method guards are correct where present but NOT systematically enforced at the command-registration boundary.
-
-**Files to touch:**
-- Audit: `src/commands/registration/branchCommands.ts`, `BranchContextMenuCommands.ts`, `commitMenuCommands.ts`, any handler that builds argv from `item.label` or picker results
-- Add CI script: `scripts/check-argv-injection-guards.sh` (grep for unsafe patterns: `\${.*name}`, direct template literal interpolation into git args arrays without adjacent `'--end-of-options'`)
+### 1. Argv safety — verified secure
+The systematic `--end-of-options` enforcement git4idea's `GitCommandLine.java` provides is matched here: ops build argv via `buildGitArgs` (which splices `--end-of-options` before refs), the command-registration layer never `exec`s raw interpolated user input (verified — no `gitCli.exec([...${userInput}...])` in `src/commands/registration/**` or `BranchContextMenuCommands.ts`), and two source-scanning anti-pattern tests gate every build: `checkExecLeadingRev.test.ts` (flags a user-ref placed before `--end-of-options`) and `checkPathspecCanonicalized.test.ts` (flags un-canonicalized pathspecs), plus `fetchArgInjection.test.ts`. A branch named `--force` rides behind `--end-of-options` and is treated as a ref, not a flag. No injection path found.
 
 ---
 
@@ -141,31 +107,21 @@ Source legend: `git4idea` (portable git logic) · `platform` (UI we hand-build) 
 
 ---
 
-### 3. Missing/partial action-ID coverage (~33 missing, ~32 partial of 98 total) (HIGH)
+### 2b. Missing actions (vs git4idea action XML) (HIGH)
 **Severity:** 🟠 HIGH (parity completeness)
-**Source:** git4idea action registry (98 actions per NORTHSTAR)
-**Effort:** L (systematic inventory + P2/P3 feature work)
+**Source:** `backend/resources/intellij.vcs.git.backend.xml` (authoritative action surface)
 
-**Why it matters:** Approximately one-third of IntelliJ action IDs remain entirely missing (bulk ops, advanced filters, some remote/stash flows); another third are partially implemented (backend without menu surface, or command without full options). This blocks feature-parity migration for users relying on these actions.
+The genuinely-unbuilt user-facing actions (each tracked in its component doc):
+- **Configure Remotes UI** (`Git.Configure.Remotes`) — backend done, no front door → `R2-05-sync.md`.
+- **Worktree Remove / Prune / Refresh** (`Git.WorkingTrees.*`) — create+open only → `R2-02-branches.md`.
+- **Revert Resolved** (`Git.RevertResolved`) — un-resolve a conflicted file → `R2-04-conflicts.md`.
+- **Before-commit checks** CRLF / large-file / bad-filename (`GitCheckinHandlerFactory`) → `R2-08-commitops.md`.
+- **Unshallow** (`Git.Unshallow` → `git fetch --unshallow`) — shallow-clone only.
+- **Add Commit To Remote Branch** (`Git.AddCommitToRemoteBranch`) — niche.
+- **Open Exclude File** (`Git.OpenExcludeFile`) — open `.git/info/exclude`.
+- **GPG agent config** (`gpg.agent.configuration`) — commit-signing setup.
 
-**Summary of coverage status:**
-- **Full parity (33 actions):** Core operations like commit, push, pull, fetch, branch checkout/merge/rebase, stash, tag, cherry-pick, reset, revert. PROGRESS.md confirms P1/P2 additions (Update Project, add-to-gitignore, rebase options, merge options, cherry-pick -x, tag force-overwrite).
-- **Partial (32 actions):** Examples include:
-  - Compare-with-Current (backend exists, UI is a toast not a split-log view — P2 gap per NORTHSTAR)
-  - Interactive rebase from selected commit (backend exists, lacks todo-editor UI — P4 platform-rebuild)
-  - Cleanup/Find Merged Branches — intentionally not implemented (git4idea `Git.Cleanup.Branches` is `internal="true"`, not user-facing parity); the orphaned `getMergedBranches` backend was removed
-  - Configure Remotes dialog (backend `setRemoteUrl`/`renameRemote` added per PROGRESS, dialog UI deferred)
-  - Annotate Previous Revision (command present in package.json `intellig.blame.annotatePrevious`, handler unclear if fully wired)
-- **Missing (33 actions):** Examples likely include:
-  - Stash/Shelf bulk operations (delete multiple, compare stashes)
-  - Branch bulk delete (multi-select in tree)
-  - "Show Branches" dialog as a separate window (vs. inline tree)
-  - Log advanced filters (by branch, date range, author — P4 filter-bar wiring per PROGRESS paused)
-  - History rewrite actions in proper order: Reword/Fixup/Squash/Drop as distinct menu items (P2 gap per NORTHSTAR)
-  - Remote branch track/untrack flows
-
-**Files to create:**
-- `workspace-notes/parity/R2-shell-action-inventory.md` — systematic 98-action cross-reference (IntelliJ action ID, intellig command ID (if any), status (full/partial/missing + gap description))
+Intentionally **not** implemented: Clone/Init (VS Code-native), `Git.Cleanup.Branches` (`internal="true"`), the dedicated Staging-Area tool window (`Git.Stage.*` — covered by the native `vscode.scm` Staged/Changes provider). Already built (so NOT missing): interactive-rebase todo editor (`RebaseEditor`), log advanced filters (G complete), history-rewrite menu items (reword/fixup/squash/drop in the webview log menu), Track Branch.
 
 ---
 
@@ -218,17 +174,13 @@ Source legend: `git4idea` (portable git logic) · `platform` (UI we hand-build) 
 
 ## Blockers
 
-### CRITICAL (Finding #1): Argv-injection vulnerability
-Argv-injection vulnerability in command handlers must be audited and fixed BEFORE any release beyond internal testing. This is a data-loss / silent-wrong-op risk.
-
-### None for end-to-end function
-All 101 registered commands appear to have handlers wired (no dead commands in package.json that lack a `registerLoggedCommand` call). PROGRESS.md shows previously deferred UI flows (Configure Remotes dialog, filter-bar, Smart Reset) are now implemented or have backend + paused-UI state documented. No F5-only blockers identified.
+**None.** Argv safety is systematically enforced (ops use `buildGitArgs` + `--end-of-options`; the registration layer never `exec`s raw user input; anti-pattern scanner tests gate the build). All registered commands have handlers wired (no dead commands lacking a `registerLoggedCommand` call). No F5-only blockers identified.
 
 ---
 
 ## Architecture Recommendations
 
-1. **Systematic Argv Audit Script:** Add a CI gate that scans all command handlers for unsafe user-input interpolation into git argv arrays. Fail the build on missing `--end-of-options` guards. Script should grep for patterns like `\${.*name}`, direct template literal interpolation without adjacent `'--end-of-options'`.
+1. **Argv anti-pattern scanners (in place):** `checkExecLeadingRev.test.ts` + `checkPathspecCanonicalized.test.ts` scan the source tree for unsafe user-input interpolation into git argv and gate the build. Keep them green; extend the patterns if new argv shapes appear.
 
 2. **Declarative Menu Structure:** Extract context-menu ordering and grouping into a centralized config (e.g., JSON or TypeScript const) that mirrors IntelliJ's action-group XML. Package.json menu contributions should be mechanically derived from this structure to ensure consistency.
 

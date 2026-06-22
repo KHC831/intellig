@@ -30,21 +30,7 @@ _Round-2 deep tech-lead review for the **Commit ops** component: commit/amend, r
 
 ---
 
-## R1 follow-up (verify each prior finding against current code)
-
-| R1 gap | R1 status | Current status (re-verified) | Commit that closed it | Notes |
-|---|---|---|---|---|
-| **P1 #8** Hard reset on dirty tree — no Smart Reset/stash | OPEN | ✅ **CLOSED** | 220dd7e (2026-06-14) | IntelliJ Smart Reset parity: `ResetDialog._proposeSmartReset` offers Stash and Reset / Force / Cancel when `isLocalChangesOverwriteError` detects conflict. Tested end-to-end. |
-| **P1 #9** Undo-last-commit drops the commit message | OPEN | ✅ **CLOSED** | 764a6f9 (2026-06-14) | `CommitContextMenuCommands.ts:1777` calls `_commitComposer?.prefillComposerMessage(undoneMessage)` after soft-reset. IntelliJ `GitUncommitAction:124` does same via `setCommitMessage()`. |
-| **P3** Reset mode persistence | OPEN | ✅ **CLOSED** | 43b09c5 (2026-06-14) | `ResetDialog` uses `loadPreferredResetMode/savePreferredResetMode` via globalState, matching IntelliJ `GitVcsSettings.setResetMode`. Mode demoted on protected branch. |
-| **P2** Cherry-pick -x (addCherryPickedFrom) | OPEN | ✅ **CLOSED** | 5e06d66 (2026-06-14) | `CherryPickRevertOps.ts:58-60` adds `-x` when `options.addCherryPickedFrom && !noCommit`. Matches IntelliJ. |
-| **P2** Tag force-overwrite | OPEN | ✅ **CLOSED** | b67e3a7 (2026-06-14) | `StashTagHistoryOps.ts:238` adds `-f` when `force` param true. "New Tag" flow offers Overwrite modal on "already exists" then retries. |
-
-**R1 summary:** All 5 tracked Commit ops gaps from NORTHSTAR P1/P2/P3 are now CLOSED. Excellent execution.
-
----
-
-## Gap table (Round 2 — fresh)
+## Gap table
 
 | Capability / finding | IntelliJ behavior | intellig behavior | Status | Severity | Source | Notes / file refs |
 |---|---|---|---|---|---|---|
@@ -56,7 +42,8 @@ _Round-2 deep tech-lead review for the **Commit ops** component: commit/amend, r
 | **Commit author override validation** | IntelliJ validates `Name <email>` format before commit | **Implemented**: `AUTHOR_FORMAT_REGEX` at CommitDialog.ts:189 + `isValidAuthorFormat` guard. Rejects malformed input before `git commit --author`. | ✅ parity | 🟠 high | git4idea | Security guard present. Regex: `/^[^<>]+ <[^<>@\s]+@[^<>\s]+>$/` matches IntelliJ lenient-but-safe pattern. |
 | **Commit --no-verify persistence** | IntelliJ persists "Skip hooks" checkbox state across invocations | **Implemented**: `LAST_NO_VERIFY_STATE_KEY` at CommitDialog.ts:24 + gear-menu toggle survives dialog close/reopen via workspaceState. | ✅ parity | ⚪ polish | git4idea | `src/commits/CommitDialog.ts`. Matches IntelliJ per-project persistence. |
 | **Reset protected-branch guard** | IntelliJ doesn't have branch-protection at reset level (handles at push/force-push) | **Ours-only**: ResetDialog disables Hard/Keep modes when `currentBranch` in `protectedBranches` config (lines 212, 306). Safety rail not in git4idea. | ➕ ours-only | ⚪ polish | N/A | `src/ui-shell/ResetDialog.ts:212`. Sensible addition; not a parity gap. |
-| **Tag delete remote** | `GitDeleteRemoteTagOperation` — push `:refs/tags/<name>` to delete tag on remote | **Implemented**: `deleteRemoteTag` at StashTagHistoryOps.ts + leading-dash guard. UI prompt deferred per PROGRESS.md. | 🟡 partial | 🟡 medium | git4idea | Backend present (commit e1c1e75, P3). UI wiring needs confirm. |
+| **Tag delete remote** | `GitDeleteRemoteTagOperation` — push `:refs/tags/<name>` to delete tag on remote | **Implemented + wired**: `intellig.tag.deleteRemote` ("Delete from Remote…") registered at `BranchContextMenuCommands.ts:647` → `_handleDeleteRemoteTag:2464` → `deleteRemoteTag` (StashTagHistoryOps.ts:300, leading-dash guard, `:refs/tags/` empty-src push). | ✅ parity | ⚪ polish | git4idea | Backend + tag-submenu command both present. |
+| **Before-commit checks: CRLF / large-file / bad-filename** | `GitCRLFCheckinHandler` (warns on CRLF line-separators), `GitLargeFileCheckinHandler` (warns committing a file over the size threshold), `GitFileNameCheckinHandler` (warns on Windows-reserved / case-colliding names) — all in `GitCheckinHandlerFactory.kt`. | `DEFAULT_CHECKIN_HANDLERS` (CheckinHandlers.ts:212) has 3 (`git.user.name`, `git.unresolved.merge`, `git.detached.root`). The 3 above are unported — the framework accepts them without change (appendix "Ported checks" section 2 lists them as follow-ups). | ❌ missing | 🟡 medium | git4idea | Add three `ICheckinHandler`s. CRLF = check staged blobs for `\r\n`; large-file = `git diff --cached --numstat` byte threshold; bad-filename = reserved-name / case-collision scan. Pure checks, no I/O — fit the existing chain. |
 | **Copy Commit Message** action | `Vcs.Log.CopySubjectText` — copies clicked commit's subject (multi-select joins with blank line) | **Implemented**: `case 'copyCommitMessage'` at CommitContextMenuCommands + clipboard handler. | ✅ parity | ⚪ polish | platform | Commit 07e0cd8 (P3). Confirmed present. |
 | **Commit message recent-LRU UI** | IntelliJ shows recent messages dropdown in commit dialog | **Implemented**: `RECENT_MESSAGES_STATE_KEY` + `updateRecentMessagesLru` at CommitToolWindow.ts. UI dropdown present in tool window. | ✅ parity | ⚪ polish | platform | `src/commits/CommitToolWindow.ts`. |
 | **Smart Reset stash-pop failure handling** | IntelliJ surfaces stash-pop conflicts gracefully | **Reviewed**: `ResetDialog._proposeSmartReset` at lines 521-549. stash → reset → unstash flow. Error path catches + surfaces via toast. Pop-conflicts NOT EXPLICITLY HANDLED as distinct from other unstash errors. | 🟡 partial | 🟡 medium | git4idea | `src/ui-shell/ResetDialog.ts:545`. If stashPop throws on conflict, user sees generic error toast. IntelliJ distinguishes "reset succeeded but unstash conflicted" state. Minor UX gap. |
@@ -90,13 +77,13 @@ _Round-2 deep tech-lead review for the **Commit ops** component: commit/amend, r
 
 ---
 
-### 3. **Tag delete remote UI wiring** — 🟡 MEDIUM
-**Why it matters:** Backend operation `deleteRemoteTag` is implemented (commit e1c1e75, P3) with argv guards. UI prompt is deferred per PROGRESS.md. Without the prompt, users can't actually trigger the feature from the extension surface.
+### 3. **Before-commit checks: 3 unported handlers** — 🟡 MEDIUM
+**Why it matters:** `DEFAULT_CHECKIN_HANDLERS` has `git.user.name` / `git.unresolved.merge` / `git.detached.root`, but git4idea's `GitCheckinHandlerFactory` also runs **CRLF**, **large-file**, and **bad-filename** checks. Without them, the user can silently commit a 200 MB blob, mixed line-endings, or a Windows-illegal filename and only discover it later.
 
-**Severity:** 🟡 medium (feature incomplete without UI)  
-**Source:** git4idea  
-**Effort:** S (add command registration + modal confirm "Delete tag '<name>' from remote '<remote>'?" → call deleteRemoteTag)  
-**Files to touch:** `src/commands/registration/commitRepoCoreCommands.ts` or tag-specific command file; `package.json` command registration.
+**Severity:** 🟡 medium (pre-commit safety net gap)  
+**Source:** git4idea (`GitCRLFCheckinHandler` / `GitLargeFileCheckinHandler` / `GitFileNameCheckinHandler`)  
+**Effort:** S each (pure `ICheckinHandler`s — the chain already accepts them; appendix section 2 lists them as follow-ups).  
+**Files to touch:** `src/commits/CheckinHandlers.ts` (add 3 handlers + append to `DEFAULT_CHECKIN_HANDLERS`), tests in `CheckinHandlers.test.ts`.
 
 ---
 
@@ -133,16 +120,16 @@ _Round-2 deep tech-lead review for the **Commit ops** component: commit/amend, r
 
 ## Summary (exec)
 
-**Component health:** ✅ **STRONG**. All 5 R1 gaps (P1 #8 Smart Reset, P1 #9 undo message, P3 reset persistence, P2 cherry-pick -x, P2 tag force) are CLOSED as of 2026-06-14 autonomous run. No silent-wrong ops remain. Security guards present. Destructive-op confirms follow IntelliJ-style minimal policy.
+**Component health:** ✅ **STRONG**. No silent-wrong ops. History-rewrite actions (reword/fixup/squash/drop/uncommit) wired. Reset dialog (Smart Reset + Keep mode + persistence) functional. Tag ops incl. remote-tag delete complete. Security guards present. Destructive-op confirms follow IntelliJ-style minimal policy.
 
 **Top 3 findings:**
-1. 🟡 **MEDIUM** — Smart Reset stash-pop conflict handling: unstash conflicts surface as generic error instead of routing to conflict resolution dialog (S effort, UX polish).
-2. 🟡 **MEDIUM** — Reset dialog F5 dogfood gap: webview flow not manually confirmed in this review; unit tests strong but end-to-end smoke missing (process gap, not code).
-3. 🟡 **MEDIUM** — Tag delete remote UI wiring: backend implemented (e1c1e75) but UI prompt deferred; feature incomplete without command registration (S effort).
+1. 🟡 **MEDIUM** — Before-commit checks: CRLF / large-file / bad-filename handlers unported (3 pure checks the chain already accepts; appendix section 2 follow-ups).
+2. 🟡 **MEDIUM** — Smart Reset stash-pop conflict handling: unstash conflicts surface as generic error instead of routing to conflict resolution dialog (S effort, UX polish).
+3. 🟡 **MEDIUM** — Reset dialog F5 dogfood gap: webview flow not manually confirmed in this review; unit tests strong but end-to-end smoke missing (process gap, not code).
 
-**R1 closed vs open:** 5 closed / 0 open. **Blockers:** 0. **Security:** clean (argv guards verified, confirms in place, CSP enforced).
+**Blockers:** 0. **Security:** clean (argv guards verified, confirms in place, CSP enforced).
 
-**Parity assessment:** Commit ops component is at **functional parity** with IntelliJ git4idea for all daily-hit operations. Residual gaps are UX polish (stash-pop conflict distinction, F5 smoke) and deferred wiring (remote tag delete UI). No correctness regressions. Strong TDD discipline evident (220dd7e added 5 Smart Reset tests, 764a6f9 added undo-message test).
+**Parity assessment:** Commit ops component is at **functional parity** with IntelliJ git4idea for all daily-hit operations. Residual gaps are the 3 unported before-commit checks + UX polish (stash-pop conflict distinction, F5 smoke). No correctness regressions.
 
 ---
 

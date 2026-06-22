@@ -114,9 +114,9 @@
 
 | Severity | Issue | IntelliJ | Our Impl | Impact |
 |----------|-------|----------|----------|--------|
-| 🟠 HIGH | Reset position | Top of menu (section 1) | Middle (section 3, line 5) | PRIMARY destructive action buried; users expect it near top |
-| 🟠 HIGH | Missing "Branch Operation Group" | Dynamic submenu (lines 356) | Absent | No "checkout as new branch" shortcut in log menu |
-| 🟠 HIGH | Cherry-pick placement | Not in top-level log menu (only via Branch Ops) | Section 1, line 4 | Less-common action promoted to top; IntelliJ reserves top for Reset/Revert/Undo |
+| ⚪ polish | Reset position | Top of menu (section 1) | Present, ordered after Cherry-Pick/Checkout (`htmlBuilders.ts:230`) | Item present; only fine ordering differs |
+| ⚪ polish | "New Branch / New Tag from commit" | Branch-operation submenu | Present (`htmlBuilders.ts:245-246`) + Fixup/Squash-Into; menu mirrors `Git.Log.ContextMenu` | Landed (4b #10); flat list vs submenu |
+| ⚪ polish | Cherry-pick placement | Reached via Branch Ops | Top-level item (`:223`) | Ordering preference only |
 | 🟡 MEDIUM | Copy actions section | Not a distinct section (Copy Hash is inline utility) | Explicit section 1 with separator | Over-grouped; Copy Hash is a utility, not a workflow step |
 | 🟡 MEDIUM | "Squash with Previous" section | Inline with other edit actions | Separate section 4 with own separator | Over-separated; IntelliJ groups all history-rewrite in one block |
 
@@ -165,7 +165,7 @@
 
 | Severity | Issue | IntelliJ | Our Impl | Impact |
 |----------|-------|----------|----------|--------|
-| 🟠 HIGH | Sync section missing Tracked Branch submenu + Pull actions | Has "Tracked Branch" submenu (line 273), Pull with Rebase/Merge (274-275) | Only Update + Push (lines 749-755) | Missing 3 daily-hit actions (pull modes, upstream config) |
+| ✅ parity | Tracked Branch submenu + Pull actions | "Tracked Branch" submenu + Pull with Rebase/Merge | Present: `intellig.trackedBranchSubmenu` = Track Branch (`1_track`) + Pull Using Rebase + Pull Using Merge (`2_pull`) | Landed; the prior "missing" finding is stale |
 | 🟡 MEDIUM | Integrate vs Sync boundary | Rebase/Merge → separator → **Create Working Tree** → separator → Sync | Rebase/Merge → separator → Sync | IntelliJ visually separates "operations that alter the current branch" from "operations that sync with remote"; we collapse them |
 | ⚪ LOW | "Checkout as New Branch" label | "Checkout as New Branch" | "New Branch from Here" | Ours is clearer (avoids "checkout" overload), acceptable divergence |
 
@@ -237,14 +237,15 @@
 
 ## Top UX Findings (Ranked)
 
-### 1. 🟠 HIGH — Log Commit Menu: Wrong Order + Missing Sections
+### 1. ⚪ POLISH — Log Commit Menu: fine ordering only (item set is complete)
 
-**Location:** `src/git-core/gitToolWindow/provider/htmlBuilders.ts:217-240` (`buildCommitContextMenuHtml()`)
+**Location:** `src/git-core/gitToolWindow/provider/htmlBuilders.ts:217-251` (`buildCommitContextMenuHtml()`)
 
-**Issue:** 
-- **Reset Current Branch to Here** is buried in section 3 (line 228); IntelliJ places it at the TOP as the primary destructive action.
-- **Cherry-Pick** promoted to section 1 (line 219); IntelliJ only exposes it via the "Branch Operation Group" submenu (less common action).
-- **Copy actions over-grouped** — Copy Hash + Copy Message + Create Patch are distinct utilities, not a workflow section; IntelliJ inlines them.
+**Status:** The menu **set** mirrors `Git.Log.ContextMenu` (4b #10 landed) — Reset to Here (`:230`),
+Revert, Reword, Fixup…/Squash Into…/Fixup-with-Previous/Squash-with-Previous/Squash Commits, Cherry-Pick,
+Checkout Revision, New Branch…/New Tag… (`:245-246`), Push-up-to-here, Create Patch, Copy Revision Number.
+The only residual is **fine ordering** (IntelliJ puts Reset/Revert first; ours places Cherry-Pick/Checkout
+before Reset) and flat-list vs submenu grouping — cosmetic, not a missing-feature gap.
 - **Missing "Branch Operation Group"** — IntelliJ's dynamic submenu for checkout-as-branch + cherry-pick; we have the actions but not the submenu structure.
 
 **User Impact:**  
@@ -285,23 +286,12 @@ Insert a separator + placeholder action between `3_integrate@2` and `4_sync@1`. 
 
 ---
 
-### 3. 🟠 HIGH — Remote Branch Menu: Missing Tracked-Branch Submenu
+### 3. ✅ RESOLVED — Remote Branch: Tracked-Branch submenu present
 
-**Location:** `package.json` lines 768-820 (`view/item/context` for `viewItem == intellig.remoteBranch`)
-
-**Issue:**  
-IntelliJ's local-branch menu includes a **"Tracked Branch"** submenu (line 273, `Git.Branch.Tracked` group) with 3 actions:
-1. Update Tracked Branch (fetch + merge onto the local tracking branch)  
-2. Push (push local to its tracked remote)  
-3. Pull with Rebase / Merge (pull tracked remote into current)
-
-Our remote-branch menu shows **Track Branch** as a top-level action (line 815, `1_branchOps@4`) but has NO submenu, and Pull actions are in a separate `4_pull@` section (lines 804-810).
-
-**User Impact:**  
-Users expect "Pull Using Rebase/Merge" to be grouped with "Track Branch" (they're both upstream-config actions). Our separation into `1_branchOps` (Track) vs. `4_pull` (Pull) is arbitrary and breaks the conceptual grouping.
-
-**Severity Justification:**  
-Missing submenu structure reduces discoverability; users don't see the relationship between Track + Pull + Update. The actions exist but are scattered.
+**Status:** The `intellig.trackedBranchSubmenu` exists and groups the upstream-config actions:
+Track Branch (`1_track`) + Pull Using Rebase + Pull Using Merge (`2_pull`). The prior "missing submenu /
+scattered actions" finding is stale — Track and the Pull modes are now grouped in one submenu, mirroring
+git4idea's `Git.Branch.Tracked`.
 
 **Recommendation:**  
 Add a **"Tracked Branch"** submenu to the remote-branch menu:

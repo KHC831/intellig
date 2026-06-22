@@ -2,6 +2,15 @@
 
 IntelliJ IDEA-style Git integration for Visual Studio Code. Brings familiar Git workflows — changelists, commit dialog, branch popup, interactive rebase, shelf, blame annotations, merge resolution, and more — right into VS Code.
 
+## Marketplace
+
+Install IntelliG from either marketplace:
+
+- **Visual Studio Marketplace** — <https://marketplace.visualstudio.com/items?itemName=KaHoChan.intellig>
+- **Open VSX** (VSCodium, Cursor, Gitpod, and other non-Microsoft builds) — <https://open-vsx.org/extension/KaHoChan/intellig>
+
+Or from the Extensions view (`Ctrl/Cmd+Shift+X`), search **IntelliG** and click Install.
+
 ## Features
 
 ### Commits & Changelists
@@ -179,11 +188,15 @@ IntelliG runs `git` directly via `child_process` rather than going
 through VS Code's git extension API. The practical implications:
 
 - IntelliG works even when `git.enabled` is set to `false`.
-- IntelliG does **not** register a Source Control panel — VS Code's
-  built-in SCM view continues to work alongside IntelliG's
-  IntelliJ-style panels (Branch popup, Git tool window, etc.).
+- IntelliG registers its own **"IntelliG Git"** Source Control provider
+  in the SCM view (Staged Changes / Changes groups + a commit input box,
+  `Ctrl/Cmd+Enter` to commit). It appears alongside VS Code's built-in
+  SCM entry rather than replacing it, so both views keep working — use
+  whichever you prefer, plus IntelliG's IntelliJ-style panels (Branch
+  popup, Git tool window, etc.).
 - File-tree decorations (M / U / A glyphs in the Explorer) come from
-  VS Code's built-in git extension. IntelliG does not double-paint
+  VS Code's built-in git extension. IntelliG does not register a global
+  file-decoration provider, so it does not double-paint Explorer
   decorations.
 - You can disable VS Code's built-in git decorations and still have
   IntelliG's tool windows fully functional.

@@ -23,22 +23,20 @@
 
 ### 1. Three-Way Merge Editor
 
-| Surface Element | IntelliJ Layout/Behavior | Ours | Status | Severity | File |
-|-----------------|-------------------------|------|--------|----------|------|
-| **Overall Layout** | 3 side-by-side editor panes (Left=Current/Ours, Center=Base, Right=Incoming/Theirs) with synchronized scrolling and gutter diff markers | 3-pane **webview** with conflict-section cards, no synchronized scrolling | ⚠️ Partial | 🟠 HIGH | `MergeView.ts:710-1157` |
-| **Editor Interactivity** | Direct inline editing in all 3 panes; edits in left/right update the center result pane; full editor features (syntax highlighting, folding, find) | Read-only conflict display; no inline editing; buttons for Accept Current/Incoming/Both per conflict | ❌ Missing | 🔴 BLOCKER | `MergeView.ts:698-704` (HTML generation, no editable surface) |
-| **Conflict Navigation** | Toolbar buttons: `◀ Prev` / `Next ▶` with keyboard shortcuts (Alt+Up/Down), jumps to next unresolved conflict in editor | Toolbar buttons: `◀ Prev` / `Next ▶` with keyboard shortcuts (Alt+Up/Down), scrolls webview to conflict card | ✅ Present | 🟡 MEDIUM | `MergeView.ts:238-260` + webview HTML |
-| **Action Buttons Placement** | Inline gutter icons on each conflict region (✓ Accept Left, ✓ Accept Right, X Decline); toolbar for global actions (Accept All Left/Right/Both) | Inline per-conflict buttons in HTML cards (Accept Current/Incoming/Both); toolbar for global actions | ✅ Present | 🟡 MEDIUM | `MergeView.ts:1069-1135` (HTML structure) |
-| **Diff Highlighting** | Intra-line word-level diff highlighting (changed words in bold or colored background); folding for unchanged regions | Colored background per conflict section (light blue/orange/green for current/base/incoming); no word-level diff; no folding | ❌ Missing | 🟠 HIGH | `MergeView.ts:889-903` (section styling, no fine-grain diff) |
-| **Accept Both Order** | "Accept Both" presents a sub-menu: "Current First" vs "Incoming First" to control insertion order | "Accept Both" concatenates current + newline + incoming (fixed order, no prompt) | ❌ Missing | 🟡 MEDIUM | `MergeView.ts:155-157` |
-| **Auto-Resolve** | "Accept Non-Conflicting Changes" (single button) that applies left-only and right-only hunks automatically | Two separate buttons: "← Apply non-conflicting from Left" and "→ Apply non-conflicting from Right" | ⚠️ Partial | 🟡 MEDIUM | `MergeView.ts:953-954` (2 buttons vs 1 unified) |
-| **Mark as Resolved Workflow** | Edits in result pane auto-mark conflict as resolved; manual "Apply" button commits result; file written + staged on Apply | "Mark as Resolved" button enabled only when all conflicts have an action choice; writes file + stages immediately | ⚠️ Different | 🟡 MEDIUM | `MergeView.ts:291-318` |
-| **Empty States** | Center pane shows "(empty)" or a merge icon when no base exists (binary/new file) | Center pane shows "(no common ancestor)" text | ✅ Present | ⚪ LOW | `MergeView.ts:1107` |
+`MergeView.ts` (355 lines) opens VS Code's **native** merge editor via `git.openMergeEditor`. This is an
+**intentional platform substitution** (NORTHSTAR constraint: don't hand-roll a merge UI) — so it is
+*functionally* equivalent but **visually it is VS Code's editor, NOT IntelliJ's `MergeThreesideViewer`.**
+That distinction is the point of this UX doc: feature ≠ look.
 
-**Key Findings:**
-- 🔴 **BLOCKER**: No inline editing — users can't manually resolve conflicts by editing text in-place (all choices are button-based).
-- 🟠 **HIGH**: Not a true side-by-side editor view — webview-based UI with cards instead of synchronized editor panes.
-- 🟠 **HIGH**: No intra-line word-level diff (e.g., IntelliJ shows only the changed function argument in bold within a line; we show the entire line colored).
+| Surface Element | IntelliJ look/behavior | Ours (native editor) | Functional | **Visual parity** |
+|-----------------|-------------------------|------|--------|----------|
+| **Capability** (edit, syntax, word-diff, conflict nav, accept current/incoming/both) | present | present (native editor) | ✅ | — |
+| **Overall look** | IntelliJ 3-pane Swing viewer (Ours/Base/Theirs columns, IntelliJ chrome, gutter accept icons) | VS Code's 2-side-by-side merge editor + result pane, VS Code chrome | ✅ functional | ⚠️ **differs by design** (accepted divergence, not a gap to close) |
+| **Accept non-conflicting** | single "Accept Non-Conflicting" button in the editor toolbar | `ConflictResolutionService` (`git merge-file -p`) invoked from `ResolveConflictsDialog`, not the editor toolbar | ✅ | ⚠️ different surface (dialog vs in-editor toolbar) |
+
+**Note:** marking these "✅ parity" would be wrong — the merge UX is deliberately VS Code-native and does not
+match IntelliJ's appearance. It is an **accepted non-match**, tracked here so it isn't mistaken for visual parity.
+**Functional residual (B):** `Git.RevertResolved` + conflict-type labels — see `R2-04-conflicts.md`.
 
 ---
 
@@ -46,20 +44,21 @@
 
 | Surface Element | IntelliJ Layout/Behavior | Ours | Status | Severity | File |
 |-----------------|-------------------------|------|--------|----------|------|
-| **Gutter Columns** | Multi-column gutter: 1) commit date, 2) author name/initials, 3) commit hash (7 chars); each column can be toggled on/off; right-click → Settings | Single-column merged format: `author date hash` all in one `contentText` decoration | ❌ Missing | 🟠 HIGH | `GutterBlameProvider.ts:424-431` |
-| **Color Gradient** | Age-based background gradient (green=new → gray=old) **per commit**, with subtle background tint on each line | Age-based text color gradient (same spectrum), but no background tint on the line itself | ⚠️ Partial | 🟠 HIGH | `GutterBlameProvider.ts:32-40` (text color only, not bg) |
-| **Click Action** | Click gutter → **inline diff panel** opens below that line showing the commit's changes (expandable panel, not a separate tab) | Click does nothing; hover shows tooltip with commit details + markdown action links | ❌ Missing | 🔴 BLOCKER | `GutterBlameProvider.ts:388-415` (no `doAction`, only hover) |
+| **Gutter rendering** | True **multi-column** gutter (separate date / author / revision columns, aligned, per-column show/hide) | Single inline `contentText` decoration — `author date hash` concatenated in one string in the editor's line-decoration slot. Aspect toggles change *which fields* are in that one string, but it is **not** a multi-column layout. | 🟡 functional (toggles work) | ⚠️ **visual differs** (one inline string vs aligned columns) — VS Code decoration API has no multi-column gutter |
+| **Color modes** | Age-based **background** gradient + author tint per line | `intellig.blame.colorMode` ORDER/AUTHOR — applies to **text color** only, no per-line background tint | 🟡 functional | ⚠️ **visual differs** (text-tint, not bg gradient) |
+| **Click / hover action** | Click gutter → inline diff panel below the line | Hover shows a markdown popup with commit details + command links (View Commit / Copy Revision / Previous Revision); the F-8b line-status hover popup shows inline diff. No click-to-inline-panel (VS Code gutter API limitation). | ⚠️ partial | 🟡 medium | `GutterBlameProvider.ts:548,556` |
 | **Hover Tooltip** | Minimal tooltip: commit hash, message first line | Full markdown tooltip: hash, author, email, date, full message, action links (View Commit / Copy Hash / Previous Revision) | ✅ Present | ⚪ LOW | `GutterBlameProvider.ts:469-513` |
 | **Keyboard Navigation** | Ctrl/Cmd+G → jump to line and highlight commit; no next/prev commit shortcuts | None (VS Code editor shortcuts only) | ❌ Missing | 🟡 MEDIUM | Not implemented |
 | **Toggle Command** | "Annotate" action in right-click editor context menu, toolbar button, and `VCS → Git → Annotate` menu | Command `intellig.gutterBlame.toggle` (not discoverable via editor context menu by default) | ⚠️ Partial | 🟡 MEDIUM | Not registered in editor context |
-| **Settings / Options** | Right-click gutter → "Annotate Options" (toggle columns, show colors, ignore whitespace) | No gutter right-click menu; options are global config (not contextual) | ❌ Missing | 🟠 HIGH | No settings integration |
+| **Settings / Options** | Right-click gutter → "Annotate Options" (toggle columns, show colors, ignore whitespace) | Blame-options submenu (`intellig.blameOptionsSubmenu`) groups ignore-whitespace, detect-movements-within/across, aspect column toggles, hide/clear-hidden-revisions; options persist via Memento. | ✅ parity | 🟢 | `BlameOptionsSource.ts` + package.json submenu |
 | **Ignore Whitespace / Detect Moves** | Toolbar toggles for `-w` (ignore whitespace), `-M` (detect renames), `-C` (detect copies) — live re-blame on toggle | Toolbar toggles present (implemented in `BlameOptionsSource`), trigger cache-clear + re-blame | ✅ Present | ⚪ LOW | `BlameOptionsSource.ts` + `GutterBlameProvider.ts:65-79` |
 
-**Key Findings:**
-- 🔴 **BLOCKER**: Gutter is non-interactive (no click action to open inline diff).
-- 🟠 **HIGH**: Single-column merged format makes dense files hard to scan (IntelliJ's multi-column layout is visually cleaner).
-- 🟠 **HIGH**: No background tint per line (age gradient is text-color only, less visually distinct).
-- 🟠 **HIGH**: No contextual settings menu (right-click gutter does nothing).
+**Key Findings:** Blame *options* are feature-complete (aspects, name formats, color modes, ignore-whitespace,
+detect-movements, hide-revision — all via the submenu, persisted). But the gutter's **visual rendering does not
+match IntelliJ**: ours is a single inline `contentText` decoration vs IntelliJ's aligned multi-column gutter;
+color is text-tint vs IntelliJ's per-line background gradient; and there's no click-to-inline-diff (VS Code
+gutter API has no click event — we use hover). These are **visual-parity gaps bounded by the VS Code decoration
+API**, not feature gaps — but they are real and the user *will* notice the gutter looks different.
 
 ---
 

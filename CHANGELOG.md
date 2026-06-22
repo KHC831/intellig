@@ -10,9 +10,21 @@ Changes between releases land here. At release time, this section is
 renamed to the new version (e.g. `## [0.2.0] - YYYY-MM-DD`) and a
 fresh empty `[Unreleased]` block is added on top.
 
+## [0.2.1] - 2026-06-21
+
+### Fixed
+
+- Commit graph: removed a stray line above just-merged branches; lanes with unloaded parents now end in a "more history below" chevron.
+- Commit graph: selecting an already-visible commit no longer jerks the view.
+- Console tab: rows are compact again.
+
+### Changed
+
+- Webviews now build their UI via DOM APIs instead of HTML strings (injection-hardening + cleanup).
+
 ## [0.2.0] - 2026-06-19
 
-A broad IntelliJ-parity release across the log, branches, shelf, rebase, merge, and blame surfaces.
+A broad release across the log, branches, shelf, rebase, merge, and blame surfaces.
 
 ### Added
 
