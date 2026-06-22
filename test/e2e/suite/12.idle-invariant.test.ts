@@ -46,6 +46,11 @@ import { createFixtureRepo, Fixture } from '../support/gitFixture';
 import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
 
 const ACTIVATION_SETTLE_MS = 2_000;
+// Drain the explicitly-triggered `intellig.refresh` cycle (fire-and-forget panel
+// reloads) before opening the idle window, so its spawns aren't miscounted as
+// idle chatter. Comfortably longer than the watcher's 250ms debounce + one
+// reload's git reads.
+const REFRESH_SETTLE_MS = 1_500;
 const IDLE_WINDOW_MS = 5_000;
 const IDLE_SPAWN_THRESHOLD = 3;
 const IDLE_SPAWN_HARD_FAIL = 10;
@@ -164,6 +169,16 @@ describe('e2e — post-activate idle invariant (Tier-2 real-repo reproduction)',
     // amplifier. A healthy watcher collapses the event into at most one
     // debounced reload.
     await vscode.commands.executeCommand('intellig.refresh');
+
+    // `intellig.refresh` triggers panel reloads fire-and-forget, so the command
+    // resolves before its own one reload cycle (log / rev-list / branch / tag)
+    // finishes. Let that triggered cycle drain before the idle window opens —
+    // otherwise its spawns race across `idleWindowStart` and are miscounted as
+    // unprompted idle chatter (flake: 4 = one leaked cycle > threshold 3). A
+    // genuine watcher LOOP keeps spawning across the full 5s window and still
+    // trips the threshold; this only excludes the refresh we explicitly asked
+    // for.
+    await sleep(REFRESH_SETTLE_MS);
 
     // Start the idle window. No further commands, no input, no writes.
     const idleWindowStart = Date.now();
