@@ -18,7 +18,7 @@
 
 import * as vscode from 'vscode';
 
-import { getServices, getGitToolWindowProvider } from '../../../src/extension';
+import { getServices, getGitToolWindowProvider } from './activatedExtension';
 import type { IRepository } from '../../../src/git-core/interfaces/IGitService';
 
 const EXT_ID = 'KaHoChan.intellig';

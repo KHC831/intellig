@@ -20,7 +20,7 @@ import * as vscode from 'vscode';
 import { createFixtureRepo, Fixture } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';
 import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
-import { getServices } from '../../../src/extension';
+import { getServices } from '../support/activatedExtension';
 
 describe('e2e — miscellaneous palette commands', function () {
   this.timeout(15_000);

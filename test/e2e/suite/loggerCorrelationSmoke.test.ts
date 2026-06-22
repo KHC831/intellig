@@ -82,7 +82,7 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
-import { getOutputChannel } from '../../../src/utils/outputChannel';
+import { getOutputChannel } from '../support/activatedExtension';
 
 import { createFixtureRepo, Fixture } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';

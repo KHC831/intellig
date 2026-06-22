@@ -25,7 +25,7 @@ import * as vscode from 'vscode';
 import { createFixtureRepo, execGit, Fixture } from '../support/gitFixture';
 import { stubPrompts, PromptStubs } from '../support/stubs';
 import { useFixtureWorkspace, clearWorkspace } from '../support/workspaceHelper';
-import { getServices } from '../../../src/extension';
+import { getServices } from '../support/activatedExtension';
 
 describe('e2e — shelf commands', function () {
   this.timeout(20_000);
