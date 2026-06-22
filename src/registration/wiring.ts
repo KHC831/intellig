@@ -154,6 +154,64 @@ export async function resolveCommitRepoByRoot(
 }
 
 /**
+ * Provider surface for {@link resolveRepoForCommitDiff}: the recorded-root
+ * lookup plus the tool-window's currently selected repo.
+ */
+export interface ICommitDiffRepoSource extends ICommitRepoRootSource {
+  getSelectedRepository?(): IRepository | undefined;
+}
+
+/**
+ * Resolve the repository to open a commit's file diff against —
+ * NON-INTERACTIVELY, always returning the repo that actually CONTAINS the
+ * commit.
+ *
+ * The "Changed files" double-click-to-diff handler previously fell back to
+ * `resolveRepo`, which pops a "Choose Repository" QuickPick in a multi-repo
+ * workspace (the user was prompted when they should not be), and never verified
+ * the chosen repo held the commit — so a wrong pick ran
+ * `getCommitDiff(wrongRepo, hash)`, found no matching file, and opened a BLANK
+ * diff. This resolver never prompts: it tries the commit's recorded source root,
+ * then the tool-window's selected repo, then every open repo, returning the
+ * first whose `getCommit(hash)` succeeds. Returns `undefined` only when no open
+ * repo contains the commit (caller surfaces an informative error, not a blank
+ * view).
+ */
+export async function resolveRepoForCommitDiff(
+  provider: ICommitDiffRepoSource | undefined,
+  gitService: Pick<IGitService, 'getRepository' | 'getRepositories' | 'getCommit'>,
+  hash: string
+): Promise<IRepository | undefined> {
+  const contains = async (repo: IRepository | undefined): Promise<IRepository | undefined> => {
+    if (!repo) {
+      return undefined;
+    }
+    try {
+      await gitService.getCommit(repo, hash);
+      return repo;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const byRoot = await contains(await resolveCommitRepoByRoot(provider, gitService, hash));
+  if (byRoot) {
+    return byRoot;
+  }
+  const selected = await contains(provider?.getSelectedRepository?.());
+  if (selected) {
+    return selected;
+  }
+  for (const repo of gitService.getRepositories()) {
+    const hit = await contains(repo);
+    if (hit) {
+      return hit;
+    }
+  }
+  return undefined;
+}
+
+/**
  * HEAD anchor (graph spine + current-branch highlight) for a freshly loaded
  * log.
  *

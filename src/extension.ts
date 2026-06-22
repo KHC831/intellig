@@ -53,6 +53,7 @@ export {
   loadAllPanelDataCore,
   wireRepositorySelection,
   resolveCommitRepoByRoot,
+  resolveRepoForCommitDiff,
   resolveLogHeadAnchor,
   wireRebasePausedWarning,
   provideGitShowContent,

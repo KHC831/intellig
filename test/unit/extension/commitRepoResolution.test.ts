@@ -16,7 +16,11 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { resolveCommitRepoByRoot, resolveLogHeadAnchor } from '../../../src/extension';
+import {
+  resolveCommitRepoByRoot,
+  resolveRepoForCommitDiff,
+  resolveLogHeadAnchor,
+} from '../../../src/extension';
 import { Uri } from '../../mocks/vscode';
 import type { IRepository } from '../../../src/git-core/interfaces/IGitService';
 
@@ -107,6 +111,97 @@ describe('resolveCommitRepoByRoot — clicked-commit repo in the merged all-root
       'aaaaaaa'
     );
     assert.strictEqual(resolved, undefined);
+  });
+});
+
+describe('resolveRepoForCommitDiff — non-interactive, containment-validated repo for "Changed files" diff', () => {
+  // Two open repos; the commit exists ONLY in beta. Builds a gitService whose
+  // getCommit succeeds for the repo that holds the hash and rejects otherwise.
+  function makeServices(holder: IRepository, hash: string) {
+    const alpha = mockRepository('/work/alpha');
+    const repos = [alpha, holder];
+    let quickPickCalls = 0;
+    const gitService = {
+      getRepository: async (uri: Uri): Promise<IRepository | undefined> =>
+        repos.find((r) => r.rootUri.fsPath === uri.fsPath),
+      getRepositories: (): IRepository[] => repos,
+      getCommit: async (repo: IRepository, h: string) => {
+        if (repo === holder && h === hash) {
+          return { hash } as unknown;
+        }
+        throw new Error('unknown revision');
+      },
+      // Present so a regression that reaches for a picker would be observable.
+      showQuickPick: (): undefined => {
+        quickPickCalls++;
+        return undefined;
+      },
+    };
+    return { alpha, gitService, quickPickCalls: () => quickPickCalls };
+  }
+
+  type DiffArgs = Parameters<typeof resolveRepoForCommitDiff>;
+
+  it('picks the repo that CONTAINS the commit, not the (wrong) selected repo, and never prompts', async () => {
+    const beta = mockRepository('/work/beta');
+    const { alpha, gitService, quickPickCalls } = makeServices(beta, 'bbbbbbb');
+    // Single-log mode: no recorded root; selected repo is the WRONG one (alpha).
+    const provider = {
+      getRepoRootForCommit: (): string | undefined => undefined,
+      getSelectedRepository: (): IRepository => alpha,
+    };
+
+    const resolved = await resolveRepoForCommitDiff(
+      provider,
+      gitService as unknown as DiffArgs[1],
+      'bbbbbbb'
+    );
+
+    assert.strictEqual(
+      resolved,
+      beta,
+      'must resolve the repo holding the commit (beta), not alpha'
+    );
+    assert.strictEqual(quickPickCalls(), 0, 'must never show a repository QuickPick');
+  });
+
+  it('falls through a recorded root that does not actually contain the commit', async () => {
+    const beta = mockRepository('/work/beta');
+    const { gitService } = makeServices(beta, 'bbbbbbb');
+    // Recorded root points at alpha (stale), which does NOT hold the commit.
+    const provider = {
+      getRepoRootForCommit: (): string | undefined => '/work/alpha',
+      getSelectedRepository: (): undefined => undefined,
+    };
+
+    const resolved = await resolveRepoForCommitDiff(
+      provider,
+      gitService as unknown as DiffArgs[1],
+      'bbbbbbb'
+    );
+
+    assert.strictEqual(
+      resolved,
+      beta,
+      'a non-containing recorded root must not win — probe to beta'
+    );
+  });
+
+  it('returns undefined when no open repo contains the commit (caller shows an error, not a blank diff)', async () => {
+    const beta = mockRepository('/work/beta');
+    const { gitService } = makeServices(beta, 'bbbbbbb');
+    const provider = {
+      getRepoRootForCommit: (): string | undefined => undefined,
+      getSelectedRepository: (): undefined => undefined,
+    };
+
+    const resolved = await resolveRepoForCommitDiff(
+      provider,
+      gitService as unknown as DiffArgs[1],
+      'deadbeef'
+    );
+
+    assert.strictEqual(resolved, undefined, 'no repo holds the commit → undefined (no blank diff)');
   });
 });
 

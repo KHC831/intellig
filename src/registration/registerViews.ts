@@ -31,6 +31,7 @@ import {
   loadAllPanelDataCore,
   wireRepositorySelection,
   resolveCommitRepoByRoot,
+  resolveRepoForCommitDiff,
   resolveLogHeadAnchor,
   wireRebasePausedWarning,
   provideGitShowContent,
@@ -784,21 +785,20 @@ export function registerViews(ctx: IViewRegistrationContext): void {
     // Wire up onDidRequestCommitDiff to open diff view on file double-click
     const commitDiffListener = ctx.gitToolWindowProvider.onDidRequestCommitDiff(
       async ({ commitHash, filePath }) => {
-        // In the merged "all roots" log the file's commit may belong to a repo
-        // other than the context repo, so resolve by the commit's own recorded
-        // root first. Then fall back to the selected (context) repo, the
-        // active-editor's repo, and finally cold-start discovery.
-        let repo =
-          (await resolveCommitRepoByRoot(ctx.gitToolWindowProvider, gitService, commitHash)) ??
-          ctx.gitToolWindowProvider?.getSelectedRepository() ??
-          (await resolveRepo(gitService, { preferActive: true, silent: true }));
+        // Resolve the repo that actually CONTAINS this commit, non-interactively
+        // — recorded source root → tool-window selection → probe open repos.
+        // Never prompt (a "Choose Repository" QuickPick here is an unwanted
+        // popup) and never open against a repo that lacks the commit (that
+        // produced an empty, blank diff).
+        const repo = await resolveRepoForCommitDiff(
+          ctx.gitToolWindowProvider,
+          gitService,
+          commitHash
+        );
         if (!repo) {
-          const workspaceFolders = vscode.workspace.workspaceFolders;
-          if (workspaceFolders && workspaceFolders.length > 0) {
-            repo = await gitService.getRepository(workspaceFolders[0].uri);
-          }
-        }
-        if (!repo) {
+          void vscode.window.showErrorMessage(
+            `Could not find the repository containing commit ${commitHash.substring(0, 7)}.`
+          );
           return;
         }
         try {
