@@ -1,0 +1,78 @@
+{
+  "$comment": "Every src file that acquires a webview client API (acquireVsCodeApi(...)) ships a browser-side script that runs in the webview renderer — invisible to the extension-host, e2e, and output-channel lanes, so a thrown error there only surfaces when a human opens the panel. check:webview-coverage requires each such file to be EITHER covered by a jsdom client-script test under test/unit/webview/ (status 'tested' — the file's basename must appear in a webview test) OR classified 'backlog' (e2e-able via the webview harness, not yet — printed every run as visible debt). Fails on a new unclassified client-script file and on stale entries, so webview coverage can't silently regress.",
+  "statuses": ["tested", "backlog"],
+  "files": {
+    "src/git-core/gitToolWindow/provider/scriptBuilder.ts": {
+      "status": "tested",
+      "note": "buildInlineScript run in jsdom (toolWindowScript.test.ts)"
+    },
+    "src/git-core/gitToolWindow/GitToolWindowProvider.ts": {
+      "status": "backlog",
+      "note": "full tool-window HTML assembly; static-HTML fragments have jsdom structure tests, client script not yet run end-to-end"
+    },
+    "src/git-core/gitToolWindow/html/commonHtml.ts": {
+      "status": "backlog",
+      "note": "tool-window html helper"
+    },
+    "src/git-core/gitToolWindow/html/historyHtml.ts": {
+      "status": "backlog",
+      "note": "history tab html + behavior script"
+    },
+    "src/git-core/gitToolWindow/provider/htmlBuilders.ts": {
+      "status": "backlog",
+      "note": "tool-window html builders"
+    },
+    "src/git-core/gitToolWindow/provider/stylesBuilder.ts": {
+      "status": "backlog",
+      "note": "tool-window styles (no behavior)"
+    },
+    "src/commits/CommitToolWindow.ts": {
+      "status": "backlog",
+      "note": "commit tool-window client script"
+    },
+    "src/commits/CommitDialog.ts": {
+      "status": "backlog",
+      "note": "commit dialog client script (inline in _getBodyHtml)"
+    },
+    "src/commits/SquashMessageDialog.ts": {
+      "status": "backlog",
+      "note": "squash-message dialog client script"
+    },
+    "src/branches/NewBranchDialog.ts": {
+      "status": "backlog",
+      "note": "new-branch dialog client script"
+    },
+    "src/conflicts/MergeDialog.ts": {
+      "status": "backlog",
+      "note": "merge dialog client script"
+    },
+    "src/conflicts/ResolveConflictsDialog.ts": {
+      "status": "backlog",
+      "note": "resolve-conflicts dialog client script"
+    },
+    "src/ui-shell/ResetDialog.ts": {
+      "status": "backlog",
+      "note": "reset dialog client script"
+    },
+    "src/sync/PushDialog.ts": {
+      "status": "backlog",
+      "note": "push dialog client script"
+    },
+    "src/patches/ApplyPatchDialog.ts": {
+      "status": "backlog",
+      "note": "apply-patch dialog client script"
+    },
+    "src/rebase/RebaseDialog.ts": {
+      "status": "backlog",
+      "note": "rebase dialog client script"
+    },
+    "src/rebase/RebaseEditor.ts": {
+      "status": "backlog",
+      "note": "interactive-rebase editor client script"
+    },
+    "src/rebase/RebaseProgressView.ts": {
+      "status": "backlog",
+      "note": "rebase progress view client script"
+    }
+  }
+}
