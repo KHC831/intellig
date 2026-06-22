@@ -41,11 +41,18 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   private _gitService: IGitService;
   private _disposables: vscode.Disposable[] = [];
   /**
-   * Single shared decoration type for the gutter `before` pseudo-element.
-   * Per-line background colors are injected via `DecorationOptions.renderOptions`
-   * (instance-level `before.backgroundColor`), so we only need one type.
+   * Two `before` decoration types render the annotation column, mirroring
+   * IntelliJ's gutter (and the lkqm/gitblame-annotations layout):
+   *   - `_textDecorationType` (created first → renders leftmost): the muted
+   *     author/date/revision text. Per-line `contentText` + a file-wide `ch`
+   *     width so every row's text column aligns.
+   *   - `_heatDecorationType` (created second → renders to the right of the
+   *     text): a thin colored strip carrying the age/author heat color, with a
+   *     right margin that separates the whole annotation from the code. The
+   *     strip is the IntelliJ-style colour bar AND the boundary.
    */
-  private _sharedDecorationType: vscode.TextEditorDecorationType | undefined;
+  private _textDecorationType: vscode.TextEditorDecorationType | undefined;
+  private _heatDecorationType: vscode.TextEditorDecorationType | undefined;
   private _onDidChangeEnabled: vscode.EventEmitter<boolean>;
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
@@ -76,25 +83,28 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     this._onDidChangeEnabled = new vscode.EventEmitter<boolean>();
     this.onDidChangeEnabled = this._onDidChangeEnabled.event;
 
-    // Shared decoration type — text style is fixed; background color is
-    // supplied per-instance via DecorationOptions.renderOptions.before.
-    //
-    // `textDecoration` is the only channel VS Code injects as raw CSS on the
-    // `before` pseudo-element, so it carries the font AND the IntelliJ-style
-    // boundary: a right border + padding that visually separates the annotation
-    // column from the code (the divider git4idea's annotation gutter draws).
-    // The divider colour is a theme-neutral translucent grey so it reads on
-    // both light and dark themes. The muted text colour comes from the
-    // `editorCodeLens.foreground` theme token (annotation metadata, not code).
-    this._sharedDecorationType = vscode.window.createTextEditorDecorationType({
+    // Annotation TEXT column — muted metadata colour (editorCodeLens.foreground,
+    // not code). Per-line contentText + a file-wide `ch` width are supplied via
+    // DecorationOptions.renderOptions so every row aligns. Created first so it
+    // renders to the LEFT of the heat strip.
+    this._textDecorationType = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: '215px',
         color: new vscode.ThemeColor('editorCodeLens.foreground'),
-        textDecoration:
-          'none; font-size: 11px; font-family: monospace;' +
-          ' border-right: 1px solid rgba(128, 128, 128, 0.35);' +
-          ' padding-right: 8px; margin-right: 10px; box-sizing: border-box;',
+        textDecoration: 'none; font-size: 11px; font-family: monospace;',
+      },
+      isWholeLine: false,
+    });
+
+    // Heat STRIP — a thin colored bar carrying the age/author heat color
+    // (per-line backgroundColor), with a right margin that both separates the
+    // strip from the code and acts as the annotation↔code boundary. Created
+    // second so it renders between the text column and the code.
+    this._heatDecorationType = vscode.window.createTextEditorDecorationType({
+      before: {
+        contentText: ' ',
+        width: '3px',
+        margin: '0 12px 0 8px',
       },
       isWholeLine: false,
     });
@@ -335,12 +345,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    */
   private async updateDecorations(editor: vscode.TextEditor): Promise<void> {
     const log = getLogger().child({ component: 'GutterBlameProvider' });
-    if (!this._sharedDecorationType) {
+    if (!this._textDecorationType || !this._heatDecorationType) {
       return;
     }
 
-    // Clear existing decorations first
-    editor.setDecorations(this._sharedDecorationType, []);
+    // Clear existing decorations first (both columns)
+    editor.setDecorations(this._textDecorationType, []);
+    editor.setDecorations(this._heatDecorationType, []);
 
     log.debug('updateDecorations: begin', {
       uri: editor.document.uri.toString(),
@@ -425,39 +436,62 @@ export class GutterBlameProvider implements IGutterBlameProvider {
         usedFullDocFallback: editor.visibleRanges.length === 0,
       });
 
-      const decorations: vscode.DecorationOptions[] = [];
-
+      // First pass: collect the renderable (committed, non-hidden) lines and
+      // the widest formatted text, so the text column gets a single file-wide
+      // `ch` width and every row's columns line up.
+      interface IRenderEntry {
+        line: number;
+        blameLine: IBlameLine;
+        bgColor: string;
+        text: string;
+      }
+      const entries: IRenderEntry[] = [];
+      let maxLen = 0;
       for (const visibleRange of visibleRanges) {
-        const startLine = visibleRange.start.line;
-        const endLine = visibleRange.end.line;
-
-        for (let line = startLine; line <= endLine; line++) {
+        for (let line = visibleRange.start.line; line <= visibleRange.end.line; line++) {
           // Blame lines are 1-indexed
           const blameLine = blameInfo.lines.find((bl) => bl.line === line + 1);
           if (!blameLine || blameLine.commit.startsWith('0000000')) {
             continue;
           }
-
           // "Hide Revision" — any line whose commit the user has hidden is
-          // elided from the gutter. No decoration is rendered.
+          // elided from the gutter.
           if (this._optionsSource && this._optionsSource.isHidden(blameLine.commit)) {
             continue;
           }
-
           // AUTHOR mode tints by the line's author; ORDER mode interpolates a
           // heat color across the file's age range.
           const bgColor =
             authorColors?.get(blameLine.author) ??
             computeHeatColor(blameLine.date.getTime(), oldestMs, newestMs);
-          const decoration = this.createDecoration(line, blameLine, bgColor);
-          if (decoration) {
-            decorations.push(decoration);
+          const text = this.formatGutterText(blameLine);
+          if (text.length > maxLen) {
+            maxLen = text.length;
           }
+          entries.push({ line, blameLine, bgColor, text });
         }
       }
 
-      log.debug('updateDecorations: applying decorations', { count: decorations.length });
-      editor.setDecorations(this._sharedDecorationType, decorations);
+      // `+ 2` leaves a little breathing room after the longest entry.
+      const widthCh = `${maxLen + 2}ch`;
+      const textDecorations: vscode.DecorationOptions[] = [];
+      const heatDecorations: vscode.DecorationOptions[] = [];
+      for (const e of entries) {
+        const range = new vscode.Range(e.line, 0, e.line, 0);
+        textDecorations.push({
+          range,
+          hoverMessage: this.createHoverMessage(e.blameLine),
+          renderOptions: { before: { contentText: e.text, width: widthCh } },
+        });
+        heatDecorations.push({
+          range,
+          renderOptions: { before: { backgroundColor: e.bgColor } },
+        });
+      }
+
+      log.debug('updateDecorations: applying decorations', { count: textDecorations.length });
+      editor.setDecorations(this._textDecorationType, textDecorations);
+      editor.setDecorations(this._heatDecorationType, heatDecorations);
     } catch (error) {
       // Blame may genuinely be unavailable (file untracked, not in a repo, git
       // error). Log at debug so the failure is diagnosable instead of silent.
@@ -512,45 +546,6 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
 
     return blameInfo;
-  }
-
-  /**
-   * Create a decoration for a blame annotation in the gutter.
-   *
-   * The background color is pre-computed by the caller from the file-wide
-   * timestamp range so it reflects IntelliJ's ORDER gradient semantics.
-   *
-   * @param line - The line number (0-indexed)
-   * @param blameLine - The blame information for the line
-   * @param bgColor - The CSS `rgba()` background color for this line
-   * @returns The decoration options, or undefined if not applicable
-   */
-  private createDecoration(
-    line: number,
-    blameLine: IBlameLine,
-    bgColor: string
-  ): vscode.DecorationOptions | undefined {
-    // Format the gutter text
-    const gutterText = this.formatGutterText(blameLine);
-
-    // Create hover message with full details and click actions
-    const hoverMessage = this.createHoverMessage(blameLine);
-
-    // Get the line range (start of line)
-    const range = new vscode.Range(line, 0, line, 0);
-
-    return {
-      range,
-      hoverMessage,
-      renderOptions: {
-        before: {
-          contentText: gutterText,
-          // Foreground text color inherits from the theme; background carries
-          // the IntelliJ-style heat gradient interpolated across the file.
-          backgroundColor: bgColor,
-        },
-      },
-    };
   }
 
   /**
@@ -639,12 +634,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
    * Clear all decorations from all editors.
    */
   private clearDecorations(): void {
-    if (!this._sharedDecorationType) {
+    if (!this._textDecorationType || !this._heatDecorationType) {
       return;
     }
-    // Clear decorations from all visible editors
+    // Clear both columns from all visible editors
     for (const editor of vscode.window.visibleTextEditors) {
-      editor.setDecorations(this._sharedDecorationType, []);
+      editor.setDecorations(this._textDecorationType, []);
+      editor.setDecorations(this._heatDecorationType, []);
     }
 
     this._currentEditor = undefined;
@@ -663,9 +659,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
 
     this._onDidChangeEnabled.dispose();
 
-    if (this._sharedDecorationType) {
-      this._sharedDecorationType.dispose();
-      this._sharedDecorationType = undefined;
+    if (this._textDecorationType) {
+      this._textDecorationType.dispose();
+      this._textDecorationType = undefined;
+    }
+    if (this._heatDecorationType) {
+      this._heatDecorationType.dispose();
+      this._heatDecorationType = undefined;
     }
 
     for (const disposable of this._disposables) {
