@@ -404,12 +404,24 @@ export function renderGraphSvg(
    * full/top-half behaviour is preserved (backward-compatible — the empty
    * default is also what row 0, guarded separately, would see).
    */
-  prevActiveLanes: Set<number> = new Set()
+  prevActiveLanes: Set<number> = new Set(),
+  /**
+   * True for the LAST (oldest) loaded row. At that row any lane whose vertical
+   * trunk reaches the bottom edge continues into history that is NOT loaded
+   * (the parent commit fell below the `--max-count` slice). The renderer caps
+   * each such trunk with a downward chevron — the "more history below, not
+   * loaded" affordance — so the line no longer reads as a real edge running to
+   * nothing. Defaults to false (interior rows draw no chevron).
+   */
+  isLastRow: boolean = false
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
   const bottomY = rowHeight;
   const elements: string[] = [];
+  // Lanes whose vertical trunk reaches the bottom edge of this row. On the last
+  // loaded row these are the off-window continuations that get a chevron cap.
+  const bottomInkLanes = new Set<number>();
 
   // Focus-aware stroke + opacity overrides. When no branch
   // is focused (hasFocusedBranch=false), `effectiveStroke` is just the
@@ -529,27 +541,29 @@ export function renderGraphSvg(
     // passes it for rows > 0); with an empty set there is no continuation
     // info, so the previous full/top-half behaviour is preserved.
     const bornHere = prevActiveLanes.size > 0 && !prevActiveLanes.has(lane);
+    if (bornHere) {
+      // A born-here lane is the merged-in second-parent lane of a merge: it
+      // has no history above this row. The merge bezier (drawn below) already
+      // delivers it to this row's BOTTOM corner, and the next row's top stub
+      // continues it downward — so the lane is fully connected without any
+      // straight segment here. Drawing one (full height OR bottom-half) leaves
+      // its TOP end floating at the row center beside the merge diamond,
+      // connecting to nothing: the reported "short stub above a newly-merged
+      // branch". Draw nothing; the bezier is the sole connection (IntelliJ
+      // parity — git4idea routes the merged edge as a pure curve, no stub).
+      continue;
+    }
     if (bezierTargetLanes.has(lane) && !continuesBelow) {
       // Bezier lands here and the lane does not continue below. Draw the top
-      // half and let the bezier cover the bottom — UNLESS the lane is born
-      // here, in which case the top half is spurious (nothing above) and the
-      // bezier already provides the only real connection: draw nothing.
-      if (!bornHere) {
-        elements.push(
-          `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
-        );
-      }
-    } else if (bornHere) {
-      // Full-height pass-through would draw a top-half stub above the merge
-      // diamond. A born-here lane only continues below (it runs down to its
-      // parent), so draw the BOTTOM half only.
+      // half and let the bezier cover the bottom.
       elements.push(
-        `<line x1="${x}" y1="${centerY}" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+        `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
     } else {
       elements.push(
         `<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
+      bottomInkLanes.add(lane);
     }
   }
 
@@ -651,6 +665,7 @@ export function renderGraphSvg(
       elements.push(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
       );
+      bottomInkLanes.add(node.graphColumn);
     }
   }
 
@@ -794,6 +809,27 @@ export function renderGraphSvg(
       // Redraw the inner filled circle on top so the center is the lane color
       elements.push(
         `<circle cx="${cx}" cy="${cy}" r="${nodeRadius}" fill="${fillColor}" stroke="${fillColor}" stroke-width="1"${opacityAttr}/>`
+      );
+    }
+  }
+
+  // --- Off-window "more history below" chevrons (last row only) ---
+  // On the last loaded row, every lane whose vertical trunk reaches the bottom
+  // edge continues into unloaded history (its parent fell below the slice).
+  // Cap each such trunk with a small downward chevron so it reads as "continues
+  // below, not loaded" instead of a real edge terminating in nothing.
+  if (isLastRow) {
+    const armW = nodeRadius; // horizontal half-spread of the chevron
+    const armH = nodeRadius; // vertical rise of the arms above the tip
+    const tipY = rowHeight - 1; // keep the tip just inside the bottom edge
+    for (const lane of bottomInkLanes) {
+      if (!isValidLane(lane)) {
+        continue;
+      }
+      const x = getColumnX(lane, config);
+      const color = getColumnColor(lane);
+      elements.push(
+        `<path d="M ${x - armW},${tipY - armH} L ${x},${tipY} L ${x + armW},${tipY - armH}" stroke="${color}" fill="none" stroke-width="${effectiveStroke}" stroke-linecap="round" stroke-linejoin="round"${opacityAttr}/>`
       );
     }
   }

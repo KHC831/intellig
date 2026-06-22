@@ -127,6 +127,9 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       // line lands at THIS row from above. The renderer draws a top-half
       // bend per lane.
       const incomingBendLanes = incomingBendsMap.get(commit.hash) || new Set<number>();
+      // The last loaded row caps its off-window continuations with a "more
+      // history below" chevron.
+      const isLastRow = index === commitNodes.length - 1;
       const graphSvg = renderGraphSvg(
         node,
         index,
@@ -138,7 +141,8 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
         hasFocusedBranch,
         nextActiveLanes,
         incomingBendLanes,
-        prevActiveLanes
+        prevActiveLanes,
+        isLastRow
       );
 
       // Format fields.

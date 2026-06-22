@@ -718,7 +718,7 @@ describe('Graph Renderer - Known Graph Topologies', () => {
       );
     });
 
-    it('still draws the merged-in lane as a bottom-half segment (runs down to P2)', () => {
+    it('draws NO straight segment for the born-here lane (the bezier is the sole connection)', () => {
       const svg = renderGraphSvg(
         nodes[1],
         1,
@@ -733,13 +733,16 @@ describe('Graph Renderer - Known Graph Topologies', () => {
         prevActive
       );
       const lines = extractLines(svg);
-      const bottomHalf = lines.filter(
-        (l) => l.x1 === lane1X && l.y1 === centerY && l.y2 === config.rowHeight.toString()
-      );
+      // The merge bezier delivers lane 1 to this row's bottom corner and P2's
+      // own top stub (next row) continues it. A straight segment here — full
+      // height OR bottom-half — would float its TOP at the row center beside
+      // the merge diamond, connecting to nothing (the reported stub). So lane 1
+      // must carry NO straight <line> at this row at all.
+      const lane1Segments = lines.filter((l) => l.x1 === lane1X);
       assert.strictEqual(
-        bottomHalf.length,
-        1,
-        'the born-here lane must still draw its bottom half (continues to P2)'
+        lane1Segments.length,
+        0,
+        `the born-here lane must draw no straight segment, found ${lane1Segments.length}`
       );
     });
 
@@ -2082,6 +2085,130 @@ describe('Graph Renderer - Phase 2 spec 1.2 focus highlight dim/brighten contrac
     assert.ok(
       !/\bopacity="/.test(svg),
       `hasFocusedBranch=false must emit zero opacity attributes; got: ${svg}`
+    );
+  });
+});
+
+// ============================================================
+// Off-window "more history below" chevrons (last loaded row)
+// ============================================================
+describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
+  const config = DEFAULT_GRAPH_CONFIG;
+  const r = config.rowHeight;
+  // chevron geometry mirrors the renderer: tip at rowHeight-1, arms ±nodeRadius
+  const chevronD = (col: number): string => {
+    const x = getColumnX(col, config);
+    const w = config.nodeRadius;
+    const h = config.nodeRadius;
+    const tip = r - 1;
+    return `M ${x - w},${tip - h} L ${x},${tip} L ${x + w},${tip - h}`;
+  };
+
+  it('caps an off-window leaf trunk (own column reaching the bottom) with a down chevron', () => {
+    // A single commit whose only parent is off-window: its own-column stub runs
+    // to the bottom edge. On the last row that trunk gets a chevron.
+    const node = makeNode('a', ['off'], 0, [
+      { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+    ]);
+    const active = new Set<number>([0]);
+    const svg = renderGraphSvg(
+      node,
+      0,
+      active,
+      config,
+      false,
+      false,
+      new Set(),
+      false,
+      new Set(),
+      new Set(),
+      new Set(),
+      /* isLastRow */ true
+    );
+    assert.ok(
+      svg.includes(`d="${chevronD(0)}"`),
+      `expected a down-chevron on lane 0 at the last row; got: ${svg}`
+    );
+  });
+
+  it('does NOT draw a chevron on interior rows (isLastRow=false)', () => {
+    const node = makeNode('a', ['off'], 0, [
+      { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+    ]);
+    const active = new Set<number>([0]);
+    const svg = renderGraphSvg(
+      node,
+      0,
+      active,
+      config,
+      false,
+      false,
+      new Set(),
+      false,
+      new Set(),
+      new Set(),
+      new Set(),
+      /* isLastRow */ false
+    );
+    assert.ok(
+      !svg.includes(`d="${chevronD(0)}"`),
+      `interior rows must not draw a chevron; got: ${svg}`
+    );
+  });
+
+  it('caps a pass-through off-window continuation trunk (a side lane running to the bottom)', () => {
+    // The mainline commit sits on lane 0; lane 1 is an off-window continuation
+    // trunk passing straight through (full-height pass-through) — it must get a
+    // chevron at the last row.
+    const node = makeNode('m', ['off'], 0, [
+      { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
+    ]);
+    const active = new Set<number>([0, 1]);
+    const svg = renderGraphSvg(
+      node,
+      5,
+      active,
+      config,
+      false,
+      false,
+      new Set(),
+      false,
+      new Set(),
+      new Set(),
+      /* prevActiveLanes */ new Set([0, 1]),
+      /* isLastRow */ true
+    );
+    assert.ok(
+      svg.includes(`d="${chevronD(1)}"`),
+      `expected a chevron capping the lane-1 pass-through trunk; got: ${svg}`
+    );
+    assert.ok(
+      svg.includes(`d="${chevronD(0)}"`),
+      `expected a chevron capping the lane-0 own trunk; got: ${svg}`
+    );
+  });
+
+  it('does NOT chevron a root commit at the last row (no parents = history truly ends)', () => {
+    // A root commit (no parents) draws no downward trunk, so no chevron.
+    const node = makeNode('root', [], 0, []);
+    const active = new Set<number>([0]);
+    const svg = renderGraphSvg(
+      node,
+      3,
+      active,
+      config,
+      true,
+      false,
+      new Set(),
+      false,
+      new Set(),
+      new Set(),
+      new Set([0]),
+      /* isLastRow */ true
+    );
+    assert.ok(
+      !svg.includes(`d="${chevronD(0)}"`),
+      `a root commit must not get an off-window chevron; got: ${svg}`
     );
   });
 });
