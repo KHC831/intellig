@@ -78,11 +78,23 @@ export class GutterBlameProvider implements IGutterBlameProvider {
 
     // Shared decoration type — text style is fixed; background color is
     // supplied per-instance via DecorationOptions.renderOptions.before.
+    //
+    // `textDecoration` is the only channel VS Code injects as raw CSS on the
+    // `before` pseudo-element, so it carries the font AND the IntelliJ-style
+    // boundary: a right border + padding that visually separates the annotation
+    // column from the code (the divider git4idea's annotation gutter draws).
+    // The divider colour is a theme-neutral translucent grey so it reads on
+    // both light and dark themes. The muted text colour comes from the
+    // `editorCodeLens.foreground` theme token (annotation metadata, not code).
     this._sharedDecorationType = vscode.window.createTextEditorDecorationType({
       before: {
         contentText: '',
-        width: '200px',
-        textDecoration: 'none; font-size: 11px; font-family: monospace;',
+        width: '215px',
+        color: new vscode.ThemeColor('editorCodeLens.foreground'),
+        textDecoration:
+          'none; font-size: 11px; font-family: monospace;' +
+          ' border-right: 1px solid rgba(128, 128, 128, 0.35);' +
+          ' padding-right: 8px; margin-right: 10px; box-sizing: border-box;',
       },
       isWholeLine: false,
     });
