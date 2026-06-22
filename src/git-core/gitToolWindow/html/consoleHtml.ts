@@ -68,7 +68,6 @@ export function consoleTabStyles(): string {
     }
     .console-entry {
       margin-bottom: 6px;
-      white-space: pre-wrap;
       word-break: break-word;
     }
     .console-command-line {

@@ -10,7 +10,10 @@
 
 import '../../setup';
 import * as assert from 'assert';
-import { renderConsoleTabBody } from '../../../src/git-core/gitToolWindow/html/consoleHtml';
+import {
+  renderConsoleTabBody,
+  consoleTabStyles,
+} from '../../../src/git-core/gitToolWindow/html/consoleHtml';
 import { IConsoleEntry } from '../../../src/services/interfaces';
 
 function entry(partial: Partial<IConsoleEntry>): IConsoleEntry {
@@ -70,5 +73,37 @@ describe('renderConsoleTabBody', () => {
       entry({ command: 'git two' }),
     ]);
     assert.ok(html.indexOf('git one') < html.indexOf('git two'), 'entries render in array order');
+  });
+});
+
+// ─── consoleTabStyles whitespace ownership ──────────────────────────────────
+// Regression: `.console-entry { white-space: pre-wrap }` made the renderer's
+// pretty-print indentation render literally — timestamp/command split onto
+// separate indented lines with blank-line gaps (reported "console rows way too
+// big"). Only the <pre class="console-output"> may preserve whitespace.
+describe('consoleTabStyles whitespace', () => {
+  const entryBlock = (css: string): string => {
+    const m = css.match(/\.console-entry\s*\{([^}]*)\}/);
+    return m ? m[1] : '';
+  };
+  const outputBlock = (css: string): string => {
+    const m = css.match(/\.console-output\s*\{([^}]*)\}/);
+    return m ? m[1] : '';
+  };
+
+  it('.console-entry does NOT preserve whitespace (no white-space: pre*)', () => {
+    const css = consoleTabStyles();
+    assert.ok(
+      !/white-space\s*:\s*pre/.test(entryBlock(css)),
+      'the entry wrapper must not preserve whitespace; that renders the template indentation'
+    );
+  });
+
+  it('.console-output (the <pre>) DOES preserve whitespace for git output', () => {
+    const css = consoleTabStyles();
+    assert.ok(
+      /white-space\s*:\s*pre-wrap/.test(outputBlock(css)),
+      'git output must keep pre-wrap so its own line breaks survive'
+    );
   });
 });
