@@ -422,6 +422,11 @@ export function renderGraphSvg(
   // Lanes whose vertical trunk reaches the bottom edge of this row. On the last
   // loaded row these are the off-window continuations that get a chevron cap.
   const bottomInkLanes = new Set<number>();
+  // Lanes that EXIT into unloaded history at THIS row and so get a "more below"
+  // chevron regardless of whether this is the last row — i.e. a genuine leaf
+  // whose only parent is off-window (its dashed stub ends the lane mid-graph).
+  // The last-row off-window continuations are merged in at render time.
+  const chevronLanes = new Set<number>();
 
   // Focus-aware stroke + opacity overrides. When no branch
   // is focused (hasFocusedBranch=false), `effectiveStroke` is just the
@@ -666,6 +671,12 @@ export function renderGraphSvg(
         `<line x1="${commitX}" y1="${centerY}" x2="${commitX}" y2="${bottomY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${dashAttr}${opacityAttr}/>`
       );
       bottomInkLanes.add(node.graphColumn);
+      // A dashed same-lane stub is a genuine off-window leaf: its parent isn't
+      // loaded and the lane ends here. Cap it with a chevron at THIS row even
+      // when it isn't the last loaded row (the reported orange-leaf case).
+      if (isDashed) {
+        chevronLanes.add(node.graphColumn);
+      }
     }
   }
 
@@ -813,16 +824,24 @@ export function renderGraphSvg(
     }
   }
 
-  // --- Off-window "more history below" chevrons (last row only) ---
-  // On the last loaded row, every lane whose vertical trunk reaches the bottom
-  // edge continues into unloaded history (its parent fell below the slice).
-  // Cap each such trunk with a small downward chevron so it reads as "continues
-  // below, not loaded" instead of a real edge terminating in nothing.
+  // --- Off-window "more history below" chevrons ---
+  // Cap each lane that exits into UNLOADED history with a small downward
+  // chevron, so an off-window edge reads as "continues below, not loaded"
+  // instead of a real edge terminating in nothing. Two sources:
+  //   - a genuine off-window leaf's dashed stub, which ends mid-graph at THIS
+  //     row (collected above, any row), and
+  //   - on the LAST loaded row, every vertical trunk reaching the bottom edge
+  //     (the off-window continuations) — nothing is loaded below them.
   if (isLastRow) {
+    for (const lane of bottomInkLanes) {
+      chevronLanes.add(lane);
+    }
+  }
+  if (chevronLanes.size > 0) {
     const armW = nodeRadius; // horizontal half-spread of the chevron
     const armH = nodeRadius; // vertical rise of the arms above the tip
     const tipY = rowHeight - 1; // keep the tip just inside the bottom edge
-    for (const lane of bottomInkLanes) {
+    for (const lane of chevronLanes) {
       if (!isValidLane(lane)) {
         continue;
       }

@@ -2131,28 +2131,61 @@ describe('Graph Renderer - off-window continuation chevrons (last row)', () => {
     );
   });
 
-  it('does NOT draw a chevron on interior rows (isLastRow=false)', () => {
-    const node = makeNode('a', ['off'], 0, [
-      { fromColumn: 0, toColumn: 0, type: 'commit', style: 'dashed' },
-    ]);
+  it('does NOT chevron an interior commit whose parent IS loaded (solid line continues to a real row)', () => {
+    // Solid same-lane line = parent is in-window; the trunk connects to a real
+    // row below, so no off-window chevron on an interior row.
+    const node = makeNode('a', ['p'], 0, [{ fromColumn: 0, toColumn: 0, type: 'commit' }]);
     const active = new Set<number>([0]);
     const svg = renderGraphSvg(
       node,
-      0,
+      3,
       active,
       config,
       false,
       false,
       new Set(),
       false,
+      new Set([0]),
       new Set(),
-      new Set(),
-      new Set(),
+      new Set([0]),
       /* isLastRow */ false
     );
     assert.ok(
       !svg.includes(`d="${chevronD(0)}"`),
-      `interior rows must not draw a chevron; got: ${svg}`
+      `an in-window (solid) interior trunk must not draw a chevron; got: ${svg}`
+    );
+  });
+
+  it('caps a genuine off-window leaf with a chevron even when it is NOT the last row', () => {
+    // The reported orange-leaf case: a side-branch tip whose only parent fell
+    // off the loaded slice, sitting ABOVE other loaded commits (not the last
+    // row). Its dashed stub ends the lane mid-graph and must be chevron-capped.
+    const node = makeNode('leaf', ['off'], 1, [
+      { fromColumn: 1, toColumn: 1, type: 'commit', style: 'dashed' },
+    ]);
+    const active = new Set<number>([0, 1]); // lane 0 mainline passes through
+    const svg = renderGraphSvg(
+      node,
+      1,
+      active,
+      config,
+      false,
+      false,
+      new Set(),
+      false,
+      new Set([0]),
+      new Set(),
+      new Set([0, 1]),
+      /* isLastRow */ false
+    );
+    assert.ok(
+      svg.includes(`d="${chevronD(1)}"`),
+      `an off-window leaf must be chevron-capped mid-graph; got: ${svg}`
+    );
+    // The lane-0 pass-through connects to a loaded row below → no chevron.
+    assert.ok(
+      !svg.includes(`d="${chevronD(0)}"`),
+      `the in-window pass-through lane 0 must not be chevroned; got: ${svg}`
     );
   });
 
