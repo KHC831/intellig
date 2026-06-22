@@ -31,15 +31,16 @@ import {
   isBranchSplit,
   IBranchRef,
   ICommitNode,
-} from '../../../src/git-core/commitGraph';
+} from '../../../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
   computeGraphWidth,
   getColumnX,
   renderGraphSvg,
   DEFAULT_GRAPH_CONFIG,
-} from '../../../src/utils/graphRenderer';
-import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
+} from '../../../../src/utils/graphRenderer';
+import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
+import { groundTruthInk } from './groundTruthInk';
 
 interface AnonFixture {
   commits: { hash: string; parents: string[] }[];
@@ -61,84 +62,9 @@ function mk(hash: string, parents: string[]): ICommit {
   } as ICommit;
 }
 
-/**
- * Recompute, directly from the node geometry, the set of lanes that
- * genuinely have ink at each row: a node's own column at its row; a
- * same-lane line's column across its whole span; a bending line's
- * DESTINATION column across its span PLUS its source column at the source
- * row only (the bend lives entirely in the source row).
- */
-function groundTruthInk(nodes: ICommitNode[]): Map<number, Set<number>> {
-  const rowOf = new Map<string, number>();
-  nodes.forEach((n, i) => rowOf.set(n.commit.hash, i));
-  const truth = new Map<number, Set<number>>();
-  const mark = (row: number, lane: number): void => {
-    if (!truth.has(row)) {
-      truth.set(row, new Set());
-    }
-    truth.get(row)!.add(lane);
-  };
-  nodes.forEach((n, i) => {
-    mark(i, n.graphColumn);
-    // Off-window first-parent mainline continuation — derived INDEPENDENTLY
-    // from the topology (parent rows), NOT from the line-style rule under
-    // test, so this oracle is a genuine cross-check of computeActiveLanes'
-    // off-window handling. A commit whose FIRST parent is not in the loaded
-    // set but which HAS an in-window parent (a merged side branch occupying
-    // the rows below) is a continuation: its column is inked straight down to
-    // the window bottom. A commit with ALL parents off-window is a genuine
-    // leaf — no extension, it inks only its own row (handled by the per-line
-    // same-lane pass below, whose target stays at this row).
-    const firstParentOffWindow =
-      n.commit.parents.length > 0 && rowOf.get(n.commit.parents[0]) === undefined;
-    const hasInWindowParent = n.commit.parents.some((p) => rowOf.get(p) !== undefined);
-    if (firstParentOffWindow && hasInWindowParent) {
-      for (let r = i; r < nodes.length; r++) {
-        mark(r, n.graphColumn);
-      }
-    }
-    for (const line of n.graphLines) {
-      // Far-parent fork-point bend: the source lane runs
-      // straight down at rows [row..endRow-1]; the bend itself lands at
-      // endRow but is inked there by the parent's own graphColumn — we
-      // intentionally do NOT mark the source lane at endRow (preserves the
-      // orphan-stroke invariant).
-      if (line.endRow !== undefined) {
-        if (line.endRow > i) {
-          for (let r = i; r <= line.endRow - 1; r++) {
-            mark(r, line.fromColumn);
-          }
-        } else {
-          mark(i, line.fromColumn);
-        }
-        continue;
-      }
-      let target = i;
-      for (const p of n.commit.parents) {
-        const pr = rowOf.get(p);
-        if (pr !== undefined && pr > i && nodes[pr].graphColumn === line.toColumn) {
-          target = pr;
-          break;
-        }
-      }
-      if (line.fromColumn === line.toColumn) {
-        for (let r = i; r <= Math.max(i, target); r++) {
-          mark(r, line.fromColumn);
-        }
-      } else {
-        mark(i, line.fromColumn);
-        for (let r = i; r <= Math.max(i, target); r++) {
-          mark(r, line.toColumn);
-        }
-      }
-    }
-  });
-  return truth;
-}
-
 describe('Real anonymized topology — graph regression pins', () => {
   const fx = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'realTopoAnon.json'), 'utf-8')
+    fs.readFileSync(path.join(__dirname, 'realTopoAnon.json'), 'utf-8')
   ) as AnonFixture;
   const commits = fx.commits.map((c) => mk(c.hash, c.parents));
   const branchMap = new Map<string, IBranchRef[]>();

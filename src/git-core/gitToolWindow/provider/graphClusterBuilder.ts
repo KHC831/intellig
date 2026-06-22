@@ -26,6 +26,13 @@ export interface ICommitRowData {
    * omitted, a branch-split row falls back to the prior suppression behaviour.
    */
   continuesFromAboveMap?: ActiveLaneMap;
+  /**
+   * Per row, lanes that continue into the row below as the same line. Paired
+   * with {@link continuesFromAboveMap}; together they let the renderer draw
+   * straight strokes from the precise interval model (reuse vs. through-line).
+   * Optional for back-compat with callers/tests that predate the fix.
+   */
+  continuesBelowMap?: ActiveLaneMap;
   /** Hashes that are terminal (branch-tip) nodes. */
   terminalNodes: Set<string>;
   /** Child count per commit hash, for split-point detection. */
@@ -100,6 +107,7 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
     cherryPickBaseRef,
     activeLaneMap,
     continuesFromAboveMap,
+    continuesBelowMap,
     terminalNodes,
     childCountMap,
     childLanesMap,
@@ -133,6 +141,10 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
       // Lanes transiting straight through THIS row from above (same line), so a
       // branch-split row keeps a genuine through-line's pass-through stroke.
       const continuesFromAbove = continuesFromAboveMap?.get(index) || new Set<number>();
+      // Lanes that continue from THIS row into the row below as the same line.
+      // Paired with `continuesFromAbove`, this is what switches the renderer to
+      // the precise interval-model straight-stroke path (vs. legacy heuristics).
+      const continuesBelow = continuesBelowMap?.get(index);
       // Source lanes whose far-parent first-parent
       // line lands at THIS row from above. The renderer draws a top-half
       // bend per lane.
@@ -153,7 +165,8 @@ export function buildCommitRows(commitNodes: ICommitNode[], rowData: ICommitRowD
         incomingBendLanes,
         prevActiveLanes,
         isLastRow,
-        continuesFromAbove
+        continuesFromAbove,
+        continuesBelow
       );
 
       // Format fields.

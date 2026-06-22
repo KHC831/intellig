@@ -26,6 +26,7 @@ import {
 import {
   computeActiveLanes,
   computeLaneContinuesFromAbove,
+  computeLaneContinuesBelow,
   computeGraphWidth,
   DEFAULT_GRAPH_CONFIG,
 } from '../../utils/graphRenderer';
@@ -3150,6 +3151,10 @@ ${bodyMarkup}
     // Per-row "continues from the row above as the same line" — lets the row
     // builder keep a genuine through-line's pass-through at a branch-split row.
     const continuesFromAboveMap = computeLaneContinuesFromAbove(commitNodes);
+    // Per-row "continues into the row below as the same line" — the companion to
+    // continuesFromAboveMap. Together they drive the renderer's straight-stroke
+    // pass-through from the precise interval model (reuse vs. through-line).
+    const continuesBelowMap = computeLaneContinuesBelow(commitNodes);
 
     // Compute terminal nodes and child count map for icon rendering
     const terminalNodes = computeTerminalNodes(commitNodes);
@@ -3191,6 +3196,7 @@ ${bodyMarkup}
       cherryPickBaseRef,
       activeLaneMap,
       continuesFromAboveMap,
+      continuesBelowMap,
       terminalNodes,
       childCountMap,
       childLanesMap,

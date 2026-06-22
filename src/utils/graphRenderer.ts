@@ -325,6 +325,30 @@ export function computeLaneContinuesFromAbove(nodes: ICommitNode[]): ActiveLaneM
 }
 
 /**
+ * Per row, the lanes that CONTINUE into the row below as the SAME line — i.e.
+ * the row is covered by a merged interval but is NOT its last row. Mirror of
+ * {@link computeLaneContinuesFromAbove}: `continuesBelow(i)` ===
+ * `continuesFromAbove(i + 1)` for the same lane. A lane merely REUSED by an
+ * unrelated line one row down starts a NEW interval, so its last row reports
+ * `false` here — letting the renderer truncate a dying lane cleanly instead of
+ * mistaking the reused line below for a continuation.
+ */
+export function computeLaneContinuesBelow(nodes: ICommitNode[]): ActiveLaneMap {
+  const result: ActiveLaneMap = new Map();
+  for (let i = 0; i < nodes.length; i++) {
+    result.set(i, new Set());
+  }
+  for (const [lane, merged] of collectMergedLaneIntervals(nodes)) {
+    for (const iv of merged) {
+      for (let row = iv.startRow; row <= iv.endRow - 1; row++) {
+        result.get(row)!.add(lane);
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Compute the total pixel width needed for the graph column.
  *
  * Uses the maximum lane index across all nodes (considering graphColumn
@@ -452,7 +476,23 @@ export function renderGraphSvg(
    * through stroke at the split. Empty default = "no continuation info" (the
    * pre-existing split-suppression behaviour).
    */
-  continuesFromAbove: Set<number> = new Set()
+  continuesFromAbove: Set<number> = new Set(),
+  /**
+   * Lanes that continue from THIS row into the row below as the SAME line
+   * (from {@link computeLaneContinuesBelow}). Together with
+   * {@link continuesFromAbove} this is the precise interval-model signal the
+   * pass-through loop uses to draw straight strokes — top half iff the lane
+   * enters from above, bottom half iff it exits below — so a REUSED lane (one
+   * line dies here, an unrelated line is reborn next row) no longer draws a
+   * phantom stub, and a transiting through-line no longer loses a row to a gap.
+   * When provided (the production pipeline + full-DAG tests always pass it,
+   * even as an empty set), the pass-through loop and own-lane top segment are
+   * driven SOLELY by the interval model (`continuesFromAbove` / `continuesBelow`),
+   * which alone can tell lane REUSE from continuation. When OMITTED (legacy
+   * single-node callers passing ≤13 args) the loop keeps its prior
+   * `prev/nextActiveLanes` heuristic behaviour unchanged.
+   */
+  continuesBelow?: Set<number>
 ): string {
   const { rowHeight, nodeRadius, lineWidth } = config;
   const centerY = rowHeight / 2;
@@ -530,9 +570,26 @@ export function renderGraphSvg(
       isValidLane(line.toColumn) &&
       line.fromColumn !== line.toColumn
     ) {
+      // A FAR-PARENT line (endRow set, landing on a row below this one) bends at
+      // the PARENT row, not here — the bezier loop below skips it at the source
+      // row. So it does NOT cover this row's bottom and must NOT be treated as a
+      // bezier target; otherwise the pass-through is truncated to its top half
+      // and the lane's bottom is left blank — a one-row gap in the trunk that
+      // the far edge transits straight through.
+      if (line.endRow !== undefined && line.endRow !== rowIndex) {
+        continue;
+      }
       bezierTargetLanes.add(line.toColumn);
     }
   }
+
+  // The interval model (`computeLaneContinuesFromAbove` / `computeLaneContinuesBelow`)
+  // is the ONLY signal that can tell a transiting through-line from a REUSED lane
+  // (one line dies at this row, an unrelated one is reborn next row). When the
+  // caller supplies `continuesBelow`, drive every straight stroke from it; the
+  // legacy `prev/nextActiveLanes` set-membership heuristics below are kept only
+  // for single-node callers that pass ≤13 args.
+  const useIntervalModel = continuesBelow !== undefined;
 
   for (const lane of activeLanes) {
     if (!isValidLane(lane)) {
@@ -542,76 +599,73 @@ export function renderGraphSvg(
       // The commit's own lane is handled separately in step 2
       continue;
     }
-    // At the topmost row there is nothing above to connect to, so a
-    // pass-through stub (which always starts at y=0) renders as a detached
-    // line floating above the row — most visible above a merge commit whose
-    // merged-in lane is correctly marked active at row 0 so the bezier below
-    // has a landing lane. The commit's own column already guards this at
-    // `rowIndex > 0` below; the pass-through loop needs the same guard. The
-    // bezier curve still draws the bottom-half connection, so suppressing the
-    // top stub at row 0 loses no signal.
-    if (rowIndex === 0) {
-      continue;
-    }
-    // On a branch split row, suppress the pass-through for a diverging child
-    // lane — that lane only exists ABOVE the split (the children), not below,
-    // so a full-height stroke would dangle beneath the split commit.
-    //
-    // EXCEPT for a genuine transiting through-line: a lane that both continues
-    // FROM the row above as the same line AND continues below is carrying a
-    // separate line straight through this row (e.g. a "Merge mainline into
-    // <branch>" merge whose first parent is far down its own lane, landing on a
-    // row that is also a branch split). Suppressing it punched a one-row hole in
-    // that trunk — the reported "gap with multiple branches / merge operations".
-    // A lane that continues below but does NOT continue from above is merely
-    // REUSED here (a previous line bent away, a new line is born) — that stays
-    // suppressed so it draws no spurious top stub above the merge.
-    const isThroughLine = continuesFromAbove.has(lane) && nextActiveLanes.has(lane);
-    if (isBranchSplitPoint && childLanes.has(lane) && !isThroughLine) {
-      continue;
-    }
-    // Incoming far-parent bend: this lane's straight-down ink stops at
-    // this row's top, then bends into the commit's own column. The
-    // dedicated incoming-bend block below emits the curved top-half
-    // path; suppress the straight pass-through here so we don't double-
-    // draw the same lane.
+    // Incoming far-parent bend: this lane's straight-down ink stops at this
+    // row's top, then bends into the commit's own column. The dedicated
+    // incoming-bend block below emits the curved top-half path; suppress the
+    // straight pass-through here so we don't double-draw the same lane.
     if (incomingBendLanes.has(lane)) {
       continue;
     }
     const x = getColumnX(lane, config);
     const color = getColumnColor(lane);
-    // A bezier targets this lane (a merge/branch line lands here). Normally
-    // we draw the pass-through top-half only and let the bezier cover the
-    // bottom — avoiding a "2 lines" overlap. BUT if this lane ALSO continues
-    // below (it's active in the next row too), it's a through-lane carrying
-    // a transiting line down to a far parent; truncating it severs the line
-    // and leaves a gap under the merge commit (reported disconnect). In that
-    // case draw the FULL height: the bezier merging in overlaps the through
-    // line harmlessly (same lane, same color).
-    const continuesBelow = nextActiveLanes.has(lane);
-    // A lane that is active here but NOT in the row above is BORN at this row
-    // — the merged-in second-parent lane of a merge commit, which runs only
-    // downward. Its top half (y=0 → centerY) would be a detached stub
-    // floating above the merge diamond. We can only tell a lane is born-here
-    // when prevActiveLanes is populated (the production call site always
-    // passes it for rows > 0); with an empty set there is no continuation
-    // info, so the previous full/top-half behaviour is preserved.
-    const bornHere = prevActiveLanes.size > 0 && !prevActiveLanes.has(lane);
-    if (bornHere) {
-      // A born-here lane is the merged-in second-parent lane of a merge: it
-      // has no history above this row. The merge bezier (drawn below) already
-      // delivers it to this row's BOTTOM corner, and the next row's top stub
-      // continues it downward — so the lane is fully connected without any
-      // straight segment here. Drawing one (full height OR bottom-half) leaves
-      // its TOP end floating at the row center beside the merge diamond,
-      // connecting to nothing: the reported "short stub above a newly-merged
-      // branch". Draw nothing; the bezier is the sole connection (IntelliJ
-      // parity — git4idea routes the merged edge as a pure curve, no stub).
+
+    if (useIntervalModel) {
+      // top ink iff a line ENTERS this row from above on this lane;
+      // bottom ink iff a line EXITS this row into the row below on this lane.
+      // A born lane that is a cross-lane bezier TARGET has its bottom drawn by
+      // the bezier curve, so we skip the straight bottom there (no double-draw,
+      // and no phantom top stub since it does not continue from above).
+      const enters = continuesFromAbove.has(lane);
+      const exits = continuesBelow.has(lane);
+      const isBezierTarget = bezierTargetLanes.has(lane);
+      if (exits) {
+        bottomInkLanes.add(lane);
+      }
+      if (enters && exits) {
+        if (isBezierTarget) {
+          // through-line that a bezier also joins here: straight top, bezier bottom.
+          elements.push(
+            `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+          );
+        } else {
+          elements.push(
+            `<line x1="${x}" y1="0" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+          );
+        }
+      } else if (enters && !exits) {
+        // lane ends here (dies): top half only.
+        elements.push(
+          `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+        );
+      } else if (!enters && exits && !isBezierTarget) {
+        // lane born here without a bezier feeding it (rare): bottom half only.
+        elements.push(
+          `<line x1="${x}" y1="${centerY}" x2="${x}" y2="${rowHeight}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
+        );
+      }
+      // !enters && !exits: lane only touches this row's center via a bezier or
+      // the node itself — no straight stroke. Born-here bezier targets that
+      // continue below also draw nothing straight (the bezier is the connection).
       continue;
     }
-    if (bezierTargetLanes.has(lane) && !continuesBelow) {
-      // Bezier lands here and the lane does not continue below. Draw the top
-      // half and let the bezier cover the bottom.
+
+    // ===== legacy heuristic path (single-node callers, ≤13 args) =====
+    // At the topmost row a pass-through stub (always starting at y=0) renders
+    // detached above the row; the bezier still draws the bottom-half, so
+    // suppressing the top stub at row 0 loses no signal.
+    if (rowIndex === 0) {
+      continue;
+    }
+    const isThroughLine = continuesFromAbove.has(lane) && nextActiveLanes.has(lane);
+    if (isBranchSplitPoint && childLanes.has(lane) && !isThroughLine) {
+      continue;
+    }
+    const continuesBelowLegacy = nextActiveLanes.has(lane);
+    const bornHere = prevActiveLanes.size > 0 && !prevActiveLanes.has(lane);
+    if (bornHere) {
+      continue;
+    }
+    if (bezierTargetLanes.has(lane) && !continuesBelowLegacy) {
       elements.push(
         `<line x1="${x}" y1="0" x2="${x}" y2="${centerY}" stroke="${color}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );
@@ -631,9 +685,18 @@ export function renderGraphSvg(
     const commitX = getColumnX(node.graphColumn, config);
     const commitColor = getColumnColor(node.graphColumn);
 
-    // Draw top-to-center segment if this is not the first row
-    // and not a terminal node (terminal nodes have no line above the circle)
-    if (rowIndex > 0 && !isTerminal) {
+    // Draw top-to-center segment when a line enters this row from above on the
+    // commit's own lane. Under the interval model that is exactly
+    // `continuesFromAbove.has(ownLane)`: a child sits above on the same lane (or
+    // a bezier/branch landed this lane above). When the only connection from
+    // above is a far-parent BEND into this lane, `continuesFromAbove` is false
+    // and the bend path (below) draws the top connection — so a straight stub
+    // here would be a phantom. Legacy single-node callers keep the prior
+    // `rowIndex > 0 && !isTerminal` guard.
+    const drawOwnTop = useIntervalModel
+      ? continuesFromAbove.has(node.graphColumn)
+      : rowIndex > 0 && !isTerminal;
+    if (drawOwnTop) {
       elements.push(
         `<line x1="${commitX}" y1="0" x2="${commitX}" y2="${centerY}" stroke="${commitColor}" stroke-width="${effectiveStroke}" stroke-linecap="round"${opacityAttr}/>`
       );

@@ -22,12 +22,13 @@
  * genuine merge-rich topology.
  */
 
-import '../../setup';
+import '../../../setup';
 import * as assert from 'assert';
-import { generateCommitGraph, ICommitNode } from '../../../src/git-core/commitGraph';
-import { computeActiveLanes } from '../../../src/utils/graphRenderer';
-import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
-import { INTELLIJ_TOPO, INTELLIJ_TOPO_ANCHOR } from '../../fixtures/intellijTopo';
+import { generateCommitGraph, ICommitNode } from '../../../../src/git-core/commitGraph';
+import { computeActiveLanes } from '../../../../src/utils/graphRenderer';
+import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
+import { INTELLIJ_TOPO, INTELLIJ_TOPO_ANCHOR } from './intellijTopo';
+import { groundTruthInk } from './groundTruthInk';
 
 const HEX40 = /^[0-9a-f]{40}$/;
 
@@ -42,69 +43,6 @@ function mk(hash: string, parents: string[]): ICommit {
     authorDate: new Date(0),
     commitDate: new Date(0),
   } as ICommit;
-}
-
-/**
- * Recompute, directly from the node geometry, the lanes that genuinely have
- * ink at each row. Mirrors the oracle used by the anonymized real-topo pin
- * (realTopoRegression.test.ts): a node's own column at its row; a same-lane
- * line across its whole span; a bending line's DESTINATION column across its
- * span plus its source column at the source row only; a far-parent (`endRow`)
- * line's source lane down to endRow-1. This is an INDEPENDENT cross-check of
- * computeActiveLanes — derived from topology, not from the rule under test.
- */
-function groundTruthInk(nodes: ICommitNode[]): Map<number, Set<number>> {
-  const rowOf = new Map<string, number>();
-  nodes.forEach((n, i) => rowOf.set(n.commit.hash, i));
-  const truth = new Map<number, Set<number>>();
-  const mark = (row: number, lane: number): void => {
-    if (!truth.has(row)) {
-      truth.set(row, new Set());
-    }
-    truth.get(row)!.add(lane);
-  };
-  nodes.forEach((n, i) => {
-    mark(i, n.graphColumn);
-    const firstParentOffWindow =
-      n.commit.parents.length > 0 && rowOf.get(n.commit.parents[0]) === undefined;
-    const hasInWindowParent = n.commit.parents.some((p) => rowOf.get(p) !== undefined);
-    if (firstParentOffWindow && hasInWindowParent) {
-      for (let r = i; r < nodes.length; r++) {
-        mark(r, n.graphColumn);
-      }
-    }
-    for (const line of n.graphLines) {
-      if (line.endRow !== undefined) {
-        if (line.endRow > i) {
-          for (let r = i; r <= line.endRow - 1; r++) {
-            mark(r, line.fromColumn);
-          }
-        } else {
-          mark(i, line.fromColumn);
-        }
-        continue;
-      }
-      let target = i;
-      for (const p of n.commit.parents) {
-        const pr = rowOf.get(p);
-        if (pr !== undefined && pr > i && nodes[pr].graphColumn === line.toColumn) {
-          target = pr;
-          break;
-        }
-      }
-      if (line.fromColumn === line.toColumn) {
-        for (let r = i; r <= Math.max(i, target); r++) {
-          mark(r, line.fromColumn);
-        }
-      } else {
-        mark(i, line.fromColumn);
-        for (let r = i; r <= Math.max(i, target); r++) {
-          mark(r, line.toColumn);
-        }
-      }
-    }
-  });
-  return truth;
 }
 
 describe('IntelliJ real topology — graph regression pins', () => {

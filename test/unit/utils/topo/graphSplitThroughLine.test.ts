@@ -17,7 +17,7 @@
  * active across a row boundary must have ink on both sides of it.
  */
 
-import '../../setup';
+import '../../../setup';
 import * as assert from 'assert';
 import {
   generateCommitGraph,
@@ -26,15 +26,15 @@ import {
   computeTerminalNodes,
   computeIncomingBendsMap,
   isBranchSplit,
-} from '../../../src/git-core/commitGraph';
+} from '../../../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
   computeLaneContinuesFromAbove,
   renderGraphSvg,
   getColumnX,
   DEFAULT_GRAPH_CONFIG,
-} from '../../../src/utils/graphRenderer';
-import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
+} from '../../../../src/utils/graphRenderer';
+import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 
 const BOTTOM_Y = DEFAULT_GRAPH_CONFIG.rowHeight;
 

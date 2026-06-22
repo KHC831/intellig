@@ -26,13 +26,13 @@ import {
   isBranchSplit,
   IBranchRef,
   ICommitNode,
-} from '../../../src/git-core/commitGraph';
+} from '../../../../src/git-core/commitGraph';
 import {
   computeActiveLanes,
   renderGraphSvg,
   DEFAULT_GRAPH_CONFIG,
-} from '../../../src/utils/graphRenderer';
-import type { ICommit } from '../../../src/git-core/interfaces/IGitService';
+} from '../../../../src/utils/graphRenderer';
+import type { ICommit } from '../../../../src/git-core/interfaces/IGitService';
 
 interface AnonFixture {
   commits: { hash: string; parents: string[] }[];
@@ -56,7 +56,7 @@ function mk(hash: string, parents: string[]): ICommit {
 
 describe('Self anonymized topology — disconnect regression', () => {
   const fx = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', '..', 'fixtures', 'selfTopoAnon.json'), 'utf-8')
+    fs.readFileSync(path.join(__dirname, 'selfTopoAnon.json'), 'utf-8')
   ) as AnonFixture;
   const commits = fx.commits.map((c) => mk(c.hash, c.parents));
   const branchMap = new Map<string, IBranchRef[]>();
