@@ -67,7 +67,7 @@ VSCE_VERSION="2.24.0"
 
 # Patterns that MUST NOT appear in `vsce ls` output. POSIX-extended
 # regex; pipe-separated alternatives.
-FORBIDDEN_PATTERNS='(\.test\.js$|^out/test/|/\.agent/|^\.agent/|AGENT_WORKSPACE|^\.idea/|^\.kiro/|^\.vscode-test/|^docs/|^scripts/|^src/|tsconfig\.json|^\.eslintrc|^\.prettierrc|^\.prettierignore|^\.mocharc|^package-lock\.json$|^CONTRIBUTING\.md$|\.DS_Store|\.map$|\.ts$)'
+FORBIDDEN_PATTERNS='(\.test\.js$|^out/test/|^test/|^workspace-notes/|/\.agent/|^\.agent/|AGENT_WORKSPACE|^\.idea/|^\.kiro/|^\.vscode-test/|^docs/|^scripts/|^src/|tsconfig\.json|^\.eslintrc|^\.prettierrc|^\.prettierignore|^\.mocharc|^package-lock\.json$|^CONTRIBUTING\.md$|\.DS_Store|\.map$|\.ts$)'
 
 # Capture stderr to a temp file so we can surface vsce errors on FAIL
 # rather than swallowing them behind a generic message.

@@ -21,6 +21,8 @@
 .idea/**
 .DS_Store
 src/**
+test/**
+workspace-notes/**
 node_modules/**
 docs/**
 scripts/**
