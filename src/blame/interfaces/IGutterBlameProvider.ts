@@ -13,8 +13,12 @@ export interface IGutterBlameProvider {
   /**
    * Enable gutter blame annotations.
    * When enabled, the provider will show blame info in the gutter for all visible lines.
+   *
+   * @param targetEditor - Editor to annotate; defaults to the active editor.
+   * @param opts.force - Render regardless of `intellig.blameAnnotationStyle`
+   *   (used by the explicit "Annotate with Git Blame" action).
    */
-  enable(): void;
+  enable(targetEditor?: vscode.TextEditor, opts?: { force?: boolean }): void;
 
   /**
    * Disable gutter blame annotations.

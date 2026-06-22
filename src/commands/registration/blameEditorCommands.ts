@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { registerLoggedCommand } from '../../utils/logger';
 import { resolveRepo } from '../../utils/resolveRepo';
+import { resolveExplorerFileUri } from './explorerCommands';
 import { repoRelativePath } from '../../utils/repoRelativePath';
 import { formatActionFailureToast } from '../../git-core/gitError';
 import {
@@ -70,26 +71,47 @@ export function resolveLocalChangesOpenFileTarget(
  * push (RULE E4).
  */
 export function registerBlameEditorCommands(ctx: ICommandContext): vscode.Disposable[] {
-  const toggleBlameCommand = registerLoggedCommand('intellig.toggleBlame', () => {
-    if (!ctx.services) {
-      void vscode.window.showErrorMessage('Extension services not initialized');
-      return;
-    }
+  // "Annotate with Git Blame" (explorer + editor, Cmd/Ctrl+Alt+Shift+A) —
+  // mirrors IntelliJ's AnnotateToggleAction: open the target file and toggle a
+  // full-file gutter annotation column on it. Renders regardless of the
+  // `intellig.blameAnnotationStyle` setting because it is an explicit user action.
+  const toggleBlameCommand = registerLoggedCommand(
+    'intellig.toggleBlame',
+    async (arg?: vscode.Uri) => {
+      if (!ctx.services) {
+        void vscode.window.showErrorMessage('Extension services not initialized');
+        return;
+      }
 
-    // Toggle inline blame
-    if (!ctx.inlineBlameProvider) {
-      ctx.inlineBlameProvider = createInlineBlameProvider(
-        ctx.services.blameService,
-        ctx.services.gitService,
-        ctx.services.blameOptionsSource
-      );
-    }
+      if (!ctx.gutterBlameProvider) {
+        ctx.gutterBlameProvider = createGutterBlameProvider(
+          ctx.services.blameService,
+          ctx.services.gitService,
+          ctx.services.blameOptionsSource
+        );
+      }
 
-    const enabled = ctx.inlineBlameProvider.toggle();
-    void vscode.window.showInformationMessage(
-      `Inline blame annotations ${enabled ? 'enabled' : 'disabled'}`
-    );
-  });
+      // Toggling off: a second invocation clears the annotation.
+      if (ctx.gutterBlameProvider.isEnabled()) {
+        ctx.gutterBlameProvider.disable();
+        void vscode.window.showInformationMessage('Git blame annotations disabled');
+        return;
+      }
+
+      // Resolve the right-clicked file (explorer selection, else active editor)
+      // and open it so the gutter attaches to that file rather than whatever
+      // was last focused — the bug the no-arg handler had.
+      const target = resolveExplorerFileUri(arg, vscode.window.activeTextEditor?.document.uri);
+      let editor = vscode.window.activeTextEditor;
+      if (target) {
+        const doc = await vscode.workspace.openTextDocument(target);
+        editor = await vscode.window.showTextDocument(doc);
+      }
+
+      ctx.gutterBlameProvider.enable(editor, { force: true });
+      void vscode.window.showInformationMessage('Git blame annotations enabled');
+    }
+  );
 
   // Toggle gutter blame annotations command
   const toggleGutterBlameCommand = registerLoggedCommand('intellig.toggleGutterBlame', () => {

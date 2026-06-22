@@ -48,6 +48,13 @@ export class GutterBlameProvider implements IGutterBlameProvider {
   private _currentEditor: vscode.TextEditor | undefined;
   private _blameCache: Map<string, IBlameInfo> = new Map();
   private _updateDebounceTimer: NodeJS.Timeout | undefined;
+  /**
+   * `true` when annotation was turned on via the explicit "Annotate with Git
+   * Blame" action (IntelliJ's AnnotateToggleAction), which always annotates
+   * regardless of the `intellig.blameAnnotationStyle` kill-switch. Reset on
+   * `disable()`.
+   */
+  private _forced: boolean = false;
 
   /**
    * Event fired when the enabled state changes.
@@ -194,17 +201,39 @@ export class GutterBlameProvider implements IGutterBlameProvider {
 
   /**
    * Enable gutter blame annotations.
+   *
+   * @param targetEditor - The editor to annotate. Defaults to the active
+   *   editor; the explicit "Annotate with Git Blame" action passes the
+   *   freshly-opened editor for the right-clicked file so the gutter attaches
+   *   to that file rather than whatever was last focused.
+   * @param opts.force - When `true`, render regardless of
+   *   `intellig.blameAnnotationStyle` (matches IntelliJ's AnnotateToggleAction,
+   *   where the explicit action always annotates).
    */
-  enable(): void {
+  enable(targetEditor?: vscode.TextEditor, opts?: { force?: boolean }): void {
+    if (opts?.force) {
+      this._forced = true;
+    }
+
     if (this._enabled) {
+      // Already on: still refresh so a forced re-invocation on a different
+      // file re-annotates the now-targeted editor.
+      const current = targetEditor ?? vscode.window.activeTextEditor;
+      if (current) {
+        this._currentEditor = current;
+        safeFireAndForget(
+          this.updateDecorations(current),
+          'GutterBlameProvider.enable: refresh on re-enable'
+        );
+      }
       return;
     }
 
     this._enabled = true;
     this._onDidChangeEnabled.fire(true);
 
-    // Update decorations for current editor
-    const editor = vscode.window.activeTextEditor;
+    // Update decorations for the targeted (or active) editor
+    const editor = targetEditor ?? vscode.window.activeTextEditor;
     if (editor) {
       this._currentEditor = editor;
       // Bucket B: enable() is sync; async blame fetch follows.
@@ -224,6 +253,7 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     }
 
     this._enabled = false;
+    this._forced = false;
     this._onDidChangeEnabled.fire(false);
     this.clearDecorations();
   }
@@ -297,8 +327,9 @@ export class GutterBlameProvider implements IGutterBlameProvider {
     // Clear existing decorations first
     editor.setDecorations(this._sharedDecorationType, []);
 
-    // Respect the master annotation style kill-switch.
-    if (!this.isAnnotationStyleEnabled()) {
+    // Respect the master annotation style kill-switch — unless annotation was
+    // turned on via the explicit Annotate action, which always renders.
+    if (!this._forced && !this.isAnnotationStyleEnabled()) {
       return;
     }
 
