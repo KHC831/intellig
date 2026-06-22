@@ -349,66 +349,6 @@ export function buildInlineStyles(): string {
         position: relative;
       }
 
-      /* Console Styles */
-      .console-toolbar {
-        display: flex;
-        justify-content: flex-end;
-        padding: 4px;
-        border-bottom: 1px solid var(--vscode-panel-border);
-      }
-
-      .clear-console-button {
-        padding: 4px 8px;
-        background: transparent;
-        color: var(--vscode-foreground);
-        border: 1px solid var(--vscode-button-border, transparent);
-        border-radius: 2px;
-        cursor: pointer;
-        font-size: 12px;
-      }
-
-      .clear-console-button:hover {
-        background-color: var(--vscode-toolbar-hoverBackground);
-      }
-
-      .console-content {
-        font-family: var(--vscode-editor-font-family, monospace);
-        font-size: 12px;
-        padding: 8px;
-      }
-
-      .console-entry {
-        padding: 8px;
-        border-bottom: 1px solid var(--vscode-panel-border);
-      }
-
-      .console-entry.error {
-        background-color: var(--vscode-inputValidation-errorBackground);
-      }
-
-      .console-timestamp {
-        color: var(--vscode-descriptionForeground);
-        font-size: 11px;
-        margin-bottom: 4px;
-      }
-
-      .console-command {
-        color: var(--vscode-terminal-ansiCyan);
-        margin-bottom: 4px;
-      }
-
-      .console-output {
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-all;
-      }
-
-      .console-exit-code {
-        color: var(--vscode-descriptionForeground);
-        font-size: 11px;
-        margin-top: 4px;
-      }
-
       /* Empty/Placeholder Messages */
       .empty-message, .placeholder-message {
         color: var(--vscode-descriptionForeground);
