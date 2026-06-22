@@ -113,42 +113,9 @@
       "category": "dialog",
       "note": "PushDialog webview (_pushDialogOpener)"
     },
-    "intellig.branch.update": {
-      "category": "backlog",
-      "note": "fetch+pull a branch; needs a remote fixture"
-    },
     "intellig.branch.updateSelected": {
       "category": "backlog",
-      "note": "fetch+pull selected; needs a remote fixture"
-    },
-    "intellig.remoteBranch.checkoutAsLocal": {
-      "category": "backlog",
-      "note": "checkout remote as local; e2e-able"
-    },
-    "intellig.remoteBranch.pullIntoCurrent": {
-      "category": "backlog",
-      "note": "pull; needs a remote fixture"
-    },
-    "intellig.remoteBranch.pullUsingRebase": {
-      "category": "backlog",
-      "note": "pull --rebase; needs a remote fixture"
-    },
-    "intellig.remoteBranch.pullUsingMerge": {
-      "category": "backlog",
-      "note": "pull --merge; needs a remote fixture"
-    },
-    "intellig.remoteBranch.trackBranch": {
-      "category": "backlog",
-      "note": "set upstream; e2e-able"
-    },
-    "intellig.remoteBranch.deleteRemote": {
-      "category": "backlog",
-      "note": "push --delete; needs a remote fixture"
-    },
-    "intellig.tag.push": { "category": "backlog", "note": "push a tag; needs a remote fixture" },
-    "intellig.tag.deleteRemote": {
-      "category": "backlog",
-      "note": "push --delete a tag; needs a remote fixture"
+      "note": "FF-aligns a non-current branch to its upstream gated by the incoming/outgoing count + planAlignLocal; the align state is fiddly to reproduce deterministically in a black-box e2e (branch.update covers the raw-fetch sibling)"
     },
     "intellig.commit.cherryPick": {
       "category": "backlog",
