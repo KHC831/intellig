@@ -130,3 +130,44 @@ jobs:
       # output (not the in-process mocks the unit suite uses).
       - name: Tier-2 command E2E tests
         run: xvfb-run -a npm run test:e2e
+
+  # Cross-OS path coverage. The ubuntu `test` job is the full gate; this job
+  # runs the path-sensitive lanes (unit + property) on macOS and Windows so
+  # platform path bugs are caught — separator handling, drive letters, and the
+  # macOS /var → /private/var symlink that bit blame repo resolution. Linux-only
+  # CI never sees those. Lint and the bash structural guards stay on ubuntu.
+  cross-os:
+    name: Cross-OS unit/property (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run compile
+      - run: npm run test:unit
+      - run: npm run test:property
+
+  # macOS end-to-end. Runs the real-host e2e suite on macOS (headed, no xvfb)
+  # so command-level regressions tied to macOS path/symlink behaviour are caught
+  # in the same real-git harness the ubuntu job uses. Windows e2e is omitted for
+  # now (real-host launch + git fixtures are flakier there); cross-os above
+  # still exercises Windows path logic through unit/property.
+  e2e-macos:
+    name: Tier-2 E2E (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run test:ext-host
+      - run: npm run test:e2e
