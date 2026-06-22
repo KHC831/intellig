@@ -5,8 +5,9 @@
  * (`getIncomingOutgoing` / `getIncomingOutgoingForBranch`) with a mock GitCli
  * that dispatches per-subcommand, so we can pin:
  *
- *   - the exact argv (`rev-parse --abbrev-ref …`, `rev-list --left-right
- *     --count <left>...<right>`) including the `--end-of-options` ref guard,
+ *   - the exact argv (`rev-parse --abbrev-ref <ref>` — NO `--end-of-options`,
+ *     which rev-parse would echo back; `rev-list --left-right --count
+ *     --end-of-options <left>...<right>` — which correctly carries the guard),
  *   - left→incoming / right→outgoing parsing,
  *   - the no-upstream short-circuit (no rev-list issued, noUpstream:true),
  *   - defensive zeroing on git failure / unparseable output.
@@ -194,13 +195,12 @@ describe('Phase 0a — IncomingOutgoingOps via GitService', () => {
       assert.strictEqual(result.branch, 'feature/x');
       assert.strictEqual(result.upstream, 'origin/feature/x');
 
+      // `rev-parse --abbrev-ref` must NOT carry `--end-of-options`: rev-parse
+      // echoes that token back as an extra output line, corrupting the resolved
+      // upstream (the real-git bug e2e suite 23 caught). The ref operand is an
+      // internal `@{upstream}` expression, so no leading-dash injection risk.
       const revParse = cli.executed.find((a) => a[0] === 'rev-parse');
-      assert.deepStrictEqual(revParse, [
-        'rev-parse',
-        '--abbrev-ref',
-        '--end-of-options',
-        'feature/x@{upstream}',
-      ]);
+      assert.deepStrictEqual(revParse, ['rev-parse', '--abbrev-ref', 'feature/x@{upstream}']);
 
       const revList = cli.executed.find((a) => a[0] === 'rev-list');
       assert.deepStrictEqual(revList, [

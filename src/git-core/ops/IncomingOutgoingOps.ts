@@ -117,7 +117,15 @@ export class IncomingOutgoingOps {
    * non-exceptional outcome here.
    */
   private async _resolveUpstream(cwd: string, ref: string): Promise<string | undefined> {
-    const result = await this.ctx.gitCli.exec(buildGitArgs('rev-parse', ['--abbrev-ref'], [ref]), {
+    // NOTE: `git rev-parse --abbrev-ref` must NOT be built with
+    // `--end-of-options` — rev-parse echoes that token back as an extra output
+    // line (`--end-of-options\norigin/feature`), so the resolved upstream came
+    // back as garbage and incoming/outgoing collapsed to 0/0 (every branch
+    // looked "up to date"). The two other `rev-parse --abbrev-ref` call sites
+    // exec the argv directly; match them. The ref is an internal
+    // `@{upstream}` / `<branch>@{upstream}` expression and git rejects branch
+    // names beginning with `-`, so there is no leading-dash injection vector.
+    const result = await this.ctx.gitCli.exec(['rev-parse', '--abbrev-ref', ref], {
       cwd,
     });
     if (result.exitCode !== 0) {
